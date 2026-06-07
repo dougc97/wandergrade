@@ -343,51 +343,48 @@ function projectRing(ring, W, H, latTop, latBot) {
   return d + "Z";
 }
 
-function renderMap(rows) {
-  const host = $("map");
+// Generic choropleth: colorFn(feature) -> {fill, title}. Reused by every map tab.
+function drawMap(hostId, colorFn, ariaLabel) {
+  const host = $(hostId);
   if (!worldGeo) { host.textContent = "Map data unavailable."; return; }
+  const W = 1000, latTop = 83, latBot = -56;
+  const H = Math.round((W * (latTop - latBot)) / 360);
+  let paths = "";
+  for (const f of worldGeo.features) {
+    const { fill, title } = colorFn(f);
+    const g = f.geometry;
+    const polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
+    let d = "";
+    for (const poly of polys)
+      for (const ring of poly)
+        if (ring.length >= 3) d += projectRing(ring, W, H, latTop, latBot);
+    if (d) paths += `<path d="${d}" fill="${fill}"><title>${title}</title></path>`;
+  }
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
+}
 
+function renderMap(rows) {
   const byCode = {};
   for (const r of rows) byCode[r.code] = r;
   let tracked = 0;
   const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
 
-  const W = 1000, latTop = 83, latBot = -56;
-  const H = Math.round((W * (latTop - latBot)) / 360);
-
-  let paths = "";
-  for (const f of worldGeo.features) {
-    const iso = f.properties.iso;
-    const cur = CUR_BY_ISO[iso];
+  drawMap("map", (f) => {
+    const iso = f.properties.iso, cur = CUR_BY_ISO[iso];
     const row = cur && cur !== "USD" ? byCode[cur] : null;
-
-    let fill, title;
     if (cur === "USD") {
-      fill = USDLINK;
-      title = iso === "US"
+      return { fill: USDLINK, title: iso === "US"
         ? f.properties.name + " — USD (home currency)"
-        : `${f.properties.name} — uses the US dollar (flat for your dollar)`;
-    } else if (row) {
-      fill = strengthColor(row.strength_pct);
-      title = `${f.properties.name} — ${cur}: ${sgn(row.strength_pct)} vs 1yr avg`;
+        : `${f.properties.name} — uses the US dollar (flat for your dollar)` };
+    }
+    if (row) {
       tracked++;
-    } else {
-      fill = NODATA;
-      title = f.properties.name + " — not tracked";
+      return { fill: strengthColor(row.strength_pct),
+        title: `${f.properties.name} — ${cur}: ${sgn(row.strength_pct)} vs 1yr avg` };
     }
+    return { fill: NODATA, title: f.properties.name + " — not tracked" };
+  }, "USD strength world heatmap");
 
-    const g = f.geometry;
-    const polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
-    let d = "";
-    for (const poly of polys) {
-      for (const ring of poly) {
-        if (ring.length >= 3) d += projectRing(ring, W, H, latTop, latBot);
-      }
-    }
-    if (d) paths += `<path d="${d}" fill="${fill}"><title>${title}</title></path>`;
-  }
-
-  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="USD strength world heatmap">${paths}</svg>`;
   $("mapsub").textContent =
     `Greener = dollar stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`;
   renderLegend();
@@ -413,6 +410,174 @@ $("toggleSettings").addEventListener("click", async () => {
   s.hidden = !s.hidden;
   if (!s.hidden) await loadConfig();
 });
+
+// ===========================================================================
+//  Region grouping (ISO -> region) for the travel tabs
+// ===========================================================================
+const REGIONS = {
+  AMER: "Americas", EUR: "Europe", MENA: "Middle East & N. Africa",
+  ASIA: "Asia", AFRICA: "Africa (Sub-Saharan)", OCEANIA: "Oceania",
+};
+const ISO_REGION = (() => {
+  const g = {
+    AMER: "US CA MX GT BZ HN NI CR PA CU DO HT JM TT BS BB CO VE GY SR EC PE BR BO PY CL AR UY".split(" "),
+    EUR: "GB IM JE GG CH LI NO SJ SE DK GL FO IS CZ PL HU RO BG RS BA MK AL MD UA BY RU TR AT BE CY EE FI FR DE GR IE IT LV LT LU MT NL PT SK SI ES HR AD MC SM VA ME XK".split(" "),
+    MENA: "IL PS SA AE QA KW BH OM JO LB SY IQ IR YE EG MA DZ TN LY".split(" "),
+    ASIA: "CN JP KR IN PK BD LK NP AF MM TH VN KH LA MY SG ID PH BN HK MO TW MN KZ UZ TM KG TJ AZ AM GE BT".split(" "),
+    AFRICA: "ZA NG KE GH ET TZ UG RW BI SD SS ER SO DJ AO MZ ZM BW NA SZ LS MW MG MU GM GN LR CD CV KM MR SC SN CI ML BF NE BJ TG GW CM TD CF CG GA GQ".split(" "),
+    OCEANIA: "AU NZ FJ PG SB VU WS TO".split(" "),
+  };
+  const m = {};
+  for (const r in g) for (const iso of g[r]) m[iso] = r;
+  return m;
+})();
+const MONTHS = ["January","February","March","April","May","June","July",
+  "August","September","October","November","December"];
+const MON_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function comfortColor(s) {
+  if (s == null) return NODATA;
+  return s >= 50 ? mix("#eef0f1", "#0a7d28", (s - 50) / 50)
+                 : mix("#eef0f1", "#b00020", (50 - s) / 50);
+}
+
+// ===========================================================================
+//  Climate data (best time to travel)
+// ===========================================================================
+let climate = null;
+async function ensureClimate() {
+  if (!climate) climate = await (await fetch("/climate.json")).json();
+  return climate;
+}
+
+// -- Tab: best time by country ----------------------------------------------
+function buildBestPickers() {
+  const reg = $("bestRegion"), ctry = $("bestCountry");
+  reg.innerHTML = '<option value="all">All regions</option>' +
+    Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
+  const fill = () => {
+    const sel = reg.value;
+    const list = Object.keys(climate)
+      .filter((iso) => sel === "all" || ISO_REGION[iso] === sel)
+      .map((iso) => ({ iso, name: climate[iso].name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    ctry.innerHTML = list.map((c) => `<option value="${c.iso}">${c.name}</option>`).join("");
+    if (list.length) renderCountryClimate(ctry.value);
+  };
+  reg.onchange = fill;
+  ctry.onchange = () => renderCountryClimate(ctry.value);
+  fill();
+  if ([...ctry.options].some((o) => o.value === "JP")) { ctry.value = "JP"; renderCountryClimate("JP"); }
+}
+
+function renderCountryClimate(iso) {
+  const c = climate[iso];
+  if (!c) { $("bestDetail").textContent = "No data."; return; }
+  const max = Math.max(...c.scores.map((s) => s || 0), 1);
+  const bestSet = new Set(c.best);
+  const chips = c.best.map((m) => `<span class="chip2">${MON_ABBR[m - 1]}</span>`).join("");
+  const bars = c.scores.map((s, i) => {
+    const h = s == null ? 0 : Math.round((s / 100) * 100);
+    const col = bestSet.has(i + 1) ? "col best" : "col";
+    return `<div class="${col}" title="${MONTHS[i]}: ${s == null ? "n/a" : s + "/100"}">
+      <div class="mscore">${s == null ? "" : s}</div>
+      <div class="fill" style="height:${h}%;background:${comfortColor(s)}"></div>
+      <div class="mlabel">${MON_ABBR[i]}</div></div>`;
+  }).join("");
+  $("bestDetail").innerHTML = `
+    <div class="besthead">
+      <h3>${c.name} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3>
+      <div>${c.curated ? "Curated best months" : "Best weather"}: </div>
+    </div>
+    <div class="chips">${chips}</div>
+    <div class="bars">${bars}</div>`;
+}
+
+// -- Tab: best places by month ----------------------------------------------
+function buildMonthPicker() {
+  const sel = $("monthPick");
+  sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
+  // default to the next month
+  sel.onchange = () => renderMonthMap(parseInt(sel.value, 10));
+  renderMonthMap(parseInt(sel.value, 10));
+  $("monthLegend").innerHTML =
+    '<span>Poor</span><span class="bar"></span><span>Great</span>' +
+    '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
+}
+
+function renderMonthMap(month) {
+  $("monthTitle").textContent = "in " + MONTHS[month - 1];
+  drawMap("monthMap", (f) => {
+    const c = climate[f.properties.iso];
+    const s = c ? c.scores[month - 1] : null;
+    return { fill: comfortColor(s),
+      title: c ? `${c.name}: ${s == null ? "n/a" : s + "/100"} comfort in ${MONTHS[month - 1]}`
+               : f.properties.name + " — no data" };
+  }, "Best places to travel by month");
+  const ranked = Object.keys(climate)
+    .map((iso) => ({ iso, name: climate[iso].name, s: climate[iso].scores[month - 1] }))
+    .filter((x) => x.s != null).sort((a, b) => b.s - a.s).slice(0, 5);
+  $("monthSub").textContent = "Greener = nicer weather. Top picks: " +
+    ranked.map((x) => `${x.name} (${x.s})`).join(", ");
+}
+
+// ===========================================================================
+//  Travel advisories
+// ===========================================================================
+let advisories = null;
+async function ensureAdvisories() {
+  if (!advisories) advisories = await getJSON("/api/advisories");
+  return advisories;
+}
+const LVL_COLOR = { 1: "#0a7d28", 2: "#c9a200", 3: "#d4730a", 4: "#b00020" };
+
+function renderAdvisories() {
+  const byIso = {};
+  for (const it of advisories.items) if (it.iso) byIso[it.iso] = it;
+  drawMap("advMap", (f) => {
+    const it = byIso[f.properties.iso];
+    return it
+      ? { fill: LVL_COLOR[it.level], title: `${it.country} — Level ${it.level}: ${it.level_text}` }
+      : { fill: NODATA, title: f.properties.name + " — no advisory data" };
+  }, "US travel advisory levels");
+
+  $("advSub").textContent =
+    `${advisories.count} advisories from the US State Dept. Green = safest (Level 1), red = Do Not Travel (Level 4).`;
+  $("advLegend").innerHTML = [1, 2, 3, 4]
+    .map((l) => `<span><span class="swatch" style="background:${LVL_COLOR[l]}"></span>L${l}</span>`).join(" ");
+
+  $("advRows").innerHTML = advisories.items.map((it) => `
+    <tr><td>${it.country}</td>
+      <td><span class="lvl lvl${it.level}">Level ${it.level}</span></td>
+      <td>${it.level_text}${it.link ? ` · <a href="${it.link}" target="_blank" rel="noopener">details</a>` : ""}</td>
+    </tr>`).join("");
+}
+
+// ===========================================================================
+//  Tab switching (lazy-load each tab's data on first open)
+// ===========================================================================
+const loaded = {};
+async function activateTab(name) {
+  for (const b of document.querySelectorAll("#tabs button"))
+    b.classList.toggle("active", b.dataset.tab === name);
+  for (const s of document.querySelectorAll(".tab"))
+    s.hidden = s.id !== "tab-" + name;
+
+  try {
+    if (name === "best" && !loaded.best) {
+      await ensureClimate(); buildBestPickers(); loaded.best = true;
+    } else if (name === "month" && !loaded.month) {
+      await Promise.all([ensureWorld(), ensureClimate()]); buildMonthPicker(); loaded.month = true;
+    } else if (name === "advisory" && !loaded.advisory) {
+      $("advSub").textContent = "Loading advisories…";
+      await Promise.all([ensureWorld(), ensureAdvisories()]); renderAdvisories(); loaded.advisory = true;
+    }
+  } catch (e) {
+    status("Could not load " + name + ": " + e.message, "err");
+  }
+}
+for (const b of document.querySelectorAll("#tabs button"))
+  b.addEventListener("click", () => activateTab(b.dataset.tab));
 
 (async function init() {
   await Promise.all([ensureWorld().catch(() => {}), loadRates()]);
