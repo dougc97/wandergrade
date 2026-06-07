@@ -62,7 +62,8 @@ Only needed if you want to load the web page remotely (not just locally via
 1. Push the repo (Phase 1, step 1).
 2. On [render.com](https://render.com): **New → Web Service → connect the repo.**
 3. Render detects the `Dockerfile`. Leave defaults; it sets `$PORT` automatically
-   (the server already reads it and binds `0.0.0.0`).
+   (the server already reads it and binds `0.0.0.0`). Optional: set **Health Check
+   Path** to `/healthz` (returns 200 without login).
 4. **Add a dashboard login** (since the URL is public): in the service's
    **Environment** settings add `FX_DASH_USER` and `FX_DASH_PASSWORD`. When both
    are set the server requires HTTP Basic Auth on every request; when unset
