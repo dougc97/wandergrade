@@ -139,11 +139,12 @@ function renderRates(data) {
     if (r.favorable && r.watched) tr.className = "favorable";
     const sign = r.strength_pct >= 0 ? "pos" : "neg";
     const star = r.watched ? "" : ' <span title="not on watchlist" style="opacity:.4">·</span>';
+    const pl = priceLevelForCurrency(r.code);
     tr.innerHTML = `
       <td><span class="code">${r.code}</span>${star}<div class="name">${r.name}</div></td>
       <td class="num">${fmt(r.rate_now)}</td>
-      <td class="num">${fmt(r.baseline_avg)}</td>
       <td class="num ${sign}">${r.strength_pct >= 0 ? "+" : ""}${r.strength_pct}%</td>
+      <td class="num">${pl == null ? "—" : pl.toFixed(2) + " " + plTag(pl)}</td>
       <td class="num">${rangeMarker(r)}</td>
       <td><span class="pill ${r.label}">${r.label}</span></td>`;
     tbody.appendChild(tr);
@@ -363,12 +364,31 @@ function drawMap(hostId, colorFn, ariaLabel) {
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
 }
 
+let mapMode = "currency";
+
 function renderMap(rows) {
   const byCode = {};
   for (const r of rows) byCode[r.code] = r;
-  let tracked = 0;
   const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
 
+  if (mapMode === "afford") {
+    let n = 0;
+    drawMap("map", (f) => {
+      const pl = priceLevel(f.properties.iso);
+      if (pl == null) return { fill: NODATA, title: f.properties.name + " — no price data" };
+      n++;
+      return { fill: affordColor(pl),
+        title: `${f.properties.name} — price level ${pl.toFixed(2)} (${plWord(pl)} vs US)` };
+    }, "Affordability (price level vs US)");
+    $("mapsub").textContent =
+      `Greener = cheaper than the US (your dollar buys more). Hover for detail · ${n} countries.`;
+    $("legend").innerHTML =
+      '<span>Pricey</span><span class="bar"></span><span>Cheap</span>' +
+      '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
+    return;
+  }
+
+  let tracked = 0;
   drawMap("map", (f) => {
     const iso = f.properties.iso, cur = CUR_BY_ISO[iso];
     const row = cur && cur !== "USD" ? byCode[cur] : null;
@@ -399,6 +419,48 @@ function renderLegend() {
 
 function renderMapSafe() {
   if (worldGeo && lastRates) renderMap(lastRates.rows);
+}
+
+// ---- PPP / affordability ---------------------------------------------------
+let ppp = null;
+async function ensurePPP() {
+  if (!ppp) ppp = await (await fetch("/ppp.json")).json();
+  return ppp;
+}
+function rateForCurrency(code) {
+  if (code === "USD") return 1;
+  const r = lastRates && lastRates.rows.find((x) => x.code === code);
+  return r ? r.rate_now : null;
+}
+// price level vs US for a country: PPP factor / market rate. <1 = cheaper than US.
+function priceLevel(iso) {
+  if (!ppp || !ppp[iso]) return null;
+  const cur = CUR_BY_ISO[iso];
+  if (!cur) return null;
+  const rate = rateForCurrency(cur);
+  if (!rate) return null;
+  return ppp[iso].ppp / rate;
+}
+// Representative country for a currency (for the per-currency table column).
+const PRIMARY_COUNTRY = { EUR: "DE", XOF: "SN", XAF: "CM", USD: "US", XCD: null };
+function currencyCountry(code) {
+  if (code in PRIMARY_COUNTRY) return PRIMARY_COUNTRY[code];
+  for (const iso in CUR_BY_ISO) if (CUR_BY_ISO[iso] === code) return iso;
+  return null;
+}
+function priceLevelForCurrency(code) {
+  const iso = currencyCountry(code);
+  return iso ? priceLevel(iso) : null;
+}
+function plWord(pl) { return pl < 0.55 ? "very cheap" : pl < 0.85 ? "cheap" : pl <= 1.15 ? "about the same" : "pricey"; }
+function plTag(pl) {
+  const w = plWord(pl);
+  const cls = pl <= 0.85 ? "pos" : pl > 1.15 ? "neg" : "";
+  return `<span class="${cls}" style="font-size:11px">${w}</span>`;
+}
+function affordColor(pl) {
+  return pl <= 1 ? mix("#eef0f1", "#0a7d28", Math.min(1, (1 - pl) / 0.8))
+                 : mix("#eef0f1", "#b00020", Math.min(1, (pl - 1) / 0.4));
 }
 
 // ---- wiring ---------------------------------------------------------------
@@ -553,6 +615,80 @@ function renderAdvisories() {
     </tr>`).join("");
 }
 
+// currency map mode toggle (timing <-> affordability)
+for (const b of document.querySelectorAll("#mapMode button")) {
+  b.addEventListener("click", async () => {
+    for (const x of document.querySelectorAll("#mapMode button"))
+      x.classList.toggle("active", x === b);
+    mapMode = b.dataset.mode;
+    if (mapMode === "afford") { try { await ensurePPP(); } catch (e) {} }
+    renderMapSafe();
+  });
+}
+
+// ===========================================================================
+//  Best value now (blend affordability + currency timing + safety + weather)
+// ===========================================================================
+const WEIGHTS = { aff: 0.30, cur: 0.20, safe: 0.25, wx: 0.25 };
+const clamp100 = (x) => Math.max(0, Math.min(100, Math.round(x)));
+
+function advisoryByIso() {
+  const m = {};
+  if (advisories) for (const it of advisories.items) if (it.iso) m[it.iso] = it.level;
+  return m;
+}
+
+function valueScores(iso, month) {
+  const pl = priceLevel(iso);
+  if (pl == null) return null;                       // need affordability to rank
+  const cur = CUR_BY_ISO[iso];
+  const row = cur && cur !== "USD" ? lastRates.rows.find((r) => r.code === cur) : null;
+  const advLvl = advisoryByIso()[iso];
+  const cl = climate && climate[iso];
+
+  const aff = clamp100((1.3 - pl) / 1.1 * 100);
+  const curS = row ? clamp100(50 + row.strength_pct * 4) : 50;
+  const safe = advLvl ? { 1: 100, 2: 70, 3: 35, 4: 0 }[advLvl] : 70;
+  const wx = cl && cl.scores[month - 1] != null ? cl.scores[month - 1] : 50;
+  const value = clamp100(WEIGHTS.aff * aff + WEIGHTS.cur * curS + WEIGHTS.safe * safe + WEIGHTS.wx * wx);
+  return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso, aff, cur: curS, safe, wx, value };
+}
+
+function buildValueTab() {
+  const reg = $("valueRegion"), mon = $("valueMonth");
+  reg.innerHTML = '<option value="all">All regions</option>' +
+    Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
+  mon.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
+  reg.onchange = renderValue;
+  mon.onchange = renderValue;
+  renderValue();
+}
+
+function renderValue() {
+  const region = $("valueRegion").value;
+  const month = parseInt($("valueMonth").value, 10);
+  const scored = {};
+  for (const iso in CUR_BY_ISO) {
+    if (region !== "all" && ISO_REGION[iso] !== region) continue;
+    const s = valueScores(iso, month);
+    if (s) scored[iso] = s;
+  }
+  drawMap("valueMap", (f) => {
+    const s = scored[f.properties.iso];
+    return s ? { fill: comfortColor(s.value),
+        title: `${s.name}: value ${s.value}/100 (cheap ${s.aff}, $ ${s.cur}, safe ${s.safe}, wx ${s.wx})` }
+      : { fill: NODATA, title: f.properties.name + " — not scored" };
+  }, "Best value destinations");
+
+  const ranked = Object.values(scored).sort((a, b) => b.value - a.value).slice(0, 40);
+  $("valueRows").innerHTML = ranked.map((s) => `
+    <tr><td>${s.name}</td>
+      <td class="num"><b>${s.value}</b></td>
+      <td class="num">${s.aff}</td><td class="num">${s.cur}</td>
+      <td class="num">${s.safe}</td><td class="num">${s.wx}</td></tr>`).join("")
+    || '<tr><td colspan="6">No data for this region.</td></tr>';
+}
+
 // ===========================================================================
 //  Tab switching (lazy-load each tab's data on first open)
 // ===========================================================================
@@ -564,7 +700,10 @@ async function activateTab(name) {
     s.hidden = s.id !== "tab-" + name;
 
   try {
-    if (name === "best" && !loaded.best) {
+    if (name === "value" && !loaded.value) {
+      await Promise.all([ensureWorld(), ensurePPP(), ensureClimate(), ensureAdvisories()]);
+      buildValueTab(); loaded.value = true;
+    } else if (name === "best" && !loaded.best) {
       await ensureClimate(); buildBestPickers(); loaded.best = true;
     } else if (name === "month" && !loaded.month) {
       await Promise.all([ensureWorld(), ensureClimate()]); buildMonthPicker(); loaded.month = true;
@@ -580,6 +719,7 @@ for (const b of document.querySelectorAll("#tabs button"))
   b.addEventListener("click", () => activateTab(b.dataset.tab));
 
 (async function init() {
+  await ensurePPP().catch(() => {});
   await Promise.all([ensureWorld().catch(() => {}), loadRates()]);
   renderMapSafe();
   loadIndex(365);

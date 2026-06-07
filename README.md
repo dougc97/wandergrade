@@ -4,22 +4,32 @@ Tracks the US dollar against world currencies and emails you when the dollar is
 **favorable for travel** — i.e. stronger than its own recent average for a given
 country's currency.
 
-The website has four tabs:
+The website has five tabs:
 
-1. **Currency strength** — world heatmap + equal-weighted USD index chart (with a
-   1M/3M/6M/1Y toggle) + a per-currency table of how strong the dollar is vs each
-   currency's 1-year average. Plus a **monthly email alert** when watched
+1. **Currency strength** — world heatmap (toggle: currency timing ↔ affordability)
+   + equal-weighted USD index chart (1M/3M/6M/1Y) + a per-currency table with a
+   **price-level** (PPP) column. Plus a **monthly email alert** when watched
    currencies become favorable.
-2. **Best time by country** — pick a country (grouped by region) to see a 12-month
+2. **Best value now** — a composite score per country blending affordability
+   (PPP), dollar strength vs history, safety, and weather for a chosen month;
+   ranked list + map.
+3. **Best time by country** — pick a country (grouped by region) for a 12-month
    climate-comfort chart and its best months to visit.
-3. **Best places by month** — pick a month to see a world heatmap of where the
-   weather is nicest then.
-4. **Travel advisories** — world heatmap + list of current US State Dept advisory
+4. **Best places by month** — pick a month → world heatmap of nicest weather.
+5. **Travel advisories** — world heatmap + list of current US State Dept advisory
    levels (1–4) per country.
 
-Data sources (all free, no API key): currency = fxratesapi.com, climate =
-Open-Meteo, advisories = travel.state.gov. Climate scores are precomputed into
-`public/climate.json` by `python3 -m fxtracker.build_climate` (re-run to refresh).
+Data sources (all free, no API key): currency = fxratesapi.com, PPP = World Bank,
+climate = Open-Meteo, advisories = travel.state.gov. The slow-moving datasets are
+precomputed into `public/`:
+
+```
+python3 -m fxtracker.build_climate   # -> public/climate.json (weather comfort)
+python3 -m fxtracker.build_ppp       # -> public/ppp.json (PPP conversion factors)
+```
+
+Re-run those to refresh. Price level = PPP factor ÷ live exchange rate (below ~1
+means cheaper than the US for a dollar holder).
 
 No build step, no `pip install`. Pure Python standard library (Python 3.9+).
 FX data comes from the free, key-less [fxratesapi.com](https://fxratesapi.com)

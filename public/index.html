@@ -14,6 +14,7 @@
 
   <nav class="tabs" id="tabs">
     <button data-tab="currency" class="active">Currency strength</button>
+    <button data-tab="value">Best value now</button>
     <button data-tab="best">Best time by country</button>
     <button data-tab="month">Best places by month</button>
     <button data-tab="advisory">Travel advisories</button>
@@ -43,6 +44,10 @@
             <p id="mapsub" class="chartsub">Loading map…</p>
           </div>
           <div class="legend" id="legend"></div>
+        </div>
+        <div class="windowtoggle" id="mapMode">
+          <button data-mode="currency" class="active">Currency timing</button>
+          <button data-mode="afford">Affordability (PPP)</button>
         </div>
         <div id="map" class="map">Loading map…</div>
       </section>
@@ -109,11 +114,37 @@
       <table id="rates">
         <thead>
           <tr>
-            <th>Currency</th><th class="num">1 USD =</th><th class="num">Avg</th>
-            <th class="num">vs avg</th><th class="num">Range position</th><th>Verdict</th>
+            <th>Currency</th><th class="num">1 USD =</th><th class="num">vs avg</th>
+            <th class="num">Price level</th><th class="num">Range position</th><th>Verdict</th>
           </tr>
         </thead>
         <tbody id="rows"><tr><td colspan="6">Loading…</td></tr></tbody>
+      </table>
+    </section>
+  </section>
+
+  <!-- ============ TAB: BEST VALUE NOW ============ -->
+  <section class="tab" id="tab-value" hidden>
+    <div class="cardwide">
+      <div class="charthead">
+        <div>
+          <h2>Best value destinations <span class="muted">right now</span></h2>
+          <p class="chartsub">Blends affordability (PPP), dollar strength vs history, safety, and weather for the chosen month.</p>
+        </div>
+        <div class="pickers">
+          <select id="valueRegion"></select>
+          <select id="valueMonth"></select>
+        </div>
+      </div>
+      <div id="valueMap" class="map">Loading…</div>
+    </div>
+    <section class="tablewrap">
+      <table id="valueTable">
+        <thead><tr>
+          <th>Country</th><th class="num">Value</th><th class="num">Cheap</th>
+          <th class="num">$ timing</th><th class="num">Safe</th><th class="num">Weather</th>
+        </tr></thead>
+        <tbody id="valueRows"><tr><td colspan="6">Loading…</td></tr></tbody>
       </table>
     </section>
   </section>
