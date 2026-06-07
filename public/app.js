@@ -49,7 +49,7 @@ function fmtMonth(iso) {
   return m[parseInt(p[1], 10) - 1] + " '" + p[0].slice(2);
 }
 
-const DAY_LABEL = { 90: "3 months", 180: "6 months", 365: "1 year", 730: "2 years" };
+const DAY_LABEL = { 30: "1 month", 90: "3 months", 180: "6 months", 365: "1 year" };
 
 function renderIndex(data) {
   const pts = data.index || [];
@@ -265,43 +265,50 @@ for (const b of document.querySelectorAll("#windowtoggle button")) {
 }
 
 // ---- world heatmap ---------------------------------------------------------
-// Which tracked currency each country uses (ISO-3166 alpha-2 -> currency code).
+// Country (ISO-3166 alpha-2) -> currency code. Provider covers ~180 currencies,
+// so nearly every country gets real data. Unmapped/absent -> "no data" (gray).
 const EUROZONE = ["AT","BE","CY","EE","FI","FR","DE","GR","IE","IT","LV","LT",
-  "LU","MT","NL","PT","SK","SI","ES","AD","MC","SM","VA","ME","XK"];
+  "LU","MT","NL","PT","SK","SI","ES","HR","AD","MC","SM","VA","ME","XK"];
+// Countries that use the US dollar itself (shown as flat for a US traveler).
+const USD_USING = ["US","EC","SV","PA","TL","ZW","MH","FM","PW","TC","VG","BQ"];
 const CUR_BY_ISO = (() => {
   const m = {
-    AU:"AUD", BR:"BRL", CA:"CAD", CH:"CHF", LI:"CHF", CN:"CNY", CZ:"CZK",
-    DK:"DKK", GL:"DKK", FO:"DKK", GB:"GBP", IM:"GBP", JE:"GBP", GG:"GBP",
-    HK:"HKD", HU:"HUF", ID:"IDR", IL:"ILS", PS:"ILS", IN:"INR", IS:"ISK",
-    JP:"JPY", KR:"KRW", MX:"MXN", MY:"MYR", NO:"NOK", SJ:"NOK", NZ:"NZD",
-    PH:"PHP", PL:"PLN", RO:"RON", SE:"SEK", SG:"SGD", TH:"THB", TR:"TRY",
-    ZA:"ZAR", US:"USD",
+    // Americas
+    CA:"CAD", MX:"MXN", GT:"GTQ", BZ:"BZD", HN:"HNL", NI:"NIO", CR:"CRC",
+    CU:"CUP", DO:"DOP", HT:"HTG", JM:"JMD", TT:"TTD", BS:"BSD", BB:"BBD",
+    CO:"COP", VE:"VES", GY:"GYD", SR:"SRD", PE:"PEN", BR:"BRL", BO:"BOB",
+    PY:"PYG", CL:"CLP", AR:"ARS", UY:"UYU",
+    // Europe (non-euro)
+    GB:"GBP", IM:"GBP", JE:"GBP", GG:"GBP", CH:"CHF", LI:"CHF", NO:"NOK",
+    SJ:"NOK", SE:"SEK", DK:"DKK", GL:"DKK", FO:"DKK", IS:"ISK", CZ:"CZK",
+    PL:"PLN", HU:"HUF", RO:"RON", BG:"BGN", RS:"RSD", BA:"BAM", MK:"MKD",
+    AL:"ALL", MD:"MDL", UA:"UAH", BY:"BYN", RU:"RUB", TR:"TRY",
+    // Middle East
+    IL:"ILS", PS:"ILS", SA:"SAR", AE:"AED", QA:"QAR", KW:"KWD", BH:"BHD",
+    OM:"OMR", JO:"JOD", LB:"LBP", SY:"SYP", IQ:"IQD", IR:"IRR", YE:"YER",
+    // Asia
+    CN:"CNY", JP:"JPY", KR:"KRW", IN:"INR", PK:"PKR", BD:"BDT", LK:"LKR",
+    NP:"NPR", AF:"AFN", MM:"MMK", TH:"THB", VN:"VND", KH:"KHR", LA:"LAK",
+    MY:"MYR", SG:"SGD", ID:"IDR", PH:"PHP", BN:"BND", HK:"HKD", MO:"MOP",
+    TW:"TWD", MN:"MNT", KZ:"KZT", UZ:"UZS", TM:"TMT", KG:"KGS", TJ:"TJS",
+    AZ:"AZN", AM:"AMD", GE:"GEL",
+    // Oceania
+    AU:"AUD", NZ:"NZD", FJ:"FJD", PG:"PGK",
+    // Africa
+    EG:"EGP", MA:"MAD", DZ:"DZD", TN:"TND", LY:"LYD", ZA:"ZAR", NG:"NGN",
+    KE:"KES", GH:"GHS", ET:"ETB", TZ:"TZS", UG:"UGX", RW:"RWF", BI:"BIF",
+    SD:"SDG", SO:"SOS", DJ:"DJF", AO:"AOA", MZ:"MZN", ZM:"ZMW", BW:"BWP",
+    NA:"NAD", SZ:"SZL", LS:"LSL", MW:"MWK", MG:"MGA", MU:"MUR", GM:"GMD",
+    GN:"GNF", LR:"LRD", CD:"CDF", CV:"CVE", KM:"KMF", MR:"MRU", SC:"SCR",
+    // CFA franc zones (real data via XOF / XAF)
+    SN:"XOF", CI:"XOF", ML:"XOF", BF:"XOF", NE:"XOF", BJ:"XOF", TG:"XOF", GW:"XOF",
+    CM:"XAF", TD:"XAF", CF:"XAF", CG:"XAF", GA:"XAF", GQ:"XAF",
   };
   for (const iso of EUROZONE) m[iso] = "EUR";
+  for (const iso of USD_USING) m[iso] = "USD";
   return m;
 })();
-
-// Countries that peg/dollarize to a currency we already track. anchor "USD" =>
-// effectively flat for a US traveler; anchor "EUR" => tracks the euro's strength.
-// Lets us color the map honestly without new data (labeled as pegged on hover).
-const PEGS = {
-  // --- USD-pegged or USD-using (strength ≈ flat vs the dollar) ---
-  SA:{cur:"SAR",anchor:"USD"}, AE:{cur:"AED",anchor:"USD"}, QA:{cur:"QAR",anchor:"USD"},
-  OM:{cur:"OMR",anchor:"USD"}, BH:{cur:"BHD",anchor:"USD"}, JO:{cur:"JOD",anchor:"USD"},
-  DJ:{cur:"DJF",anchor:"USD"}, EC:{cur:"USD",anchor:"USD"}, SV:{cur:"USD",anchor:"USD"},
-  PA:{cur:"USD",anchor:"USD"}, BZ:{cur:"BZD",anchor:"USD"}, TL:{cur:"USD",anchor:"USD"},
-  // --- EUR-pegged (move with the euro, which we track) ---
-  BG:{cur:"BGN",anchor:"EUR"}, BA:{cur:"BAM",anchor:"EUR"}, CV:{cur:"CVE",anchor:"EUR"},
-  KM:{cur:"KMF",anchor:"EUR"}, MK:{cur:"MKD",anchor:"EUR"},
-  // CFA franc — West African (XOF)
-  SN:{cur:"XOF",anchor:"EUR"}, CI:{cur:"XOF",anchor:"EUR"}, ML:{cur:"XOF",anchor:"EUR"},
-  BF:{cur:"XOF",anchor:"EUR"}, NE:{cur:"XOF",anchor:"EUR"}, BJ:{cur:"XOF",anchor:"EUR"},
-  TG:{cur:"XOF",anchor:"EUR"}, GW:{cur:"XOF",anchor:"EUR"},
-  // CFA franc — Central African (XAF)
-  CM:{cur:"XAF",anchor:"EUR"}, TD:{cur:"XAF",anchor:"EUR"}, CF:{cur:"XAF",anchor:"EUR"},
-  CG:{cur:"XAF",anchor:"EUR"}, GA:{cur:"XAF",anchor:"EUR"}, GQ:{cur:"XAF",anchor:"EUR"},
-};
-const USDPEG = "#d6e4f2"; // pale blue: dollarized/pegged to USD (flat)
+const USDLINK = "#bcd0e6"; // pale blue: uses the US dollar (flat for your dollar)
 
 let worldGeo = null;
 
@@ -342,7 +349,7 @@ function renderMap(rows) {
 
   const byCode = {};
   for (const r of rows) byCode[r.code] = r;
-  let tracked = 0, pegged = 0;
+  let tracked = 0;
   const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
 
   const W = 1000, latTop = 83, latBot = -56;
@@ -353,25 +360,17 @@ function renderMap(rows) {
     const iso = f.properties.iso;
     const cur = CUR_BY_ISO[iso];
     const row = cur && cur !== "USD" ? byCode[cur] : null;
-    const peg = !cur ? PEGS[iso] : null;
 
     let fill, title;
     if (cur === "USD") {
-      fill = HOME;
-      title = f.properties.name + " — USD (home currency)";
+      fill = USDLINK;
+      title = iso === "US"
+        ? f.properties.name + " — USD (home currency)"
+        : `${f.properties.name} — uses the US dollar (flat for your dollar)`;
     } else if (row) {
       fill = strengthColor(row.strength_pct);
       title = `${f.properties.name} — ${cur}: ${sgn(row.strength_pct)} vs 1yr avg`;
       tracked++;
-    } else if (peg && peg.anchor === "USD") {
-      fill = USDPEG;
-      title = `${f.properties.name} — ${peg.cur} (pegged to USD): ~flat for your dollar`;
-      pegged++;
-    } else if (peg && peg.anchor === "EUR" && byCode.EUR) {
-      const eur = byCode.EUR;
-      fill = strengthColor(eur.strength_pct);
-      title = `${f.properties.name} — ${peg.cur} (pegged to EUR): ${sgn(eur.strength_pct)} (tracks the euro)`;
-      pegged++;
     } else {
       fill = NODATA;
       title = f.properties.name + " — not tracked";
@@ -390,14 +389,14 @@ function renderMap(rows) {
 
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="USD strength world heatmap">${paths}</svg>`;
   $("mapsub").textContent =
-    `Greener = dollar stronger. Hover for detail · ${tracked} tracked + ${pegged} pegged countries.`;
+    `Greener = dollar stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`;
   renderLegend();
 }
 
 function renderLegend() {
   $("legend").innerHTML =
     '<span>Weaker</span><span class="bar"></span><span>Stronger</span>' +
-    '<span style="margin-left:8px"><span class="swatch" style="background:#d6e4f2"></span>USD-pegged</span>' +
+    '<span style="margin-left:8px"><span class="swatch" style="background:#bcd0e6"></span>USD-linked</span>' +
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
 }
 

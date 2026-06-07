@@ -1,10 +1,12 @@
-"""Fetch FX rates from Frankfurter (ECB data, no API key) and score USD favorability.
+"""Fetch FX rates from fxratesapi.com (no API key, ~180 currencies) and score
+USD favorability.
 
 All rates are expressed as "units of foreign currency per 1 USD", so a HIGHER
 number means the dollar is STRONGER -> better for a US traveler.
 
-The only network surface is `fetch_json`; swap it (or the URLs in the helpers
-below) to move to a keyed provider with broader currency coverage later.
+The only network surface is `fetch_json` + the three get_* helpers; swap those to
+change provider. History is limited to ~366 days on this free tier, so windows
+are capped at MAX_HISTORY_DAYS.
 """
 
 import datetime
@@ -15,9 +17,31 @@ import time
 import urllib.request
 import urllib.error
 
-API = "https://api.frankfurter.dev/v1"
+API = "https://api.fxratesapi.com"
 BASE = "USD"
 TIMEOUT = 20
+MAX_HISTORY_DAYS = 364  # free-tier timeseries reaches ~366 days back
+
+# The provider mixes non-fiat tickers into its rate list. Exclude crypto, precious
+# metals, the IMF SDR / index units, and defunct or redenominated duplicates so
+# the travel table and alerts only show real, current national currencies.
+NON_FIAT = {
+    # cryptocurrencies / stablecoins
+    "ADA", "ARB", "BNB", "BTC", "DAI", "DOT", "ETH", "LTC", "OP", "SOL", "XRP",
+    # precious metals, IMF SDR, Chilean UF index unit
+    "XAU", "XAG", "XPT", "XPD", "XDR", "CLF",
+    # defunct / redenominated / duplicate codes
+    "BYR", "LTL", "LVL", "HRK", "ZMK", "MRO", "STD", "VEF", "SVC", "ZWL",
+}
+
+# Stable, liquid basket for the headline "overall USD strength" index. Using all
+# ~180 currencies would let hyperinflation outliers (ARS, VES, etc.) distort it,
+# so the index stays on these majors while the map/table use full coverage.
+MAJORS = {
+    "AUD", "BRL", "CAD", "CHF", "CNY", "CZK", "DKK", "EUR", "GBP", "HKD",
+    "HUF", "IDR", "ILS", "INR", "ISK", "JPY", "KRW", "MXN", "MYR", "NOK",
+    "NZD", "PHP", "PLN", "RON", "SEK", "SGD", "THB", "TRY", "ZAR",
+}
 
 
 def _ssl_context():
@@ -62,22 +86,30 @@ def fetch_json(url, retries=3):
     raise last
 
 
+def _day(date_str):
+    """Normalize an ISO timestamp like '2026-05-01T23:59:00.000Z' to '2026-05-01'."""
+    return date_str[:10]
+
+
 def get_currencies():
     """Return {code: full_name} for every currency the provider supports."""
-    return fetch_json(API + "/currencies")
+    data = fetch_json(API + "/currencies")
+    return {code: meta.get("name", code) for code, meta in data.items()}
 
 
 def get_latest():
     """Latest USD-based rates: returns (date_str, {code: rate})."""
     data = fetch_json("{0}/latest?base={1}".format(API, BASE))
-    return data["date"], data["rates"]
+    return _day(data["date"]), data["rates"]
 
 
 def get_timeseries(start, end):
-    """Daily USD-based rates between two dates (inclusive). Weekends/holidays are
-    simply absent. Returns {date_str: {code: rate}}."""
-    url = "{0}/{1}..{2}?base={3}".format(API, start, end, BASE)
-    return fetch_json(url)["rates"]
+    """Daily USD-based rates between two dates (inclusive).
+    Returns {date_str: {code: rate}} with date keys normalized to YYYY-MM-DD."""
+    url = "{0}/timeseries?start_date={1}&end_date={2}&base={3}".format(
+        API, start, end, BASE)
+    rates = fetch_json(url)["rates"]
+    return {_day(k): v for k, v in rates.items()}
 
 
 def _series_by_currency(timeseries):
@@ -89,13 +121,14 @@ def _series_by_currency(timeseries):
     return out
 
 
-def _usd_index(timeseries):
+def _usd_index(timeseries, basket=MAJORS):
     """Build an equal-weighted USD strength index from a {date: {code: rate}} map.
 
     Raw rates can't be averaged (JPY~150 vs EUR~0.85), so each currency is
     normalized to 100 at its first day in the window; the index for a date is the
-    mean of all currencies' normalized values that day. Index > 100 means the
-    dollar is stronger overall than it was at the window start.
+    mean of the basket currencies' normalized values that day. Index > 100 means
+    the dollar is stronger overall than it was at the window start. Restricting to
+    `basket` (the majors) keeps hyperinflation outliers from distorting it.
 
     Returns (points, change_pct) where points = [{date, value}, ...] chronological.
     """
@@ -103,11 +136,11 @@ def _usd_index(timeseries):
     if not dates:
         return [], 0.0
 
-    # First observed rate per currency = each currency's own baseline (=100).
+    # First observed rate per basket currency = its own baseline (=100).
     first = {}
     for d in dates:
         for code, rate in timeseries[d].items():
-            if code not in first and rate:
+            if code in basket and code not in first and rate:
                 first[code] = rate
 
     points = []
@@ -115,7 +148,7 @@ def _usd_index(timeseries):
         normed = [
             (rate / first[code]) * 100.0
             for code, rate in timeseries[d].items()
-            if first.get(code)
+            if code in first
         ]
         if normed:
             points.append({"date": d, "value": round(sum(normed) / len(normed), 2)})
@@ -138,6 +171,7 @@ def _rate_label(strength_pct, percentile):
 def compute_index(days=365):
     """Just the overall USD strength index over an arbitrary window. Used by the
     chart's window toggle, independent of the saved favorability settings."""
+    days = min(days, MAX_HISTORY_DAYS)
     today = datetime.date.today()
     start = (today - datetime.timedelta(days=days)).isoformat()
     end = today.isoformat()
@@ -145,7 +179,7 @@ def compute_index(days=365):
     points, change = _usd_index(timeseries)
     basket = set()
     for day in timeseries.values():
-        basket.update(day.keys())
+        basket.update(c for c in day if c in MAJORS)
     return {
         "days": days,
         "index": points,
@@ -164,6 +198,7 @@ def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None):
     names = get_currencies()
     latest_date, latest = get_latest()
 
+    baseline_days = min(baseline_days, MAX_HISTORY_DAYS)
     today = datetime.date.today()
     start = (today - datetime.timedelta(days=baseline_days)).isoformat()
     end = today.isoformat()
@@ -175,6 +210,8 @@ def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None):
 
     rows = []
     for code, rate_now in latest.items():
+        if code in NON_FIAT:
+            continue
         hist = series.get(code)
         if not hist:
             continue

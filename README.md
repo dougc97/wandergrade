@@ -14,8 +14,8 @@ country's currency.
   when watched currencies become favorable.
 
 No build step, no `pip install`. Pure Python standard library (Python 3.9+).
-FX data comes from the European Central Bank via the free, key-less
-[Frankfurter](https://frankfurter.dev) API.
+FX data comes from the free, key-less [fxratesapi.com](https://fxratesapi.com)
+API (~180 currencies; ~1 year of history).
 
 ---
 
@@ -151,11 +151,17 @@ mapping lives in `CUR_BY_ISO` in `public/app.js`.
 
 ## Notes & limitations
 
-- **Coverage:** Frankfurter exposes ~29 major currencies (the ECB reference set).
-  These cover essentially every common travel destination (Europe, UK, Japan,
-  Mexico, Thailand, India, etc.). To track *all* ~150 world currencies, swap in a
-  keyed provider — the only network code lives in `fxtracker/rates.py`
-  (`fetch_json` and the three `get_*` helpers); the rest is provider-agnostic.
+- **Coverage:** fxratesapi.com provides ~180 currencies — essentially every
+  country with a traded currency, including all of Latin America, Africa, the
+  Middle East, and Asia. History is limited to ~1 year on the free tier, so the
+  chart windows cap at 1Y. The only network code lives in `fxtracker/rates.py`
+  (`fetch_json` + the three `get_*` helpers); the rest is provider-agnostic, so
+  swapping providers again is a one-file change.
+- **The "overall USD strength" index** is computed on a stable majors basket
+  (`MAJORS` in `rates.py`), not all 180 — otherwise hyperinflation currencies
+  (ARS, VES, etc.) would distort the headline. The map and table use full coverage.
+- **No key, so no uptime guarantee.** For a production/always-on deploy, consider
+  a keyed provider; the swap is isolated to `rates.py`.
 - **Not financial advice.** Mid-market reference rates differ from what your bank
   or card charges. Confirm before booking.
 - **macOS certs:** python.org's Python sometimes lacks CA certs; `rates.py`
