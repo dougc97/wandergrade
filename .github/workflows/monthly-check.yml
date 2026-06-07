@@ -1,0 +1,22 @@
+name: Monthly USD favorability check
+
+# Runs the alert job in the cloud so it fires even when your Mac is off.
+on:
+  schedule:
+    # 13:00 UTC on the 1st of every month (~9am US Eastern). Cron is always UTC.
+    - cron: "0 13 1 * *"
+  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run favorability check & send email
+        env:
+          # Set this in: repo Settings -> Secrets and variables -> Actions -> New secret
+          FX_SMTP_PASSWORD: ${{ secrets.FX_SMTP_PASSWORD }}
+        run: python3 check.py

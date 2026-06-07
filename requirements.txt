@@ -1,0 +1,2 @@
+# No third-party dependencies — this app uses only the Python standard library.
+# This file exists so hosting platforms detect it as a Python project.

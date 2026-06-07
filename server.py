@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Web dashboard + JSON API for the USD strength tracker. Pure stdlib.
+
+Run:  python3 server.py          (then open http://localhost:8000)
+      python3 server.py 9000     (custom port)
+
+Endpoints:
+  GET  /                serve the dashboard
+  GET  /api/rates       computed favorability table (cached briefly)
+  GET  /api/config      current settings
+  POST /api/config      update settings (JSON body)
+  POST /api/check       run the alert check now, return what it found
+"""
+
+import json
+import os
+import sys
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from fxtracker import mailer, rates, store
+
+PUBLIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
+CACHE_TTL = 600  # seconds; FX reference rates update at most daily.
+_cache = {"key": None, "at": 0, "data": None}
+_index_cache = {}  # days -> (timestamp, payload)
+
+CONTENT_TYPES = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".geojson": "application/geo+json; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+}
+
+
+def _rates_payload(cfg):
+    key = (cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]))
+    now = time.time()
+    if _cache["key"] == key and (now - _cache["at"]) < CACHE_TTL:
+        return _cache["data"]
+    data = rates.compute_favorability(
+        baseline_days=cfg["baseline_days"],
+        threshold_pct=cfg["threshold_pct"],
+        watch=cfg["watch"],
+    )
+    _cache.update(key=key, at=now, data=data)
+    return data
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "fx-tracker/1.0"
+
+    # ---- helpers ---------------------------------------------------------
+    def _send_json(self, obj, status=200):
+        body = json.dumps(obj).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_file(self, path):
+        try:
+            with open(path, "rb") as f:
+                body = f.read()
+        except FileNotFoundError:
+            self._send_json({"error": "not found"}, 404)
+            return
+        ctype = CONTENT_TYPES.get(os.path.splitext(path)[1], "application/octet-stream")
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _read_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if not length:
+            return {}
+        try:
+            return json.loads(self.rfile.read(length).decode("utf-8"))
+        except ValueError:
+            return {}
+
+    def log_message(self, fmt, *args):  # quieter console
+        sys.stderr.write("  %s\n" % (fmt % args))
+
+    # ---- routing ---------------------------------------------------------
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/api/rates":
+            try:
+                self._send_json(_rates_payload(store.load_config()))
+            except Exception as e:  # network/provider hiccup
+                self._send_json({"error": str(e)}, 502)
+            return
+        if path == "/api/index":
+            self._handle_index()
+            return
+        if path == "/api/config":
+            cfg = store.load_config()
+            cfg["email"] = _redact_email(cfg["email"])
+            self._send_json(cfg)
+            return
+        # static files
+        rel = "index.html" if path == "/" else path.lstrip("/")
+        safe = os.path.normpath(os.path.join(PUBLIC, rel))
+        if not safe.startswith(PUBLIC):
+            self._send_json({"error": "forbidden"}, 403)
+            return
+        self._send_file(safe)
+
+    def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/api/config":
+            self._handle_config_update()
+        elif path == "/api/check":
+            self._handle_check()
+        else:
+            self._send_json({"error": "not found"}, 404)
+
+    def _handle_index(self):
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        try:
+            days = int(qs.get("days", ["365"])[0])
+        except ValueError:
+            days = 365
+        days = max(30, min(3650, days))
+        now = time.time()
+        hit = _index_cache.get(days)
+        if hit and (now - hit[0]) < CACHE_TTL:
+            self._send_json(hit[1])
+            return
+        try:
+            payload = rates.compute_index(days)
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+            return
+        _index_cache[days] = (now, payload)
+        self._send_json(payload)
+
+    def _handle_config_update(self):
+        incoming = self._read_body()
+        cfg = store.load_config()
+        for k in ("watch", "baseline_days", "threshold_pct", "alert_cooldown_hours"):
+            if k in incoming:
+                cfg[k] = incoming[k]
+        if "email" in incoming and isinstance(incoming["email"], dict):
+            # Preserve stored password if the client sends the redaction placeholder.
+            sent = dict(incoming["email"])
+            if sent.get("password") == REDACTED:
+                sent.pop("password", None)
+            cfg["email"].update(sent)
+        store.save_config(cfg)
+        _cache["key"] = None  # force recompute next fetch
+        out = store.load_config()
+        out["email"] = _redact_email(out["email"])
+        self._send_json({"ok": True, "config": out})
+
+    def _handle_check(self):
+        cfg = store.load_config()
+        try:
+            data = _rates_payload(cfg)
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+            return
+        favorable = [r for r in data["rows"] if r["favorable"] and r["watched"]]
+        sent = False
+        error = None
+        if favorable and mailer.is_configured(cfg["email"]):
+            try:
+                subject, text, html = mailer.render_alert(
+                    favorable, data["as_of"], data["baseline_days"])
+                mailer.send_email(cfg["email"], subject, text, html)
+                sent = True
+            except Exception as e:
+                error = str(e)
+        self._send_json({
+            "as_of": data["as_of"],
+            "favorable": favorable,
+            "email_configured": mailer.is_configured(cfg["email"]),
+            "email_sent": sent,
+            "error": error,
+        })
+
+
+REDACTED = "********"
+
+
+def _redact_email(email_cfg):
+    out = dict(email_cfg)
+    if out.get("password"):
+        out["password"] = REDACTED
+    return out
+
+
+def main():
+    # Port: CLI arg wins, else $PORT (hosting platforms set this), else 8000.
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 8000))
+    # Bind localhost-only when run locally; bind all interfaces when a platform
+    # provides $PORT (so the host can route traffic to the container).
+    host = "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1"
+    httpd = ThreadingHTTPServer((host, port), Handler)
+    print("fx-tracker dashboard on {0}:{1}".format(host, port))
+    print("Press Ctrl+C to stop.")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
+if __name__ == "__main__":
+    main()
