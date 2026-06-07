@@ -1,0 +1,15 @@
+{
+  "alert_cooldown_hours": 720,
+  "baseline_days": 365,
+  "email": {
+    "enabled": true,
+    "from_addr": "291570524+dougc97@users.noreply.github.com",
+    "password": "",
+    "smtp_host": "smtp.gmail.com",
+    "smtp_port": 587,
+    "to_addr": "291570524+dougc97@users.noreply.github.com",
+    "username": "291570524+dougc97@users.noreply.github.com"
+  },
+  "threshold_pct": 2.0,
+  "watch": []
+}

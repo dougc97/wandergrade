@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>USD Strength Tracker</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <h1>💵 USD Strength Tracker</h1>
+    <p class="sub">How far the dollar buys vs its own recent average — green means a good time to travel.</p>
+  </header>
+
+  <section class="bar">
+    <div class="meta">
+      <span id="asof">Loading…</span>
+      <span id="summary"></span>
+    </div>
+    <div class="actions">
+      <button id="refresh">Refresh</button>
+      <button id="check">Check &amp; email now</button>
+      <button id="toggleSettings">Settings</button>
+    </div>
+  </section>
+
+  <div id="status" class="status" hidden></div>
+
+  <section class="mapcard">
+    <div class="charthead">
+      <div>
+        <h2>USD strength by country <span class="muted">vs each currency's 1-year average</span></h2>
+        <p id="mapsub" class="chartsub">Loading map…</p>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div id="map" class="map">Loading map…</div>
+  </section>
+
+  <section class="chartcard">
+    <div class="charthead">
+      <div>
+        <h2>Overall USD strength <span class="muted">vs rest of world</span></h2>
+        <p id="chartsub" class="chartsub">Loading…</p>
+      </div>
+      <div class="bignum">
+        <span id="indexnow">—</span>
+        <small id="indexchg"></small>
+      </div>
+    </div>
+    <div class="windowtoggle" id="windowtoggle">
+      <button data-days="90">3M</button>
+      <button data-days="180">6M</button>
+      <button data-days="365" class="active">1Y</button>
+      <button data-days="730">2Y</button>
+    </div>
+    <div id="chart" class="chart"></div>
+    <p class="chartnote">Equal-weighted index of every tracked currency, set to 100 at the start of the window. Above 100 = dollar stronger overall than back then.</p>
+  </section>
+
+  <section id="settings" class="settings" hidden>
+    <h2>Settings</h2>
+    <div class="grid">
+      <label>Baseline window (days)
+        <input type="number" id="baseline_days" min="30" max="3650" step="1">
+        <small>Average over this many days = the "normal" the dollar is compared to.</small>
+      </label>
+      <label>Favorable threshold (%)
+        <input type="number" id="threshold_pct" min="0" max="50" step="0.5">
+        <small>USD must be this % above its average to count as favorable.</small>
+      </label>
+      <label>Alert cooldown (hours)
+        <input type="number" id="alert_cooldown_hours" min="1" max="2160" step="1">
+        <small>Won't re-alert the same currency within this window. 720 = ~monthly.</small>
+      </label>
+    </div>
+
+    <h3>Watchlist</h3>
+    <p class="hint">Pick the currencies you care about, or leave all unchecked to watch every currency.</p>
+    <div id="watchlist" class="watchlist"></div>
+
+    <h3>Email alerts</h3>
+    <div class="grid">
+      <label class="checkbox"><input type="checkbox" id="email_enabled"> Enable email alerts</label>
+      <label>SMTP host <input type="text" id="smtp_host" placeholder="smtp.gmail.com"></label>
+      <label>SMTP port <input type="number" id="smtp_port" placeholder="587"></label>
+      <label>Username <input type="text" id="username" placeholder="you@gmail.com"></label>
+      <label>Password / app password <input type="password" id="password" placeholder="(leave blank to keep / use env var)"></label>
+      <label>From address <input type="text" id="from_addr" placeholder="you@gmail.com"></label>
+      <label>To address <input type="text" id="to_addr" placeholder="you@gmail.com"></label>
+    </div>
+    <p class="hint">Tip: for Gmail, use a 16-char <b>App Password</b> (not your login password). You can also leave the password blank here and set the <code>FX_SMTP_PASSWORD</code> environment variable instead.</p>
+
+    <div class="actions">
+      <button id="save">Save settings</button>
+    </div>
+  </section>
+
+  <section class="tablewrap">
+    <table id="rates">
+      <thead>
+        <tr>
+          <th>Currency</th>
+          <th class="num">1 USD =</th>
+          <th class="num">Avg</th>
+          <th class="num">vs avg</th>
+          <th class="num">Range position</th>
+          <th>Verdict</th>
+        </tr>
+      </thead>
+      <tbody id="rows"><tr><td colspan="6">Loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <footer>
+    Rates: European Central Bank via <a href="https://frankfurter.dev" target="_blank" rel="noopener">Frankfurter</a>.
+    Informational only — verify with your bank before booking.
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
