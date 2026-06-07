@@ -119,9 +119,17 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- routing ---------------------------------------------------------
     def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        # Unauthenticated health check for hosting platforms (Render, etc.).
+        if path == "/healthz":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+            return
         if not self._authed():
             return
-        path = self.path.split("?", 1)[0]
         if path == "/api/rates":
             try:
                 self._send_json(_rates_payload(store.load_config()))
