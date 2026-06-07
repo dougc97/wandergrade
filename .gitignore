@@ -10,3 +10,8 @@ __pycache__/
 *.pyc
 *.log
 .DS_Store
+
+# Local tunnel tooling (downloaded binary, not part of the repo)
+cloudflared
+cf.tgz
+.tools/

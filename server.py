@@ -12,6 +12,8 @@ Endpoints:
   POST /api/check       run the alert check now, return what it found
 """
 
+import base64
+import hmac
 import json
 import os
 import sys
@@ -19,6 +21,12 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import mailer, rates, store
+
+# Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
+# runs stay open while a public/tunneled instance can require a login.
+AUTH_USER = os.environ.get("FX_DASH_USER")
+AUTH_PASS = os.environ.get("FX_DASH_PASSWORD")
+AUTH_ON = bool(AUTH_USER and AUTH_PASS)
 
 PUBLIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 CACHE_TTL = 600  # seconds; FX reference rates update at most daily.
@@ -86,8 +94,31 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quieter console
         sys.stderr.write("  %s\n" % (fmt % args))
 
+    # ---- auth ------------------------------------------------------------
+    def _authed(self):
+        """True if auth is off, or the request carries valid Basic credentials.
+        Sends a 401 challenge and returns False otherwise."""
+        if not AUTH_ON:
+            return True
+        header = self.headers.get("Authorization", "")
+        if header.startswith("Basic "):
+            try:
+                user, _, pw = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+                # constant-time compare to avoid timing leaks
+                if hmac.compare_digest(user, AUTH_USER) and hmac.compare_digest(pw, AUTH_PASS):
+                    return True
+            except Exception:
+                pass
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="fx-tracker"')
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
     # ---- routing ---------------------------------------------------------
     def do_GET(self):
+        if not self._authed():
+            return
         path = self.path.split("?", 1)[0]
         if path == "/api/rates":
             try:
@@ -112,6 +143,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send_file(safe)
 
     def do_POST(self):
+        if not self._authed():
+            return
         path = self.path.split("?", 1)[0]
         if path == "/api/config":
             self._handle_config_update()

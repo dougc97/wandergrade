@@ -63,23 +63,56 @@ Only needed if you want to load the web page remotely (not just locally via
 2. On [render.com](https://render.com): **New → Web Service → connect the repo.**
 3. Render detects the `Dockerfile`. Leave defaults; it sets `$PORT` automatically
    (the server already reads it and binds `0.0.0.0`).
-4. Deploy → you get a public URL like `https://fx-tracker.onrender.com`.
+4. **Add a dashboard login** (since the URL is public): in the service's
+   **Environment** settings add `FX_DASH_USER` and `FX_DASH_PASSWORD`. When both
+   are set the server requires HTTP Basic Auth on every request; when unset
+   (local use) it stays open.
+5. Deploy → you get a public URL like `https://fx-tracker.onrender.com`.
 
 > Free Render web services sleep after ~15 min idle and take ~30s to wake on the
 > next visit — fine for a dashboard you check occasionally.
 
 Fly.io and Railway work the same way from the same `Dockerfile`.
 
-### ⚠️ Security note for a public dashboard
+### Dashboard login (built in)
 
-The dashboard currently has **no login**. Anyone with the URL could view it and
-change settings (the password is never exposed — it's redacted in the API and
-read from the env var — but the watchlist/threshold are editable, and someone
-could trigger a check email to *your* address).
+The dashboard supports HTTP Basic Auth, enforced **only when** both
+`FX_DASH_USER` and `FX_DASH_PASSWORD` are set:
 
-For a public deploy, add a simple login first. Ask and I'll add HTTP Basic Auth
-gated by an env var (a few lines in `server.py`). For Phase 1 (alerts only)
-there's nothing exposed, so no auth is needed.
+- **Set them** for any public deploy (Render env vars, or the tunnel below) so the
+  URL isn't wide open.
+- **Leave them unset** for local use and the dashboard stays open (no login).
+
+The SMTP password is never exposed either way — it's redacted in the API and read
+from `FX_SMTP_PASSWORD`.
+
+---
+
+## Temporary public link via Cloudflare tunnel (no account)
+
+For an instant `https://…trycloudflare.com` URL pointing at the dashboard running
+on your Mac. Lives only while your Mac + the server + the tunnel run.
+
+```bash
+cd "fx-tracker"
+
+# 1) Cloudflare's official tunnel tool (Apple-Silicon build)
+curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-arm64.tgz -o cf.tgz
+tar -xzf cf.tgz && chmod +x cloudflared && rm cf.tgz
+
+# 2) Choose a dashboard login
+export FX_DASH_USER="doug"
+export FX_DASH_PASSWORD="pick-a-password"
+
+# 3) Start the dashboard (with login) in the background
+python3 server.py 8000 &
+
+# 4) Open the tunnel — it prints your public https URL
+./cloudflared tunnel --url http://localhost:8000
+```
+
+Open the printed URL, log in with the user/password from step 2. Press Ctrl+C in
+the tunnel window to take it offline. (`cloudflared`/`cf.tgz` are gitignored.)
 
 ---
 

@@ -281,6 +281,28 @@ const CUR_BY_ISO = (() => {
   return m;
 })();
 
+// Countries that peg/dollarize to a currency we already track. anchor "USD" =>
+// effectively flat for a US traveler; anchor "EUR" => tracks the euro's strength.
+// Lets us color the map honestly without new data (labeled as pegged on hover).
+const PEGS = {
+  // --- USD-pegged or USD-using (strength ≈ flat vs the dollar) ---
+  SA:{cur:"SAR",anchor:"USD"}, AE:{cur:"AED",anchor:"USD"}, QA:{cur:"QAR",anchor:"USD"},
+  OM:{cur:"OMR",anchor:"USD"}, BH:{cur:"BHD",anchor:"USD"}, JO:{cur:"JOD",anchor:"USD"},
+  DJ:{cur:"DJF",anchor:"USD"}, EC:{cur:"USD",anchor:"USD"}, SV:{cur:"USD",anchor:"USD"},
+  PA:{cur:"USD",anchor:"USD"}, BZ:{cur:"BZD",anchor:"USD"}, TL:{cur:"USD",anchor:"USD"},
+  // --- EUR-pegged (move with the euro, which we track) ---
+  BG:{cur:"BGN",anchor:"EUR"}, BA:{cur:"BAM",anchor:"EUR"}, CV:{cur:"CVE",anchor:"EUR"},
+  KM:{cur:"KMF",anchor:"EUR"}, MK:{cur:"MKD",anchor:"EUR"},
+  // CFA franc — West African (XOF)
+  SN:{cur:"XOF",anchor:"EUR"}, CI:{cur:"XOF",anchor:"EUR"}, ML:{cur:"XOF",anchor:"EUR"},
+  BF:{cur:"XOF",anchor:"EUR"}, NE:{cur:"XOF",anchor:"EUR"}, BJ:{cur:"XOF",anchor:"EUR"},
+  TG:{cur:"XOF",anchor:"EUR"}, GW:{cur:"XOF",anchor:"EUR"},
+  // CFA franc — Central African (XAF)
+  CM:{cur:"XAF",anchor:"EUR"}, TD:{cur:"XAF",anchor:"EUR"}, CF:{cur:"XAF",anchor:"EUR"},
+  CG:{cur:"XAF",anchor:"EUR"}, GA:{cur:"XAF",anchor:"EUR"}, GQ:{cur:"XAF",anchor:"EUR"},
+};
+const USDPEG = "#d6e4f2"; // pale blue: dollarized/pegged to USD (flat)
+
 let worldGeo = null;
 
 async function ensureWorld() {
@@ -320,7 +342,8 @@ function renderMap(rows) {
 
   const byCode = {};
   for (const r of rows) byCode[r.code] = r;
-  let tracked = 0;
+  let tracked = 0, pegged = 0;
+  const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
 
   const W = 1000, latTop = 83, latBot = -56;
   const H = Math.round((W * (latTop - latBot)) / 360);
@@ -330,6 +353,7 @@ function renderMap(rows) {
     const iso = f.properties.iso;
     const cur = CUR_BY_ISO[iso];
     const row = cur && cur !== "USD" ? byCode[cur] : null;
+    const peg = !cur ? PEGS[iso] : null;
 
     let fill, title;
     if (cur === "USD") {
@@ -337,9 +361,17 @@ function renderMap(rows) {
       title = f.properties.name + " — USD (home currency)";
     } else if (row) {
       fill = strengthColor(row.strength_pct);
-      const sign = row.strength_pct >= 0 ? "+" : "";
-      title = `${f.properties.name} — ${cur}: ${sign}${row.strength_pct}% vs 1yr avg`;
+      title = `${f.properties.name} — ${cur}: ${sgn(row.strength_pct)} vs 1yr avg`;
       tracked++;
+    } else if (peg && peg.anchor === "USD") {
+      fill = USDPEG;
+      title = `${f.properties.name} — ${peg.cur} (pegged to USD): ~flat for your dollar`;
+      pegged++;
+    } else if (peg && peg.anchor === "EUR" && byCode.EUR) {
+      const eur = byCode.EUR;
+      fill = strengthColor(eur.strength_pct);
+      title = `${f.properties.name} — ${peg.cur} (pegged to EUR): ${sgn(eur.strength_pct)} (tracks the euro)`;
+      pegged++;
     } else {
       fill = NODATA;
       title = f.properties.name + " — not tracked";
@@ -358,14 +390,15 @@ function renderMap(rows) {
 
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="USD strength world heatmap">${paths}</svg>`;
   $("mapsub").textContent =
-    `Greener = dollar stronger vs that country's currency. Hover a country for detail · ${tracked} countries tracked.`;
+    `Greener = dollar stronger. Hover for detail · ${tracked} tracked + ${pegged} pegged countries.`;
   renderLegend();
 }
 
 function renderLegend() {
   $("legend").innerHTML =
     '<span>Weaker</span><span class="bar"></span><span>Stronger</span>' +
-    '<span style="margin-left:8px"><span class="swatch"></span>No data</span>';
+    '<span style="margin-left:8px"><span class="swatch" style="background:#d6e4f2"></span>USD-pegged</span>' +
+    '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
 }
 
 function renderMapSafe() {
