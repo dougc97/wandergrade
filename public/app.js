@@ -943,7 +943,30 @@ async function activateTab(name) {
 for (const b of document.querySelectorAll("#tabs button"))
   b.addEventListener("click", () => activateTab(b.dataset.tab));
 
+// ---- newsletter signup (Buttondown embed) ---------------------------------
+// Set this to your public Buttondown newsletter username to enable signups.
+const BUTTONDOWN_USER = "";
+
+function renderSubscribe() {
+  const el = $("subscribe");
+  if (!el) return;
+  if (!BUTTONDOWN_USER) {
+    el.innerHTML = '<span class="hint">📬 Newsletter signup not configured yet — set BUTTONDOWN_USER in app.js once you have a Buttondown account.</span>';
+    return;
+  }
+  const base = "https://buttondown.com/" + BUTTONDOWN_USER;
+  el.innerHTML = `
+    <span class="sublabel">📬 Get monthly “where the dollar goes furthest” alerts:</span>
+    <form action="https://buttondown.com/api/emails/embed/subscribe/${BUTTONDOWN_USER}"
+          method="post" target="popupwindow"
+          onsubmit="window.open('${base}','popupwindow')" class="subform">
+      <input type="email" name="email" placeholder="you@email.com" required>
+      <button type="submit">Subscribe</button>
+    </form>`;
+}
+
 (async function init() {
+  renderSubscribe();
   // Load the currency data (the "Where to go" score needs live rates + PPP),
   // render the currency tab in the background, then open the verdict tab.
   await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates()]);

@@ -9,7 +9,7 @@ Schedule it with cron/launchd (see README).
 import datetime
 import sys
 
-from fxtracker import mailer, rates, store
+from fxtracker import mailer, newsletter, rates, store
 
 
 def _now():
@@ -57,14 +57,32 @@ def run(dry_run=False):
         print("\n--dry-run: would email but not sending.")
         return 0
 
-    if not mailer.is_configured(cfg["email"]):
-        print("\nEmail not configured (see config.json / FX_SMTP_PASSWORD). Skipping send.")
-        return 1
-
     subject, text, html = mailer.render_alert(
         fresh, result["as_of"], result["baseline_days"])
-    mailer.send_email(cfg["email"], subject, text, html)
-    print("\nSent alert to {0}.".format(cfg["email"]["to_addr"]))
+    sent_any = False
+
+    # 1) Personal email (Gmail/SMTP) to your own address.
+    if mailer.is_configured(cfg["email"]):
+        mailer.send_email(cfg["email"], subject, text, html)
+        print("Sent alert to {0}.".format(cfg["email"]["to_addr"]))
+        sent_any = True
+    else:
+        print("Personal email not configured (FX_SMTP_PASSWORD). Skipping.")
+
+    # 2) Public subscribers via Buttondown newsletter list.
+    if newsletter.is_configured():
+        try:
+            md = newsletter.render_markdown(fresh, result["as_of"], result["baseline_days"])
+            newsletter.send(subject, md)
+            print("Sent digest to Buttondown subscribers.")
+            sent_any = True
+        except Exception as e:
+            print("Buttondown send failed:", e)
+    else:
+        print("Buttondown not configured (BUTTONDOWN_API_KEY). Skipping list send.")
+
+    if not sent_any:
+        return 1
 
     stamp = _now().isoformat()
     for r in fresh:

@@ -169,5 +169,13 @@ tr.favorable { background: var(--green-bg); }
 .range { position: relative; height: 8px; background: #eee; border-radius: 4px; min-width: 90px; }
 .range > span { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transform: translateX(-50%); }
 
+.subscribe { max-width: 960px; margin: 22px auto 0; padding: 14px 20px; background: #fff;
+  border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center;
+  gap: 12px; flex-wrap: wrap; justify-content: center; }
+.subscribe .sublabel { font-size: 14px; font-weight: 600; }
+.subform { display: flex; gap: 8px; }
+.subform input { padding: 8px 10px; border: 1px solid #ccc; border-radius: 7px; font-size: 14px; min-width: 200px; }
+.subform button { background: var(--green); color: #fff; border: none; border-radius: 7px; padding: 8px 16px; font-size: 14px; cursor: pointer; }
+
 footer { color: var(--gray); font-size: 12px; padding: 20px; text-align: center; }
 footer a { color: var(--gray); }
