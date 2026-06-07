@@ -65,6 +65,11 @@ small { color: var(--gray); font-weight: 400; }
 .watchlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 8px; }
 .watchlist label { flex-direction: row; align-items: center; gap: 6px; font-weight: 400; font-size: 13px; }
 
+.toprow { max-width: 960px; margin: 18px auto 0; padding: 0 20px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+.toprow .mapcard, .toprow .chartcard { margin-top: 0; min-width: 0; }
+@media (max-width: 760px) { .toprow { grid-template-columns: 1fr; } }
+
 .mapcard, .chartcard { background: #fff; border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 14px; }
 .map { margin-top: 10px; }
 .map svg { width: 100%; height: auto; display: block; background: #f7fafc; border-radius: 8px; }
