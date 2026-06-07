@@ -13,8 +13,8 @@
   </header>
 
   <nav class="tabs" id="tabs">
-    <button data-tab="currency" class="active">Currency strength</button>
-    <button data-tab="value">Best value now</button>
+    <button data-tab="value" class="active">Where to go now</button>
+    <button data-tab="currency">Currency strength</button>
     <button data-tab="best">Best time by country</button>
     <button data-tab="month">Best places by month</button>
     <button data-tab="advisory">Travel advisories</button>
@@ -23,7 +23,7 @@
   <div id="status" class="status" hidden></div>
 
   <!-- ============ TAB: CURRENCY ============ -->
-  <section class="tab" id="tab-currency">
+  <section class="tab" id="tab-currency" hidden>
     <div class="bar">
       <div class="meta">
         <span id="asof">Loading…</span>
@@ -115,16 +115,16 @@
         <thead>
           <tr>
             <th>Currency</th><th class="num">1 USD =</th><th class="num">vs avg</th>
-            <th class="num">Price level</th><th class="num">Range position</th><th>Verdict</th>
+            <th class="num">Price level</th><th class="num">Range position</th>
           </tr>
         </thead>
-        <tbody id="rows"><tr><td colspan="6">Loading…</td></tr></tbody>
+        <tbody id="rows"><tr><td colspan="5">Loading…</td></tr></tbody>
       </table>
     </section>
   </section>
 
   <!-- ============ TAB: BEST VALUE NOW ============ -->
-  <section class="tab" id="tab-value" hidden>
+  <section class="tab" id="tab-value">
     <div class="cardwide">
       <div class="charthead">
         <div>

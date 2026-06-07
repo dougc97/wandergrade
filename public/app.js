@@ -145,8 +145,7 @@ function renderRates(data) {
       <td class="num">${fmt(r.rate_now)}</td>
       <td class="num ${sign}">${r.strength_pct >= 0 ? "+" : ""}${r.strength_pct}%</td>
       <td class="num">${pl == null ? "—" : pl.toFixed(2) + " " + plTag(pl)}</td>
-      <td class="num">${rangeMarker(r)}</td>
-      <td><span class="pill ${r.label}">${r.label}</span></td>`;
+      <td class="num">${rangeMarker(r)}</td>`;
     tbody.appendChild(tr);
   }
 }
@@ -719,8 +718,10 @@ for (const b of document.querySelectorAll("#tabs button"))
   b.addEventListener("click", () => activateTab(b.dataset.tab));
 
 (async function init() {
-  await ensurePPP().catch(() => {});
-  await Promise.all([ensureWorld().catch(() => {}), loadRates()]);
+  // Load the currency data (the "Where to go" score needs live rates + PPP),
+  // render the currency tab in the background, then open the verdict tab.
+  await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates()]);
   renderMapSafe();
   loadIndex(365);
+  activateTab("value");
 })();
