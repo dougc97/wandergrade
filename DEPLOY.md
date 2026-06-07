@@ -68,6 +68,8 @@ Only needed if you want to load the web page remotely (not just locally via
    **Environment** settings add `FX_DASH_USER` and `FX_DASH_PASSWORD`. When both
    are set the server requires HTTP Basic Auth on every request; when unset
    (local use) it stays open.
+   - *Optional:* add `TRAVELPAYOUTS_TOKEN` (free, from travelpayouts.com) to enable
+     the Flight prices tab; without it that tab shows a "not configured" note.
 5. Deploy → you get a public URL like `https://fx-tracker.onrender.com`.
 
 > Free Render web services sleep after ~15 min idle and take ~30s to wake on the

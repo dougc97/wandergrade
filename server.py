@@ -20,7 +20,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from fxtracker import advisories, mailer, rates, store
+from fxtracker import advisories, flights, mailer, rates, store
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
 # runs stay open while a public/tunneled instance can require a login.
@@ -34,6 +34,8 @@ _cache = {"key": None, "at": 0, "data": None}
 _index_cache = {}  # days -> (timestamp, payload)
 _adv_cache = {"at": 0, "data": None}
 ADV_TTL = 6 * 3600  # advisories change rarely; refresh a few times a day
+_flights_cache = {}  # origin -> (timestamp, payload)
+FLIGHTS_TTL = 3600   # cached fares are fine for an hour
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -142,6 +144,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/advisories":
             self._handle_advisories()
             return
+        if path == "/api/flights":
+            self._handle_flights()
+            return
         if path == "/api/config":
             cfg = store.load_config()
             cfg["email"] = _redact_email(cfg["email"])
@@ -186,6 +191,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         _index_cache[days] = (now, payload)
         self._send_json(payload)
+
+    def _handle_flights(self):
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        origin = (qs.get("origin", ["JFK"])[0] or "JFK")
+        now = time.time()
+        hit = _flights_cache.get(origin)
+        if hit and (now - hit[0]) < FLIGHTS_TTL:
+            self._send_json(hit[1])
+            return
+        try:
+            data = flights.get_flights(origin)
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+            return
+        if data.get("configured"):
+            _flights_cache[origin] = (now, data)
+        self._send_json(data)
 
     def _handle_advisories(self):
         now = time.time()

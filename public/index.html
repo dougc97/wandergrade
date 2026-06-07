@@ -19,6 +19,7 @@
     <button data-tab="best">Best time by country</button>
     <button data-tab="month">Best places by month</button>
     <button data-tab="advisory">Travel advisories</button>
+    <button data-tab="flights">Flight prices</button>
   </nav>
 
   <div id="status" class="status" hidden></div>
@@ -223,10 +224,39 @@
     </section>
   </section>
 
+  <!-- ============ TAB: FLIGHT PRICES ============ -->
+  <section class="tab" id="tab-flights" hidden>
+    <div class="cardwide">
+      <div class="charthead">
+        <div>
+          <h2>Cheapest flights <span class="muted">from your home airport</span></h2>
+          <p id="flightSub" class="chartsub">Enter your home airport and search.</p>
+        </div>
+        <div class="pickers">
+          <input type="text" id="flightOrigin" maxlength="3" placeholder="JFK" value="JFK" style="width:80px;text-transform:uppercase">
+          <button id="flightGo">Search</button>
+          <div class="legend" id="flightLegend"></div>
+        </div>
+      </div>
+      <div id="flightMap" class="map">Enter an airport and hit Search.</div>
+    </div>
+    <section class="tablewrap">
+      <table id="flightTable">
+        <thead><tr>
+          <th>Destination</th><th>Country</th><th class="num">Price</th>
+          <th class="num">Depart</th><th class="num">Return</th><th class="num">Stops</th>
+        </tr></thead>
+        <tbody id="flightRows"><tr><td colspan="6">No search yet.</td></tr></tbody>
+      </table>
+    </section>
+  </section>
+
   <footer>
     Currency: <a href="https://fxratesapi.com" target="_blank" rel="noopener">fxratesapi.com</a> ·
+    PPP: World Bank ·
     Climate: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> ·
-    Advisories: <a href="https://travel.state.gov" target="_blank" rel="noopener">US State Dept</a>.
+    Advisories: <a href="https://travel.state.gov" target="_blank" rel="noopener">US State Dept</a> ·
+    Flights: <a href="https://travelpayouts.com" target="_blank" rel="noopener">Travelpayouts</a>.
     Informational only — verify before booking.
   </footer>
 

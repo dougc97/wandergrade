@@ -723,6 +723,65 @@ function renderValue() {
 }
 
 // ===========================================================================
+//  Flight prices (Travelpayouts)
+// ===========================================================================
+let flightsData = null;
+
+async function loadFlights() {
+  const origin = ($("flightOrigin").value || "JFK").trim().toUpperCase().slice(0, 3);
+  $("flightSub").textContent = "Searching cheapest fares from " + origin + "…";
+  try {
+    flightsData = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
+  } catch (e) {
+    $("flightSub").textContent = "Could not load flights: " + e.message;
+    return;
+  }
+  if (!flightsData.configured) {
+    $("flightSub").innerHTML = "Flight prices need a free Travelpayouts token. Set <code>TRAVELPAYOUTS_TOKEN</code> on the server (Render → Environment), then redeploy.";
+    $("flightMap").textContent = "Not configured.";
+    $("flightRows").innerHTML = '<tr><td colspan="6">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
+    return;
+  }
+  renderFlights();
+}
+
+function flightColor(price, min, max) {
+  if (price == null) return NODATA;
+  const t = max > min ? (price - min) / (max - min) : 0;        // 0 cheap -> 1 pricey
+  return t <= 0.5 ? mix("#0a7d28", "#eef0f1", t * 2) : mix("#eef0f1", "#b00020", (t - 0.5) * 2);
+}
+
+function renderFlights() {
+  const items = flightsData.items || [];
+  const byC = flightsData.by_country || {};
+  const prices = Object.values(byC);
+  const min = Math.min(...prices, 0), max = Math.max(...prices, 1);
+  const cur = (flightsData.currency || "usd").toUpperCase();
+
+  drawMap("flightMap", (f) => {
+    const p = byC[f.properties.iso];
+    return p == null
+      ? { fill: NODATA, title: f.properties.name + " — no fare found" }
+      : { fill: flightColor(p, min, max), title: `${f.properties.name} — from ${cur} ${p}` };
+  }, "Cheapest flight prices by country");
+
+  $("flightSub").textContent =
+    `Cheapest round-trips from ${flightsData.origin} · ${items.length} destinations · greener = cheaper.`;
+  $("flightLegend").innerHTML =
+    '<span>Cheaper</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Pricier</span>';
+
+  $("flightRows").innerHTML = items.slice(0, 60).map((it) => `
+    <tr><td>${it.city}</td><td>${it.country}</td>
+      <td class="num"><b>${cur} ${it.price}</b></td>
+      <td class="num">${it.depart || "—"}</td><td class="num">${it.return || "—"}</td>
+      <td class="num">${it.transfers}</td></tr>`).join("")
+    || '<tr><td colspan="6">No fares found from this airport.</td></tr>';
+}
+
+$("flightGo").addEventListener("click", loadFlights);
+$("flightOrigin").addEventListener("keydown", (e) => { if (e.key === "Enter") loadFlights(); });
+
+// ===========================================================================
 //  Tab switching (lazy-load each tab's data on first open)
 // ===========================================================================
 const loaded = {};
@@ -745,6 +804,8 @@ async function activateTab(name) {
     } else if (name === "advisory" && !loaded.advisory) {
       $("advSub").textContent = "Loading advisories…";
       await Promise.all([ensureWorld(), ensureAdvisories()]); renderAdvisories(); loaded.advisory = true;
+    } else if (name === "flights" && !loaded.flights) {
+      await ensureWorld(); loadFlights(); loaded.flights = true;
     }
   } catch (e) {
     status("Could not load " + name + ": " + e.message, "err");
