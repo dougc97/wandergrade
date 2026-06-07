@@ -44,7 +44,12 @@ select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 7px; font-siz
 .bars .fill { width: 70%; border-radius: 4px 4px 0 0; background: var(--green); }
 .bars .col.best .fill { outline: 2px solid var(--ink); outline-offset: -1px; }
 .bars .mlabel { font-size: 10px; color: var(--gray); margin-top: 4px; }
+.bars .mlabel.peak { color: var(--green); font-weight: 700; }
+.bars .mlabel.shoulder { color: var(--amber); }
+.bars .mlabel.off { color: #aaa; }
 .bars .mscore { font-size: 9px; color: var(--gray); }
+.seasons { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--gray); margin: 10px 0 14px; }
+.seasons b.peak { color: var(--green); } .seasons b.off { color: #999; }
 
 /* advisory level badges */
 .lvl { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }

@@ -363,29 +363,10 @@ function drawMap(hostId, colorFn, ariaLabel) {
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
 }
 
-let mapMode = "currency";
-
 function renderMap(rows) {
   const byCode = {};
   for (const r of rows) byCode[r.code] = r;
   const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
-
-  if (mapMode === "afford") {
-    let n = 0;
-    drawMap("map", (f) => {
-      const pl = priceLevel(f.properties.iso);
-      if (pl == null) return { fill: NODATA, title: f.properties.name + " — no price data" };
-      n++;
-      return { fill: affordColor(pl),
-        title: `${f.properties.name} — price level ${pl.toFixed(2)} (${plWord(pl)} vs US)` };
-    }, "Affordability (price level vs US)");
-    $("mapsub").textContent =
-      `Greener = cheaper than the US (your dollar buys more). Hover for detail · ${n} countries.`;
-    $("legend").innerHTML =
-      '<span>Pricey</span><span class="bar"></span><span>Cheap</span>' +
-      '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
-    return;
-  }
 
   let tracked = 0;
   drawMap("map", (f) => {
@@ -438,7 +419,11 @@ function priceLevel(iso) {
   if (!cur) return null;
   const rate = rateForCurrency(cur);
   if (!rate) return null;
-  return ppp[iso].ppp / rate;
+  const pl = ppp[iso].ppp / rate;
+  // Guard against broken World Bank values / unit mismatches (e.g. stale PPP for
+  // a redenominated currency). Real price levels sit roughly in [0.1, 4].
+  if (pl < 0.08 || pl > 6) return null;
+  return pl;
 }
 // Representative country for a currency (for the per-currency table column).
 const PRIMARY_COUNTRY = { EUR: "DE", XOF: "SN", XAF: "CM", USD: "US", XCD: null };
@@ -531,26 +516,49 @@ function buildBestPickers() {
   if ([...ctry.options].some((o) => o.value === "JP")) { ctry.value = "JP"; renderCountryClimate("JP"); }
 }
 
+// Classify each month into peak / shoulder / off season by weather, relative to
+// the country's own range. Peak = best weather (busiest, priciest); off = worst
+// (cheapest, fewest crowds).
+function seasons(scores) {
+  const valid = scores.filter((s) => s != null);
+  if (!valid.length) return scores.map(() => "na");
+  const mn = Math.min(...valid), mx = Math.max(...valid), rng = (mx - mn) || 1;
+  return scores.map((s) => {
+    if (s == null) return "na";
+    const f = (s - mn) / rng;
+    return f >= 0.66 ? "peak" : f <= 0.34 ? "off" : "shoulder";
+  });
+}
+const fmtMonths = (arr) => (arr.length ? arr.map((m) => MON_ABBR[m - 1]).join(", ") : "—");
+
 function renderCountryClimate(iso) {
   const c = climate[iso];
   if (!c) { $("bestDetail").textContent = "No data."; return; }
-  const max = Math.max(...c.scores.map((s) => s || 0), 1);
   const bestSet = new Set(c.best);
+  const seas = seasons(c.scores);
+  const peakM = [], offM = [];
+  seas.forEach((s, i) => { if (s === "peak") peakM.push(i + 1); else if (s === "off") offM.push(i + 1); });
+
   const chips = c.best.map((m) => `<span class="chip2">${MON_ABBR[m - 1]}</span>`).join("");
   const bars = c.scores.map((s, i) => {
-    const h = s == null ? 0 : Math.round((s / 100) * 100);
+    const h = s == null ? 0 : Math.round(s);
     const col = bestSet.has(i + 1) ? "col best" : "col";
-    return `<div class="${col}" title="${MONTHS[i]}: ${s == null ? "n/a" : s + "/100"}">
+    return `<div class="${col}" title="${MONTHS[i]}: ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season">
       <div class="mscore">${s == null ? "" : s}</div>
       <div class="fill" style="height:${h}%;background:${comfortColor(s)}"></div>
-      <div class="mlabel">${MON_ABBR[i]}</div></div>`;
+      <div class="mlabel ${seas[i]}">${MON_ABBR[i]}</div></div>`;
   }).join("");
+
   $("bestDetail").innerHTML = `
     <div class="besthead">
       <h3>${c.name} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3>
       <div>${c.curated ? "Curated best months" : "Best weather"}: </div>
     </div>
     <div class="chips">${chips}</div>
+    <div class="seasons">
+      <span><b class="peak">● Peak</b> (best weather, busiest &amp; priciest): ${fmtMonths(peakM)}</span>
+      <span><b class="off">● Off-peak</b> (cheapest, fewest crowds): ${fmtMonths(offM)}</span>
+    </div>
     <div class="bars">${bars}</div>`;
 }
 
@@ -614,15 +622,41 @@ function renderAdvisories() {
     </tr>`).join("");
 }
 
-// currency map mode toggle (timing <-> affordability)
-for (const b of document.querySelectorAll("#mapMode button")) {
-  b.addEventListener("click", async () => {
-    for (const x of document.querySelectorAll("#mapMode button"))
-      x.classList.toggle("active", x === b);
-    mapMode = b.dataset.mode;
-    if (mapMode === "afford") { try { await ensurePPP(); } catch (e) {} }
-    renderMapSafe();
-  });
+// ===========================================================================
+//  Cost of living (PPP) tab — its own map + ranked table
+// ===========================================================================
+function renderAfford() {
+  let n = 0;
+  drawMap("affMap", (f) => {
+    const pl = priceLevel(f.properties.iso);
+    if (pl == null) return { fill: NODATA, title: f.properties.name + " — no price data" };
+    n++;
+    return { fill: affordColor(pl),
+      title: `${f.properties.name} — price level ${pl.toFixed(2)} (${plWord(pl)} vs US)` };
+  }, "Cost of living (price level vs US)");
+
+  $("affSub").textContent =
+    `Below 1.00 = cheaper than the US (your dollar buys more). World Bank PPP ÷ live rate · ${n} countries.`;
+  $("affLegend2").innerHTML =
+    '<span>Pricey</span><span class="bar"></span><span>Cheap</span>' +
+    '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
+
+  // Ranked cheapest-first table.
+  const rows = [];
+  for (const iso in CUR_BY_ISO) {
+    const pl = priceLevel(iso);
+    if (pl == null) continue;
+    const name = (ppp[iso] && ppp[iso].name) || (climate && climate[iso] && climate[iso].name) || iso;
+    rows.push({ iso, name, cur: CUR_BY_ISO[iso], pl });
+  }
+  rows.sort((a, b) => a.pl - b.pl);
+  $("affRows").innerHTML = rows.map((r) => {
+    const cls = r.pl <= 0.85 ? "pos" : r.pl > 1.15 ? "neg" : "";
+    return `<tr><td>${r.name}</td><td>${r.cur}</td>
+      <td class="num ${cls}">${r.pl.toFixed(2)}</td>
+      <td class="num">$${Math.round(100 / r.pl)} of US goods</td>
+      <td>${plWord(r.pl)}</td></tr>`;
+  }).join("");
 }
 
 // ===========================================================================
@@ -702,6 +736,8 @@ async function activateTab(name) {
     if (name === "value" && !loaded.value) {
       await Promise.all([ensureWorld(), ensurePPP(), ensureClimate(), ensureAdvisories()]);
       buildValueTab(); loaded.value = true;
+    } else if (name === "afford" && !loaded.afford) {
+      await Promise.all([ensureWorld(), ensurePPP()]); renderAfford(); loaded.afford = true;
     } else if (name === "best" && !loaded.best) {
       await ensureClimate(); buildBestPickers(); loaded.best = true;
     } else if (name === "month" && !loaded.month) {
