@@ -358,7 +358,7 @@ function drawMap(hostId, colorFn, ariaLabel) {
     for (const poly of polys)
       for (const ring of poly)
         if (ring.length >= 3) d += projectRing(ring, W, H, latTop, latBot);
-    if (d) paths += `<path d="${d}" fill="${fill}"><title>${title}</title></path>`;
+    if (d) paths += `<path d="${d}" fill="${fill}" data-iso="${f.properties.iso}"><title>${title}</title></path>`;
   }
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
 }
@@ -713,13 +713,15 @@ function renderValue() {
       : { fill: NODATA, title: f.properties.name + " — not scored" };
   }, "Best value destinations");
 
+  loadVisited();
   const ranked = Object.values(scored).sort((a, b) => b.value - a.value).slice(0, 40);
-  $("valueRows").innerHTML = ranked.map((s) => `
-    <tr><td>${s.name}</td>
+  $("valueRows").innerHTML = ranked.map((s) => {
+    const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
+    return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${s.name}${vis}</td>
       <td class="num"><b>${s.value}</b></td>
       <td class="num">${s.aff}</td><td class="num">${s.cur}</td>
-      <td class="num">${s.safe}</td><td class="num">${s.wx}</td></tr>`).join("")
-    || '<tr><td colspan="6">No data for this region.</td></tr>';
+      <td class="num">${s.safe}</td><td class="num">${s.wx}</td></tr>`;
+  }).join("") || '<tr><td colspan="6">No data for this region.</td></tr>';
 }
 
 // ===========================================================================
@@ -782,6 +784,124 @@ $("flightGo").addEventListener("click", loadFlights);
 $("flightOrigin").addEventListener("keydown", (e) => { if (e.key === "Enter") loadFlights(); });
 
 // ===========================================================================
+//  Things to do (curated activities + what's in season now)
+// ===========================================================================
+let activities = null;
+function curMonth() { return new Date().getMonth() + 1; }   // 1-12, real browser clock
+
+async function ensureActivities() {
+  if (!activities) activities = await (await fetch("/activities.json")).json();
+  return activities;
+}
+
+function buildActivityPickers() {
+  const reg = $("actRegion"), ctry = $("actCountry");
+  reg.innerHTML = '<option value="all">All regions</option>' +
+    Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
+  const nameFor = (iso) => (climate && climate[iso] && climate[iso].name) || (ppp[iso] && ppp[iso].name) || iso;
+  const fill = () => {
+    const sel = reg.value;
+    const list = Object.keys(activities)
+      .filter((iso) => sel === "all" || ISO_REGION[iso] === sel)
+      .map((iso) => ({ iso, name: nameFor(iso) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    ctry.innerHTML = list.map((c) => `<option value="${c.iso}">${c.name}</option>`).join("");
+    if (list.length) renderActivity(ctry.value);
+    else $("actDetail").innerHTML = "<p class='hint'>No curated activities for this region yet.</p>";
+  };
+  reg.onchange = fill;
+  ctry.onchange = () => renderActivity(ctry.value);
+  fill();
+  if ([...ctry.options].some((o) => o.value === "MX")) { ctry.value = "MX"; renderActivity("MX"); }
+}
+
+function renderActivity(iso) {
+  const a = activities[iso];
+  const name = (climate && climate[iso] && climate[iso].name) || (ppp[iso] && ppp[iso].name) || iso;
+  if (!a) { $("actDetail").innerHTML = `<h3>${name}</h3><p class="hint">No curated activity profile yet.</p>`; return; }
+  const m = curMonth();
+  const tags = a.profile.map((p) => `<span class="chip2">${p}</span>`).join("");
+  const acts = a.activities.map((x) => `<li>${x}</li>`).join("");
+  const seas = (a.seasonal || []).map((s) => {
+    const on = s.months.includes(m);
+    return `<div class="seasrow">
+      <span class="what">${s.what}</span>
+      <span class="months">${s.months.map((x) => MON_ABBR[x - 1]).join(", ")}</span>
+      <span class="${on ? "inseason" : "offseason"}">${on ? "in season now" : "off season"}</span>
+    </div>`;
+  }).join("");
+  const vis = isVisited(iso) ? '<span class="visited-tag">✓ visited</span>' : "";
+  $("actDetail").innerHTML = `
+    <div class="besthead"><h3>${name} ${vis} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3></div>
+    <div class="chips">${tags}</div>
+    <p>${a.summary}</p>
+    <h4 style="margin:.6em 0 .2em">Top things to do</h4>
+    <ul class="actlist">${acts}</ul>
+    ${seas ? `<h4 style="margin:.6em 0 .2em">What's in season (now: ${MONTHS[m - 1]})</h4>${seas}` : ""}`;
+}
+
+// ===========================================================================
+//  Countries visited (stored in this browser)
+// ===========================================================================
+let visited = null;
+function loadVisited() {
+  if (visited) return visited;
+  try { visited = new Set(JSON.parse(localStorage.getItem("fx_visited") || "[]")); }
+  catch (e) { visited = new Set(); }
+  return visited;
+}
+function saveVisited() { localStorage.setItem("fx_visited", JSON.stringify([...visited])); }
+function isVisited(iso) { return loadVisited().has(iso); }
+function toggleVisited(iso) {
+  loadVisited();
+  if (visited.has(iso)) visited.delete(iso); else visited.add(iso);
+  saveVisited();
+}
+
+function countryName(iso) {
+  return (climate && climate[iso] && climate[iso].name) ||
+         (ppp && ppp[iso] && ppp[iso].name) || iso;
+}
+
+function buildVisited() {
+  loadVisited();
+  const pick = $("visitedPick");
+  // dropdown of all mappable countries by name
+  const all = [...new Set(Object.keys(CUR_BY_ISO))]
+    .map((iso) => ({ iso, name: countryName(iso) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  pick.innerHTML = '<option value="">+ add a country…</option>' +
+    all.map((c) => `<option value="${c.iso}">${c.name}</option>`).join("");
+  pick.onchange = () => { if (pick.value) { toggleVisited(pick.value); pick.value = ""; renderVisited(); } };
+  $("visitedClear").onclick = () => { visited.clear(); saveVisited(); renderVisited(); };
+  renderVisited();
+}
+
+function renderVisited() {
+  drawMap("visitedMap", (f) => {
+    const v = visited.has(f.properties.iso);
+    return { fill: v ? "#0a7d28" : "#e0e4e8",
+      title: f.properties.name + (v ? " — visited ✓ (click to remove)" : " — click to mark visited") };
+  }, "Countries visited");
+  // click to toggle
+  $("visitedMap").querySelectorAll("path").forEach((p) => {
+    p.addEventListener("click", () => {
+      const iso = p.getAttribute("data-iso");
+      if (iso && iso !== "-99") { toggleVisited(iso); renderVisited(); }
+    });
+  });
+  const list = [...visited].map((iso) => ({ iso, name: countryName(iso) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  $("visitedSub").textContent = `${visited.size} countries visited. Click the map or use the dropdown. Saved in this browser.`;
+  $("visitedChips").innerHTML = list.length
+    ? list.map((c) => `<span class="chip2 rm" data-iso="${c.iso}" title="remove">${c.name} ✕</span>`).join("")
+    : '<span class="hint">None yet — click countries on the map.</span>';
+  $("visitedChips").querySelectorAll(".rm").forEach((el) => {
+    el.addEventListener("click", () => { toggleVisited(el.dataset.iso); renderVisited(); });
+  });
+}
+
+// ===========================================================================
 //  Tab switching (lazy-load each tab's data on first open)
 // ===========================================================================
 const loaded = {};
@@ -790,6 +910,9 @@ async function activateTab(name) {
     b.classList.toggle("active", b.dataset.tab === name);
   for (const s of document.querySelectorAll(".tab"))
     s.hidden = s.id !== "tab-" + name;
+
+  // Refresh visited marks when returning to the recommendation tab.
+  if (name === "value" && loaded.value) renderValue();
 
   try {
     if (name === "value" && !loaded.value) {
@@ -806,6 +929,12 @@ async function activateTab(name) {
       await Promise.all([ensureWorld(), ensureAdvisories()]); renderAdvisories(); loaded.advisory = true;
     } else if (name === "flights" && !loaded.flights) {
       await ensureWorld(); loadFlights(); loaded.flights = true;
+    } else if (name === "activities" && !loaded.activities) {
+      await Promise.all([ensurePPP(), ensureClimate(), ensureActivities()]);
+      buildActivityPickers(); loaded.activities = true;
+    } else if (name === "visited" && !loaded.visited) {
+      await Promise.all([ensureWorld(), ensurePPP(), ensureClimate()]);
+      buildVisited(); loaded.visited = true;
     }
   } catch (e) {
     status("Could not load " + name + ": " + e.message, "err");

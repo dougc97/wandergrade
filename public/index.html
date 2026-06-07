@@ -18,8 +18,10 @@
     <button data-tab="afford">Cost of living (PPP)</button>
     <button data-tab="best">Best time by country</button>
     <button data-tab="month">Best places by month</button>
+    <button data-tab="activities">Things to do</button>
     <button data-tab="advisory">Travel advisories</button>
     <button data-tab="flights">Flight prices</button>
+    <button data-tab="visited">Countries visited</button>
   </nav>
 
   <div id="status" class="status" hidden></div>
@@ -224,6 +226,23 @@
     </section>
   </section>
 
+  <!-- ============ TAB: THINGS TO DO ============ -->
+  <section class="tab" id="tab-activities" hidden>
+    <div class="cardwide">
+      <div class="charthead">
+        <div>
+          <h2>What to do there <span class="muted">activities &amp; what's in season</span></h2>
+          <p class="chartsub">What each place is good for, and whether your activity is in season right now.</p>
+        </div>
+        <div class="pickers">
+          <select id="actRegion"></select>
+          <select id="actCountry"></select>
+        </div>
+      </div>
+      <div id="actDetail" class="bestdetail">Loading…</div>
+    </div>
+  </section>
+
   <!-- ============ TAB: FLIGHT PRICES ============ -->
   <section class="tab" id="tab-flights" hidden>
     <div class="cardwide">
@@ -249,6 +268,24 @@
         <tbody id="flightRows"><tr><td colspan="6">No search yet.</td></tr></tbody>
       </table>
     </section>
+  </section>
+
+  <!-- ============ TAB: COUNTRIES VISITED ============ -->
+  <section class="tab" id="tab-visited" hidden>
+    <div class="cardwide">
+      <div class="charthead">
+        <div>
+          <h2>Countries visited</h2>
+          <p id="visitedSub" class="chartsub">Click a country on the map, or pick from the dropdown. Saved in this browser.</p>
+        </div>
+        <div class="pickers">
+          <select id="visitedPick"></select>
+          <button id="visitedClear">Clear all</button>
+        </div>
+      </div>
+      <div id="visitedMap" class="map">Loading…</div>
+      <div id="visitedChips" class="chips" style="margin-top:12px"></div>
+    </div>
   </section>
 
   <footer>

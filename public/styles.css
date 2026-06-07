@@ -51,6 +51,22 @@ select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 7px; font-siz
 .seasons { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--gray); margin: 10px 0 14px; }
 .seasons b.peak { color: var(--green); } .seasons b.off { color: #999; }
 
+/* things to do */
+.actlist { margin: 6px 0 16px; padding-left: 18px; }
+.actlist li { margin: 2px 0; font-size: 14px; }
+.seasrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; flex-wrap: wrap; }
+.seasrow:last-child { border-bottom: none; }
+.seasrow .what { flex: 1; min-width: 160px; }
+.seasrow .months { color: var(--gray); font-size: 12px; }
+.inseason { background: var(--green); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
+.offseason { background: #eee; color: var(--gray); border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
+.visited-tag { background: #2a2a2a; color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; margin-left: 6px; }
+
+/* visited */
+#visitedMap svg path { cursor: pointer; }
+.chip2.rm { cursor: pointer; }
+.chip2.rm:hover { background: #fdecef; color: var(--red); }
+
 /* advisory level badges */
 .lvl { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }
 .lvl1 { background: #0a7d28; } .lvl2 { background: #c9a200; } .lvl3 { background: #d4730a; } .lvl4 { background: #b00020; }
