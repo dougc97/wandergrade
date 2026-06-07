@@ -19,7 +19,36 @@ body {
   line-height: 1.45;
 }
 
-header, .bar, .settings, .tablewrap, footer { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+/* tab nav */
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-top: 8px; }
+.tabs button { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+  padding: 10px 14px; font-size: 14px; color: var(--gray); cursor: pointer; margin-bottom: -1px; }
+.tabs button:hover { color: var(--ink); }
+.tabs button.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
+.tab[hidden] { display: none; }
+
+.cardwide { background: #fff; border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 16px; }
+.pickers { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 7px; font-size: 14px; background: #fff; }
+
+/* best-time by country */
+.bestdetail { margin-top: 14px; }
+.besthead { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.besthead h3 { margin: 0; font-size: 18px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 14px; }
+.chip2 { background: var(--green-bg); color: var(--green); border-radius: 999px; padding: 3px 11px; font-size: 13px; font-weight: 600; }
+.bars { display: grid; grid-template-columns: repeat(12, 1fr); gap: 6px; align-items: end; height: 150px; }
+.bars .col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.bars .fill { width: 70%; border-radius: 4px 4px 0 0; background: var(--green); }
+.bars .col.best .fill { outline: 2px solid var(--ink); outline-offset: -1px; }
+.bars .mlabel { font-size: 10px; color: var(--gray); margin-top: 4px; }
+.bars .mscore { font-size: 9px; color: var(--gray); }
+
+/* advisory level badges */
+.lvl { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }
+.lvl1 { background: #0a7d28; } .lvl2 { background: #c9a200; } .lvl3 { background: #d4730a; } .lvl4 { background: #b00020; }
 
 header { padding-top: 28px; }
 h1 { margin: 0 0 4px; font-size: 26px; }

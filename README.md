@@ -4,14 +4,22 @@ Tracks the US dollar against world currencies and emails you when the dollar is
 **favorable for travel** — i.e. stronger than its own recent average for a given
 country's currency.
 
-- **World heatmap** — a choropleth map coloring each country by how strong the
-  dollar is against its currency (green = strong, red = weak), with hover detail.
-- **Overall strength chart** — an equal-weighted USD index over time, with a
-  3M / 6M / 1Y / 2Y window toggle.
-- **Per-currency table** — every currency, how strong the dollar is vs its
-  baseline average, and where today sits in the recent range.
-- **Scheduled alerts** — a monthly job that checks rates and emails you a digest
-  when watched currencies become favorable.
+The website has four tabs:
+
+1. **Currency strength** — world heatmap + equal-weighted USD index chart (with a
+   1M/3M/6M/1Y toggle) + a per-currency table of how strong the dollar is vs each
+   currency's 1-year average. Plus a **monthly email alert** when watched
+   currencies become favorable.
+2. **Best time by country** — pick a country (grouped by region) to see a 12-month
+   climate-comfort chart and its best months to visit.
+3. **Best places by month** — pick a month to see a world heatmap of where the
+   weather is nicest then.
+4. **Travel advisories** — world heatmap + list of current US State Dept advisory
+   levels (1–4) per country.
+
+Data sources (all free, no API key): currency = fxratesapi.com, climate =
+Open-Meteo, advisories = travel.state.gov. Climate scores are precomputed into
+`public/climate.json` by `python3 -m fxtracker.build_climate` (re-run to refresh).
 
 No build step, no `pip install`. Pure Python standard library (Python 3.9+).
 FX data comes from the free, key-less [fxratesapi.com](https://fxratesapi.com)

@@ -20,7 +20,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from fxtracker import mailer, rates, store
+from fxtracker import advisories, mailer, rates, store
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
 # runs stay open while a public/tunneled instance can require a login.
@@ -32,6 +32,8 @@ PUBLIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 CACHE_TTL = 600  # seconds; FX reference rates update at most daily.
 _cache = {"key": None, "at": 0, "data": None}
 _index_cache = {}  # days -> (timestamp, payload)
+_adv_cache = {"at": 0, "data": None}
+ADV_TTL = 6 * 3600  # advisories change rarely; refresh a few times a day
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -129,6 +131,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/index":
             self._handle_index()
             return
+        if path == "/api/advisories":
+            self._handle_advisories()
+            return
         if path == "/api/config":
             cfg = store.load_config()
             cfg["email"] = _redact_email(cfg["email"])
@@ -173,6 +178,19 @@ class Handler(BaseHTTPRequestHandler):
             return
         _index_cache[days] = (now, payload)
         self._send_json(payload)
+
+    def _handle_advisories(self):
+        now = time.time()
+        if _adv_cache["data"] and (now - _adv_cache["at"]) < ADV_TTL:
+            self._send_json(_adv_cache["data"])
+            return
+        try:
+            data = advisories.get_advisories()
+        except Exception as e:
+            self._send_json({"error": str(e)}, 502)
+            return
+        _adv_cache.update(at=now, data=data)
+        self._send_json(data)
 
     def _handle_config_update(self):
         incoming = self._read_body()
