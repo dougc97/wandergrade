@@ -68,18 +68,22 @@ select { padding: 7px 10px; border: 1px solid #ccc; border-radius: 7px; font-siz
 .offseason { background: #eee; color: var(--gray); border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
 .visited-tag { background: #2a2a2a; color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; margin-left: 6px; }
 
-/* advisory tags in the value table */
+/* advisory tags in the value table + key */
 .advtag { display: inline-block; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; color: #fff; margin-left: 6px; vertical-align: 1px; }
 .advtag.a2 { background: #c9a200; }
 .advtag.a3 { background: #d4730a; }
+.advtag.a4 { background: #b00020; }
+.tablekey { color: var(--gray); font-size: 12px; margin: 10px 0 0; }
+.tablekey .advtag { margin-left: 0; }
 
-/* priority weight sliders */
+/* priority pickers (High / Med / Low per factor) */
 .weights { margin: 10px 0 4px; font-size: 14px; }
 .weights summary { cursor: pointer; color: var(--gray); font-weight: 600; }
-.weightrows { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 18px; padding: 10px 2px 4px; }
-.weightrows label { display: grid; grid-template-columns: 76px 1fr 30px; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; }
-.weightrows input[type=range] { width: 100%; accent-color: var(--green); }
-.weightrows .wval { text-align: right; color: var(--gray); font-weight: 400; font-variant-numeric: tabular-nums; }
+.weightrows { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px 18px; padding: 10px 2px 4px; }
+.prirow { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; }
+.prigroup { display: inline-flex; background: #f1f1f1; padding: 2px; border-radius: 7px; gap: 2px; }
+.prigroup button { border: none; background: transparent; padding: 4px 10px; border-radius: 5px; font-size: 12px; color: var(--gray); cursor: pointer; }
+.prigroup button.active { background: #fff; color: var(--ink); font-weight: 700; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 
 /* tap-for-detail country card */
 .countrycard { position: relative; margin-top: 10px; padding: 14px 38px 12px 16px; border: 1px solid var(--line);
