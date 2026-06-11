@@ -945,7 +945,7 @@ for (const b of document.querySelectorAll("#tabs button"))
 
 // ---- newsletter signup (Buttondown embed) ---------------------------------
 // Set this to your public Buttondown newsletter username to enable signups.
-const BUTTONDOWN_USER = "";
+const BUTTONDOWN_USER = "dougc97";
 
 function renderSubscribe() {
   const el = $("subscribe");
