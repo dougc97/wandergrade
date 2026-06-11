@@ -3,6 +3,12 @@
 const $ = (id) => document.getElementById(id);
 let lastRates = null;
 
+// Escape any externally-sourced string before it goes into innerHTML.
+// (Currency names, advisory titles, flight city names, etc. come from
+// third-party APIs and must never be trusted as HTML.)
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
+  (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
 function status(msg, kind) {
   const el = $("status");
   el.textContent = msg;
@@ -141,7 +147,7 @@ function renderRates(data) {
     const star = r.watched ? "" : ' <span title="not on watchlist" style="opacity:.4">·</span>';
     const pl = priceLevelForCurrency(r.code);
     tr.innerHTML = `
-      <td><span class="code">${r.code}</span>${star}<div class="name">${r.name}</div></td>
+      <td><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div></td>
       <td class="num">${fmt(r.rate_now)}</td>
       <td class="num ${sign}">${r.strength_pct >= 0 ? "+" : ""}${r.strength_pct}%</td>
       <td class="num">${pl == null ? "—" : pl.toFixed(2) + " " + plTag(pl)}</td>
@@ -291,15 +297,15 @@ const CUR_BY_ISO = (() => {
     NP:"NPR", AF:"AFN", MM:"MMK", TH:"THB", VN:"VND", KH:"KHR", LA:"LAK",
     MY:"MYR", SG:"SGD", ID:"IDR", PH:"PHP", BN:"BND", HK:"HKD", MO:"MOP",
     TW:"TWD", MN:"MNT", KZ:"KZT", UZ:"UZS", TM:"TMT", KG:"KGS", TJ:"TJS",
-    AZ:"AZN", AM:"AMD", GE:"GEL",
+    AZ:"AZN", AM:"AMD", GE:"GEL", BT:"BTN", KP:"KPW",
     // Oceania
-    AU:"AUD", NZ:"NZD", FJ:"FJD", PG:"PGK",
+    AU:"AUD", NZ:"NZD", FJ:"FJD", PG:"PGK", SB:"SBD", VU:"VUV",
     // Africa
     EG:"EGP", MA:"MAD", DZ:"DZD", TN:"TND", LY:"LYD", ZA:"ZAR", NG:"NGN",
     KE:"KES", GH:"GHS", ET:"ETB", TZ:"TZS", UG:"UGX", RW:"RWF", BI:"BIF",
     SD:"SDG", SO:"SOS", DJ:"DJF", AO:"AOA", MZ:"MZN", ZM:"ZMW", BW:"BWP",
     NA:"NAD", SZ:"SZL", LS:"LSL", MW:"MWK", MG:"MGA", MU:"MUR", GM:"GMD",
-    GN:"GNF", LR:"LRD", CD:"CDF", CV:"CVE", KM:"KMF", MR:"MRU", SC:"SCR",
+    GN:"GNF", LR:"LRD", CD:"CDF", CV:"CVE", KM:"KMF", MR:"MRU", SC:"SCR", ER:"ERN",
     // CFA franc zones (real data via XOF / XAF)
     SN:"XOF", CI:"XOF", ML:"XOF", BF:"XOF", NE:"XOF", BJ:"XOF", TG:"XOF", GW:"XOF",
     CM:"XAF", TD:"XAF", CF:"XAF", CG:"XAF", GA:"XAF", GQ:"XAF",
@@ -358,7 +364,7 @@ function drawMap(hostId, colorFn, ariaLabel) {
     for (const poly of polys)
       for (const ring of poly)
         if (ring.length >= 3) d += projectRing(ring, W, H, latTop, latBot);
-    if (d) paths += `<path d="${d}" fill="${fill}" data-iso="${f.properties.iso}"><title>${title}</title></path>`;
+    if (d) paths += `<path d="${d}" fill="${fill}" data-iso="${esc(f.properties.iso)}"><title>${esc(title)}</title></path>`;
   }
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
 }
@@ -507,7 +513,7 @@ function buildBestPickers() {
       .filter((iso) => sel === "all" || ISO_REGION[iso] === sel)
       .map((iso) => ({ iso, name: climate[iso].name }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    ctry.innerHTML = list.map((c) => `<option value="${c.iso}">${c.name}</option>`).join("");
+    ctry.innerHTML = list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
     if (list.length) renderCountryClimate(ctry.value);
   };
   reg.onchange = fill;
@@ -551,7 +557,7 @@ function renderCountryClimate(iso) {
 
   $("bestDetail").innerHTML = `
     <div class="besthead">
-      <h3>${c.name} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3>
+      <h3>${esc(c.name)} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3>
       <div>${c.curated ? "Curated best months" : "Best weather"}: </div>
     </div>
     <div class="chips">${chips}</div>
@@ -615,11 +621,15 @@ function renderAdvisories() {
   $("advLegend").innerHTML = [1, 2, 3, 4]
     .map((l) => `<span><span class="swatch" style="background:${LVL_COLOR[l]}"></span>L${l}</span>`).join(" ");
 
-  $("advRows").innerHTML = advisories.items.map((it) => `
-    <tr><td>${it.country}</td>
-      <td><span class="lvl lvl${it.level}">Level ${it.level}</span></td>
-      <td>${it.level_text}${it.link ? ` · <a href="${it.link}" target="_blank" rel="noopener">details</a>` : ""}</td>
-    </tr>`).join("");
+  $("advRows").innerHTML = advisories.items.map((it) => {
+    const lvl = parseInt(it.level, 10) || 0;
+    const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
+    return `
+    <tr><td>${esc(it.country)}</td>
+      <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
+      <td>${esc(it.level_text)}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details</a>` : ""}</td>
+    </tr>`;
+  }).join("");
 }
 
 // ===========================================================================
@@ -652,7 +662,7 @@ function renderAfford() {
   rows.sort((a, b) => a.pl - b.pl);
   $("affRows").innerHTML = rows.map((r) => {
     const cls = r.pl <= 0.85 ? "pos" : r.pl > 1.15 ? "neg" : "";
-    return `<tr><td>${r.name}</td><td>${r.cur}</td>
+    return `<tr><td>${esc(r.name)}</td><td>${esc(r.cur)}</td>
       <td class="num ${cls}">${r.pl.toFixed(2)}</td>
       <td class="num">$${Math.round(100 / r.pl)} of US goods</td>
       <td>${plWord(r.pl)}</td></tr>`;
@@ -717,7 +727,7 @@ function renderValue() {
   const ranked = Object.values(scored).sort((a, b) => b.value - a.value).slice(0, 40);
   $("valueRows").innerHTML = ranked.map((s) => {
     const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
-    return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${s.name}${vis}</td>
+    return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${vis}</td>
       <td class="num"><b>${s.value}</b></td>
       <td class="num">${s.aff}</td><td class="num">${s.cur}</td>
       <td class="num">${s.safe}</td><td class="num">${s.wx}</td></tr>`;
@@ -757,7 +767,10 @@ function renderFlights() {
   const items = flightsData.items || [];
   const byC = flightsData.by_country || {};
   const prices = Object.values(byC);
-  const min = Math.min(...prices, 0), max = Math.max(...prices, 1);
+  // Scale colors across the actual fare range (anchoring min at 0 would wash
+  // out the green end — the cheapest real fare should read as fully cheap).
+  const min = prices.length ? Math.min(...prices) : 0;
+  const max = prices.length ? Math.max(...prices) : 1;
   const cur = (flightsData.currency || "usd").toUpperCase();
 
   drawMap("flightMap", (f) => {
@@ -773,10 +786,10 @@ function renderFlights() {
     '<span>Cheaper</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Pricier</span>';
 
   $("flightRows").innerHTML = items.slice(0, 60).map((it) => `
-    <tr><td>${it.city}</td><td>${it.country}</td>
-      <td class="num"><b>${cur} ${it.price}</b></td>
-      <td class="num">${it.depart || "—"}</td><td class="num">${it.return || "—"}</td>
-      <td class="num">${it.transfers}</td></tr>`).join("")
+    <tr><td>${esc(it.city)}</td><td>${esc(it.country)}</td>
+      <td class="num"><b>${esc(cur)} ${Number(it.price) || "?"}</b></td>
+      <td class="num">${esc(it.depart) || "—"}</td><td class="num">${esc(it.return) || "—"}</td>
+      <td class="num">${Number(it.transfers) || 0}</td></tr>`).join("")
     || '<tr><td colspan="6">No fares found from this airport.</td></tr>';
 }
 
@@ -805,7 +818,7 @@ function buildActivityPickers() {
       .filter((iso) => sel === "all" || ISO_REGION[iso] === sel)
       .map((iso) => ({ iso, name: nameFor(iso) }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    ctry.innerHTML = list.map((c) => `<option value="${c.iso}">${c.name}</option>`).join("");
+    ctry.innerHTML = list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
     if (list.length) renderActivity(ctry.value);
     else $("actDetail").innerHTML = "<p class='hint'>No curated activities for this region yet.</p>";
   };
@@ -818,23 +831,23 @@ function buildActivityPickers() {
 function renderActivity(iso) {
   const a = activities[iso];
   const name = (climate && climate[iso] && climate[iso].name) || (ppp[iso] && ppp[iso].name) || iso;
-  if (!a) { $("actDetail").innerHTML = `<h3>${name}</h3><p class="hint">No curated activity profile yet.</p>`; return; }
+  if (!a) { $("actDetail").innerHTML = `<h3>${esc(name)}</h3><p class="hint">No curated activity profile yet.</p>`; return; }
   const m = curMonth();
-  const tags = a.profile.map((p) => `<span class="chip2">${p}</span>`).join("");
-  const acts = a.activities.map((x) => `<li>${x}</li>`).join("");
+  const tags = a.profile.map((p) => `<span class="chip2">${esc(p)}</span>`).join("");
+  const acts = a.activities.map((x) => `<li>${esc(x)}</li>`).join("");
   const seas = (a.seasonal || []).map((s) => {
     const on = s.months.includes(m);
     return `<div class="seasrow">
-      <span class="what">${s.what}</span>
+      <span class="what">${esc(s.what)}</span>
       <span class="months">${s.months.map((x) => MON_ABBR[x - 1]).join(", ")}</span>
       <span class="${on ? "inseason" : "offseason"}">${on ? "in season now" : "off season"}</span>
     </div>`;
   }).join("");
   const vis = isVisited(iso) ? '<span class="visited-tag">✓ visited</span>' : "";
   $("actDetail").innerHTML = `
-    <div class="besthead"><h3>${name} ${vis} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3></div>
+    <div class="besthead"><h3>${esc(name)} ${vis} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3></div>
     <div class="chips">${tags}</div>
-    <p>${a.summary}</p>
+    <p>${esc(a.summary)}</p>
     <h4 style="margin:.6em 0 .2em">Top things to do</h4>
     <ul class="actlist">${acts}</ul>
     ${seas ? `<h4 style="margin:.6em 0 .2em">What's in season (now: ${MONTHS[m - 1]})</h4>${seas}` : ""}`;
@@ -871,9 +884,20 @@ function buildVisited() {
     .map((iso) => ({ iso, name: countryName(iso) }))
     .sort((a, b) => a.name.localeCompare(b.name));
   pick.innerHTML = '<option value="">+ add a country…</option>' +
-    all.map((c) => `<option value="${c.iso}">${c.name}</option>`).join("");
+    all.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
   pick.onchange = () => { if (pick.value) { toggleVisited(pick.value); pick.value = ""; renderVisited(); } };
   $("visitedClear").onclick = () => { visited.clear(); saveVisited(); renderVisited(); };
+  // One delegated listener each on the (stable) containers — survives innerHTML
+  // re-renders and avoids re-binding 176 path handlers every toggle.
+  $("visitedMap").addEventListener("click", (e) => {
+    const p = e.target.closest("path");
+    const iso = p && p.getAttribute("data-iso");
+    if (iso && iso !== "-99") { toggleVisited(iso); renderVisited(); }
+  });
+  $("visitedChips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".rm");
+    if (chip) { toggleVisited(chip.dataset.iso); renderVisited(); }
+  });
   renderVisited();
 }
 
@@ -883,22 +907,12 @@ function renderVisited() {
     return { fill: v ? "#0a7d28" : "#e0e4e8",
       title: f.properties.name + (v ? " — visited ✓ (click to remove)" : " — click to mark visited") };
   }, "Countries visited");
-  // click to toggle
-  $("visitedMap").querySelectorAll("path").forEach((p) => {
-    p.addEventListener("click", () => {
-      const iso = p.getAttribute("data-iso");
-      if (iso && iso !== "-99") { toggleVisited(iso); renderVisited(); }
-    });
-  });
   const list = [...visited].map((iso) => ({ iso, name: countryName(iso) }))
     .sort((a, b) => a.name.localeCompare(b.name));
   $("visitedSub").textContent = `${visited.size} countries visited. Click the map or use the dropdown. Saved in this browser.`;
   $("visitedChips").innerHTML = list.length
-    ? list.map((c) => `<span class="chip2 rm" data-iso="${c.iso}" title="remove">${c.name} ✕</span>`).join("")
+    ? list.map((c) => `<span class="chip2 rm" data-iso="${esc(c.iso)}" title="remove">${esc(c.name)} ✕</span>`).join("")
     : '<span class="hint">None yet — click countries on the map.</span>';
-  $("visitedChips").querySelectorAll(".rm").forEach((el) => {
-    el.addEventListener("click", () => { toggleVisited(el.dataset.iso); renderVisited(); });
-  });
 }
 
 // ===========================================================================

@@ -13,6 +13,7 @@ Endpoints:
 """
 
 import base64
+import gzip
 import hmac
 import json
 import os
@@ -64,13 +65,30 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "fx-tracker/1.0"
 
     # ---- helpers ---------------------------------------------------------
-    def _send_json(self, obj, status=200):
-        body = json.dumps(obj).encode("utf-8")
+    def _gzip_ok(self):
+        return "gzip" in (self.headers.get("Accept-Encoding") or "")
+
+    def _send_body(self, body, ctype, status=200, cache=None):
+        """Send a response, gzipping text payloads over ~1KB when accepted.
+        world.geojson alone drops ~163KB -> ~50KB, which matters most on
+        Render free-tier cold starts."""
+        encoding = None
+        if len(body) > 1024 and self._gzip_ok() and not ctype.startswith("image/"):
+            body = gzip.compress(body, 6)
+            encoding = "gzip"
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", ctype)
+        if encoding:
+            self.send_header("Content-Encoding", encoding)
+        if cache:
+            self.send_header("Cache-Control", cache)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_json(self, obj, status=200):
+        self._send_body(json.dumps(obj).encode("utf-8"),
+                        "application/json; charset=utf-8", status)
 
     def _send_file(self, path):
         try:
@@ -79,12 +97,13 @@ class Handler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self._send_json({"error": "not found"}, 404)
             return
-        ctype = CONTENT_TYPES.get(os.path.splitext(path)[1], "application/octet-stream")
-        self.send_response(200)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        ext = os.path.splitext(path)[1]
+        ctype = CONTENT_TYPES.get(ext, "application/octet-stream")
+        # Data files change rarely (rebuilds/deploys); app code a bit more often.
+        cache = "public, max-age=86400" if ext == ".geojson" \
+            else "public, max-age=3600" if ext == ".json" \
+            else "public, max-age=300"
+        self._send_body(body, ctype, cache=cache)
 
     def _read_body(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -223,12 +242,29 @@ class Handler(BaseHTTPRequestHandler):
         _adv_cache.update(at=now, data=data)
         self._send_json(data)
 
+    @staticmethod
+    def _clamped(value, lo, hi, cast):
+        """Coerce a settings number into its sane range; None if unusable."""
+        try:
+            return max(lo, min(hi, cast(value)))
+        except (TypeError, ValueError):
+            return None
+
     def _handle_config_update(self):
         incoming = self._read_body()
         cfg = store.load_config()
-        for k in ("watch", "baseline_days", "threshold_pct", "alert_cooldown_hours"):
+        if isinstance(incoming.get("watch"), list):
+            cfg["watch"] = [str(c).upper()[:3] for c in incoming["watch"]][:200]
+        bounds = {
+            "baseline_days": (30, 3650, int),
+            "threshold_pct": (0, 50, float),
+            "alert_cooldown_hours": (1, 8760, int),
+        }
+        for k, (lo, hi, cast) in bounds.items():
             if k in incoming:
-                cfg[k] = incoming[k]
+                v = self._clamped(incoming[k], lo, hi, cast)
+                if v is not None:
+                    cfg[k] = v
         if "email" in incoming and isinstance(incoming["email"], dict):
             # Preserve stored password if the client sends the redaction placeholder.
             sent = dict(incoming["email"])

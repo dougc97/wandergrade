@@ -28,6 +28,12 @@ header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide { max-width: 960px
 .tabs button:hover { color: var(--ink); }
 .tabs button.active { color: var(--ink); font-weight: 600; border-bottom-color: var(--ink); }
 .tab[hidden] { display: none; }
+@media (max-width: 760px) {
+  /* one swipeable row instead of wrapping into 3 rows of tabs */
+  .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { flex: 0 0 auto; white-space: nowrap; }
+}
 
 .cardwide { background: #fff; border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 16px; }
 .pickers { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -148,7 +154,12 @@ small { color: var(--gray); font-weight: 400; }
 .chart svg { width: 100%; height: auto; display: block; }
 .chartnote { color: var(--gray); font-size: 12px; margin: 6px 0 0; }
 
-.tablewrap { margin-top: 18px; padding-bottom: 24px; }
+.tablewrap { margin-top: 18px; padding-bottom: 24px; overflow-x: auto; }
+@media (max-width: 680px) {
+  /* keep numeric columns readable on phones — scroll sideways instead of crushing */
+  .tablewrap table { min-width: 560px; }
+  .grid { grid-template-columns: 1fr; }
+}
 table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
 th { background: #f3f3f3; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--gray); }

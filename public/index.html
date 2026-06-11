@@ -3,7 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>USD Strength Tracker</title>
+  <title>USD Strength &amp; Travel Tracker</title>
+  <meta name="description" content="Where the US dollar goes furthest: currency strength, cost of living, best season, safety, and flight prices for every country.">
+  <meta property="og:title" content="USD Strength &amp; Travel Tracker">
+  <meta property="og:description" content="Where the dollar goes furthest, when to go, and how safe it is.">
+  <meta property="og:type" content="website">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💵</text></svg>">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -76,6 +81,8 @@
 
     <section id="settings" class="settings" hidden>
       <h2>Settings</h2>
+      <p class="hint">⚠️ On free hosting, settings saved here reset to the repo defaults whenever the
+      service redeploys or restarts. For permanent changes, edit <code>config.json</code> in the repo.</p>
       <div class="grid">
         <label>Baseline window (days)
           <input type="number" id="baseline_days" min="30" max="3650" step="1">
