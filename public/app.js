@@ -1186,13 +1186,177 @@ function renderSubscribe() {
     </form>`;
 }
 
+// ===========================================================================
+//  Share: encode the current tab + settings into a URL anyone can open
+// ===========================================================================
+function currentTab() {
+  const b = document.querySelector("#tabs button.active");
+  return b ? b.dataset.tab : "value";
+}
+
+function buildShareURL() {
+  const q = new URLSearchParams();
+  const tab = currentTab();
+  q.set("tab", tab);
+  if (tab === "value") {
+    if ($("valueRegion").value !== "all") q.set("vr", $("valueRegion").value);
+    q.set("vmn", $("valueMonth").value);
+    if ($("valueOrigin").value && $("valueOrigin").value !== "US") q.set("vo", $("valueOrigin").value);
+    if (valueMapMode === "weather") q.set("vmm", "weather");
+    const p = loadPriorities();
+    const compact = WEIGHT_DEFS.map((w) => p[w.key][0]).join(".");   // e.g. h.m.m.m.m
+    if (compact !== WEIGHT_DEFS.map((w) => w.def[0]).join(".")) q.set("pri", compact);
+  } else if (tab === "money") {
+    if ($("moneySubAfford") && !$("moneySubAfford").hidden) q.set("mmode", "afford");
+    if (activeDays !== 365) q.set("win", String(activeDays));
+  } else if (tab === "guide") {
+    q.set("gc", $("bestCountry").value || "JP");
+  } else if (tab === "flights") {
+    if ($("flightOrigin").value) q.set("fo", $("flightOrigin").value);
+  } else if (tab === "visited") {
+    loadVisited();
+    if (visited.size) q.set("v", [...visited].join(","));
+  }
+  return location.origin + location.pathname + "?" + q.toString();
+}
+
+async function shareCurrent() {
+  const url = buildShareURL();
+  if (navigator.share) {
+    try { await navigator.share({ title: "USD Strength & Travel Tracker", url }); return; }
+    catch (e) { /* user cancelled -> fall through to clipboard */ }
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    status("Share link copied to clipboard 🔗", "ok");
+  } catch (e) {
+    status("Share link: " + url, "ok");
+  }
+}
+
+// Restore state from a shared URL. Pre-phase runs before the first tab builds
+// (priorities + visited list); post-phase sets controls after tabs exist.
+const sharedQ = new URLSearchParams(location.search);
+
+function preApplyShared() {
+  if (![...sharedQ.keys()].length) return;
+  const pri = sharedQ.get("pri");
+  if (pri) {
+    const lv = { h: "high", m: "med", l: "low" };
+    const parts = pri.split(".");
+    loadPriorities();
+    WEIGHT_DEFS.forEach((w, i) => { if (lv[parts[i]]) priorities[w.key] = lv[parts[i]]; });
+    savePriorities();
+  }
+  const v = sharedQ.get("v");
+  if (v) {
+    loadVisited();
+    visited = new Set(v.split(",").map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z]{2}$/.test(s)));
+  }
+}
+
+async function postApplyShared() {
+  if (![...sharedQ.keys()].length) return;
+  const tab = sharedQ.get("tab");
+  if (tab && tab !== "value" && document.querySelector(`#tabs button[data-tab="${tab}"]`)) {
+    await activateTab(tab);
+  }
+  let rerender = false;
+  if (sharedQ.get("vr") && [...$("valueRegion").options].some((o) => o.value === sharedQ.get("vr"))) {
+    $("valueRegion").value = sharedQ.get("vr"); rerender = true;
+  }
+  if (sharedQ.get("vmn")) { $("valueMonth").value = sharedQ.get("vmn"); rerender = true; }
+  if (sharedQ.get("vmm") === "weather") {
+    valueMapMode = "weather"; rerender = true;
+    document.querySelectorAll("#valueMapMode button").forEach((b) =>
+      b.classList.toggle("active", b.dataset.vm === "weather"));
+  }
+  if (sharedQ.get("vo")) {
+    ensureOrigins().then(() => { $("valueOrigin").value = sharedQ.get("vo"); }).catch(() => {});
+  }
+  if (rerender && loaded.value) renderValue();
+  if (sharedQ.get("gc")) await openGuideFor(sharedQ.get("gc"));
+  if (sharedQ.get("mmode") === "afford") {
+    const b = document.querySelector('#moneyMode button[data-mm="afford"]');
+    if (b) b.click();
+  }
+  if (sharedQ.get("win")) loadIndex(parseInt(sharedQ.get("win"), 10) || 365);
+  if (sharedQ.get("fo") && loaded.flights) { $("flightOrigin").value = sharedQ.get("fo"); loadFlights(); }
+  if (sharedQ.get("v") && tab === "visited") {
+    renderVisited();
+    status(`Viewing a shared map of ${visited.size} countries — editing it will overwrite your own saved list.`, "ok");
+  }
+}
+
+// ===========================================================================
+//  Visited tab: social-media share image (SVG -> canvas -> PNG)
+// ===========================================================================
+function buildVisitedShareSVG() {
+  const W = 1200, H = 630, mapW = 1120, latTop = 83, latBot = -56;
+  const mapH = Math.round((mapW * (latTop - latBot)) / 360);   // ~432
+  let paths = "";
+  for (const f of worldGeo.features) {
+    const v = visited.has(f.properties.iso);
+    const g = f.geometry;
+    const polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
+    let d = "";
+    for (const poly of polys)
+      for (const ring of poly)
+        if (ring.length >= 3) d += projectRing(ring, mapW, mapH, latTop, latBot);
+    if (d) paths += `<path d="${d}" fill="${v ? "#2ecc71" : "#2a3950"}" stroke="#0e1726" stroke-width="0.5"/>`;
+  }
+  const n = visited.size, pct = Math.max(1, Math.round((n / 195) * 100));
+  const font = "-apple-system,'Segoe UI',Arial,sans-serif";
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+    <rect width="${W}" height="${H}" fill="#0e1726"/>
+    <text x="60" y="76" font-family="${font}" font-size="44" font-weight="700" fill="#ffffff">I've visited ${n} ${n === 1 ? "country" : "countries"}</text>
+    <text x="60" y="114" font-family="${font}" font-size="23" fill="#8fa3bd">${n ? "that's ~" + pct + "% of the world" : "the map awaits"} — which ones have you been to?</text>
+    <g transform="translate(${(W - mapW) / 2},156)">${paths}</g>
+    <text x="${W - 60}" y="${H - 22}" text-anchor="end" font-family="${font}" font-size="17" fill="#566b85">USD Strength &amp; Travel Tracker</text>
+  </svg>`;
+}
+
+async function downloadVisitedImage() {
+  try {
+    await ensureWorld();
+    loadVisited();
+    const svg = buildVisitedShareSVG();
+    const blobUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = blobUrl; });
+    const canvas = document.createElement("canvas");
+    canvas.width = 1200; canvas.height = 630;
+    canvas.getContext("2d").drawImage(img, 0, 0);
+    URL.revokeObjectURL(blobUrl);
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+    const file = new File([blob], "countries-visited.png", { type: "image/png" });
+    // Native share sheet on phones (posts straight to socials); download elsewhere.
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: "Countries I've visited" }); return; }
+      catch (e) { /* cancelled -> download instead */ }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "countries-visited.png";
+    a.click();
+    status("Share image downloaded — post it anywhere 🌍", "ok");
+  } catch (e) {
+    status("Could not build share image: " + e.message, "err");
+  }
+}
+
+$("shareBtn").addEventListener("click", shareCurrent);
+$("visitedImage").addEventListener("click", downloadVisitedImage);
+
 (async function init() {
   initTheme();
   renderSubscribe();
+  preApplyShared();
   // Load the currency data (the "Where to go" score needs live rates + PPP),
   // render the currency tab in the background, then open the verdict tab.
   await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates()]);
   renderMapSafe();
   loadIndex(365);
-  activateTab("value");
+  await activateTab("value");
+  await postApplyShared().catch(() => {});
 })();
