@@ -17,6 +17,7 @@ jobs:
           python-version: "3.11"
       - name: Run favorability check & send email
         env:
-          # Set this in: repo Settings -> Secrets and variables -> Actions -> New secret
-          FX_SMTP_PASSWORD: ${{ secrets.FX_SMTP_PASSWORD }}
+          # Set these in: repo Settings -> Secrets and variables -> Actions
+          FX_SMTP_PASSWORD: ${{ secrets.FX_SMTP_PASSWORD }}       # personal email
+          BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}   # newsletter list
         run: python3 check.py
