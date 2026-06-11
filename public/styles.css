@@ -81,6 +81,7 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 
 /* advisory tags in the value table + key */
 .advtag { display: inline-block; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; color: #fff; margin-left: 6px; vertical-align: 1px; }
+.advtag.a1 { background: #0a7d28; }
 .advtag.a2 { background: #c9a200; }
 .advtag.a3 { background: #d4730a; }
 .advtag.a4 { background: #b00020; }

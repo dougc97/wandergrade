@@ -22,13 +22,26 @@ function applyTheme(t) {
   if (lastIndexData) renderIndex(lastIndexData);   // redraw chart in new palette
 }
 function initTheme() {
+  // Default follows the browser/OS color scheme; a manual toggle overrides and
+  // is remembered. Until then, live OS changes are tracked too.
+  const mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+  const sys = () => (mq && mq.matches ? "dark" : "light");
   const stored = localStorage.getItem("fx_theme");
-  const t = stored || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const t = stored || sys();
   document.documentElement.dataset.theme = t;
   const btn = $("themeBtn");
   if (btn) {
     btn.textContent = t === "dark" ? "☀️" : "🌙";
     btn.onclick = () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  }
+  if (mq && mq.addEventListener) {
+    mq.addEventListener("change", () => {
+      if (!localStorage.getItem("fx_theme")) {   // no manual override yet
+        document.documentElement.dataset.theme = sys();
+        if (btn) btn.textContent = sys() === "dark" ? "☀️" : "🌙";
+        if (lastIndexData) renderIndex(lastIndexData);
+      }
+    });
   }
 }
 let lastIndexData = null;
@@ -925,7 +938,8 @@ function renderValue() {
   const ranked = Object.values(scored).sort((a, b) => b.value - a.value).slice(0, 40);
   $("valueRows").innerHTML = ranked.map((s) => {
     const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
-    const adv = s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
+    const adv = s.advLvl === 1 ? ' <span class="advtag a1" title="Level 1: Exercise Normal Precautions">L1</span>'
+              : s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
               : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
     const flight = s.fare != null ? `$${Math.round(s.fare)}` : "—";
     return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
