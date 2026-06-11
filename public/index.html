@@ -159,13 +159,20 @@
       <div class="charthead">
         <div>
           <h2>Best value destinations <span class="muted">right now</span></h2>
-          <p class="chartsub">Blends affordability (PPP), dollar strength vs history, safety, and weather for the chosen month.</p>
+          <p class="chartsub">Blends affordability (PPP), dollar strength vs history, safety, and weather for the chosen month.
+          Level&nbsp;4 “Do&nbsp;Not&nbsp;Travel” countries are excluded.</p>
         </div>
         <div class="pickers">
           <select id="valueRegion"></select>
           <select id="valueMonth"></select>
+          <input type="text" id="valueOrigin" maxlength="3" placeholder="JFK" title="home airport for flight prices" style="width:64px;text-transform:uppercase">
+          <button id="valueFlightsBtn" title="Fold cheapest round-trip fares into the score">+ flights</button>
         </div>
       </div>
+      <details class="weights" id="weightsBox">
+        <summary>⚖️ Adjust priorities</summary>
+        <div class="weightrows" id="weightRows"></div>
+      </details>
       <div id="valueMap" class="map">Loading…</div>
     </div>
     <section class="tablewrap">
@@ -173,8 +180,9 @@
         <thead><tr>
           <th>Country</th><th class="num">Value</th><th class="num">Cheap</th>
           <th class="num">$ timing</th><th class="num">Safe</th><th class="num">Weather</th>
+          <th class="num">Flight</th>
         </tr></thead>
-        <tbody id="valueRows"><tr><td colspan="6">Loading…</td></tr></tbody>
+        <tbody id="valueRows"><tr><td colspan="7">Loading…</td></tr></tbody>
       </table>
     </section>
   </section>

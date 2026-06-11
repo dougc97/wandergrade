@@ -367,6 +367,79 @@ function drawMap(hostId, colorFn, ariaLabel) {
     if (d) paths += `<path d="${d}" fill="${fill}" data-iso="${esc(f.properties.iso)}"><title>${esc(title)}</title></path>`;
   }
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
+
+  // Tap-for-detail on every map (the visited map keeps its toggle behavior).
+  // Property assignment (not addEventListener) stays idempotent across re-renders,
+  // and works on touch where hover tooltips don't.
+  if (hostId !== "visitedMap") {
+    host.onclick = (e) => {
+      const p = e.target.closest("path");
+      const iso = p && p.getAttribute("data-iso");
+      if (iso && iso !== "-99") showCountryCard(iso, host);
+    };
+  }
+}
+
+// ---- tap-for-detail country card -------------------------------------------
+let ccCurrent = null;   // { iso, host } of the open card
+
+function showCountryCard(iso, host) {
+  ccCurrent = { iso, host };
+  renderCountryCard();
+  // Pull in whatever context isn't loaded yet, then refresh the open card.
+  Promise.all([ensureClimate().catch(() => {}), ensureAdvisories().catch(() => {}),
+               ensureActivities().catch(() => {})])
+    .then(() => { if (ccCurrent && ccCurrent.iso === iso) renderCountryCard(); });
+}
+
+function renderCountryCard() {
+  if (!ccCurrent) return;
+  const { iso, host } = ccCurrent;
+  let card = host.nextElementSibling;
+  if (!card || !card.classList.contains("countrycard")) {
+    document.querySelectorAll(".countrycard").forEach((c) => c.remove());
+    card = document.createElement("div");
+    card.className = "countrycard";
+    host.insertAdjacentElement("afterend", card);
+  }
+  const name = countryName(iso);
+  const cur = CUR_BY_ISO[iso];
+  const row = cur && lastRates ? lastRates.rows.find((r) => r.code === cur) : null;
+  const pl = priceLevel(iso);
+  const advLvl = advisoryByIso()[iso];
+  const cl = climate && climate[iso];
+  const act = activities && activities[iso];
+
+  const facts = [];
+  if (cur) facts.push(`💱 ${esc(cur)}${row ? ` ${row.strength_pct >= 0 ? "+" : ""}${row.strength_pct}% vs avg` : (cur === "USD" ? " (US dollar)" : "")}`);
+  if (pl != null) facts.push(`💰 price level ${pl.toFixed(2)} (${plWord(pl)})`);
+  if (advLvl) facts.push(`⚠️ advisory Level ${advLvl}${advLvl === 4 ? " — Do Not Travel" : ""}`);
+  if (cl && cl.best && cl.best.length) facts.push(`📅 best months: ${cl.best.map((m) => MON_ABBR[m - 1]).join(", ")}`);
+
+  const vis = isVisited(iso);
+  card.innerHTML = `
+    <button class="ccclose" title="close" aria-label="close">✕</button>
+    <h3>${esc(name)} ${vis ? '<span class="visited-tag">✓ visited</span>' : ""}</h3>
+    <div class="ccfacts">${facts.map((f) => `<span>${f}</span>`).join("") || "<span>Loading details…</span>"}</div>
+    ${act ? `<p class="ccsummary">${esc(act.summary)}</p>` : ""}
+    <div class="ccbtns">
+      ${act ? '<button data-cc="todo">Things to do →</button>' : ""}
+      <button data-cc="visit">${vis ? "Unmark visited" : "Mark visited"}</button>
+    </div>`;
+  card.querySelector(".ccclose").onclick = () => { card.remove(); ccCurrent = null; };
+  const todo = card.querySelector('[data-cc="todo"]');
+  if (todo) todo.onclick = async () => {
+    await activateTab("activities");
+    const ctry = $("actCountry");
+    if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
+    renderActivity(iso);
+  };
+  card.querySelector('[data-cc="visit"]').onclick = () => {
+    toggleVisited(iso);
+    renderCountryCard();
+    if (loaded.value && !$("tab-value").hidden) renderValue();
+    if (loaded.visited) renderVisited();
+  };
 }
 
 function renderMap(rows) {
@@ -672,8 +745,42 @@ function renderAfford() {
 // ===========================================================================
 //  Best value now (blend affordability + currency timing + safety + weather)
 // ===========================================================================
-const WEIGHTS = { aff: 0.30, cur: 0.20, safe: 0.25, wx: 0.25 };
 const clamp100 = (x) => Math.max(0, Math.min(100, Math.round(x)));
+
+// User-adjustable priority weights (relative, normalized at score time).
+// "fly" only participates for countries that have a fare loaded.
+const WEIGHT_DEFS = [
+  { key: "aff",  label: "Cheap",    def: 30 },
+  { key: "cur",  label: "$ timing", def: 20 },
+  { key: "safe", label: "Safety",   def: 25 },
+  { key: "wx",   label: "Weather",  def: 25 },
+  { key: "fly",  label: "Flights",  def: 20 },
+];
+let weights = null;
+function loadWeights() {
+  if (weights) return weights;
+  try { weights = JSON.parse(localStorage.getItem("fx_weights") || "null"); } catch (e) {}
+  if (!weights) weights = Object.fromEntries(WEIGHT_DEFS.map((w) => [w.key, w.def]));
+  return weights;
+}
+function saveWeights() { localStorage.setItem("fx_weights", JSON.stringify(weights)); }
+
+function buildWeightSliders() {
+  loadWeights();
+  $("weightRows").innerHTML = WEIGHT_DEFS.map((w) => `
+    <label>${w.label}
+      <input type="range" min="0" max="100" step="5" value="${weights[w.key]}" data-w="${w.key}">
+      <span class="wval" id="wval_${w.key}">${weights[w.key]}</span>
+    </label>`).join("");
+  $("weightRows").querySelectorAll("input[type=range]").forEach((sl) => {
+    sl.addEventListener("input", () => {
+      weights[sl.dataset.w] = parseInt(sl.value, 10);
+      $("wval_" + sl.dataset.w).textContent = sl.value;
+      saveWeights();
+      renderValue();
+    });
+  });
+}
 
 function advisoryByIso() {
   const m = {};
@@ -681,20 +788,53 @@ function advisoryByIso() {
   return m;
 }
 
-function valueScores(iso, month) {
+function valueScores(iso, month, advMap, fares) {
   const pl = priceLevel(iso);
   if (pl == null) return null;                       // need affordability to rank
+  const advLvl = advMap[iso];
+  if (advLvl === 4) return null;                     // Do Not Travel: excluded outright
   const cur = CUR_BY_ISO[iso];
   const row = cur && cur !== "USD" ? lastRates.rows.find((r) => r.code === cur) : null;
-  const advLvl = advisoryByIso()[iso];
   const cl = climate && climate[iso];
 
-  const aff = clamp100((1.3 - pl) / 1.1 * 100);
-  const curS = row ? clamp100(50 + row.strength_pct * 4) : 50;
-  const safe = advLvl ? { 1: 100, 2: 70, 3: 35, 4: 0 }[advLvl] : 70;
-  const wx = cl && cl.scores[month - 1] != null ? cl.scores[month - 1] : 50;
-  const value = clamp100(WEIGHTS.aff * aff + WEIGHTS.cur * curS + WEIGHTS.safe * safe + WEIGHTS.wx * wx);
-  return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso, aff, cur: curS, safe, wx, value };
+  const w = loadWeights();
+  const comps = {
+    aff: clamp100((1.3 - pl) / 1.1 * 100),
+    cur: row ? clamp100(50 + row.strength_pct * 4) : 50,
+    safe: advLvl ? { 1: 100, 2: 70, 3: 35 }[advLvl] : 70,
+    wx: cl && cl.scores[month - 1] != null ? cl.scores[month - 1] : 50,
+  };
+  let fare = null;
+  if (fares && fares.prices[iso] != null) {
+    fare = fares.prices[iso];
+    comps.fly = fares.max > fares.min
+      ? clamp100(((fares.max - fare) / (fares.max - fares.min)) * 100) : 50;
+  }
+  // Weighted mean over the components this country actually has.
+  let num = 0, den = 0;
+  for (const k in comps) { num += (w[k] || 0) * comps[k]; den += (w[k] || 0); }
+  const value = den ? clamp100(num / den) : 0;
+  return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
+           aff: comps.aff, cur: comps.cur, safe: comps.safe, wx: comps.wx,
+           fly: comps.fly, fare, advLvl, value };
+}
+
+async function loadValueFlights() {
+  const origin = ($("valueOrigin").value || "JFK").trim().toUpperCase().slice(0, 3);
+  $("valueFlightsBtn").textContent = "loading…";
+  try {
+    const data = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
+    if (!data.configured) {
+      status("Flight prices need TRAVELPAYOUTS_TOKEN on the server — see the Flight prices tab.", "err");
+    } else {
+      flightsData = data;
+      status(`Flights from ${origin} folded into the score.`, "ok");
+    }
+  } catch (e) {
+    status("Could not load flights: " + e.message, "err");
+  }
+  $("valueFlightsBtn").textContent = "+ flights";
+  renderValue();
 }
 
 function buildValueTab() {
@@ -704,34 +844,53 @@ function buildValueTab() {
   mon.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
   reg.onchange = renderValue;
   mon.onchange = renderValue;
+  $("valueFlightsBtn").onclick = loadValueFlights;
+  $("valueOrigin").addEventListener("keydown", (e) => { if (e.key === "Enter") loadValueFlights(); });
+  buildWeightSliders();
   renderValue();
 }
 
 function renderValue() {
   const region = $("valueRegion").value;
   const month = parseInt($("valueMonth").value, 10);
+  const advMap = advisoryByIso();
+
+  // Fare context: cheapest fare per country, min/max for normalization.
+  let fares = null;
+  if (flightsData && flightsData.configured && flightsData.by_country) {
+    const prices = flightsData.by_country;
+    const vals = Object.values(prices);
+    if (vals.length) fares = { prices, min: Math.min(...vals), max: Math.max(...vals) };
+  }
+
   const scored = {};
   for (const iso in CUR_BY_ISO) {
     if (region !== "all" && ISO_REGION[iso] !== region) continue;
-    const s = valueScores(iso, month);
+    const s = valueScores(iso, month, advMap, fares);
     if (s) scored[iso] = s;
   }
   drawMap("valueMap", (f) => {
     const s = scored[f.properties.iso];
-    return s ? { fill: comfortColor(s.value),
-        title: `${s.name}: value ${s.value}/100 (cheap ${s.aff}, $ ${s.cur}, safe ${s.safe}, wx ${s.wx})` }
-      : { fill: NODATA, title: f.properties.name + " — not scored" };
+    if (s) return { fill: comfortColor(s.value),
+      title: `${s.name}: value ${s.value}/100 (cheap ${s.aff}, $ ${s.cur}, safe ${s.safe}, wx ${s.wx}${s.fly != null ? ", fly " + s.fly : ""})` };
+    if (advMap[f.properties.iso] === 4)
+      return { fill: "#b00020", title: f.properties.name + " — Level 4: Do Not Travel (excluded)" };
+    return { fill: NODATA, title: f.properties.name + " — not scored" };
   }, "Best value destinations");
 
   loadVisited();
   const ranked = Object.values(scored).sort((a, b) => b.value - a.value).slice(0, 40);
   $("valueRows").innerHTML = ranked.map((s) => {
     const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
-    return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${vis}</td>
+    const adv = s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2 caution</span>'
+              : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3 reconsider</span>' : "";
+    const flight = s.fare != null ? `$${Math.round(s.fare)}` : "—";
+    return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
       <td class="num"><b>${s.value}</b></td>
       <td class="num">${s.aff}</td><td class="num">${s.cur}</td>
-      <td class="num">${s.safe}</td><td class="num">${s.wx}</td></tr>`;
-  }).join("") || '<tr><td colspan="6">No data for this region.</td></tr>';
+      <td class="num">${s.safe}</td><td class="num">${s.wx}</td>
+      <td class="num">${flight}</td></tr>`;
+  }).join("") || '<tr><td colspan="7">No data for this region.</td></tr>';
 }
 
 // ===========================================================================

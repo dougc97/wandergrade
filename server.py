@@ -99,9 +99,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         ext = os.path.splitext(path)[1]
         ctype = CONTENT_TYPES.get(ext, "application/octet-stream")
-        # Data files change rarely (rebuilds/deploys); app code a bit more often.
+        # geojson is effectively static; other data files change with deploys, so
+        # keep their staleness window short (10 min) to not mask fresh releases.
         cache = "public, max-age=86400" if ext == ".geojson" \
-            else "public, max-age=3600" if ext == ".json" \
+            else "public, max-age=600" if ext == ".json" \
             else "public, max-age=300"
         self._send_body(body, ctype, cache=cache)
 
