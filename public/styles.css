@@ -235,7 +235,8 @@ footer a { color: var(--gray); }
 
 /* ---- header row + theme toggle + layout helpers ---- */
 .headrow { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.themebtn { font-size: 17px; padding: 6px 10px; border-radius: 8px; line-height: 1; }
+.headbtns { display: flex; gap: 8px; flex-shrink: 0; }
+.themebtn { font-size: 14px; padding: 7px 11px; border-radius: 8px; line-height: 1.2; white-space: nowrap; }
 .rowsplit { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .softrule { border: none; border-top: 1px solid var(--line); margin: 18px 0 14px; }
 
