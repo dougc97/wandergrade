@@ -165,8 +165,8 @@
         <div class="pickers">
           <select id="valueRegion"></select>
           <select id="valueMonth"></select>
-          <input type="text" id="valueOrigin" maxlength="3" placeholder="JFK" title="home airport for flight prices" style="width:64px;text-transform:uppercase">
-          <button id="valueFlightsBtn" title="Fold cheapest round-trip fares into the score">+ flights</button>
+          <select id="valueOrigin" title="home country for flight prices"></select>
+          <button id="valueFlightsBtn" title="Fold average round-trip fares into the score">+ flights</button>
         </div>
       </div>
       <details class="weights" id="weightsBox">
@@ -267,24 +267,24 @@
     <div class="cardwide">
       <div class="charthead">
         <div>
-          <h2>Cheapest flights <span class="muted">from your home airport</span></h2>
-          <p id="flightSub" class="chartsub">Enter your home airport and search.</p>
+          <h2>Flight prices by country <span class="muted">average round-trip from your country</span></h2>
+          <p id="flightSub" class="chartsub">Pick where you're flying from. International routes only, averaged per destination country.</p>
         </div>
         <div class="pickers">
-          <input type="text" id="flightOrigin" maxlength="3" placeholder="JFK" value="JFK" style="width:80px;text-transform:uppercase">
+          <select id="flightOrigin"></select>
           <button id="flightGo">Search</button>
           <div class="legend" id="flightLegend"></div>
         </div>
       </div>
-      <div id="flightMap" class="map">Enter an airport and hit Search.</div>
+      <div id="flightMap" class="map">Loading…</div>
     </div>
     <section class="tablewrap">
       <table id="flightTable">
         <thead><tr>
-          <th>Destination</th><th>Country</th><th class="num">Price</th>
-          <th class="num">Depart</th><th class="num">Return</th><th class="num">Stops</th>
+          <th>Destination country</th><th class="num">Avg round-trip</th>
+          <th class="num">Cheapest</th><th class="num">Routes sampled</th>
         </tr></thead>
-        <tbody id="flightRows"><tr><td colspan="6">No search yet.</td></tr></tbody>
+        <tbody id="flightRows"><tr><td colspan="4">No search yet.</td></tr></tbody>
       </table>
     </section>
   </section>
