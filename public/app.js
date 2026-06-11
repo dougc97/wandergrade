@@ -1138,9 +1138,19 @@ function toggleVisited(iso) {
   saveVisited();
 }
 
+let _displayNames = null;
 function countryName(iso) {
-  return (climate && climate[iso] && climate[iso].name) ||
-         (ppp && ppp[iso] && ppp[iso].name) || iso;
+  const n = (climate && climate[iso] && climate[iso].name) ||
+            (ppp && ppp[iso] && ppp[iso].name);
+  if (n) return n;
+  // Micro-states and small islands (Andorra, Singapore, Bahrain…) aren't in the
+  // map-derived data files; the browser's own region names cover them.
+  try {
+    _displayNames = _displayNames || new Intl.DisplayNames(["en"], { type: "region" });
+    return _displayNames.of(iso) || iso;
+  } catch (e) {
+    return iso;
+  }
 }
 
 function buildVisited() {
