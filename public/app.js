@@ -1423,6 +1423,23 @@ async function downloadVisitedImage() {
 $("shareBtn").addEventListener("click", shareCurrent);
 $("visitedImage").addEventListener("click", downloadVisitedImage);
 
+// "Use on another device": copy a link carrying the full visited list, so the
+// user can open it on their phone and keep editing there (manual sync, no account).
+$("visitedSync").addEventListener("click", async () => {
+  loadVisited();
+  if (!visited.size) { status("Mark a few countries first — then the link will carry your map.", "err"); return; }
+  const url = location.origin + location.pathname + "?tab=visited&v=" + [...visited].join(",");
+  if (navigator.share) {
+    try { await navigator.share({ title: "My visited-countries map", url }); return; } catch (e) {}
+  }
+  try {
+    await navigator.clipboard.writeText(url);
+    status("Link copied — open it on your phone (or any browser) to continue your map there 📱", "ok");
+  } catch (e) {
+    status("Your map link: " + url, "ok");
+  }
+});
+
 (async function init() {
   initTheme();
   renderSubscribe();
