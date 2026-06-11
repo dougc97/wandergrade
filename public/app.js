@@ -747,39 +747,50 @@ function renderAfford() {
 // ===========================================================================
 const clamp100 = (x) => Math.max(0, Math.min(100, Math.round(x)));
 
-// User-adjustable priority weights (relative, normalized at score time).
-// "fly" only participates for countries that have a fare loaded.
+// User-adjustable priorities: High / Medium / Low per factor (simpler than
+// numeric sliders). "fly" only participates for countries with a fare loaded.
 const WEIGHT_DEFS = [
-  { key: "aff",  label: "Cheap",    def: 30 },
-  { key: "cur",  label: "$ timing", def: 20 },
-  { key: "safe", label: "Safety",   def: 25 },
-  { key: "wx",   label: "Weather",  def: 25 },
-  { key: "fly",  label: "Flights",  def: 20 },
+  { key: "aff",  label: "Cheap",    def: "high" },
+  { key: "cur",  label: "$ timing", def: "med" },
+  { key: "safe", label: "Safety",   def: "med" },
+  { key: "wx",   label: "Weather",  def: "med" },
+  { key: "fly",  label: "Flights",  def: "med" },
 ];
-let weights = null;
-function loadWeights() {
-  if (weights) return weights;
-  try { weights = JSON.parse(localStorage.getItem("fx_weights") || "null"); } catch (e) {}
-  if (!weights) weights = Object.fromEntries(WEIGHT_DEFS.map((w) => [w.key, w.def]));
-  return weights;
+const PRI_LEVELS = [["high", "High"], ["med", "Med"], ["low", "Low"]];
+const PRI_W = { high: 3, med: 2, low: 1 };   // relative weights, normalized at score time
+let priorities = null;
+
+function loadPriorities() {
+  if (priorities) return priorities;
+  try { priorities = JSON.parse(localStorage.getItem("fx_priorities") || "null"); } catch (e) {}
+  if (!priorities) priorities = {};
+  for (const w of WEIGHT_DEFS) if (!PRI_W[priorities[w.key]]) priorities[w.key] = w.def;
+  return priorities;
 }
-function saveWeights() { localStorage.setItem("fx_weights", JSON.stringify(weights)); }
+function savePriorities() { localStorage.setItem("fx_priorities", JSON.stringify(priorities)); }
+
+// Numeric weights for the scorer, derived from the chosen priority levels.
+function loadWeights() {
+  const p = loadPriorities();
+  return Object.fromEntries(WEIGHT_DEFS.map((w) => [w.key, PRI_W[p[w.key]]]));
+}
 
 function buildWeightSliders() {
-  loadWeights();
+  loadPriorities();
   $("weightRows").innerHTML = WEIGHT_DEFS.map((w) => `
-    <label>${w.label}
-      <input type="range" min="0" max="100" step="5" value="${weights[w.key]}" data-w="${w.key}">
-      <span class="wval" id="wval_${w.key}">${weights[w.key]}</span>
-    </label>`).join("");
-  $("weightRows").querySelectorAll("input[type=range]").forEach((sl) => {
-    sl.addEventListener("input", () => {
-      weights[sl.dataset.w] = parseInt(sl.value, 10);
-      $("wval_" + sl.dataset.w).textContent = sl.value;
-      saveWeights();
-      renderValue();
-    });
-  });
+    <div class="prirow"><span class="prilabel">${w.label}</span>
+      <span class="prigroup" data-w="${w.key}">${PRI_LEVELS.map(([v, t]) =>
+        `<button type="button" data-v="${v}" class="${priorities[w.key] === v ? "active" : ""}">${t}</button>`).join("")}</span>
+    </div>`).join("");
+  $("weightRows").onclick = (e) => {
+    const btn = e.target.closest("button");
+    const grp = e.target.closest(".prigroup");
+    if (!btn || !grp) return;
+    priorities[grp.dataset.w] = btn.dataset.v;
+    savePriorities();
+    grp.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+    renderValue();
+  };
 }
 
 function advisoryByIso() {
@@ -882,8 +893,8 @@ function renderValue() {
   const ranked = Object.values(scored).sort((a, b) => b.value - a.value).slice(0, 40);
   $("valueRows").innerHTML = ranked.map((s) => {
     const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
-    const adv = s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2 caution</span>'
-              : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3 reconsider</span>' : "";
+    const adv = s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
+              : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
     const flight = s.fare != null ? `$${Math.round(s.fare)}` : "—";
     return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
       <td class="num"><b>${s.value}</b></td>
