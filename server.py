@@ -29,6 +29,13 @@ AUTH_USER = os.environ.get("FX_DASH_USER")
 AUTH_PASS = os.environ.get("FX_DASH_PASSWORD")
 AUTH_ON = bool(AUTH_USER and AUTH_PASS)
 
+# Public mode (FX_PUBLIC=1): no login, anyone can browse — but mutating
+# endpoints are disabled and email addresses are stripped from API responses,
+# so strangers can't edit settings or trigger emails to the owner.
+PUBLIC_MODE = os.environ.get("FX_PUBLIC") == "1"
+if PUBLIC_MODE:
+    AUTH_ON = False
+
 PUBLIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 CACHE_TTL = 600  # seconds; FX reference rates update at most daily.
 _cache = {"key": None, "at": 0, "data": None}
@@ -173,6 +180,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             cfg = store.load_config()
             cfg["email"] = _redact_email(cfg["email"])
+            if PUBLIC_MODE:
+                # don't leak the owner's email address on a public deployment
+                for k in ("username", "from_addr", "to_addr"):
+                    cfg["email"][k] = ""
+            cfg["readonly"] = PUBLIC_MODE
             self._send_json(cfg)
             return
         # static files
@@ -185,6 +197,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self._authed():
+            return
+        if PUBLIC_MODE:
+            self._send_json({"error": "settings and email are disabled on the public site"}, 403)
             return
         path = self.path.split("?", 1)[0]
         if path == "/api/config":

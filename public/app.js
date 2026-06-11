@@ -1352,6 +1352,10 @@ $("visitedImage").addEventListener("click", downloadVisitedImage);
   initTheme();
   renderSubscribe();
   preApplyShared();
+  // On a public deployment the server disables settings + manual email; hide them.
+  getJSON("/api/config").then((c) => {
+    if (c.readonly) { $("toggleSettings").hidden = true; $("check").hidden = true; }
+  }).catch(() => {});
   // Load the currency data (the "Where to go" score needs live rates + PPP),
   // render the currency tab in the background, then open the verdict tab.
   await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates()]);
