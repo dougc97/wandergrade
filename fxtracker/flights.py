@@ -84,13 +84,20 @@ def get_flights(origin_iso, currency="usd"):
     hub, origin_name = ORIGIN_HUBS[origin_iso]
 
     cities = _load_cities()
-    qs = urllib.parse.urlencode({
-        "origin": hub, "currency": currency, "period_type": "year",
-        "one_way": "false", "page": 1, "limit": 1000, "sorting": "price",
-        "token": token(),
-    })
-    data = rates.fetch_json("{0}/aviasales/v3/get_latest_prices?{1}".format(API, qs))
-    rows = data.get("data", []) if isinstance(data, dict) else []
+    # Cached fares cluster on popular routes, so pull several pages to reach
+    # more destination countries; stop early once a page comes back short.
+    rows = []
+    for page in (1, 2, 3):
+        qs = urllib.parse.urlencode({
+            "origin": hub, "currency": currency, "period_type": "year",
+            "one_way": "false", "page": page, "limit": 1000, "sorting": "price",
+            "token": token(),
+        })
+        data = rates.fetch_json("{0}/aviasales/v3/get_latest_prices?{1}".format(API, qs))
+        batch = data.get("data", []) if isinstance(data, dict) else []
+        rows.extend(batch)
+        if len(batch) < 1000:
+            break
 
     agg = {}  # dest country iso -> {"sum", "n", "min"}
     for r in rows:
