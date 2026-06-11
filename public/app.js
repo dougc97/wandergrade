@@ -856,19 +856,19 @@ function valueScores(iso, month, advMap, fares) {
 
 let valueMapMode = "score";
 
-async function loadValueFlights() {
+async function loadValueFlights(silent) {
   const origin = $("valueOrigin").value || "US";
   $("valueFlightsBtn").textContent = "loading…";
   try {
     const data = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
     if (!data.configured) {
-      status("Flight prices need TRAVELPAYOUTS_TOKEN on the server — see the Flight prices tab.", "err");
+      if (!silent) status("Flight prices need TRAVELPAYOUTS_TOKEN on the server — see the Flight prices tab.", "err");
     } else {
       flightsData = data;
-      status(`Average fares from ${data.origin_name || origin} folded into the score.`, "ok");
+      if (!silent) status(`Average fares from ${data.origin_name || origin} folded into the score.`, "ok");
     }
   } catch (e) {
-    status("Could not load flights: " + e.message, "err");
+    if (!silent) status("Could not load flights: " + e.message, "err");
   }
   $("valueFlightsBtn").textContent = "+ flights";
   renderValue();
@@ -881,8 +881,12 @@ function buildValueTab() {
   mon.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
   reg.onchange = renderValue;
   mon.onchange = renderValue;
-  $("valueFlightsBtn").onclick = loadValueFlights;
-  fillOriginSelect($("valueOrigin")).catch(() => {});
+  $("valueFlightsBtn").onclick = () => loadValueFlights(false);
+  // Auto-load fares for the default origin once the dropdown is ready — the
+  // Flight column shouldn't require a click when the server has a token.
+  fillOriginSelect($("valueOrigin"))
+    .then(() => loadValueFlights(true))
+    .catch(() => {});
   for (const b of document.querySelectorAll("#valueMapMode button")) {
     b.addEventListener("click", () => {
       for (const x of document.querySelectorAll("#valueMapMode button"))
