@@ -63,12 +63,16 @@
           <summary>⚖️ Adjust priorities</summary>
           <div class="weightrows" id="weightRows"></div>
         </details>
-        <div class="windowtoggle" id="valueMapMode">
-          <button data-vm="score" class="active">Value score</button>
-          <button data-vm="weather">Weather only</button>
-        </div>
+        <span class="rankby">
+          <span class="picklabel">Rank by</span>
+          <div class="windowtoggle" id="valueMapMode">
+            <button data-vm="score" class="active">Value</button>
+            <button data-vm="weather">Weather</button>
+          </div>
+        </span>
       </div>
       <div id="valueMap" class="map">Loading…</div>
+      <p class="tablekey" id="rankNote" hidden></p>
       <p class="tablekey">Advisory key:
         <span class="advtag a1">L1</span> exercise normal precautions (safest) ·
         <span class="advtag a2">L2</span> exercise increased caution ·
