@@ -991,7 +991,19 @@ function renderValue() {
   }
 
   loadVisited();
-  const ranked = Object.values(scored).sort((a, b) => b.value - a.value).slice(0, 40);
+  // In weather mode the TABLE follows the map: ranked by weather comfort for the
+  // chosen month (value as tiebreak), with a note explaining the sort.
+  const weatherMode = valueMapMode === "weather";
+  const note = $("rankNote");
+  if (note) {
+    note.hidden = !weatherMode;
+    if (weatherMode) note.textContent =
+      `Ranked by weather comfort in ${MONTHS[month - 1]} — switch back to “Value” for the blended score ranking.`;
+  }
+  const ranked = Object.values(scored)
+    .sort(weatherMode ? ((a, b) => (b.wx - a.wx) || (b.value - a.value))
+                      : ((a, b) => b.value - a.value))
+    .slice(0, 40);
   $("valueRows").innerHTML = ranked.map((s) => {
     const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
     const adv = s.advLvl === 1 ? ' <span class="advtag a1" title="Level 1: Exercise Normal Precautions">L1</span>'
@@ -1000,10 +1012,12 @@ function renderValue() {
     const flight = s.fare == null ? "—"
       : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare for this route">~$${Math.round(s.fare)}</span>`
       : `$${Math.round(s.fare)}`;
+    const valCell = weatherMode ? `${s.value}` : `<b>${s.value}</b>`;
+    const wxCell = weatherMode ? `<b>${s.wx}</b>` : `${s.wx}`;
     return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
-      <td class="num"><b>${s.value}</b></td>
+      <td class="num">${valCell}</td>
       <td class="num">${s.aff}</td><td class="num">${s.cur}</td>
-      <td class="num">${s.safe}</td><td class="num">${s.wx}</td>
+      <td class="num">${s.safe}</td><td class="num">${wxCell}</td>
       <td class="num">${flight}</td></tr>`;
   }).join("") || '<tr><td colspan="7">No data for this region.</td></tr>';
 }

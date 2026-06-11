@@ -255,6 +255,7 @@ footer a { color: var(--gray); }
 .rowsplit { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pickgroup { display: inline-flex; align-items: center; gap: 7px; background: var(--soft);
   border-radius: 8px; padding: 4px 8px 4px 10px; white-space: nowrap; }
+.rankby { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
 .picklabel { font-size: 12px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: .03em; }
 .estfare { color: var(--gray); font-style: italic; }
 .softrule { border: none; border-top: 1px solid var(--line); margin: 18px 0 14px; }
