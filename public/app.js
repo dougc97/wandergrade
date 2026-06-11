@@ -839,9 +839,10 @@ function valueScores(iso, month, advMap, fares) {
     safe: advLvl ? { 1: 100, 2: 70, 3: 35 }[advLvl] : 70,
     wx: cl && cl.scores[month - 1] != null ? cl.scores[month - 1] : 50,
   };
-  let fare = null;
+  let fare = null, fareEst = false;
   if (fares && fares.prices[iso] != null) {
     fare = fares.prices[iso];
+    fareEst = fares.est && fares.est.has(iso);
     comps.fly = fares.max > fares.min
       ? clamp100(((fares.max - fare) / (fares.max - fares.min)) * 100) : 50;
   }
@@ -851,10 +852,68 @@ function valueScores(iso, month, advMap, fares) {
   const value = den ? clamp100(num / den) : 0;
   return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
            aff: comps.aff, cur: comps.cur, safe: comps.safe, wx: comps.wx,
-           fly: comps.fly, fare, advLvl, value };
+           fly: comps.fly, fare, fareEst, advLvl, value };
 }
 
 let valueMapMode = "score";
+
+// ---- fare estimation for countries the cached-fare API doesn't cover -------
+// Travelpayouts only knows prices for recently-searched routes, so roughly half
+// the world would show "—". We fit fare ~ distance on the known fares and fill
+// the gaps with clearly-marked estimates.
+let _centroids = null;
+function countryCentroids() {
+  if (_centroids || !worldGeo) return _centroids || {};
+  _centroids = {};
+  for (const f of worldGeo.features) {
+    let sx = 0, sy = 0, n = 0;
+    const polys = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates];
+    for (const poly of polys) for (const ring of poly) for (const pt of ring) { sx += pt[0]; sy += pt[1]; n++; }
+    if (n) _centroids[f.properties.iso] = [sx / n, sy / n];
+  }
+  return _centroids;
+}
+
+function distKm(a, b) {
+  const R = 6371, toR = Math.PI / 180;
+  const dLat = (b[1] - a[1]) * toR, dLon = (b[0] - a[0]) * toR;
+  const s = Math.sin(dLat / 2) ** 2 +
+    Math.cos(a[1] * toR) * Math.cos(b[1] * toR) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+// Returns { prices, est:Set, min, max } — known fares plus distance-based
+// estimates for every mappable country, or null when no fare data is loaded.
+function buildFareContext() {
+  if (!(flightsData && flightsData.configured && flightsData.by_country)) return null;
+  const prices = { ...flightsData.by_country };
+  const est = new Set();
+  const C = countryCentroids();
+  const o = C[flightsData.origin];
+  const pts = Object.entries(prices)
+    .filter(([iso]) => o && C[iso])
+    .map(([iso, p]) => [distKm(o, C[iso]), p]);
+  if (o && pts.length >= 8) {
+    // least-squares fit: fare = a + b * distance
+    const n = pts.length;
+    const mx = pts.reduce((s, p) => s + p[0], 0) / n;
+    const my = pts.reduce((s, p) => s + p[1], 0) / n;
+    let num = 0, den = 0;
+    for (const [x, y] of pts) { num += (x - mx) * (y - my); den += (x - mx) ** 2; }
+    const b = den ? num / den : 0, a = my - b * mx;
+    const known = Object.values(prices);
+    const lo = Math.min(...known), hi = Math.max(...known) * 1.4;
+    for (const iso in CUR_BY_ISO) {
+      if (prices[iso] != null || !C[iso] || iso === flightsData.origin) continue;
+      const e = a + b * distKm(o, C[iso]);
+      prices[iso] = Math.round(Math.max(lo, Math.min(hi, e)));
+      est.add(iso);
+    }
+  }
+  const vals = Object.values(prices);
+  if (!vals.length) return null;
+  return { prices, est, min: Math.min(...vals), max: Math.max(...vals) };
+}
 
 async function loadValueFlights(silent) {
   const origin = $("valueOrigin").value || "US";
@@ -902,13 +961,8 @@ function renderValue() {
   const month = parseInt($("valueMonth").value, 10);
   const advMap = advisoryByIso();
 
-  // Fare context: cheapest fare per country, min/max for normalization.
-  let fares = null;
-  if (flightsData && flightsData.configured && flightsData.by_country) {
-    const prices = flightsData.by_country;
-    const vals = Object.values(prices);
-    if (vals.length) fares = { prices, min: Math.min(...vals), max: Math.max(...vals) };
-  }
+  // Fare context: known fares per country + distance-based estimates for the rest.
+  const fares = buildFareContext();
 
   const scored = {};
   for (const iso in CUR_BY_ISO) {
@@ -943,7 +997,9 @@ function renderValue() {
     const adv = s.advLvl === 1 ? ' <span class="advtag a1" title="Level 1: Exercise Normal Precautions">L1</span>'
               : s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
               : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
-    const flight = s.fare != null ? `$${Math.round(s.fare)}` : "—";
+    const flight = s.fare == null ? "—"
+      : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare for this route">~$${Math.round(s.fare)}</span>`
+      : `$${Math.round(s.fare)}`;
     return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
       <td class="num"><b>${s.value}</b></td>
       <td class="num">${s.aff}</td><td class="num">${s.cur}</td>
@@ -1193,7 +1249,7 @@ function renderSubscribe() {
   }
   const base = "https://buttondown.com/" + BUTTONDOWN_USER;
   el.innerHTML = `
-    <span class="sublabel">📬 Get monthly “where the dollar goes furthest” alerts:</span>
+    <span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
     <form action="https://buttondown.com/api/emails/embed/subscribe/${BUTTONDOWN_USER}"
           method="post" target="popupwindow"
           onsubmit="window.open('${base}','popupwindow')" class="subform">

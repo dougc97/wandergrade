@@ -239,9 +239,10 @@ footer a { color: var(--gray); }
 .headbtns { display: flex; gap: 8px; flex-shrink: 0; }
 .themebtn { font-size: 14px; padding: 7px 11px; border-radius: 8px; line-height: 1.2; white-space: nowrap; }
 .rowsplit { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.originpick { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600;
-  color: var(--gray); background: var(--soft); border-radius: 8px; padding: 5px 10px; white-space: nowrap; }
-.originpick select { font-weight: 400; }
+.pickgroup { display: inline-flex; align-items: center; gap: 7px; background: var(--soft);
+  border-radius: 8px; padding: 4px 8px 4px 10px; white-space: nowrap; }
+.picklabel { font-size: 12px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: .03em; }
+.estfare { color: var(--gray); font-style: italic; }
 .softrule { border: none; border-top: 1px solid var(--line); margin: 18px 0 14px; }
 
 /* ---- polish pass ---- */

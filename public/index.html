@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>USD Strength &amp; Travel Tracker</title>
-  <meta name="description" content="Where the US dollar goes furthest: currency strength, cost of living, best season, safety, and flight prices for every country.">
-  <meta property="og:title" content="USD Strength &amp; Travel Tracker">
-  <meta property="og:description" content="Where the dollar goes furthest, when to go, and how safe it is.">
+  <title>Where Should I Travel? — USD Travel Tracker</title>
+  <meta name="description" content="Countries ranked by your dollar's power: currency strength, cost of living, weather, safety, and flight prices.">
+  <meta property="og:title" content="Where Should I Travel?">
+  <meta property="og:description" content="Ranked by your dollar's power: currency, costs, weather, safety, flights.">
   <meta property="og:type" content="website">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💵</text></svg>">
   <link rel="stylesheet" href="/styles.css">
@@ -15,8 +15,8 @@
   <header>
     <div class="headrow">
       <div>
-        <h1>💵 USD Strength &amp; Travel Tracker</h1>
-        <p class="sub">Where the dollar goes furthest, when to go, and how safe it is.</p>
+        <h1>🌍 Where Should I Travel?</h1>
+        <p class="sub">Ranked by your dollar's power: currency, costs, weather, safety, flights.</p>
       </div>
       <div class="headbtns">
         <button id="shareBtn" class="themebtn" title="copy a link to this view &amp; settings">🔗 Share</button>
@@ -26,9 +26,9 @@
   </header>
 
   <nav class="tabs" id="tabs">
-    <button data-tab="value" class="active">🧭 Where to go now</button>
-    <button data-tab="money">💱 Money</button>
-    <button data-tab="guide">📅 Country guide</button>
+    <button data-tab="value" class="active">🧭 Top Picks</button>
+    <button data-tab="money">💱 Dollar Power</button>
+    <button data-tab="guide">📅 Country Guide</button>
     <button data-tab="advisory">⚠️ Advisories</button>
     <button data-tab="flights">✈️ Flights</button>
     <button data-tab="visited">✓ Visited</button>
@@ -46,8 +46,15 @@
           Level&nbsp;4 “Do&nbsp;Not&nbsp;Travel” countries are excluded.</p>
         </div>
         <div class="pickers">
-          <select id="valueRegion" title="filter by region"></select>
-          <select id="valueMonth" title="travel month"></select>
+          <span class="pickgroup" title="narrow the ranking">
+            <span class="picklabel">Filters</span>
+            <select id="valueRegion" title="filter by region"></select>
+            <select id="valueMonth" title="travel month"></select>
+          </span>
+          <span class="pickgroup" title="your home country — sets the Flight column and score">
+            <span class="picklabel">✈️ Flights from</span>
+            <select id="valueOrigin"></select>
+          </span>
         </div>
       </div>
       <div class="rowsplit">
@@ -55,9 +62,6 @@
           <summary>⚖️ Adjust priorities</summary>
           <div class="weightrows" id="weightRows"></div>
         </details>
-        <label class="originpick" title="your home country — used for the Flight column and score">
-          ✈️ Flights from <select id="valueOrigin"></select>
-        </label>
         <div class="windowtoggle" id="valueMapMode">
           <button data-vm="score" class="active">Value score</button>
           <button data-vm="weather">Weather only</button>
