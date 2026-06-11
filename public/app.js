@@ -9,6 +9,30 @@ let lastRates = null;
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
   (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
+// Read a theme color from CSS custom properties (so SVG charts follow dark mode).
+const cssVar = (name, fallback) =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+
+// ---- light / dark theme -----------------------------------------------------
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem("fx_theme", t);
+  const btn = $("themeBtn");
+  if (btn) btn.textContent = t === "dark" ? "☀️" : "🌙";
+  if (lastIndexData) renderIndex(lastIndexData);   // redraw chart in new palette
+}
+function initTheme() {
+  const stored = localStorage.getItem("fx_theme");
+  const t = stored || (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.dataset.theme = t;
+  const btn = $("themeBtn");
+  if (btn) {
+    btn.textContent = t === "dark" ? "☀️" : "🌙";
+    btn.onclick = () => applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+  }
+}
+let lastIndexData = null;
+
 function status(msg, kind) {
   const el = $("status");
   el.textContent = msg;
@@ -88,28 +112,32 @@ function renderIndex(data) {
   const color = up ? "#0a7d28" : "#b00020";
   const fill = up ? "rgba(10,125,40,0.08)" : "rgba(176,0,32,0.07)";
 
+  // Theme-aware chart chrome (gridlines/labels follow light/dark mode).
+  const gridCol = cssVar("--chartgrid", "#eee");
+  const labCol = cssVar("--gray", "#999");
+
   // Y gridlines + labels (~4 ticks).
   let grid = "";
   const ticks = 4;
   for (let t = 0; t <= ticks; t++) {
     const v = lo + (t / ticks) * (hi - lo);
     const gy = y(v);
-    grid += `<line x1="${padL}" y1="${gy}" x2="${W - padR}" y2="${gy}" stroke="#eee" stroke-width="1"/>`;
-    grid += `<text x="${padL - 6}" y="${gy + 3}" text-anchor="end" font-size="10" fill="#999">${v.toFixed(1)}</text>`;
+    grid += `<line x1="${padL}" y1="${gy}" x2="${W - padR}" y2="${gy}" stroke="${gridCol}" stroke-width="1"/>`;
+    grid += `<text x="${padL - 6}" y="${gy + 3}" text-anchor="end" font-size="10" fill="${labCol}">${v.toFixed(1)}</text>`;
   }
 
   // Baseline at 100.
   const by = y(100);
   const baseline =
-    `<line x1="${padL}" y1="${by}" x2="${W - padR}" y2="${by}" stroke="#bbb" stroke-width="1" stroke-dasharray="4 3"/>` +
-    `<text x="${W - padR}" y="${by - 4}" text-anchor="end" font-size="10" fill="#999">100 (start)</text>`;
+    `<line x1="${padL}" y1="${by}" x2="${W - padR}" y2="${by}" stroke="${labCol}" stroke-width="1" stroke-dasharray="4 3"/>` +
+    `<text x="${W - padR}" y="${by - 4}" text-anchor="end" font-size="10" fill="${labCol}">100 (start)</text>`;
 
   // X date labels (~5 evenly spaced).
   let xlab = "";
   const xticks = 5;
   for (let t = 0; t <= xticks; t++) {
     const i = Math.round((t / xticks) * (pts.length - 1));
-    xlab += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="#999">${fmtMonth(pts[i].date)}</text>`;
+    xlab += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${labCol}">${fmtMonth(pts[i].date)}</text>`;
   }
 
   // Line + area paths.
@@ -260,7 +288,8 @@ async function loadIndex(days) {
     b.classList.toggle("active", parseInt(b.dataset.days, 10) === days);
   }
   try {
-    renderIndex(await getJSON("/api/index?days=" + days));
+    lastIndexData = await getJSON("/api/index?days=" + days);
+    renderIndex(lastIndexData);
   } catch (e) {
     $("chartsub").textContent = "Could not load chart: " + e.message;
   }
@@ -423,17 +452,12 @@ function renderCountryCard() {
     <div class="ccfacts">${facts.map((f) => `<span>${f}</span>`).join("") || "<span>Loading details…</span>"}</div>
     ${act ? `<p class="ccsummary">${esc(act.summary)}</p>` : ""}
     <div class="ccbtns">
-      ${act ? '<button data-cc="todo">Things to do →</button>' : ""}
+      ${(act || cl) ? '<button data-cc="todo">Country guide →</button>' : ""}
       <button data-cc="visit">${vis ? "Unmark visited" : "Mark visited"}</button>
     </div>`;
   card.querySelector(".ccclose").onclick = () => { card.remove(); ccCurrent = null; };
   const todo = card.querySelector('[data-cc="todo"]');
-  if (todo) todo.onclick = async () => {
-    await activateTab("activities");
-    const ctry = $("actCountry");
-    if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
-    renderActivity(iso);
-  };
+  if (todo) todo.onclick = () => openGuideFor(iso);
   card.querySelector('[data-cc="visit"]').onclick = () => {
     toggleVisited(iso);
     renderCountryCard();
@@ -575,7 +599,12 @@ async function ensureClimate() {
   return climate;
 }
 
-// -- Tab: best time by country ----------------------------------------------
+// -- Tab: country guide (best time + things to do, one picker) ---------------
+function renderGuide(iso) {
+  renderCountryClimate(iso);
+  renderActivity(iso);
+}
+
 function buildBestPickers() {
   const reg = $("bestRegion"), ctry = $("bestCountry");
   reg.innerHTML = '<option value="all">All regions</option>' +
@@ -587,12 +616,20 @@ function buildBestPickers() {
       .map((iso) => ({ iso, name: climate[iso].name }))
       .sort((a, b) => a.name.localeCompare(b.name));
     ctry.innerHTML = list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
-    if (list.length) renderCountryClimate(ctry.value);
+    if (list.length) renderGuide(ctry.value);
   };
   reg.onchange = fill;
-  ctry.onchange = () => renderCountryClimate(ctry.value);
+  ctry.onchange = () => renderGuide(ctry.value);
   fill();
-  if ([...ctry.options].some((o) => o.value === "JP")) { ctry.value = "JP"; renderCountryClimate("JP"); }
+  if ([...ctry.options].some((o) => o.value === "JP")) { ctry.value = "JP"; renderGuide("JP"); }
+}
+
+// Open the guide tab focused on a specific country (used by the map detail card).
+async function openGuideFor(iso) {
+  await activateTab("guide");
+  const ctry = $("bestCountry");
+  if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
+  renderGuide(iso);
 }
 
 // Classify each month into peak / shoulder / off season by weather, relative to
@@ -641,33 +678,7 @@ function renderCountryClimate(iso) {
     <div class="bars">${bars}</div>`;
 }
 
-// -- Tab: best places by month ----------------------------------------------
-function buildMonthPicker() {
-  const sel = $("monthPick");
-  sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
-  // default to the next month
-  sel.onchange = () => renderMonthMap(parseInt(sel.value, 10));
-  renderMonthMap(parseInt(sel.value, 10));
-  $("monthLegend").innerHTML =
-    '<span>Poor</span><span class="bar"></span><span>Great</span>' +
-    '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
-}
-
-function renderMonthMap(month) {
-  $("monthTitle").textContent = "in " + MONTHS[month - 1];
-  drawMap("monthMap", (f) => {
-    const c = climate[f.properties.iso];
-    const s = c ? c.scores[month - 1] : null;
-    return { fill: comfortColor(s),
-      title: c ? `${c.name}: ${s == null ? "n/a" : s + "/100"} comfort in ${MONTHS[month - 1]}`
-               : f.properties.name + " — no data" };
-  }, "Best places to travel by month");
-  const ranked = Object.keys(climate)
-    .map((iso) => ({ iso, name: climate[iso].name, s: climate[iso].scores[month - 1] }))
-    .filter((x) => x.s != null).sort((a, b) => b.s - a.s).slice(0, 5);
-  $("monthSub").textContent = "Greener = nicer weather. Top picks: " +
-    ranked.map((x) => `${x.name} (${x.s})`).join(", ");
-}
+// (The standalone by-month map merged into "Where to go now" as a map mode.)
 
 // ===========================================================================
 //  Travel advisories
@@ -830,6 +841,8 @@ function valueScores(iso, month, advMap, fares) {
            fly: comps.fly, fare, advLvl, value };
 }
 
+let valueMapMode = "score";
+
 async function loadValueFlights() {
   const origin = $("valueOrigin").value || "US";
   $("valueFlightsBtn").textContent = "loading…";
@@ -857,6 +870,14 @@ function buildValueTab() {
   mon.onchange = renderValue;
   $("valueFlightsBtn").onclick = loadValueFlights;
   fillOriginSelect($("valueOrigin")).catch(() => {});
+  for (const b of document.querySelectorAll("#valueMapMode button")) {
+    b.addEventListener("click", () => {
+      for (const x of document.querySelectorAll("#valueMapMode button"))
+        x.classList.toggle("active", x === b);
+      valueMapMode = b.dataset.vm;
+      renderValue();
+    });
+  }
   buildWeightSliders();
   renderValue();
 }
@@ -880,14 +901,25 @@ function renderValue() {
     const s = valueScores(iso, month, advMap, fares);
     if (s) scored[iso] = s;
   }
-  drawMap("valueMap", (f) => {
-    const s = scored[f.properties.iso];
-    if (s) return { fill: comfortColor(s.value),
-      title: `${s.name}: value ${s.value}/100 (cheap ${s.aff}, $ ${s.cur}, safe ${s.safe}, wx ${s.wx}${s.fly != null ? ", fly " + s.fly : ""})` };
-    if (advMap[f.properties.iso] === 4)
-      return { fill: "#b00020", title: f.properties.name + " — Level 4: Do Not Travel (excluded)" };
-    return { fill: NODATA, title: f.properties.name + " — not scored" };
-  }, "Best value destinations");
+  if (valueMapMode === "weather" && climate) {
+    // Weather-only view (absorbed the old "best places by month" tab).
+    drawMap("valueMap", (f) => {
+      const c = climate[f.properties.iso];
+      const s = c ? c.scores[month - 1] : null;
+      return { fill: comfortColor(s),
+        title: c ? `${c.name}: ${s == null ? "n/a" : s + "/100"} weather comfort in ${MONTHS[month - 1]}`
+                 : f.properties.name + " — no data" };
+    }, "Weather comfort by month");
+  } else {
+    drawMap("valueMap", (f) => {
+      const s = scored[f.properties.iso];
+      if (s) return { fill: comfortColor(s.value),
+        title: `${s.name}: value ${s.value}/100 (cheap ${s.aff}, $ ${s.cur}, safe ${s.safe}, wx ${s.wx}${s.fly != null ? ", fly " + s.fly : ""})` };
+      if (advMap[f.properties.iso] === 4)
+        return { fill: "#b00020", title: f.properties.name + " — Level 4: Do Not Travel (excluded)" };
+      return { fill: NODATA, title: f.properties.name + " — not scored" };
+    }, "Best value destinations");
+  }
 
   loadVisited();
   const ranked = Object.values(scored).sort((a, b) => b.value - a.value).slice(0, 40);
@@ -989,27 +1021,6 @@ function curMonth() { return new Date().getMonth() + 1; }   // 1-12, real browse
 async function ensureActivities() {
   if (!activities) activities = await (await fetch("/activities.json")).json();
   return activities;
-}
-
-function buildActivityPickers() {
-  const reg = $("actRegion"), ctry = $("actCountry");
-  reg.innerHTML = '<option value="all">All regions</option>' +
-    Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
-  const nameFor = (iso) => (climate && climate[iso] && climate[iso].name) || (ppp[iso] && ppp[iso].name) || iso;
-  const fill = () => {
-    const sel = reg.value;
-    const list = Object.keys(activities)
-      .filter((iso) => sel === "all" || ISO_REGION[iso] === sel)
-      .map((iso) => ({ iso, name: nameFor(iso) }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    ctry.innerHTML = list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
-    if (list.length) renderActivity(ctry.value);
-    else $("actDetail").innerHTML = "<p class='hint'>No curated activities for this region yet.</p>";
-  };
-  reg.onchange = fill;
-  ctry.onchange = () => renderActivity(ctry.value);
-  fill();
-  if ([...ctry.options].some((o) => o.value === "MX")) { ctry.value = "MX"; renderActivity("MX"); }
 }
 
 function renderActivity(iso) {
@@ -1116,21 +1127,15 @@ async function activateTab(name) {
     if (name === "value" && !loaded.value) {
       await Promise.all([ensureWorld(), ensurePPP(), ensureClimate(), ensureAdvisories()]);
       buildValueTab(); loaded.value = true;
-    } else if (name === "afford" && !loaded.afford) {
-      await Promise.all([ensureWorld(), ensurePPP()]); renderAfford(); loaded.afford = true;
-    } else if (name === "best" && !loaded.best) {
-      await ensureClimate(); buildBestPickers(); loaded.best = true;
-    } else if (name === "month" && !loaded.month) {
-      await Promise.all([ensureWorld(), ensureClimate()]); buildMonthPicker(); loaded.month = true;
+    } else if (name === "guide" && !loaded.guide) {
+      await Promise.all([ensurePPP(), ensureClimate(), ensureActivities()]);
+      buildBestPickers(); loaded.guide = true;
     } else if (name === "advisory" && !loaded.advisory) {
       $("advSub").textContent = "Loading advisories…";
       await Promise.all([ensureWorld(), ensureAdvisories()]); renderAdvisories(); loaded.advisory = true;
     } else if (name === "flights" && !loaded.flights) {
       await Promise.all([ensureWorld(), fillOriginSelect($("flightOrigin"))]);
       loadFlights(); loaded.flights = true;
-    } else if (name === "activities" && !loaded.activities) {
-      await Promise.all([ensurePPP(), ensureClimate(), ensureActivities()]);
-      buildActivityPickers(); loaded.activities = true;
     } else if (name === "visited" && !loaded.visited) {
       await Promise.all([ensureWorld(), ensurePPP(), ensureClimate()]);
       buildVisited(); loaded.visited = true;
@@ -1141,6 +1146,23 @@ async function activateTab(name) {
 }
 for (const b of document.querySelectorAll("#tabs button"))
   b.addEventListener("click", () => activateTab(b.dataset.tab));
+
+// Money tab sub-toggle: currency timing <-> cost of living.
+for (const b of document.querySelectorAll("#moneyMode button")) {
+  b.addEventListener("click", async () => {
+    for (const x of document.querySelectorAll("#moneyMode button"))
+      x.classList.toggle("active", x === b);
+    const afford = b.dataset.mm === "afford";
+    $("moneySubCurrency").hidden = afford;
+    $("moneySubAfford").hidden = !afford;
+    if (afford && !loaded.afford) {
+      try {
+        await Promise.all([ensureWorld(), ensurePPP()]);
+        renderAfford(); loaded.afford = true;
+      } catch (e) { status("Could not load cost of living: " + e.message, "err"); }
+    }
+  });
+}
 
 // ---- newsletter signup (Buttondown embed) ---------------------------------
 // Set this to your public Buttondown newsletter username to enable signups.
@@ -1165,6 +1187,7 @@ function renderSubscribe() {
 }
 
 (async function init() {
+  initTheme();
   renderSubscribe();
   // Load the currency data (the "Where to go" score needs live rates + PPP),
   // render the currency tab in the background, then open the verdict tab.
