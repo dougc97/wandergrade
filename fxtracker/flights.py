@@ -1,8 +1,9 @@
-"""Cheapest flight prices from an origin via the Travelpayouts (Aviasales) API.
+"""Country-level flight prices via the Travelpayouts (Aviasales) API.
 
-Free, but requires a token from a Travelpayouts account — read from the
-TRAVELPAYOUTS_TOKEN env var. City/airport reference data is open (no token) and
-is used to map destination codes to country + name for the map and table.
+The user picks an ORIGIN COUNTRY; we query cached cheapest fares from that
+country's main air hub, drop domestic routes, and aggregate the results by
+DESTINATION COUNTRY (average + cheapest fare). Free, but requires a token from
+a Travelpayouts account — read from the TRAVELPAYOUTS_TOKEN env var.
 """
 
 import os
@@ -11,7 +12,32 @@ import urllib.parse
 from . import rates  # reuse fetch_json (verifying SSL + retries)
 
 API = "https://api.travelpayouts.com"
-_cities = None  # code -> {"name", "country"} (lazy-loaded, cached)
+_cities = None  # city code -> {"name", "country"} (lazy, cached)
+
+# Origin country -> its main international hub (Travelpayouts city codes; the
+# multi-airport codes like NYC/LON/TYO aggregate all airports in that city).
+ORIGIN_HUBS = {
+    "US": ("NYC", "United States"), "CA": ("YTO", "Canada"), "MX": ("MEX", "Mexico"),
+    "BR": ("SAO", "Brazil"), "AR": ("BUE", "Argentina"), "CL": ("SCL", "Chile"),
+    "CO": ("BOG", "Colombia"), "PE": ("LIM", "Peru"), "PA": ("PTY", "Panama"),
+    "CR": ("SJO", "Costa Rica"), "DO": ("SDQ", "Dominican Republic"),
+    "GB": ("LON", "United Kingdom"), "IE": ("DUB", "Ireland"), "FR": ("PAR", "France"),
+    "DE": ("FRA", "Germany"), "NL": ("AMS", "Netherlands"), "BE": ("BRU", "Belgium"),
+    "ES": ("MAD", "Spain"), "PT": ("LIS", "Portugal"), "IT": ("ROM", "Italy"),
+    "CH": ("ZRH", "Switzerland"), "AT": ("VIE", "Austria"), "PL": ("WAW", "Poland"),
+    "CZ": ("PRG", "Czechia"), "HU": ("BUD", "Hungary"), "GR": ("ATH", "Greece"),
+    "RO": ("BUH", "Romania"), "SE": ("STO", "Sweden"), "NO": ("OSL", "Norway"),
+    "DK": ("CPH", "Denmark"), "FI": ("HEL", "Finland"), "IS": ("REK", "Iceland"),
+    "TR": ("IST", "Turkey"), "IL": ("TLV", "Israel"), "AE": ("DXB", "UAE"),
+    "QA": ("DOH", "Qatar"), "SA": ("RUH", "Saudi Arabia"), "EG": ("CAI", "Egypt"),
+    "MA": ("CAS", "Morocco"), "ZA": ("JNB", "South Africa"), "KE": ("NBO", "Kenya"),
+    "NG": ("LOS", "Nigeria"), "GH": ("ACC", "Ghana"), "IN": ("DEL", "India"),
+    "LK": ("CMB", "Sri Lanka"), "TH": ("BKK", "Thailand"), "VN": ("SGN", "Vietnam"),
+    "KH": ("PNH", "Cambodia"), "MY": ("KUL", "Malaysia"), "SG": ("SIN", "Singapore"),
+    "ID": ("JKT", "Indonesia"), "PH": ("MNL", "Philippines"), "HK": ("HKG", "Hong Kong"),
+    "TW": ("TPE", "Taiwan"), "CN": ("BJS", "China"), "JP": ("TYO", "Japan"),
+    "KR": ("SEL", "South Korea"), "AU": ("SYD", "Australia"), "NZ": ("AKL", "New Zealand"),
+}
 
 
 def token():
@@ -20,6 +46,13 @@ def token():
 
 def is_configured():
     return bool(token())
+
+
+def origins():
+    """Supported origin countries for the dropdowns, alphabetical by name."""
+    return sorted(
+        ({"iso": iso, "name": name} for iso, (_, name) in ORIGIN_HUBS.items()),
+        key=lambda o: o["name"])
 
 
 def _load_cities():
@@ -38,49 +71,50 @@ def _load_cities():
     return out
 
 
-def get_flights(origin, currency="usd", limit=200):
-    """Cheapest recent fares from `origin` (IATA). Returns enriched items plus the
-    cheapest price per country (for the map)."""
-    origin = (origin or "").strip().upper()[:3]
+def get_flights(origin_iso, currency="usd"):
+    """Aggregate cached cheapest fares from `origin_iso`'s hub by destination
+    country: average fare, cheapest fare, and how many routes were sampled.
+    Domestic destinations are excluded."""
+    origin_iso = (origin_iso or "US").strip().upper()[:2]
     if not is_configured():
-        return {"configured": False, "items": [], "by_country": {}}
-    if not origin:
-        return {"configured": True, "error": "missing origin", "items": [], "by_country": {}}
+        return {"configured": False, "countries": [], "by_country": {}}
+    if origin_iso not in ORIGIN_HUBS:
+        return {"configured": True, "error": "unsupported origin country " + origin_iso,
+                "countries": [], "by_country": {}}
+    hub, origin_name = ORIGIN_HUBS[origin_iso]
 
     cities = _load_cities()
     qs = urllib.parse.urlencode({
-        "origin": origin, "currency": currency, "period_type": "year",
-        "one_way": "false", "page": 1, "limit": limit, "sorting": "price",
+        "origin": hub, "currency": currency, "period_type": "year",
+        "one_way": "false", "page": 1, "limit": 1000, "sorting": "price",
         "token": token(),
     })
     data = rates.fetch_json("{0}/aviasales/v3/get_latest_prices?{1}".format(API, qs))
     rows = data.get("data", []) if isinstance(data, dict) else []
 
-    items, by_country = [], {}
+    agg = {}  # dest country iso -> {"sum", "n", "min"}
     for r in rows:
-        dest = r.get("destination")
-        meta = cities.get(dest, {})
-        country = meta.get("country", "")
+        meta = cities.get(r.get("destination"), {})
+        dest_iso = meta.get("country", "")
         price = r.get("value") or r.get("price")
-        if price is None:
+        if price is None or not dest_iso or dest_iso == origin_iso:
             continue
-        items.append({
-            "dest": dest,
-            "city": meta.get("name", dest),
-            "country": country,
-            "price": price,
-            "depart": (r.get("depart_date") or r.get("departure_at") or "")[:10],
-            "return": (r.get("return_date") or r.get("return_at") or "")[:10],
-            "transfers": r.get("number_of_changes", r.get("transfers", 0)),
-        })
-        if country and (country not in by_country or price < by_country[country]):
-            by_country[country] = price
+        a = agg.setdefault(dest_iso, {"sum": 0.0, "n": 0, "min": price})
+        a["sum"] += price
+        a["n"] += 1
+        if price < a["min"]:
+            a["min"] = price
 
-    items.sort(key=lambda x: x["price"])
+    countries = [{"iso": iso, "avg": round(a["sum"] / a["n"]), "min": round(a["min"]),
+                  "n": a["n"]} for iso, a in agg.items()]
+    countries.sort(key=lambda c: c["avg"])
+
     return {
         "configured": True,
-        "origin": origin,
+        "origin": origin_iso,
+        "origin_name": origin_name,
+        "hub": hub,
         "currency": currency,
-        "items": items,
-        "by_country": by_country,
+        "countries": countries,
+        "by_country": {c["iso"]: c["avg"] for c in countries},
     }

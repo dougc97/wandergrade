@@ -167,6 +167,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/flights":
             self._handle_flights()
             return
+        if path == "/api/flight-origins":
+            self._send_json({"origins": flights.origins()})
+            return
         if path == "/api/config":
             cfg = store.load_config()
             cfg["email"] = _redact_email(cfg["email"])
@@ -215,7 +218,8 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_flights(self):
         from urllib.parse import parse_qs, urlparse
         qs = parse_qs(urlparse(self.path).query)
-        origin = (qs.get("origin", ["JFK"])[0] or "JFK")
+        # origin is an ISO-2 country code (aggregated to that country's hub)
+        origin = (qs.get("origin", ["US"])[0] or "US").strip().upper()[:2]
         now = time.time()
         hit = _flights_cache.get(origin)
         if hit and (now - hit[0]) < FLIGHTS_TTL:

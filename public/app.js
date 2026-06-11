@@ -831,7 +831,7 @@ function valueScores(iso, month, advMap, fares) {
 }
 
 async function loadValueFlights() {
-  const origin = ($("valueOrigin").value || "JFK").trim().toUpperCase().slice(0, 3);
+  const origin = $("valueOrigin").value || "US";
   $("valueFlightsBtn").textContent = "loading…";
   try {
     const data = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
@@ -839,7 +839,7 @@ async function loadValueFlights() {
       status("Flight prices need TRAVELPAYOUTS_TOKEN on the server — see the Flight prices tab.", "err");
     } else {
       flightsData = data;
-      status(`Flights from ${origin} folded into the score.`, "ok");
+      status(`Average fares from ${data.origin_name || origin} folded into the score.`, "ok");
     }
   } catch (e) {
     status("Could not load flights: " + e.message, "err");
@@ -856,7 +856,7 @@ function buildValueTab() {
   reg.onchange = renderValue;
   mon.onchange = renderValue;
   $("valueFlightsBtn").onclick = loadValueFlights;
-  $("valueOrigin").addEventListener("keydown", (e) => { if (e.key === "Enter") loadValueFlights(); });
+  fillOriginSelect($("valueOrigin")).catch(() => {});
   buildWeightSliders();
   renderValue();
 }
@@ -908,10 +908,25 @@ function renderValue() {
 //  Flight prices (Travelpayouts)
 // ===========================================================================
 let flightsData = null;
+let flightOrigins = null;
+
+async function ensureOrigins() {
+  if (!flightOrigins) flightOrigins = (await getJSON("/api/flight-origins")).origins;
+  return flightOrigins;
+}
+
+// Populate an origin-country <select>, defaulting to the US.
+async function fillOriginSelect(sel) {
+  if (sel.options.length > 1) return;
+  const list = await ensureOrigins();
+  sel.innerHTML = list.map((o) =>
+    `<option value="${esc(o.iso)}"${o.iso === "US" ? " selected" : ""}>${esc(o.name)}</option>`).join("");
+}
 
 async function loadFlights() {
-  const origin = ($("flightOrigin").value || "JFK").trim().toUpperCase().slice(0, 3);
-  $("flightSub").textContent = "Searching cheapest fares from " + origin + "…";
+  const origin = $("flightOrigin").value || "US";
+  $("flightSub").textContent = "Averaging international fares from " +
+    ($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin) + "…";
   try {
     flightsData = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
   } catch (e) {
@@ -921,7 +936,7 @@ async function loadFlights() {
   if (!flightsData.configured) {
     $("flightSub").innerHTML = "Flight prices need a free Travelpayouts token. Set <code>TRAVELPAYOUTS_TOKEN</code> on the server (Render → Environment), then redeploy.";
     $("flightMap").textContent = "Not configured.";
-    $("flightRows").innerHTML = '<tr><td colspan="6">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
+    $("flightRows").innerHTML = '<tr><td colspan="4">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
     return;
   }
   renderFlights();
@@ -934,11 +949,11 @@ function flightColor(price, min, max) {
 }
 
 function renderFlights() {
-  const items = flightsData.items || [];
+  const countries = flightsData.countries || [];
   const byC = flightsData.by_country || {};
   const prices = Object.values(byC);
   // Scale colors across the actual fare range (anchoring min at 0 would wash
-  // out the green end — the cheapest real fare should read as fully cheap).
+  // out the green end — the cheapest real average should read as fully cheap).
   const min = prices.length ? Math.min(...prices) : 0;
   const max = prices.length ? Math.max(...prices) : 1;
   const cur = (flightsData.currency || "usd").toUpperCase();
@@ -946,25 +961,24 @@ function renderFlights() {
   drawMap("flightMap", (f) => {
     const p = byC[f.properties.iso];
     return p == null
-      ? { fill: NODATA, title: f.properties.name + " — no fare found" }
-      : { fill: flightColor(p, min, max), title: `${f.properties.name} — from ${cur} ${p}` };
-  }, "Cheapest flight prices by country");
+      ? { fill: NODATA, title: f.properties.name + " — no fares sampled" }
+      : { fill: flightColor(p, min, max), title: `${f.properties.name} — avg ${cur} ${p} round-trip` };
+  }, "Average flight prices by destination country");
 
   $("flightSub").textContent =
-    `Cheapest round-trips from ${flightsData.origin} · ${items.length} destinations · greener = cheaper.`;
+    `Average international round-trips from ${flightsData.origin_name || flightsData.origin} (via ${flightsData.hub}) · ${countries.length} destination countries · greener = cheaper.`;
   $("flightLegend").innerHTML =
     '<span>Cheaper</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Pricier</span>';
 
-  $("flightRows").innerHTML = items.slice(0, 60).map((it) => `
-    <tr><td>${esc(it.city)}</td><td>${esc(it.country)}</td>
-      <td class="num"><b>${esc(cur)} ${Number(it.price) || "?"}</b></td>
-      <td class="num">${esc(it.depart) || "—"}</td><td class="num">${esc(it.return) || "—"}</td>
-      <td class="num">${Number(it.transfers) || 0}</td></tr>`).join("")
-    || '<tr><td colspan="6">No fares found from this airport.</td></tr>';
+  $("flightRows").innerHTML = countries.map((c) => `
+    <tr><td>${esc(countryName(c.iso))}</td>
+      <td class="num"><b>${esc(cur)} ${Number(c.avg) || "?"}</b></td>
+      <td class="num">${esc(cur)} ${Number(c.min) || "?"}</td>
+      <td class="num">${Number(c.n) || 0}</td></tr>`).join("")
+    || '<tr><td colspan="4">No fares found from this country.</td></tr>';
 }
 
 $("flightGo").addEventListener("click", loadFlights);
-$("flightOrigin").addEventListener("keydown", (e) => { if (e.key === "Enter") loadFlights(); });
 
 // ===========================================================================
 //  Things to do (curated activities + what's in season now)
@@ -1112,7 +1126,8 @@ async function activateTab(name) {
       $("advSub").textContent = "Loading advisories…";
       await Promise.all([ensureWorld(), ensureAdvisories()]); renderAdvisories(); loaded.advisory = true;
     } else if (name === "flights" && !loaded.flights) {
-      await ensureWorld(); loadFlights(); loaded.flights = true;
+      await Promise.all([ensureWorld(), fillOriginSelect($("flightOrigin"))]);
+      loadFlights(); loaded.flights = true;
     } else if (name === "activities" && !loaded.activities) {
       await Promise.all([ensurePPP(), ensureClimate(), ensureActivities()]);
       buildActivityPickers(); loaded.activities = true;
