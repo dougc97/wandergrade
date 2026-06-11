@@ -30,6 +30,20 @@ body {
   line-height: 1.45;
 }
 
+/* wanderlust doodle layer: faint travel line-art tiled behind the cards.
+   A real fixed div (not a pseudo-element) for maximum renderer compatibility;
+   cards/tables are solid, so text stays crisp. */
+.bgdoodle {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: url("/bg.svg") repeat;
+  background-size: 760px 760px;
+  opacity: var(--doodle, 0.07);
+  pointer-events: none;
+  z-index: 0;
+}
+body > *:not(.bgdoodle) { position: relative; z-index: 1; }
+
 header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide { max-width: 960px; margin: 0 auto; padding: 0 20px; }
 
 /* tab nav */
@@ -276,6 +290,7 @@ html[data-theme="dark"] {
   --amber-bg: #33290f;
   --red: #ff7a8a;
 }
+html[data-theme="dark"] { --doodle: 0.10; }
 html[data-theme="dark"] .countrycard .ccfacts { color: var(--ink); }
 html[data-theme="dark"] .status.err { background: #3a151c; }
 html[data-theme="dark"] .chip2.rm:hover { background: #3a151c; }
