@@ -858,11 +858,10 @@ let valueMapMode = "score";
 
 async function loadValueFlights(silent) {
   const origin = $("valueOrigin").value || "US";
-  $("valueFlightsBtn").textContent = "loading…";
   try {
     const data = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
     if (!data.configured) {
-      if (!silent) status("Flight prices need TRAVELPAYOUTS_TOKEN on the server — see the Flight prices tab.", "err");
+      if (!silent) status("Flight prices need TRAVELPAYOUTS_TOKEN on the server — see the Flights tab.", "err");
     } else {
       flightsData = data;
       if (!silent) status(`Average fares from ${data.origin_name || origin} folded into the score.`, "ok");
@@ -870,7 +869,6 @@ async function loadValueFlights(silent) {
   } catch (e) {
     if (!silent) status("Could not load flights: " + e.message, "err");
   }
-  $("valueFlightsBtn").textContent = "+ flights";
   renderValue();
 }
 
@@ -881,12 +879,12 @@ function buildValueTab() {
   mon.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
   reg.onchange = renderValue;
   mon.onchange = renderValue;
-  $("valueFlightsBtn").onclick = () => loadValueFlights(false);
-  // Auto-load fares for the default origin once the dropdown is ready — the
-  // Flight column shouldn't require a click when the server has a token.
+  // Fares auto-load for the home country (defaults to United States) and
+  // reload whenever the user picks a different one — no button needed.
   fillOriginSelect($("valueOrigin"))
     .then(() => loadValueFlights(true))
     .catch(() => {});
+  $("valueOrigin").addEventListener("change", () => loadValueFlights(false));
   for (const b of document.querySelectorAll("#valueMapMode button")) {
     b.addEventListener("click", () => {
       for (const x of document.querySelectorAll("#valueMapMode button"))
@@ -1290,7 +1288,10 @@ async function postApplyShared() {
       b.classList.toggle("active", b.dataset.vm === "weather"));
   }
   if (sharedQ.get("vo")) {
-    ensureOrigins().then(() => { $("valueOrigin").value = sharedQ.get("vo"); }).catch(() => {});
+    ensureOrigins().then(() => {
+      $("valueOrigin").value = sharedQ.get("vo");
+      return loadValueFlights(true);
+    }).catch(() => {});
   }
   if (rerender && loaded.value) renderValue();
   if (sharedQ.get("gc")) await openGuideFor(sharedQ.get("gc"));
