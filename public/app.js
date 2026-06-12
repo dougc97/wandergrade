@@ -1130,7 +1130,7 @@ function renderGradeTable(host, list, month, gem) {
       <td>${safetyPill(s.advLvl)}</td>
       <td>${gradePill(s.wx, wxTitle)}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
       <td class="num">${flight}</td>
-      <td>${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}</td>
+      <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span></td>
     </tr>`;
   }).join("");
   host.innerHTML = `<table class="gradetable">
