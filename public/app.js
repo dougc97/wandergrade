@@ -187,6 +187,8 @@ function renderRates(data) {
   const w = baseWord(base);
   $("mapH2").innerHTML = `Where ${esc(w)} is strong <span class="muted">vs each currency's 1-year average</span>`;
   $("chartH2").innerHTML = `Overall ${esc(w === "the dollar" ? "dollar" : w)} strength <span class="muted">vs rest of world</span>`;
+  $("rateColHead").textContent = `1 ${base} =`;
+  $("vsAvgHead").title = `vs its own 1-year average — positive = ${w} is stronger than usual`;
   $("asof").textContent = "As of " + data.as_of;
   const fav = data.rows.filter((r) => r.favorable && r.watched);
   $("summary").textContent =
@@ -787,7 +789,7 @@ function renderAfford() {
   }, "Cost of living (price level vs US)");
 
   $("affSub").textContent =
-    `Below 1.00 = cheaper than the US (your dollar buys more). World Bank PPP ÷ live rate · ${n} countries.`;
+    `Below 1.00 = cheaper than the US (a dollar buys more). World Bank PPP ÷ live rate · ${n} countries.`;
   $("affLegend2").innerHTML =
     '<span>Pricey</span><span class="bar"></span><span>Cheap</span>' +
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
