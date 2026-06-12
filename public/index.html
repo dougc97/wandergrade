@@ -4,9 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Where Should I Travel Next? — USD Travel Tracker</title>
-  <meta name="description" content="Countries ranked by your dollar's power: currency strength, cost of living, weather, safety, and flight prices.">
+  <meta name="description" content="Pick a month — we rank every country by how far your dollar goes: prices, weather, safety, and flights.">
   <meta property="og:title" content="Where Should I Travel Next?">
-  <meta property="og:description" content="Ranked by your dollar's power: currency, costs, weather, safety, flights.">
+  <meta property="og:description" content="Pick a month — we rank every country by how far your dollar goes.">
   <meta property="og:type" content="website">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💵</text></svg>">
   <link rel="stylesheet" href="/styles.css">
@@ -17,7 +17,7 @@
     <div class="headrow">
       <div>
         <h1>🌍 Where Should I Travel Next?</h1>
-        <p class="sub">Ranked by your dollar's power: currency, costs, weather, safety, flights.</p>
+        <p class="sub">Pick a month — we rank every country by how far your dollar goes.</p>
       </div>
       <div class="headbtns">
         <button id="shareBtn" class="themebtn" title="copy a link to this view &amp; settings">🔗 Share</button>
@@ -28,76 +28,126 @@
 
   <nav class="tabs" id="tabs">
     <button data-tab="value" class="active">🧭 Top Picks</button>
-    <button data-tab="money">💱 Dollar Power</button>
     <button data-tab="guide">📅 Travel Guide</button>
-    <button data-tab="advisory">⚠️ Advisories</button>
-    <button data-tab="flights">✈️ Flights</button>
     <button data-tab="visited">✓ Countries Visited</button>
+    <button data-tab="data">📊 Explore the Data</button>
   </nav>
 
   <div id="status" class="status" hidden></div>
 
-  <!-- ============ TAB: WHERE TO GO NOW ============ -->
+  <!-- ============ TAB: TOP PICKS ============ -->
   <section class="tab" id="tab-value">
     <div class="cardwide">
       <div class="charthead">
         <div>
-          <h2>Best value destinations <span class="muted">right now</span></h2>
-          <p class="chartsub">Blends affordability (PPP), dollar strength vs history, safety, and weather for the chosen month.
-          Level&nbsp;4 “Do&nbsp;Not&nbsp;Travel” countries are excluded.</p>
+          <h2>Where should you go?</h2>
+          <p class="chartsub">Your best-value destinations, in plain English. Tap any card or country for details.</p>
         </div>
         <div class="pickers">
           <span class="pickgroup" title="narrow the ranking">
-            <span class="picklabel">Filters</span>
-            <select id="valueRegion" title="filter by region"></select>
+            <span class="picklabel">I'm going in</span>
             <select id="valueMonth" title="travel month"></select>
+            <select id="valueRegion" title="filter by region"></select>
           </span>
-          <span class="pickgroup" title="your home country — sets the Flight column and score">
-            <span class="picklabel">✈️ Flights from</span>
+          <span class="pickgroup" title="your home country — used for flight prices">
+            <span class="picklabel">✈️ From</span>
             <select id="valueOrigin"></select>
           </span>
         </div>
       </div>
-      <div class="rowsplit">
-        <details class="weights" id="weightsBox">
-          <summary>⚖️ Adjust priorities</summary>
-          <div class="weightrows" id="weightRows"></div>
-        </details>
-        <span class="rankby">
-          <span class="picklabel">Rank by</span>
-          <div class="windowtoggle" id="valueMapMode">
-            <button data-vm="score" class="active">Value</button>
-            <button data-vm="weather">Weather</button>
-          </div>
-        </span>
-      </div>
+
+      <div id="topCards" class="topcards">Loading…</div>
+
       <div id="valueMap" class="map">Loading…</div>
-      <p class="tablekey" id="rankNote" hidden></p>
-      <p class="tablekey">Advisory key:
-        <span class="advtag a1">L1</span> exercise normal precautions (safest) ·
-        <span class="advtag a2">L2</span> exercise increased caution ·
-        <span class="advtag a3">L3</span> reconsider travel ·
-        <span class="advtag a4">L4</span> do not travel (excluded from list) ·
-        no tag = no US advisory published</p>
+
+      <details class="foldable" id="customizeBox">
+        <summary>⚙️ Customize the ranking <span class="muted">— what matters most to you?</span></summary>
+        <div class="weightrows" id="weightRows"></div>
+        <div class="rowsplit" style="margin-top:8px">
+          <span class="rankby">
+            <span class="picklabel">Rank by</span>
+            <div class="windowtoggle" id="valueMapMode">
+              <button data-vm="score" class="active">Best value</button>
+              <button data-vm="weather">Best weather</button>
+            </div>
+          </span>
+        </div>
+      </details>
+
+      <details class="foldable" id="tableBox">
+        <summary>📋 Full ranking &amp; the math <span class="muted">— every score, every country</span></summary>
+        <p class="tablekey" id="rankNote" hidden></p>
+        <p class="tablekey">Safety tags (US State Dept):
+          <span class="advtag a1">L1</span> normal precautions ·
+          <span class="advtag a2">L2</span> increased caution ·
+          <span class="advtag a3">L3</span> reconsider travel ·
+          <span class="advtag a4">L4</span> do not travel (excluded) ·
+          no tag = no advisory published</p>
+        <section class="tablewrap">
+          <table id="valueTable">
+            <thead><tr>
+              <th>Country</th>
+              <th class="num" title="overall 0-100 score blending everything below">Value</th>
+              <th class="num" title="how cheap daily life is vs the US">Cheapness</th>
+              <th class="num" title="is the dollar unusually strong vs this currency right now?">FX deal</th>
+              <th class="num" title="US State Dept advisory level">Safety</th>
+              <th class="num" title="weather comfort for your chosen month">Weather</th>
+              <th class="num" title="average round-trip from your home country; ~ = estimated">Flight</th>
+            </tr></thead>
+            <tbody id="valueRows"><tr><td colspan="7">Loading…</td></tr></tbody>
+          </table>
+        </section>
+      </details>
     </div>
-    <section class="tablewrap">
-      <table id="valueTable">
-        <thead><tr>
-          <th>Country</th><th class="num">Value</th><th class="num">Cheap</th>
-          <th class="num">$ timing</th><th class="num">Safe</th><th class="num">Weather</th>
-          <th class="num">Flight</th>
-        </tr></thead>
-        <tbody id="valueRows"><tr><td colspan="7">Loading…</td></tr></tbody>
-      </table>
-    </section>
   </section>
 
-  <!-- ============ TAB: MONEY (currency strength + cost of living) ============ -->
-  <section class="tab" id="tab-money" hidden>
+  <!-- ============ TAB: TRAVEL GUIDE ============ -->
+  <section class="tab" id="tab-guide" hidden>
+    <div class="cardwide">
+      <div class="charthead">
+        <div>
+          <h2>Travel Guide <span class="muted">when to go &amp; what to do</span></h2>
+          <p class="chartsub">Best months, peak vs off-season, and what's in season right now.</p>
+        </div>
+        <div class="pickers">
+          <select id="bestRegion"></select>
+          <select id="bestCountry"></select>
+        </div>
+      </div>
+      <div id="bestDetail" class="bestdetail">Loading…</div>
+      <hr class="softrule">
+      <div id="actDetail" class="bestdetail"></div>
+    </div>
+  </section>
+
+  <!-- ============ TAB: COUNTRIES VISITED ============ -->
+  <section class="tab" id="tab-visited" hidden>
+    <div class="cardwide">
+      <div class="charthead">
+        <div>
+          <h2>Countries Visited</h2>
+          <p id="visitedSub" class="chartsub">Click a country on the map, or pick from the dropdown. Saved in this browser.</p>
+        </div>
+        <div class="pickers">
+          <select id="visitedPick"></select>
+          <button id="visitedImage" title="generate a social-media image of your map">📸 Share image</button>
+          <button id="visitedSync" title="copy a link that carries your whole map — open it on your phone to continue there">📱 Use on another device</button>
+          <button id="visitedClear">Clear all</button>
+        </div>
+      </div>
+      <div id="visitedMap" class="map">Loading…</div>
+      <div id="visitedChips" class="chips" style="margin-top:12px"></div>
+    </div>
+  </section>
+
+  <!-- ============ TAB: EXPLORE THE DATA ============ -->
+  <section class="tab" id="tab-data" hidden>
     <div class="bar">
-      <div class="windowtoggle" id="moneyMode">
-        <button data-mm="currency" class="active">Currency timing</button>
-        <button data-mm="afford">Cost of living</button>
+      <div class="windowtoggle" id="dataMode">
+        <button data-dm="currency" class="active">💱 Currency</button>
+        <button data-dm="afford">💰 Cost of living</button>
+        <button data-dm="advisory">⚠️ Safety</button>
+        <button data-dm="flights">✈️ Flights</button>
       </div>
       <div class="actions">
         <button id="refresh">Refresh</button>
@@ -106,7 +156,7 @@
       </div>
     </div>
 
-    <div id="moneySubCurrency">
+    <div id="dataSubCurrency">
       <div class="bar">
         <div class="meta">
           <span id="asof">Loading…</span>
@@ -118,7 +168,7 @@
         <section class="mapcard">
           <div class="charthead">
             <div>
-              <h2>USD strength by country <span class="muted">vs each currency's 1-year average</span></h2>
+              <h2>Where the dollar is strong <span class="muted">vs each currency's 1-year average</span></h2>
               <p id="mapsub" class="chartsub">Loading map…</p>
             </div>
             <div class="legend" id="legend"></div>
@@ -129,7 +179,7 @@
         <section class="chartcard">
           <div class="charthead">
             <div>
-              <h2>Overall USD strength <span class="muted">vs rest of world</span></h2>
+              <h2>Overall dollar strength <span class="muted">vs rest of world</span></h2>
               <p id="chartsub" class="chartsub">Loading…</p>
             </div>
             <div class="bignum">
@@ -144,7 +194,7 @@
             <button data-days="365" class="active">1Y</button>
           </div>
           <div id="chart" class="chart"></div>
-          <p class="chartnote">Equal-weighted index of the major currencies, set to 100 at the window start. Above 100 = dollar stronger overall than back then.</p>
+          <p class="chartnote">100 = where the dollar started the window. Above 100 = stronger overall than back then.</p>
         </section>
       </div>
 
@@ -190,8 +240,10 @@
         <table id="rates">
           <thead>
             <tr>
-              <th>Currency</th><th class="num">1 USD =</th><th class="num">vs avg</th>
-              <th class="num">Price level</th><th class="num">Range position</th>
+              <th>Currency</th><th class="num">1 USD =</th>
+              <th class="num" title="vs its own 1-year average — positive = the dollar is stronger than usual">vs avg</th>
+              <th class="num" title="local prices vs the US; below 1.00 = cheaper than home">Price level</th>
+              <th class="num" title="where today sits between the year's low and high">Range position</th>
             </tr>
           </thead>
           <tbody id="rows"><tr><td colspan="5">Loading…</td></tr></tbody>
@@ -199,11 +251,11 @@
       </section>
     </div>
 
-    <div id="moneySubAfford" hidden>
+    <div id="dataSubAfford" hidden>
       <div class="cardwide">
         <div class="charthead">
           <div>
-            <h2>Cost of living <span class="muted">price level vs the US</span></h2>
+            <h2>Cost of living <span class="muted">how far $100 goes</span></h2>
             <p id="affSub" class="chartsub">Loading…</p>
           </div>
           <div class="legend" id="affLegend2"></div>
@@ -213,98 +265,58 @@
       <section class="tablewrap">
         <table id="affTable">
           <thead><tr>
-            <th>Country</th><th>Currency</th><th class="num">Price level</th>
+            <th>Country</th><th>Currency</th>
+            <th class="num" title="local prices vs the US; below 1.00 = cheaper than home">Price level</th>
             <th class="num">$100 buys ~</th><th>How it feels</th>
           </tr></thead>
           <tbody id="affRows"><tr><td colspan="5">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>
-  </section>
 
-  <!-- ============ TAB: COUNTRY GUIDE (best time + things to do) ============ -->
-  <section class="tab" id="tab-guide" hidden>
-    <div class="cardwide">
-      <div class="charthead">
-        <div>
-          <h2>Country guide <span class="muted">when to go &amp; what to do</span></h2>
-          <p class="chartsub">Monthly weather comfort, peak vs off-season, and what's in season right now.</p>
+    <div id="dataSubAdvisory" hidden>
+      <div class="cardwide">
+        <div class="charthead">
+          <div>
+            <h2>US State Dept travel advisories</h2>
+            <p id="advSub" class="chartsub">Loading…</p>
+          </div>
+          <div class="legend" id="advLegend"></div>
         </div>
-        <div class="pickers">
-          <select id="bestRegion"></select>
-          <select id="bestCountry"></select>
-        </div>
+        <div id="advMap" class="map">Loading…</div>
       </div>
-      <div id="bestDetail" class="bestdetail">Loading…</div>
-      <hr class="softrule">
-      <div id="actDetail" class="bestdetail"></div>
+      <section class="tablewrap">
+        <table id="advTable">
+          <thead><tr><th>Country</th><th>Level</th><th>Advisory</th></tr></thead>
+          <tbody id="advRows"><tr><td colspan="3">Loading…</td></tr></tbody>
+        </table>
+      </section>
     </div>
-  </section>
 
-  <!-- ============ TAB: TRAVEL ADVISORIES ============ -->
-  <section class="tab" id="tab-advisory" hidden>
-    <div class="cardwide">
-      <div class="charthead">
-        <div>
-          <h2>US State Dept travel advisories</h2>
-          <p id="advSub" class="chartsub">Loading…</p>
+    <div id="dataSubFlights" hidden>
+      <div class="cardwide">
+        <div class="charthead">
+          <div>
+            <h2>Flight prices by country <span class="muted">average round-trip from your country</span></h2>
+            <p id="flightSub" class="chartsub">Pick where you're flying from. International routes only, averaged per destination country.</p>
+          </div>
+          <div class="pickers">
+            <select id="flightOrigin"></select>
+            <button id="flightGo">Search</button>
+            <div class="legend" id="flightLegend"></div>
+          </div>
         </div>
-        <div class="legend" id="advLegend"></div>
+        <div id="flightMap" class="map">Loading…</div>
       </div>
-      <div id="advMap" class="map">Loading…</div>
-    </div>
-    <section class="tablewrap">
-      <table id="advTable">
-        <thead><tr><th>Country</th><th>Level</th><th>Advisory</th></tr></thead>
-        <tbody id="advRows"><tr><td colspan="3">Loading…</td></tr></tbody>
-      </table>
-    </section>
-  </section>
-
-  <!-- ============ TAB: FLIGHT PRICES ============ -->
-  <section class="tab" id="tab-flights" hidden>
-    <div class="cardwide">
-      <div class="charthead">
-        <div>
-          <h2>Flight prices by country <span class="muted">average round-trip from your country</span></h2>
-          <p id="flightSub" class="chartsub">Pick where you're flying from. International routes only, averaged per destination country.</p>
-        </div>
-        <div class="pickers">
-          <select id="flightOrigin"></select>
-          <button id="flightGo">Search</button>
-          <div class="legend" id="flightLegend"></div>
-        </div>
-      </div>
-      <div id="flightMap" class="map">Loading…</div>
-    </div>
-    <section class="tablewrap">
-      <table id="flightTable">
-        <thead><tr>
-          <th>Destination country</th><th class="num">Avg round-trip</th>
-          <th class="num">Cheapest</th><th class="num">Routes sampled</th>
-        </tr></thead>
-        <tbody id="flightRows"><tr><td colspan="4">No search yet.</td></tr></tbody>
-      </table>
-    </section>
-  </section>
-
-  <!-- ============ TAB: COUNTRIES VISITED ============ -->
-  <section class="tab" id="tab-visited" hidden>
-    <div class="cardwide">
-      <div class="charthead">
-        <div>
-          <h2>Countries visited</h2>
-          <p id="visitedSub" class="chartsub">Click a country on the map, or pick from the dropdown. Saved in this browser.</p>
-        </div>
-        <div class="pickers">
-          <select id="visitedPick"></select>
-          <button id="visitedImage" title="generate a social-media image of your map">📸 Share image</button>
-          <button id="visitedSync" title="copy a link that carries your whole map — open it on your phone to continue there">📱 Use on another device</button>
-          <button id="visitedClear">Clear all</button>
-        </div>
-      </div>
-      <div id="visitedMap" class="map">Loading…</div>
-      <div id="visitedChips" class="chips" style="margin-top:12px"></div>
+      <section class="tablewrap">
+        <table id="flightTable">
+          <thead><tr>
+            <th>Destination country</th><th class="num">Avg round-trip</th>
+            <th class="num">Cheapest</th><th class="num">Routes sampled</th>
+          </tr></thead>
+          <tbody id="flightRows"><tr><td colspan="4">No search yet.</td></tr></tbody>
+        </table>
+      </section>
     </div>
   </section>
 
