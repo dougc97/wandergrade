@@ -290,6 +290,54 @@ tbody tr.favorable, tbody tr.favorable:nth-child(even) { background: var(--green
 .tabs button { transition: color .15s; }
 .map svg, .chart svg { transition: opacity .2s; }
 
+/* ---- report-card grade table (Top Picks) ---- */
+.gradewrap { overflow-x: auto; margin: 14px 0 16px; }
+.gradewrap .gradetable { min-width: 620px; }
+.gradetable { width: 100%; border-collapse: collapse; }
+.gradetable th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em;
+  color: var(--gray); text-align: center; padding: 6px 4px; white-space: nowrap; }
+.gradetable td { padding: 9px 6px; text-align: center; border-top: 1px solid var(--line); }
+.gradetable th.dest, .gradetable td.dest { text-align: left; }
+.gradetable td.dest { font-weight: 700; font-size: 15px; white-space: nowrap; }
+.gradetable td.rank { color: var(--gray); font-weight: 800; font-size: 13px; width: 34px; }
+.gradetable td.num { font-variant-numeric: tabular-nums; }
+.gradetable tbody tr { cursor: pointer; }
+.gradetable tbody tr:hover td.dest { color: var(--green); }
+.gr { display: inline-block; min-width: 26px; padding: 2px 7px; border-radius: 7px;
+  font-weight: 800; font-size: 13px; color: #fff; text-align: center; }
+.gr.big { min-width: 34px; font-size: 15px; padding: 4px 9px; }
+.grAp { background: #067a23; }
+.grA  { background: #2f9e44; }
+.grBp { background: #74b816; }
+.grB  { background: #c9a200; }
+.grC  { background: #e8590c; }
+.grD  { background: #d9480f; }
+.grF  { background: #b00020; }
+.grx  { background: var(--soft); color: var(--gray); }
+.hzmark { font-size: 12px; margin-left: 3px; cursor: help; }
+.hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
+
+/* ---- picker hierarchy: big question row, quiet filter row ---- */
+.pickersmain { margin-top: 12px; }
+.pickersmain .pickgroup { padding: 7px 12px; border: 1px solid var(--line); }
+.pickersmain select { font-size: 15px; font-weight: 600; }
+.pickersfilters { margin-top: 8px; }
+.pickersfilters .pickgroup { background: transparent; border: 1px dashed var(--line); }
+.pickersfilters select { font-size: 13px; }
+.factorchip { cursor: pointer; border-radius: 999px; padding: 2px 9px; font-size: 12px;
+  border: 1px solid var(--line); background: var(--soft); color: var(--gray); }
+.factorchip.on { background: var(--green-bg); color: var(--green);
+  border-color: var(--green); font-weight: 700; }
+@media (max-width: 560px) {
+  /* phones: picker groups wrap inside themselves instead of overflowing the card */
+  .pickgroup { flex-wrap: wrap; white-space: normal; }
+  .pickersmain select, .pickersfilters select { max-width: 100%; }
+  .gradetable td { padding: 8px 4px; }
+  .gradetable td.dest { font-size: 14px; }
+  .gr { min-width: 22px; padding: 2px 5px; font-size: 12px; }
+  .gradewrap .gradetable { min-width: 540px; }
+}
+
 /* ---- dark theme ---- */
 html[data-theme="dark"] {
   color-scheme: dark;
