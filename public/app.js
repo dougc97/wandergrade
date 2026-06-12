@@ -774,11 +774,11 @@ const clamp100 = (x) => Math.max(0, Math.min(100, Math.round(x)));
 // User-adjustable priorities: High / Medium / Low per factor (simpler than
 // numeric sliders). "fly" only participates for countries with a fare loaded.
 const WEIGHT_DEFS = [
-  { key: "aff",  label: "Cheap",    def: "high" },
-  { key: "cur",  label: "$ timing", def: "med" },
-  { key: "safe", label: "Safety",   def: "med" },
-  { key: "wx",   label: "Weather",  def: "med" },
-  { key: "fly",  label: "Flights",  def: "med" },
+  { key: "aff",  label: "Cheapness", def: "high" },
+  { key: "cur",  label: "FX deal",   def: "med" },
+  { key: "safe", label: "Safety",    def: "med" },
+  { key: "wx",   label: "Weather",   def: "med" },
+  { key: "fly",  label: "Flights",   def: "med" },
 ];
 const PRI_LEVELS = [["high", "High"], ["med", "Med"], ["low", "Low"]];
 const PRI_W = { high: 3, med: 2, low: 1 };   // relative weights, normalized at score time
@@ -852,7 +852,8 @@ function valueScores(iso, month, advMap, fares) {
   const value = den ? clamp100(num / den) : 0;
   return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
            aff: comps.aff, cur: comps.cur, safe: comps.safe, wx: comps.wx,
-           fly: comps.fly, fare, fareEst, advLvl, value };
+           fly: comps.fly, fare, fareEst, advLvl, value,
+           pl, fx: row ? row.strength_pct : null };
 }
 
 let valueMapMode = "score";
@@ -956,6 +957,56 @@ function buildValueTab() {
   renderValue();
 }
 
+// ---- plain-English top picks cards ------------------------------------------
+function flagEmoji(iso) {
+  if (!/^[A-Z]{2}$/.test(iso)) return "🌍";
+  return String.fromCodePoint(...[...iso].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+}
+
+// Compose a human sentence from the score ingredients — answers, not numbers.
+function whyLine(s, month) {
+  const bits = [];
+  if (s.pl != null) {
+    const ratio = 1 / s.pl;
+    if (ratio >= 1.75) bits.push(`your dollar goes ~${(Math.round(ratio * 10) / 10).toFixed(1).replace(/\.0$/, "")}× further than at home`);
+    else if (ratio >= 1.12) bits.push(`your dollar goes ~${Math.round((ratio - 1) * 100)}% further than at home`);
+    else if (s.pl <= 1.1) bits.push("prices about the same as home");
+    else bits.push("pricier than home");
+  }
+  if (s.fx != null && s.fx >= 2) bits.push("the dollar is unusually strong there right now");
+  if (s.wx >= 75) bits.push(`great weather in ${MONTHS[month - 1]}`);
+  else if (s.wx >= 55) bits.push(`decent weather in ${MONTHS[month - 1]}`);
+  if (s.advLvl === 1) bits.push("safest travel rating");
+  else if (s.advLvl === 3) bits.push("⚠️ has a reconsider-travel advisory");
+  if (s.fare != null) bits.push(`flights ${s.fareEst ? "≈" : "from ~"}$${Math.round(s.fare)}`);
+  return bits.slice(0, 4).join(" · ");
+}
+
+function renderTopCards(ranked, month) {
+  const host = $("topCards");
+  if (!host) return;
+  const top = ranked.filter((s) => !visited.has(s.iso)).slice(0, 5);
+  if (!top.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
+  host.innerHTML = top.map((s, i) => {
+    const adv = s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
+              : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
+    return `<div class="pickcard" data-iso="${esc(s.iso)}" title="open the travel guide for ${esc(s.name)}">
+      <span class="pickrank">#${i + 1}</span>
+      <span class="pickmain">
+        <span class="pickname">${flagEmoji(s.iso)} ${esc(s.name)}${adv}</span>
+        <span class="pickwhy">${whyLine(s, month)}</span>
+      </span>
+      <span class="pickscore" title="overall value score out of 100">${s.value}</span>
+    </div>`;
+  }).join("");
+}
+
+// One delegated click: a card opens that country's travel guide.
+document.addEventListener("click", (e) => {
+  const card = e.target.closest(".pickcard");
+  if (card && card.dataset.iso) openGuideFor(card.dataset.iso);
+});
+
 function renderValue() {
   const region = $("valueRegion").value;
   const month = parseInt($("valueMonth").value, 10);
@@ -1004,6 +1055,7 @@ function renderValue() {
     .sort(weatherMode ? ((a, b) => (b.wx - a.wx) || (b.value - a.value))
                       : ((a, b) => b.value - a.value))
     .slice(0, 40);
+  renderTopCards(ranked, month);
   $("valueRows").innerHTML = ranked.map((s) => {
     const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
     const adv = s.advLvl === 1 ? ' <span class="advtag a1" title="Level 1: Exercise Normal Precautions">L1</span>'
@@ -1226,12 +1278,6 @@ async function activateTab(name) {
     } else if (name === "guide" && !loaded.guide) {
       await Promise.all([ensurePPP(), ensureClimate(), ensureActivities()]);
       buildBestPickers(); loaded.guide = true;
-    } else if (name === "advisory" && !loaded.advisory) {
-      $("advSub").textContent = "Loading advisories…";
-      await Promise.all([ensureWorld(), ensureAdvisories()]); renderAdvisories(); loaded.advisory = true;
-    } else if (name === "flights" && !loaded.flights) {
-      await Promise.all([ensureWorld(), fillOriginSelect($("flightOrigin"))]);
-      loadFlights(); loaded.flights = true;
     } else if (name === "visited" && !loaded.visited) {
       await Promise.all([ensureWorld(), ensurePPP(), ensureClimate()]);
       buildVisited(); loaded.visited = true;
@@ -1243,22 +1289,35 @@ async function activateTab(name) {
 for (const b of document.querySelectorAll("#tabs button"))
   b.addEventListener("click", () => activateTab(b.dataset.tab));
 
-// Money tab sub-toggle: currency timing <-> cost of living.
-for (const b of document.querySelectorAll("#moneyMode button")) {
-  b.addEventListener("click", async () => {
-    for (const x of document.querySelectorAll("#moneyMode button"))
-      x.classList.toggle("active", x === b);
-    const afford = b.dataset.mm === "afford";
-    $("moneySubCurrency").hidden = afford;
-    $("moneySubAfford").hidden = !afford;
-    if (afford && !loaded.afford) {
-      try {
-        await Promise.all([ensureWorld(), ensurePPP()]);
-        renderAfford(); loaded.afford = true;
-      } catch (e) { status("Could not load cost of living: " + e.message, "err"); }
+// Explore-the-Data sub-views: currency / cost of living / safety / flights.
+let dataMode = "currency";
+const DATA_SUBS = { currency: "dataSubCurrency", afford: "dataSubAfford",
+                    advisory: "dataSubAdvisory", flights: "dataSubFlights" };
+
+async function setDataMode(mode) {
+  if (!DATA_SUBS[mode]) mode = "currency";
+  dataMode = mode;
+  for (const x of document.querySelectorAll("#dataMode button"))
+    x.classList.toggle("active", x.dataset.dm === mode);
+  for (const m in DATA_SUBS) $(DATA_SUBS[m]).hidden = m !== mode;
+  try {
+    if (mode === "afford" && !loaded.afford) {
+      await Promise.all([ensureWorld(), ensurePPP()]);
+      renderAfford(); loaded.afford = true;
+    } else if (mode === "advisory" && !loaded.advisory) {
+      $("advSub").textContent = "Loading advisories…";
+      await Promise.all([ensureWorld(), ensureAdvisories()]);
+      renderAdvisories(); loaded.advisory = true;
+    } else if (mode === "flights" && !loaded.flights) {
+      await Promise.all([ensureWorld(), fillOriginSelect($("flightOrigin"))]);
+      loadFlights(); loaded.flights = true;
     }
-  });
+  } catch (e) {
+    status("Could not load " + mode + ": " + e.message, "err");
+  }
 }
+for (const b of document.querySelectorAll("#dataMode button"))
+  b.addEventListener("click", () => setDataMode(b.dataset.dm));
 
 // ---- newsletter signup (Buttondown embed) ---------------------------------
 // Set this to your public Buttondown newsletter username to enable signups.
@@ -1302,13 +1361,12 @@ function buildShareURL() {
     const p = loadPriorities();
     const compact = WEIGHT_DEFS.map((w) => p[w.key][0]).join(".");   // e.g. h.m.m.m.m
     if (compact !== WEIGHT_DEFS.map((w) => w.def[0]).join(".")) q.set("pri", compact);
-  } else if (tab === "money") {
-    if ($("moneySubAfford") && !$("moneySubAfford").hidden) q.set("mmode", "afford");
-    if (activeDays !== 365) q.set("win", String(activeDays));
+  } else if (tab === "data") {
+    if (dataMode !== "currency") q.set("dm", dataMode);
+    if (dataMode === "currency" && activeDays !== 365) q.set("win", String(activeDays));
+    if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
   } else if (tab === "guide") {
     q.set("gc", $("bestCountry").value || "JP");
-  } else if (tab === "flights") {
-    if ($("flightOrigin").value) q.set("fo", $("flightOrigin").value);
   } else if (tab === "visited") {
     loadVisited();
     if (visited.size) q.set("v", [...visited].join(","));
@@ -1353,10 +1411,19 @@ function preApplyShared() {
 
 async function postApplyShared() {
   if (![...sharedQ.keys()].length) return;
-  const tab = sharedQ.get("tab");
+  let tab = sharedQ.get("tab");
+  let dm = sharedQ.get("dm");
+  // Old share links used standalone money/advisory/flights tabs — map them
+  // into the consolidated Explore-the-Data tab.
+  const legacyTabs = { money: "currency", advisory: "advisory", flights: "flights" };
+  if (legacyTabs[tab]) {
+    dm = dm || (sharedQ.get("mmode") === "afford" ? "afford" : legacyTabs[tab]);
+    tab = "data";
+  }
   if (tab && tab !== "value" && document.querySelector(`#tabs button[data-tab="${tab}"]`)) {
     await activateTab(tab);
   }
+  if (tab === "data" && dm) await setDataMode(dm);
   let rerender = false;
   if (sharedQ.get("vr") && [...$("valueRegion").options].some((o) => o.value === sharedQ.get("vr"))) {
     $("valueRegion").value = sharedQ.get("vr"); rerender = true;
@@ -1375,10 +1442,6 @@ async function postApplyShared() {
   }
   if (rerender && loaded.value) renderValue();
   if (sharedQ.get("gc")) await openGuideFor(sharedQ.get("gc"));
-  if (sharedQ.get("mmode") === "afford") {
-    const b = document.querySelector('#moneyMode button[data-mm="afford"]');
-    if (b) b.click();
-  }
   if (sharedQ.get("win")) loadIndex(parseInt(sharedQ.get("win"), 10) || 365);
   if (sharedQ.get("fo") && loaded.flights) { $("flightOrigin").value = sharedQ.get("fo"); loadFlights(); }
   if (sharedQ.get("v") && tab === "visited") {
