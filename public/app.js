@@ -907,18 +907,85 @@ function advisoryByIso() {
   return m;
 }
 
-function valueScores(iso, month, advMap, fares) {
-  const pl = priceLevel(iso);
-  if (pl == null) return null;                       // need affordability to rank
+// ---- home currency for Top Picks --------------------------------------------
+// "From" picks the country (flights + what "cheap" is measured against);
+// "In" picks the money (FX column + the currency prices are shown in). It
+// follows the From country automatically until the user overrides it — an
+// American expat hopping countries can pin USD and it stays pinned.
+let homeBase = "USD";        // currency code the main tab reasons in
+let homeRates = null;        // /api/rates dataset for that base (= lastRates for USD)
+let homeManual = localStorage.getItem("fx_homecur_manual") === "1";
+const _baseRatesCache = {};
+
+function homeCurAuto() { return CUR_BY_ISO[$("valueOrigin").value || "US"] || "USD"; }
+
+async function loadHomeRates() {
+  if (homeBase === "USD") { homeRates = lastRates; return; }
+  if (_baseRatesCache[homeBase]) { homeRates = _baseRatesCache[homeBase]; return; }
+  homeRates = null;   // FX column shows neutral until the dataset lands
+  const data = await getJSON("/api/rates?base=" + homeBase);
+  _baseRatesCache[homeBase] = data;
+  if (data.base === homeBase) homeRates = data;   // ignore stale responses
+}
+
+function setHomeCur(code, manual) {
+  homeBase = code;
+  homeManual = manual;
+  localStorage.setItem("fx_homecur", code);
+  localStorage.setItem("fx_homecur_manual", manual ? "1" : "0");
+  const sel = $("homeCur");
+  if (sel && sel.value !== code) sel.value = code;
+  loadHomeRates().catch(() => {}).then(() => { if (loaded.value) renderValue(); });
+}
+
+function initHomeCur() {
+  const sel = $("homeCur");
+  if (!sel || sel.options.length > 1 || !lastRates) return;
+  const codes = ["USD", ...lastRates.rows.map((r) => r.code).sort()];
+  sel.innerHTML = codes.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  const stored = localStorage.getItem("fx_homecur");
+  const start = homeManual && codes.includes(stored) ? stored : homeCurAuto();
+  sel.value = start;
+  sel.onchange = () => setHomeCur(sel.value, sel.value !== homeCurAuto());
+  setHomeCur(start, homeManual);
+}
+
+// Format a USD amount in the chosen home currency ("~" marks estimates).
+const _moneyFmt = {};
+function fmtMoney(usd, approx) {
+  if (usd == null) return "—";
+  let code = homeBase, amt = usd;
+  if (code !== "USD") {
+    const rate = rateForCurrency(code);
+    if (rate) amt = usd * rate; else code = "USD";
+  }
+  try {
+    _moneyFmt[code] = _moneyFmt[code] ||
+      new Intl.NumberFormat("en", { style: "currency", currency: code, maximumFractionDigits: 0 });
+    return (approx ? "~" : "") + _moneyFmt[code].format(amt);
+  } catch (e) {
+    return (approx ? "~" : "") + "$" + Math.round(usd);
+  }
+}
+
+function valueScores(iso, month, advMap, fares, anchorPl) {
+  const plUS = priceLevel(iso);
+  if (plUS == null) return null;                     // need affordability to rank
+  // Affordability is measured against the traveler's HOME country, not the US:
+  // for a US traveler anchorPl is 1 and nothing changes.
+  const pl = plUS / (anchorPl || 1);
   const advLvl = advMap[iso];
   if (advLvl === 4) return null;                     // Do Not Travel: excluded outright
   const cur = CUR_BY_ISO[iso];
-  const row = cur && cur !== "USD" ? lastRates.rows.find((r) => r.code === cur) : null;
+  // FX strength is judged from the chosen home currency's dataset. While a
+  // non-USD dataset is still loading, FX reads neutral rather than wrong.
+  const row = cur && cur !== homeBase && homeRates
+    ? homeRates.rows.find((r) => r.code === cur) : null;
   const cl = climate && climate[iso];
 
   const w = loadWeights();
   // Curves calibrated so a realistic best-case lands ~95, not an unreachable 100:
-  // Cheapness maxes once prices are ~1/3 of US prices; FX maxes at +8% vs the
+  // Cheapness maxes once prices are ~1/3 of home prices; FX maxes at +8% vs the
   // 1-year average (about the biggest anomaly that actually occurs).
   const comps = {
     aff: clamp100(((1.3 - pl) / 0.95) * 100),
@@ -1039,9 +1106,12 @@ function buildValueTab() {
   // Fares auto-load for the home country (defaults to United States) and
   // reload whenever the user picks a different one — no button needed.
   fillOriginSelect($("valueOrigin"))
-    .then(() => loadValueFlights(true))
+    .then(() => { initHomeCur(); loadValueFlights(true); })
     .catch(() => {});
-  $("valueOrigin").addEventListener("change", () => loadValueFlights(false));
+  $("valueOrigin").addEventListener("change", () => {
+    if (!homeManual) setHomeCur(homeCurAuto(), false);   // follow unless pinned
+    loadValueFlights(false);
+  });
   $("pickCount").value = String(parseInt(localStorage.getItem("fx_pickcount") || "5", 10) || 5);
   $("pickCount").addEventListener("change", () => {
     localStorage.setItem("fx_pickcount", $("pickCount").value);
@@ -1171,20 +1241,21 @@ function passesFloor(s, floor) {
 
 // Compose a human sentence from the score ingredients — answers, not numbers.
 function whyLine(s, month) {
+  const money = homeBase === "USD" ? "your dollar" : "your " + homeBase;
   const bits = [];
   if (s.pl != null) {
     const ratio = 1 / s.pl;
-    if (ratio >= 1.75) bits.push(`your dollar goes ~${(Math.round(ratio * 10) / 10).toFixed(1).replace(/\.0$/, "")}× further than at home`);
-    else if (ratio >= 1.12) bits.push(`your dollar goes ~${Math.round((ratio - 1) * 100)}% further than at home`);
+    if (ratio >= 1.75) bits.push(`${money} goes ~${(Math.round(ratio * 10) / 10).toFixed(1).replace(/\.0$/, "")}× further than at home`);
+    else if (ratio >= 1.12) bits.push(`${money} goes ~${Math.round((ratio - 1) * 100)}% further than at home`);
     else if (s.pl <= 1.1) bits.push("prices about the same as home");
     else bits.push("pricier than home");
   }
-  if (s.fx != null && s.fx >= 2) bits.push("the dollar is unusually strong there right now");
+  if (s.fx != null && s.fx >= 2) bits.push(`${money} is unusually strong there right now`);
   if (s.wx >= 75) bits.push(`great weather in ${MONTHS[month - 1]}`);
   else if (s.wx >= 55) bits.push(`decent weather in ${MONTHS[month - 1]}`);
   if (s.advLvl === 1) bits.push("safest travel rating");
   else if (s.advLvl === 3) bits.push("⚠️ has a reconsider-travel advisory");
-  if (s.fare != null) bits.push(`flights ${s.fareEst ? "≈" : "from ~"}$${Math.round(s.fare)}`);
+  if (s.fare != null) bits.push(`flights ${s.fareEst ? "≈" : "from ~"}${fmtMoney(s.fare)}`);
   return bits.slice(0, 4).join(" · ");
 }
 
@@ -1207,17 +1278,18 @@ function renderGradeTable(host, list, month, gem) {
     const wxTitle = `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}` +
       (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
     // Real fares get a deal grade vs the typical price for that distance;
-    // estimates ARE the baseline, so they show the ~$ figure alone.
+    // estimates ARE the baseline, so they show the ~ figure alone. All money
+    // renders in the chosen home currency.
     const flight = s.fare == null ? "—"
-      : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare">~$${Math.round(s.fare)}</span>`
+      : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare">${fmtMoney(s.fare, true)}</span>`
       : (s.fareBase ? gradePill(s.fly,
-          `$${Math.round(s.fare)} avg round-trip vs ~$${Math.round(s.fareBase)} typical for the distance`) + " " : "")
-        + `<span class="fareamt">$${Math.round(s.fare)}</span>`;
+          `${fmtMoney(s.fare)} avg round-trip vs ${fmtMoney(s.fareBase, true)} typical for the distance`) + " " : "")
+        + `<span class="fareamt">${fmtMoney(s.fare)}</span>`;
     return `<tr data-iso="${esc(s.iso)}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
-      <td>${gradePill(s.cur, s.fx != null ? `Dollar is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average here` : "USD-linked — no FX edge either way")}</td>
-      <td>${gradePill(s.aff, s.pl != null ? `Price level ${s.pl.toFixed(2)} — $100 buys what ~$${Math.round(100 / s.pl)} buys in the US` : "")}</td>
+      <td>${gradePill(s.cur, s.fx != null ? `${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average here` : `Uses your currency (${homeBase}) — no FX edge either way`)}</td>
+      <td>${gradePill(s.aff, s.pl != null ? `Price level ${s.pl.toFixed(2)} vs home — under 1.00 means your money buys more than it does at home` : "")}</td>
       <td>${safetyPill(s.advLvl)}</td>
       <td>${gradePill(s.wx, wxTitle)}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
       <td class="num">${flight}</td>
@@ -1226,7 +1298,7 @@ function renderGradeTable(host, list, month, gem) {
   }).join("");
   host.innerHTML = `<table class="gradetable">
     <thead><tr><th></th><th class="dest">Destination</th>
-      <th title="is the dollar unusually strong vs this currency right now?">💵 Dollar</th>
+      <th title="is your money unusually strong vs this currency right now?">💵 ${homeBase === "USD" ? "Dollar" : esc(homeBase)}</th>
       <th title="how cheap daily life is vs the US">🏷️ Prices</th>
       <th title="US State Dept advisory level">🛡️ Safety</th>
       <th title="weather comfort for your chosen month">🌤️ Weather</th>
@@ -1250,11 +1322,13 @@ function renderValue() {
 
   // Fare context: known fares per country + distance-based estimates for the rest.
   const fares = buildFareContext();
+  // "Cheap" is relative to the From country's own price level (US anchor = 1).
+  const anchorPl = priceLevel($("valueOrigin").value || "US") || 1;
 
   const scored = {};
   for (const iso in CUR_BY_ISO) {
     if (region !== "all" && ISO_REGION[iso] !== region) continue;
-    const s = valueScores(iso, month, advMap, fares);
+    const s = valueScores(iso, month, advMap, fares, anchorPl);
     if (s) scored[iso] = s;
   }
   if (valueMapMode === "weather" && climate) {
@@ -1320,8 +1394,8 @@ function renderValue() {
               : s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
               : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
     const flight = s.fare == null ? "—"
-      : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare for this route">~$${Math.round(s.fare)}</span>`
-      : `$${Math.round(s.fare)}`;
+      : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare for this route">${fmtMoney(s.fare, true)}</span>`
+      : fmtMoney(s.fare);
     const valCell = weatherMode ? `${s.value}` : `<b>${s.value}</b>`;
     const wxCell = weatherMode ? `<b>${s.wx}</b>` : `${s.wx}`;
     return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
@@ -1620,6 +1694,7 @@ function buildShareURL() {
     const fac = loadFactors();
     if (fac.length !== WEIGHT_DEFS.length) q.set("fac", fac.join("."));
     if ($("valueOrigin").value && $("valueOrigin").value !== "US") q.set("vo", $("valueOrigin").value);
+    if (homeManual && homeBase !== homeCurAuto()) q.set("hc", homeBase);
     if (valueMapMode === "weather") q.set("vmm", "weather");
     const p = loadPriorities();
     const compact = WEIGHT_DEFS.map((w) => p[w.key][0]).join(".");   // e.g. h.m.m.m.m
@@ -1707,9 +1782,12 @@ async function postApplyShared() {
   if (sharedQ.get("vo")) {
     ensureOrigins().then(() => {
       $("valueOrigin").value = sharedQ.get("vo");
+      if (!homeManual) setHomeCur(homeCurAuto(), false);
       return loadValueFlights(true);
     }).catch(() => {});
   }
+  const hc = sharedQ.get("hc");
+  if (hc && /^[A-Z]{3}$/.test(hc)) setHomeCur(hc, true);
   if (rerender && loaded.value) renderValue();
   if (sharedQ.get("gc")) await openGuideFor(sharedQ.get("gc"));
   if (sharedQ.get("win")) loadIndex(parseInt(sharedQ.get("win"), 10) || 365);
