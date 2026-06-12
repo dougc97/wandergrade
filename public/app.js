@@ -668,15 +668,25 @@ function renderCountryClimate(iso) {
   const peakM = [], offM = [];
   seas.forEach((s, i) => { if (s === "peak") peakM.push(i + 1); else if (s === "off") offM.push(i + 1); });
 
+  // Curated month-level hazards (smoke season, monsoon, hurricanes…) — a blunt
+  // peak/off-peak label hides these, so they get their own markers and lines.
+  const hazards = (activities && activities[iso] && activities[iso].hazards) || [];
+  const hzByMonth = {};
+  for (const h of hazards) for (const m of h.months || []) hzByMonth[m] = h.note;
+
   const chips = c.best.map((m) => `<span class="chip2">${MON_ABBR[m - 1]}</span>`).join("");
   const bars = c.scores.map((s, i) => {
     const h = s == null ? 0 : Math.round(s);
     const col = bestSet.has(i + 1) ? "col best" : "col";
-    return `<div class="${col}" title="${MONTHS[i]}: ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season">
+    const hz = hzByMonth[i + 1];
+    return `<div class="${col}" title="${MONTHS[i]}: ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season${hz ? " · ⚠️ " + esc(hz) : ""}">
       <div class="mscore">${s == null ? "" : s}</div>
       <div class="fill" style="height:${h}%;background:${comfortColor(s)}"></div>
-      <div class="mlabel ${seas[i]}">${MON_ABBR[i]}</div></div>`;
+      <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? "<span class='hzmark'>⚠️</span>" : ""}</div></div>`;
   }).join("");
+
+  const hazardLines = hazards.map((h) =>
+    `<div class="hazardline">⚠️ <b>${monthSpan(h.months)}:</b> ${esc(h.note)}</div>`).join("");
 
   $("bestDetail").innerHTML = `
     <div class="besthead">
@@ -688,6 +698,7 @@ function renderCountryClimate(iso) {
       <span><b class="peak">● Peak</b> (best weather, busiest &amp; priciest): ${fmtMonths(peakM)}</span>
       <span><b class="off">● Off-peak</b> (cheapest, fewest crowds): ${fmtMonths(offM)}</span>
     </div>
+    ${hazardLines}
     <div class="bars">${bars}</div>`;
 }
 
@@ -782,7 +793,44 @@ const WEIGHT_DEFS = [
 ];
 const PRI_LEVELS = [["high", "High"], ["med", "Med"], ["low", "Low"]];
 const PRI_W = { high: 3, med: 2, low: 1 };   // relative weights, normalized at score time
+const FACTOR_ICON = { aff: "🏷️", cur: "💵", safe: "🛡️", wx: "🌤️", fly: "✈️" };
 let priorities = null;
+
+// Which factors count toward the grade at all (toggle chips in the filter row).
+// Distinct from priorities: a factor can be weighted low or excluded entirely.
+let factors = null;
+function loadFactors() {
+  if (factors) return factors;
+  try { factors = JSON.parse(localStorage.getItem("fx_factors") || "null"); } catch (e) {}
+  if (!Array.isArray(factors) || !factors.some((k) => WEIGHT_DEFS.some((w) => w.key === k)))
+    factors = WEIGHT_DEFS.map((w) => w.key);
+  return factors;
+}
+function saveFactors() { localStorage.setItem("fx_factors", JSON.stringify(factors)); }
+
+function buildFactorChips() {
+  loadFactors();
+  const host = $("factorChips");
+  if (!host) return;
+  const on = new Set(factors);
+  host.innerHTML = '<span class="picklabel">Count</span>' + WEIGHT_DEFS.map((w) =>
+    `<button type="button" class="factorchip ${on.has(w.key) ? "on" : ""}" data-f="${w.key}"
+       title="${w.label} ${on.has(w.key) ? "counts toward" : "is excluded from"} the grade">${FACTOR_ICON[w.key]} ${w.label}</button>`).join("");
+  host.onclick = (e) => {
+    const btn = e.target.closest(".factorchip");
+    if (!btn) return;
+    const k = btn.dataset.f;
+    const set = new Set(loadFactors());
+    if (set.has(k)) {
+      if (set.size === 1) return;          // at least one factor must count
+      set.delete(k);
+    } else set.add(k);
+    factors = WEIGHT_DEFS.map((w) => w.key).filter((x) => set.has(x));
+    saveFactors();
+    buildFactorChips();
+    renderValue();
+  };
+}
 
 function loadPriorities() {
   if (priorities) return priorities;
@@ -794,9 +842,12 @@ function loadPriorities() {
 function savePriorities() { localStorage.setItem("fx_priorities", JSON.stringify(priorities)); }
 
 // Numeric weights for the scorer, derived from the chosen priority levels.
+// Factors toggled off in the filter row get weight 0 (excluded entirely).
 function loadWeights() {
   const p = loadPriorities();
-  return Object.fromEntries(WEIGHT_DEFS.map((w) => [w.key, PRI_W[p[w.key]]]));
+  const on = new Set(loadFactors());
+  return Object.fromEntries(WEIGHT_DEFS.map((w) =>
+    [w.key, on.has(w.key) ? PRI_W[p[w.key]] : 0]));
 }
 
 function buildWeightSliders() {
@@ -953,6 +1004,13 @@ function buildValueTab() {
     localStorage.setItem("fx_pickcount", $("pickCount").value);
     renderValue();
   });
+  const sf = localStorage.getItem("fx_safefloor");
+  if (sf && ["a", "b", "any"].includes(sf)) $("safeFloor").value = sf;
+  $("safeFloor").addEventListener("change", () => {
+    localStorage.setItem("fx_safefloor", $("safeFloor").value);
+    renderValue();
+  });
+  buildFactorChips();
   for (const b of document.querySelectorAll("#valueMapMode button")) {
     b.addEventListener("click", () => {
       for (const x of document.querySelectorAll("#valueMapMode button"))
@@ -965,10 +1023,63 @@ function buildValueTab() {
   renderValue();
 }
 
-// ---- plain-English top picks cards ------------------------------------------
+// ---- top picks: report-card grade table -------------------------------------
 function flagEmoji(iso) {
   if (!/^[A-Z]{2}$/.test(iso)) return "🌍";
   return String.fromCodePoint(...[...iso].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+}
+
+// 0-100 score -> letter grade. Calibrated against the score curves: a realistic
+// best case (~95) reads A+, a middling 50-60 reads C.
+function grade(score) {
+  if (score == null) return "—";
+  return score >= 93 ? "A+" : score >= 85 ? "A" : score >= 78 ? "B+" : score >= 68 ? "B"
+       : score >= 55 ? "C" : score >= 42 ? "D" : "F";
+}
+const gradeCls = (g) => "gr" + g.replace("+", "p").replace("—", "x");
+function gradePill(score, title, extra) {
+  const g = grade(score);
+  return `<span class="gr ${gradeCls(g)}${extra ? " " + extra : ""}" title="${esc(title)}">${g}</span>`;
+}
+// Safety grades come from the advisory level, not the score curve, so the
+// letter matches the State Dept tier exactly.
+const SAFE_GRADE = { 1: "A", 2: "B", 3: "D" };
+const ADV_TEXT = { 1: "Level 1: Exercise Normal Precautions", 2: "Level 2: Exercise Increased Caution",
+                   3: "Level 3: Reconsider Travel", 4: "Level 4: Do Not Travel" };
+function safetyPill(advLvl) {
+  const g = advLvl ? SAFE_GRADE[advLvl] : "B";
+  return `<span class="gr ${gradeCls(g)}" title="${esc(advLvl ? ADV_TEXT[advLvl] : "No US advisory published — treated as Level 2")}">${g}</span>`;
+}
+
+// ---- month-level hazards (curated in activities.json) -----------------------
+function hazardsFor(iso, month) {
+  const a = activities && activities[iso];
+  if (!a || !a.hazards) return [];
+  return a.hazards.filter((h) => h.months && h.months.includes(month));
+}
+// [11,12,1,2] -> "Nov–Feb"; [6,7,8] -> "Jun–Aug"; non-contiguous -> "Apr, Oct"
+function monthSpan(ms) {
+  if (!ms || !ms.length) return "";
+  const s = [...ms].sort((a, b) => a - b);
+  if (s.length === 1) return MON_ABBR[s[0] - 1];
+  const contig = (arr) => arr.every((m, i) => !i || m === arr[i - 1] + 1);
+  if (contig(s)) return MON_ABBR[s[0] - 1] + "–" + MON_ABBR[s[s.length - 1] - 1];
+  const set = new Set(s);
+  const missing = [];
+  for (let m = 1; m <= 12; m++) if (!set.has(m)) missing.push(m);
+  if (missing.length && contig(missing))   // wraps around New Year, e.g. Nov–Apr
+    return MON_ABBR[missing[missing.length - 1] % 12] + "–" + MON_ABBR[(missing[0] + 10) % 12];
+  return s.map((m) => MON_ABBR[m - 1]).join(", ");
+}
+
+// ---- safety floor filter -----------------------------------------------------
+function safetyFloor() {
+  const sel = $("safeFloor");
+  const v = (sel && sel.value) || localStorage.getItem("fx_safefloor") || "b";
+  return ["a", "b", "any"].includes(v) ? v : "b";
+}
+function passesFloor(s, floor) {
+  return floor === "any" || (floor === "a" ? s.advLvl === 1 : s.advLvl !== 3);
 }
 
 // Compose a human sentence from the score ingredients — answers, not numbers.
@@ -998,29 +1109,45 @@ function pickCount() {
   return [5, 10, 20].includes(v) ? v : 5;
 }
 
-function renderTopCards(ranked, month) {
-  const host = $("topCards");
+// Render a ranked list as a compact report-card table. gem=true swaps the rank
+// number for a 💎 (the hidden-gems list). The why-sentence moves to the row
+// tooltip so the table itself stays scannable.
+function renderGradeTable(host, list, month, gem) {
   if (!host) return;
-  const top = ranked.filter((s) => !visited.has(s.iso)).slice(0, pickCount());
-  if (!top.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
-  host.innerHTML = top.map((s, i) => {
-    const adv = s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
-              : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
-    return `<div class="pickcard" data-iso="${esc(s.iso)}" title="open the travel guide for ${esc(s.name)}">
-      <span class="pickrank">#${i + 1}</span>
-      <span class="pickmain">
-        <span class="pickname">${flagEmoji(s.iso)} ${esc(s.name)}${adv}</span>
-        <span class="pickwhy">${whyLine(s, month)}</span>
-      </span>
-      <span class="pickscore" title="overall value score out of 100">${s.value}</span>
-    </div>`;
+  if (!list.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
+  const rows = list.map((s, i) => {
+    const hz = hazardsFor(s.iso, month);
+    const wxTitle = `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}` +
+      (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
+    const flight = s.fare == null ? "—"
+      : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare">~$${Math.round(s.fare)}</span>`
+      : `$${Math.round(s.fare)}`;
+    return `<tr data-iso="${esc(s.iso)}" title="${esc(whyLine(s, month))}">
+      <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
+      <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
+      <td>${gradePill(s.cur, s.fx != null ? `Dollar is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average here` : "USD-linked — no FX edge either way")}</td>
+      <td>${gradePill(s.aff, s.pl != null ? `Price level ${s.pl.toFixed(2)} — $100 buys what ~$${Math.round(100 / s.pl)} buys in the US` : "")}</td>
+      <td>${safetyPill(s.advLvl)}</td>
+      <td>${gradePill(s.wx, wxTitle)}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
+      <td class="num">${flight}</td>
+      <td>${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}</td>
+    </tr>`;
   }).join("");
+  host.innerHTML = `<table class="gradetable">
+    <thead><tr><th></th><th class="dest">Destination</th>
+      <th title="is the dollar unusually strong vs this currency right now?">💵 Dollar</th>
+      <th title="how cheap daily life is vs the US">🏷️ Prices</th>
+      <th title="US State Dept advisory level">🛡️ Safety</th>
+      <th title="weather comfort for your chosen month">🌤️ Weather</th>
+      <th title="average round-trip fare from your home country">✈️ Flight</th>
+      <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
 }
 
-// One delegated click: a card opens that country's travel guide.
+// One delegated click: a row (or legacy card) opens that country's travel guide.
 document.addEventListener("click", (e) => {
-  const card = e.target.closest(".pickcard");
-  if (card && card.dataset.iso) openGuideFor(card.dataset.iso);
+  const t = e.target.closest(".pickcard, .gradetable tr[data-iso]");
+  if (t && t.dataset.iso) openGuideFor(t.dataset.iso);
 });
 
 function renderValue() {
@@ -1067,11 +1194,21 @@ function renderValue() {
     if (weatherMode) note.textContent =
       `Ranked by weather comfort in ${MONTHS[month - 1]} — switch back to “Value” for the blended score ranking.`;
   }
-  const ranked = Object.values(scored)
+  const rankedAll = Object.values(scored)
     .sort(weatherMode ? ((a, b) => (b.wx - a.wx) || (b.value - a.value))
-                      : ((a, b) => b.value - a.value))
-    .slice(0, 40);
-  renderTopCards(ranked, month);
+                      : ((a, b) => b.value - a.value));
+  // Safety floor: countries below it leave the main list and the best of them
+  // resurface in the collapsed Hidden Gems section.
+  const floor = safetyFloor();
+  const unvisited = rankedAll.filter((s) => !visited.has(s.iso));
+  renderGradeTable($("topCards"), unvisited.filter((s) => passesFloor(s, floor)).slice(0, pickCount()), month, false);
+  const gems = floor === "any" ? [] : unvisited.filter((s) => !passesFloor(s, floor)).slice(0, 5);
+  const gemsBox = $("gemsBox");
+  if (gemsBox) {
+    gemsBox.hidden = !gems.length;
+    if (gems.length) renderGradeTable($("gemRows"), gems, month, true);
+  }
+  const ranked = rankedAll.slice(0, 40);
   $("valueRows").innerHTML = ranked.map((s) => {
     const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
     const adv = s.advLvl === 1 ? ' <span class="advtag a1" title="Level 1: Exercise Normal Precautions">L1</span>'
@@ -1289,7 +1426,8 @@ async function activateTab(name) {
 
   try {
     if (name === "value" && !loaded.value) {
-      await Promise.all([ensureWorld(), ensurePPP(), ensureClimate(), ensureAdvisories()]);
+      await Promise.all([ensureWorld(), ensurePPP(), ensureClimate(), ensureAdvisories(),
+                         ensureActivities().catch(() => {})]);   // hazards on the grade table
       buildValueTab(); loaded.value = true;
     } else if (name === "guide" && !loaded.guide) {
       await Promise.all([ensurePPP(), ensureClimate(), ensureActivities()]);
@@ -1373,6 +1511,9 @@ function buildShareURL() {
     if ($("valueRegion").value !== "all") q.set("vr", $("valueRegion").value);
     q.set("vmn", $("valueMonth").value);
     if (pickCount() !== 5) q.set("pc", String(pickCount()));
+    if (safetyFloor() !== "b") q.set("sf", safetyFloor());
+    const fac = loadFactors();
+    if (fac.length !== WEIGHT_DEFS.length) q.set("fac", fac.join("."));
     if ($("valueOrigin").value && $("valueOrigin").value !== "US") q.set("vo", $("valueOrigin").value);
     if (valueMapMode === "weather") q.set("vmm", "weather");
     const p = loadPriorities();
@@ -1447,6 +1588,11 @@ async function postApplyShared() {
   }
   if (sharedQ.get("vmn")) { $("valueMonth").value = sharedQ.get("vmn"); rerender = true; }
   if (sharedQ.get("pc")) { $("pickCount").value = sharedQ.get("pc"); rerender = true; }
+  if (["a", "b", "any"].includes(sharedQ.get("sf"))) { $("safeFloor").value = sharedQ.get("sf"); rerender = true; }
+  if (sharedQ.get("fac")) {
+    const keys = sharedQ.get("fac").split(".").filter((k) => WEIGHT_DEFS.some((w) => w.key === k));
+    if (keys.length) { factors = keys; saveFactors(); buildFactorChips(); rerender = true; }
+  }
   if (sharedQ.get("vmm") === "weather") {
     valueMapMode = "weather"; rerender = true;
     document.querySelectorAll("#valueMapMode button").forEach((b) =>
