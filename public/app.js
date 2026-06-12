@@ -1607,7 +1607,7 @@ function buildShareURL() {
 async function shareCurrent() {
   const url = buildShareURL();
   if (navigator.share) {
-    try { await navigator.share({ title: "Where Should I Travel Next?", url }); return; }
+    try { await navigator.share({ title: "Where Should I Travel to Next?", url }); return; }
     catch (e) { /* user cancelled -> fall through to clipboard */ }
   }
   try {
@@ -1710,7 +1710,7 @@ function buildVisitedShareSVG() {
     <text x="60" y="76" font-family="${font}" font-size="44" font-weight="700" fill="#ffffff">I've visited ${n} ${n === 1 ? "country" : "countries"}</text>
     <text x="60" y="114" font-family="${font}" font-size="23" fill="#8fa3bd">${n ? "that's ~" + pct + "% of the world" : "the map awaits"} — which ones have you been to?</text>
     <g transform="translate(${(W - mapW) / 2},156)">${paths}</g>
-    <text x="${W - 60}" y="${H - 22}" text-anchor="end" font-family="${font}" font-size="17" fill="#566b85">Where Should I Travel Next?</text>
+    <text x="${W - 60}" y="${H - 22}" text-anchor="end" font-family="${font}" font-size="17" fill="#566b85">Where Should I Travel to Next?</text>
   </svg>`;
 }
 
