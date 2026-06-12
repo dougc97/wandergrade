@@ -189,13 +189,17 @@
           <span id="asof">Loading…</span>
           <span id="summary"></span>
         </div>
+        <span class="pickgroup" title="see everything from another home currency's point of view">
+          <span class="picklabel">💱 My currency</span>
+          <select id="dataBase"></select>
+        </span>
       </div>
 
       <div class="toprow">
         <section class="mapcard">
           <div class="charthead">
             <div>
-              <h2>Where the dollar is strong <span class="muted">vs each currency's 1-year average</span></h2>
+              <h2 id="mapH2">Where the dollar is strong <span class="muted">vs each currency's 1-year average</span></h2>
               <p id="mapsub" class="chartsub">Loading map…</p>
             </div>
             <div class="legend" id="legend"></div>
@@ -206,7 +210,7 @@
         <section class="chartcard">
           <div class="charthead">
             <div>
-              <h2>Overall dollar strength <span class="muted">vs rest of world</span></h2>
+              <h2 id="chartH2">Overall dollar strength <span class="muted">vs rest of world</span></h2>
               <p id="chartsub" class="chartsub">Loading…</p>
             </div>
             <div class="bignum">
@@ -221,7 +225,7 @@
             <button data-days="365" class="active">1Y</button>
           </div>
           <div id="chart" class="chart"></div>
-          <p class="chartnote">100 = where the dollar started the window. Above 100 = stronger overall than back then.</p>
+          <p class="chartnote">100 = where your currency started the window. Above 100 = stronger overall than back then.</p>
         </section>
       </div>
 

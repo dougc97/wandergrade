@@ -1,7 +1,14 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-let lastRates = null;
+let lastRates = null;   // always USD-based — feeds the Top Picks scoring
+let dataRates = null;   // whatever the Explore-the-Data currency view shows
+
+// Home currency for the Explore-the-Data currency view (display only; Top
+// Picks stays a USD-traveler tool). Persisted per browser, default USD.
+let dataBase = /^[A-Z]{3}$/.test(localStorage.getItem("fx_database") || "")
+  ? localStorage.getItem("fx_database") : "USD";
+const baseWord = (b) => (b === "USD" ? "the dollar" : b);
 
 // Escape any externally-sourced string before it goes into innerHTML.
 // (Currency names, advisory titles, flight city names, etc. come from
@@ -162,7 +169,7 @@ function renderIndex(data) {
   const lastX = x(pts.length - 1), lastY = y(pts[pts.length - 1].value);
 
   host.innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="USD strength index over time">` +
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(data.base || "USD")} strength index over time">` +
     grid + baseline +
     `<path d="${area}" fill="${fill}"/>` +
     `<path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>` +
@@ -172,8 +179,14 @@ function renderIndex(data) {
 }
 
 function renderRates(data) {
-  lastRates = data;
+  dataRates = data;
+  const base = data.base || "USD";
+  if (base === "USD") lastRates = data;   // scoring only ever uses USD data
   renderMapSafe();
+  buildBaseSelect();
+  const w = baseWord(base);
+  $("mapH2").innerHTML = `Where ${esc(w)} is strong <span class="muted">vs each currency's 1-year average</span>`;
+  $("chartH2").innerHTML = `Overall ${esc(w === "the dollar" ? "dollar" : w)} strength <span class="muted">vs rest of world</span>`;
   $("asof").textContent = "As of " + data.as_of;
   const fav = data.rows.filter((r) => r.favorable && r.watched);
   $("summary").textContent =
@@ -200,11 +213,29 @@ function renderRates(data) {
 async function loadRates() {
   status("Fetching rates…");
   try {
-    renderRates(await getJSON("/api/rates"));
+    // Top Picks scoring always needs the USD dataset, even when the data tab
+    // is viewing the world through another home currency.
+    if (dataBase !== "USD" && !lastRates) lastRates = await getJSON("/api/rates");
+    renderRates(await getJSON("/api/rates" + (dataBase !== "USD" ? "?base=" + dataBase : "")));
     status("");
   } catch (e) {
     status("Could not load rates: " + e.message, "err");
   }
+}
+
+// Populate the "My currency" picker once real data exists (USD first).
+function buildBaseSelect() {
+  const sel = $("dataBase");
+  if (!sel || sel.options.length > 1 || !lastRates) return;
+  const codes = ["USD", ...lastRates.rows.map((r) => r.code).sort()];
+  sel.innerHTML = codes.map((c) =>
+    `<option value="${esc(c)}"${c === dataBase ? " selected" : ""}>${esc(c)}</option>`).join("");
+  sel.onchange = () => {
+    dataBase = sel.value;
+    localStorage.setItem("fx_database", dataBase);
+    loadRates();
+    loadIndex(activeDays);
+  };
 }
 
 function buildWatchlist(allCodes, selected) {
@@ -301,7 +332,8 @@ async function loadIndex(days) {
     b.classList.toggle("active", parseInt(b.dataset.days, 10) === days);
   }
   try {
-    lastIndexData = await getJSON("/api/index?days=" + days);
+    lastIndexData = await getJSON("/api/index?days=" + days +
+      (dataBase !== "USD" ? "&base=" + dataBase : ""));
     renderIndex(lastIndexData);
   } catch (e) {
     $("chartsub").textContent = "Could not load chart: " + e.message;
@@ -479,7 +511,8 @@ function renderCountryCard() {
   };
 }
 
-function renderMap(rows) {
+function renderMap(rows, base) {
+  base = base || "USD";
   const byCode = {};
   for (const r of rows) byCode[r.code] = r;
   const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
@@ -487,11 +520,10 @@ function renderMap(rows) {
   let tracked = 0;
   drawMap("map", (f) => {
     const iso = f.properties.iso, cur = CUR_BY_ISO[iso];
-    const row = cur && cur !== "USD" ? byCode[cur] : null;
-    if (cur === "USD") {
-      return { fill: USDLINK, title: iso === "US"
-        ? f.properties.name + " — USD (home currency)"
-        : `${f.properties.name} — uses the US dollar (flat for your dollar)` };
+    const row = cur && cur !== base ? byCode[cur] : null;
+    if (cur === base) {
+      return { fill: USDLINK,
+        title: `${f.properties.name} — uses ${base} (your home currency — flat by definition)` };
     }
     if (row) {
       tracked++;
@@ -499,22 +531,23 @@ function renderMap(rows) {
         title: `${f.properties.name} — ${cur}: ${sgn(row.strength_pct)} vs 1yr avg` };
     }
     return { fill: NODATA, title: f.properties.name + " — not tracked" };
-  }, "USD strength world heatmap");
+  }, base + " strength world heatmap");
 
   $("mapsub").textContent =
-    `Greener = dollar stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`;
-  renderLegend();
+    `Greener = ${baseWord(base)} stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`;
+  renderLegend(base);
 }
 
-function renderLegend() {
+function renderLegend(base) {
   $("legend").innerHTML =
     '<span>Weaker</span><span class="bar"></span><span>Stronger</span>' +
-    '<span style="margin-left:8px"><span class="swatch" style="background:#bcd0e6"></span>USD-linked</span>' +
+    `<span style="margin-left:8px"><span class="swatch" style="background:#bcd0e6"></span>${esc(base || "USD")}-linked</span>` +
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
 }
 
 function renderMapSafe() {
-  if (worldGeo && lastRates) renderMap(lastRates.rows);
+  const d = dataRates || lastRates;
+  if (worldGeo && d) renderMap(d.rows, d.base || "USD");
 }
 
 // ---- PPP / affordability ---------------------------------------------------
@@ -1594,6 +1627,7 @@ function buildShareURL() {
   } else if (tab === "data") {
     if (dataMode !== "currency") q.set("dm", dataMode);
     if (dataMode === "currency" && activeDays !== 365) q.set("win", String(activeDays));
+    if (dataMode === "currency" && dataBase !== "USD") q.set("db", dataBase);
     if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
   } else if (tab === "guide") {
     q.set("gc", $("bestCountry").value || "JP");
@@ -1679,6 +1713,14 @@ async function postApplyShared() {
   if (rerender && loaded.value) renderValue();
   if (sharedQ.get("gc")) await openGuideFor(sharedQ.get("gc"));
   if (sharedQ.get("win")) loadIndex(parseInt(sharedQ.get("win"), 10) || 365);
+  const db = sharedQ.get("db");
+  if (db && /^[A-Z]{3}$/.test(db) && db !== dataBase) {
+    dataBase = db;
+    const sel = $("dataBase");
+    if (sel && [...sel.options].some((o) => o.value === db)) sel.value = db;
+    loadRates();
+    loadIndex(activeDays);
+  }
   if (sharedQ.get("fo") && loaded.flights) { $("flightOrigin").value = sharedQ.get("fo"); loadFlights(); }
   if (sharedQ.get("v") && tab === "visited") {
     renderVisited();

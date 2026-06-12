@@ -157,6 +157,35 @@ def _usd_index(timeseries, basket=MAJORS):
     return points, change_pct
 
 
+def _rebase(latest, timeseries, base):
+    """Re-express USD-based rates in another base currency.
+
+    rate(base -> X) = rate(USD -> X) / rate(USD -> base), applied to the latest
+    snapshot and every day of history. The base's own column is replaced by a
+    USD column, so 'how strong is my euro vs the dollar' still shows up.
+    Returns (latest, timeseries) or (None, None) if the base is unknown.
+    """
+    b = latest.get(base)
+    if not b:
+        return None, None
+    re_latest = {c: r / b for c, r in latest.items() if c != base}
+    re_latest["USD"] = 1.0 / b
+    re_ts = {}
+    for d, day in timeseries.items():
+        db = day.get(base)
+        if not db:
+            continue
+        nd = {c: r / db for c, r in day.items() if c != base}
+        nd["USD"] = 1.0 / db
+        re_ts[d] = nd
+    return re_latest, re_ts
+
+
+def _basket_for(base):
+    """Index basket: the majors, swapping the base itself out for USD."""
+    return (MAJORS - {base}) | {"USD"} if base != "USD" else MAJORS
+
+
 def _rate_label(strength_pct, percentile):
     """Human-friendly verdict combining how far above baseline and how high in range."""
     if strength_pct >= 5 and percentile >= 85:
@@ -168,20 +197,26 @@ def _rate_label(strength_pct, percentile):
     return "weak"
 
 
-def compute_index(days=365):
-    """Just the overall USD strength index over an arbitrary window. Used by the
-    chart's window toggle, independent of the saved favorability settings."""
+def compute_index(days=365, base="USD"):
+    """The overall strength index for any home currency (default USD) over an
+    arbitrary window. Used by the chart's window toggle."""
     days = min(days, MAX_HISTORY_DAYS)
     today = datetime.date.today()
     start = (today - datetime.timedelta(days=days)).isoformat()
     end = today.isoformat()
     timeseries = get_timeseries(start, end)
-    points, change = _usd_index(timeseries)
+    if base != "USD":
+        _, timeseries = _rebase(get_latest()[1], timeseries, base)
+        if timeseries is None:
+            raise ValueError("unknown base currency: " + base)
+    basket_def = _basket_for(base)
+    points, change = _usd_index(timeseries, basket=basket_def)
     basket = set()
     for day in timeseries.values():
-        basket.update(c for c in day if c in MAJORS)
+        basket.update(c for c in day if c in basket_def)
     return {
         "days": days,
+        "base": base,
         "index": points,
         "index_change_pct": change,
         "index_count": len(basket),
@@ -189,8 +224,10 @@ def compute_index(days=365):
     }
 
 
-def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None):
-    """Score every currency. Returns a dict with metadata and a sorted list of rows.
+def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None,
+                         base="USD"):
+    """Score every currency against a home currency (default USD). Returns a
+    dict with metadata and a sorted list of rows.
 
     Each row: code, name, rate_now, baseline_avg, low, high, strength_pct,
     percentile, favorable, label.
@@ -203,8 +240,13 @@ def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None):
     start = (today - datetime.timedelta(days=baseline_days)).isoformat()
     end = today.isoformat()
     timeseries = get_timeseries(start, end)
+    if base != "USD":
+        latest, timeseries = _rebase(latest, timeseries, base)
+        if latest is None:
+            raise ValueError("unknown base currency: " + base)
+        names = dict(names, USD="US Dollar")
     series = _series_by_currency(timeseries)
-    index_points, index_change = _usd_index(timeseries)
+    index_points, index_change = _usd_index(timeseries, basket=_basket_for(base))
 
     watch_set = set(c.upper() for c in (watch or []))
 
@@ -245,6 +287,7 @@ def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None):
         "as_of": latest_date,
         "baseline_days": baseline_days,
         "threshold_pct": threshold_pct,
+        "base": base,
         "rows": rows,
         # Overall USD strength vs rest-of-world, equal-weighted, base 100 at
         # window start. index_change = current value minus 100 (percent).

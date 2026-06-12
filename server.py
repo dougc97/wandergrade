@@ -17,6 +17,7 @@ import gzip
 import hmac
 import json
 import os
+import re
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,8 +56,8 @@ CONTENT_TYPES = {
 }
 
 
-def _rates_payload(cfg):
-    key = (cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]))
+def _rates_payload(cfg, base="USD"):
+    key = (cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]), base)
     now = time.time()
     if _cache["key"] == key and (now - _cache["at"]) < CACHE_TTL:
         return _cache["data"]
@@ -64,9 +65,16 @@ def _rates_payload(cfg):
         baseline_days=cfg["baseline_days"],
         threshold_pct=cfg["threshold_pct"],
         watch=cfg["watch"],
+        base=base,
     )
     _cache.update(key=key, at=now, data=data)
     return data
+
+
+def _base_param(qs):
+    """Validated ?base= currency code; anything dodgy falls back to USD."""
+    base = (qs.get("base", ["USD"])[0] or "USD").strip().upper()
+    return base if re.fullmatch(r"[A-Z]{3}", base) else "USD"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -161,9 +169,11 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authed():
             return
         if path == "/api/rates":
+            from urllib.parse import parse_qs, urlparse
+            base = _base_param(parse_qs(urlparse(self.path).query))
             try:
-                self._send_json(_rates_payload(store.load_config()))
-            except Exception as e:  # network/provider hiccup
+                self._send_json(_rates_payload(store.load_config(), base))
+            except Exception as e:  # network/provider hiccup or unknown base
                 self._send_json({"error": str(e)}, 502)
             return
         if path == "/api/index":
@@ -218,17 +228,18 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             days = 365
         days = max(30, min(3650, days))
+        base = _base_param(qs)
         now = time.time()
-        hit = _index_cache.get(days)
+        hit = _index_cache.get((days, base))
         if hit and (now - hit[0]) < CACHE_TTL:
             self._send_json(hit[1])
             return
         try:
-            payload = rates.compute_index(days)
+            payload = rates.compute_index(days, base)
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
             return
-        _index_cache[days] = (now, payload)
+        _index_cache[(days, base)] = (now, payload)
         self._send_json(payload)
 
     def _handle_flights(self):
