@@ -315,6 +315,9 @@ tbody tr.favorable, tbody tr.favorable:nth-child(even) { background: var(--green
 .grF  { background: #b00020; }
 .grx  { background: var(--soft); color: var(--gray); }
 .hzmark { font-size: 12px; margin-left: 3px; cursor: help; }
+.gradetable td.overall { white-space: nowrap; }
+.grnum { font-size: 11px; font-weight: 700; color: var(--gray); margin-left: 5px;
+  font-variant-numeric: tabular-nums; }
 .hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
 
 /* ---- picker hierarchy: big question row, quiet filter row ---- */
