@@ -991,7 +991,7 @@ function whyLine(s, month) {
 function pickCount() {
   const sel = $("pickCount");
   const v = parseInt((sel && sel.value) || localStorage.getItem("fx_pickcount") || "10", 10);
-  return [5, 10, 15, 20].includes(v) ? v : 10;
+  return [5, 10, 20].includes(v) ? v : 10;
 }
 
 function renderTopCards(ranked, month) {
