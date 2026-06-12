@@ -948,7 +948,7 @@ function buildValueTab() {
     .then(() => loadValueFlights(true))
     .catch(() => {});
   $("valueOrigin").addEventListener("change", () => loadValueFlights(false));
-  $("pickCount").value = String(parseInt(localStorage.getItem("fx_pickcount") || "10", 10) || 10);
+  $("pickCount").value = String(parseInt(localStorage.getItem("fx_pickcount") || "5", 10) || 5);
   $("pickCount").addEventListener("change", () => {
     localStorage.setItem("fx_pickcount", $("pickCount").value);
     renderValue();
@@ -990,11 +990,12 @@ function whyLine(s, month) {
   return bits.slice(0, 4).join(" · ");
 }
 
-// How many answer cards to show (persisted per browser; default 10).
+// How many answer cards to show (persisted per browser; default 5 so the map
+// stays visible below the fold).
 function pickCount() {
   const sel = $("pickCount");
-  const v = parseInt((sel && sel.value) || localStorage.getItem("fx_pickcount") || "10", 10);
-  return [5, 10, 20].includes(v) ? v : 10;
+  const v = parseInt((sel && sel.value) || localStorage.getItem("fx_pickcount") || "5", 10);
+  return [5, 10, 20].includes(v) ? v : 5;
 }
 
 function renderTopCards(ranked, month) {
@@ -1371,7 +1372,7 @@ function buildShareURL() {
   if (tab === "value") {
     if ($("valueRegion").value !== "all") q.set("vr", $("valueRegion").value);
     q.set("vmn", $("valueMonth").value);
-    if (pickCount() !== 10) q.set("pc", String(pickCount()));
+    if (pickCount() !== 5) q.set("pc", String(pickCount()));
     if ($("valueOrigin").value && $("valueOrigin").value !== "US") q.set("vo", $("valueOrigin").value);
     if (valueMapMode === "weather") q.set("vmm", "weather");
     const p = loadPriorities();
