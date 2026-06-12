@@ -945,6 +945,11 @@ function buildValueTab() {
     .then(() => loadValueFlights(true))
     .catch(() => {});
   $("valueOrigin").addEventListener("change", () => loadValueFlights(false));
+  $("pickCount").value = String(parseInt(localStorage.getItem("fx_pickcount") || "10", 10) || 10);
+  $("pickCount").addEventListener("change", () => {
+    localStorage.setItem("fx_pickcount", $("pickCount").value);
+    renderValue();
+  });
   for (const b of document.querySelectorAll("#valueMapMode button")) {
     b.addEventListener("click", () => {
       for (const x of document.querySelectorAll("#valueMapMode button"))
@@ -982,10 +987,17 @@ function whyLine(s, month) {
   return bits.slice(0, 4).join(" · ");
 }
 
+// How many answer cards to show (persisted per browser; default 10).
+function pickCount() {
+  const sel = $("pickCount");
+  const v = parseInt((sel && sel.value) || localStorage.getItem("fx_pickcount") || "10", 10);
+  return [5, 10, 15, 20].includes(v) ? v : 10;
+}
+
 function renderTopCards(ranked, month) {
   const host = $("topCards");
   if (!host) return;
-  const top = ranked.filter((s) => !visited.has(s.iso)).slice(0, 5);
+  const top = ranked.filter((s) => !visited.has(s.iso)).slice(0, pickCount());
   if (!top.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
   host.innerHTML = top.map((s, i) => {
     const adv = s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
@@ -1356,6 +1368,7 @@ function buildShareURL() {
   if (tab === "value") {
     if ($("valueRegion").value !== "all") q.set("vr", $("valueRegion").value);
     q.set("vmn", $("valueMonth").value);
+    if (pickCount() !== 10) q.set("pc", String(pickCount()));
     if ($("valueOrigin").value && $("valueOrigin").value !== "US") q.set("vo", $("valueOrigin").value);
     if (valueMapMode === "weather") q.set("vmm", "weather");
     const p = loadPriorities();
@@ -1429,6 +1442,7 @@ async function postApplyShared() {
     $("valueRegion").value = sharedQ.get("vr"); rerender = true;
   }
   if (sharedQ.get("vmn")) { $("valueMonth").value = sharedQ.get("vmn"); rerender = true; }
+  if (sharedQ.get("pc")) { $("pickCount").value = sharedQ.get("pc"); rerender = true; }
   if (sharedQ.get("vmm") === "weather") {
     valueMapMode = "weather"; rerender = true;
     document.querySelectorAll("#valueMapMode button").forEach((b) =>
