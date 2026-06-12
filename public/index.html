@@ -68,9 +68,9 @@
         <span class="pickgroup" title="hide countries below this safety grade (they move to Hidden Gems)">
           <span class="picklabel">🛡️ Safety at least</span>
           <select id="safeFloor">
-            <option value="a">A — safest only</option>
-            <option value="b" selected>B</option>
-            <option value="any">Any</option>
+            <option value="a">A — Level 1 only</option>
+            <option value="b" selected>B — Levels 1–2</option>
+            <option value="any">Any level</option>
           </select>
         </span>
         <span class="pickgroup" id="factorChips" title="which factors count toward the grade — tap to toggle">
@@ -104,12 +104,11 @@
       <details class="foldable" id="tableBox">
         <summary>📋 Full ranking &amp; the math <span class="muted">— every score, every country</span></summary>
         <p class="tablekey" id="rankNote" hidden></p>
-        <p class="tablekey">Safety tags (US State Dept):
-          <span class="advtag a1">L1</span> normal precautions ·
-          <span class="advtag a2">L2</span> increased caution ·
-          <span class="advtag a3">L3</span> reconsider travel ·
-          <span class="advtag a4">L4</span> do not travel (excluded) ·
-          no tag = no advisory published</p>
+        <p class="tablekey">Safety grades map 1-to-1 to US State Dept advisories:
+          A = <span class="advtag a1">L1</span> normal precautions ·
+          B = <span class="advtag a2">L2</span> increased caution (or none published) ·
+          D = <span class="advtag a3">L3</span> reconsider travel ·
+          <span class="advtag a4">L4</span> do not travel is excluded entirely</p>
         <section class="tablewrap">
           <table id="valueTable">
             <thead><tr>
