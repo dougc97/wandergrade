@@ -893,12 +893,17 @@ function valueScores(iso, month, advMap, fares) {
     safe: advLvl ? { 1: 100, 2: 70, 3: 35 }[advLvl] : 70,
     wx: cl && cl.scores[month - 1] != null ? cl.scores[month - 1] : 50,
   };
-  let fare = null, fareEst = false;
+  let fare = null, fareEst = false, fareBase = null;
   if (fares && fares.prices[iso] != null) {
     fare = fares.prices[iso];
     fareEst = fares.est && fares.est.has(iso);
-    comps.fly = fares.max > fares.min
-      ? clamp100(((fares.max - fare) / (fares.max - fares.min)) * 100) : 50;
+    fareBase = fares.expected ? fares.expected(iso) : null;
+    // Deal vs the typical fare for that distance: at baseline = 70 (B),
+    // ~20% below = A, ~30% below = A+, ~20% above = D, ~40%+ above = F.
+    // Falls back to min-max cheapness when there's no fitted baseline.
+    comps.fly = fareBase ? clamp100(70 + (1 - fare / fareBase) * 100)
+      : fares.max > fares.min
+        ? clamp100(((fares.max - fare) / (fares.max - fares.min)) * 100) : 50;
   }
   // Weighted mean over the components this country actually has.
   let num = 0, den = 0;
@@ -906,7 +911,7 @@ function valueScores(iso, month, advMap, fares) {
   const value = den ? clamp100(num / den) : 0;
   return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
            aff: comps.aff, cur: comps.cur, safe: comps.safe, wx: comps.wx,
-           fly: comps.fly, fare, fareEst, advLvl, value,
+           fly: comps.fly, fare, fareEst, fareBase, advLvl, value,
            pl, fx: row ? row.strength_pct : null };
 }
 
@@ -937,12 +942,15 @@ function distKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
-// Returns { prices, est:Set, min, max } — known fares plus distance-based
-// estimates for every mappable country, or null when no fare data is loaded.
+// Returns { prices, est:Set, min, max, expected } — known fares plus
+// distance-based estimates for every mappable country, or null when no fare
+// data is loaded. expected(iso) is the fitted "typical fare for that distance"
+// — the baseline a real fare is judged against (deal vs ripoff).
 function buildFareContext() {
   if (!(flightsData && flightsData.configured && flightsData.by_country)) return null;
   const prices = { ...flightsData.by_country };
   const est = new Set();
+  let expected = null;
   const C = countryCentroids();
   const o = C[flightsData.origin];
   const pts = Object.entries(prices)
@@ -956,6 +964,7 @@ function buildFareContext() {
     let num = 0, den = 0;
     for (const [x, y] of pts) { num += (x - mx) * (y - my); den += (x - mx) ** 2; }
     const b = den ? num / den : 0, a = my - b * mx;
+    expected = (iso) => (C[iso] ? Math.max(50, a + b * distKm(o, C[iso])) : null);
     const known = Object.values(prices);
     const lo = Math.min(...known), hi = Math.max(...known) * 1.4;
     for (const iso in CUR_BY_ISO) {
@@ -967,7 +976,7 @@ function buildFareContext() {
   }
   const vals = Object.values(prices);
   if (!vals.length) return null;
-  return { prices, est, min: Math.min(...vals), max: Math.max(...vals) };
+  return { prices, est, min: Math.min(...vals), max: Math.max(...vals), expected };
 }
 
 async function loadValueFlights(silent) {
@@ -1164,9 +1173,13 @@ function renderGradeTable(host, list, month, gem) {
     const hz = hazardsFor(s.iso, month);
     const wxTitle = `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}` +
       (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
+    // Real fares get a deal grade vs the typical price for that distance;
+    // estimates ARE the baseline, so they show the ~$ figure alone.
     const flight = s.fare == null ? "—"
       : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare">~$${Math.round(s.fare)}</span>`
-      : `$${Math.round(s.fare)}`;
+      : (s.fareBase ? gradePill(s.fly,
+          `$${Math.round(s.fare)} avg round-trip vs ~$${Math.round(s.fareBase)} typical for the distance`) + " " : "")
+        + `<span class="fareamt">$${Math.round(s.fare)}</span>`;
     return `<tr data-iso="${esc(s.iso)}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
@@ -1184,7 +1197,7 @@ function renderGradeTable(host, list, month, gem) {
       <th title="how cheap daily life is vs the US">🏷️ Prices</th>
       <th title="US State Dept advisory level">🛡️ Safety</th>
       <th title="weather comfort for your chosen month">🌤️ Weather</th>
-      <th title="average round-trip fare from your home country">✈️ Flight</th>
+      <th title="fare deal: average round-trip vs the typical price for that distance">✈️ Flight</th>
       <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);

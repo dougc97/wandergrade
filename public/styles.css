@@ -342,6 +342,8 @@ tbody tr.favorable, tbody tr.favorable:nth-child(even) { background: var(--green
 .gradetable td.overall { white-space: nowrap; }
 .grnum { font-size: 11px; font-weight: 700; color: var(--gray); margin-left: 5px;
   font-variant-numeric: tabular-nums; }
+.fareamt { font-size: 12px; font-weight: 700; color: var(--gray);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
 
 /* ---- picker hierarchy: big question row, quiet filter row ---- */
