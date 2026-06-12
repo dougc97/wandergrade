@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="520" viewBox="0 0 520 520" fill="none" stroke="#7f8b96" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- falling leaf with trail -->
+  <g transform="translate(150,130) rotate(-24)">
+    <path d="M0 -26 C 16 -12, 16 10, 0 26 C -16 10, -16 -12, 0 -26 Z"/>
+    <path d="M0 -20 L0 34 M0 -2 L9 -10 M0 8 L-9 0"/>
+    <path d="M22 -38 C 34 -26, 36 -12, 30 2" stroke-dasharray="5 8"/>
+  </g>
+  <!-- acorn -->
+  <g transform="translate(410,200)">
+    <path d="M-16 -8 C -16 -22, 16 -22, 16 -8 Z"/>
+    <path d="M-14 -8 C -14 10, -6 18, 0 18 C 6 18, 14 10, 14 -8"/>
+    <path d="M0 -20 C 2 -26, 6 -28, 10 -28"/>
+  </g>
+  <!-- pumpkin -->
+  <g transform="translate(260,430)">
+    <ellipse cx="0" cy="4" rx="30" ry="22"/>
+    <path d="M-12 -16 C -16 -2, -16 12, -12 24 M12 -16 C 16 -2, 16 12, 12 24"/>
+    <path d="M0 -18 C 0 -26, 4 -30, 10 -30"/>
+  </g>
+  <!-- small leaf pair -->
+  <g transform="translate(420,420) rotate(30)">
+    <path d="M0 -14 C 9 -7, 9 6, 0 14 C -9 6, -9 -7, 0 -14 Z"/>
+    <path d="M0 -10 L0 20"/>
+  </g>
+</svg>

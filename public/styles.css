@@ -35,14 +35,38 @@ body {
    cards/tables are solid, so text stays crisp. */
 .bgdoodle {
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: -140px; left: 0; right: 0; bottom: -140px;   /* headroom for scroll parallax */
   background: url("/bg.svg") repeat;
   background-size: 760px 760px;
   opacity: var(--doodle, 0.07);
   pointer-events: none;
   z-index: 0;
 }
-body > *:not(.bgdoodle) { position: relative; z-index: 1; }
+/* seasonal accent layer: swapped by JS to match the chosen travel month */
+.bgseason {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-repeat: repeat;
+  background-size: 520px 520px;
+  opacity: calc(var(--doodle, 0.07) + 0.03);
+  pointer-events: none;
+  z-index: 0;
+}
+body > *:not(.bgdoodle):not(.bgseason) { position: relative; z-index: 1; }
+
+/* gentle motion — all of it disabled for prefers-reduced-motion users */
+@media (prefers-reduced-motion: no-preference) {
+  .bgdoodle { animation: basedrift 360s linear infinite; }
+  .bgseason { animation: seasondrift 180s linear infinite; }
+  @keyframes basedrift  { to { background-position: -760px 760px; } }
+  @keyframes seasondrift { to { background-position: 520px 1040px; } }
+
+  .gradetable tbody tr { animation: rowin .38s ease both; animation-delay: calc(var(--i, 0) * 55ms); }
+  @keyframes rowin { from { opacity: 0; transform: translateY(7px); } }
+
+  #valueMap path.toppick { animation: mappulse 2.6s ease-in-out infinite; }
+  @keyframes mappulse { 50% { opacity: .5; } }
+}
 
 header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide { max-width: 960px; margin: 0 auto; padding: 0 20px; }
 
