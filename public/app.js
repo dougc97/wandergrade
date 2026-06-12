@@ -833,9 +833,12 @@ function valueScores(iso, month, advMap, fares) {
   const cl = climate && climate[iso];
 
   const w = loadWeights();
+  // Curves calibrated so a realistic best-case lands ~95, not an unreachable 100:
+  // Cheapness maxes once prices are ~1/3 of US prices; FX maxes at +8% vs the
+  // 1-year average (about the biggest anomaly that actually occurs).
   const comps = {
-    aff: clamp100((1.3 - pl) / 1.1 * 100),
-    cur: row ? clamp100(50 + row.strength_pct * 4) : 50,
+    aff: clamp100(((1.3 - pl) / 0.95) * 100),
+    cur: row ? clamp100(50 + row.strength_pct * 6.25) : 50,
     safe: advLvl ? { 1: 100, 2: 70, 3: 35 }[advLvl] : 70,
     wx: cl && cl.scores[month - 1] != null ? cl.scores[month - 1] : 50,
   };
