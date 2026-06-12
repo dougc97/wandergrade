@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="520" height="520" viewBox="0 0 520 520" fill="none" stroke="#7f8b96" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- big snowflake -->
+  <g transform="translate(120,110)">
+    <path d="M0 -34 L0 34 M-30 -17 L30 17 M-30 17 L30 -17"/>
+    <path d="M-6 -24 L0 -18 L6 -24 M-6 24 L0 18 L6 24"/>
+    <path d="M-27 -8 L-20 -11 L-24 -18 M27 8 L20 11 L24 18"/>
+  </g>
+  <!-- snowman with scarf -->
+  <g transform="translate(390,150)">
+    <circle cx="0" cy="-26" r="14"/>
+    <circle cx="0" cy="8" r="22"/>
+    <path d="M-13 -16 C -4 -10, 4 -10, 13 -16 M6 -12 L14 2"/>
+    <path d="M-20 -38 L20 -38 M-12 -38 L-12 -48 L12 -48 L12 -38"/>
+  </g>
+  <!-- pine tree -->
+  <g transform="translate(160,420)">
+    <path d="M0 -52 L-20 -22 L-10 -22 L-28 8 L-14 8 L-30 36 L30 36 L14 8 L28 8 L10 -22 L20 -22 Z"/>
+    <path d="M-5 36 L-5 50 L5 50 L5 36"/>
+  </g>
+  <!-- small snowflake -->
+  <g transform="translate(420,400)">
+    <path d="M0 -16 L0 16 M-14 -8 L14 8 M-14 8 L14 -8"/>
+  </g>
+  <!-- drifting flake dots -->
+  <g transform="translate(300,300)">
+    <circle cx="0" cy="0" r="2.4"/><circle cx="38" cy="-22" r="2.4"/><circle cx="-30" cy="26" r="2.4"/>
+  </g>
+</svg>

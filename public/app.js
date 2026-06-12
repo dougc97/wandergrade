@@ -991,6 +991,7 @@ function buildValueTab() {
   reg.innerHTML = '<option value="all">All regions</option>' +
     Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
   mon.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
+  mon.value = String(curMonth());   // "I'm going in" defaults to the month it is now
   reg.onchange = renderValue;
   mon.onchange = renderValue;
   // Fares auto-load for the home country (defaults to United States) and
@@ -1072,6 +1073,50 @@ function monthSpan(ms) {
   return s.map((m) => MON_ABBR[m - 1]).join(", ");
 }
 
+// ---- polish: seasonal doodles, count-up, parallax ---------------------------
+const reducedMotion = () =>
+  window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Seasonal accent layer follows the chosen travel month (N-hemisphere seasons —
+// the audience is US travelers).
+let _season = null;
+function setSeason(month) {
+  const s = month === 12 || month <= 2 ? "winter" : month <= 5 ? "spring"
+          : month <= 8 ? "summer" : "autumn";
+  if (s === _season) return;
+  _season = s;
+  const el = document.querySelector(".bgseason");
+  if (el) el.style.backgroundImage = `url("/bg-${s}.svg")`;
+}
+
+// Tick a number element from 0 to its target (used on the Overall scores).
+function countUp(el) {
+  const target = parseInt(el.textContent, 10);
+  if (!target) return;
+  const t0 = performance.now(), dur = 650;
+  const tick = (t) => {
+    const f = Math.min(1, (t - t0) / dur);
+    el.textContent = Math.round(target * (1 - Math.pow(1 - f, 3)));   // ease-out
+    if (f < 1) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+// Background drifts a touch slower than the page scroll for a hint of depth.
+(function initParallax() {
+  if (reducedMotion()) return;
+  const doo = document.querySelector(".bgdoodle");
+  if (!doo) return;
+  let raf = null;
+  addEventListener("scroll", () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      doo.style.transform = "translateY(" + (-scrollY * 0.06).toFixed(1) + "px)";
+      raf = null;
+    });
+  }, { passive: true });
+})();
+
 // ---- safety floor filter -----------------------------------------------------
 function safetyFloor() {
   const sel = $("safeFloor");
@@ -1122,7 +1167,7 @@ function renderGradeTable(host, list, month, gem) {
     const flight = s.fare == null ? "—"
       : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare">~$${Math.round(s.fare)}</span>`
       : `$${Math.round(s.fare)}`;
-    return `<tr data-iso="${esc(s.iso)}" title="${esc(whyLine(s, month))}">
+    return `<tr data-iso="${esc(s.iso)}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
       <td>${gradePill(s.cur, s.fx != null ? `Dollar is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average here` : "USD-linked — no FX edge either way")}</td>
@@ -1142,6 +1187,7 @@ function renderGradeTable(host, list, month, gem) {
       <th title="average round-trip fare from your home country">✈️ Flight</th>
       <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
+  if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
 }
 
 // One delegated click: a row (or legacy card) opens that country's travel guide.
@@ -1153,6 +1199,7 @@ document.addEventListener("click", (e) => {
 function renderValue() {
   const region = $("valueRegion").value;
   const month = parseInt($("valueMonth").value, 10);
+  setSeason(month);
   const advMap = advisoryByIso();
 
   // Fare context: known fares per country + distance-based estimates for the rest.
@@ -1201,7 +1248,19 @@ function renderValue() {
   // resurface in the collapsed Hidden Gems section.
   const floor = safetyFloor();
   const unvisited = rankedAll.filter((s) => !visited.has(s.iso));
-  renderGradeTable($("topCards"), unvisited.filter((s) => passesFloor(s, floor)).slice(0, pickCount()), month, false);
+  const picks = unvisited.filter((s) => passesFloor(s, floor)).slice(0, pickCount());
+  renderGradeTable($("topCards"), picks, month, false);
+  // Pulse the picked countries on the map so table and map visibly agree.
+  if (!reducedMotion()) {
+    const pickSet = new Set(picks.map((s) => s.iso));
+    let pi = 0;
+    for (const p of $("valueMap").querySelectorAll("path")) {
+      if (pickSet.has(p.getAttribute("data-iso"))) {
+        p.classList.add("toppick");
+        p.style.animationDelay = (pi++ * 0.25) + "s";
+      }
+    }
+  }
   const gems = floor === "any" ? [] : unvisited.filter((s) => !passesFloor(s, floor)).slice(0, 5);
   const gemsBox = $("gemsBox");
   if (gemsBox) {
