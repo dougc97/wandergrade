@@ -713,23 +713,30 @@ function renderGuideHero(iso) {
       if (ccGuideIso !== iso) return;                 // user moved on
       const seen = new Set();
       heroUrls = []; heroIdx = 0;
-      for (const u of [lead, ...more]) {
-        if (!u) continue;
-        const k = fileKey(u);
+      // Curated lead first (wrapped to {thumb, full}), then the Commons set.
+      // Only keep the lead if it's a real /thumb/ URL — MediaWiki only returns
+      // that when the original was large enough to scale, so it filters out the
+      // small/low-res leads that look bad blown up.
+      const leadObj = (lead && lead.indexOf("/thumb/") !== -1)
+        ? { thumb: lead, full: origFromThumb(lead) } : null;
+      for (const p of [leadObj].concat(more)) {
+        if (!p || !p.thumb) continue;
+        const k = fileKey(p.thumb);
         if (seen.has(k)) continue;
-        seen.add(k); heroUrls.push(u);
+        seen.add(k); heroUrls.push(p);
         if (heroUrls.length >= 6) break;
       }
       host.classList.remove("loading");
       if (!heroUrls.length) { host.classList.add("empty"); return; }
       host.classList.add("loaded");
-      heroUrls.forEach((u) => { const im = new Image(); im.src = u; });   // warm cache for instant nav
+      heroUrls.forEach((p) => { const im = new Image(); im.src = p.thumb; });  // warm cache
       const multi = heroUrls.length > 1;
       host.innerHTML =
-        `<img class="heroimg" alt="${esc(countryName(iso))}">` +
+        `<img class="heroimg" alt="${esc(countryName(iso))}" title="click to enlarge">` +
         (multi ? '<button class="heronav prev" type="button" aria-label="previous photo">‹</button>' +
                  '<button class="heronav next" type="button" aria-label="next photo">›</button>' +
                  '<div class="herocount"></div>' : "");
+      host.querySelector(".heroimg").addEventListener("click", openLightbox);
       if (multi) {
         host.querySelector(".heronav.prev").addEventListener("click", () => heroStep(-1));
         host.querySelector(".heronav.next").addEventListener("click", () => heroStep(1));
@@ -741,14 +748,70 @@ function heroStep(d) {
   if (!heroUrls.length) return;
   heroIdx = (heroIdx + d + heroUrls.length) % heroUrls.length;
   showHero();
+  syncLightbox();
 }
 function showHero() {
   const host = $("guideHero");
   const img = host && host.querySelector(".heroimg");
   if (!img) return;
-  img.src = heroUrls[heroIdx];
+  img.src = heroUrls[heroIdx].thumb;
   const c = host.querySelector(".herocount");
   if (c) c.textContent = (heroIdx + 1) + " / " + heroUrls.length;
+}
+
+// ---- lightbox: click a guide photo to view it full-screen ------------------
+function ensureLightbox() {
+  let lb = $("lightbox");
+  if (lb) return lb;
+  lb = document.createElement("div");
+  lb.id = "lightbox"; lb.className = "lightbox"; lb.hidden = true;
+  lb.innerHTML =
+    '<button class="lbclose" type="button" aria-label="close">✕</button>' +
+    '<button class="lbnav prev" type="button" aria-label="previous">‹</button>' +
+    '<img class="lbimg" alt="">' +
+    '<button class="lbnav next" type="button" aria-label="next">›</button>' +
+    '<div class="lbcount"></div>';
+  document.body.appendChild(lb);
+  lb.addEventListener("click", (e) => {
+    if (e.target === lb || e.target.classList.contains("lbclose")) closeLightbox();
+  });
+  lb.querySelector(".lbnav.prev").addEventListener("click", (e) => { e.stopPropagation(); heroStep(-1); });
+  lb.querySelector(".lbnav.next").addEventListener("click", (e) => { e.stopPropagation(); heroStep(1); });
+  return lb;
+}
+function openLightbox() {
+  if (!heroUrls.length) return;
+  const lb = ensureLightbox();
+  lb.hidden = false;
+  document.body.style.overflow = "hidden";
+  document.addEventListener("keydown", lbKey);
+  syncLightbox();
+}
+function closeLightbox() {
+  const lb = $("lightbox");
+  if (lb) lb.hidden = true;
+  document.body.style.overflow = "";
+  document.removeEventListener("keydown", lbKey);
+}
+function syncLightbox() {
+  const lb = $("lightbox");
+  if (!lb || lb.hidden) return;
+  const img = lb.querySelector(".lbimg");
+  const idx = heroIdx, ph = heroUrls[idx];
+  img.src = ph.thumb;                              // instant (already cached)
+  if (ph.full && ph.full !== ph.thumb) {          // then upgrade to full-res
+    const hi = new Image();
+    hi.onload = () => { if (!lb.hidden && heroIdx === idx) img.src = ph.full; };
+    hi.src = ph.full;
+  }
+  lb.querySelector(".lbcount").textContent = (idx + 1) + " / " + heroUrls.length;
+  const multi = heroUrls.length > 1;
+  lb.querySelectorAll(".lbnav").forEach((b) => { b.style.display = multi ? "" : "none"; });
+}
+function lbKey(e) {
+  if (e.key === "Escape") closeLightbox();
+  else if (e.key === "ArrowLeft") heroStep(-1);
+  else if (e.key === "ArrowRight") heroStep(1);
 }
 let ccGuideIso = null;   // guards against a slow gallery landing after the user switched country
 
@@ -757,9 +820,16 @@ const fileKey = (u) => {
   const m = u && u.match(/\/thumb\/[^/]+\/[^/]+\/([^/]+)/);
   return m ? decodeURIComponent(m[1]) : u;
 };
+// Derive the original (full-resolution) file URL from a Commons thumb URL —
+// strip "/thumb/" and the trailing "/NNNpx-Name" segment. Widened thumbs 400 on
+// many files, but the original always exists.
+const origFromThumb = (u) =>
+  (u && u.indexOf("/thumb/") !== -1) ? u.replace("/thumb/", "/").replace(/\/[^/]+$/, "") : u;
 
 // Several scenic photos for a country via Commons search of its curated query.
-// Filters to landscape JPEG photos, dropping maps/flags/coats/diagrams.
+// Filters to landscape JPEG photos with a high-resolution ORIGINAL (so they
+// stay crisp full-screen), dropping maps/flags/coats/diagrams/small/old scans.
+// Returns [{thumb, full}] — carousel size + a larger size for the lightbox.
 const _galleryCache = {};
 async function photoGallery(iso) {
   if (iso in _galleryCache) return _galleryCache[iso];
@@ -770,11 +840,11 @@ async function photoGallery(iso) {
   } catch (e) {}
   const q = (activities && activities[iso] && activities[iso].photo) || countryName(iso);
   const bad = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram|\.svg|location|adm[_ ]|administrative|emblem/i;
-  const urls = [];
+  const out = [];
   try {
     const api = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*" +
-      "&generator=search&gsrnamespace=6&gsrlimit=20&gsrsearch=" + encodeURIComponent(q) +
-      "&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1000";
+      "&generator=search&gsrnamespace=6&gsrlimit=24&gsrsearch=" + encodeURIComponent(q) +
+      "&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1280";
     const r = await fetch(api);
     if (r.ok) {
       const j = await r.json();
@@ -782,17 +852,19 @@ async function photoGallery(iso) {
       for (const p of pages) {
         const ii = (p.imageinfo || [])[0];
         if (!ii || !ii.thumburl) continue;
-        const w = ii.thumbwidth || 0, h = ii.thumbheight || 1, ar = w / h;
-        if (ii.mime === "image/jpeg" && !bad.test(p.title) && w >= h && ar <= 2.4 && h >= 320) {
-          urls.push(ii.thumburl);
-          if (urls.length >= 8) break;
+        const ow = ii.width || 0, oh = ii.height || 0, ar = ow / (oh || 1);
+        // Original must be large + landscape-ish for a sharp full-screen view.
+        if (ii.mime === "image/jpeg" && !bad.test(p.title) &&
+            ow >= 1600 && oh >= 1000 && ar >= 1.2 && ar <= 2.4) {
+          out.push({ thumb: ii.thumburl, full: ii.url });   // ii.url = full-res original
+          if (out.length >= 8) break;
         }
       }
     }
   } catch (e) {}
-  _galleryCache[iso] = urls;
-  try { sessionStorage.setItem(skey, JSON.stringify(urls)); } catch (e) {}
-  return urls;
+  _galleryCache[iso] = out;
+  try { sessionStorage.setItem(skey, JSON.stringify(out)); } catch (e) {}
+  return out;
 }
 
 function buildBestPickers() {
