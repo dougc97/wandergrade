@@ -1326,16 +1326,14 @@ function pickCount() {
   return [5, 10, 20].includes(v) ? v : 5;
 }
 
-// At-a-glance flight indicator for Top Picks: green ▼ below / red ▲ above the
-// typical fare for that distance. Exact prices live in the Flights data tab.
-function fareArrow(s) {
-  if (s.fare == null) return '<span class="muted">—</span>';
-  if (s.fareEst || s.fareBase == null)
-    return '<span class="farearrow flat" title="estimated — see the Flights tab for sampled fares">≈</span>';
-  const r = s.fare / s.fareBase;
-  if (r <= 0.95) return '<span class="farearrow dn" title="below the typical fare for this distance">▼</span>';
-  if (r >= 1.05) return '<span class="farearrow up" title="above the typical fare for this distance">▲</span>';
-  return '<span class="farearrow flat" title="about the typical fare for this distance">≈</span>';
+// Color-differentiated arrow for a price vs a baseline: green ▼ below,
+// red ▲ above, gray ≈ about. Used in the Flights data table.
+function priceArrow(value, baseline, label) {
+  if (value == null || !baseline) return "";
+  const r = value / baseline;
+  if (r <= 0.95) return `<span class="farearrow dn" title="below ${esc(label)}">▼</span>`;
+  if (r >= 1.05) return `<span class="farearrow up" title="above ${esc(label)}">▲</span>`;
+  return `<span class="farearrow flat" title="about ${esc(label)}">≈</span>`;
 }
 
 // Render a ranked list as a compact report-card table. gem=true swaps the rank
@@ -1355,7 +1353,9 @@ function renderGradeTable(host, list, month, gem) {
       <td>${gradePill(s.aff, s.pl != null ? `Price level ${s.pl.toFixed(2)} vs home — under 1.00 means your money buys more than it does at home` : "")}</td>
       <td>${safetyPill(s.advLvl)}</td>
       <td>${gradePill(s.wx, wxTitle)}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
-      <td class="num">${fareArrow(s)}</td>
+      <td>${s.fare == null ? '<span class="muted">—</span>'
+            : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; see the Flights tab">~</span>'
+            : gradePill(s.fly, "Flight deal vs the typical fare for this distance — exact prices in the Flights tab")}</td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span></td>
     </tr>`;
   }).join("");
@@ -1365,7 +1365,7 @@ function renderGradeTable(host, list, month, gem) {
       <th title="how cheap daily life is vs the US">🏷️ Prices</th>
       <th title="US State Dept advisory level">🛡️ Safety</th>
       <th title="weather comfort for your chosen month">🌤️ Weather</th>
-      <th title="current fare vs the typical price for this distance — ▼ cheaper, ▲ pricier (exact prices in the Flights tab)">✈️ Fare</th>
+      <th title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ Flight</th>
       <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
@@ -1524,6 +1524,10 @@ function renderFlights() {
   const min = prices.length ? Math.min(...prices) : 0;
   const max = prices.length ? Math.max(...prices) : 1;
   const cur = (flightsData.currency || "usd").toUpperCase();
+  // Distance-fit baseline so the arrows flag a genuine deal (a long-haul fare
+  // can be "below typical" even though it's a bigger number than a short hop).
+  const fares = buildFareContext();
+  const expected = fares && fares.expected;
 
   drawMap("flightMap", (f) => {
     const p = byC[f.properties.iso];
@@ -1532,18 +1536,21 @@ function renderFlights() {
       : { fill: flightColor(p, min, max), title: `${f.properties.name} — avg ${cur} ${p} round-trip` };
   }, "Average flight prices by destination country");
 
-  $("flightSub").textContent =
-    `Average international round-trips from ${flightsData.origin_name || flightsData.origin} (via ${flightsData.hub}) · ${countries.length} destination countries · greener = cheaper.`;
+  $("flightSub").innerHTML =
+    `Average international round-trips from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}) · ${countries.length} destination countries · greener = cheaper · <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above the typical fare for the distance.`;
   $("flightLegend").innerHTML =
     '<span>Cheaper</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Pricier</span>';
 
-  $("flightRows").innerHTML = countries.map((c) => `
-    <tr><td>${esc(countryName(c.iso))}</td>
-      <td class="num"><b>${esc(cur)} ${Number(c.avg) || "?"}</b></td>
+  $("flightRows").innerHTML = countries.map((c) => {
+    const exp = expected ? expected(c.iso) : null;
+    const arrow = priceArrow(Number(c.avg) || null, exp, "the typical fare for this distance");
+    return `<tr><td>${esc(countryName(c.iso))}</td>
+      <td class="num"><b>${esc(cur)} ${Number(c.avg) || "?"}</b> ${arrow}</td>
       <td class="num">${esc(cur)} ${Number(c.min) || "?"}</td>
       <td class="num">${fmtDuration(c.dur)}</td>
       <td class="num">${fmtStops(c.stops)}</td>
-      <td class="num">${Number(c.n) || 0}</td></tr>`).join("")
+      <td class="num">${Number(c.n) || 0}</td></tr>`;
+  }).join("")
     || '<tr><td colspan="6">No fares found from this country.</td></tr>';
   applyFlightFilter();
 }
