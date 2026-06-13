@@ -363,6 +363,10 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .guidehero .herotext h3 { margin: 0; font-size: 22px; }
 .guidehero.loaded .herotext h3 { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.5); }
 .guidehero .herotags { margin-top: 6px; }
+.guidevisa { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin: 0 0 14px; font-size: 13px; color: var(--gray); line-height: 1.5; }
+.guidevisa .guidevisa-txt { flex: 1; min-width: 200px; }
+.guidevisa b { color: var(--ink); }
 .grnum { font-size: 11px; font-weight: 700; color: var(--gray); margin-left: 5px;
   font-variant-numeric: tabular-nums; }
 .fareamt { font-size: 12px; font-weight: 700; color: var(--gray);

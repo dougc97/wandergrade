@@ -650,8 +650,25 @@ async function ensureClimate() {
 // -- Tab: country guide (best time + things to do, one picker) ---------------
 function renderGuide(iso) {
   renderGuideHero(iso);
+  renderGuideVisa(iso);
   renderCountryClimate(iso);
   renderActivity(iso);
+}
+
+// Visa FYI for this country — informational only, US passport, links to the
+// official source. (Not part of any score; just good to know before you go.)
+function renderGuideVisa(iso) {
+  const host = $("guideVisa");
+  if (!host) return;
+  const info = visaInfo(iso);
+  if (!info) { host.hidden = true; return; }
+  host.hidden = false;
+  const detail = info.meta.long + (info.note ? " · " + info.note : "");
+  const link = /^https:\/\/travel\.state\.gov\//.test(info.link)
+    ? ` <a href="${esc(info.link)}" target="_blank" rel="noopener">official details ↗</a>` : "";
+  host.innerHTML = `<span class="visa ${info.meta.cls}">🛂 ${esc(info.meta.label)}</span>
+    <span class="guidevisa-txt"><b>Visa (US passport):</b> ${esc(detail)}.${link}
+    Verify before booking — rules change.</span>`;
 }
 
 // Big scenic photo + headline facts at the top of the guide, so you can feel
@@ -666,7 +683,6 @@ function renderGuideHero(iso) {
     <div class="herofill"></div>
     <div class="herotext">
       <h3>${flagEmoji(iso)} ${esc(name)}</h3>
-      <div class="herotags">🛂 ${visaPill(iso)}</div>
     </div>`;
   const fill = host.querySelector(".herofill");
   photoURL(iso).then((url) => {
@@ -1324,7 +1340,6 @@ function renderGradeTable(host, list, month, gem) {
       <td>${safetyPill(s.advLvl)}</td>
       <td>${gradePill(s.wx, wxTitle)}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
       <td class="num">${flight}</td>
-      <td>${visaPill(s.iso)}</td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span></td>
     </tr>`;
   }).join("");
@@ -1335,7 +1350,6 @@ function renderGradeTable(host, list, month, gem) {
       <th title="US State Dept advisory level">🛡️ Safety</th>
       <th title="weather comfort for your chosen month">🌤️ Weather</th>
       <th title="fare deal: average round-trip vs the typical price for that distance">✈️ Flight</th>
-      <th title="visa needed for a US passport? verify before booking">🛂 Visa</th>
       <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
@@ -1589,18 +1603,6 @@ function visaInfo(iso) {
   if (!v || !v.status) return null;
   const meta = VISA_META[v.status] || VISA_META.check;
   return { status: v.status, note: v.note || "", meta, link: v.link || "" };
-}
-// Visa pill. Links to the official US State Dept country page when we have one
-// (opens in a new tab); the row's tap-to-guide handler ignores anchor clicks.
-function visaPill(iso) {
-  const info = visaInfo(iso);
-  if (!info) return '<span class="visa vchk" title="No visa data — verify before booking">—</span>';
-  const tip = info.meta.long + (info.note ? " · " + info.note : "") +
-    " · US passport — official US State Dept info, verify before booking";
-  const safe = /^https:\/\/travel\.state\.gov\//.test(info.link) ? info.link : "";
-  return safe
-    ? `<a class="visa ${info.meta.cls}" href="${esc(safe)}" target="_blank" rel="noopener" title="${esc(tip)}">${esc(info.meta.label)} ↗</a>`
-    : `<span class="visa ${info.meta.cls}" title="${esc(tip)}">${esc(info.meta.label)}</span>`;
 }
 
 function renderActivity(iso) {
