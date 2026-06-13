@@ -698,28 +698,78 @@ function renderGuideVisa(iso) {
     Verify before booking — rules change.</span>`;
 }
 
-// Big scenic photo + headline facts at the top of the guide, so you can feel
-// the vibe before reading the data.
+// A horizontally-scrollable strip of scenic photos at the top of the guide, so
+// you can swipe through a few shots to get the country's vibe before the data.
 function renderGuideHero(iso) {
   const host = $("guideHero");
   if (!host) return;
   ccGuideIso = iso;
-  const name = countryName(iso);
-  host.className = "guidehero";
-  host.innerHTML = `
-    <div class="herofill"></div>
-    <div class="herotext">
-      <h3>${flagEmoji(iso)} ${esc(name)}</h3>
-    </div>`;
-  const fill = host.querySelector(".herofill");
-  photoURL(iso, 1000).then((url) => {
-    if (url && ccGuideIso === iso) {
-      fill.style.backgroundImage = `url("${url}")`;
+  host.className = "guidehero loading";
+  host.innerHTML = '<div class="herogallery"></div>';
+  const gal = host.querySelector(".herogallery");
+  // Lead image (curated, reliably iconic) first, then more from Commons search.
+  Promise.all([photoURL(iso, 1000).catch(() => null), photoGallery(iso).catch(() => [])])
+    .then(([lead, more]) => {
+      if (ccGuideIso !== iso) return;                 // user moved on
+      const seen = new Set(), urls = [];
+      for (const u of [lead, ...more]) {
+        if (!u) continue;
+        const k = fileKey(u);
+        if (seen.has(k)) continue;
+        seen.add(k); urls.push(u);
+        if (urls.length >= 6) break;
+      }
+      host.classList.remove("loading");
+      if (!urls.length) { host.classList.add("empty"); return; }
       host.classList.add("loaded");
-    }
-  }).catch(() => {});
+      gal.innerHTML = urls.map((u, i) =>
+        `<img class="heroimg" loading="${i ? "lazy" : "eager"}" src="${esc(u)}" alt="${esc(countryName(iso))}">`).join("");
+    }).catch(() => {});
 }
-let ccGuideIso = null;   // guards against a slow photo landing after the user switched country
+let ccGuideIso = null;   // guards against a slow gallery landing after the user switched country
+
+// Filename key for de-duping photos across the two image sources.
+const fileKey = (u) => {
+  const m = u && u.match(/\/thumb\/[^/]+\/[^/]+\/([^/]+)/);
+  return m ? decodeURIComponent(m[1]) : u;
+};
+
+// Several scenic photos for a country via Commons search of its curated query.
+// Filters to landscape JPEG photos, dropping maps/flags/coats/diagrams.
+const _galleryCache = {};
+async function photoGallery(iso) {
+  if (iso in _galleryCache) return _galleryCache[iso];
+  const skey = "fxgal_" + iso;
+  try {
+    const c = sessionStorage.getItem(skey);
+    if (c != null) return (_galleryCache[iso] = JSON.parse(c));
+  } catch (e) {}
+  const q = (activities && activities[iso] && activities[iso].photo) || countryName(iso);
+  const bad = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram|\.svg|location|adm[_ ]|administrative|emblem/i;
+  const urls = [];
+  try {
+    const api = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*" +
+      "&generator=search&gsrnamespace=6&gsrlimit=20&gsrsearch=" + encodeURIComponent(q) +
+      "&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1000";
+    const r = await fetch(api);
+    if (r.ok) {
+      const j = await r.json();
+      const pages = Object.values((j.query || {}).pages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
+      for (const p of pages) {
+        const ii = (p.imageinfo || [])[0];
+        if (!ii || !ii.thumburl) continue;
+        const w = ii.thumbwidth || 0, h = ii.thumbheight || 1, ar = w / h;
+        if (ii.mime === "image/jpeg" && !bad.test(p.title) && w >= h && ar <= 2.4 && h >= 320) {
+          urls.push(ii.thumburl);
+          if (urls.length >= 8) break;
+        }
+      }
+    }
+  } catch (e) {}
+  _galleryCache[iso] = urls;
+  try { sessionStorage.setItem(skey, JSON.stringify(urls)); } catch (e) {}
+  return urls;
+}
 
 function buildBestPickers() {
   const reg = $("bestRegion"), ctry = $("bestCountry");
