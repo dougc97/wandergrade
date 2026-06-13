@@ -352,16 +352,22 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .visa.vhard { background: #fae3e7; color: #b00020; }
 .visa.vchk  { background: var(--soft); color: var(--gray); }
 
-/* travel-guide photo gallery (swipe through a few shots) */
-.guidehero { margin: 4px 0 16px; }
-.guidehero.loading { min-height: 260px; border-radius: 12px; background: var(--soft); }
+/* travel-guide photo carousel (full-width image + arrows) */
+.guidehero { position: relative; margin: 4px 0 16px; }
+.guidehero.loading { min-height: 300px; border-radius: 12px; background: var(--soft); }
 .guidehero.empty { display: none; }
-.herogallery { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch; scrollbar-width: thin; padding-bottom: 4px; }
-.heroimg { flex: 0 0 88%; height: 260px; object-fit: cover; border-radius: 12px;
-  scroll-snap-align: center; background: var(--soft); }
-.heroimg:only-child { flex-basis: 100%; }
-@media (max-width: 560px) { .heroimg { height: 200px; flex-basis: 92%; } }
+.heroimg { display: block; width: 100%; height: 300px; object-fit: cover;
+  border-radius: 12px; background: var(--soft); }
+.heronav { position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 40px;
+  border: none; border-radius: 50%; background: rgba(0,0,0,.45); color: #fff; font-size: 26px;
+  line-height: 1; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  padding: 0 0 3px; transition: background .15s; }
+.heronav:hover { background: rgba(0,0,0,.7); }
+.heronav.prev { left: 10px; }
+.heronav.next { right: 10px; }
+.herocount { position: absolute; bottom: 10px; right: 12px; background: rgba(0,0,0,.55);
+  color: #fff; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+@media (max-width: 560px) { .guidehero.loading, .heroimg { height: 220px; min-height: 220px; } }
 .guidevisa { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   margin: 0 0 14px; font-size: 13px; color: var(--gray); line-height: 1.5; }
 .guidevisa .guidevisa-txt { flex: 1; min-width: 200px; }
