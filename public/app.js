@@ -655,19 +655,40 @@ function renderGuide(iso) {
   renderActivity(iso);
 }
 
-// Visa FYI for this country — informational only, US passport, links to the
-// official source. (Not part of any score; just good to know before you go.)
+// Passport used for visa info = the "From" country chosen on Top Picks
+// (your home country), defaulting to US.
+function guidePassport() {
+  const sel = $("valueOrigin");
+  return (sel && /^[A-Z]{2}$/.test(sel.value)) ? sel.value : "US";
+}
+
+// Visa FYI for this country — informational only, not part of any score.
+// US passports link to the official State Dept page; other passports use the
+// Passport Index matrix (loaded lazily on first use).
 function renderGuideVisa(iso) {
   const host = $("guideVisa");
   if (!host) return;
-  const info = visaInfo(iso);
+  const passport = guidePassport();
+  if (passport !== "US" && !visaMatrix) {       // need the matrix; load then redraw
+    host.hidden = true;
+    ensureVisaMatrix().then(() => { if (ccGuideIso === iso) renderGuideVisa(iso); }).catch(() => {});
+    return;
+  }
+  const ppName = passport === "US" ? "US" : countryName(passport);
+  const info = visaInfo(iso, passport);
+  if (info && info.home) {
+    host.hidden = false;
+    host.innerHTML = `<span class="visa vfree">🛂 Home</span>
+      <span class="guidevisa-txt">Your home country (${esc(ppName)} passport) — no visa needed.</span>`;
+    return;
+  }
   if (!info) { host.hidden = true; return; }
   host.hidden = false;
   const detail = info.meta.long + (info.note ? " · " + info.note : "");
   const link = /^https:\/\/travel\.state\.gov\//.test(info.link)
     ? ` <a href="${esc(info.link)}" target="_blank" rel="noopener">official details ↗</a>` : "";
   host.innerHTML = `<span class="visa ${info.meta.cls}">🛂 ${esc(info.meta.label)}</span>
-    <span class="guidevisa-txt"><b>Visa (US passport):</b> ${esc(detail)}.${link}
+    <span class="guidevisa-txt"><b>Visa · ${esc(ppName)} passport:</b> ${esc(detail)}.${link}
     Verify before booking — rules change.</span>`;
 }
 
@@ -1589,12 +1610,21 @@ async function photoURL(iso, size) {
   try { sessionStorage.setItem(skey, url || ""); } catch (e) {}
   return url;
 }
-// ---- visa requirements (curated, US passport) ------------------------------
+// ---- visa requirements ------------------------------------------------------
+// US passports use the curated visa.json (notes + official State Dept links).
+// Every other "From" country uses a passport×destination matrix derived from
+// the MIT-licensed Passport Index dataset, loaded lazily.
 let visa = null;
 async function ensureVisa() {
   if (!visa) visa = await (await fetch("/visa.json")).json();
   return visa;
 }
+let visaMatrix = null;
+async function ensureVisaMatrix() {
+  if (!visaMatrix) visaMatrix = await (await fetch("/visa-passport.json")).json();
+  return visaMatrix;
+}
+const MX_STATUS = { f: "free", t: "eta", v: "voa", e: "evisa", r: "required", x: "special" };
 const VISA_META = {
   free:     { label: "Visa-free",   cls: "vfree",  long: "Visa-free entry" },
   eta:      { label: "eTA",         cls: "veasy",  long: "Electronic travel authorization (apply online)" },
@@ -1604,11 +1634,21 @@ const VISA_META = {
   special:  { label: "Restricted",  cls: "vhard",  long: "Special restrictions apply" },
   check:    { label: "Check",       cls: "vchk",   long: "Requirements vary — verify before booking" },
 };
-function visaInfo(iso) {
-  const v = visa && visa[iso];
-  if (!v || !v.status) return null;
-  const meta = VISA_META[v.status] || VISA_META.check;
-  return { status: v.status, note: v.note || "", meta, link: v.link || "" };
+function visaInfo(iso, passport) {
+  passport = /^[A-Z]{2}$/.test(passport) ? passport : "US";
+  if (passport === iso) return { home: true, passport };   // their own country
+  if (passport === "US") {
+    const v = visa && visa[iso];
+    if (!v || !v.status) return null;
+    const meta = VISA_META[v.status] || VISA_META.check;
+    return { status: v.status, note: v.note || "", meta, link: v.link || "", passport };
+  }
+  const code = visaMatrix && visaMatrix[passport] && visaMatrix[passport][iso];
+  if (!code) return null;
+  let status, note = "";
+  if (/^\d+$/.test(code)) { status = "free"; note = code + " days"; }
+  else { status = MX_STATUS[code] || "check"; }
+  return { status, note, meta: VISA_META[status] || VISA_META.check, link: "", passport };
 }
 
 // Emoji for the (small, fixed) set of profile tags, and a keyword matcher that
