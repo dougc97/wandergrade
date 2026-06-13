@@ -767,12 +767,12 @@ function renderCountryClimate(iso) {
   $("bestDetail").innerHTML = `
     <div class="besthead">
       <h3>${esc(c.name)} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3>
-      <div>${c.curated ? "Curated best months" : "Best weather"}: </div>
+      <div>${c.curated ? "📅 Curated best months" : "📅 Best weather"}: </div>
     </div>
     <div class="chips">${chips}</div>
     <div class="seasons">
-      <span><b class="peak">● Peak</b> (best weather, busiest &amp; priciest): ${fmtMonths(peakM)}</span>
-      <span><b class="off">● Off-peak</b> (cheapest, fewest crowds): ${fmtMonths(offM)}</span>
+      <span><b class="peak">☀️ Peak</b> (best weather, busiest &amp; priciest): ${fmtMonths(peakM)}</span>
+      <span><b class="off">💸 Off-peak</b> (cheapest, fewest crowds): ${fmtMonths(offM)}</span>
     </div>
     ${hazardLines}
     <div class="bars">${bars}</div>`;
@@ -1611,29 +1611,62 @@ function visaInfo(iso) {
   return { status: v.status, note: v.note || "", meta, link: v.link || "" };
 }
 
+// Emoji for the (small, fixed) set of profile tags, and a keyword matcher that
+// gives each activity / seasonal line a leading icon so the guide scans fast.
+const PROFILE_EMOJI = {
+  "Nature": "🌿", "Culture": "🏛️", "Beach & islands": "🏖️", "Adventure": "🥾",
+  "City": "🏙️", "Food": "🍴", "Shopping": "🛍️",
+};
+const ACT_EMOJI = [
+  [/aurora|northern lights/, "🌌"], [/whale|dolphin/, "🐋"],
+  [/cherry blossom|sakura|blossom/, "🌸"], [/autumn leaves|foliage|fall colou?r|autumn colou?r/, "🍁"],
+  [/migration/, "🦓"], [/garden|tulip|flower/, "🌷"],
+  [/div(e|ing)|snorkel|scuba/, "🤿"], [/surf/, "🏄"], [/ski|snowboard|\bsnow\b/, "🎿"],
+  [/balloon/, "🎈"], [/shrine|pagoda/, "⛩️"], [/temple/, "🛕"], [/mosque/, "🕌"],
+  [/church|cathedral|basilica|monaster/, "⛪"], [/ruins|ancient|archaeolog/, "🏺"],
+  [/castle|palace|\bfort\b|citadel/, "🏰"], [/safari|wildlife|gorilla|big five|game drive/, "🦁"],
+  [/hik|trek|trail/, "🥾"], [/volcano/, "🌋"], [/mountain|peak|everest|kilimanjaro|alps|valley/, "⛰️"],
+  [/desert|dune|sahara/, "🏜️"], [/waterfall|falls/, "💦"], [/lake/, "🏞️"],
+  [/cruise|boat|sail|kayak|raft|river/, "⛵"], [/rainforest|jungle|forest/, "🌴"],
+  [/wine|vineyard/, "🍷"], [/coffee|\btea\b/, "☕"],
+  [/food|cuisine|cooking|culinary|dining|street\s?food/, "🍜"],
+  [/market|bazaar|souk/, "🛍️"], [/museum|galler|\bart\b/, "🖼️"],
+  [/festival|carnival|songkran|christmas/, "🎉"], [/nightlife|\bbar\b|\bclub\b/, "🍸"],
+  [/spa|onsen|hot spring|thermal|wellness/, "♨️"], [/beach|coast|island/, "🏖️"],
+  [/village/, "🏘️"], [/city|town|skyline/, "🏙️"], [/histor|heritage/, "🏛️"],
+  [/road trip|\broad\b/, "🚗"], [/bike|cycl/, "🚲"],
+];
+function activityEmoji(text) {
+  const t = String(text || "").toLowerCase();
+  for (const [re, em] of ACT_EMOJI) if (re.test(t)) return em;
+  return "📍";
+}
+
 function renderActivity(iso) {
   const a = activities[iso];
   const name = (climate && climate[iso] && climate[iso].name) || (ppp[iso] && ppp[iso].name) || iso;
   if (!a) { $("actDetail").innerHTML = `<h3>${esc(name)}</h3><p class="hint">No curated activity profile yet.</p>`; return; }
   const m = curMonth();
-  const tags = a.profile.map((p) => `<span class="chip2">${esc(p)}</span>`).join("");
-  const acts = a.activities.map((x) => `<li>${esc(x)}</li>`).join("");
+  const tags = a.profile.map((p) =>
+    `<span class="chip2">${PROFILE_EMOJI[p] ? PROFILE_EMOJI[p] + " " : ""}${esc(p)}</span>`).join("");
+  const acts = a.activities.map((x) =>
+    `<li><span class="actemoji">${activityEmoji(x)}</span>${esc(x)}</li>`).join("");
   const seas = (a.seasonal || []).map((s) => {
     const on = s.months.includes(m);
     return `<div class="seasrow">
-      <span class="what">${esc(s.what)}</span>
+      <span class="what"><span class="actemoji">${activityEmoji(s.what)}</span>${esc(s.what)}</span>
       <span class="months">${s.months.map((x) => MON_ABBR[x - 1]).join(", ")}</span>
       <span class="${on ? "inseason" : "offseason"}">${on ? "in season now" : "off season"}</span>
     </div>`;
   }).join("");
   const vis = isVisited(iso) ? '<span class="visited-tag">✓ visited</span>' : "";
+  // Summary line dropped — it just restated the "things to do" bullets below.
   $("actDetail").innerHTML = `
     <div class="besthead"><h3>${esc(name)} ${vis} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3></div>
     <div class="chips">${tags}</div>
-    <p>${esc(a.summary)}</p>
-    <h4 style="margin:.6em 0 .2em">Top things to do</h4>
+    <h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
     <ul class="actlist">${acts}</ul>
-    ${seas ? `<h4 style="margin:.6em 0 .2em">What's in season (now: ${MONTHS[m - 1]})</h4>${seas}` : ""}`;
+    ${seas ? `<h4 style="margin:.6em 0 .2em">🗓️ What's in season <span class="muted">(now: ${MONTHS[m - 1]})</span></h4>${seas}` : ""}`;
 }
 
 // ===========================================================================
