@@ -99,21 +99,28 @@ def get_flights(origin_iso, currency="usd"):
         if len(batch) < 1000:
             break
 
-    agg = {}  # dest country iso -> {"sum", "n", "min"}
+    agg = {}  # dest country iso -> {"sum", "n", "min", "dur", "stops"}
     for r in rows:
         meta = cities.get(r.get("destination"), {})
         dest_iso = meta.get("country", "")
         price = r.get("value") or r.get("price")
         if price is None or not dest_iso or dest_iso == origin_iso:
             continue
-        a = agg.setdefault(dest_iso, {"sum": 0.0, "n": 0, "min": price})
+        a = agg.setdefault(dest_iso, {"sum": 0.0, "n": 0, "min": price,
+                                      "dur": None, "stops": None})
         a["sum"] += price
         a["n"] += 1
-        if price < a["min"]:
+        if price <= a["min"]:
+            # Travel time + layovers belong to the cheapest itinerary — the one
+            # someone would actually book. duration_to is the outbound leg in
+            # minutes; transfers is the number of stops on that leg.
             a["min"] = price
+            a["dur"] = r.get("duration_to") or r.get("duration")
+            a["stops"] = r.get("transfers")
 
     countries = [{"iso": iso, "avg": round(a["sum"] / a["n"]), "min": round(a["min"]),
-                  "n": a["n"]} for iso, a in agg.items()]
+                  "n": a["n"], "dur": a["dur"], "stops": a["stops"]}
+                 for iso, a in agg.items()]
     countries.sort(key=lambda c: c["avg"])
 
     return {

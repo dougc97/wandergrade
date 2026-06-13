@@ -649,9 +649,41 @@ async function ensureClimate() {
 
 // -- Tab: country guide (best time + things to do, one picker) ---------------
 function renderGuide(iso) {
+  renderGuideHero(iso);
   renderCountryClimate(iso);
   renderActivity(iso);
 }
+
+// Big scenic photo + headline facts at the top of the guide, so you can feel
+// the vibe before reading the data.
+function renderGuideHero(iso) {
+  const host = $("guideHero");
+  if (!host) return;
+  ccGuideIso = iso;
+  const name = countryName(iso);
+  const info = visaInfo(iso);
+  host.className = "guidehero";
+  host.innerHTML = `
+    <div class="herofill"></div>
+    <div class="herotext">
+      <h3>${flagEmoji(iso)} ${esc(name)}</h3>
+      <div class="herotags">
+        ${info ? `<span class="visa ${info.meta.cls}" title="${esc(info.meta.long + (info.note ? " · " + info.note : ""))}">🛂 ${esc(info.meta.label)}</span>` : ""}
+      </div>
+    </div>`;
+  const fill = host.querySelector(".herofill");
+  photoURL(iso).then((url) => {
+    if (!url) return;
+    // Try a sharper width; some Commons images cap it, so fall back to the base.
+    const big = biggerThumb(url, 640);
+    const apply = (u) => { if (ccGuideIso === iso) { fill.style.backgroundImage = `url("${u}")`; host.classList.add("loaded"); } };
+    const probe = new Image();
+    probe.onload = () => apply(big);
+    probe.onerror = () => apply(url);
+    probe.src = big;
+  }).catch(() => {});
+}
+let ccGuideIso = null;   // guards against a slow photo landing after the user switched country
 
 function buildBestPickers() {
   const reg = $("bestRegion"), ctry = $("bestCountry");
@@ -1289,12 +1321,13 @@ function renderGradeTable(host, list, month, gem) {
         + `<span class="fareamt">${fmtMoney(s.fare)}</span>`;
     return `<tr data-iso="${esc(s.iso)}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
-      <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
+      <td class="dest"><span class="vibe" data-vibe="${esc(s.iso)}">${flagEmoji(s.iso)}</span><span class="destname">${esc(s.name)}</span></td>
       <td>${gradePill(s.cur, s.fx != null ? `${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average here` : `Uses your currency (${homeBase}) — no FX edge either way`)}</td>
       <td>${gradePill(s.aff, s.pl != null ? `Price level ${s.pl.toFixed(2)} vs home — under 1.00 means your money buys more than it does at home` : "")}</td>
       <td>${safetyPill(s.advLvl)}</td>
       <td>${gradePill(s.wx, wxTitle)}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
       <td class="num">${flight}</td>
+      <td>${visaPill(s.iso)}</td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span></td>
     </tr>`;
   }).join("");
@@ -1305,9 +1338,11 @@ function renderGradeTable(host, list, month, gem) {
       <th title="US State Dept advisory level">🛡️ Safety</th>
       <th title="weather comfort for your chosen month">🌤️ Weather</th>
       <th title="fare deal: average round-trip vs the typical price for that distance">✈️ Flight</th>
+      <th title="visa needed for a US passport? verify before booking">🛂 Visa</th>
       <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
+  fillVibe(host);
 }
 
 // One delegated click: a row (or legacy card) opens that country's travel guide.
@@ -1440,7 +1475,7 @@ async function loadFlights() {
   if (!flightsData.configured) {
     $("flightSub").innerHTML = "Flight prices need a free Travelpayouts token. Set <code>TRAVELPAYOUTS_TOKEN</code> on the server (Render → Environment), then redeploy.";
     $("flightMap").textContent = "Not configured.";
-    $("flightRows").innerHTML = '<tr><td colspan="4">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
+    $("flightRows").innerHTML = '<tr><td colspan="6">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
     return;
   }
   renderFlights();
@@ -1478,8 +1513,24 @@ function renderFlights() {
     <tr><td>${esc(countryName(c.iso))}</td>
       <td class="num"><b>${esc(cur)} ${Number(c.avg) || "?"}</b></td>
       <td class="num">${esc(cur)} ${Number(c.min) || "?"}</td>
+      <td class="num">${fmtDuration(c.dur)}</td>
+      <td class="num">${fmtStops(c.stops)}</td>
       <td class="num">${Number(c.n) || 0}</td></tr>`).join("")
-    || '<tr><td colspan="4">No fares found from this country.</td></tr>';
+    || '<tr><td colspan="6">No fares found from this country.</td></tr>';
+}
+
+// Minutes -> "13h 25m"; null when the provider didn't return a duration.
+function fmtDuration(mins) {
+  const m = Number(mins);
+  if (!m || m <= 0) return "—";
+  const h = Math.floor(m / 60), r = m % 60;
+  return (h ? h + "h" : "") + (r ? " " + r + "m" : (h ? "" : r + "m")) || "—";
+}
+// Outbound layovers on the cheapest itinerary.
+function fmtStops(stops) {
+  if (stops == null) return "—";
+  const n = Number(stops);
+  return n === 0 ? '<span class="pos">nonstop</span>' : n + (n === 1 ? " stop" : " stops");
 }
 
 $("flightGo").addEventListener("click", loadFlights);
@@ -1493,6 +1544,70 @@ function curMonth() { return new Date().getMonth() + 1; }   // 1-12, real browse
 async function ensureActivities() {
   if (!activities) activities = await (await fetch("/activities.json")).json();
   return activities;
+}
+
+// ---- destination photos (Wikipedia REST, keyless) --------------------------
+// Each country has a curated landmark/city article in activities.json; we pull
+// that page's lead thumbnail. Cached in memory + sessionStorage so it's fetched
+// at most once per browser session (and never blocks the page).
+const _photoCache = {};
+function biggerThumb(url, px) {
+  return url ? url.replace(/\/\d+px-/, "/" + px + "px-") : url;   // Commons thumb trick
+}
+async function photoURL(iso) {
+  if (iso in _photoCache) return _photoCache[iso];
+  const skey = "fxphoto_" + iso;
+  try {
+    const cached = sessionStorage.getItem(skey);
+    if (cached != null) return (_photoCache[iso] = cached || null);
+  } catch (e) {}
+  const q = (activities && activities[iso] && activities[iso].photo) || countryName(iso);
+  let url = null;
+  try {
+    const r = await fetch("https://en.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(q));
+    if (r.ok) { const j = await r.json(); url = (j.thumbnail && j.thumbnail.source) || null; }
+  } catch (e) {}
+  _photoCache[iso] = url;
+  try { sessionStorage.setItem(skey, url || ""); } catch (e) {}
+  return url;
+}
+// Lazily fill any [data-vibe] placeholders in a container with their photo.
+function fillVibe(host) {
+  if (!host) return;
+  host.querySelectorAll("[data-vibe]").forEach((el) => {
+    const iso = el.getAttribute("data-vibe");
+    photoURL(iso).then((url) => {
+      if (url) { el.style.backgroundImage = `url("${url}")`; el.classList.add("loaded"); }
+    }).catch(() => {});
+  });
+}
+
+// ---- visa requirements (curated, US passport) ------------------------------
+let visa = null;
+async function ensureVisa() {
+  if (!visa) visa = await (await fetch("/visa.json")).json();
+  return visa;
+}
+const VISA_META = {
+  free:     { label: "Visa-free",   cls: "vfree",  long: "Visa-free entry" },
+  eta:      { label: "eTA",         cls: "veasy",  long: "Electronic travel authorization (apply online)" },
+  voa:      { label: "On arrival",  cls: "veasy",  long: "Visa on arrival" },
+  evisa:    { label: "eVisa",       cls: "vmid",   long: "eVisa — apply online before you go" },
+  required: { label: "Visa req'd",  cls: "vhard",  long: "Visa required in advance (embassy/consulate)" },
+  special:  { label: "Restricted",  cls: "vhard",  long: "Special restrictions apply" },
+  check:    { label: "Check",       cls: "vchk",   long: "Requirements vary — verify before booking" },
+};
+function visaInfo(iso) {
+  const v = visa && visa[iso];
+  if (!v || !v.status) return null;
+  const meta = VISA_META[v.status] || VISA_META.check;
+  return { status: v.status, note: v.note || "", meta };
+}
+function visaPill(iso) {
+  const info = visaInfo(iso);
+  if (!info) return '<span class="visa vchk" title="No visa data — verify before booking">—</span>';
+  const tip = info.meta.long + (info.note ? " · " + info.note : "") + " · US passport — verify before booking";
+  return `<span class="visa ${info.meta.cls}" title="${esc(tip)}">${esc(info.meta.label)}</span>`;
 }
 
 function renderActivity(iso) {
@@ -1608,10 +1723,12 @@ async function activateTab(name) {
   try {
     if (name === "value" && !loaded.value) {
       await Promise.all([ensureWorld(), ensurePPP(), ensureClimate(), ensureAdvisories(),
-                         ensureActivities().catch(() => {})]);   // hazards on the grade table
+                         ensureActivities().catch(() => {}),     // hazards + photos
+                         ensureVisa().catch(() => {})]);         // visa column
       buildValueTab(); loaded.value = true;
     } else if (name === "guide" && !loaded.guide) {
-      await Promise.all([ensurePPP(), ensureClimate(), ensureActivities()]);
+      await Promise.all([ensurePPP(), ensureClimate(), ensureActivities(),
+                         ensureVisa().catch(() => {})]);
       buildBestPickers(); loaded.guide = true;
     } else if (name === "visited" && !loaded.visited) {
       await Promise.all([ensureWorld(), ensurePPP(), ensureClimate()]);
