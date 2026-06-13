@@ -112,7 +112,7 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .actemoji { flex: none; width: 1.3em; text-align: center; }
 .seasrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; flex-wrap: wrap; }
 .seasrow:last-child { border-bottom: none; }
-.seasrow .what { flex: 1; min-width: 160px; }
+.seasrow .what { flex: 1; min-width: 160px; display: flex; align-items: baseline; gap: 9px; }
 .seasrow .months { color: var(--gray); font-size: 12px; }
 .inseason { background: var(--green); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
 .offseason { background: var(--softer); color: var(--gray); border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
