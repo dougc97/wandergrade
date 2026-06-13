@@ -112,11 +112,15 @@ def get_flights(origin_iso, currency="usd"):
         a["n"] += 1
         if price <= a["min"]:
             # Travel time + layovers belong to the cheapest itinerary — the one
-            # someone would actually book. duration_to is the outbound leg in
-            # minutes; transfers is the number of stops on that leg.
+            # someone would actually book. The v3 latest-prices feed names the
+            # layover count "number_of_changes" (not "transfers"); duration is
+            # in minutes.
             a["min"] = price
             a["dur"] = r.get("duration_to") or r.get("duration")
-            a["stops"] = r.get("transfers")
+            stops = r.get("number_of_changes")
+            if stops is None:
+                stops = r.get("transfers")
+            a["stops"] = stops
 
     countries = [{"iso": iso, "avg": round(a["sum"] / a["n"]), "min": round(a["min"]),
                   "n": a["n"], "dur": a["dur"], "stops": a["stops"]}

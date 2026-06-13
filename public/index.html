@@ -273,6 +273,10 @@
         <div class="actions"><button id="save">Save settings</button></div>
       </section>
 
+      <div class="filterbar">
+        <input id="curFilter" class="tablefilter" type="search" placeholder="🔍 Filter by currency or name…">
+        <label class="chk"><input type="checkbox" id="curRisky"> Include higher-risk (L3–4) destinations</label>
+      </div>
       <section class="tablewrap">
         <table id="rates">
           <thead>
@@ -299,6 +303,9 @@
         </div>
         <div id="affMap" class="map">Loading…</div>
       </div>
+      <div class="filterbar">
+        <input id="affFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
+      </div>
       <section class="tablewrap">
         <table id="affTable">
           <thead><tr>
@@ -322,6 +329,16 @@
         </div>
         <div id="advMap" class="map">Loading…</div>
       </div>
+      <div class="filterbar">
+        <input id="advFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
+        <select id="advLevel" title="filter by advisory level">
+          <option value="all">All levels</option>
+          <option value="1">L1 — Normal precautions</option>
+          <option value="2">L2 — Increased caution</option>
+          <option value="3">L3 — Reconsider travel</option>
+          <option value="4">L4 — Do not travel</option>
+        </select>
+      </div>
       <section class="tablewrap">
         <table id="advTable">
           <thead><tr><th>Country</th><th>Level</th><th>Advisory</th></tr></thead>
@@ -338,23 +355,28 @@
             <p id="flightSub" class="chartsub">Pick where you're flying from. International routes only, averaged per destination country.</p>
           </div>
           <div class="pickers">
-            <select id="flightOrigin"></select>
-            <button id="flightGo">Search</button>
+            <span class="pickgroup" title="your home country — fares are averaged from its main hub">
+              <span class="picklabel">✈️ From</span>
+              <select id="flightOrigin"></select>
+            </span>
             <div class="legend" id="flightLegend"></div>
           </div>
         </div>
         <div id="flightMap" class="map">Loading…</div>
+      </div>
+      <div class="filterbar">
+        <input id="flightFilter" class="tablefilter" type="search" placeholder="🔍 Filter by destination…">
       </div>
       <section class="tablewrap">
         <table id="flightTable">
           <thead><tr>
             <th>Destination country</th><th class="num">Avg round-trip</th>
             <th class="num">Cheapest</th>
-            <th class="num" title="outbound travel time on the cheapest itinerary">Flight time</th>
+            <th class="num" title="travel time on the cheapest itinerary">Flight time</th>
             <th class="num" title="layovers on the cheapest itinerary">Stops</th>
             <th class="num">Routes sampled</th>
           </tr></thead>
-          <tbody id="flightRows"><tr><td colspan="4">No search yet.</td></tr></tbody>
+          <tbody id="flightRows"><tr><td colspan="6">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>

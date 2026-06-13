@@ -372,6 +372,14 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   font-variant-numeric: tabular-nums; }
 .fareamt { font-size: 12px; font-weight: 700; color: var(--gray);
   font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Explore-the-Data table filters */
+.filterbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px 0 0; }
+.tablefilter { padding: 7px 11px; border: 1px solid var(--border-input); border-radius: 8px;
+  font-size: 14px; min-width: 220px; background: var(--card); color: var(--ink); }
+.filterbar select { padding: 7px 9px; border: 1px solid var(--border-input); border-radius: 8px;
+  background: var(--card); color: var(--ink); }
+.filterbar .chk { font-size: 13px; color: var(--gray); display: inline-flex; gap: 6px; align-items: center; }
+
 .farearrow { font-size: 15px; font-weight: 700; cursor: help; }
 .farearrow.dn { color: var(--green); }
 .farearrow.up { color: var(--red); }
