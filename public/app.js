@@ -194,6 +194,7 @@ function renderRates(data) {
   $("summary").textContent =
     `${data.rows.length} currencies · ${fav.length} favorable (≥ +${data.threshold_pct}% vs ${data.baseline_days}-day avg)`;
 
+  const adv = advisoryByIso();
   const tbody = $("rows");
   tbody.innerHTML = "";
   for (const r of data.rows) {
@@ -202,6 +203,10 @@ function renderRates(data) {
     const sign = r.strength_pct >= 0 ? "pos" : "neg";
     const star = r.watched ? "" : ' <span title="not on watchlist" style="opacity:.4">·</span>';
     const pl = priceLevelForCurrency(r.code);
+    // Advisory level of the currency's representative country, for the
+    // hide-higher-risk filter (so the Iranian rial isn't row one).
+    const ctry = currencyCountry(r.code);
+    tr.dataset.adv = String((ctry && adv[ctry]) || 0);
     tr.innerHTML = `
       <td><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div></td>
       <td class="num">${fmt(r.rate_now)}</td>
@@ -210,6 +215,7 @@ function renderRates(data) {
       <td class="num">${rangeMarker(r)}</td>`;
     tbody.appendChild(tr);
   }
+  applyCurrencyFilter();
 }
 
 async function loadRates() {
@@ -830,11 +836,12 @@ function renderAdvisories() {
     const lvl = parseInt(it.level, 10) || 0;
     const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
     return `
-    <tr><td>${esc(it.country)}</td>
+    <tr data-lvl="${lvl}"><td>${esc(it.country)}</td>
       <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
       <td>${esc(it.level_text)}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details</a>` : ""}</td>
     </tr>`;
   }).join("");
+  applyAdvFilter();
 }
 
 // ===========================================================================
@@ -872,6 +879,7 @@ function renderAfford() {
       <td class="num">$${Math.round(100 / r.pl)} of US goods</td>
       <td>${plWord(r.pl)}</td></tr>`;
   }).join("");
+  applyAffordFilter();
 }
 
 // ===========================================================================
@@ -1537,6 +1545,7 @@ function renderFlights() {
       <td class="num">${fmtStops(c.stops)}</td>
       <td class="num">${Number(c.n) || 0}</td></tr>`).join("")
     || '<tr><td colspan="6">No fares found from this country.</td></tr>';
+  applyFlightFilter();
 }
 
 // Minutes -> "13h 25m"; null when the provider didn't return a duration.
@@ -1553,7 +1562,53 @@ function fmtStops(stops) {
   return n === 0 ? '<span class="pos">nonstop</span>' : n + (n === 1 ? " stop" : " stops");
 }
 
-$("flightGo").addEventListener("click", loadFlights);
+// Flights auto-load when you change the origin (no separate Search button).
+$("flightOrigin").addEventListener("change", loadFlights);
+
+// ---- Explore-the-Data table filters ----------------------------------------
+// Generic row filter: hide rows whose text doesn't match, skipping the
+// placeholder/empty rows (which have a single cell).
+function filterRows(tbodyId, predicate) {
+  const tb = $(tbodyId);
+  if (!tb) return;
+  for (const tr of tb.querySelectorAll("tr")) {
+    if (tr.children.length < 2) continue;
+    tr.style.display = predicate(tr) ? "" : "none";
+  }
+}
+const _q = (id) => (($(id) && $(id).value) || "").trim().toLowerCase();
+
+function applyCurrencyFilter() {
+  const q = _q("curFilter");
+  const showRisky = $("curRisky") && $("curRisky").checked;
+  filterRows("rows", (tr) => {
+    if (!showRisky && parseInt(tr.dataset.adv || "0", 10) >= 3) return false;
+    return !q || tr.textContent.toLowerCase().includes(q);
+  });
+}
+function applyAffordFilter() {
+  const q = _q("affFilter");
+  filterRows("affRows", (tr) => !q || tr.textContent.toLowerCase().includes(q));
+}
+function applyAdvFilter() {
+  const q = _q("advFilter");
+  const lvl = ($("advLevel") && $("advLevel").value) || "all";
+  filterRows("advRows", (tr) =>
+    (lvl === "all" || tr.dataset.lvl === lvl) &&
+    (!q || tr.textContent.toLowerCase().includes(q)));
+}
+function applyFlightFilter() {
+  const q = _q("flightFilter");
+  filterRows("flightRows", (tr) => !q || tr.textContent.toLowerCase().includes(q));
+}
+// Wire filter controls once (elements are static in the markup).
+[["curFilter", applyCurrencyFilter], ["curRisky", applyCurrencyFilter],
+ ["affFilter", applyAffordFilter], ["advFilter", applyAdvFilter],
+ ["advLevel", applyAdvFilter], ["flightFilter", applyFlightFilter]
+].forEach(([id, fn]) => {
+  const el = $(id);
+  if (el) el.addEventListener(el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input", fn);
+});
 
 // ===========================================================================
 //  Things to do (curated activities + what's in season now)
@@ -1798,6 +1853,8 @@ async function activateTab(name) {
     } else if (name === "visited" && !loaded.visited) {
       await Promise.all([ensureWorld(), ensurePPP(), ensureClimate()]);
       buildVisited(); loaded.visited = true;
+    } else if (name === "data") {
+      setDataMode(dataMode);   // initialize the active sub-view (incl. currency)
     }
   } catch (e) {
     status("Could not load " + name + ": " + e.message, "err");
@@ -1818,7 +1875,16 @@ async function setDataMode(mode) {
     x.classList.toggle("active", x.dataset.dm === mode);
   for (const m in DATA_SUBS) $(DATA_SUBS[m]).hidden = m !== mode;
   try {
-    if (mode === "afford" && !loaded.afford) {
+    if (mode === "currency") {
+      // Load advisories so the hide-higher-risk filter works, then re-render
+      // the (already-populated) rates table to tag rows + apply the filter.
+      if (!loaded.curRisk) {
+        await ensureAdvisories().catch(() => {});
+        loaded.curRisk = true;
+        if (dataRates) renderRates(dataRates);
+      }
+      applyCurrencyFilter();
+    } else if (mode === "afford" && !loaded.afford) {
       await Promise.all([ensureWorld(), ensurePPP()]);
       renderAfford(); loaded.afford = true;
     } else if (mode === "advisory" && !loaded.advisory) {
