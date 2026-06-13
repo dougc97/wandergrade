@@ -68,7 +68,7 @@ body > *:not(.bgdoodle):not(.bgseason):not(.lightbox) { position: relative; z-in
   @keyframes mappulse { 50% { opacity: .5; } }
 }
 
-header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide, .filterbar { max-width: 960px; margin: 0 auto; padding: 0 20px; }
 
 /* tab nav */
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-top: 8px; }
@@ -175,6 +175,9 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 #visitedMap svg path { cursor: pointer; }
 .chip2.rm { cursor: pointer; }
 .chip2.rm:hover { background: #fdecef; color: var(--red); }
+.chip2.rm.w { background: #e3f0fb; color: #1763a6; }
+.chiprow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.chiplabel { font-size: 12px; font-weight: 700; color: var(--gray); margin-right: 2px; }
 
 /* advisory level badges */
 .lvl { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }
@@ -392,7 +395,7 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .fareamt { font-size: 12px; font-weight: 700; color: var(--gray);
   font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* Explore-the-Data table filters */
-.filterbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px 0 0; }
+.filterbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px auto 0; }
 .tablefilter { padding: 7px 11px; border: 1px solid var(--border-input); border-radius: 8px;
   font-size: 14px; min-width: 220px; background: var(--card); color: var(--ink); }
 .filterbar select { padding: 7px 9px; border: 1px solid var(--border-input); border-radius: 8px;
@@ -453,6 +456,7 @@ html[data-theme="dark"] { --doodle: 0.10; }
 html[data-theme="dark"] .countrycard .ccfacts { color: var(--ink); }
 html[data-theme="dark"] .status.err { background: #3a151c; }
 html[data-theme="dark"] .chip2.rm:hover { background: #3a151c; }
+html[data-theme="dark"] .chip2.rm.w { background: #16304a; color: #7fb3e6; }
 html[data-theme="dark"] .visited-tag { background: #4a5158; }
 html[data-theme="dark"] .map svg path { stroke: var(--card); }
 html[data-theme="dark"] #check { color: #14181c; }

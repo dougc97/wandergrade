@@ -507,17 +507,20 @@ function renderCountryCard() {
     ${act ? `<p class="ccsummary">${esc(act.summary)}</p>` : ""}
     <div class="ccbtns">
       ${(act || cl) ? '<button data-cc="todo">Country guide →</button>' : ""}
-      <button data-cc="visit">${vis ? "Unmark visited" : "Mark visited"}</button>
+      <button data-cc="visit">${vis ? "✓ Been (remove)" : "✓ Been"}</button>
+      <button data-cc="wish">${loadWishlist().has(iso) ? "★ On wishlist (remove)" : "★ Want to go"}</button>
     </div>`;
   card.querySelector(".ccclose").onclick = () => { card.remove(); ccCurrent = null; };
   const todo = card.querySelector('[data-cc="todo"]');
   if (todo) todo.onclick = () => openGuideFor(iso);
-  card.querySelector('[data-cc="visit"]').onclick = () => {
-    toggleVisited(iso);
+  const mark = (mode) => {
+    const prev = visitMode; visitMode = mode; toggleMark(iso); visitMode = prev;
     renderCountryCard();
     if (loaded.value && !$("tab-value").hidden) renderValue();
     if (loaded.visited) renderVisited();
   };
+  card.querySelector('[data-cc="visit"]').onclick = () => mark("visited");
+  card.querySelector('[data-cc="wish"]').onclick = () => mark("wishlist");
 }
 
 function renderMap(rows, base) {
@@ -788,6 +791,9 @@ function openLightbox() {
   document.body.style.overflow = "hidden";
   document.addEventListener("keydown", lbKey);
   syncLightbox();
+  // Preload every full-res image now (intent signalled), so clicking through
+  // the carousel is instant instead of waiting on each load.
+  heroUrls.forEach((p) => { if (p.full && p.full !== p.thumb) { const im = new Image(); im.src = p.full; } });
 }
 function closeLightbox() {
   const lb = $("lightbox");
@@ -869,22 +875,33 @@ async function photoGallery(iso) {
   return out;
 }
 
+const INTERESTS = ["Beach & islands", "Nature", "City", "Culture", "Adventure", "Food", "Shopping"];
 function buildBestPickers() {
-  const reg = $("bestRegion"), ctry = $("bestCountry");
+  const reg = $("bestRegion"), ctry = $("bestCountry"), intr = $("bestInterest");
   reg.innerHTML = '<option value="all">All regions</option>' +
     Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
-  const fill = () => {
-    const sel = reg.value;
+  intr.innerHTML = '<option value="all">All interests</option>' +
+    INTERESTS.map((i) => `<option value="${esc(i)}">${PROFILE_EMOJI[i] || ""} ${esc(i)}</option>`).join("");
+  const fill = (keepCurrent) => {
+    const region = reg.value, want = intr.value, prev = ctry.value;
     const list = Object.keys(climate)
-      .filter((iso) => sel === "all" || ISO_REGION[iso] === sel)
+      .filter((iso) => region === "all" || ISO_REGION[iso] === region)
+      .filter((iso) => want === "all" ||
+        ((activities[iso] && activities[iso].profile) || []).includes(want))
       .map((iso) => ({ iso, name: climate[iso].name }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    ctry.innerHTML = list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
-    if (list.length) renderGuide(ctry.value);
+    ctry.innerHTML = list.length
+      ? list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("")
+      : '<option value="">No countries match — widen your filters</option>';
+    if (!list.length) { $("guideHero").className = "guidehero empty"; $("bestDetail").innerHTML = ""; $("actDetail").innerHTML = ""; $("guideVisa").hidden = true; return; }
+    // keep the same country if it still qualifies, else jump to the first match
+    if (keepCurrent && list.some((c) => c.iso === prev)) ctry.value = prev;
+    renderGuide(ctry.value);
   };
-  reg.onchange = fill;
+  reg.onchange = () => fill(true);
+  intr.onchange = () => fill(true);
   ctry.onchange = () => renderGuide(ctry.value);
-  fill();
+  fill(false);
   if ([...ctry.options].some((o) => o.value === "JP")) { ctry.value = "JP"; renderGuide("JP"); }
 }
 
@@ -1862,20 +1879,23 @@ const PROFILE_EMOJI = {
   "City": "🏙️", "Food": "🍴", "Shopping": "🛍️",
 };
 const ACT_EMOJI = [
-  [/aurora|northern lights/, "🌌"], [/whale|dolphin/, "🐋"],
+  [/aurora|northern lights|white nights/, "🌌"], [/whale|dolphin/, "🐋"],
   [/cherry blossom|sakura|blossom/, "🌸"], [/autumn leaves|foliage|fall colou?r|autumn colou?r/, "🍁"],
-  [/migration/, "🦓"], [/garden|tulip|flower/, "🌷"],
+  [/migration/, "🦓"], [/garden|tulip|flower|keukenhof/, "🌷"],
+  [/railway|train|trans-?siberian|metro|tram/, "🚆"], [/\bice\b|frozen|glacier/, "🧊"],
+  [/opera|ballet|theat/, "🎭"], [/hermitage|museum|galler|\bart\b/, "🖼️"], [/red square/, "🏛️"],
+  [/cheese/, "🧀"], [/rice terrace|paddy/, "🌾"], [/tulip/, "🌷"],
   [/div(e|ing)|snorkel|scuba/, "🤿"], [/surf/, "🏄"], [/ski|snowboard|\bsnow\b/, "🎿"],
   [/balloon/, "🎈"], [/shrine|pagoda/, "⛩️"], [/temple/, "🛕"], [/mosque/, "🕌"],
   [/church|cathedral|basilica|monaster/, "⛪"], [/ruins|ancient|archaeolog/, "🏺"],
-  [/castle|palace|\bfort\b|citadel/, "🏰"], [/safari|wildlife|gorilla|big five|game drive/, "🦁"],
+  [/castle|palace|kremlin|\bfort\b|citadel/, "🏰"], [/safari|wildlife|gorilla|big five|game drive/, "🦁"],
   [/hik|trek|trail/, "🥾"], [/volcano/, "🌋"], [/mountain|peak|everest|kilimanjaro|alps|valley/, "⛰️"],
   [/desert|dune|sahara/, "🏜️"], [/waterfall|falls/, "💦"], [/lake/, "🏞️"],
   [/cruise|boat|sail|kayak|raft|river/, "⛵"], [/rainforest|jungle|forest/, "🌴"],
   [/wine|vineyard/, "🍷"], [/coffee|\btea\b/, "☕"],
   [/food|cuisine|cooking|culinary|dining|street\s?food/, "🍜"],
   [/market|bazaar|souk/, "🛍️"], [/museum|galler|\bart\b/, "🖼️"],
-  [/festival|carnival|songkran|christmas/, "🎉"], [/nightlife|\bbar\b|\bclub\b/, "🍸"],
+  [/festival|carnival|songkran|christmas/, "🎉"], [/nightlife|\bbar\b|\bclub\b|party/, "🍸"],
   [/spa|onsen|hot spring|thermal|wellness/, "♨️"], [/beach|coast|island/, "🏖️"],
   [/village/, "🏘️"], [/city|town|skyline/, "🏙️"], [/histor|heritage/, "🏛️"],
   [/road trip|\broad\b/, "🚗"], [/bike|cycl/, "🚲"],
@@ -1914,21 +1934,33 @@ function renderActivity(iso) {
 }
 
 // ===========================================================================
-//  Countries visited (stored in this browser)
+//  Your travel map: visited (been) + wishlist (want to go) — both in localStorage
 // ===========================================================================
-let visited = null;
+let visited = null, wishlist = null;
+let visitMode = "visited";   // which list the map/dropdown edits
 function loadVisited() {
   if (visited) return visited;
   try { visited = new Set(JSON.parse(localStorage.getItem("fx_visited") || "[]")); }
   catch (e) { visited = new Set(); }
   return visited;
 }
+function loadWishlist() {
+  if (wishlist) return wishlist;
+  try { wishlist = new Set(JSON.parse(localStorage.getItem("fx_wishlist") || "[]")); }
+  catch (e) { wishlist = new Set(); }
+  return wishlist;
+}
 function saveVisited() { localStorage.setItem("fx_visited", JSON.stringify([...visited])); }
+function saveWishlist() { localStorage.setItem("fx_wishlist", JSON.stringify([...wishlist])); }
 function isVisited(iso) { return loadVisited().has(iso); }
-function toggleVisited(iso) {
-  loadVisited();
-  if (visited.has(iso)) visited.delete(iso); else visited.add(iso);
-  saveVisited();
+// Toggle a country in the active list; the two lists are mutually exclusive
+// (you've either been or you want to go, not both).
+function toggleMark(iso) {
+  loadVisited(); loadWishlist();
+  const on = visitMode === "visited" ? visited : wishlist;
+  const other = visitMode === "visited" ? wishlist : visited;
+  if (on.has(iso)) on.delete(iso); else { on.add(iso); other.delete(iso); }
+  saveVisited(); saveWishlist();
 }
 
 let _displayNames = null;
@@ -1947,7 +1979,7 @@ function countryName(iso) {
 }
 
 function buildVisited() {
-  loadVisited();
+  loadVisited(); loadWishlist();
   const pick = $("visitedPick");
   // dropdown of all mappable countries by name
   const all = [...new Set(Object.keys(CUR_BY_ISO))]
@@ -1955,34 +1987,60 @@ function buildVisited() {
     .sort((a, b) => a.name.localeCompare(b.name));
   pick.innerHTML = '<option value="">+ add a country…</option>' +
     all.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
-  pick.onchange = () => { if (pick.value) { toggleVisited(pick.value); pick.value = ""; renderVisited(); } };
-  $("visitedClear").onclick = () => { visited.clear(); saveVisited(); renderVisited(); };
+  pick.onchange = () => { if (pick.value) { toggleMark(pick.value); pick.value = ""; renderVisited(); } };
+  $("visitedClear").onclick = () => {
+    const label = visitMode === "visited" ? "been-to" : "wishlist";
+    (visitMode === "visited" ? visited : wishlist).clear();
+    saveVisited(); saveWishlist(); renderVisited();
+    status("Cleared your " + label + " list.", "ok");
+  };
+  for (const b of document.querySelectorAll("#visitedMode button")) {
+    b.addEventListener("click", () => {
+      visitMode = b.dataset.vm;
+      for (const x of document.querySelectorAll("#visitedMode button"))
+        x.classList.toggle("active", x === b);
+      renderVisited();
+    });
+  }
   // One delegated listener each on the (stable) containers — survives innerHTML
   // re-renders and avoids re-binding 176 path handlers every toggle.
   $("visitedMap").addEventListener("click", (e) => {
     const p = e.target.closest("path");
     const iso = p && p.getAttribute("data-iso");
-    if (iso && iso !== "-99") { toggleVisited(iso); renderVisited(); }
+    if (iso && iso !== "-99") { toggleMark(iso); renderVisited(); }
   });
   $("visitedChips").addEventListener("click", (e) => {
     const chip = e.target.closest(".rm");
-    if (chip) { toggleVisited(chip.dataset.iso); renderVisited(); }
+    if (chip) {   // remove from whichever list it's in
+      loadVisited(); loadWishlist();
+      visited.delete(chip.dataset.iso); wishlist.delete(chip.dataset.iso);
+      saveVisited(); saveWishlist(); renderVisited();
+    }
   });
   renderVisited();
 }
 
+const VISITED_COLOR = "#0a7d28", WISH_COLOR = "#2b6cb0";
 function renderVisited() {
   drawMap("visitedMap", (f) => {
-    const v = visited.has(f.properties.iso);
-    return { fill: v ? "#0a7d28" : "#e0e4e8",
-      title: f.properties.name + (v ? " — visited ✓ (click to remove)" : " — click to mark visited") };
-  }, "Countries visited");
-  const list = [...visited].map((iso) => ({ iso, name: countryName(iso) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  $("visitedSub").textContent = `${visited.size} countries visited. Click the map or use the dropdown. Saved in this browser.`;
-  $("visitedChips").innerHTML = list.length
-    ? list.map((c) => `<span class="chip2 rm" data-iso="${esc(c.iso)}" title="remove">${esc(c.name)} ✕</span>`).join("")
-    : '<span class="hint">None yet — click countries on the map.</span>';
+    const iso = f.properties.iso;
+    if (visited.has(iso)) return { fill: VISITED_COLOR, title: f.properties.name + " — been ✓ (click to remove)" };
+    if (wishlist.has(iso)) return { fill: WISH_COLOR, title: f.properties.name + " — want to go ★ (click to remove)" };
+    return { fill: "#e0e4e8",
+      title: f.properties.name + " — click to mark " + (visitMode === "visited" ? "been" : "want to go") };
+  }, "Your travel map");
+  const chipsFor = (set, cls) => [...set].map((iso) => ({ iso, name: countryName(iso) }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((c) => `<span class="chip2 rm ${cls}" data-iso="${esc(c.iso)}" title="remove">${esc(c.name)} ✕</span>`).join("");
+  $("visitedSub").innerHTML =
+    `<b style="color:${VISITED_COLOR}">${visited.size} been</b> · ` +
+    `<b style="color:${WISH_COLOR}">${wishlist.size} want to go</b> — ` +
+    `marking <b>${visitMode === "visited" ? "✓ been" : "★ want to go"}</b>. Click the map or pick a country.`;
+  const sections = [];
+  if (visited.size) sections.push('<div class="chiprow"><span class="chiplabel">✓ Been</span>' + chipsFor(visited, "v") + '</div>');
+  if (wishlist.size) sections.push('<div class="chiprow"><span class="chiplabel">★ Want to go</span>' + chipsFor(wishlist, "w") + '</div>');
+  $("visitedChips").innerHTML = sections.join("") ||
+    '<span class="hint">Nothing yet — click countries on the map.</span>';
   syncURL();
 }
 
@@ -2289,23 +2347,8 @@ async function downloadVisitedImage() {
 
 $("shareBtn").addEventListener("click", shareCurrent);
 $("visitedImage").addEventListener("click", downloadVisitedImage);
-
-// "Use on another device": copy a link carrying the full visited list, so the
-// user can open it on their phone and keep editing there (manual sync, no account).
-$("visitedSync").addEventListener("click", async () => {
-  loadVisited();
-  if (!visited.size) { status("Mark a few countries first — then the link will carry your map.", "err"); return; }
-  const url = location.origin + location.pathname + "?tab=visited&v=" + [...visited].join(",");
-  if (navigator.share) {
-    try { await navigator.share({ title: "My visited-countries map", url }); return; } catch (e) {}
-  }
-  try {
-    await navigator.clipboard.writeText(url);
-    status("Link copied — open it on your phone (or any browser) to continue your map there 📱", "ok");
-  } catch (e) {
-    status("Your map link: " + url, "ok");
-  }
-});
+// ("Use on another device" was removed — the Share button already produces a
+//  URL carrying your map across devices.)
 
 (async function init() {
   initTheme();

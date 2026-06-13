@@ -141,6 +141,7 @@
           <p class="chartsub">Best months, peak vs off-season, and what's in season right now.</p>
         </div>
         <div class="pickers">
+          <select id="bestInterest" title="filter by what you're into"></select>
           <select id="bestRegion"></select>
           <select id="bestCountry"></select>
         </div>
@@ -158,13 +159,16 @@
     <div class="cardwide">
       <div class="charthead">
         <div>
-          <h2>Countries Visited</h2>
-          <p id="visitedSub" class="chartsub">Click a country on the map, or pick from the dropdown. Saved in this browser.</p>
+          <h2>Your travel map</h2>
+          <p id="visitedSub" class="chartsub">Mark where you've been and where you want to go. Saved in this browser.</p>
         </div>
         <div class="pickers">
+          <div class="windowtoggle" id="visitedMode">
+            <button data-vm="visited" class="active">✓ Been</button>
+            <button data-vm="wishlist">★ Want to go</button>
+          </div>
           <select id="visitedPick"></select>
           <button id="visitedImage" title="generate a social-media image of your map">📸 Share image</button>
-          <button id="visitedSync" title="copy a link that carries your whole map — open it on your phone to continue there">📱 Use on another device</button>
           <button id="visitedClear">Clear all</button>
         </div>
       </div>
