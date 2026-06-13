@@ -343,6 +343,7 @@ async function loadIndex(days) {
     lastIndexData = await getJSON("/api/index?days=" + days +
       (dataBase !== "USD" ? "&base=" + dataBase : ""));
     renderIndex(lastIndexData);
+    syncURL();
   } catch (e) {
     $("chartsub").textContent = "Could not load chart: " + e.message;
   }
@@ -659,6 +660,7 @@ function renderGuide(iso) {
   renderGuideVisa(iso);
   renderCountryClimate(iso);
   renderActivity(iso);
+  syncURL();
 }
 
 // Passport used for visa info = the "From" country chosen on Top Picks
@@ -1615,6 +1617,7 @@ function renderValue() {
       <td class="num">${s.safe}</td><td class="num">${wxCell}</td>
       <td class="num">${flight}</td></tr>`;
   }).join("") || '<tr><td colspan="7">No data for this region.</td></tr>';
+  syncURL();
 }
 
 // ===========================================================================
@@ -1650,9 +1653,11 @@ async function loadFlights() {
     $("flightSub").innerHTML = "Flight prices need a free Travelpayouts token. Set <code>TRAVELPAYOUTS_TOKEN</code> on the server (Render → Environment), then redeploy.";
     $("flightMap").textContent = "Not configured.";
     $("flightRows").innerHTML = '<tr><td colspan="6">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
+    syncURL();
     return;
   }
   renderFlights();
+  syncURL();
 }
 
 function flightColor(price, min, max) {
@@ -1978,6 +1983,7 @@ function renderVisited() {
   $("visitedChips").innerHTML = list.length
     ? list.map((c) => `<span class="chip2 rm" data-iso="${esc(c.iso)}" title="remove">${esc(c.name)} ✕</span>`).join("")
     : '<span class="hint">None yet — click countries on the map.</span>';
+  syncURL();
 }
 
 // ===========================================================================
@@ -2012,6 +2018,7 @@ async function activateTab(name) {
   } catch (e) {
     status("Could not load " + name + ": " + e.message, "err");
   }
+  syncURL();
 }
 for (const b of document.querySelectorAll("#tabs button"))
   b.addEventListener("click", () => activateTab(b.dataset.tab));
@@ -2051,6 +2058,7 @@ async function setDataMode(mode) {
   } catch (e) {
     status("Could not load " + mode + ": " + e.message, "err");
   }
+  syncURL();
 }
 for (const b of document.querySelectorAll("#dataMode button"))
   b.addEventListener("click", () => setDataMode(b.dataset.dm));
@@ -2085,7 +2093,8 @@ function currentTab() {
   return b ? b.dataset.tab : "value";
 }
 
-function buildShareURL() {
+function buildShareURL(forShare) {
+  if (forShare === undefined) forShare = true;
   const q = new URLSearchParams();
   const tab = currentTab();
   q.set("tab", tab);
@@ -2111,9 +2120,21 @@ function buildShareURL() {
     q.set("gc", $("bestCountry").value || "JP");
   } else if (tab === "visited") {
     loadVisited();
-    if (visited.size) q.set("v", [...visited].join(","));
+    // The visited list persists in localStorage already; only embed it for an
+    // explicit Share (embedding it on every refresh would wrongly trip the
+    // "viewing a shared map" warning against the user's own list).
+    if (visited.size && forShare) q.set("v", [...visited].join(","));
   }
   return location.origin + location.pathname + "?" + q.toString();
+}
+
+// Keep the address bar in sync with the current tab + selections, so a refresh
+// (or bookmark) lands the user right back where they were. Gated until init
+// finishes restoring state, so it never clobbers the params being read.
+let appReady = false;
+function syncURL() {
+  if (!appReady) return;
+  try { history.replaceState(null, "", buildShareURL(false)); } catch (e) {}
 }
 
 async function shareCurrent() {
@@ -2301,4 +2322,6 @@ $("visitedSync").addEventListener("click", async () => {
   loadIndex(365);
   await activateTab("value");
   await postApplyShared().catch(() => {});
+  appReady = true;          // from here on, user navigation is mirrored to the URL
+  syncURL();
 })();
