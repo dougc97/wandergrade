@@ -1014,23 +1014,6 @@ function initHomeCur() {
   setHomeCur(start, homeManual);
 }
 
-// Format a USD amount in the chosen home currency ("~" marks estimates).
-const _moneyFmt = {};
-function fmtMoney(usd, approx) {
-  if (usd == null) return "—";
-  let code = homeBase, amt = usd;
-  if (code !== "USD") {
-    const rate = rateForCurrency(code);
-    if (rate) amt = usd * rate; else code = "USD";
-  }
-  try {
-    _moneyFmt[code] = _moneyFmt[code] ||
-      new Intl.NumberFormat("en", { style: "currency", currency: code, maximumFractionDigits: 0 });
-    return (approx ? "~" : "") + _moneyFmt[code].format(amt);
-  } catch (e) {
-    return (approx ? "~" : "") + "$" + Math.round(usd);
-  }
-}
 
 function valueScores(iso, month, advMap, fares, anchorPl) {
   const plUS = priceLevel(iso);
@@ -1319,7 +1302,11 @@ function whyLine(s, month) {
   else if (s.wx >= 55) bits.push(`decent weather in ${MONTHS[month - 1]}`);
   if (s.advLvl === 1) bits.push("safest travel rating");
   else if (s.advLvl === 3) bits.push("⚠️ has a reconsider-travel advisory");
-  if (s.fare != null) bits.push(`flights ${s.fareEst ? "≈" : "from ~"}${fmtMoney(s.fare)}`);
+  if (s.fare != null && !s.fareEst && s.fareBase != null) {
+    const r = s.fare / s.fareBase;
+    bits.push(r <= 0.95 ? "flights cheaper than usual"
+            : r >= 1.05 ? "flights pricier than usual" : "flights about average");
+  }
   return bits.slice(0, 4).join(" · ");
 }
 
@@ -1329,6 +1316,18 @@ function pickCount() {
   const sel = $("pickCount");
   const v = parseInt((sel && sel.value) || localStorage.getItem("fx_pickcount") || "5", 10);
   return [5, 10, 20].includes(v) ? v : 5;
+}
+
+// At-a-glance flight indicator for Top Picks: green ▼ below / red ▲ above the
+// typical fare for that distance. Exact prices live in the Flights data tab.
+function fareArrow(s) {
+  if (s.fare == null) return '<span class="muted">—</span>';
+  if (s.fareEst || s.fareBase == null)
+    return '<span class="farearrow flat" title="estimated — see the Flights tab for sampled fares">≈</span>';
+  const r = s.fare / s.fareBase;
+  if (r <= 0.95) return '<span class="farearrow dn" title="below the typical fare for this distance">▼</span>';
+  if (r >= 1.05) return '<span class="farearrow up" title="above the typical fare for this distance">▲</span>';
+  return '<span class="farearrow flat" title="about the typical fare for this distance">≈</span>';
 }
 
 // Render a ranked list as a compact report-card table. gem=true swaps the rank
@@ -1341,14 +1340,6 @@ function renderGradeTable(host, list, month, gem) {
     const hz = hazardsFor(s.iso, month);
     const wxTitle = `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}` +
       (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
-    // Real fares get a deal grade vs the typical price for that distance;
-    // estimates ARE the baseline, so they show the ~ figure alone. All money
-    // renders in the chosen home currency.
-    const flight = s.fare == null ? "—"
-      : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare">${fmtMoney(s.fare, true)}</span>`
-      : (s.fareBase ? gradePill(s.fly,
-          `${fmtMoney(s.fare)} avg round-trip vs ${fmtMoney(s.fareBase, true)} typical for the distance`) + " " : "")
-        + `<span class="fareamt">${fmtMoney(s.fare)}</span>`;
     return `<tr data-iso="${esc(s.iso)}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
@@ -1356,7 +1347,7 @@ function renderGradeTable(host, list, month, gem) {
       <td>${gradePill(s.aff, s.pl != null ? `Price level ${s.pl.toFixed(2)} vs home — under 1.00 means your money buys more than it does at home` : "")}</td>
       <td>${safetyPill(s.advLvl)}</td>
       <td>${gradePill(s.wx, wxTitle)}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
-      <td class="num">${flight}</td>
+      <td class="num">${fareArrow(s)}</td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span></td>
     </tr>`;
   }).join("");
@@ -1366,7 +1357,7 @@ function renderGradeTable(host, list, month, gem) {
       <th title="how cheap daily life is vs the US">🏷️ Prices</th>
       <th title="US State Dept advisory level">🛡️ Safety</th>
       <th title="weather comfort for your chosen month">🌤️ Weather</th>
-      <th title="fare deal: average round-trip vs the typical price for that distance">✈️ Flight</th>
+      <th title="current fare vs the typical price for this distance — ▼ cheaper, ▲ pricier (exact prices in the Flights tab)">✈️ Fare</th>
       <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
@@ -1459,9 +1450,9 @@ function renderValue() {
     const adv = s.advLvl === 1 ? ' <span class="advtag a1" title="Level 1: Exercise Normal Precautions">L1</span>'
               : s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
               : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
-    const flight = s.fare == null ? "—"
-      : s.fareEst ? `<span class="estfare" title="estimated from distance — no cached fare for this route">${fmtMoney(s.fare, true)}</span>`
-      : fmtMoney(s.fare);
+    // "The math" table mirrors the other columns with the numeric flight deal
+    // score (0-100); exact fares live in the Flights data tab.
+    const flight = s.fly != null ? s.fly : "—";
     const valCell = weatherMode ? `${s.value}` : `<b>${s.value}</b>`;
     const wxCell = weatherMode ? `<b>${s.wx}</b>` : `${s.wx}`;
     return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
