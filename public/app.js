@@ -661,15 +661,12 @@ function renderGuideHero(iso) {
   if (!host) return;
   ccGuideIso = iso;
   const name = countryName(iso);
-  const info = visaInfo(iso);
   host.className = "guidehero";
   host.innerHTML = `
     <div class="herofill"></div>
     <div class="herotext">
       <h3>${flagEmoji(iso)} ${esc(name)}</h3>
-      <div class="herotags">
-        ${info ? `<span class="visa ${info.meta.cls}" title="${esc(info.meta.long + (info.note ? " · " + info.note : ""))}">🛂 ${esc(info.meta.label)}</span>` : ""}
-      </div>
+      <div class="herotags">🛂 ${visaPill(iso)}</div>
     </div>`;
   const fill = host.querySelector(".herofill");
   photoURL(iso).then((url) => {
@@ -1321,7 +1318,7 @@ function renderGradeTable(host, list, month, gem) {
         + `<span class="fareamt">${fmtMoney(s.fare)}</span>`;
     return `<tr data-iso="${esc(s.iso)}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
-      <td class="dest"><span class="vibe" data-vibe="${esc(s.iso)}">${flagEmoji(s.iso)}</span><span class="destname">${esc(s.name)}</span></td>
+      <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
       <td>${gradePill(s.cur, s.fx != null ? `${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average here` : `Uses your currency (${homeBase}) — no FX edge either way`)}</td>
       <td>${gradePill(s.aff, s.pl != null ? `Price level ${s.pl.toFixed(2)} vs home — under 1.00 means your money buys more than it does at home` : "")}</td>
       <td>${safetyPill(s.advLvl)}</td>
@@ -1342,11 +1339,12 @@ function renderGradeTable(host, list, month, gem) {
       <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
-  fillVibe(host);
 }
 
 // One delegated click: a row (or legacy card) opens that country's travel guide.
+// Clicks on a link inside the row (e.g. the visa pill) are left to the link.
 document.addEventListener("click", (e) => {
+  if (e.target.closest("a")) return;
   const t = e.target.closest(".pickcard, .gradetable tr[data-iso]");
   if (t && t.dataset.iso) openGuideFor(t.dataset.iso);
 });
@@ -1571,17 +1569,6 @@ async function photoURL(iso) {
   try { sessionStorage.setItem(skey, url || ""); } catch (e) {}
   return url;
 }
-// Lazily fill any [data-vibe] placeholders in a container with their photo.
-function fillVibe(host) {
-  if (!host) return;
-  host.querySelectorAll("[data-vibe]").forEach((el) => {
-    const iso = el.getAttribute("data-vibe");
-    photoURL(iso).then((url) => {
-      if (url) { el.style.backgroundImage = `url("${url}")`; el.classList.add("loaded"); }
-    }).catch(() => {});
-  });
-}
-
 // ---- visa requirements (curated, US passport) ------------------------------
 let visa = null;
 async function ensureVisa() {
@@ -1601,13 +1588,19 @@ function visaInfo(iso) {
   const v = visa && visa[iso];
   if (!v || !v.status) return null;
   const meta = VISA_META[v.status] || VISA_META.check;
-  return { status: v.status, note: v.note || "", meta };
+  return { status: v.status, note: v.note || "", meta, link: v.link || "" };
 }
+// Visa pill. Links to the official US State Dept country page when we have one
+// (opens in a new tab); the row's tap-to-guide handler ignores anchor clicks.
 function visaPill(iso) {
   const info = visaInfo(iso);
   if (!info) return '<span class="visa vchk" title="No visa data — verify before booking">—</span>';
-  const tip = info.meta.long + (info.note ? " · " + info.note : "") + " · US passport — verify before booking";
-  return `<span class="visa ${info.meta.cls}" title="${esc(tip)}">${esc(info.meta.label)}</span>`;
+  const tip = info.meta.long + (info.note ? " · " + info.note : "") +
+    " · US passport — official US State Dept info, verify before booking";
+  const safe = /^https:\/\/travel\.state\.gov\//.test(info.link) ? info.link : "";
+  return safe
+    ? `<a class="visa ${info.meta.cls}" href="${esc(safe)}" target="_blank" rel="noopener" title="${esc(tip)}">${esc(info.meta.label)} ↗</a>`
+    : `<span class="visa ${info.meta.cls}" title="${esc(tip)}">${esc(info.meta.label)}</span>`;
 }
 
 function renderActivity(iso) {
