@@ -354,12 +354,12 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 /* travel-guide hero photo */
 .guidehero { position: relative; border-radius: 12px; overflow: hidden; margin: 4px 0 16px;
   min-height: 0; }
-.guidehero.loaded { min-height: 220px; }
+.guidehero.loaded { min-height: 280px; }
 .guidehero .herofill { position: absolute; inset: 0; background-size: cover; background-position: center; }
 .guidehero.loaded .herofill::after { content: ""; position: absolute; inset: 0;
   background: linear-gradient(to top, rgba(0,0,0,.62), rgba(0,0,0,0) 55%); }
 .guidehero .herotext { position: relative; padding: 14px 16px; }
-.guidehero.loaded .herotext { padding-top: 150px; }
+.guidehero.loaded .herotext { padding-top: 210px; }
 .guidehero .herotext h3 { margin: 0; font-size: 22px; }
 .guidehero.loaded .herotext h3 { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.5); }
 .guidehero .herotags { margin-top: 6px; }

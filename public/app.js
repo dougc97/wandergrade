@@ -685,15 +685,11 @@ function renderGuideHero(iso) {
       <h3>${flagEmoji(iso)} ${esc(name)}</h3>
     </div>`;
   const fill = host.querySelector(".herofill");
-  photoURL(iso).then((url) => {
-    if (!url) return;
-    // Try a sharper width; some Commons images cap it, so fall back to the base.
-    const big = biggerThumb(url, 640);
-    const apply = (u) => { if (ccGuideIso === iso) { fill.style.backgroundImage = `url("${u}")`; host.classList.add("loaded"); } };
-    const probe = new Image();
-    probe.onload = () => apply(big);
-    probe.onerror = () => apply(url);
-    probe.src = big;
+  photoURL(iso, 1000).then((url) => {
+    if (url && ccGuideIso === iso) {
+      fill.style.backgroundImage = `url("${url}")`;
+      host.classList.add("loaded");
+    }
   }).catch(() => {});
 }
 let ccGuideIso = null;   // guards against a slow photo landing after the user switched country
@@ -1563,23 +1559,33 @@ async function ensureActivities() {
 // that page's lead thumbnail. Cached in memory + sessionStorage so it's fetched
 // at most once per browser session (and never blocks the page).
 const _photoCache = {};
-function biggerThumb(url, px) {
-  return url ? url.replace(/\/\d+px-/, "/" + px + "px-") : url;   // Commons thumb trick
-}
-async function photoURL(iso) {
-  if (iso in _photoCache) return _photoCache[iso];
-  const skey = "fxphoto_" + iso;
+// Pull a high-res lead image for the country's curated landmark via the
+// pageimages API, which renders a thumbnail at the requested width (no upscale,
+// never errors on size) — much sharper than the ~320px REST summary thumbnail.
+async function photoURL(iso, size) {
+  size = size || 1000;
+  const ckey = iso + "@" + size;
+  if (ckey in _photoCache) return _photoCache[ckey];
+  const skey = "fxphoto_" + ckey;
   try {
     const cached = sessionStorage.getItem(skey);
-    if (cached != null) return (_photoCache[iso] = cached || null);
+    if (cached != null) return (_photoCache[ckey] = cached || null);
   } catch (e) {}
   const q = (activities && activities[iso] && activities[iso].photo) || countryName(iso);
   let url = null;
   try {
-    const r = await fetch("https://en.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(q));
-    if (r.ok) { const j = await r.json(); url = (j.thumbnail && j.thumbnail.source) || null; }
+    const api = "https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*" +
+      "&prop=pageimages&piprop=thumbnail&pithumbsize=" + size +
+      "&redirects=1&titles=" + encodeURIComponent(q);
+    const r = await fetch(api);
+    if (r.ok) {
+      const j = await r.json();
+      const pages = j.query && j.query.pages;
+      const page = pages && Object.values(pages)[0];
+      url = (page && page.thumbnail && page.thumbnail.source) || null;
+    }
   } catch (e) {}
-  _photoCache[iso] = url;
+  _photoCache[ckey] = url;
   try { sessionStorage.setItem(skey, url || ""); } catch (e) {}
   return url;
 }
