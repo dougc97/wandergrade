@@ -698,33 +698,57 @@ function renderGuideVisa(iso) {
     Verify before booking — rules change.</span>`;
 }
 
-// A horizontally-scrollable strip of scenic photos at the top of the guide, so
-// you can swipe through a few shots to get the country's vibe before the data.
+// A full-width photo carousel at the top of the guide: one scenic shot at a
+// time with left/right arrows, to get the country's vibe before the data.
+let heroUrls = [], heroIdx = 0;
 function renderGuideHero(iso) {
   const host = $("guideHero");
   if (!host) return;
   ccGuideIso = iso;
   host.className = "guidehero loading";
-  host.innerHTML = '<div class="herogallery"></div>';
-  const gal = host.querySelector(".herogallery");
+  host.innerHTML = "";
   // Lead image (curated, reliably iconic) first, then more from Commons search.
   Promise.all([photoURL(iso, 1000).catch(() => null), photoGallery(iso).catch(() => [])])
     .then(([lead, more]) => {
       if (ccGuideIso !== iso) return;                 // user moved on
-      const seen = new Set(), urls = [];
+      const seen = new Set();
+      heroUrls = []; heroIdx = 0;
       for (const u of [lead, ...more]) {
         if (!u) continue;
         const k = fileKey(u);
         if (seen.has(k)) continue;
-        seen.add(k); urls.push(u);
-        if (urls.length >= 6) break;
+        seen.add(k); heroUrls.push(u);
+        if (heroUrls.length >= 6) break;
       }
       host.classList.remove("loading");
-      if (!urls.length) { host.classList.add("empty"); return; }
+      if (!heroUrls.length) { host.classList.add("empty"); return; }
       host.classList.add("loaded");
-      gal.innerHTML = urls.map((u, i) =>
-        `<img class="heroimg" loading="${i ? "lazy" : "eager"}" src="${esc(u)}" alt="${esc(countryName(iso))}">`).join("");
+      heroUrls.forEach((u) => { const im = new Image(); im.src = u; });   // warm cache for instant nav
+      const multi = heroUrls.length > 1;
+      host.innerHTML =
+        `<img class="heroimg" alt="${esc(countryName(iso))}">` +
+        (multi ? '<button class="heronav prev" type="button" aria-label="previous photo">‹</button>' +
+                 '<button class="heronav next" type="button" aria-label="next photo">›</button>' +
+                 '<div class="herocount"></div>' : "");
+      if (multi) {
+        host.querySelector(".heronav.prev").addEventListener("click", () => heroStep(-1));
+        host.querySelector(".heronav.next").addEventListener("click", () => heroStep(1));
+      }
+      showHero();
     }).catch(() => {});
+}
+function heroStep(d) {
+  if (!heroUrls.length) return;
+  heroIdx = (heroIdx + d + heroUrls.length) % heroUrls.length;
+  showHero();
+}
+function showHero() {
+  const host = $("guideHero");
+  const img = host && host.querySelector(".heroimg");
+  if (!img) return;
+  img.src = heroUrls[heroIdx];
+  const c = host.querySelector(".herocount");
+  if (c) c.textContent = (heroIdx + 1) + " / " + heroUrls.length;
 }
 let ccGuideIso = null;   // guards against a slow gallery landing after the user switched country
 
