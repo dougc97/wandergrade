@@ -843,40 +843,54 @@ const origFromThumb = (u) =>
 // Filters to landscape JPEG photos with a high-resolution ORIGINAL (so they
 // stay crisp full-screen), dropping maps/flags/coats/diagrams/small/old scans.
 // Returns [{thumb, full}] — carousel size + a larger size for the lightbox.
+// One Commons search -> filtered [{thumb, full}]. Returns null on a failed/
+// errored fetch (vs [] for "searched, nothing qualified") so callers can retry.
+async function commonsSearch(query) {
+  try {
+    const api = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*" +
+      "&generator=search&gsrnamespace=6&gsrlimit=24&gsrsearch=" + encodeURIComponent(query) +
+      "&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1280";
+    const r = await fetch(api);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const pages = Object.values((j.query || {}).pages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
+    const out = [];
+    for (const p of pages) {
+      const ii = (p.imageinfo || [])[0];
+      if (!ii || !ii.thumburl) continue;
+      const ow = ii.width || 0, oh = ii.height || 0, ar = ow / (oh || 1);
+      if (ii.mime === "image/jpeg" && !PHOTO_BAD.test(p.title) &&
+          ow >= 1600 && oh >= 1000 && ar >= 1.2 && ar <= 2.4) {
+        out.push({ thumb: ii.thumburl, full: ii.url });   // ii.url = full-res original
+        if (out.length >= 8) break;
+      }
+    }
+    return out;
+  } catch (e) { return null; }
+}
 const _galleryCache = {};
 async function photoGallery(iso) {
   if (iso in _galleryCache) return _galleryCache[iso];
   const skey = "fxgal_" + iso;
   try {
     const c = sessionStorage.getItem(skey);
-    if (c != null) return (_galleryCache[iso] = JSON.parse(c));
+    if (c) { const arr = JSON.parse(c); if (arr.length) return (_galleryCache[iso] = arr); }
   } catch (e) {}
   const q = (activities && activities[iso] && activities[iso].photo) || countryName(iso);
-  const bad = PHOTO_BAD;
-  const out = [];
-  try {
-    const api = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*" +
-      "&generator=search&gsrnamespace=6&gsrlimit=24&gsrsearch=" + encodeURIComponent(q) +
-      "&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1280";
-    const r = await fetch(api);
-    if (r.ok) {
-      const j = await r.json();
-      const pages = Object.values((j.query || {}).pages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
-      for (const p of pages) {
-        const ii = (p.imageinfo || [])[0];
-        if (!ii || !ii.thumburl) continue;
-        const ow = ii.width || 0, oh = ii.height || 0, ar = ow / (oh || 1);
-        // Original must be large + landscape-ish for a sharp full-screen view.
-        if (ii.mime === "image/jpeg" && !bad.test(p.title) &&
-            ow >= 1600 && oh >= 1000 && ar >= 1.2 && ar <= 2.4) {
-          out.push({ thumb: ii.thumburl, full: ii.url });   // ii.url = full-res original
-          if (out.length >= 8) break;
-        }
-      }
-    }
-  } catch (e) {}
-  _galleryCache[iso] = out;
-  try { sessionStorage.setItem(skey, JSON.stringify(out)); } catch (e) {}
+  let out = await commonsSearch(q);
+  // Fall back to the country name if the landmark query came up short.
+  const name = countryName(iso);
+  if ((!out || out.length < 2) && name && name.toLowerCase() !== q.toLowerCase()) {
+    const alt = await commonsSearch(name);
+    if (alt && alt.length > (out ? out.length : 0)) out = alt;
+  }
+  out = out || [];
+  // Only persist real results — caching an empty/failed fetch would leave the
+  // country permanently photo-less for the session (the bug this fixes).
+  if (out.length) {
+    _galleryCache[iso] = out;
+    try { sessionStorage.setItem(skey, JSON.stringify(out)); } catch (e) {}
+  }
   return out;
 }
 
