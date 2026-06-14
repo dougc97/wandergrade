@@ -723,7 +723,9 @@ function renderGuideHero(iso) {
       // Only keep the lead if it's a real /thumb/ URL — MediaWiki only returns
       // that when the original was large enough to scale, so it filters out the
       // small/low-res leads that look bad blown up.
-      const leadObj = (lead && lead.indexOf("/thumb/") !== -1)
+      // Lead only if it's a real /thumb/ image AND not a flag/coat/map (some
+      // country-name queries lead with the flag, which looked wrong cropped).
+      const leadObj = (lead && lead.indexOf("/thumb/") !== -1 && !PHOTO_BAD.test(fileKey(lead)))
         ? { thumb: lead, full: origFromThumb(lead) } : null;
       for (const p of [leadObj].concat(more)) {
         if (!p || !p.thumb) continue;
@@ -829,6 +831,8 @@ const fileKey = (u) => {
   const m = u && u.match(/\/thumb\/[^/]+\/[^/]+\/([^/]+)/);
   return m ? decodeURIComponent(m[1]) : u;
 };
+// Reject non-scenic files (flags, coats of arms, maps, diagrams) by filename.
+const PHOTO_BAD = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram|\.svg|location|adm[_ ]|administrative|emblem|wikidata/i;
 // Derive the original (full-resolution) file URL from a Commons thumb URL —
 // strip "/thumb/" and the trailing "/NNNpx-Name" segment. Widened thumbs 400 on
 // many files, but the original always exists.
@@ -848,7 +852,7 @@ async function photoGallery(iso) {
     if (c != null) return (_galleryCache[iso] = JSON.parse(c));
   } catch (e) {}
   const q = (activities && activities[iso] && activities[iso].photo) || countryName(iso);
-  const bad = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram|\.svg|location|adm[_ ]|administrative|emblem/i;
+  const bad = PHOTO_BAD;
   const out = [];
   try {
     const api = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*" +
@@ -962,8 +966,8 @@ function renderCountryClimate(iso) {
   $("bestDetail").innerHTML = `
     <div class="besthead">
       <h3>${esc(c.name)} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3>
-      <div>${c.curated ? "📅 Curated best months" : "📅 Best weather"}: </div>
     </div>
+    <div class="monthslabel">${c.curated ? "📅 Curated best months" : "📅 Best weather"}:</div>
     <div class="chips">${chips}</div>
     <div class="seasons">
       <span><b class="peak">☀️ Peak</b> (best weather, busiest &amp; priciest): ${fmtMonths(peakM)}</span>
@@ -1650,7 +1654,7 @@ function renderGradeTable(host, list, month, gem) {
       <th title="how cheap daily life is vs the US">🏷️ Prices</th>
       <th title="US State Dept advisory level">🛡️ Safety</th>
       <th title="weather comfort for your chosen month">🌤️ Weather</th>
-      <th title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ Flight</th>
+      <th title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ Flights</th>
       <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
@@ -2038,7 +2042,9 @@ const ACT_EMOJI = [
   [/cheese/, "🧀"], [/rice terrace|paddy/, "🌾"], [/tulip/, "🌷"],
   [/beer|oktoberfest|brewery|pub/, "🍺"], [/flamenco|tango|salsa|dance/, "💃"],
   [/tapas|hawker|food|cuisine|street\s?food|culinary|dining/, "🍜"],
-  [/architecture|skyline|gardens?/, "🏛️"], [/reef|snorkel/, "🐠"],
+  [/architecture|skyline|gardens?/, "🏛️"], [/reef|snorkel|manta|coral|marine|lagoon|\bray/, "🐠"],
+  [/turtle/, "🐢"], [/penguin/, "🐧"], [/bird|flamingo/, "🦤"], [/outback|savanna/, "🐪"],
+  [/resort/, "🏝️"], [/cathedral|basilica/, "⛪"], [/canal/, "🛶"], [/lighthouse/, "🗼"],
   [/geothermal|hot spring|onsen|thermal|spa/, "♨️"], [/zip-?lin|bungee|adventure sport/, "🪂"],
   [/fjord/, "🏔️"], [/wine|vineyard|port wine/, "🍷"],
   [/div(e|ing)|snorkel|scuba/, "🤿"], [/surf/, "🏄"], [/ski|snowboard|\bsnow\b/, "🎿"],
