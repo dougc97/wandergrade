@@ -1734,6 +1734,15 @@ async function goToDetail(go, iso) {
   }
 }
 
+// Mainstream, household-name destinations — these lead "above the fold"; the
+// rest (high value but off the beaten path) become the Hidden Gems discovery
+// section. Curated, not a hard popularity metric.
+const POPULAR = new Set((
+  "FR ES IT GB DE GR PT NL AT CH IE HR CZ IS NO SE DK PL HU BE TR " +
+  "US MX CA BR AR PE CO CR CU DO JM CL " +
+  "JP TH CN IN VN ID PH KR SG MY KH LK NP AE IL JO TW " +
+  "EG MA ZA KE TZ AU NZ").split(" "));
+
 function renderValue() {
   const region = $("valueRegion").value;
   const month = parseInt($("valueMonth").value, 10);
@@ -1784,11 +1793,14 @@ function renderValue() {
   const rankedAll = Object.values(scored)
     .sort(weatherMode ? ((a, b) => (b.wx - a.wx) || (b.value - a.value))
                       : ((a, b) => b.value - a.value));
-  // Safety floor: countries below it leave the main list and the best of them
-  // resurface in the collapsed Hidden Gems section.
+  // Above the fold = recognizable destinations; Hidden Gems = high-value but
+  // off-the-beaten-path. Both come from the safety-filtered, unvisited pool.
   const floor = safetyFloor();
-  const unvisited = rankedAll.filter((s) => !visited.has(s.iso));
-  const picks = unvisited.filter((s) => passesFloor(s, floor)).slice(0, pickCount());
+  const eligible = rankedAll.filter((s) => !visited.has(s.iso) && passesFloor(s, floor));
+  const popular = eligible.filter((s) => POPULAR.has(s.iso));
+  const offbeat = eligible.filter((s) => !POPULAR.has(s.iso));
+  // Fall back to the full list if no popular destinations match the filters.
+  const picks = (popular.length ? popular : eligible).slice(0, pickCount());
   lastPicks = picks; lastPicksMonth = month;   // for the AI export
   renderGradeTable($("topCards"), picks, month, false);
   // Pulse the picked countries on the map so table and map visibly agree.
@@ -1802,7 +1814,7 @@ function renderValue() {
       }
     }
   }
-  const gems = floor === "any" ? [] : unvisited.filter((s) => !passesFloor(s, floor)).slice(0, 5);
+  const gems = (popular.length ? offbeat : []).slice(0, 8);
   const gemsBox = $("gemsBox");
   if (gemsBox) {
     gemsBox.hidden = !gems.length;
