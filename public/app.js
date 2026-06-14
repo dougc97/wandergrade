@@ -706,13 +706,22 @@ function renderGuideVisa(iso) {
 
 // A full-width photo carousel at the top of the guide: one scenic shot at a
 // time with left/right arrows, to get the country's vibe before the data.
-let heroUrls = [], heroIdx = 0;
+let heroUrls = [], heroIdx = 0, _heroTimer = null;
 function renderGuideHero(iso) {
   const host = $("guideHero");
   if (!host) return;
   ccGuideIso = iso;
   host.className = "guidehero loading";
   host.innerHTML = "";
+  // Debounce the Commons fetches: when the user clicks through countries fast,
+  // only the one they settle on fires a request (avoids rate-limiting). Cached
+  // countries still feel instant since the fetch resolves from cache.
+  clearTimeout(_heroTimer);
+  _heroTimer = setTimeout(() => { if (ccGuideIso === iso) loadHeroPhotos(iso); }, 220);
+}
+function loadHeroPhotos(iso) {
+  const host = $("guideHero");
+  if (!host) return;
   // Lead image (curated, reliably iconic) first, then more from Commons search.
   Promise.all([photoURL(iso, 1000).catch(() => null), photoGallery(iso).catch(() => [])])
     .then(([lead, more]) => {
