@@ -2467,43 +2467,65 @@ async function postApplyShared() {
 // ===========================================================================
 //  Visited tab: social-media share image (SVG -> canvas -> PNG)
 // ===========================================================================
+const SHARE_W = 1200, SHARE_H = 630, SHARE_SCALE = 2;   // render at 2x for crispness
 function buildVisitedShareSVG() {
-  const W = 1200, H = 630, mapW = 1120, latTop = 83, latBot = -56;
-  const mapH = Math.round((mapW * (latTop - latBot)) / 360);   // ~432
+  const W = SHARE_W, H = SHARE_H, mapW = 1040, latTop = 83, latBot = -56;
+  const mapH = Math.round((mapW * (latTop - latBot)) / 360);   // ~401
   let paths = "";
   for (const f of worldGeo.features) {
-    const v = visited.has(f.properties.iso);
+    const iso = f.properties.iso;
+    const fill = visited.has(iso) ? "#2ecc71" : wishlist.has(iso) ? "#4f9bf0" : "#2a3950";
     const g = f.geometry;
     const polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
     let d = "";
     for (const poly of polys)
       for (const ring of poly)
         if (ring.length >= 3) d += projectRing(ring, mapW, mapH, latTop, latBot);
-    if (d) paths += `<path d="${d}" fill="${v ? "#2ecc71" : "#2a3950"}" stroke="#0e1726" stroke-width="0.5"/>`;
+    if (d) paths += `<path d="${d}" fill="${fill}" stroke="#0e1726" stroke-width="0.5"/>`;
   }
-  const n = visited.size, pct = Math.max(1, Math.round((n / 195) * 100));
+  const n = visited.size, m = wishlist.size, pct = Math.max(1, Math.round((n / 195) * 100));
+  const sub = n ? `that's ~${pct}% of the world` + (m ? ` · ${m} more on my list` : "")
+                : (m ? `${m} on my wishlist` : "the map awaits");
+  const host = esc(location.host || "where2next");
   const font = "-apple-system,'Segoe UI',Arial,sans-serif";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
     <rect width="${W}" height="${H}" fill="#0e1726"/>
-    <text x="60" y="76" font-family="${font}" font-size="44" font-weight="700" fill="#ffffff">I've visited ${n} ${n === 1 ? "country" : "countries"}</text>
-    <text x="60" y="114" font-family="${font}" font-size="23" fill="#8fa3bd">${n ? "that's ~" + pct + "% of the world" : "the map awaits"} — which ones have you been to?</text>
-    <g transform="translate(${(W - mapW) / 2},156)">${paths}</g>
-    <text x="${W - 60}" y="${H - 22}" text-anchor="end" font-family="${font}" font-size="17" fill="#566b85">Where Should I Travel to Next?</text>
+    <text x="60" y="72" font-family="${font}" font-size="42" font-weight="700" fill="#ffffff">I've been to ${n} ${n === 1 ? "country" : "countries"}</text>
+    <text x="60" y="108" font-family="${font}" font-size="22" fill="#8fa3bd">${esc(sub)}</text>
+    <g transform="translate(${(W - mapW) / 2},126)">${paths}</g>
+    <rect x="0" y="${H - 46}" width="${W}" height="46" fill="#0a1220"/>
+    <circle cx="68" cy="${H - 23}" r="7" fill="#2ecc71"/>
+    <text x="82" y="${H - 17}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">been</text>
+    <circle cx="150" cy="${H - 23}" r="7" fill="#4f9bf0"/>
+    <text x="164" y="${H - 17}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">want to go</text>
+    <text x="${W - 60}" y="${H - 17}" text-anchor="end" font-family="${font}" font-size="19" font-weight="700" fill="#7fd99a">Make your own map → ${host}</text>
   </svg>`;
 }
 
 async function downloadVisitedImage() {
   try {
     await ensureWorld();
-    loadVisited();
+    loadVisited(); loadWishlist();
     const svg = buildVisitedShareSVG();
     const blobUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
     const img = new Image();
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = blobUrl; });
     const canvas = document.createElement("canvas");
-    canvas.width = 1200; canvas.height = 630;
-    canvas.getContext("2d").drawImage(img, 0, 0);
+    canvas.width = SHARE_W * SHARE_SCALE; canvas.height = SHARE_H * SHARE_SCALE;
+    const ctx = canvas.getContext("2d");
+    ctx.scale(SHARE_SCALE, SHARE_SCALE);
+    ctx.drawImage(img, 0, 0, SHARE_W, SHARE_H);
     URL.revokeObjectURL(blobUrl);
+    // Flag emojis of the countries you've been to (canvas fillText renders emoji
+    // where the SVG path can't). Capped so a big list doesn't overflow.
+    const flags = [...visited].slice(0, 26);
+    if (flags.length) {
+      ctx.font = "30px -apple-system,'Segoe UI',Arial,sans-serif";
+      ctx.textBaseline = "alphabetic";
+      let line = flags.map((iso) => flagEmoji(iso)).join(" ");
+      if (visited.size > flags.length) line += "  +" + (visited.size - flags.length);
+      ctx.fillText(line, 60, SHARE_H - 70, SHARE_W - 120);
+    }
     const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
     const file = new File([blob], "countries-visited.png", { type: "image/png" });
     // Native share sheet on phones (posts straight to socials); download elsewhere.
