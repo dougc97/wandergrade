@@ -1061,16 +1061,17 @@ const clamp100 = (x) => Math.max(0, Math.min(100, Math.round(x)));
 
 // User-adjustable priorities: High / Medium / Low per factor (simpler than
 // numeric sliders). "fly" only participates for countries with a fare loaded.
+// "afford" blends cost-of-living (PPP price level) with current FX strength into
+// one Affordability factor — users found "Dollar" vs "Prices" hard to tell apart.
 const WEIGHT_DEFS = [
-  { key: "aff",  label: "Cheapness", def: "high" },
-  { key: "cur",  label: "FX deal",   def: "med" },
-  { key: "safe", label: "Safety",    def: "med" },
-  { key: "wx",   label: "Weather",   def: "med" },
-  { key: "fly",  label: "Flights",   def: "med" },
+  { key: "afford", label: "Affordability", def: "high" },
+  { key: "safe",   label: "Safety",        def: "med" },
+  { key: "wx",     label: "Weather",       def: "med" },
+  { key: "fly",    label: "Flights",       def: "med" },
 ];
 const PRI_LEVELS = [["high", "High"], ["med", "Med"], ["low", "Low"]];
 const PRI_W = { high: 3, med: 2, low: 1 };   // relative weights, normalized at score time
-const FACTOR_ICON = { aff: "🏷️", cur: "💵", safe: "🛡️", wx: "🌤️", fly: "✈️" };
+const FACTOR_ICON = { afford: "💰", safe: "🛡️", wx: "🌤️", fly: "✈️" };
 let priorities = null;
 
 // Which factors count toward the grade at all (toggle chips in the filter row).
@@ -1078,12 +1079,12 @@ let priorities = null;
 let factors = null;
 function loadFactors() {
   if (factors) return factors;
-  try { factors = JSON.parse(localStorage.getItem("fx_factors") || "null"); } catch (e) {}
-  if (!Array.isArray(factors) || !factors.some((k) => WEIGHT_DEFS.some((w) => w.key === k)))
-    factors = WEIGHT_DEFS.map((w) => w.key);
+  try { factors = JSON.parse(localStorage.getItem("fx_factors2") || "null"); } catch (e) {}
+  factors = Array.isArray(factors) ? factors.filter((k) => WEIGHT_DEFS.some((w) => w.key === k)) : null;
+  if (!factors || !factors.length) factors = WEIGHT_DEFS.map((w) => w.key);
   return factors;
 }
-function saveFactors() { localStorage.setItem("fx_factors", JSON.stringify(factors)); }
+function saveFactors() { localStorage.setItem("fx_factors2", JSON.stringify(factors)); }
 
 function buildFactorChips() {
   loadFactors();
@@ -1111,12 +1112,12 @@ function buildFactorChips() {
 
 function loadPriorities() {
   if (priorities) return priorities;
-  try { priorities = JSON.parse(localStorage.getItem("fx_priorities") || "null"); } catch (e) {}
+  try { priorities = JSON.parse(localStorage.getItem("fx_priorities2") || "null"); } catch (e) {}
   if (!priorities) priorities = {};
   for (const w of WEIGHT_DEFS) if (!PRI_W[priorities[w.key]]) priorities[w.key] = w.def;
   return priorities;
 }
-function savePriorities() { localStorage.setItem("fx_priorities", JSON.stringify(priorities)); }
+function savePriorities() { localStorage.setItem("fx_priorities2", JSON.stringify(priorities)); }
 
 // Numeric weights for the scorer, derived from the chosen priority levels.
 // Factors toggled off in the filter row get weight 0 (excluded entirely).
@@ -1213,12 +1214,13 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   const cl = climate && climate[iso];
 
   const w = loadWeights();
-  // Curves calibrated so a realistic best-case lands ~95, not an unreachable 100:
-  // Cheapness maxes once prices are ~1/3 of home prices; FX maxes at +8% vs the
-  // 1-year average (about the biggest anomaly that actually occurs).
+  // Sub-scores (kept for tooltips/detail): cheapness maxes once prices are ~1/3
+  // of home prices; FX maxes at +8% vs the 1-year average.
+  const aff = clamp100(((1.3 - pl) / 0.95) * 100);
+  const fx = row ? clamp100(50 + row.strength_pct * 6.25) : 50;
   const comps = {
-    aff: clamp100(((1.3 - pl) / 0.95) * 100),
-    cur: row ? clamp100(50 + row.strength_pct * 6.25) : 50,
+    // Affordability = mostly structural cost of living, nudged by FX timing.
+    afford: clamp100(aff * 0.7 + fx * 0.3),
     safe: advLvl ? { 1: 100, 2: 70, 3: 35 }[advLvl] : 70,
     wx: cl && cl.scores[month - 1] != null ? cl.scores[month - 1] : 50,
   };
@@ -1239,7 +1241,7 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   for (const k in comps) { num += (w[k] || 0) * comps[k]; den += (w[k] || 0); }
   const value = den ? clamp100(num / den) : 0;
   return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
-           aff: comps.aff, cur: comps.cur, safe: comps.safe, wx: comps.wx,
+           afford: comps.afford, aff, fxScore: fx, safe: comps.safe, wx: comps.wx,
            fly: comps.fly, fare, fareEst, fareBase, advLvl, value,
            pl, fx: row ? row.strength_pct : null };
 }
@@ -1433,7 +1435,7 @@ function buildAIPrompt() {
   const region = $("valueRegion").value;
   // What they care about = the counted factors weighted High.
   const p = loadPriorities();
-  const careMap = { aff: "low prices", cur: "a strong home currency", safe: "safety",
+  const careMap = { afford: "affordability (low prices & strong currency)", safe: "safety",
                     wx: "good weather", fly: "cheap flights" };
   const cares = WEIGHT_DEFS.filter((w) => p[w.key] === "high" && loadFactors().includes(w.key))
     .map((w) => careMap[w.key]);
@@ -1450,8 +1452,7 @@ function buildAIPrompt() {
   lines.push("");
   lines.push("Its top value picks for me (graded A+ to F), best first:");
   lastPicks.forEach((s, i) => {
-    const bits = [`prices ${grade(s.aff)}`, `safety ${SAFE_GRADE[s.advLvl] || "B"}`, `weather ${grade(s.wx)}`];
-    if (s.fx != null) bits.unshift(`${homeBase} strength ${grade(s.cur)}`);
+    const bits = [`affordability ${grade(s.afford)}`, `safety ${SAFE_GRADE[s.advLvl] || "B"}`, `weather ${grade(s.wx)}`];
     lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)} (${bits.join(", ")})`);
   });
   lines.push("");
@@ -1638,8 +1639,7 @@ function renderGradeTable(host, list, month, gem) {
     return `<tr data-iso="${iso}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
-      <td class="scell" data-go="currency" data-iso="${iso}">${gradePill(s.cur, (s.fx != null ? `${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average here` : `Uses your currency (${homeBase}) — no FX edge`) + " · click for currency detail")}</td>
-      <td class="scell" data-go="afford" data-iso="${iso}">${gradePill(s.aff, (s.pl != null ? `Price level ${s.pl.toFixed(2)} vs home — under 1.00 means your money buys more` : "") + " · click for cost-of-living detail")}</td>
+      <td class="scell" data-go="afford" data-iso="${iso}">${gradePill(s.afford, affordTitle(s))}</td>
       <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl)}</td>
       <td class="scell" data-go="weather" data-iso="${iso}">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
       <td class="scell" data-go="flights" data-iso="${iso}">${s.fare == null ? '<span class="muted">—</span>'
@@ -1650,14 +1650,26 @@ function renderGradeTable(host, list, month, gem) {
   }).join("");
   host.innerHTML = `<table class="gradetable">
     <thead><tr><th></th><th class="dest">Destination</th>
-      <th title="is your money unusually strong vs this currency right now?">💵 ${homeBase === "USD" ? "Dollar" : esc(homeBase)}</th>
-      <th title="how cheap daily life is vs the US">🏷️ Prices</th>
+      <th title="how far your money goes — daily prices vs home, plus how strong your currency is right now">💰 Affordability</th>
       <th title="US State Dept advisory level">🛡️ Safety</th>
       <th title="weather comfort for your chosen month">🌤️ Weather</th>
       <th title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ Flights</th>
       <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
+}
+// Tooltip for the merged Affordability cell: explains both the price level and
+// the FX timing, both measured against the traveler's home country/currency.
+function affordTitle(s) {
+  const parts = [];
+  if (s.pl != null) {
+    const ratio = 1 / s.pl;
+    parts.push(ratio >= 1.1 ? `daily prices ~${Math.round((ratio - 1) * 100)}% cheaper than home`
+             : s.pl <= 1.1 ? "daily prices about the same as home" : `pricier than home`);
+  }
+  if (s.fx != null && Math.abs(s.fx) >= 1)
+    parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average`);
+  return (parts.join(" · ") || "affordability") + " · click for cost-of-living detail";
 }
 
 // One delegated click for the grade table:
@@ -1727,7 +1739,7 @@ function renderValue() {
     drawMap("valueMap", (f) => {
       const s = scored[f.properties.iso];
       if (s) return { fill: comfortColor(s.value),
-        title: `${s.name}: value ${s.value}/100 (cheap ${s.aff}, $ ${s.cur}, safe ${s.safe}, wx ${s.wx}${s.fly != null ? ", fly " + s.fly : ""})` };
+        title: `${s.name}: value ${s.value}/100 (afford ${s.afford}, safe ${s.safe}, wx ${s.wx}${s.fly != null ? ", fly " + s.fly : ""})` };
       if (advMap[f.properties.iso] === 4)
         return { fill: "#b00020", title: f.properties.name + " — Level 4: Do Not Travel (excluded)" };
       return { fill: NODATA, title: f.properties.name + " — not scored" };
@@ -1784,10 +1796,10 @@ function renderValue() {
     const wxCell = weatherMode ? `<b>${s.wx}</b>` : `${s.wx}`;
     return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
       <td class="num">${valCell}</td>
-      <td class="num">${s.aff}</td><td class="num">${s.cur}</td>
+      <td class="num">${s.afford}</td>
       <td class="num">${s.safe}</td><td class="num">${wxCell}</td>
       <td class="num">${flight}</td></tr>`;
-  }).join("") || '<tr><td colspan="7">No data for this region.</td></tr>';
+  }).join("") || '<tr><td colspan="6">No data for this region.</td></tr>';
   syncURL();
 }
 
