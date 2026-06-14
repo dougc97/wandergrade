@@ -244,6 +244,7 @@ function buildBaseSelect() {
     loadRates();
     loadIndex(activeDays);
   };
+  enhanceSelect(sel);
 }
 
 function buildWatchlist(allCodes, selected) {
@@ -903,6 +904,7 @@ function buildBestPickers() {
   ctry.onchange = () => renderGuide(ctry.value);
   fill(false);
   if ([...ctry.options].some((o) => o.value === "JP")) { ctry.value = "JP"; renderGuide("JP"); }
+  enhanceSelect(ctry);
 }
 
 // Open the guide tab focused on a specific country (used by the map detail card).
@@ -910,6 +912,7 @@ async function openGuideFor(iso) {
   await activateTab("guide");
   const ctry = $("bestCountry");
   if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
+  if (ctry._sync) ctry._sync();
   renderGuide(iso);
 }
 
@@ -1172,6 +1175,7 @@ function setHomeCur(code, manual) {
   localStorage.setItem("fx_homecur_manual", manual ? "1" : "0");
   const sel = $("homeCur");
   if (sel && sel.value !== code) sel.value = code;
+  if (sel && sel._sync) sel._sync();
   loadHomeRates().catch(() => {}).then(() => { if (loaded.value) renderValue(); });
 }
 
@@ -1185,6 +1189,7 @@ function initHomeCur() {
   sel.value = start;
   sel.onchange = () => setHomeCur(sel.value, sel.value !== homeCurAuto());
   setHomeCur(start, homeManual);
+  enhanceSelect(sel);
 }
 
 
@@ -1315,6 +1320,62 @@ async function loadValueFlights(silent) {
   renderValue();
 }
 
+// ---- searchable dropdowns (custom combobox over a native <select>) ---------
+// Non-invasive: the native select stays the source of truth (existing .value /
+// change logic is untouched); we overlay a type-to-filter input + list.
+function enhanceSelect(sel) {
+  if (!sel || sel.dataset.combo || sel.options.length < 10) return;
+  sel.dataset.combo = "1";
+  const wrap = document.createElement("span");
+  wrap.className = "combo";
+  const input = document.createElement("input");
+  input.type = "text"; input.className = "combo-input"; input.autocomplete = "off";
+  input.setAttribute("role", "combobox"); input.placeholder = "Type to search…";
+  const list = document.createElement("ul");
+  list.className = "combo-list"; list.hidden = true;
+  sel.parentNode.insertBefore(wrap, sel);
+  wrap.appendChild(input); wrap.appendChild(list); wrap.appendChild(sel);
+  sel.style.display = "none";
+  let active = -1;
+  const labelFor = () => { const o = sel.selectedOptions[0]; return o && o.value !== "" ? o.textContent.trim() : ""; };
+  const sync = () => { if (document.activeElement !== input) input.value = labelFor(); };
+  sel._sync = sync;
+  const render = (q) => {
+    q = (q || "").trim().toLowerCase();
+    const opts = [...sel.options].filter((o) => o.value !== "" && o.textContent.toLowerCase().includes(q));
+    list.innerHTML = opts.length
+      ? opts.map((o) => `<li class="combo-opt" data-val="${esc(o.value)}">${esc(o.textContent.trim())}</li>`).join("")
+      : '<li class="combo-opt muted">No matches</li>';
+    active = -1;
+  };
+  const choose = (val) => {
+    if (sel.value !== val) { sel.value = val; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+    input.value = labelFor(); list.hidden = true;
+  };
+  input.addEventListener("focus", () => { input.value = ""; render(""); list.hidden = false; });
+  input.addEventListener("input", () => { render(input.value); list.hidden = false; });
+  input.addEventListener("blur", () => setTimeout(() => { list.hidden = true; input.value = labelFor(); }, 150));
+  input.addEventListener("keydown", (e) => {
+    const items = [...list.querySelectorAll(".combo-opt[data-val]")];
+    if (e.key === "ArrowDown") { e.preventDefault(); active = Math.min(active + 1, items.length - 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); active = Math.max(active - 1, 0); }
+    else if (e.key === "Enter") { e.preventDefault(); const pick = items[active] || (items.length === 1 ? items[0] : null); if (pick) choose(pick.dataset.val); return; }
+    else if (e.key === "Escape") { list.hidden = true; input.value = labelFor(); input.blur(); return; }
+    else return;
+    items.forEach((it, i) => it.classList.toggle("active", i === active));
+    if (items[active]) items[active].scrollIntoView({ block: "nearest" });
+  });
+  list.addEventListener("mousedown", (e) => {   // mousedown beats the input blur
+    const li = e.target.closest(".combo-opt[data-val]");
+    if (li) { e.preventDefault(); choose(li.dataset.val); }
+  });
+  new MutationObserver(sync).observe(sel, { childList: true });  // options rebuilt -> resync label
+  sync();
+}
+function resyncCombos() {
+  document.querySelectorAll("select[data-combo]").forEach((s) => s._sync && s._sync());
+}
+
 function buildValueTab() {
   const reg = $("valueRegion"), mon = $("valueMonth");
   reg.innerHTML = '<option value="all">All regions</option>' +
@@ -1323,10 +1384,11 @@ function buildValueTab() {
   mon.value = String(curMonth());   // "I'm going in" defaults to the month it is now
   reg.onchange = renderValue;
   mon.onchange = renderValue;
+  enhanceSelect(mon);
   // Fares auto-load for the home country (defaults to United States) and
   // reload whenever the user picks a different one — no button needed.
   fillOriginSelect($("valueOrigin"))
-    .then(() => { initHomeCur(); loadValueFlights(true); })
+    .then(() => { enhanceSelect($("valueOrigin")); initHomeCur(); loadValueFlights(true); })
     .catch(() => {});
   $("valueOrigin").addEventListener("change", () => {
     if (!homeManual) setHomeCur(homeCurAuto(), false);   // follow unless pinned
@@ -1742,6 +1804,7 @@ async function fillOriginSelect(sel) {
   const list = await ensureOrigins();
   sel.innerHTML = list.map((o) =>
     `<option value="${esc(o.iso)}"${o.iso === "US" ? " selected" : ""}>${esc(o.name)}</option>`).join("");
+  enhanceSelect(sel);
 }
 
 async function loadFlights() {
@@ -2075,7 +2138,8 @@ function buildVisited() {
     .sort((a, b) => a.name.localeCompare(b.name));
   pick.innerHTML = '<option value="">+ add a country…</option>' +
     all.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
-  pick.onchange = () => { if (pick.value) { toggleMark(pick.value); pick.value = ""; renderVisited(); } };
+  enhanceSelect(pick);
+  pick.onchange = () => { if (pick.value) { toggleMark(pick.value); pick.value = ""; if (pick._sync) pick._sync(); renderVisited(); } };
   $("visitedClear").onclick = () => {
     const label = visitMode === "visited" ? "been-to" : "wishlist";
     (visitMode === "visited" ? visited : wishlist).clear();
@@ -2374,6 +2438,7 @@ async function postApplyShared() {
     renderVisited();
     status(`Viewing a shared map of ${visited.size} countries — editing it will overwrite your own saved list.`, "ok");
   }
+  resyncCombos();   // reflect restored values in the search inputs
 }
 
 // ===========================================================================

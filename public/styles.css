@@ -396,6 +396,19 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   font-variant-numeric: tabular-nums; }
 .fareamt { font-size: 12px; font-weight: 700; color: var(--gray);
   font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* searchable dropdown (combobox over a native select) */
+.combo { position: relative; display: inline-block; }
+.combo-input { padding: 6px 10px; border: 1px solid var(--border-input); border-radius: 8px;
+  background: var(--card); color: var(--ink); font-size: 14px; min-width: 130px; max-width: 220px; }
+.combo-list { position: absolute; z-index: 60; top: 100%; left: 0; min-width: 100%;
+  max-height: 280px; overflow-y: auto; margin: 3px 0 0; padding: 4px; list-style: none;
+  background: var(--card); border: 1px solid var(--border-input); border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.16); }
+.combo-list[hidden] { display: none; }
+.combo-opt { padding: 7px 10px; border-radius: 6px; font-size: 14px; white-space: nowrap; cursor: pointer; }
+.combo-opt:hover, .combo-opt.active { background: var(--soft); }
+.combo-opt.muted { cursor: default; color: var(--gray); }
+
 /* "Plan with AI" export bar */
 .aibar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 4px; }
 .aibtn { background: var(--green); color: #fff; border: none; border-radius: 10px;
