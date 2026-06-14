@@ -1001,7 +1001,7 @@ function renderAdvisories() {
     const lvl = parseInt(it.level, 10) || 0;
     const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
     return `
-    <tr data-lvl="${lvl}"><td>${esc(it.country)}</td>
+    <tr data-lvl="${lvl}" data-iso="${esc(it.iso || "")}"><td>${esc(it.country)}</td>
       <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
       <td>${esc(it.level_text)}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details</a>` : ""}</td>
     </tr>`;
@@ -1039,7 +1039,7 @@ function renderAfford() {
   rows.sort((a, b) => a.pl - b.pl);
   $("affRows").innerHTML = rows.map((r) => {
     const cls = r.pl <= 0.85 ? "pos" : r.pl > 1.15 ? "neg" : "";
-    return `<tr><td>${esc(r.name)}</td><td>${esc(r.cur)}</td>
+    return `<tr data-iso="${esc(r.iso)}"><td>${esc(r.name)}</td><td>${esc(r.cur)}</td>
       <td class="num ${cls}">${r.pl.toFixed(2)}</td>
       <td class="num">$${Math.round(100 / r.pl)} of US goods</td>
       <td>${plWord(r.pl)}</td></tr>`;
@@ -1568,16 +1568,17 @@ function renderGradeTable(host, list, month, gem) {
     const hz = hazardsFor(s.iso, month);
     const wxTitle = `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}` +
       (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
-    return `<tr data-iso="${esc(s.iso)}" title="${esc(whyLine(s, month))}" style="--i:${i}">
+    const iso = esc(s.iso);
+    return `<tr data-iso="${iso}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
-      <td>${gradePill(s.cur, s.fx != null ? `${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average here` : `Uses your currency (${homeBase}) — no FX edge either way`)}</td>
-      <td>${gradePill(s.aff, s.pl != null ? `Price level ${s.pl.toFixed(2)} vs home — under 1.00 means your money buys more than it does at home` : "")}</td>
-      <td>${safetyPill(s.advLvl)}</td>
-      <td>${gradePill(s.wx, wxTitle)}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
-      <td>${s.fare == null ? '<span class="muted">—</span>'
-            : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; see the Flights tab">~</span>'
-            : gradePill(s.fly, "Flight deal vs the typical fare for this distance — exact prices in the Flights tab")}</td>
+      <td class="scell" data-go="currency" data-iso="${iso}">${gradePill(s.cur, (s.fx != null ? `${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average here` : `Uses your currency (${homeBase}) — no FX edge`) + " · click for currency detail")}</td>
+      <td class="scell" data-go="afford" data-iso="${iso}">${gradePill(s.aff, (s.pl != null ? `Price level ${s.pl.toFixed(2)} vs home — under 1.00 means your money buys more` : "") + " · click for cost-of-living detail")}</td>
+      <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl)}</td>
+      <td class="scell" data-go="weather" data-iso="${iso}">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
+      <td class="scell" data-go="flights" data-iso="${iso}">${s.fare == null ? '<span class="muted">—</span>'
+            : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
+            : gradePill(s.fly, "Flight deal vs the typical fare for this distance · click for exact prices")}</td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span></td>
     </tr>`;
   }).join("");
@@ -1593,13 +1594,42 @@ function renderGradeTable(host, list, month, gem) {
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
 }
 
-// One delegated click: a row (or legacy card) opens that country's travel guide.
-// Clicks on a link inside the row (e.g. the visa pill) are left to the link.
+// One delegated click for the grade table:
+//  - a factor cell jumps to that factor's detail for the country
+//  - the rest of the row opens the country's travel guide
 document.addEventListener("click", (e) => {
   if (e.target.closest("a")) return;
+  const cell = e.target.closest(".gradetable td.scell[data-go]");
+  if (cell && cell.dataset.iso) { goToDetail(cell.dataset.go, cell.dataset.iso); return; }
   const t = e.target.closest(".pickcard, .gradetable tr[data-iso]");
   if (t && t.dataset.iso) openGuideFor(t.dataset.iso);
 });
+
+// Jump from a Top Picks score to the matching detail view, filtered to the
+// country. Weather lives in the Travel Guide; the rest in Explore the Data.
+async function goToDetail(go, iso) {
+  if (go === "weather") { openGuideFor(iso); return; }
+  await activateTab("data");
+  await setDataMode(go);
+  const code = CUR_BY_ISO[iso];
+  const scrollTo = (sel) => { const el = document.querySelector(sel); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); };
+  // Use the table's OWN displayed name for the country (data files disagree on
+  // some names, e.g. Turkey vs Türkiye), so the text filter always matches.
+  const rowName = (tbodyId) => {
+    const r = document.querySelector(`#${tbodyId} tr[data-iso="${iso}"]`);
+    return r ? r.children[0].textContent.trim() : countryName(iso);
+  };
+  if (go === "currency") {
+    if (advisoryByIso()[iso] >= 3 && $("curRisky")) $("curRisky").checked = true;  // reveal if risk-hidden
+    $("curFilter").value = code || countryName(iso); applyCurrencyFilter(); scrollTo("#dataSubCurrency .tablewrap");
+  } else if (go === "afford") {
+    $("affFilter").value = rowName("affRows"); applyAffordFilter(); scrollTo("#affTable");
+  } else if (go === "advisory") {
+    $("advFilter").value = rowName("advRows"); $("advLevel").value = "all"; applyAdvFilter(); scrollTo("#advTable");
+  } else if (go === "flights") {
+    $("flightFilter").value = rowName("flightRows"); applyFlightFilter(); scrollTo("#flightTable");
+  }
+}
 
 function renderValue() {
   const region = $("valueRegion").value;
@@ -1770,7 +1800,7 @@ function renderFlights() {
   $("flightRows").innerHTML = countries.map((c) => {
     const exp = expected ? expected(c.iso) : null;
     const arrow = priceArrow(Number(c.avg) || null, exp, "the typical fare for this distance");
-    return `<tr><td>${esc(countryName(c.iso))}</td>
+    return `<tr data-iso="${esc(c.iso)}"><td>${esc(countryName(c.iso))}</td>
       <td class="num"><b>${esc(cur)} ${Number(c.avg) || "?"}</b> ${arrow}</td>
       <td class="num">${esc(cur)} ${Number(c.min) || "?"}</td>
       <td class="num">${fmtDuration(c.dur)}</td>

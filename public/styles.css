@@ -331,6 +331,8 @@ tbody tr.favorable, tbody tr.favorable:nth-child(even) { background: var(--green
 .gradetable td.num { font-variant-numeric: tabular-nums; }
 .gradetable tbody tr { cursor: pointer; }
 .gradetable tbody tr:hover td.dest { color: var(--green); }
+.gradetable td.scell { cursor: pointer; }
+.gradetable td.scell:hover { background: var(--soft); }
 .gr { display: inline-block; min-width: 26px; padding: 2px 7px; border-radius: 7px;
   font-weight: 800; font-size: 13px; color: #fff; text-align: center; }
 .gr.big { min-width: 34px; font-size: 15px; padding: 4px 9px; }
