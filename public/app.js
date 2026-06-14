@@ -2075,7 +2075,8 @@ const ACT_EMOJI = [
   [/market|bazaar|souk/, "🛍️"], [/museum|galler|\bart\b/, "🖼️"],
   [/festival|carnival|songkran|christmas/, "🎉"], [/nightlife|\bbar\b|\bclub\b|party/, "🍸"],
   [/spa|onsen|hot spring|thermal|wellness/, "♨️"], [/beach|coast|island/, "🏖️"],
-  [/village/, "🏘️"], [/city|town|skyline/, "🏙️"], [/histor|heritage/, "🏛️"],
+  [/village/, "🏘️"], [/cit(y|ies)|town|skyline|metropolis/, "🏙️"], [/square|plaza|registan/, "🏛️"],
+  [/steppe|nomad/, "🐪"], [/space|cosmodrome|baikonur/, "🚀"], [/histor|heritage/, "🏛️"],
   [/road trip|\broad\b/, "🚗"], [/bike|cycl/, "🚲"],
 ];
 function activityEmoji(text) {
