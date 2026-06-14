@@ -1801,6 +1801,10 @@ function renderValue() {
   const offbeat = eligible.filter((s) => !POPULAR.has(s.iso));
   // Fall back to the full list if no popular destinations match the filters.
   const picks = (popular.length ? popular : eligible).slice(0, pickCount());
+  const picksNote = $("picksNote");
+  if (picksNote) picksNote.innerHTML = popular.length
+    ? "🌍 Popular, well-known destinations, ranked by value — lesser-known high-value spots are in 💎 Hidden gems below."
+    : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.";
   lastPicks = picks; lastPicksMonth = month;   // for the AI export
   renderGradeTable($("topCards"), picks, month, false);
   // Pulse the picked countries on the map so table and map visibly agree.
