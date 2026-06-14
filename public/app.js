@@ -1255,7 +1255,7 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   for (const k in comps) { num += (w[k] || 0) * comps[k]; den += (w[k] || 0); }
   const value = den ? clamp100(num / den) : 0;
   return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
-           afford: comps.afford, aff, fxScore: fx, safe: comps.safe, wx: comps.wx,
+           afford: comps.afford, safe: comps.safe, wx: comps.wx,
            fly: comps.fly, fare, fareEst, fareBase, advLvl, value,
            pl, fx: row ? row.strength_pct : null };
 }
@@ -1351,8 +1351,10 @@ function enhanceSelect(sel) {
   const input = document.createElement("input");
   input.type = "text"; input.className = "combo-input"; input.autocomplete = "off";
   input.setAttribute("role", "combobox"); input.placeholder = "Type to search…";
+  input.setAttribute("aria-expanded", "false");
   const list = document.createElement("ul");
   list.className = "combo-list"; list.hidden = true;
+  const setOpen = (open) => { list.hidden = !open; input.setAttribute("aria-expanded", String(open)); };
   sel.parentNode.insertBefore(wrap, sel);
   wrap.appendChild(input); wrap.appendChild(list); wrap.appendChild(sel);
   sel.style.display = "none";
@@ -1370,17 +1372,17 @@ function enhanceSelect(sel) {
   };
   const choose = (val) => {
     if (sel.value !== val) { sel.value = val; sel.dispatchEvent(new Event("change", { bubbles: true })); }
-    input.value = labelFor(); list.hidden = true;
+    input.value = labelFor(); setOpen(false);
   };
-  input.addEventListener("focus", () => { input.value = ""; render(""); list.hidden = false; });
-  input.addEventListener("input", () => { render(input.value); list.hidden = false; });
-  input.addEventListener("blur", () => setTimeout(() => { list.hidden = true; input.value = labelFor(); }, 150));
+  input.addEventListener("focus", () => { input.value = ""; render(""); setOpen(true); });
+  input.addEventListener("input", () => { render(input.value); setOpen(true); });
+  input.addEventListener("blur", () => setTimeout(() => { setOpen(false); input.value = labelFor(); }, 150));
   input.addEventListener("keydown", (e) => {
     const items = [...list.querySelectorAll(".combo-opt[data-val]")];
     if (e.key === "ArrowDown") { e.preventDefault(); active = Math.min(active + 1, items.length - 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); active = Math.max(active - 1, 0); }
     else if (e.key === "Enter") { e.preventDefault(); const pick = items[active] || (items.length === 1 ? items[0] : null); if (pick) choose(pick.dataset.val); return; }
-    else if (e.key === "Escape") { list.hidden = true; input.value = labelFor(); input.blur(); return; }
+    else if (e.key === "Escape") { setOpen(false); input.value = labelFor(); input.blur(); return; }
     else return;
     items.forEach((it, i) => it.classList.toggle("active", i === active));
     if (items[active]) items[active].scrollIntoView({ block: "nearest" });
