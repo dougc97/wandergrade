@@ -1356,6 +1356,63 @@ function buildValueTab() {
   renderValue();
 }
 
+// ---- export shortlist as an AI prompt --------------------------------------
+// Bridges the exploratory phase (this tool) to planning (the user's LLM):
+// copies their preferences + shortlist as a ready-to-paste prompt.
+let lastPicks = [], lastPicksMonth = null;
+function buildAIPrompt() {
+  const month = lastPicksMonth || curMonth();
+  const origin = $("valueOrigin");
+  const originName = origin && origin.selectedOptions[0] ? origin.selectedOptions[0].textContent : "the US";
+  const region = $("valueRegion").value;
+  // What they care about = the counted factors weighted High.
+  const p = loadPriorities();
+  const careMap = { aff: "low prices", cur: "a strong home currency", safe: "safety",
+                    wx: "good weather", fly: "cheap flights" };
+  const cares = WEIGHT_DEFS.filter((w) => p[w.key] === "high" && loadFactors().includes(w.key))
+    .map((w) => careMap[w.key]);
+  const lines = [];
+  lines.push("I'm in the early, exploratory phase of planning a trip and used a travel-value tool to shortlist destinations by overall value. Help me go deeper.");
+  lines.push("");
+  lines.push("When I'm going: " + MONTHS[month - 1]);
+  lines.push("Departing from: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
+  if (region !== "all") lines.push("Region of interest: " + (REGIONS[region] || region));
+  if (cares.length) lines.push("What I care about most: " + cares.join(", "));
+  loadWishlist();
+  if (wishlist.size) lines.push("Already on my wishlist: " + [...wishlist].map(countryName).join(", "));
+  if (visited && visited.size) lines.push("Already been (please skip): " + [...visited].map(countryName).join(", "));
+  lines.push("");
+  lines.push("Its top value picks for me (graded A+ to F), best first:");
+  lastPicks.forEach((s, i) => {
+    const bits = [`prices ${grade(s.aff)}`, `safety ${SAFE_GRADE[s.advLvl] || "B"}`, `weather ${grade(s.wx)}`];
+    if (s.fx != null) bits.unshift(`${homeBase} strength ${grade(s.cur)}`);
+    lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)} (${bits.join(", ")})`);
+  });
+  lines.push("");
+  lines.push("Please help me:");
+  lines.push("- Narrow this to the 2–3 that best fit what I care about, and say why");
+  lines.push("- For each, recommend specific cities/regions and how many days");
+  lines.push("- Flag visa, budget, and seasonal/weather gotchas for " + MONTHS[month - 1]);
+  lines.push("- Draft a rough day-by-day itinerary for your top recommendation");
+  return lines.join("\n");
+}
+async function exportAIPrompt() {
+  if (!lastPicks.length) { status("Load some picks first.", "err"); return; }
+  const text = buildAIPrompt();
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+  if (!ok) {   // fallback for non-secure contexts
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      ok = document.execCommand("copy"); document.body.removeChild(ta);
+    } catch (e) {}
+  }
+  status(ok ? "Copied! Paste into ChatGPT, Claude, or any AI to plan your trip. 🤖"
+            : "Couldn't copy — long-press/⌘C from the picks above.", ok ? "ok" : "err");
+}
+
 // ---- top picks: report-card grade table -------------------------------------
 function flagEmoji(iso) {
   if (!/^[A-Z]{2}$/.test(iso)) return "🌍";
@@ -1599,6 +1656,7 @@ function renderValue() {
   const floor = safetyFloor();
   const unvisited = rankedAll.filter((s) => !visited.has(s.iso));
   const picks = unvisited.filter((s) => passesFloor(s, floor)).slice(0, pickCount());
+  lastPicks = picks; lastPicksMonth = month;   // for the AI export
   renderGradeTable($("topCards"), picks, month, false);
   // Pulse the picked countries on the map so table and map visibly agree.
   if (!reducedMotion()) {
@@ -2347,6 +2405,7 @@ async function downloadVisitedImage() {
 
 $("shareBtn").addEventListener("click", shareCurrent);
 $("visitedImage").addEventListener("click", downloadVisitedImage);
+if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);
 // ("Use on another device" was removed — the Share button already produces a
 //  URL carrying your map across devices.)
 

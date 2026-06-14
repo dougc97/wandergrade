@@ -394,6 +394,13 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   font-variant-numeric: tabular-nums; }
 .fareamt { font-size: 12px; font-weight: 700; color: var(--gray);
   font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* "Plan with AI" export bar */
+.aibar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 4px; }
+.aibtn { background: var(--green); color: #fff; border: none; border-radius: 10px;
+  padding: 10px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
+.aibtn:hover { filter: brightness(1.06); }
+.aihint { font-size: 12px; color: var(--gray); }
+
 /* Explore-the-Data table filters */
 .filterbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px auto 0; }
 .tablefilter { padding: 7px 11px; border: 1px solid var(--border-input); border-radius: 8px;
