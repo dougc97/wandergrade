@@ -1447,6 +1447,9 @@ function buildValueTab() {
   }
   buildWeightSliders();
   renderValue();
+  // Data-backed popularity (tourist arrivals) loads in the background, then the
+  // top/gems split re-renders with it — the fallback set covers the meantime.
+  ensurePopularity().then(() => renderValue()).catch(() => {});
 }
 
 // ---- export shortlist as an AI prompt --------------------------------------
@@ -1464,32 +1467,62 @@ function buildAIPrompt() {
                     wx: "good weather", fly: "cheap flights" };
   const cares = WEIGHT_DEFS.filter((w) => p[w.key] === "high" && loadFactors().includes(w.key))
     .map((w) => careMap[w.key]);
+  const monthName = MONTHS[month - 1];
+  const passport = guidePassport();
   const lines = [];
-  lines.push("I'm in the early, exploratory phase of planning a trip and used a travel-value tool to shortlist destinations by overall value. Help me go deeper.");
+  lines.push("I'm in the early, exploratory phase of planning a trip and used a travel-value tool to shortlist destinations. Below is everything it already gave me — use it (don't re-derive it) to help me turn this into a plan.");
   lines.push("");
-  lines.push("When I'm going: " + MONTHS[month - 1]);
-  lines.push("Departing from: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
-  if (region !== "all") lines.push("Region of interest: " + (REGIONS[region] || region));
-  if (cares.length) lines.push("What I care about most: " + cares.join(", "));
+  lines.push("WHEN: " + monthName);
+  lines.push("FROM: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
+  if (region !== "all") lines.push("REGION: " + (REGIONS[region] || region));
+  if (cares.length) lines.push("I CARE MOST ABOUT: " + cares.join(", "));
   loadWishlist();
-  if (wishlist.size) lines.push("Already on my wishlist: " + [...wishlist].map(countryName).join(", "));
-  if (visited && visited.size) lines.push("Already been (please skip): " + [...visited].map(countryName).join(", "));
+  if (wishlist.size) lines.push("ON MY WISHLIST: " + [...wishlist].map(countryName).join(", "));
+  if (visited && visited.size) lines.push("ALREADY BEEN (skip): " + [...visited].map(countryName).join(", "));
   lines.push("");
-  lines.push("Its top value picks for me (graded A+ to F), best first:");
+  lines.push("SHORTLIST (best value first; grades are A+ to F):");
   lastPicks.forEach((s, i) => {
-    const bits = [`affordability ${grade(s.afford)}`, `safety ${SAFE_GRADE[s.advLvl] || "B"}`, `weather ${grade(s.wx)}`];
-    lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)} (${bits.join(", ")})`);
+    const cl = climate && climate[s.iso];
+    const seas = cl ? seasons(cl.scores)[month - 1] : null;
+    const best = cl && cl.best && cl.best.length ? cl.best.map((m) => MON_ABBR[m - 1]).join(", ") : null;
+    const hz = hazardsFor(s.iso, month).map((h) => h.note);
+    const acts = (activities && activities[s.iso] && activities[s.iso].activities) || [];
+    const vi = visaInfo(s.iso, passport);
+    // Affordability in plain words.
+    let aff = "";
+    if (s.pl != null) {
+      const ratio = 1 / s.pl;
+      aff = ratio >= 1.12 ? `your money goes ~${ratio >= 1.75 ? (Math.round(ratio * 10) / 10) + "×" : Math.round((ratio - 1) * 100) + "%"} further than home`
+          : s.pl <= 1.1 ? "prices about the same as home" : "pricier than home";
+    }
+    if (s.fx != null && Math.abs(s.fx) >= 2) aff += ` (${homeBase} ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr avg)`;
+    const fl = (s.fare != null && !s.fareEst && s.fareBase != null)
+      ? (s.fare / s.fareBase <= 0.95 ? "cheaper than usual for the distance"
+         : s.fare / s.fareBase >= 1.05 ? "pricier than usual for the distance" : "about average for the distance")
+      : null;
+    lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)}`);
+    if (aff) lines.push(`   - Affordability ${grade(s.afford)}: ${aff}`);
+    lines.push(`   - Safety: ${ADV_TEXT[s.advLvl] || "no current advisory"}`);
+    if (vi) lines.push(`   - Visa (${passport === "US" ? "US" : countryName(passport)} passport): ${vi.meta.long}${vi.note ? " — " + vi.note : ""}`);
+    if (best) lines.push(`   - Best months: ${best}; ${monthName} is ${seas === "peak" ? "peak season" : seas === "off" ? "off-season" : "shoulder season"}`);
+    if (hz.length) lines.push(`   - ${monthName} heads-up: ${hz.join("; ")}`);
+    if (acts.length) lines.push(`   - Known for: ${acts.join("; ")}`);
+    if (fl) lines.push(`   - Flights: ${fl}`);
   });
   lines.push("");
-  lines.push("Please help me:");
-  lines.push("- Narrow this to the 2–3 that best fit what I care about, and say why");
+  lines.push("USING THE ABOVE, please:");
+  lines.push("- Narrow to the 2–3 that best fit what I care about, and say why");
   lines.push("- For each, recommend specific cities/regions and how many days");
-  lines.push("- Flag visa, budget, and seasonal/weather gotchas for " + MONTHS[month - 1]);
-  lines.push("- Draft a rough day-by-day itinerary for your top recommendation");
+  lines.push("- Estimate a rough daily budget and total trip cost from " + originName);
+  lines.push("- Draft a day-by-day itinerary for your top pick");
+  lines.push("- Tell me when to book flights and where to stay");
   return lines.join("\n");
 }
 async function exportAIPrompt() {
   if (!lastPicks.length) { status("Load some picks first.", "err"); return; }
+  // Make sure visa data for the chosen passport is loaded so the export can
+  // embed it (US uses visa.json; other From countries need the matrix).
+  if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
   const text = buildAIPrompt();
   let ok = false;
   try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
@@ -1734,14 +1767,30 @@ async function goToDetail(go, iso) {
   }
 }
 
-// Mainstream, household-name destinations — these lead "above the fold"; the
-// rest (high value but off the beaten path) become the Hidden Gems discovery
-// section. Curated, not a hard popularity metric.
-const POPULAR = new Set((
+// "Popular" = the most-visited countries by international tourist arrivals
+// (UN Tourism via World Bank, /api/popularity), refreshed server-side. These
+// lead "above the fold"; the rest (high value but off the beaten path) become
+// Hidden Gems. The curated set below is only a fallback if the data won't load.
+const POPULAR_N = 60;
+let popularSet = new Set((
   "FR ES IT GB DE GR PT NL AT CH IE HR CZ IS NO SE DK PL HU BE TR " +
   "US MX CA BR AR PE CO CR CU DO JM CL " +
   "JP TH CN IN VN ID PH KR SG MY KH LK NP AE IL JO TW " +
   "EG MA ZA KE TZ AU NZ").split(" "));
+let popularDataBacked = false;
+let _arrivals = null;
+async function ensurePopularity() {
+  if (_arrivals) return;
+  const d = await getJSON("/api/popularity");
+  if (d && d.arrivals && Object.keys(d.arrivals).length > 20) {
+    _arrivals = d.arrivals;
+    const ranked = Object.keys(CUR_BY_ISO)
+      .filter((iso) => _arrivals[iso] != null)
+      .sort((a, b) => _arrivals[b] - _arrivals[a]);
+    popularSet = new Set(ranked.slice(0, POPULAR_N));
+    popularDataBacked = true;
+  }
+}
 
 function renderValue() {
   const region = $("valueRegion").value;
@@ -1797,13 +1846,13 @@ function renderValue() {
   // off-the-beaten-path. Both come from the safety-filtered, unvisited pool.
   const floor = safetyFloor();
   const eligible = rankedAll.filter((s) => !visited.has(s.iso) && passesFloor(s, floor));
-  const popular = eligible.filter((s) => POPULAR.has(s.iso));
-  const offbeat = eligible.filter((s) => !POPULAR.has(s.iso));
+  const popular = eligible.filter((s) => popularSet.has(s.iso));
+  const offbeat = eligible.filter((s) => !popularSet.has(s.iso));
   // Fall back to the full list if no popular destinations match the filters.
   const picks = (popular.length ? popular : eligible).slice(0, pickCount());
   const picksNote = $("picksNote");
   if (picksNote) picksNote.innerHTML = popular.length
-    ? "🌍 Popular, well-known destinations, ranked by value — lesser-known high-value spots are in 💎 Hidden gems below."
+    ? `🌍 The most-visited destinations${popularDataBacked ? " (by international tourist arrivals)" : ""}, ranked by value — lesser-known high-value spots are in 💎 Hidden gems below.`
     : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.";
   lastPicks = picks; lastPicksMonth = month;   // for the AI export
   renderGradeTable($("topCards"), picks, month, false);

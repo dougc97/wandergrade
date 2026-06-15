@@ -22,7 +22,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from fxtracker import advisories, flights, mailer, rates, store
+from fxtracker import advisories, flights, mailer, popularity, rates, store
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
 # runs stay open while a public/tunneled instance can require a login.
@@ -45,6 +45,8 @@ _adv_cache = {"at": 0, "data": None}
 ADV_TTL = 6 * 3600  # advisories change rarely; refresh a few times a day
 _flights_cache = {}  # origin -> (timestamp, payload)
 FLIGHTS_TTL = 3600   # cached fares are fine for an hour
+_pop_cache = {"at": 0, "data": None}
+POP_TTL = 7 * 24 * 3600   # tourist arrivals are annual; refresh weekly
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -191,6 +193,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/flight-origins":
             self._send_json({"origins": flights.origins()})
             return
+        if path == "/api/popularity":
+            self._handle_popularity()
+            return
         if path == "/api/config":
             cfg = store.load_config()
             cfg["email"] = _redact_email(cfg["email"])
@@ -275,6 +280,19 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": str(e)}, 502)
             return
         _adv_cache.update(at=now, data=data)
+        self._send_json(data)
+
+    def _handle_popularity(self):
+        now = time.time()
+        if _pop_cache["data"] and (now - _pop_cache["at"]) < POP_TTL:
+            self._send_json(_pop_cache["data"])
+            return
+        try:
+            data = {"arrivals": popularity.get_arrivals()}
+        except Exception as e:
+            self._send_json({"error": str(e), "arrivals": {}}, 502)
+            return
+        _pop_cache.update(at=now, data=data)
         self._send_json(data)
 
     @staticmethod
