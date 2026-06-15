@@ -1852,7 +1852,7 @@ function renderValue() {
   const picks = (popular.length ? popular : eligible).slice(0, pickCount());
   const picksNote = $("picksNote");
   if (picksNote) picksNote.innerHTML = popular.length
-    ? `🌍 The most-visited destinations${popularDataBacked ? " (by international tourist arrivals)" : ""}, ranked by value — lesser-known high-value spots are in 💎 Hidden gems below.`
+    ? `🌍 The most-popular destinations${popularDataBacked ? " (by international tourism spend)" : ""}, ranked by value — lesser-known high-value spots are in 💎 Hidden gems below.`
     : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.";
   lastPicks = picks; lastPicksMonth = month;   // for the AI export
   renderGradeTable($("topCards"), picks, month, false);
