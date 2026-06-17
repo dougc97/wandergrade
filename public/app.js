@@ -2393,7 +2393,7 @@ for (const b of document.querySelectorAll("#dataMode button"))
 
 // ---- newsletter signup (Buttondown embed) ---------------------------------
 // Set this to your public Buttondown newsletter username to enable signups.
-const BUTTONDOWN_USER = "dougc97";
+const BUTTONDOWN_USER = "wandergrade";
 
 function renderSubscribe() {
   const el = $("subscribe");
