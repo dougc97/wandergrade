@@ -44,5 +44,5 @@ def render_markdown(rows, as_of, baseline_days):
     for r in rows:
         lines.append("- **{code}** ({name}): 1 USD = {rate} {code} — +{pct}% vs avg".format(
             code=r["code"], name=r["name"], rate=r["rate_now"], pct=r["strength_pct"]))
-    lines += ["", "_Sent by fx-tracker. Good time to plan a trip._"]
+    lines += ["", "_Sent by Wandergrade. Good time to plan a trip._"]
     return "\n".join(lines)
