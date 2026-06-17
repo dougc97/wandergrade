@@ -1,4 +1,4 @@
-# Deploying fx-tracker
+# Deploying Wandergrade
 
 Goal: the **monthly email alert runs in the cloud** so it fires even when your
 Mac is off. The dashboard hosting is optional (do Phase 2 only if you want to

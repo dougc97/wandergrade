@@ -59,7 +59,7 @@ def render_alert(favorable_rows, as_of, baseline_days):
                 pct=r["strength_pct"], pctile=int(r["percentile"]),
             )
         )
-    lines += ["", "Good time to book a trip. — fx-tracker"]
+    lines += ["", "Good time to book a trip. — Wandergrade"]
     text = "\n".join(lines)
 
     rows_html = "".join(
@@ -81,7 +81,7 @@ def render_alert(favorable_rows, as_of, baseline_days):
     <th align="right">1 USD =</th><th align="right">vs avg</th><th align="right">Range pct</th></tr>
     {rows}
   </table>
-  <p style="color:#666;font-size:12px">Sent by fx-tracker. Rates from fxratesapi.com.</p>
+  <p style="color:#666;font-size:12px">Sent by Wandergrade. Rates from fxratesapi.com.</p>
 </div>""".format(as_of=as_of, days=baseline_days, n=n,
                  plural="y" if n == 1 else "ies", rows=rows_html)
 
