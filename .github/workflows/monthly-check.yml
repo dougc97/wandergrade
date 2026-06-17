@@ -1,6 +1,6 @@
-name: Monthly USD favorability check
+name: Monthly travel digest + favorability check
 
-# Runs the alert job in the cloud so it fires even when your Mac is off.
+# Runs the monthly jobs in the cloud so they fire even when your Mac is off.
 on:
   schedule:
     # 13:00 UTC on the 1st of every month (~9am US Eastern). Cron is always UTC.
@@ -15,9 +15,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Run favorability check & send email
+      - name: Personal currency-favorability alert (owner only)
         env:
           # Set these in: repo Settings -> Secrets and variables -> Actions
           FX_SMTP_PASSWORD: ${{ secrets.FX_SMTP_PASSWORD }}       # personal email
-          BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}   # newsletter list
         run: python3 check.py
+
+      - name: Send monthly graded travel digest to subscribers
+        env:
+          BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}   # newsletter list
+        run: python3 send_digest.py
