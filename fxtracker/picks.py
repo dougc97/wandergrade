@@ -21,8 +21,14 @@ default before any personalization.
 import datetime
 import json
 import os
+import re
+import urllib.parse
+import urllib.request
 
 from . import advisories, popularity, rates
+
+# Wikimedia blocks the default urllib UA; identify ourselves.
+_UA = "Wandergrade/1.0 (https://wandergrade.com; hello@newsletter.wandergrade.com)"
 
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(__file__)), "public")
 
@@ -111,6 +117,34 @@ def _load(name):
         return json.load(f)
 
 
+def flag(iso):
+    """Regional-indicator flag emoji from an ISO-2 code (e.g. 'TR' -> 🇹🇷)."""
+    if not iso or len(iso) != 2 or not iso.isalpha():
+        return ""
+    return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in iso.upper())
+
+
+def cover_photo(query, width=640):
+    """Resolve a landmark query (from activities.json `photo`) to a direct
+    Wikimedia image URL via Wikipedia's REST summary. Returns None on any
+    failure so a missing photo never breaks the email."""
+    if not query:
+        return None
+    url = ("https://en.wikipedia.org/api/rest_v1/page/summary/"
+           + urllib.parse.quote(query.replace(" ", "_")))
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
+            d = json.load(r)
+        src = (d.get("thumbnail") or {}).get("source")
+        if not src:
+            return None
+        # Bump the on-demand thumbnail to a crisper width for email.
+        return re.sub(r"/\d+px-", "/{0}px-".format(width), src)
+    except Exception:
+        return None
+
+
 def _price_level(iso, ppp, rate_by_code):
     p = ppp.get(iso)
     cur = CUR_BY_ISO.get(iso)
@@ -169,13 +203,23 @@ def _popular_set():
     return set(FALLBACK_POPULAR)
 
 
-def build(month=None, n_picks=8, n_gems=4):
+def _enrich(s, acts, with_photo):
+    """Attach flag, things-to-do, and (optionally) a resolved cover photo."""
+    a = acts.get(s["iso"], {})
+    s["flag"] = flag(s["iso"])
+    s["activities"] = a.get("activities", [])[:2]
+    s["photo"] = cover_photo(a.get("photo")) if with_photo else None
+    return s
+
+
+def build(month=None, n_picks=5, n_gems=3):
     """Fetch live data, score every destination, return the digest payload:
     {month, month_name, year, as_of, picks: [...], gems: [...]}.
 
     `picks` are the most-popular destinations (by tourism receipts) ranked by
     value; `gems` are off-the-beaten-path high-value ones. Both exclude Level 3
     (Reconsider Travel) and Level 4, matching the site's default "safe" floor.
+    Picks are enriched with a cover photo + things-to-do; gems stay compact.
     """
     today = datetime.date.today()
     if month is None:
@@ -185,6 +229,7 @@ def build(month=None, n_picks=8, n_gems=4):
 
     ppp = _load("ppp.json")
     climate = _load("climate.json")
+    acts = _load("activities.json")
 
     fav = rates.compute_favorability()
     rate_by_code = {r["code"]: r["rate_now"] for r in fav["rows"]}
@@ -201,6 +246,9 @@ def build(month=None, n_picks=8, n_gems=4):
     scored.sort(key=lambda s: s["value"], reverse=True)
     picks = [s for s in scored if s["iso"] in popular][:n_picks]
     gems = [s for s in scored if s["iso"] not in popular][:n_gems]
+
+    picks = [_enrich(s, acts, with_photo=True) for s in picks]
+    gems = [_enrich(s, acts, with_photo=False) for s in gems]
 
     return {
         "month": month, "month_name": MONTHS[month - 1], "year": year,
