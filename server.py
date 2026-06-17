@@ -171,6 +171,17 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"ok")
             return
+        # Canonical-domain redirect: bounce the old *.onrender.com host to the
+        # custom domain so links and SEO consolidate on one host. /healthz above
+        # is exempt so Render's health checks are unaffected. Requests already on
+        # wandergrade.com don't match and serve normally.
+        host = (self.headers.get("Host") or "").split(":", 1)[0].lower()
+        if host.endswith(".onrender.com"):
+            self.send_response(301)
+            self.send_header("Location", "https://wandergrade.com" + self.path)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if not self._authed():
             return
         if path == "/api/rates":
