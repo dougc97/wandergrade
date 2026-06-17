@@ -5,7 +5,13 @@ on:
   schedule:
     # 13:00 UTC on the 1st of every month (~9am US Eastern). Cron is always UTC.
     - cron: "0 13 1 * *"
-  workflow_dispatch: {}   # lets you run it manually from the Actions tab
+  workflow_dispatch:        # run manually from the Actions tab
+    inputs:
+      mode:
+        description: "draft = create a Buttondown draft to preview/test; send = email subscribers now"
+        type: choice
+        options: [draft, send]
+        default: draft
 
 jobs:
   check:
@@ -15,13 +21,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      # Owner-only currency alert — only on the real monthly schedule, so a
+      # manual draft run doesn't spam your inbox.
       - name: Personal currency-favorability alert (owner only)
+        if: github.event_name == 'schedule'
         env:
           # Set these in: repo Settings -> Secrets and variables -> Actions
           FX_SMTP_PASSWORD: ${{ secrets.FX_SMTP_PASSWORD }}       # personal email
         run: python3 check.py
 
-      - name: Send monthly graded travel digest to subscribers
+      # Scheduled runs send to subscribers; manual runs default to a draft you
+      # can preview and send a test from in Buttondown.
+      - name: Monthly graded travel digest
         env:
           BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}   # newsletter list
-        run: python3 send_digest.py
+        run: python3 send_digest.py ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'draft') && '--draft' || '' }}

@@ -3,6 +3,7 @@
 the graded picks to the Buttondown newsletter list.
 
   python3 send_digest.py            # build + send to subscribers (needs BUTTONDOWN_API_KEY)
+  python3 send_digest.py --draft    # build + save as a Buttondown DRAFT (preview / test)
   python3 send_digest.py --dry-run  # build + print the email, send nothing
   python3 send_digest.py --month 8  # feature a specific month (1-12)
 
@@ -15,7 +16,7 @@ import sys
 from fxtracker import newsletter, picks
 
 
-def run(dry_run=False, month=None):
+def run(dry_run=False, month=None, draft=False):
     data = picks.build(month=month)
     subject, body = newsletter.render_digest(data)
 
@@ -33,8 +34,11 @@ def run(dry_run=False, month=None):
         print("BUTTONDOWN_API_KEY not set — cannot send. Use --dry-run to preview.")
         return 1
     try:
-        newsletter.send(subject, body)
-        print("Sent digest to Buttondown subscribers.")
+        newsletter.send(subject, body, draft=draft)
+        if draft:
+            print("Created Buttondown draft. Open it in Buttondown to preview or send a test.")
+        else:
+            print("Sent digest to Buttondown subscribers.")
         return 0
     except Exception as e:
         print("Buttondown send failed:", e)
@@ -43,6 +47,7 @@ def run(dry_run=False, month=None):
 
 def _parse_args(argv):
     dry = "--dry-run" in argv
+    draft = "--draft" in argv
     month = None
     if "--month" in argv:
         try:
@@ -50,9 +55,9 @@ def _parse_args(argv):
         except (ValueError, IndexError):
             print("--month needs a number 1-12")
             sys.exit(2)
-    return dry, month
+    return dry, month, draft
 
 
 if __name__ == "__main__":
-    dry, month = _parse_args(sys.argv[1:])
-    sys.exit(run(dry_run=dry, month=month))
+    dry, month, draft = _parse_args(sys.argv[1:])
+    sys.exit(run(dry_run=dry, month=month, draft=draft))
