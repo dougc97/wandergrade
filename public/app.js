@@ -1542,24 +1542,36 @@ function buildAIPrompt() {
   lines.push("- Tell me when to book flights and where to stay");
   return lines.join("\n");
 }
+// Shared AI panel: shows the prompt with Copy / Open in ChatGPT / Open in
+// Claude. Used by both the Top Picks shortlist export and the Travel Guide
+// per-country button so they behave identically.
+function renderAIPanel(host, prompt) {
+  if (!host) return;
+  const cg = "https://chatgpt.com/?q=" + encodeURIComponent(prompt);
+  const cla = "https://claude.ai/new?q=" + encodeURIComponent(prompt);
+  host.hidden = false;
+  host.innerHTML =
+    '<div class="airow">'
+    + '<button type="button" class="aiact" data-act="copy">📋 Copy prompt</button>'
+    + '<a class="aiact" href="' + cg + '" target="_blank" rel="noopener">Open in ChatGPT ↗</a>'
+    + '<a class="aiact" href="' + cla + '" target="_blank" rel="noopener">Open in Claude ↗</a>'
+    + '</div>'
+    + '<textarea class="aitext" readonly rows="9">' + esc(prompt) + '</textarea>'
+    + '<p class="hint">“Copy prompt” grabs the full version — paste into any AI. The buttons open a new chat with it pre-filled.</p>';
+  host.querySelector('[data-act="copy"]').onclick = () => copyText(prompt);
+  // Also copy when opening an AI, so the full prompt is ready to paste if the
+  // pre-fill link is truncated by length limits.
+  host.querySelectorAll("a.aiact").forEach((el) =>
+    el.addEventListener("click", () => copyText(prompt, true)));
+  host.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 async function exportAIPrompt() {
   if (!lastPicks.length) { status("Load some picks first.", "err"); return; }
   // Make sure visa data for the chosen passport is loaded so the export can
   // embed it (US uses visa.json; other From countries need the matrix).
   if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
-  const text = buildAIPrompt();
-  let ok = false;
-  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
-  if (!ok) {   // fallback for non-secure contexts
-    try {
-      const ta = document.createElement("textarea");
-      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.focus(); ta.select();
-      ok = document.execCommand("copy"); document.body.removeChild(ta);
-    } catch (e) {}
-  }
-  status(ok ? "Copied! Paste into ChatGPT, Claude, or any AI to plan your trip. 🤖"
-            : "Couldn't copy — long-press/⌘C from the picks above.", ok ? "ok" : "err");
+  renderAIPanel($("aiPanel"), buildAIPrompt());
 }
 
 // Shared clipboard helper (secure-context API + execCommand fallback).
@@ -1637,26 +1649,7 @@ function renderGuideAI(iso) {
 async function openGuideAI(iso) {
   // Non-US passports need the visa matrix for the visa line — load it first.
   if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
-  const panel = $("guideAIPanel");
-  if (!panel) return;
-  const prompt = buildCountryAIPrompt(iso);
-  const cg = "https://chatgpt.com/?q=" + encodeURIComponent(prompt);
-  const cla = "https://claude.ai/new?q=" + encodeURIComponent(prompt);
-  panel.hidden = false;
-  panel.innerHTML =
-    '<div class="airow">'
-    + '<button type="button" class="aiact" data-act="copy">📋 Copy prompt</button>'
-    + '<a class="aiact" href="' + cg + '" target="_blank" rel="noopener">Open in ChatGPT ↗</a>'
-    + '<a class="aiact" href="' + cla + '" target="_blank" rel="noopener">Open in Claude ↗</a>'
-    + '</div>'
-    + '<textarea class="aitext" readonly rows="9">' + esc(prompt) + '</textarea>'
-    + '<p class="hint">“Copy prompt” grabs the full version — paste into any AI. The buttons open a new chat with it pre-filled.</p>';
-  panel.querySelector('[data-act="copy"]').onclick = () => copyText(prompt);
-  // Also copy when opening an AI, so the full prompt is ready to paste if the
-  // pre-fill link is truncated by length limits.
-  panel.querySelectorAll("a.aiact").forEach((el) =>
-    el.addEventListener("click", () => copyText(prompt, true)));
-  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  renderAIPanel($("guideAIPanel"), buildCountryAIPrompt(iso));
 }
 
 // ---- top picks: report-card grade table -------------------------------------
