@@ -19,6 +19,12 @@
   <meta name="twitter:image" content="https://wandergrade.com/og.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
   <link rel="stylesheet" href="/styles.css">
+  <!-- Set the active tab from the URL before first paint, so refreshing inside a
+       tab doesn't flash Top Picks before app.js switches. CSS (html[data-tab])
+       reveals only that tab; activateTab keeps data-tab in sync afterwards. -->
+  <script>(function(){var t=(new URLSearchParams(location.search).get("tab")||"value");
+    if(!/^(value|guide|visited|data)$/.test(t))t="value";
+    document.documentElement.setAttribute("data-tab",t);})();</script>
 </head>
 <body>
   <div class="bgdoodle" aria-hidden="true"></div>
