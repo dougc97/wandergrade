@@ -1188,6 +1188,32 @@ const _baseRatesCache = {};
 
 function homeCurAuto() { return CUR_BY_ISO[$("valueOrigin").value || "US"] || "USD"; }
 
+// ---- single "traveling from" origin, shared across the whole site ----------
+// One source of truth: Top Picks "From", Explore-the-Data flights "From", the
+// Travel Guide passport (visa), and the AI prompts all read it — so changing it
+// in any tab carries everywhere. Persisted so it sticks across tabs and reloads.
+function travelOrigin() { return localStorage.getItem("fx_origin") || "US"; }
+
+function setTravelOrigin(iso) {
+  if (!iso || !/^[A-Z]{2}$/.test(iso)) return;
+  localStorage.setItem("fx_origin", iso);
+  // Mirror into both origin selects (each only if it carries that option) and
+  // refresh their comboboxes — programmatic, so this doesn't re-fire change.
+  for (const id of ["valueOrigin", "flightOrigin"]) {
+    const sel = $(id);
+    if (sel && [...sel.options].some((o) => o.value === iso)) {
+      if (sel.value !== iso) sel.value = iso;
+      if (sel._sync) sel._sync();
+    }
+  }
+  if (!homeManual) setHomeCur(homeCurAuto(), false);   // currency follows unless pinned
+  loadValueFlights(false);                             // Top Picks fares (re-renders)
+  renderValue();                                       // immediate: new affordability anchor
+  if (loaded.flights) loadFlights();                   // Explore-the-Data fares
+  if (ccGuideIso) { renderGuideVisa(ccGuideIso); renderGuideAI(ccGuideIso); }  // guide visa + AI
+  syncURL();
+}
+
 async function loadHomeRates() {
   if (homeBase === "USD") { homeRates = lastRates; return; }
   if (_baseRatesCache[homeBase]) { homeRates = _baseRatesCache[homeBase]; return; }
@@ -1422,10 +1448,7 @@ function buildValueTab() {
   fillOriginSelect($("valueOrigin"))
     .then(() => { enhanceSelect($("valueOrigin")); initHomeCur(); loadValueFlights(true); })
     .catch(() => {});
-  $("valueOrigin").addEventListener("change", () => {
-    if (!homeManual) setHomeCur(homeCurAuto(), false);   // follow unless pinned
-    loadValueFlights(false);
-  });
+  $("valueOrigin").addEventListener("change", () => setTravelOrigin($("valueOrigin").value));
   $("pickCount").value = String(parseInt(localStorage.getItem("fx_pickcount") || "5", 10) || 5);
   $("pickCount").addEventListener("change", () => {
     localStorage.setItem("fx_pickcount", $("pickCount").value);
@@ -2006,8 +2029,9 @@ async function ensureOrigins() {
 async function fillOriginSelect(sel) {
   if (sel.options.length > 1) return;
   const list = await ensureOrigins();
+  const cur = travelOrigin();   // default to the shared "traveling from", not always US
   sel.innerHTML = list.map((o) =>
-    `<option value="${esc(o.iso)}"${o.iso === "US" ? " selected" : ""}>${esc(o.name)}</option>`).join("");
+    `<option value="${esc(o.iso)}"${o.iso === cur ? " selected" : ""}>${esc(o.name)}</option>`).join("");
   enhanceSelect(sel);
 }
 
@@ -2092,8 +2116,9 @@ function fmtStops(stops) {
   return n === 0 ? '<span class="pos">nonstop</span>' : n + (n === 1 ? " stop" : " stops");
 }
 
-// Flights auto-load when you change the origin (no separate Search button).
-$("flightOrigin").addEventListener("change", loadFlights);
+// Changing the flights "From" updates the one shared origin (so Top Picks, the
+// guide visa, and the AI prompts follow too), then reloads fares.
+$("flightOrigin").addEventListener("change", () => setTravelOrigin($("flightOrigin").value));
 
 // ---- Explore-the-Data table filters ----------------------------------------
 // Generic row filter: hide rows whose text doesn't match, skipping the
@@ -2629,12 +2654,11 @@ async function postApplyShared() {
     document.querySelectorAll("#valueMapMode button").forEach((b) =>
       b.classList.toggle("active", b.dataset.vm === "weather"));
   }
-  if (sharedQ.get("vo")) {
-    ensureOrigins().then(() => {
-      $("valueOrigin").value = sharedQ.get("vo");
-      if (!homeManual) setHomeCur(homeCurAuto(), false);
-      return loadValueFlights(true);
-    }).catch(() => {});
+  // Shared origin: vo is canonical; fall back to a legacy fo-only link. Either
+  // way it drives the one global "traveling from".
+  const sharedOrigin = sharedQ.get("vo") || sharedQ.get("fo");
+  if (sharedOrigin && /^[A-Z]{2}$/.test(sharedOrigin)) {
+    ensureOrigins().then(() => setTravelOrigin(sharedOrigin)).catch(() => {});
   }
   const hc = sharedQ.get("hc");
   if (hc && /^[A-Z]{3}$/.test(hc)) setHomeCur(hc, true);
@@ -2652,7 +2676,6 @@ async function postApplyShared() {
     loadRates();
     loadIndex(activeDays);
   }
-  if (sharedQ.get("fo") && loaded.flights) { $("flightOrigin").value = sharedQ.get("fo"); loadFlights(); }
   if (sharedQ.get("v") && tab === "visited") {
     renderVisited();
     status(`Viewing a shared map of ${visited.size} countries — editing it will overwrite your own saved list.`, "ok");
