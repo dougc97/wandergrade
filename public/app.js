@@ -665,7 +665,58 @@ function renderGuide(iso) {
   renderGuideAI(iso);
   renderCountryClimate(iso);
   renderActivity(iso);
+  renderGuideStay(iso);
   syncURL();
+}
+
+// ---- Travel Guide: "Where to stay" Stay22 map -------------------------------
+// A live hotel/hostel/rental price map anchored at the country's top attraction
+// (coordinates pulled from each curated gallery's #1 sight, in stay-coords.json),
+// pre-set to the reader's chosen travel month so prices are real. aid=wandergrade
+// routes any booking to our Stay22 account. FTC disclosure shown below the map
+// and in the footer.
+const STAY22_AID = "wandergrade";
+let _stayCoords = null;
+function ensureStayCoords() {
+  if (_stayCoords) return Promise.resolve(_stayCoords);
+  return getJSON("/stay-coords.json").then((c) => (_stayCoords = c));
+}
+// Concrete check-in window from the selected travel month: the 15th of that
+// month (this year if still ahead, else next year) for a 3-night stay.
+function stayDates() {
+  const vm = parseInt(($("valueMonth") || {}).value, 10);
+  const month = (vm >= 1 && vm <= 12) ? vm : (lastPicksMonth || curMonth());
+  const now = new Date();
+  let y = now.getFullYear();
+  if (month < now.getMonth() + 1) y++;
+  const ci = new Date(y, month - 1, 15);
+  const co = new Date(ci); co.setDate(co.getDate() + 3);
+  const f = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+                   "-" + String(d.getDate()).padStart(2, "0");
+  return { checkin: f(ci), checkout: f(co) };
+}
+function renderGuideStay(iso) {
+  const host = $("guideStay");
+  if (!host) return;
+  host.hidden = true; host.innerHTML = "";
+  ensureStayCoords().then((cc) => {
+    if (ccGuideIso !== iso) return;                    // user switched country
+    const c = cc[iso];
+    if (!c || !c.ll) return;
+    const { checkin, checkout } = stayDates();
+    const src = "https://www.stay22.com/embed/gm?aid=" + STAY22_AID +
+      "&lat=" + c.ll[0] + "&lng=" + c.ll[1] +
+      "&checkin=" + checkin + "&checkout=" + checkout +
+      "&maincolor=0a7d28";
+    host.innerHTML =
+      '<h3 class="staytitle">🏨 Where to stay' +
+      (c.near ? ' <span class="staynear">near ' + esc(c.near) + "</span>" : "") + "</h3>" +
+      '<iframe class="staymap" title="Stay22 hotel and hostel price map" loading="lazy" ' +
+      'frameborder="0" referrerpolicy="no-referrer-when-downgrade" src="' + src + '"></iframe>' +
+      '<p class="staynote">Live hotel, hostel &amp; rental prices via Stay22, set to your travel month. ' +
+      "Wandergrade may earn a commission if you book — at no extra cost to you.</p>";
+    host.hidden = false;
+  }).catch(() => {});
 }
 
 // Passport used for visa info = the "From" country chosen on Top Picks

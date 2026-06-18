@@ -469,6 +469,12 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .farelink .ext { font-size: 11px; opacity: .6; }
 .farelink:hover .ext { opacity: 1; }
 .disclosure { display: block; margin-top: 8px; font-size: 12px; color: var(--gray); }
+/* Travel Guide "Where to stay" Stay22 map. */
+.guidestay { margin-top: 20px; }
+.staytitle { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
+.staynear { font-weight: 400; font-size: 14px; color: var(--gray); }
+.staymap { width: 100%; height: 440px; border: 0; border-radius: 12px; background: var(--card2); }
+.staynote { font-size: 12px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
 .hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
 
 /* ---- picker hierarchy: big question row, quiet filter row ---- */
