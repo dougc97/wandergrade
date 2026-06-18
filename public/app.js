@@ -2708,7 +2708,7 @@ async function postApplyShared() {
 // ===========================================================================
 //  Visited tab: social-media share image (SVG -> canvas -> PNG)
 // ===========================================================================
-const SHARE_W = 1200, SHARE_H = 630, SHARE_SCALE = 2;   // render at 2x for crispness
+const SHARE_W = 1200, SHARE_H = 630, SHARE_SCALE = 3;   // render at 3x so it stays crisp even zoomed
 function buildVisitedShareSVG() {
   const W = SHARE_W, H = SHARE_H, mapW = 1000, latTop = 80, latBot = -56;
   const mapH = Math.round((mapW * (latTop - latBot)) / 360);   // ~378
