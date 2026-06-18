@@ -112,7 +112,10 @@ def render_digest(data):
     out = [
         "Where's worth it in **{0} {1}**? Wandergrade grades every country "
         "**A+ to F** on what your trip actually hinges on — how far your money "
-        "goes, safety, and weather. This month's standouts:".format(mn, yr),
+        "goes, safety, and weather. This month's standouts 👇".format(mn, yr),
+        "",
+        "📅 _Featured for **{0}** — about two months out, the sweet spot for "
+        "booking. Going a different time?_ **[Pick your travel month →]({1})**".format(mn, SITE),
         "",
         "## 🌟 Top picks",
         "",
