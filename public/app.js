@@ -662,6 +662,7 @@ async function ensureClimate() {
 function renderGuide(iso) {
   renderGuideHero(iso);
   renderGuideVisa(iso);
+  renderGuideAI(iso);
   renderCountryClimate(iso);
   renderActivity(iso);
   syncURL();
@@ -1536,6 +1537,103 @@ async function exportAIPrompt() {
   }
   status(ok ? "Copied! Paste into ChatGPT, Claude, or any AI to plan your trip. 🤖"
             : "Couldn't copy — long-press/⌘C from the picks above.", ok ? "ok" : "err");
+}
+
+// Shared clipboard helper (secure-context API + execCommand fallback).
+async function copyText(text, quiet) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+  if (!ok) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      ok = document.execCommand("copy"); document.body.removeChild(ta);
+    } catch (e) {}
+  }
+  if (!quiet) status(ok ? "Copied! Paste into any AI to plan your trip. 🤖"
+                        : "Couldn't copy — select the text and ⌘C.", ok ? "ok" : "err");
+  return ok;
+}
+
+// ---- Travel Guide: per-country "Plan with AI" -------------------------------
+// A guide-native rich prompt (seasonality, visa, activities, hazards) the reader
+// can copy or fire straight into ChatGPT/Claude. The monthly email links here
+// (?tab=guide&gc=ISO&ai=1) so the AI hand-off keeps people on the site.
+function buildCountryAIPrompt(iso) {
+  // Prefer the chosen travel month (set by ?vmn= from the email link or the
+  // Top Picks selector), else the last picks month, else the current month.
+  const vm = parseInt(($("valueMonth") || {}).value, 10);
+  const month = (vm >= 1 && vm <= 12) ? vm : (lastPicksMonth || curMonth());
+  const monthName = MONTHS[month - 1];
+  const passport = guidePassport();
+  const name = countryName(iso);
+  const cl = climate && climate[iso];
+  const seas = cl ? seasons(cl.scores)[month - 1] : null;
+  const best = cl && cl.best && cl.best.length ? cl.best.map((m) => MON_ABBR[m - 1]).join(", ") : null;
+  const hz = hazardsFor(iso, month).map((h) => h.note);
+  const a = activities && activities[iso];
+  const acts = (a && a.activities) || [];
+  const prof = (a && a.profile) || [];
+  const vi = visaInfo(iso, passport);
+  const origin = $("valueOrigin");
+  const originName = origin && origin.selectedOptions[0] ? origin.selectedOptions[0].textContent : "the US";
+
+  const lines = [];
+  lines.push("I'm planning a trip to " + name + " and used a travel-value tool (Wandergrade) for the basics. Use the info below (don't re-derive it) to help me build a plan.");
+  lines.push("");
+  lines.push("DESTINATION: " + name);
+  lines.push("WHEN: " + monthName);
+  lines.push("FROM: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
+  if (prof.length) lines.push("KNOWN FOR: " + prof.join(", "));
+  if (vi) lines.push("VISA (" + (passport === "US" ? "US" : countryName(passport)) + " passport): " + vi.meta.long + (vi.note ? " — " + vi.note : ""));
+  if (best) lines.push("BEST MONTHS: " + best + "; " + monthName + " is " + (seas === "peak" ? "peak season" : seas === "off" ? "off-season" : "shoulder season"));
+  if (hz.length) lines.push(monthName + " HEADS-UP: " + hz.join("; "));
+  if (acts.length) lines.push("HIGHLIGHTS: " + acts.join("; "));
+  lines.push("");
+  lines.push("USING THE ABOVE, please:");
+  lines.push("- Recommend specific cities/regions and how many days in each");
+  lines.push("- Draft a day-by-day itinerary for a ~5–7 day trip");
+  lines.push("- Estimate a rough daily budget and total cost from " + originName);
+  lines.push("- Tell me when to book flights and which neighborhoods to stay in");
+  lines.push("- Flag anything seasonal or logistical to know for " + monthName);
+  return lines.join("\n");
+}
+
+function renderGuideAI(iso) {
+  const host = $("guideAI");
+  if (!host) return;
+  const name = countryName(iso);
+  host.innerHTML = '<button id="guideAIBtn" type="button" class="aibtn"'
+    + ' title="Generate a ready-to-use AI planning prompt for ' + esc(name) + '">'
+    + '✨ Plan ' + esc(name) + ' with AI →</button>'
+    + '<div id="guideAIPanel" class="aipanel" hidden></div>';
+  $("guideAIBtn").onclick = () => openGuideAI(iso);
+}
+
+async function openGuideAI(iso) {
+  // Non-US passports need the visa matrix for the visa line — load it first.
+  if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
+  const panel = $("guideAIPanel");
+  if (!panel) return;
+  const prompt = buildCountryAIPrompt(iso);
+  const cg = "https://chatgpt.com/?q=" + encodeURIComponent(prompt);
+  const cla = "https://claude.ai/new?q=" + encodeURIComponent(prompt);
+  panel.hidden = false;
+  panel.innerHTML =
+    '<div class="airow">'
+    + '<button type="button" class="aiact" data-act="copy">📋 Copy prompt</button>'
+    + '<a class="aiact" href="' + cg + '" target="_blank" rel="noopener">Open in ChatGPT ↗</a>'
+    + '<a class="aiact" href="' + cla + '" target="_blank" rel="noopener">Open in Claude ↗</a>'
+    + '</div>'
+    + '<textarea class="aitext" readonly rows="9">' + esc(prompt) + '</textarea>'
+    + '<p class="hint">“Copy prompt” grabs the full version — paste into any AI. The buttons open a new chat with it pre-filled.</p>';
+  panel.querySelector('[data-act="copy"]').onclick = () => copyText(prompt);
+  // Also copy when opening an AI, so the full prompt is ready to paste if the
+  // pre-fill link is truncated by length limits.
+  panel.querySelectorAll("a.aiact").forEach((el) =>
+    el.addEventListener("click", () => copyText(prompt, true)));
+  panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 // ---- top picks: report-card grade table -------------------------------------
@@ -2541,7 +2639,10 @@ async function postApplyShared() {
   const hc = sharedQ.get("hc");
   if (hc && /^[A-Z]{3}$/.test(hc)) setHomeCur(hc, true);
   if (rerender && loaded.value) renderValue();
-  if (sharedQ.get("gc")) await openGuideFor(sharedQ.get("gc"));
+  if (sharedQ.get("gc")) {
+    await openGuideFor(sharedQ.get("gc"));
+    if (sharedQ.get("ai")) openGuideAI(sharedQ.get("gc"));   // email "Plan with AI" deep link
+  }
   if (sharedQ.get("win")) loadIndex(parseInt(sharedQ.get("win"), 10) || 365);
   const db = sharedQ.get("db");
   if (db && /^[A-Z]{3}$/.test(db) && db !== dataBase) {
