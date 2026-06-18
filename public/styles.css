@@ -110,7 +110,11 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 
 /* things to do */
 .actlist { margin: 6px 0 16px; padding-left: 0; list-style: none; }
-.actlist li { margin: 4px 0; font-size: 14px; display: flex; align-items: baseline; gap: 9px; }
+.actlist li { margin: 0 0 11px; font-size: 14px; display: flex; align-items: flex-start; gap: 9px; }
+.actmain { display: flex; flex-direction: column; }
+.actlabel { font-weight: 600; }
+.actdesc { color: var(--gray); font-size: 13px; line-height: 1.45; margin-top: 2px; }
+.seasdesc { flex-basis: 100%; color: var(--gray); font-size: 13px; line-height: 1.45; margin-top: 3px; }
 .actemoji { flex: none; width: 1.3em; text-align: center; }
 .seasrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; flex-wrap: wrap; }
 .seasrow:last-child { border-bottom: none; }
