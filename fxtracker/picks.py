@@ -21,7 +21,6 @@ default before any personalization.
 import datetime
 import json
 import os
-import re
 import urllib.parse
 import urllib.request
 
@@ -124,10 +123,21 @@ def flag(iso):
     return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in iso.upper())
 
 
-def cover_photo(query, width=640):
-    """Resolve a landmark query (from activities.json `photo`) to a direct
-    Wikimedia image URL via Wikipedia's REST summary. Returns None on any
-    failure so a missing photo never breaks the email."""
+def cover_photo(query, width=1024, height=420):
+    """Resolve a landmark query (from activities.json `photo`) to an email-ready
+    cover image URL. Returns None on any failure so a missing photo never breaks
+    the email.
+
+    We look up the Wikipedia article's image via the REST summary, then serve it
+    through the free images.weserv.nl proxy (resized to a banner crop). Two
+    reasons we can't hotlink Wikimedia directly in email:
+      * Wikimedia now rejects arbitrary thumbnail widths ("use thumbnail sizes
+        list" — 400), and the valid sizes differ per image.
+      * Gmail's image proxy can't fetch raw upload.wikimedia.org URLs (403/400),
+        so the photos silently fail to load.
+    weserv sidesteps both: it fetches the original, resizes to any width, and
+    serves a cache-friendly JPEG that Gmail's proxy loads fine.
+    """
     if not query:
         return None
     url = ("https://en.wikipedia.org/api/rest_v1/page/summary/"
@@ -136,11 +146,14 @@ def cover_photo(query, width=640):
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
             d = json.load(r)
-        src = (d.get("thumbnail") or {}).get("source")
-        if not src:
-            return None
-        # Bump the on-demand thumbnail to a crisper width for email.
-        return re.sub(r"/\d+px-", "/{0}px-".format(width), src)
+        orig = (d.get("originalimage") or {}).get("source")
+        if orig and "//" in orig:
+            bare = orig.split("//", 1)[1]   # strip scheme; weserv wants ssl:host/path
+            return ("https://images.weserv.nl/?url="
+                    + urllib.parse.quote("ssl:" + bare, safe="")
+                    + "&w={0}&h={1}&fit=cover&a=attention&output=jpg&q=80".format(width, height))
+        # Fall back to the ready-made (small but valid) thumbnail if no original.
+        return (d.get("thumbnail") or {}).get("source")
     except Exception:
         return None
 
