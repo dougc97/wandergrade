@@ -2430,12 +2430,41 @@ function renderVisited() {
     `<b style="color:${VISITED_COLOR}">${visited.size} been</b> · ` +
     `<b style="color:${WISH_COLOR}">${wishlist.size} want to go</b> — ` +
     `marking <b>${visitMode === "visited" ? "✓ been" : "★ want to go"}</b>. Click the map or pick a country.`;
+  renderVisitedStats();
   const sections = [];
   if (visited.size) sections.push('<div class="chiprow"><span class="chiplabel">✓ Been</span>' + chipsFor(visited, "v") + '</div>');
   if (wishlist.size) sections.push('<div class="chiprow"><span class="chiplabel">★ Want to go</span>' + chipsFor(wishlist, "w") + '</div>');
   $("visitedChips").innerHTML = sections.join("") ||
     '<span class="hint">Nothing yet — click countries on the map.</span>';
   syncURL();
+}
+
+// On-page version of the shareable card's stats: flags, an award tag (with a
+// hover tooltip explaining how it's earned), and the continents / % of world text.
+function renderVisitedStats() {
+  const host = $("visitedStats");
+  if (!host) return;
+  const n = visited.size, m = wishlist.size;
+  if (!n && !m) { host.innerHTML = ""; return; }
+  const cont = visitedContinents();
+  const pct = Math.max(1, Math.round((n / 195) * 100));
+  const bits = [];
+  if (n) bits.push(`<b>${n}</b> ${n === 1 ? "country" : "countries"}`);
+  if (cont) bits.push(`🌍 ${cont} continent${cont === 1 ? "" : "s"}`);
+  if (n) bits.push(`~${pct}% of the world`);
+  if (m) bits.push(`${m} on the wishlist`);
+  const mi = milestoneInfo(n);
+  let award = "";
+  if (mi.earned) {
+    const q = `Earned by visiting ${mi.earned.t}+ countries`
+      + (mi.next ? ` — ${mi.next.t - n} more for ${mi.next.label}` : " — top tier!");
+    award = `<span class="awardtag" title="${esc(q)}">${esc(mi.earned.label)}</span>`;
+  } else if (mi.next && n) {
+    award = `<span class="awardtag locked" title="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
+  }
+  const flags = [...visited].slice(0, 40).map((iso) => flagEmoji(iso)).join(" ") + (n > 40 ? `  +${n - 40}` : "");
+  host.innerHTML = `<div class="vstats-line">${bits.join(" · ")}${award}</div>`
+    + (flags.trim() ? `<div class="vflags">${flags}</div>` : "");
 }
 
 // ===========================================================================
@@ -2718,7 +2747,7 @@ async function postApplyShared() {
 // ===========================================================================
 const SHARE_W = 1200, SHARE_H = 630, STORY_W = 1080, STORY_H = 1920;
 const SHARE_SCALE = 4;   // render at 4x (4800px landscape) for max crispness on hi-DPI / 4K
-const SHARE_PINS = true; // drop a red location pin on each visited country
+const SHARE_PINS = false; // pins looked busy/off-centre on the export; the pin lives as the map cursor instead
 
 // Refine the app's 6 regions into true continents for the "N continents" flex.
 const _SOUTH_AMERICA = new Set("CO VE GY SR EC PE BR BO PY CL AR UY GF FK".split(" "));
@@ -2736,10 +2765,23 @@ function visitedContinents() {
   return s.size;
 }
 // Honest, count-based milestone tiers (not a fabricated "top X%" percentile).
+const MILESTONE_TIERS = [
+  [7, "🧭 Explorer"], [15, "🌍 Globetrotter"], [25, "🌟 Seasoned Traveler"],
+  [50, "⭐ Globe Master"], [100, "🏆 100+ Club"],
+];
 function travelMilestone(n) {
-  return n >= 100 ? "🏆 100+ Club" : n >= 50 ? "⭐ Globe Master"
-       : n >= 25 ? "🌟 Seasoned Traveler" : n >= 15 ? "🌍 Globetrotter"
-       : n >= 7 ? "🧭 Explorer" : null;
+  let label = null;
+  for (const [t, l] of MILESTONE_TIERS) if (n >= t) label = l;
+  return label;
+}
+// Highest earned tier + the next one to chase, for the on-page award tag tooltip.
+function milestoneInfo(n) {
+  let earned = null, next = null;
+  for (const [t, l] of MILESTONE_TIERS) {
+    if (n >= t) earned = { t, label: l };
+    else { next = { t, label: l }; break; }
+  }
+  return { earned, next };
 }
 
 // orientation: "landscape" (1200x630, for X/LinkedIn/FB) or "story" (1080x1920,

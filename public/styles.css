@@ -241,7 +241,10 @@ small { color: var(--gray); font-weight: 400; }
 .mapcard, .chartcard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 14px; }
 .map { margin-top: 10px; }
 .map svg { width: 100%; height: auto; display: block; background: var(--mapbg); border-radius: 8px; }
-.map svg path { stroke: #fff; stroke-width: 0.4; cursor: default; }
+.map svg path { stroke: #fff; stroke-width: 0.4;
+  /* 📍 round-pushpin cursor over the map — keeps it dynamic; the export stays pin-free.
+     Rasterized PNG of the emoji (Chrome ignores SVG/vector cursors, so PNG it is). */
+  cursor: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAADvklEQVR4AeyUW2wUZRTH/9/cZ6fdS7tbXGjZ7dYtRUzDLcSGVEAwFqNtfdDYaIkxKiEh8UJEE7kYjUh4Mj5ogpYmmBAfTATTYIMQiFqFJakY4wXXdumyILbddm71Z2Zn53M2gQcTHmYHhZBwMl8m8+V/zvnN+c53GNxiuwNwpwK3VwUSg4PSyLbt/cPdvYeOrFz14+ftS88f7lzz3fDTm977dt++TicXynYFJmOxu3777Man44MHDxZPf9/nmplqdxcLrUIy0VE4cfzFCx8d+PLkzp2vVwthC4DG4+Iv73/wYfrEyR6vyKPB4zGCsssISZLR6vYY0YC/3EDLSvKTQ+/GBgaerwbCFsDYsWN9+qmve0ML5tGw32eEPW6E/PUIt7WhefkyRJvDtHV+0PCzLH7d//Gb46OjIbsQtgDYMyP9EZ+MpjqlHAp4EIwuRE3HMrCPd4N5rh/yxgfQGA4i2thgCtN/zb98dOjR/xTAV8ot8vkVMFSH6AJIOAAsCQNuFqBFQGHB+iQ01Itmo6XTzsWWwKYxdnRlTZXzJR1Zo4yCpsLIzgLJFOg3I8Qc+gKl2GkUpiYxV1JR61PgonqNnbgVjS2APKvMqjoDIipQKY/ZK3kmMTrBxX+eYsd+usjOXPiTXLw0jYnZOTJjEDCRxVOwaYwtXeSes6AsfDVu1NZ6QaRaksrP4Xw2i4l8kaTnyrhc0JDMaUzqbw6u5avP2IpriWwB1KxbP6DLdSbVTU6wQETCgCcGiJYDb+rQSiZ0xoVJXSEkuvSHBatWDMOm2QLwd2047u3u2ZMuycjmGK6kcYThBHAcA97qSpP1spmym9PrGtMrn3nilbqWlixsGmNTh6ZtW3aJG9fvSBJ+Zmy6CNXqByXcjLzoxR8ZFfmA/1x0Q0ff4nWdp+zGrOhsAxBCaNvuV9/xPvbwg+p97W+nQk3T8cA8XIm2nK3pWrP53t6uh3reeu2rStBqlm2Aa0GjW58dvX/v7l3pUH1iKP476KLg4Uf27ti/esumyWuaat5VA1SCx+NHRaprcLtcSF9KcJU9p8sRAJeSCctwVORYcFYTOk1e8XMEYBSLlFiDWRR4gGFM3IA5AtAKBWqaBlVkGbls4eYDqJEIlSSJ8tYc4ATp5gOsyOctANGUBA6ZTIbewAnA0RFg7VrK85IpWE3Ii+ItAADMklqUBJ7Dwpa7nf3E1bI5cq5MRYYh47IopEqG7mgAXc3v8Ags76c2v/TkC2/sadr68vYD1qfjx1EFHGe7juP/DnCdnP/a+gcAAP//OrCBKwAAAAZJREFUAwBXCkhQvuRNWgAAAABJRU5ErkJggg==") 6 29, pointer; }
 .map svg path:hover { stroke: #222; stroke-width: 0.9; }
 
 .legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--gray); flex-wrap: wrap; }
@@ -507,3 +510,12 @@ html[data-theme="dark"] .visited-tag { background: #4a5158; }
 html[data-theme="dark"] .map svg path { stroke: var(--card); }
 html[data-theme="dark"] #check { color: #14181c; }
 html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
+
+/* Wanderlist on-page stats (mirrors the shareable card) */
+.visitedstats { margin-top: 14px; }
+.vstats-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 15px; color: var(--ink); }
+.vstats-line b { color: var(--green); font-weight: 800; }
+.awardtag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 999px;
+  background: var(--green-bg); color: var(--green); border: 1px solid var(--green); font-size: 13px; font-weight: 700; cursor: help; }
+.awardtag.locked { background: transparent; color: var(--gray); border-color: var(--line); }
+.vflags { margin-top: 9px; font-size: 22px; line-height: 1.5; letter-spacing: 2px; }
