@@ -2709,7 +2709,7 @@ async function postApplyShared() {
 //  Visited tab: social-media share image (SVG -> canvas -> PNG)
 // ===========================================================================
 const SHARE_W = 1200, SHARE_H = 630, STORY_W = 1080, STORY_H = 1920;
-const SHARE_SCALE = 3;   // render at 3x so it stays crisp even zoomed
+const SHARE_SCALE = 4;   // render at 4x (4800px landscape) for max crispness on hi-DPI / 4K
 const SHARE_PINS = true; // drop a red location pin on each visited country
 
 // Refine the app's 6 regions into true continents for the "N continents" flex.
@@ -2755,7 +2755,7 @@ function buildVisitedShareSVG(orientation, withPins) {
     let d = "";
     for (const poly of polys) for (const ring of poly)
       if (ring.length >= 3) d += projectRing(ring, mapW, mapH, latTop, latBot);
-    if (d) paths += `<path d="${d}" fill="${fill}" stroke="#0c1422" stroke-width="0.6"/>`;
+    if (d) paths += `<path d="${d}" fill="${fill}" stroke="#0c1422" stroke-width="0.9"/>`;
   }
 
   // Optional red "you-are-here" pins on visited countries — the physical-map
