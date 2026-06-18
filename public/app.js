@@ -2298,14 +2298,22 @@ function renderActivity(iso) {
   const m = curMonth();
   const tags = a.profile.map((p) =>
     `<span class="chip2">${PROFILE_EMOJI[p] ? PROFILE_EMOJI[p] + " " : ""}${esc(p)}</span>`).join("");
-  const acts = a.activities.map((x) =>
-    `<li><span class="actemoji">${activityEmoji(x)}</span>${esc(x)}</li>`).join("");
+  // Each activity is either a plain label or { t: label, d: one-line insight }.
+  const acts = a.activities.map((x) => {
+    const label = typeof x === "string" ? x : x.t;
+    const desc = (typeof x === "object" && x.d) ? x.d : "";
+    return `<li><span class="actemoji">${activityEmoji(label)}</span><span class="actmain">`
+      + `<span class="actlabel">${esc(label)}</span>`
+      + (desc ? `<span class="actdesc">${esc(desc)}</span>` : "")
+      + `</span></li>`;
+  }).join("");
   const seas = (a.seasonal || []).map((s) => {
     const on = s.months.includes(m);
     return `<div class="seasrow">
       <span class="what"><span class="actemoji">${activityEmoji(s.what)}</span>${esc(s.what)}</span>
       <span class="months">${s.months.map((x) => MON_ABBR[x - 1]).join(", ")}</span>
       <span class="${on ? "inseason" : "offseason"}">${on ? "in season now" : "off season"}</span>
+      ${s.d ? `<span class="seasdesc">${esc(s.d)}</span>` : ""}
     </div>`;
   }).join("");
   const vis = isVisited(iso) ? '<span class="visited-tag">✓ visited</span>' : "";
