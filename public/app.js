@@ -720,47 +720,74 @@ function renderGuideHero(iso) {
   clearTimeout(_heroTimer);
   _heroTimer = setTimeout(() => { if (ccGuideIso === iso) loadHeroPhotos(iso); }, 220);
 }
+// Iconic photos for the guide hero. We resolve a few curated/derived landmark
+// SUBJECTS to each subject's Wikipedia lead image, served crisp + landscape-
+// cropped via the weserv proxy. This replaced a generic Commons text search
+// that surfaced junk (e.g. Buenos Aires "Comuna" street-name signs) and low-res
+// montage leads. A country can hand-pick its shots via activities[iso].gallery;
+// otherwise subjects are the curated `photo` + the place in each activity label.
+function photoSubjects(iso) {
+  const a = activities && activities[iso];
+  if (a && Array.isArray(a.gallery) && a.gallery.length) return a.gallery.slice(0, 6);
+  const subs = [];
+  if (a && a.photo) subs.push(a.photo);
+  for (const x of (a && a.activities) || []) {
+    const label = typeof x === "string" ? x : x.t;
+    const m = label.match(/\(([^),]+)/);   // first place inside the parens
+    subs.push(m ? m[1].trim() : label.replace(/\s*\([^)]*\)/g, "").trim());
+  }
+  return [...new Set(subs.filter(Boolean))].slice(0, 6);
+}
+async function wikiIconic(subject) {
+  // Wikimedia's pageimages API renders a crisp thumbnail server-side and is
+  // reliable (CORS-enabled, no proxy/rate-limit). thumbnail = the hero/carousel
+  // size (CSS object-fit:cover crops it); original = full-res for the lightbox.
+  try {
+    const api = "https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*" +
+      "&prop=pageimages&piprop=thumbnail|original&pithumbsize=1600&redirects=1&titles=" +
+      encodeURIComponent(subject);
+    const r = await fetch(api);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const page = j.query && j.query.pages && Object.values(j.query.pages)[0];
+    const thumb = page && page.thumbnail && page.thumbnail.source;
+    if (!thumb || PHOTO_BAD.test(thumb)) return null;
+    const orig = page.original && page.original.source;
+    return { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb };
+  } catch (e) { return null; }
+}
+const _heroCache = {};
+async function iconicPhotos(iso) {
+  if (iso in _heroCache) return _heroCache[iso];
+  const settled = await Promise.all(photoSubjects(iso).map(wikiIconic));
+  const out = [], seen = new Set();
+  for (const p of settled) if (p && !seen.has(p.full)) { seen.add(p.full); out.push(p); }
+  if (out.length) _heroCache[iso] = out;
+  return out;
+}
 function loadHeroPhotos(iso) {
   const host = $("guideHero");
   if (!host) return;
-  // Lead image (curated, reliably iconic) first, then more from Commons search.
-  Promise.all([photoURL(iso, 1000).catch(() => null), photoGallery(iso).catch(() => [])])
-    .then(([lead, more]) => {
-      if (ccGuideIso !== iso) return;                 // user moved on
-      const seen = new Set();
-      heroUrls = []; heroIdx = 0;
-      // Curated lead first (wrapped to {thumb, full}), then the Commons set.
-      // Only keep the lead if it's a real /thumb/ URL — MediaWiki only returns
-      // that when the original was large enough to scale, so it filters out the
-      // small/low-res leads that look bad blown up.
-      // Lead only if it's a real /thumb/ image AND not a flag/coat/map (some
-      // country-name queries lead with the flag, which looked wrong cropped).
-      const leadObj = (lead && lead.indexOf("/thumb/") !== -1 && !PHOTO_BAD.test(fileKey(lead)))
-        ? { thumb: lead, full: origFromThumb(lead) } : null;
-      for (const p of [leadObj].concat(more)) {
-        if (!p || !p.thumb) continue;
-        const k = fileKey(p.thumb);
-        if (seen.has(k)) continue;
-        seen.add(k); heroUrls.push(p);
-        if (heroUrls.length >= 6) break;
-      }
-      host.classList.remove("loading");
-      if (!heroUrls.length) { host.classList.add("empty"); return; }
-      host.classList.add("loaded");
-      heroUrls.forEach((p) => { const im = new Image(); im.src = p.thumb; });  // warm cache
-      const multi = heroUrls.length > 1;
-      host.innerHTML =
-        `<img class="heroimg" alt="${esc(countryName(iso))}" title="click to enlarge">` +
-        (multi ? '<button class="heronav prev" type="button" aria-label="previous photo">‹</button>' +
-                 '<button class="heronav next" type="button" aria-label="next photo">›</button>' +
-                 '<div class="herocount"></div>' : "");
-      host.querySelector(".heroimg").addEventListener("click", openLightbox);
-      if (multi) {
-        host.querySelector(".heronav.prev").addEventListener("click", () => heroStep(-1));
-        host.querySelector(".heronav.next").addEventListener("click", () => heroStep(1));
-      }
-      showHero();
-    }).catch(() => {});
+  iconicPhotos(iso).then((photos) => {
+    if (ccGuideIso !== iso) return;                 // user moved on
+    heroUrls = photos.slice(0, 6); heroIdx = 0;
+    host.classList.remove("loading");
+    if (!heroUrls.length) { host.classList.add("empty"); return; }
+    host.classList.add("loaded");
+    heroUrls.forEach((p) => { const im = new Image(); im.src = p.thumb; });  // warm cache
+    const multi = heroUrls.length > 1;
+    host.innerHTML =
+      `<img class="heroimg" alt="${esc(countryName(iso))}" title="click to enlarge">` +
+      (multi ? '<button class="heronav prev" type="button" aria-label="previous photo">‹</button>' +
+               '<button class="heronav next" type="button" aria-label="next photo">›</button>' +
+               '<div class="herocount"></div>' : "");
+    host.querySelector(".heroimg").addEventListener("click", openLightbox);
+    if (multi) {
+      host.querySelector(".heronav.prev").addEventListener("click", () => heroStep(-1));
+      host.querySelector(".heronav.next").addEventListener("click", () => heroStep(1));
+    }
+    showHero();
+  }).catch(() => {});
 }
 function heroStep(d) {
   if (!heroUrls.length) return;
