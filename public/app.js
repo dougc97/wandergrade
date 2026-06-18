@@ -1596,7 +1596,7 @@ function buildCountryAIPrompt(iso) {
   lines.push("- Draft a day-by-day itinerary for a ~5–7 day trip");
   lines.push("- Estimate a rough daily budget and total cost from " + originName);
   lines.push("- Tell me when to book flights and which neighborhoods to stay in");
-  lines.push("- Flag anything seasonal or logistical to know for " + monthName);
+  lines.push("- Work the " + monthName + " season notes above (peak/off, crowds, any heads-up) into the timing and pacing");
   return lines.join("\n");
 }
 
