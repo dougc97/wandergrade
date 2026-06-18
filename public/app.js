@@ -2499,6 +2499,7 @@ function renderVisitedStats() {
 // ===========================================================================
 const loaded = {};
 async function activateTab(name, push) {
+  document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
   for (const b of document.querySelectorAll("#tabs button"))
     b.classList.toggle("active", b.dataset.tab === name);
   for (const s of document.querySelectorAll(".tab"))
