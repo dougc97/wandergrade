@@ -2710,36 +2710,45 @@ async function postApplyShared() {
 // ===========================================================================
 const SHARE_W = 1200, SHARE_H = 630, SHARE_SCALE = 2;   // render at 2x for crispness
 function buildVisitedShareSVG() {
-  const W = SHARE_W, H = SHARE_H, mapW = 1040, latTop = 83, latBot = -56;
-  const mapH = Math.round((mapW * (latTop - latBot)) / 360);   // ~401
+  const W = SHARE_W, H = SHARE_H, mapW = 1000, latTop = 80, latBot = -56;
+  const mapH = Math.round((mapW * (latTop - latBot)) / 360);   // ~378
   let paths = "";
   for (const f of worldGeo.features) {
     const iso = f.properties.iso;
-    const fill = visited.has(iso) ? "#2ecc71" : wishlist.has(iso) ? "#4f9bf0" : "#2a3950";
+    const fill = visited.has(iso) ? "#34d27b" : wishlist.has(iso) ? "#4f9bf0" : "#243449";
     const g = f.geometry;
     const polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
     let d = "";
     for (const poly of polys)
       for (const ring of poly)
         if (ring.length >= 3) d += projectRing(ring, mapW, mapH, latTop, latBot);
-    if (d) paths += `<path d="${d}" fill="${fill}" stroke="#0e1726" stroke-width="0.5"/>`;
+    if (d) paths += `<path d="${d}" fill="${fill}" stroke="#0c1422" stroke-width="0.6"/>`;
   }
   const n = visited.size, m = wishlist.size, pct = Math.max(1, Math.round((n / 195) * 100));
   const sub = n ? `that's ~${pct}% of the world` + (m ? ` · ${m} more on my list` : "")
                 : (m ? `${m} on my wishlist` : "the map awaits");
-  const host = esc(location.host || "where2next");
+  const host = esc(location.host || "wandergrade.com");
   const font = "-apple-system,'Segoe UI',Arial,sans-serif";
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
-    <rect width="${W}" height="${H}" fill="#0e1726"/>
-    <text x="60" y="72" font-family="${font}" font-size="42" font-weight="700" fill="#ffffff">I've been to ${n} ${n === 1 ? "country" : "countries"}</text>
-    <text x="60" y="108" font-family="${font}" font-size="22" fill="#8fa3bd">${esc(sub)}</text>
-    <g transform="translate(${(W - mapW) / 2},126)">${paths}</g>
-    <rect x="0" y="${H - 46}" width="${W}" height="46" fill="#0a1220"/>
-    <circle cx="68" cy="${H - 23}" r="7" fill="#2ecc71"/>
-    <text x="82" y="${H - 17}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">been</text>
-    <circle cx="150" cy="${H - 23}" r="7" fill="#4f9bf0"/>
-    <text x="164" y="${H - 17}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">want to go</text>
-    <text x="${W - 60}" y="${H - 17}" text-anchor="end" font-family="${font}" font-size="19" font-weight="700" fill="#7fd99a">Make your own map → ${host}</text>
+  const headline = n ? `I've been to <tspan fill="#34d27b">${n}</tspan> ${n === 1 ? "country" : "countries"}`
+                     : `My travel <tspan fill="#34d27b">Wanderlist</tspan>`;
+  // Intrinsic size = 2x the viewBox so the browser rasterizes at high-res
+  // (drawing a 1x-intrinsic SVG into a 2x canvas just upscales = blurry).
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W * SHARE_SCALE}" height="${H * SHARE_SCALE}" viewBox="0 0 ${W} ${H}">
+    <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#10192e"/><stop offset="1" stop-color="#0a1220"/>
+    </linearGradient></defs>
+    <rect width="${W}" height="${H}" fill="url(#bg)"/>
+    <text x="60" y="58" font-family="${font}" font-size="20" font-weight="800" letter-spacing="3" fill="#7fd99a">🗺️ WANDERLIST</text>
+    <text x="60" y="106" font-family="${font}" font-size="42" font-weight="800" fill="#ffffff">${headline}</text>
+    <text x="60" y="139" font-family="${font}" font-size="21" fill="#9fb3cd">${esc(sub)}</text>
+    <g transform="translate(${(W - mapW) / 2},156)">${paths}</g>
+    <rect x="0" y="${H - 48}" width="${W}" height="48" fill="#0a1220"/>
+    <rect x="0" y="${H - 49}" width="${W}" height="1.5" fill="#1c2940"/>
+    <circle cx="68" cy="${H - 24}" r="7" fill="#34d27b"/>
+    <text x="83" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">been</text>
+    <circle cx="152" cy="${H - 24}" r="7" fill="#4f9bf0"/>
+    <text x="167" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">want to go</text>
+    <text x="${W - 60}" y="${H - 18}" text-anchor="end" font-family="${font}" font-size="19" font-weight="700" fill="#7fd99a">Make your own → ${host}</text>
   </svg>`;
 }
 
@@ -2765,7 +2774,7 @@ async function downloadVisitedImage() {
       ctx.textBaseline = "alphabetic";
       let line = flags.map((iso) => flagEmoji(iso)).join(" ");
       if (visited.size > flags.length) line += "  +" + (visited.size - flags.length);
-      ctx.fillText(line, 60, SHARE_H - 70, SHARE_W - 120);
+      ctx.fillText(line, 60, SHARE_H - 64, SHARE_W - 120);
     }
     const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
     const file = new File([blob], "countries-visited.png", { type: "image/png" });
