@@ -2708,84 +2708,148 @@ async function postApplyShared() {
 // ===========================================================================
 //  Visited tab: social-media share image (SVG -> canvas -> PNG)
 // ===========================================================================
-const SHARE_W = 1200, SHARE_H = 630, SHARE_SCALE = 3;   // render at 3x so it stays crisp even zoomed
-function buildVisitedShareSVG() {
-  const W = SHARE_W, H = SHARE_H, mapW = 1000, latTop = 80, latBot = -56;
-  const mapH = Math.round((mapW * (latTop - latBot)) / 360);   // ~378
+const SHARE_W = 1200, SHARE_H = 630, STORY_W = 1080, STORY_H = 1920;
+const SHARE_SCALE = 3;   // render at 3x so it stays crisp even zoomed
+
+// Refine the app's 6 regions into true continents for the "N continents" flex.
+const _SOUTH_AMERICA = new Set("CO VE GY SR EC PE BR BO PY CL AR UY GF FK".split(" "));
+const _MENA_AFRICA = new Set("EG MA DZ TN LY".split(" "));
+function continentOf(iso) {
+  const r = ISO_REGION[iso];
+  if (!r) return null;
+  if (r === "AMER") return _SOUTH_AMERICA.has(iso) ? "SA" : "NA";
+  if (r === "MENA") return _MENA_AFRICA.has(iso) ? "AF" : "AS";
+  return { EUR: "EU", ASIA: "AS", AFRICA: "AF", OCEANIA: "OC" }[r] || null;
+}
+function visitedContinents() {
+  const s = new Set();
+  for (const iso of visited) { const c = continentOf(iso); if (c) s.add(c); }
+  return s.size;
+}
+// Honest, count-based milestone tiers (not a fabricated "top X%" percentile).
+function travelMilestone(n) {
+  return n >= 100 ? "🏆 100+ Club" : n >= 50 ? "⭐ Globe Master"
+       : n >= 25 ? "🌟 Seasoned Traveler" : n >= 15 ? "🌍 Globetrotter"
+       : n >= 7 ? "🧭 Explorer" : null;
+}
+
+// orientation: "landscape" (1200x630, for X/LinkedIn/FB) or "story" (1080x1920,
+// for Instagram/TikTok Stories). Returns { svg, W, H, flag } — flags are drawn
+// on the canvas afterward (SVG can't render emoji).
+function buildVisitedShareSVG(orientation) {
+  const story = orientation === "story";
+  const W = story ? STORY_W : SHARE_W, H = story ? STORY_H : SHARE_H;
+  const n = visited.size, m = wishlist.size, pct = Math.max(1, Math.round((n / 195) * 100));
+  const cont = visitedContinents(), badge = travelMilestone(n);
+  const host = esc(location.host || "wandergrade.com");
+  const font = "-apple-system,'Segoe UI',Arial,sans-serif";
+
+  const mapW = story ? 1040 : 960, latTop = 80, latBot = -56;
+  const mapH = Math.round((mapW * (latTop - latBot)) / 360);
   let paths = "";
   for (const f of worldGeo.features) {
     const iso = f.properties.iso;
     const fill = visited.has(iso) ? "#34d27b" : wishlist.has(iso) ? "#4f9bf0" : "#243449";
-    const g = f.geometry;
-    const polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
+    const g = f.geometry, polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
     let d = "";
-    for (const poly of polys)
-      for (const ring of poly)
-        if (ring.length >= 3) d += projectRing(ring, mapW, mapH, latTop, latBot);
+    for (const poly of polys) for (const ring of poly)
+      if (ring.length >= 3) d += projectRing(ring, mapW, mapH, latTop, latBot);
     if (d) paths += `<path d="${d}" fill="${fill}" stroke="#0c1422" stroke-width="0.6"/>`;
   }
-  const n = visited.size, m = wishlist.size, pct = Math.max(1, Math.round((n / 195) * 100));
-  const sub = n ? `that's ~${pct}% of the world` + (m ? ` · ${m} more on my list` : "")
-                : (m ? `${m} on my wishlist` : "the map awaits");
-  const host = esc(location.host || "wandergrade.com");
-  const font = "-apple-system,'Segoe UI',Arial,sans-serif";
-  const headline = n ? `I've been to <tspan fill="#34d27b">${n}</tspan> ${n === 1 ? "country" : "countries"}`
-                     : `My travel <tspan fill="#34d27b">Wanderlist</tspan>`;
-  // Intrinsic size = 2x the viewBox so the browser rasterizes at high-res
-  // (drawing a 1x-intrinsic SVG into a 2x canvas just upscales = blurry).
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W * SHARE_SCALE}" height="${H * SHARE_SCALE}" viewBox="0 0 ${W} ${H}">
-    <defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#10192e"/><stop offset="1" stop-color="#0a1220"/>
-    </linearGradient></defs>
-    <rect width="${W}" height="${H}" fill="url(#bg)"/>
-    <text x="60" y="58" font-family="${font}" font-size="20" font-weight="800" letter-spacing="3" fill="#7fd99a">🗺️ WANDERLIST</text>
-    <text x="60" y="106" font-family="${font}" font-size="42" font-weight="800" fill="#ffffff">${headline}</text>
-    <text x="60" y="139" font-family="${font}" font-size="21" fill="#9fb3cd">${esc(sub)}</text>
-    <g transform="translate(${(W - mapW) / 2},156)">${paths}</g>
-    <rect x="0" y="${H - 48}" width="${W}" height="48" fill="#0a1220"/>
-    <rect x="0" y="${H - 49}" width="${W}" height="1.5" fill="#1c2940"/>
-    <circle cx="68" cy="${H - 24}" r="7" fill="#34d27b"/>
-    <text x="83" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">been</text>
-    <circle cx="152" cy="${H - 24}" r="7" fill="#4f9bf0"/>
-    <text x="167" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">want to go</text>
-    <text x="${W - 60}" y="${H - 18}" text-anchor="end" font-family="${font}" font-size="19" font-weight="700" fill="#7fd99a">Make your own → ${host}</text>
-  </svg>`;
+
+  const stat = [];
+  if (cont) stat.push(`🌍 ${cont} continent${cont === 1 ? "" : "s"}`);
+  if (n) stat.push(`~${pct}% of the world`);
+  const statLine = stat.join("   ·   ");
+  const listLine = m ? `${m} more on my list` : "";
+
+  // milestone pill (anchor: "middle" centers on cx; "end" right-aligns to cx)
+  const pill = (cx, cy, text, anchor) => {
+    if (!text) return "";
+    const w = text.length * 11 + 52, x = anchor === "middle" ? cx - w / 2 : cx - w;
+    return `<rect x="${x}" y="${cy - 25}" width="${w}" height="38" rx="19" fill="#12331e" stroke="#34d27b" stroke-width="1.5"/>`
+      + `<text x="${x + w / 2}" y="${cy + 1}" text-anchor="middle" font-family="${font}" font-size="18" font-weight="700" fill="#7fd99a">${esc(text)}</text>`;
+  };
+
+  const grad = `<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0" stop-color="#10192e"/><stop offset="1" stop-color="#0a1220"/></linearGradient></defs>`
+    + `<rect width="${W}" height="${H}" fill="url(#bg)"/>`;
+
+  let inner, flag;
+  if (story) {
+    const cx = W / 2, big = String(n || m || 0);
+    inner = `
+      <text x="${cx}" y="160" text-anchor="middle" font-family="${font}" font-size="30" font-weight="800" letter-spacing="6" fill="#7fd99a">🗺️ WANDERLIST</text>
+      <text x="${cx}" y="440" text-anchor="middle" font-family="${font}" font-size="260" font-weight="800" fill="#34d27b">${big}</text>
+      <text x="${cx}" y="520" text-anchor="middle" font-family="${font}" font-size="48" font-weight="700" fill="#ffffff">${n ? (n === 1 ? "country visited" : "countries visited") : "on my wishlist"}</text>
+      ${badge ? pill(cx, 610, badge, "middle") : ""}
+      ${statLine ? `<text x="${cx}" y="${badge ? 700 : 660}" text-anchor="middle" font-family="${font}" font-size="36" fill="#9fb3cd">${esc(statLine)}</text>` : ""}
+      <g transform="translate(${(W - mapW) / 2},900)">${paths}</g>
+      ${listLine ? `<text x="${cx}" y="1480" text-anchor="middle" font-family="${font}" font-size="34" fill="#9fb3cd">✦ ${esc(listLine)}</text>` : ""}
+      <circle cx="${cx - 168}" cy="1632" r="9" fill="#34d27b"/><text x="${cx - 150}" y="1641" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">been</text>
+      <circle cx="${cx + 14}" cy="1632" r="9" fill="#4f9bf0"/><text x="${cx + 32}" y="1641" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">want to go</text>
+      <text x="${cx}" y="1772" text-anchor="middle" font-family="${font}" font-size="32" fill="#8fa3bd">Make your own map →</text>
+      <text x="${cx}" y="1822" text-anchor="middle" font-family="${font}" font-size="42" font-weight="800" fill="#7fd99a">${host}</text>`;
+    flag = { x: cx, y: 1350, size: 46, align: "center" };
+  } else {
+    const headline = n
+      ? `I've been to <tspan font-size="58" fill="#34d27b">${n}</tspan> ${n === 1 ? "country" : "countries"}`
+      : `My travel <tspan fill="#34d27b">Wanderlist</tspan>`;
+    const subParts = [statLine, listLine].filter(Boolean).join("   ·   ");
+    inner = `
+      <text x="60" y="52" font-family="${font}" font-size="20" font-weight="800" letter-spacing="3" fill="#7fd99a">🗺️ WANDERLIST</text>
+      ${badge ? pill(W - 50, 50, badge, "end") : ""}
+      <text x="60" y="116" font-family="${font}" font-size="42" font-weight="800" fill="#ffffff">${headline}</text>
+      ${subParts ? `<text x="60" y="150" font-family="${font}" font-size="21" fill="#9fb3cd">${esc(subParts)}</text>` : ""}
+      <g transform="translate(${(W - mapW) / 2},168)">${paths}</g>
+      <rect x="0" y="${H - 48}" width="${W}" height="48" fill="#0a1220"/>
+      <rect x="0" y="${H - 49}" width="${W}" height="1.5" fill="#1c2940"/>
+      <circle cx="68" cy="${H - 24}" r="7" fill="#34d27b"/><text x="83" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">been</text>
+      <circle cx="152" cy="${H - 24}" r="7" fill="#4f9bf0"/><text x="167" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">want to go</text>
+      <text x="${W - 60}" y="${H - 18}" text-anchor="end" font-family="${font}" font-size="19" font-weight="700" fill="#7fd99a">Make your own → ${host}</text>`;
+    flag = { x: 60, y: H - 64, size: 30, align: "left" };
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W * SHARE_SCALE}" height="${H * SHARE_SCALE}" viewBox="0 0 ${W} ${H}">${grad}${inner}</svg>`;
+  return { svg, W, H, flag };
 }
 
-async function downloadVisitedImage() {
+async function downloadVisitedImage(orientation) {
   try {
     await ensureWorld();
     loadVisited(); loadWishlist();
-    const svg = buildVisitedShareSVG();
+    const { svg, W, H, flag } = buildVisitedShareSVG(orientation);
     const blobUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
     const img = new Image();
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = blobUrl; });
     const canvas = document.createElement("canvas");
-    canvas.width = SHARE_W * SHARE_SCALE; canvas.height = SHARE_H * SHARE_SCALE;
+    canvas.width = W * SHARE_SCALE; canvas.height = H * SHARE_SCALE;
     const ctx = canvas.getContext("2d");
     ctx.scale(SHARE_SCALE, SHARE_SCALE);
-    ctx.drawImage(img, 0, 0, SHARE_W, SHARE_H);
+    ctx.drawImage(img, 0, 0, W, H);
     URL.revokeObjectURL(blobUrl);
     // Flag emojis of the countries you've been to (canvas fillText renders emoji
     // where the SVG path can't). Capped so a big list doesn't overflow.
     const flags = [...visited].slice(0, 26);
-    if (flags.length) {
-      ctx.font = "30px -apple-system,'Segoe UI',Arial,sans-serif";
+    if (flags.length && flag) {
+      ctx.font = flag.size + "px -apple-system,'Segoe UI',Arial,sans-serif";
       ctx.textBaseline = "alphabetic";
+      ctx.textAlign = flag.align === "center" ? "center" : "left";
       let line = flags.map((iso) => flagEmoji(iso)).join(" ");
       if (visited.size > flags.length) line += "  +" + (visited.size - flags.length);
-      ctx.fillText(line, 60, SHARE_H - 64, SHARE_W - 120);
+      ctx.fillText(line, flag.x, flag.y, W - 120);
+      ctx.textAlign = "left";
     }
     const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
-    const file = new File([blob], "countries-visited.png", { type: "image/png" });
+    const name = orientation === "story" ? "wanderlist-story.png" : "wanderlist-map.png";
+    const file = new File([blob], name, { type: "image/png" });
     // Native share sheet on phones (posts straight to socials); download elsewhere.
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: "Countries I've visited" }); return; }
+      try { await navigator.share({ files: [file], title: "My Wanderlist" }); return; }
       catch (e) { /* cancelled -> download instead */ }
     }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "countries-visited.png";
+    a.download = name;
     a.click();
     status("Share image downloaded — post it anywhere 🌍", "ok");
   } catch (e) {
@@ -2794,7 +2858,8 @@ async function downloadVisitedImage() {
 }
 
 $("shareBtn").addEventListener("click", shareCurrent);
-$("visitedImage").addEventListener("click", downloadVisitedImage);
+$("visitedImage").addEventListener("click", () => downloadVisitedImage("landscape"));
+if ($("visitedStory")) $("visitedStory").addEventListener("click", () => downloadVisitedImage("story"));
 if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);
 // ("Use on another device" was removed — the Share button already produces a
 //  URL carrying your map across devices.)
