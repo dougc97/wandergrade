@@ -107,23 +107,26 @@ def get_flights(origin_iso, currency="usd"):
         if price is None or not dest_iso or dest_iso == origin_iso:
             continue
         a = agg.setdefault(dest_iso, {"sum": 0.0, "n": 0, "min": price,
-                                      "dur": None, "stops": None})
+                                      "dur": None, "stops": None,
+                                      "dest": r.get("destination")})
         a["sum"] += price
         a["n"] += 1
         if price <= a["min"]:
             # Travel time + layovers belong to the cheapest itinerary — the one
             # someone would actually book. The v3 latest-prices feed names the
             # layover count "number_of_changes" (not "transfers"); duration is
-            # in minutes.
+            # in minutes. We also keep that itinerary's destination city code so
+            # the frontend can deep-link an Aviasales search to the exact city.
             a["min"] = price
             a["dur"] = r.get("duration_to") or r.get("duration")
+            a["dest"] = r.get("destination")
             stops = r.get("number_of_changes")
             if stops is None:
                 stops = r.get("transfers")
             a["stops"] = stops
 
     countries = [{"iso": iso, "avg": round(a["sum"] / a["n"]), "min": round(a["min"]),
-                  "n": a["n"], "dur": a["dur"], "stops": a["stops"]}
+                  "n": a["n"], "dur": a["dur"], "stops": a["stops"], "dest": a["dest"]}
                  for iso, a in agg.items()]
     countries.sort(key=lambda c: c["avg"])
 

@@ -2040,6 +2040,27 @@ function renderValue() {
 let flightsData = null;
 let flightOrigins = null;
 
+// Travelpayouts affiliate marker (public ID for Aviasales links — distinct from
+// the server-side TRAVELPAYOUTS_TOKEN). Bookings made within the cookie window
+// after clicking these links earn commission. See FTC disclosure in the footer.
+const TP_MARKER = "738472";
+
+// Deep-link an Aviasales search from the current origin hub to a destination
+// city. Aviasales' search path is ORIGIN+DDMM (outbound) + DEST+DDMM (return) +
+// passengers; we default to ~2 months out for 10 nights, 1 traveler — a sane
+// starting point the user can adjust on Aviasales. Returns null if we lack the
+// hub or a destination city (older cached fares have no `dest`).
+function flightSearchURL(dest) {
+  if (!dest || !flightsData || !flightsData.hub) return null;
+  const dep = new Date(); dep.setDate(dep.getDate() + 60);
+  const ret = new Date(dep); ret.setDate(ret.getDate() + 10);
+  const p = (n) => String(n).padStart(2, "0");
+  const seg = (d) => p(d.getDate()) + p(d.getMonth() + 1);
+  const path = flightsData.hub + seg(dep) + dest + seg(ret) + "1";
+  return "https://www.aviasales.com/search/" + encodeURIComponent(path) +
+         "?marker=" + TP_MARKER;
+}
+
 async function ensureOrigins() {
   if (!flightOrigins) flightOrigins = (await getJSON("/api/flight-origins")).origins;
   return flightOrigins;
@@ -2104,15 +2125,21 @@ function renderFlights() {
   }, "Average flight prices by destination country");
 
   $("flightSub").innerHTML =
-    `Average international round-trips from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}) · ${countries.length} destination countries · greener = cheaper · <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above the typical fare for the distance.`;
+    `Average international round-trips from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}) · ${countries.length} destination countries · greener = cheaper · <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above the typical fare for the distance · <b>click a fare ↗</b> to search that route on Aviasales.`;
   $("flightLegend").innerHTML =
     '<span>Cheaper</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Pricier</span>';
 
   $("flightRows").innerHTML = countries.map((c) => {
     const exp = expected ? expected(c.iso) : null;
     const arrow = priceArrow(Number(c.avg) || null, exp, "the typical fare for this distance");
+    const fare = `${esc(cur)} ${Number(c.avg) || "?"}`;
+    const url = flightSearchURL(c.dest);
+    const fareCell = url
+      ? `<a class="farelink" href="${url}" target="_blank" rel="sponsored nofollow noopener"
+            title="Search ${esc(countryName(c.iso))} flights on Aviasales"><b>${fare}</b> <span class="ext">↗</span></a>`
+      : `<b>${fare}</b>`;
     return `<tr data-iso="${esc(c.iso)}"><td>${esc(countryName(c.iso))}</td>
-      <td class="num"><b>${esc(cur)} ${Number(c.avg) || "?"}</b> ${arrow}</td>
+      <td class="num">${fareCell} ${arrow}</td>
       <td class="num">${esc(cur)} ${Number(c.min) || "?"}</td>
       <td class="num">${fmtDuration(c.dur)}</td>
       <td class="num">${fmtStops(c.stops)}</td>
