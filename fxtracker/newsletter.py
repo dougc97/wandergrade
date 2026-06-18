@@ -8,7 +8,6 @@ pushing our generated digest to all subscribers via the Buttondown API.
 
 import json
 import os
-import urllib.parse
 import urllib.request
 
 from . import rates  # reuse verifying SSL context
@@ -66,26 +65,20 @@ def _grade(score):
 SITE = "https://wandergrade.com"
 
 
-def _guide_url(iso):
-    return "{0}/?tab=guide&gc={1}".format(SITE, iso)
+def _guide_url(iso, month):
+    return "{0}/?tab=guide&gc={1}&vmn={2}".format(SITE, iso, month)
 
 
-def _ai_url(s, month_name):
-    """A ChatGPT link pre-filled with a planning prompt for this destination —
-    the email's version of the site's 'Plan with AI' button."""
-    acts = ", ".join(s.get("activities") or [])
-    prompt = (
-        "Help me plan a trip to {name} in {mn}. I'm traveling from the US. "
-        "Suggest a 5–7 day itinerary{acts}, the best areas to stay, a rough "
-        "daily budget, and tips on when to book flights and hotels. Flag any "
-        "visa, safety, or weather gotchas for {mn}."
-    ).format(name=s["name"], mn=month_name,
-             acts=(" (must-sees like " + acts + ")") if acts else "")
-    return "https://chatgpt.com/?q=" + urllib.parse.quote(prompt)
+def _ai_url(iso, month):
+    """Deep link to the site's Travel Guide for this country with the
+    'Plan with AI' panel auto-opened (ai=1), month-aware via vmn. Keeps the AI
+    hand-off on-site, where the prompt is richer and the reader can pick
+    ChatGPT / Claude / copy."""
+    return "{0}/?tab=guide&gc={1}&vmn={2}&ai=1".format(SITE, iso, month)
 
 
-def _pick_card(s, month_name):
-    g = _guide_url(s["iso"])
+def _pick_card(s, month):
+    g = _guide_url(s["iso"], month)
     lines = []
     if s.get("photo"):
         lines.append("[![{name}]({src})]({g})".format(
@@ -98,16 +91,16 @@ def _pick_card(s, month_name):
     if s.get("activities"):
         lines.append("**Don't miss:** " + ", ".join(s["activities"]))
     lines.append("📖 [Travel guide]({g})  ·  ✨ [Plan with AI]({ai})".format(
-        g=g, ai=_ai_url(s, month_name)))
+        g=g, ai=_ai_url(s["iso"], month)))
     return "\n".join(lines)
 
 
-def _gem_line(s, month_name):
+def _gem_line(s, month):
     return ("{flag} **[{name}]({g})** — **{ov}**  ·  💰 {a} · 🛡️ {sf} · 🌤️ {w}  "
-            "·  [guide]({g}) · [AI]({ai})").format(
-        flag=s["flag"], name=s["name"], g=_guide_url(s["iso"]), ov=_grade(s["value"]),
+            "·  [guide]({g}) · [plan with AI]({ai})").format(
+        flag=s["flag"], name=s["name"], g=_guide_url(s["iso"], month), ov=_grade(s["value"]),
         a=_grade(s["afford"]), sf=_FLAG.get(s["advLvl"], "B"), w=_grade(s["wx"]),
-        ai=_ai_url(s, month_name))
+        ai=_ai_url(s["iso"], month))
 
 
 def render_digest(data):
@@ -123,7 +116,7 @@ def render_digest(data):
         "",
         "## 🌟 Top picks",
         "",
-        "\n\n".join(_pick_card(s, mn) for s in data["picks"]),
+        "\n\n".join(_pick_card(s, data["month"]) for s in data["picks"]),
     ]
 
     if data["gems"]:
@@ -132,7 +125,7 @@ def render_digest(data):
             "## 💎 Hidden gems",
             "Less-touristed, high-value spots the crowds tend to miss:",
             "",
-            "\n\n".join(_gem_line(s, mn) for s in data["gems"]),
+            "\n\n".join(_gem_line(s, data["month"]) for s in data["gems"]),
         ]
 
     out += [
