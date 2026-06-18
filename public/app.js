@@ -2710,6 +2710,7 @@ async function postApplyShared() {
 // ===========================================================================
 const SHARE_W = 1200, SHARE_H = 630, STORY_W = 1080, STORY_H = 1920;
 const SHARE_SCALE = 3;   // render at 3x so it stays crisp even zoomed
+const SHARE_PINS = true; // drop a red location pin on each visited country
 
 // Refine the app's 6 regions into true continents for the "N continents" flex.
 const _SOUTH_AMERICA = new Set("CO VE GY SR EC PE BR BO PY CL AR UY GF FK".split(" "));
@@ -2736,7 +2737,7 @@ function travelMilestone(n) {
 // orientation: "landscape" (1200x630, for X/LinkedIn/FB) or "story" (1080x1920,
 // for Instagram/TikTok Stories). Returns { svg, W, H, flag } — flags are drawn
 // on the canvas afterward (SVG can't render emoji).
-function buildVisitedShareSVG(orientation) {
+function buildVisitedShareSVG(orientation, withPins) {
   const story = orientation === "story";
   const W = story ? STORY_W : SHARE_W, H = story ? STORY_H : SHARE_H;
   const n = visited.size, m = wishlist.size, pct = Math.max(1, Math.round((n / 195) * 100));
@@ -2757,6 +2758,22 @@ function buildVisitedShareSVG(orientation) {
     if (d) paths += `<path d="${d}" fill="${fill}" stroke="#0c1422" stroke-width="0.6"/>`;
   }
 
+  // Optional red "you-are-here" pins on visited countries — the physical-map
+  // marking metaphor, and they also flag tiny countries the fill can't show.
+  let pins = "";
+  if (withPins) {
+    const cen = countryCentroids();
+    for (const iso of visited) {
+      const c = cen[iso];
+      if (!c) continue;
+      const px = ((c[0] + 180) / 360) * mapW, py = ((latTop - c[1]) / (latTop - latBot)) * mapH;
+      if (px < 0 || px > mapW || py < 0 || py > mapH) continue;
+      pins += `<g transform="translate(${px.toFixed(1)},${py.toFixed(1)})">`
+        + `<path d="M0,0 C-1.5,-3 -6.5,-7.5 -6.5,-12 A6.5,6.5 0 1 1 6.5,-12 C6.5,-7.5 1.5,-3 0,0 Z" fill="#ff4d57" stroke="#0a0c10" stroke-width="0.8"/>`
+        + `<circle cy="-12" r="2.6" fill="#fff"/></g>`;
+    }
+  }
+
   const stat = [];
   if (cont) stat.push(`🌍 ${cont} continent${cont === 1 ? "" : "s"}`);
   if (n) stat.push(`~${pct}% of the world`);
@@ -2772,7 +2789,7 @@ function buildVisitedShareSVG(orientation) {
   };
 
   const grad = `<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">`
-    + `<stop offset="0" stop-color="#10192e"/><stop offset="1" stop-color="#0a1220"/></linearGradient></defs>`
+    + `<stop offset="0" stop-color="#0a0c12"/><stop offset="1" stop-color="#030407"/></linearGradient></defs>`
     + `<rect width="${W}" height="${H}" fill="url(#bg)"/>`;
 
   let inner, flag;
@@ -2784,7 +2801,7 @@ function buildVisitedShareSVG(orientation) {
       <text x="${cx}" y="520" text-anchor="middle" font-family="${font}" font-size="48" font-weight="700" fill="#ffffff">${n ? (n === 1 ? "country visited" : "countries visited") : "on my wishlist"}</text>
       ${badge ? pill(cx, 610, badge, "middle") : ""}
       ${statLine ? `<text x="${cx}" y="${badge ? 700 : 660}" text-anchor="middle" font-family="${font}" font-size="36" fill="#9fb3cd">${esc(statLine)}</text>` : ""}
-      <g transform="translate(${(W - mapW) / 2},900)">${paths}</g>
+      <g transform="translate(${(W - mapW) / 2},900)">${paths}${pins}</g>
       ${listLine ? `<text x="${cx}" y="1480" text-anchor="middle" font-family="${font}" font-size="34" fill="#9fb3cd">✦ ${esc(listLine)}</text>` : ""}
       <circle cx="${cx - 168}" cy="1632" r="9" fill="#34d27b"/><text x="${cx - 150}" y="1641" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">been</text>
       <circle cx="${cx + 14}" cy="1632" r="9" fill="#4f9bf0"/><text x="${cx + 32}" y="1641" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">want to go</text>
@@ -2801,12 +2818,12 @@ function buildVisitedShareSVG(orientation) {
       ${badge ? pill(W - 50, 50, badge, "end") : ""}
       <text x="60" y="116" font-family="${font}" font-size="42" font-weight="800" fill="#ffffff">${headline}</text>
       ${subParts ? `<text x="60" y="150" font-family="${font}" font-size="21" fill="#9fb3cd">${esc(subParts)}</text>` : ""}
-      <g transform="translate(${(W - mapW) / 2},168)">${paths}</g>
-      <rect x="0" y="${H - 48}" width="${W}" height="48" fill="#0a1220"/>
+      <g transform="translate(${(W - mapW) / 2},168)">${paths}${pins}</g>
+      <rect x="0" y="${H - 48}" width="${W}" height="48" fill="#000000"/>
       <rect x="0" y="${H - 49}" width="${W}" height="1.5" fill="#1c2940"/>
       <circle cx="68" cy="${H - 24}" r="7" fill="#34d27b"/><text x="83" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">been</text>
       <circle cx="152" cy="${H - 24}" r="7" fill="#4f9bf0"/><text x="167" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">want to go</text>
-      <text x="${W - 60}" y="${H - 18}" text-anchor="end" font-family="${font}" font-size="19" font-weight="700" fill="#7fd99a">Make your own → ${host}</text>`;
+      <text x="${W - 60}" y="${H - 18}" text-anchor="end" font-family="${font}" font-size="19" font-weight="700" fill="#7fd99a">Make your own map → ${host}</text>`;
     flag = { x: 60, y: H - 64, size: 30, align: "left" };
   }
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W * SHARE_SCALE}" height="${H * SHARE_SCALE}" viewBox="0 0 ${W} ${H}">${grad}${inner}</svg>`;
@@ -2817,7 +2834,7 @@ async function downloadVisitedImage(orientation) {
   try {
     await ensureWorld();
     loadVisited(); loadWishlist();
-    const { svg, W, H, flag } = buildVisitedShareSVG(orientation);
+    const { svg, W, H, flag } = buildVisitedShareSVG(orientation, SHARE_PINS);
     const blobUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
     const img = new Image();
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = blobUrl; });
