@@ -513,7 +513,7 @@ function renderCountryCard() {
     </div>`;
   card.querySelector(".ccclose").onclick = () => { card.remove(); ccCurrent = null; };
   const todo = card.querySelector('[data-cc="todo"]');
-  if (todo) todo.onclick = () => openGuideFor(iso);
+  if (todo) todo.onclick = () => openGuideFor(iso, true);
   const mark = (mode) => {
     const prev = visitMode; visitMode = mode; toggleMark(iso); visitMode = prev;
     renderCountryCard();
@@ -936,8 +936,8 @@ function buildBestPickers() {
 }
 
 // Open the guide tab focused on a specific country (used by the map detail card).
-async function openGuideFor(iso) {
-  await activateTab("guide");
+async function openGuideFor(iso, push) {
+  await activateTab("guide", push);
   const ctry = $("bestCountry");
   if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
   if (ctry._sync) ctry._sync();
@@ -1852,14 +1852,14 @@ document.addEventListener("click", (e) => {
   const cell = e.target.closest(".gradetable td.scell[data-go]");
   if (cell && cell.dataset.iso) { goToDetail(cell.dataset.go, cell.dataset.iso); return; }
   const t = e.target.closest(".pickcard, .gradetable tr[data-iso]");
-  if (t && t.dataset.iso) openGuideFor(t.dataset.iso);
+  if (t && t.dataset.iso) openGuideFor(t.dataset.iso, true);
 });
 
 // Jump from a Top Picks score to the matching detail view, filtered to the
 // country. Weather lives in the Travel Guide; the rest in Explore the Data.
 async function goToDetail(go, iso) {
-  if (go === "weather") { openGuideFor(iso); return; }
-  await activateTab("data");
+  if (go === "weather") { openGuideFor(iso, true); return; }
+  await activateTab("data", true);
   await setDataMode(go);
   const code = CUR_BY_ISO[iso];
   const scrollTo = (sel) => { const el = document.querySelector(sel); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); };
@@ -2434,7 +2434,7 @@ function renderVisited() {
 //  Tab switching (lazy-load each tab's data on first open)
 // ===========================================================================
 const loaded = {};
-async function activateTab(name) {
+async function activateTab(name, push) {
   for (const b of document.querySelectorAll("#tabs button"))
     b.classList.toggle("active", b.dataset.tab === name);
   for (const s of document.querySelectorAll(".tab"))
@@ -2462,10 +2462,10 @@ async function activateTab(name) {
   } catch (e) {
     status("Could not load " + name + ": " + e.message, "err");
   }
-  syncURL();
+  syncURL(push);
 }
 for (const b of document.querySelectorAll("#tabs button"))
-  b.addEventListener("click", () => activateTab(b.dataset.tab));
+  b.addEventListener("click", () => activateTab(b.dataset.tab, true));
 
 // Explore-the-Data sub-views: currency / cost of living / safety / flights.
 let dataMode = "currency";
@@ -2576,10 +2576,39 @@ function buildShareURL(forShare) {
 // (or bookmark) lands the user right back where they were. Gated until init
 // finishes restoring state, so it never clobbers the params being read.
 let appReady = false;
-function syncURL() {
-  if (!appReady) return;
-  try { history.replaceState(null, "", buildShareURL(false)); } catch (e) {}
+let restoringHistory = false;   // true while applying a popstate (don't re-write the entry)
+// push=true adds a history entry (real navigation: tab / country / detail) so the
+// browser Back button returns to it; otherwise we replace (minor filter tweaks
+// shouldn't pile up history). Only pushes when the URL actually changed.
+function syncURL(push) {
+  if (!appReady || restoringHistory) return;
+  try {
+    const url = buildShareURL(false);
+    const cur = location.pathname + location.search;
+    if (push && url !== cur) history.pushState(null, "", url);
+    else history.replaceState(null, "", url);
+  } catch (e) {}
 }
+
+// Back/forward: re-apply the tab + key state from the URL. Guarded so the
+// restore doesn't itself push or overwrite the entry we're navigating to.
+window.addEventListener("popstate", async () => {
+  if (!appReady) return;
+  restoringHistory = true;
+  try {
+    const q = new URLSearchParams(location.search);
+    const tab = q.get("tab") || "value";
+    const vmn = q.get("vmn"), vmSel = $("valueMonth");
+    if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) vmSel.value = vmn;
+    await activateTab(tab, false);
+    if (tab === "guide" && q.get("gc")) await openGuideFor(q.get("gc"), false);
+    else if (tab === "data" && q.get("dm")) await setDataMode(q.get("dm"));
+  } catch (e) {
+    /* best-effort restore */
+  } finally {
+    restoringHistory = false;
+  }
+});
 
 async function shareCurrent() {
   const url = buildShareURL();
