@@ -86,10 +86,9 @@ html[data-tab="guide"]   #tab-guide,
 html[data-tab="visited"] #tab-visited,
 html[data-tab="data"]    #tab-data { display: block; }
 @media (max-width: 760px) {
-  /* one swipeable row instead of wrapping into 3 rows of tabs */
-  .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-  .tabs::-webkit-scrollbar { display: none; }
-  .tabs button { flex: 0 0 auto; white-space: nowrap; }
+  /* Wrap compactly so every tab stays visible (no hidden horizontal scroll). */
+  .tabs { flex-wrap: wrap; gap: 2px 6px; }
+  .tabs button { white-space: nowrap; padding: 9px 11px; font-size: 13px; }
 }
 
 .cardwide { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 16px; }
@@ -201,6 +200,7 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .lvl1 { background: #0a7d28; } .lvl2 { background: #c9a200; } .lvl3 { background: #d4730a; } .lvl4 { background: #b00020; }
 
 header { padding-top: 28px; }
+.brand { font-size: 15px; font-weight: 800; letter-spacing: .3px; color: var(--green); margin: 0 0 2px; }
 h1 { margin: 0 0 4px; font-size: 26px; }
 .sub { color: var(--gray); margin: 0 0 16px; }
 
