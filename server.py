@@ -58,6 +58,29 @@ CONTENT_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
+    ".txt": "text/plain; charset=utf-8",
+    ".xml": "application/xml; charset=utf-8",
+}
+
+# Sent on every response. The CSP allows our own assets plus the few external
+# origins the app genuinely uses: the Stay22 map iframe, Wikipedia/Wikimedia
+# image+API fetches, and inline <style>/<script> the page relies on. form-action
+# is intentionally left unset so the newsletter form can POST to Buttondown.
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' data:; "
+        "connect-src 'self' https:; "
+        "frame-src https://www.stay22.com https://stay22.com; "
+        "frame-ancestors 'self'; "
+        "base-uri 'self'"
+    ),
 }
 
 
@@ -83,7 +106,9 @@ def _base_param(qs):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "fx-tracker/1.0"
+    # Generic identity — don't advertise the framework/Python version.
+    server_version = "Wandergrade"
+    sys_version = ""
 
     # ---- helpers ---------------------------------------------------------
     def _gzip_ok(self):
@@ -98,6 +123,8 @@ class Handler(BaseHTTPRequestHandler):
             body = gzip.compress(body, 6)
             encoding = "gzip"
         self.send_response(status)
+        for hk, hv in SECURITY_HEADERS.items():
+            self.send_header(hk, hv)
         self.send_header("Content-Type", ctype)
         if encoding:
             self.send_header("Content-Encoding", encoding)
