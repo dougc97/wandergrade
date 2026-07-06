@@ -89,14 +89,14 @@ SECURITY_HEADERS = {
 # these defaults; a /guide/<slug> page gets country-specific values (+ SSR body).
 _WEBSITE_JSONLD = (
     '<script type="application/ld+json">'
-    '{"@context":"https://schema.org","@type":"WebSite","name":"Wandergrade",'
+    '{"@context":"https://schema.org","@type":"WebSite","name":"WanderGrade",'
     '"url":"https://wandergrade.com/",'
     '"description":"Every country graded A+ to F on prices, weather, safety and flights — '
     'decide where and when to travel next."}'
     "</script>"
 )
 _HTML_DEFAULTS = {
-    "TITLE": "Wandergrade — Where Should I Travel to Next?",
+    "TITLE": "WanderGrade — Where Should I Travel to Next?",
     "DESC": "Decide where — and when — to go. Every country graded A+ to F on "
             "prices, weather, safety, and flights. Free, no sign-up.",
     "OGTITLE": "Where Should I Travel to Next?",
@@ -160,7 +160,7 @@ def _base_param(qs):
 
 class Handler(BaseHTTPRequestHandler):
     # Generic identity — don't advertise the framework/Python version.
-    server_version = "Wandergrade"
+    server_version = "WanderGrade"
     sys_version = ""
 
     # ---- helpers ---------------------------------------------------------

@@ -120,8 +120,8 @@ def render(iso):
         desc = "Best time to visit %s: %s. %s" % (name, best_txt, desc)
     desc = _clip(desc)
 
-    title = "%s Travel Guide — Best Time to Visit & What to Do | Wandergrade" % name
-    og_title = "%s Travel Guide — Wandergrade" % name
+    title = "%s Travel Guide — Best Time to Visit & What to Do | WanderGrade" % name
+    og_title = "%s Travel Guide — WanderGrade" % name
     url = "%s/guide/%s" % (SITE, slug)
 
     p = ["<h1>%s Travel Guide</h1>" % html.escape(name)]

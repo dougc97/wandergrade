@@ -718,7 +718,7 @@ function renderGuideStay(iso) {
       '<iframe class="staymap" title="Stay22 hotel and hostel price map" loading="lazy" ' +
       'frameborder="0" referrerpolicy="no-referrer-when-downgrade" src="' + src + '"></iframe>' +
       '<p class="staynote">Live hotel, hostel &amp; rental prices via Stay22, set to your travel month. ' +
-      "Wandergrade may earn a commission if you book — at no extra cost to you.</p>";
+      "WanderGrade may earn a commission if you book — at no extra cost to you.</p>";
     host.hidden = false;
   }).catch(() => {});
 }
@@ -1798,7 +1798,7 @@ function buildCountryAIPrompt(iso) {
   const originName = origin && origin.selectedOptions[0] ? origin.selectedOptions[0].textContent : "the US";
 
   const lines = [];
-  lines.push("I'm planning a trip to " + name + " and used a travel-value tool (Wandergrade) for the basics. Use the info below (don't re-derive it) to help me build a plan.");
+  lines.push("I'm planning a trip to " + name + " and used a travel-value tool (WanderGrade) for the basics. Use the info below (don't re-derive it) to help me build a plan.");
   lines.push("");
   lines.push("DESTINATION: " + name);
   lines.push("WHEN: " + monthName);
@@ -2832,7 +2832,7 @@ function pathGuideIso() {
 // Keep <title>/canonical/og:url correct on client-side navigation too, so they
 // match what the server rendered (and update as the user browses countries).
 const SITE_ORIGIN = "https://wandergrade.com";
-const _DEFAULT_TITLE = "Wandergrade — Where Should I Travel to Next?";
+const _DEFAULT_TITLE = "WanderGrade — Where Should I Travel to Next?";
 const _DEFAULT_URL = SITE_ORIGIN + "/";
 function setDocMeta(title, absURL) {
   document.title = title;
@@ -2840,7 +2840,7 @@ function setDocMeta(title, absURL) {
   const o = document.querySelector('meta[property="og:url"]'); if (o) o.setAttribute("content", absURL);
 }
 function guideTitle(iso) {
-  return countryName(iso) + " Travel Guide — Best Time to Visit & What to Do | Wandergrade";
+  return countryName(iso) + " Travel Guide — Best Time to Visit & What to Do | WanderGrade";
 }
 
 function buildShareURL(forShare) {

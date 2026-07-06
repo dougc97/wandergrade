@@ -46,7 +46,7 @@ def render_markdown(rows, as_of, baseline_days):
     for r in rows:
         lines.append("- **{code}** ({name}): 1 USD = {rate} {code} — +{pct}% vs avg".format(
             code=r["code"], name=r["name"], rate=r["rate_now"], pct=r["strength_pct"]))
-    lines += ["", "_Sent by Wandergrade. Good time to plan a trip._"]
+    lines += ["", "_Sent by WanderGrade. Good time to plan a trip._"]
     return "\n".join(lines)
 
 
@@ -110,7 +110,7 @@ def render_digest(data):
     subject = "🧭 {0}'s best-value trips, graded A+ to F".format(mn)
 
     out = [
-        "Where's worth it in **{0} {1}**? Wandergrade grades every country "
+        "Where's worth it in **{0} {1}**? WanderGrade grades every country "
         "**A+ to F** on what your trip actually hinges on — how far your money "
         "goes, safety, and weather. This month's standouts 👇".format(mn, yr),
         "",
