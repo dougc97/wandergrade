@@ -91,12 +91,13 @@ def monthly_scores(lat, lon):
             mt[m].append(tp)
         if rn is not None:
             mr[m].append(rn)
-    scores = []
+    scores, temps = [], []
     for m in range(1, 13):
         at = sum(mt[m]) / len(mt[m]) if mt[m] else None
         tr = sum(mr[m]) if mr[m] else 0
         scores.append(comfort(at, tr))
-    return scores
+        temps.append(round(at) if at is not None else None)  # avg °C, shown in the guide
+    return scores, temps
 
 
 def best_months(scores, iso):
@@ -124,10 +125,11 @@ def main():
         if lat is None:
             continue
         try:
-            scores = monthly_scores(lat, lon)
+            scores, temps = monthly_scores(lat, lon)
             out[iso] = {
                 "name": name,
                 "scores": scores,
+                "temps": temps,
                 "best": best_months(scores, iso),
                 "curated": iso in CURATED,
             }

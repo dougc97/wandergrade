@@ -726,7 +726,9 @@ function renderGuideStay(iso) {
 // (your home country), defaulting to US.
 function guidePassport() {
   const sel = $("valueOrigin");
-  return (sel && /^[A-Z]{2}$/.test(sel.value)) ? sel.value : "US";
+  // Fall back to the persisted origin (not "US") so visa info follows the home
+  // country even on a direct /guide/<slug> load, before Top Picks builds.
+  return (sel && /^[A-Z]{2}$/.test(sel.value)) ? sel.value : travelOrigin();
 }
 
 // Visa FYI for this country — informational only, not part of any score.
@@ -1041,6 +1043,28 @@ function seasons(scores) {
 }
 const fmtMonths = (arr) => (arr.length ? arr.map((m) => MON_ABBR[m - 1]).join(", ") : "—");
 
+// ---- Temperature units ------------------------------------------------------
+// Default to °C (what most of the world uses); only US-style home countries
+// default to °F. Follows the chosen "traveling from" country unless the user
+// pins a unit. Addresses feedback that the site felt US-centric.
+const FAHRENHEIT_HOMES = new Set(["US", "BS", "BZ", "KY", "PW", "FM", "MH", "LR"]);
+let tempUnitManual = localStorage.getItem("wg_tempunit");   // "C" | "F" | null
+function homeUsesFahrenheit() {
+  // Read the persistent origin (not the DOM select, which is empty on a direct
+  // /guide/<slug> load before the Top Picks tab builds its dropdown).
+  return FAHRENHEIT_HOMES.has(travelOrigin());
+}
+function tempUnit() { return tempUnitManual || (homeUsesFahrenheit() ? "F" : "C"); }
+function fmtTemp(c) {
+  if (c == null) return "—";
+  return (tempUnit() === "F" ? Math.round(c * 9 / 5 + 32) : Math.round(c)) + "°";
+}
+function setTempUnit(u) {
+  tempUnitManual = u;
+  localStorage.setItem("wg_tempunit", u);
+  if (ccGuideIso) renderCountryClimate(ccGuideIso);
+}
+
 function renderCountryClimate(iso) {
   const c = climate[iso];
   if (!c) { $("bestDetail").textContent = "No data."; return; }
@@ -1056,15 +1080,26 @@ function renderCountryClimate(iso) {
   for (const h of hazards) for (const m of h.months || []) hzByMonth[m] = h.note;
 
   const chips = c.best.map((m) => `<span class="chip2">${MON_ABBR[m - 1]}</span>`).join("");
+  const temps = c.temps || [];
   const bars = c.scores.map((s, i) => {
     const h = s == null ? 0 : Math.round(s);
     const col = bestSet.has(i + 1) ? "col best" : "col";
     const hz = hzByMonth[i + 1];
-    return `<div class="${col}" title="${MONTHS[i]}: ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season${hz ? " · ⚠️ " + esc(hz) : ""}">
-      <div class="mscore">${s == null ? "" : s}</div>
+    const t = temps[i];
+    // Bar headline is the month's avg temperature; height + color still encode
+    // weather comfort (score lives in the tooltip).
+    const head = t != null ? fmtTemp(t) : (s == null ? "" : s);
+    return `<div class="${col}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season${hz ? " · ⚠️ " + esc(hz) : ""}">
+      <div class="mscore">${head}</div>
       <div class="fill" style="height:${h}%;background:${comfortColor(s)}"></div>
       <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? "<span class='hzmark'>⚠️</span>" : ""}</div></div>`;
   }).join("");
+  const hasTemps = temps.some((t) => t != null);
+  const unitToggle = hasTemps
+    ? `<div class="tempunit" role="group" aria-label="temperature unit">
+         <button type="button" data-u="C" class="${tempUnit() === "C" ? "active" : ""}">°C</button>
+         <button type="button" data-u="F" class="${tempUnit() === "F" ? "active" : ""}">°F</button>
+       </div>` : "";
 
   const hazardLines = hazards.map((h) =>
     `<div class="hazardline">⚠️ <b>${monthSpan(h.months)}:</b> ${esc(h.note)}</div>`).join("");
@@ -1072,6 +1107,7 @@ function renderCountryClimate(iso) {
   $("bestDetail").innerHTML = `
     <div class="besthead">
       <h3>${esc(c.name)} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3>
+      ${unitToggle}
     </div>
     <div class="monthslabel">${c.curated ? "📅 Curated best months" : "📅 Best weather"}:</div>
     <div class="chips">${chips}</div>
@@ -1080,7 +1116,10 @@ function renderCountryClimate(iso) {
       <span><b class="off">💸 Off-peak</b> (cheapest, fewest crowds): ${fmtMonths(offM)}</span>
     </div>
     ${hazardLines}
+    ${hasTemps ? `<div class="monthslabel">🌡️ Avg temperature (${tempUnit() === "F" ? "°F" : "°C"}) · bar height = weather comfort:</div>` : ""}
     <div class="bars">${bars}</div>`;
+  for (const b of document.querySelectorAll("#bestDetail .tempunit button"))
+    b.addEventListener("click", () => setTempUnit(b.dataset.u));
 }
 
 // (The standalone by-month map merged into "Where to go now" as a map mode.)
@@ -1292,7 +1331,8 @@ function setTravelOrigin(iso) {
   loadValueFlights(false);                             // Top Picks fares (re-renders)
   renderValue();                                       // immediate: new affordability anchor
   if (loaded.flights) loadFlights();                   // Explore-the-Data fares
-  if (ccGuideIso) { renderGuideVisa(ccGuideIso); renderGuideAI(ccGuideIso); }  // guide visa + AI
+  // guide visa + AI + temperature units (default unit follows the home country)
+  if (ccGuideIso) { renderGuideVisa(ccGuideIso); renderGuideAI(ccGuideIso); renderCountryClimate(ccGuideIso); }
   syncURL();
 }
 

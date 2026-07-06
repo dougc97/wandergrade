@@ -482,6 +482,11 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .ssrguide ul { margin: 0 0 8px; padding-left: 20px; line-height: 1.5; }
 .ssrguide li { margin: 0 0 8px; }
 .ssrguide p { line-height: 1.55; }
+/* Temperature unit toggle in the Travel Guide climate panel. */
+.besthead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.tempunit { display: inline-flex; border: 1px solid var(--border-input); border-radius: 8px; overflow: hidden; }
+.tempunit button { background: var(--card); border: none; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--gray); cursor: pointer; }
+.tempunit button.active { background: var(--green); color: #fff; }
 .hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
 
 /* ---- picker hierarchy: big question row, quiet filter row ---- */
