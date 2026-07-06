@@ -1087,6 +1087,18 @@ function setTempUnit(u) {
   localStorage.setItem("wg_tempunit", u);
   if (ccGuideIso) renderCountryClimate(ccGuideIso);
 }
+// Bar color by temperature: blue = too cold, green = ideal (~18-26°C), red =
+// too hot. Interpolates smoothly (0°C fully blue, 38°C+ fully red).
+function tempColor(c) {
+  if (c == null) return NODATA;
+  const BLUE = [43, 108, 176], GREEN = [10, 125, 40], RED = [176, 0, 32];
+  const lerp = (a, b, f) => a.map((x, i) => Math.round(x + (b[i] - x) * f));
+  let rgb;
+  if (c < 18) rgb = lerp(BLUE, GREEN, Math.max(0, Math.min(1, c / 18)));
+  else if (c <= 26) rgb = GREEN;
+  else rgb = lerp(GREEN, RED, Math.max(0, Math.min(1, (c - 26) / 12)));
+  return "rgb(" + rgb.join(",") + ")";
+}
 
 function renderCountryClimate(iso) {
   const c = climate[iso];
@@ -1114,7 +1126,7 @@ function renderCountryClimate(iso) {
     const head = t != null ? fmtTemp(t) : (s == null ? "" : s);
     return `<div class="${col}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season${hz ? " · ⚠️ " + esc(hz) : ""}">
       <div class="mscore">${head}</div>
-      <div class="fill" style="height:${h}%;background:${comfortColor(s)}"></div>
+      <div class="fill" style="height:${h}%;background:${t != null ? tempColor(t) : comfortColor(s)}"></div>
       <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? "<span class='hzmark'>⚠️</span>" : ""}</div></div>`;
   }).join("");
   const hasTemps = temps.some((t) => t != null);
@@ -1139,7 +1151,7 @@ function renderCountryClimate(iso) {
       <span><b class="off">💸 Off-peak</b> (cheapest, fewest crowds): ${fmtMonths(offM)}</span>
     </div>
     ${hazardLines}
-    ${hasTemps ? `<div class="monthslabel">🌡️ Avg temperature (${tempUnit() === "F" ? "°F" : "°C"}) · bar height = weather comfort:</div>` : ""}
+    ${hasTemps ? `<div class="monthslabel">🌡️ Avg temperature (${tempUnit() === "F" ? "°F" : "°C"}) · bar height = weather comfort · <span style="color:#2b6cb0;font-weight:700">blue = cold</span>, <span style="color:#0a7d28;font-weight:700">green = ideal</span>, <span style="color:#b00020;font-weight:700">red = hot</span>:</div>` : ""}
     <div class="bars">${bars}</div>`;
   for (const b of document.querySelectorAll("#bestDetail .tempunit button"))
     b.addEventListener("click", () => setTempUnit(b.dataset.u));

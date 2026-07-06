@@ -115,7 +115,10 @@ def _german_advisories():
         if v.get("warning"):
             level, txt = 4, "Reisewarnung (avoid travel)"
         elif v.get("partialWarning"):
-            level, txt = 3, "Teilreisewarnung (partial warning)"
+            # A Teilreisewarnung covers specific regions, not the whole country
+            # (e.g. Japan's is just the Fukushima exclusion zone) — country-wide
+            # that reads as "increased caution", not "reconsider travel".
+            level, txt = 2, "Teilreisewarnung (warning for some regions)"
         else:
             level, txt = 1, "Keine Warnung (no warning)"
         items.append({"iso": iso, "country": v.get("countryName", ""),
