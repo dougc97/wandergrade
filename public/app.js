@@ -3170,6 +3170,19 @@ async function downloadVisitedImage(orientation) {
 }
 
 $("shareBtn").addEventListener("click", shareCurrent);
+
+// "Surprise me" — for visitors with no destination in mind, open a random
+// well-known destination's guide. Leans into the decide-where-to-go angle.
+const SURPRISE_POOL = ("JP TH IT FR ES GR PT VN ID IN MX PE EG IS KE AR MA TR ZA CR " +
+  "NP LK KH JO GE CO PH MY TZ HR CZ NO CH NZ AU BR CL").split(" ");
+function surpriseMe() {
+  ensureSlugs().then(() => {
+    const pool = SURPRISE_POOL.filter((iso) => !climate || climate[iso]);
+    const list = pool.length ? pool : SURPRISE_POOL;
+    openGuideFor(list[Math.floor(Math.random() * list.length)], true);
+  });
+}
+if ($("surpriseBtn")) $("surpriseBtn").addEventListener("click", surpriseMe);
 $("visitedImage").addEventListener("click", () => downloadVisitedImage("landscape"));
 if ($("visitedStory")) $("visitedStory").addEventListener("click", () => downloadVisitedImage("story"));
 if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);

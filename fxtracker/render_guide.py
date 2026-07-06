@@ -61,6 +61,42 @@ def _clip(text, n=157):
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
 
 
+def _faq_jsonld(name, best_txt, acts, seasonal, summary):
+    """FAQPage schema for the questions people actually search — 'best time to
+    visit X', 'things to do in X', 'what's in season' — so the page can win
+    Google rich results. Data-backed answers only (no invented facts)."""
+    qas = []
+    if best_txt:
+        a = "The best months to visit %s are %s, based on weather and seasonality." % (name, best_txt)
+        if summary:
+            a += " " + summary
+        qas.append(("When is the best time to visit %s?" % name, a))
+    top = [_label(x) for x in acts[:4] if _label(x)]
+    if top:
+        qas.append(("What are the top things to do in %s?" % name,
+                    "Top experiences in %s include %s." % (name, ", ".join(top))))
+    if seasonal:
+        s = seasonal[0]
+        months = [MON[m - 1] for m in (s.get("months") or []) if 1 <= m <= 12]
+        if s.get("what"):
+            a = s["what"] + ((" (%s)" % ", ".join(months)) if months else "")
+            if s.get("d"):
+                a += " — " + s["d"]
+            qas.append(("What's in season in %s?" % name, a))
+    if not qas:
+        return ""
+    data = {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+            {"@type": "Question", "name": q,
+             "acceptedAnswer": {"@type": "Answer", "text": a}}
+            for q, a in qas
+        ],
+    }
+    return '<script type="application/ld+json">%s</script>' % json.dumps(data, ensure_ascii=False)
+
+
 def render(iso):
     """Return the token values for a country page: title, description, og title,
     canonical URL, and the crawlable body HTML."""
@@ -124,6 +160,7 @@ def render(iso):
         "og_title": og_title,
         "url": url,
         "body": "\n".join(p),
+        "jsonld": _faq_jsonld(name, best_txt, acts, seasonal, summary),
     }
 
 

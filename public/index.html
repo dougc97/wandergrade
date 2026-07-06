@@ -31,6 +31,7 @@
     else t=(new URLSearchParams(location.search).get("tab")||"value");
     if(!/^(value|guide|visited|data)$/.test(t))t="value";
     document.documentElement.setAttribute("data-tab",t);})();</script>
+  {{JSONLD}}
   {{GC_JS}}
 </head>
 <body>
@@ -41,7 +42,7 @@
       <div>
         <div class="brand">🌍 Wandergrade</div>
         <h1>Where Should I Travel to Next?</h1>
-        <p class="sub">Pick when you're going — we grade destinations A+ to F on prices, weather, safety, and flights.</p>
+        <p class="sub">Decide <b>where</b> — and <b>when</b> — to go. Every country graded A+ to F on price, weather, safety &amp; flights. Free, no sign-up.</p>
       </div>
       <div class="headbtns">
         <button id="shareBtn" class="themebtn" title="copy a link to this view &amp; settings">🔗 Share</button>
@@ -67,6 +68,7 @@
           <h2>Where should you go?</h2>
           <p class="chartsub">Best-value destinations, graded like a report card. Tap a row for the full guide.</p>
         </div>
+        <button id="surpriseBtn" class="surprisebtn" type="button" title="No idea where to go? Open a random destination guide.">🎲 Surprise me</button>
       </div>
 
       <div class="pickers pickersmain">

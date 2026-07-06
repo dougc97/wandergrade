@@ -87,14 +87,23 @@ SECURITY_HEADERS = {
 
 # index.html carries {{TOKENS}} the server fills per request: the homepage gets
 # these defaults; a /guide/<slug> page gets country-specific values (+ SSR body).
+_WEBSITE_JSONLD = (
+    '<script type="application/ld+json">'
+    '{"@context":"https://schema.org","@type":"WebSite","name":"Wandergrade",'
+    '"url":"https://wandergrade.com/",'
+    '"description":"Every country graded A+ to F on prices, weather, safety and flights — '
+    'decide where and when to travel next."}'
+    "</script>"
+)
 _HTML_DEFAULTS = {
     "TITLE": "Wandergrade — Where Should I Travel to Next?",
-    "DESC": "Pick when you're going — we grade destinations A+ to F on prices, "
-            "weather, safety, and flights.",
+    "DESC": "Decide where — and when — to go. Every country graded A+ to F on "
+            "prices, weather, safety, and flights. Free, no sign-up.",
     "OGTITLE": "Where Should I Travel to Next?",
     "URL": "https://wandergrade.com/",
     "GC_JS": "",
     "SSR_BODY": "",
+    "JSONLD": _WEBSITE_JSONLD,
 }
 _html_tpl = None
 
@@ -120,6 +129,7 @@ def _render_index(gc_iso=None):
             URL=html.escape(r["url"], quote=True),
             SSR_BODY=r["body"],                       # already-safe HTML
             GC_JS="<script>window.__WGGC__=%s;</script>" % json.dumps(gc_iso),
+            JSONLD=r.get("jsonld", ""),               # FAQPage schema (raw JSON-LD)
         )
     out = _index_template()
     for k, v in vals.items():

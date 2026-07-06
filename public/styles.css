@@ -491,6 +491,9 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .advbadge { display: inline-block; border-radius: 999px; padding: 3px 11px; font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; }
 .advlvl1 { background: #0a7d28; } .advlvl2 { background: #c9a200; }
 .advlvl3 { background: #d4730a; } .advlvl4 { background: #b00020; }
+/* "Surprise me" discovery button in the Top Picks header. */
+.surprisebtn { background: var(--green); color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; align-self: flex-start; }
+.surprisebtn:hover { filter: brightness(1.08); }
 .hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
 
 /* ---- picker hierarchy: big question row, quiet filter row ---- */
