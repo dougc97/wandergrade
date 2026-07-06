@@ -2729,6 +2729,13 @@ async function activateTab(name, push) {
 }
 for (const b of document.querySelectorAll("#tabs button"))
   b.addEventListener("click", () => activateTab(b.dataset.tab, true));
+// Brand wordmark -> home (Top Picks) as an SPA switch; the href="/" fallback
+// still works for middle-click / open-in-new-tab / no-JS.
+document.querySelector(".brand").addEventListener("click", (e) => {
+  e.preventDefault();
+  activateTab("value", true);
+  window.scrollTo(0, 0);
+});
 
 // Explore-the-Data sub-views: currency / cost of living / safety / flights.
 let dataMode = "currency";
@@ -3130,7 +3137,7 @@ function buildVisitedShareSVG(orientation, withPins) {
   } else {
     const headline = n
       ? `I've been to <tspan font-size="58" fill="#34d27b">${n}</tspan> ${n === 1 ? "country" : "countries"}`
-      : `My travel <tspan fill="#34d27b">Wanderlist</tspan>`;
+      : `My travel <tspan fill="#34d27b">Wander List</tspan>`;
     const subParts = [statLine, listLine].filter(Boolean).join("   ·   ");
     inner = `
       <text x="60" y="52" font-family="${font}" font-size="20" font-weight="800" letter-spacing="3" fill="#7fd99a">🗺️ WANDERLIST</text>
@@ -3180,7 +3187,7 @@ async function downloadVisitedImage(orientation) {
     const file = new File([blob], name, { type: "image/png" });
     // Native share sheet on phones (posts straight to socials); download elsewhere.
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: "My Wanderlist" }); return; }
+      try { await navigator.share({ files: [file], title: "My Wander List" }); return; }
       catch (e) { /* cancelled -> download instead */ }
     }
     const a = document.createElement("a");
