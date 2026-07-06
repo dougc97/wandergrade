@@ -499,6 +499,12 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 /* Feedback link under the newsletter box (shown once FEEDBACK_URL is set). */
 .feedbacklink { display: block; margin-top: 10px; font-size: 13px; color: var(--gray); text-decoration: none; }
 .feedbacklink:hover { color: var(--green); text-decoration: underline; }
+/* Share/Story export disabled until a country is marked. */
+#tab-visited button[disabled] { opacity: .45; cursor: not-allowed; }
+/* Compact newsletter strip at the end of the Travel Guide (inside the card,
+   so it drops the standalone box chrome). */
+.subslot { margin: 22px 0 0; padding: 14px 16px; border: 1px dashed var(--line);
+  border-radius: 10px; background: transparent; box-shadow: none; max-width: none; }
 /* Temperature unit toggle in the Travel Guide climate panel. */
 .besthead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tempunit { display: inline-flex; border: 1px solid var(--border-input); border-radius: 8px; overflow: hidden; }

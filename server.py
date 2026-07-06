@@ -101,6 +101,7 @@ _HTML_DEFAULTS = {
             "prices, weather, safety, and flights. Free, no sign-up.",
     "OGTITLE": "Where Should I Travel to Next?",
     "URL": "https://wandergrade.com/",
+    "OGIMAGE": "https://wandergrade.com/og.png",
     "GC_JS": "",
     "SSR_BODY": "",
     "JSONLD": _WEBSITE_JSONLD,
@@ -108,11 +109,24 @@ _HTML_DEFAULTS = {
 _html_tpl = None
 
 
+def _asset_version(name):
+    """File mtime as a cache-busting token; changes exactly when a deploy does."""
+    try:
+        return str(int(os.path.getmtime(os.path.join(PUBLIC, name))))
+    except OSError:
+        return "0"
+
+
 def _index_template():
     global _html_tpl
     if _html_tpl is None:
         with open(os.path.join(PUBLIC, "index.html"), encoding="utf-8") as f:
-            _html_tpl = f.read()
+            tpl = f.read()
+        # Stamp asset URLs with the file's mtime so browsers can cache them
+        # long-term (see _send_file) yet always fetch fresh after a deploy.
+        tpl = re.sub(r"/app\.js(\?v=\d+)?", "/app.js?v=" + _asset_version("app.js"), tpl)
+        tpl = re.sub(r"/styles\.css(\?v=\d+)?", "/styles.css?v=" + _asset_version("styles.css"), tpl)
+        _html_tpl = tpl
     return _html_tpl
 
 
@@ -131,6 +145,8 @@ def _render_index(gc_iso=None):
             GC_JS="<script>window.__WGGC__=%s;</script>" % json.dumps(gc_iso),
             JSONLD=r.get("jsonld", ""),               # FAQPage schema (raw JSON-LD)
         )
+        if r.get("ogimage"):                          # country hero photo
+            vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
     out = _index_template()
     for k, v in vals.items():
         out = out.replace("{{%s}}" % k, v)
@@ -173,7 +189,7 @@ class Handler(BaseHTTPRequestHandler):
         Render free-tier cold starts."""
         encoding = None
         if len(body) > 1024 and self._gzip_ok() and not ctype.startswith("image/"):
-            body = gzip.compress(body, 6)
+            body = gzip.compress(body, 9)
             encoding = "gzip"
         self.send_response(status)
         for hk, hv in SECURITY_HEADERS.items():
@@ -191,7 +207,7 @@ class Handler(BaseHTTPRequestHandler):
         self._send_body(json.dumps(obj).encode("utf-8"),
                         "application/json; charset=utf-8", status)
 
-    def _send_file(self, path):
+    def _send_file(self, path, versioned=False):
         try:
             with open(path, "rb") as f:
                 body = f.read()
@@ -200,9 +216,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         ext = os.path.splitext(path)[1]
         ctype = CONTENT_TYPES.get(ext, "application/octet-stream")
-        # geojson is effectively static; other data files change with deploys, so
-        # keep their staleness window short (10 min) to not mask fresh releases.
-        cache = "public, max-age=86400" if ext == ".geojson" \
+        # ?v=<mtime>-stamped assets (the template rewrites app.js/styles.css)
+        # can cache forever — the URL itself changes on deploy. geojson is
+        # effectively static; other data files change with deploys, so keep
+        # their staleness window short (10 min) to not mask fresh releases.
+        cache = "public, max-age=31536000, immutable" if versioned \
+            else "public, max-age=86400" if ext == ".geojson" \
             else "public, max-age=600" if ext == ".json" \
             else "public, max-age=300"
         self._send_body(body, ctype, cache=cache)
@@ -320,7 +339,9 @@ class Handler(BaseHTTPRequestHandler):
         if not safe.startswith(PUBLIC):
             self._send_json({"error": "forbidden"}, 403)
             return
-        self._send_file(safe)
+        versioned = "v=" in (self.path.split("?", 1)[1] if "?" in self.path else "") \
+            and os.path.splitext(safe)[1] in (".js", ".css")
+        self._send_file(safe, versioned=versioned)
 
     def do_POST(self):
         if not self._authed():

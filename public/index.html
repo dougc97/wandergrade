@@ -13,14 +13,13 @@
   <meta property="og:url" content="{{URL}}">
   <link rel="canonical" href="{{URL}}">
   <meta property="og:site_name" content="WanderGrade">
-  <!-- og:image needs an absolute URL = the live host. Custom domain wandergrade.com (Cloudflare DNS → Render). The .onrender.com host still resolves as a fallback. -->
-  <meta property="og:image" content="https://wandergrade.com/og.png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
+  <!-- og:image needs an absolute URL. Homepage uses the branded card; country
+       pages get their hero photo (og-images.json) via the server template. -->
+  <meta property="og:image" content="{{OGIMAGE}}">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{{OGTITLE}}">
   <meta name="twitter:description" content="{{DESC}}">
-  <meta name="twitter:image" content="https://wandergrade.com/og.png">
+  <meta name="twitter:image" content="{{OGIMAGE}}">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
   <link rel="stylesheet" href="/styles.css">
   <!-- Set the active tab from the URL before first paint, so refreshing inside a
@@ -188,6 +187,7 @@
       <hr class="softrule">
       <div id="actDetail" class="bestdetail"></div>
       <div id="guideStay" class="guidestay" hidden></div>
+      <div id="guideSubscribe" class="subscribe subslot"></div>
     </div>
   </section>
 

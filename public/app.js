@@ -2638,6 +2638,13 @@ function buildVisited() {
 
 const VISITED_COLOR = "#0a7d28", WISH_COLOR = "#2b6cb0";
 function renderVisited() {
+  // Exporting an empty map would render a blank "0 countries" card — keep the
+  // share buttons off until at least one country is marked.
+  const canShare = visited.size > 0;
+  for (const id of ["visitedImage", "visitedStory"]) {
+    const b = $(id);
+    if (b) { b.disabled = !canShare; b.title = canShare ? "" : "Mark at least one country first ✓"; }
+  }
   drawMap("visitedMap", (f) => {
     const iso = f.properties.iso;
     if (visited.has(iso)) return { fill: VISITED_COLOR, title: f.properties.name + " — been ✓ (click to remove)" };
@@ -2750,6 +2757,7 @@ async function setDataMode(mode) {
   for (const m in DATA_SUBS) $(DATA_SUBS[m]).hidden = m !== mode;
   try {
     if (mode === "currency") {
+      if (!lastIndexData) loadIndex(activeDays);   // deferred from init
       // Load advisories so the hide-higher-risk filter works, then re-render
       // the (already-populated) rates table to tag rows + apply the filter.
       if (!loaded.curRisk) {
@@ -2799,14 +2807,14 @@ function renderFeedback() {
 }
 
 function renderSubscribe() {
-  const el = $("subscribe");
-  if (!el) return;
-  if (!BUTTONDOWN_USER) {
-    el.innerHTML = '<span class="hint">📬 Newsletter signup not configured yet — set BUTTONDOWN_USER in app.js once you have a Buttondown account.</span>';
-    return;
-  }
+  // Fills every subscribe slot: the main box at the page bottom plus the
+  // compact strip at the end of the Travel Guide (engaged readers).
+  const slots = ["subscribe", "guideSubscribe"].map((id) => $(id)).filter(Boolean);
+  if (!slots.length) return;
   const base = "https://buttondown.com/" + BUTTONDOWN_USER;
-  el.innerHTML = `
+  const html = !BUTTONDOWN_USER
+    ? '<span class="hint">📬 Newsletter signup not configured yet — set BUTTONDOWN_USER in app.js once you have a Buttondown account.</span>'
+    : `
     <span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
     <form action="https://buttondown.com/api/emails/embed/subscribe/${BUTTONDOWN_USER}"
           method="post" target="popupwindow"
@@ -2814,6 +2822,7 @@ function renderSubscribe() {
       <input type="email" name="email" placeholder="you@email.com" required>
       <button type="submit">Subscribe</button>
     </form>`;
+  for (const el of slots) el.innerHTML = html;
 }
 
 // ===========================================================================
@@ -3273,7 +3282,8 @@ document.addEventListener("scroll", () => { _tipEl.hidden = true; }, true);
   // render the currency tab in the background, then open the verdict tab.
   await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates()]);
   renderMapSafe();
-  loadIndex(365);
+  // The 1-year index chart lives in the Explore-the-Data tab; it loads there
+  // on first open (setDataMode) instead of costing every landing visit.
   // A /guide/<slug> page (server injects window.__WGGC__) opens that country
   // straight away — no Top Picks flash. Email ?tab=guide&gc= links fall through
   // to postApplyShared as before.

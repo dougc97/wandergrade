@@ -31,6 +31,10 @@ def _load():
             return json.load(f)
 
     slugs = j("slugs.json")            # slug -> iso
+    try:
+        og = j("og-images.json")       # iso -> hero photo URL (optional)
+    except OSError:
+        og = {}
     _data = {
         "slugs": slugs,
         "iso2slug": {iso: s for s, iso in slugs.items()},
@@ -38,6 +42,7 @@ def _load():
         "acts": j("activities.json"),
         "clim": j("climate.json"),
         "visa": j("visa.json"),
+        "og": og,
     }
     return _data
 
@@ -161,6 +166,7 @@ def render(iso):
         "url": url,
         "body": "\n".join(p),
         "jsonld": _faq_jsonld(name, best_txt, acts, seasonal, summary),
+        "ogimage": d["og"].get(iso, ""),
     }
 
 
