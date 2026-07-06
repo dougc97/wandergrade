@@ -489,7 +489,7 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   border: 1px solid rgba(255,255,255,.16); border-radius: 8px; padding: 7px 11px;
   font-size: 12.5px; line-height: 1.45; width: max-content; max-width: 300px;
   white-space: pre-line; pointer-events: none; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
-.hzmark { cursor: help; }
+.hzmark, [data-tip] { cursor: help; }
 /* Viator "book activities" CTA under the things-to-do list. */
 .viatorbtn { display: inline-block; margin: 6px 0 4px; padding: 8px 14px; border: 1px solid var(--line);
   border-radius: 10px; font-size: 13.5px; font-weight: 600; color: var(--ink); text-decoration: none;

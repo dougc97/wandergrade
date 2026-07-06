@@ -2149,7 +2149,7 @@ function renderValue() {
   const picks = (popular.length ? popular : eligible).slice(0, pickCount());
   const picksNote = $("picksNote");
   if (picksNote) picksNote.innerHTML = popular.length
-    ? `🌍 Popular destinations, ranked by value${popularDataBacked ? ' <span class="muted" title="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
+    ? `🌍 Popular destinations, ranked by value${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
     : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.";
   lastPicks = picks; lastPicksMonth = month;   // for the AI export
   renderGradeTable($("topCards"), picks, month, false);
@@ -3255,7 +3255,7 @@ const _tipEl = document.createElement("div");
 _tipEl.className = "wgtip";
 _tipEl.hidden = true;
 document.body.appendChild(_tipEl);
-document.addEventListener("mouseover", (e) => {
+function _tipShowFor(e) {
   const t = e.target.closest && e.target.closest("[data-tip]");
   if (!t || !t.dataset.tip) { _tipEl.hidden = true; return; }
   _tipEl.textContent = t.dataset.tip;
@@ -3266,7 +3266,11 @@ document.addEventListener("mouseover", (e) => {
   const vw = document.documentElement.clientWidth || window.innerWidth;
   _tipEl.style.left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2)) + "px";
   _tipEl.style.top = (r.top - h - 8 > 8 ? r.top - h - 8 : r.bottom + 8) + "px";
-});
+}
+document.addEventListener("mouseover", _tipShowFor);
+// Touch screens have no hover — a tap on the element shows the tooltip, a tap
+// anywhere else dismisses it (the closest() miss hides in _tipShowFor).
+document.addEventListener("click", _tipShowFor);
 document.addEventListener("scroll", () => { _tipEl.hidden = true; }, true);
 
 (async function init() {
