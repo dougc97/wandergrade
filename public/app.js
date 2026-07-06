@@ -2149,7 +2149,7 @@ function renderValue() {
   const picks = (popular.length ? popular : eligible).slice(0, pickCount());
   const picksNote = $("picksNote");
   if (picksNote) picksNote.innerHTML = popular.length
-    ? `🌍 The most-popular destinations${popularDataBacked ? " (by international tourism spend)" : ""}, ranked by value — lesser-known high-value spots are in 💎 Hidden gems below.`
+    ? `🌍 Popular destinations, ranked by value${popularDataBacked ? ' <span class="muted" title="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
     : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.";
   lastPicks = picks; lastPicksMonth = month;   // for the AI export
   renderGradeTable($("topCards"), picks, month, false);
