@@ -2781,6 +2781,23 @@ for (const b of document.querySelectorAll("#dataMode button"))
 // Set this to your public Buttondown newsletter username to enable signups.
 const BUTTONDOWN_USER = "wandergrade";
 
+// ---- feedback form ----------------------------------------------------------
+// Set to the live Google Form URL to show the footer link + the line under the
+// newsletter box; leave "" to hide both until the form exists.
+const FEEDBACK_URL = "";
+
+function renderFeedback() {
+  if (!FEEDBACK_URL) return;
+  const foot = $("feedbackFoot");
+  if (foot) {
+    foot.hidden = false;
+    foot.querySelector("a").href = FEEDBACK_URL;
+  }
+  const sub = $("subscribe");
+  if (sub) sub.insertAdjacentHTML("beforeend",
+    `<a class="feedbacklink" href="${FEEDBACK_URL}" target="_blank" rel="noopener">💬 Spotted something off, or missing a feature? Tell me — it takes 30 seconds →</a>`);
+}
+
 function renderSubscribe() {
   const el = $("subscribe");
   if (!el) return;
@@ -3246,6 +3263,7 @@ document.addEventListener("scroll", () => { _tipEl.hidden = true; }, true);
 (async function init() {
   initTheme();
   renderSubscribe();
+  renderFeedback();
   preApplyShared();
   // On a public deployment the server disables settings + manual email; hide them.
   getJSON("/api/config").then((c) => {

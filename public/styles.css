@@ -496,6 +496,9 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   background: var(--card2); }
 .viatorbtn:hover { border-color: var(--green); color: var(--green); }
 .viatorbtn .ext { font-size: 11px; opacity: .6; }
+/* Feedback link under the newsletter box (shown once FEEDBACK_URL is set). */
+.feedbacklink { display: block; margin-top: 10px; font-size: 13px; color: var(--gray); text-decoration: none; }
+.feedbacklink:hover { color: var(--green); text-decoration: underline; }
 /* Temperature unit toggle in the Travel Guide climate panel. */
 .besthead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tempunit { display: inline-flex; border: 1px solid var(--border-input); border-radius: 8px; overflow: hidden; }
