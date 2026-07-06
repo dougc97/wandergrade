@@ -2501,6 +2501,16 @@ function activityEmoji(text) {
   return "📍";
 }
 
+// Viator affiliate (tours & activities): country-level search deep-link tracked
+// with our partner ID (8% commission, 30-day cookie). The search URL works for
+// every country without needing Viator's per-destination ID taxonomy. FTC
+// disclosure lives in the footer.
+const VIATOR_PID = "P00308640", VIATOR_MCID = "42383";
+function viatorURL(q) {
+  return "https://www.viator.com/searchResults/all?text=" + encodeURIComponent(q) +
+         "&pid=" + VIATOR_PID + "&mcid=" + VIATOR_MCID + "&medium=link";
+}
+
 function renderActivity(iso) {
   const a = activities[iso];
   const name = (climate && climate[iso] && climate[iso].name) || (ppp[iso] && ppp[iso].name) || iso;
@@ -2533,6 +2543,8 @@ function renderActivity(iso) {
     <div class="chips">${tags}</div>
     <h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
     <ul class="actlist">${acts}</ul>
+    <a class="viatorbtn" href="${viatorURL(name)}" target="_blank" rel="sponsored nofollow noopener"
+       title="Browse bookable tours & experiences in ${esc(name)} on Viator">🎟️ Book tours &amp; activities in ${esc(name)} <span class="ext">↗</span></a>
     ${seas ? `<h4 style="margin:.6em 0 .2em">🗓️ What's in season <span class="muted">(now: ${MONTHS[m - 1]})</span></h4>${seas}` : ""}`;
 }
 
