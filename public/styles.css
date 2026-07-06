@@ -52,7 +52,7 @@ body {
   pointer-events: none;
   z-index: 0;
 }
-body > *:not(.bgdoodle):not(.bgseason):not(.lightbox) { position: relative; z-index: 1; }
+body > *:not(.bgdoodle):not(.bgseason):not(.lightbox):not(.wgtip) { position: relative; z-index: 1; }
 
 /* gentle motion — all of it disabled for prefers-reduced-motion users */
 @media (prefers-reduced-motion: no-preference) {
