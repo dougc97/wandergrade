@@ -1087,16 +1087,20 @@ function setTempUnit(u) {
   localStorage.setItem("wg_tempunit", u);
   if (ccGuideIso) renderCountryClimate(ccGuideIso);
 }
-// Bar color by temperature: blue = too cold, green = ideal (~18-26°C), red =
-// too hot. Interpolates smoothly (0°C fully blue, 38°C+ fully red).
+// Bar color by temperature: blue = too cold, green = ideal (~18-26°C), then
+// warming through amber to red (38°C+ fully red). The hot side goes via amber
+// because a direct green->red blend passes through muddy brown.
 function tempColor(c) {
   if (c == null) return NODATA;
-  const BLUE = [43, 108, 176], GREEN = [10, 125, 40], RED = [176, 0, 32];
+  const BLUE = [43, 108, 176], GREEN = [10, 125, 40],
+        AMBER = [223, 138, 16], RED = [190, 18, 24];
   const lerp = (a, b, f) => a.map((x, i) => Math.round(x + (b[i] - x) * f));
+  const cl = (f) => Math.max(0, Math.min(1, f));
   let rgb;
-  if (c < 18) rgb = lerp(BLUE, GREEN, Math.max(0, Math.min(1, c / 18)));
+  if (c < 18) rgb = lerp(BLUE, GREEN, cl(c / 18));
   else if (c <= 26) rgb = GREEN;
-  else rgb = lerp(GREEN, RED, Math.max(0, Math.min(1, (c - 26) / 12)));
+  else if (c <= 32) rgb = lerp(GREEN, AMBER, cl((c - 26) / 6));
+  else rgb = lerp(AMBER, RED, cl((c - 32) / 6));
   return "rgb(" + rgb.join(",") + ")";
 }
 
@@ -1127,7 +1131,7 @@ function renderCountryClimate(iso) {
     return `<div class="${col}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season${hz ? " · ⚠️ " + esc(hz) : ""}">
       <div class="mscore">${head}</div>
       <div class="fill" style="height:${h}%;background:${t != null ? tempColor(t) : comfortColor(s)}"></div>
-      <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? "<span class='hzmark'>⚠️</span>" : ""}</div></div>`;
+      <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? `<span class="hzmark" data-tip="⚠️ ${esc(hz)}" title="">⚠️</span>` : ""}</div></div>`;
   }).join("");
   const hasTemps = temps.some((t) => t != null);
   const unitToggle = hasTemps
@@ -1151,7 +1155,8 @@ function renderCountryClimate(iso) {
       <span><b class="off">💸 Off-peak</b> (cheapest, fewest crowds): ${fmtMonths(offM)}</span>
     </div>
     ${hazardLines}
-    ${hasTemps ? `<div class="monthslabel">🌡️ Avg temperature (${tempUnit() === "F" ? "°F" : "°C"}) · bar height = weather comfort · <span style="color:#2b6cb0;font-weight:700">blue = cold</span>, <span style="color:#0a7d28;font-weight:700">green = ideal</span>, <span style="color:#b00020;font-weight:700">red = hot</span>:</div>` : ""}
+    ${hasTemps ? `<div class="monthslabel">🌡️ Avg temperature (${tempUnit() === "F" ? "°F" : "°C"}) · taller bar = comfier month · color = temp: <span style="color:#2b6cb0;font-weight:700">cold</span> → <span style="color:#0a7d28;font-weight:700">ideal</span> → <span style="color:#df8a10;font-weight:700">warm</span> → <span style="color:#be1218;font-weight:700">hot</span></div>
+    <div class="monthslabel seaskey">Month labels: <span style="color:var(--green);font-weight:700">peak season</span> · <span style="color:var(--amber)">shoulder</span> · <span style="color:#aaa">off-season</span></div>` : ""}
     <div class="bars">${bars}</div>`;
   for (const b of document.querySelectorAll("#bestDetail .tempunit button"))
     b.addEventListener("click", () => setTempUnit(b.dataset.u));
