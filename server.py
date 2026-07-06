@@ -15,6 +15,7 @@ Endpoints:
 import base64
 import gzip
 import hmac
+import html
 import json
 import os
 import re
@@ -22,7 +23,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from fxtracker import advisories, flights, mailer, popularity, rates, store
+from fxtracker import advisories, flights, mailer, popularity, rates, render_guide, store
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
 # runs stay open while a public/tunneled instance can require a login.
@@ -82,6 +83,48 @@ SECURITY_HEADERS = {
         "base-uri 'self'"
     ),
 }
+
+
+# index.html carries {{TOKENS}} the server fills per request: the homepage gets
+# these defaults; a /guide/<slug> page gets country-specific values (+ SSR body).
+_HTML_DEFAULTS = {
+    "TITLE": "Wandergrade — Where Should I Travel to Next?",
+    "DESC": "Pick when you're going — we grade destinations A+ to F on prices, "
+            "weather, safety, and flights.",
+    "OGTITLE": "Where Should I Travel to Next?",
+    "URL": "https://wandergrade.com/",
+    "GC_JS": "",
+    "SSR_BODY": "",
+}
+_html_tpl = None
+
+
+def _index_template():
+    global _html_tpl
+    if _html_tpl is None:
+        with open(os.path.join(PUBLIC, "index.html"), encoding="utf-8") as f:
+            _html_tpl = f.read()
+    return _html_tpl
+
+
+def _render_index(gc_iso=None):
+    """Fill index.html's tokens. gc_iso=None -> homepage defaults; otherwise a
+    country page with server-rendered <title>/meta/canonical and body."""
+    vals = dict(_HTML_DEFAULTS)
+    if gc_iso:
+        r = render_guide.render(gc_iso)
+        vals.update(
+            TITLE=html.escape(r["title"]),
+            DESC=html.escape(r["desc"], quote=True),
+            OGTITLE=html.escape(r["og_title"], quote=True),
+            URL=html.escape(r["url"], quote=True),
+            SSR_BODY=r["body"],                       # already-safe HTML
+            GC_JS="<script>window.__WGGC__=%s;</script>" % json.dumps(gc_iso),
+        )
+    out = _index_template()
+    for k, v in vals.items():
+        out = out.replace("{{%s}}" % k, v)
+    return out.encode("utf-8")
 
 
 def _rates_payload(cfg, base="USD"):
@@ -244,8 +287,25 @@ class Handler(BaseHTTPRequestHandler):
             cfg["readonly"] = PUBLIC_MODE
             self._send_json(cfg)
             return
+        # Server-rendered pages: homepage + per-country guide (/guide/<slug>).
+        # Both go through the index.html template so <title>/meta/canonical are
+        # right before any JS runs. Unknown slugs 404 rather than serving a
+        # soft-200 duplicate of the homepage.
+        if path == "/":
+            self._send_body(_render_index(None), "text/html; charset=utf-8",
+                            cache="public, max-age=300")
+            return
+        if path.startswith("/guide/"):
+            slug = path[len("/guide/"):].strip("/").lower()
+            iso = render_guide.iso_for_slug(slug)
+            if iso:
+                self._send_body(_render_index(iso), "text/html; charset=utf-8",
+                                cache="public, max-age=300")
+            else:
+                self._send_json({"error": "country not found"}, 404)
+            return
         # static files
-        rel = "index.html" if path == "/" else path.lstrip("/")
+        rel = path.lstrip("/")
         safe = os.path.normpath(os.path.join(PUBLIC, rel))
         if not safe.startswith(PUBLIC):
             self._send_json({"error": "forbidden"}, 403)

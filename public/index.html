@@ -3,30 +3,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Wandergrade — Where Should I Travel to Next?</title>
-  <meta name="description" content="Pick when you're going — we grade destinations A+ to F on prices, weather, safety, and flights.">
-  <meta property="og:title" content="Where Should I Travel to Next?">
-  <meta property="og:description" content="Pick when you're going — we grade destinations A+ to F on prices, weather, safety, and flights.">
+  <!-- Double-brace tokens below are filled by the server: homepage defaults, or
+       country-specific values on /guide/<slug>. Every HTML response is templated. -->
+  <title>{{TITLE}}</title>
+  <meta name="description" content="{{DESC}}">
+  <meta property="og:title" content="{{OGTITLE}}">
+  <meta property="og:description" content="{{DESC}}">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="https://wandergrade.com/">
-  <link rel="canonical" href="https://wandergrade.com/">
+  <meta property="og:url" content="{{URL}}">
+  <link rel="canonical" href="{{URL}}">
   <meta property="og:site_name" content="Wandergrade">
   <!-- og:image needs an absolute URL = the live host. Custom domain wandergrade.com (Cloudflare DNS → Render). The .onrender.com host still resolves as a fallback. -->
   <meta property="og:image" content="https://wandergrade.com/og.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Where Should I Travel to Next?">
-  <meta name="twitter:description" content="Every country, graded A+ to F on prices, weather, safety & flights.">
+  <meta name="twitter:title" content="{{OGTITLE}}">
+  <meta name="twitter:description" content="{{DESC}}">
   <meta name="twitter:image" content="https://wandergrade.com/og.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
   <link rel="stylesheet" href="/styles.css">
   <!-- Set the active tab from the URL before first paint, so refreshing inside a
        tab doesn't flash Top Picks before app.js switches. CSS (html[data-tab])
        reveals only that tab; activateTab keeps data-tab in sync afterwards. -->
-  <script>(function(){var t=(new URLSearchParams(location.search).get("tab")||"value");
+  <script>(function(){var t;
+    if(/^\/guide\//.test(location.pathname))t="guide";
+    else t=(new URLSearchParams(location.search).get("tab")||"value");
     if(!/^(value|guide|visited|data)$/.test(t))t="value";
     document.documentElement.setAttribute("data-tab",t);})();</script>
+  {{GC_JS}}
 </head>
 <body>
   <div class="bgdoodle" aria-hidden="true"></div>
@@ -170,6 +175,9 @@
           <select id="bestCountry"></select>
         </div>
       </div>
+      <!-- Server-rendered guide content for crawlers + instant first paint;
+           app.js removes this once it hydrates the interactive guide. -->
+      <div id="ssrGuide" class="ssrguide">{{SSR_BODY}}</div>
       <div id="guideHero" class="guidehero"></div>
       <div id="guideVisa" class="guidevisa"></div>
       <div id="guideAI" class="guideai"></div>

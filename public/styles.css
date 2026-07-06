@@ -475,6 +475,13 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .staynear { font-weight: 400; font-size: 14px; color: var(--gray); }
 .staymap { width: 100%; height: 440px; border: 0; border-radius: 12px; background: var(--card2); }
 .staynote { font-size: 12px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
+/* Server-rendered guide content shown until app.js hydrates the interactive
+   guide (then removed). Kept legible so first paint / no-JS reads cleanly. */
+.ssrguide h1 { font-size: 24px; margin: 4px 0 10px; }
+.ssrguide h2 { font-size: 18px; margin: 18px 0 8px; }
+.ssrguide ul { margin: 0 0 8px; padding-left: 20px; line-height: 1.5; }
+.ssrguide li { margin: 0 0 8px; }
+.ssrguide p { line-height: 1.55; }
 .hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
 
 /* ---- picker hierarchy: big question row, quiet filter row ---- */

@@ -660,6 +660,9 @@ async function ensureClimate() {
 
 // -- Tab: country guide (best time + things to do, one picker) ---------------
 function renderGuide(iso) {
+  // Drop the server-rendered crawler block now that we're rendering the real,
+  // interactive guide (prevents duplicate content).
+  const ssr = $("ssrGuide"); if (ssr) ssr.remove();
   renderGuideHero(iso);
   renderGuideVisa(iso);
   renderGuideAI(iso);
@@ -1020,6 +1023,7 @@ async function openGuideFor(iso, push) {
   if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
   if (ctry._sync) ctry._sync();
   renderGuide(iso);
+  setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
 }
 
 // Classify each month into peak / shoulder / off season by weather, relative to
@@ -2578,6 +2582,9 @@ function renderVisitedStats() {
 const loaded = {};
 async function activateTab(name, push) {
   document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
+  // Leaving the guide -> restore the homepage title/canonical (openGuideFor sets
+  // the country-specific ones when a guide opens).
+  if (name !== "guide") setDocMeta(_DEFAULT_TITLE, _DEFAULT_URL);
   for (const b of document.querySelectorAll("#tabs button"))
     b.classList.toggle("active", b.dataset.tab === name);
   for (const s of document.querySelectorAll(".tab"))
@@ -2680,6 +2687,42 @@ function currentTab() {
   return b ? b.dataset.tab : "value";
 }
 
+// ---- Clean per-country guide URLs (/guide/<slug>) for SEO -------------------
+// The server renders each country at /guide/<slug>; the SPA mirrors that in the
+// address bar and can open a country from such a URL. slugs.json is the shared
+// slug<->ISO map (also used server-side).
+let SLUG2ISO = null, ISO2SLUG = null;
+function ensureSlugs() {
+  if (SLUG2ISO) return Promise.resolve();
+  return fetch("/slugs.json").then((r) => r.json()).then((m) => {
+    SLUG2ISO = m; ISO2SLUG = {};
+    for (const s in m) ISO2SLUG[m[s]] = s;
+  }).catch(() => { SLUG2ISO = {}; ISO2SLUG = {}; });
+}
+// iso -> "/guide/japan"; falls back to the query form until slugs load.
+function guidePath(iso) {
+  const slug = ISO2SLUG && ISO2SLUG[iso];
+  return slug ? "/guide/" + slug : "/?tab=guide&gc=" + encodeURIComponent(iso);
+}
+// If the address is /guide/<slug>, the ISO it maps to (else null).
+function pathGuideIso() {
+  const m = location.pathname.match(/^\/guide\/([a-z0-9-]+)\/?$/);
+  return (m && SLUG2ISO) ? (SLUG2ISO[m[1]] || null) : null;
+}
+// Keep <title>/canonical/og:url correct on client-side navigation too, so they
+// match what the server rendered (and update as the user browses countries).
+const SITE_ORIGIN = "https://wandergrade.com";
+const _DEFAULT_TITLE = "Wandergrade — Where Should I Travel to Next?";
+const _DEFAULT_URL = SITE_ORIGIN + "/";
+function setDocMeta(title, absURL) {
+  document.title = title;
+  const c = document.querySelector('link[rel="canonical"]'); if (c) c.setAttribute("href", absURL);
+  const o = document.querySelector('meta[property="og:url"]'); if (o) o.setAttribute("content", absURL);
+}
+function guideTitle(iso) {
+  return countryName(iso) + " Travel Guide — Best Time to Visit & What to Do | Wandergrade";
+}
+
 function buildShareURL(forShare) {
   if (forShare === undefined) forShare = true;
   const q = new URLSearchParams();
@@ -2703,8 +2746,10 @@ function buildShareURL(forShare) {
     if (dataMode === "currency" && activeDays !== 365) q.set("win", String(activeDays));
     if (dataMode === "currency" && dataBase !== "USD") q.set("db", dataBase);
     if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
+    // Clean, indexable URL: /guide/<slug> (no query string). Same-origin so
+    // history.pushState in syncURL accepts it.
   } else if (tab === "guide") {
-    q.set("gc", $("bestCountry").value || "JP");
+    return location.origin + guidePath($("bestCountry").value || "JP");
   } else if (tab === "visited") {
     loadVisited();
     // The visited list persists in localStorage already; only embed it for an
@@ -2712,7 +2757,9 @@ function buildShareURL(forShare) {
     // "viewing a shared map" warning against the user's own list).
     if (visited.size && forShare) q.set("v", [...visited].join(","));
   }
-  return location.origin + location.pathname + "?" + q.toString();
+  // Non-guide tabs all live at the root path (guide returns early above); using
+  // "/" avoids leaving a stale /guide/<slug> path when switching tabs.
+  return location.origin + "/?" + q.toString();
 }
 
 // Keep the address bar in sync with the current tab + selections, so a refresh
@@ -2739,6 +2786,9 @@ window.addEventListener("popstate", async () => {
   if (!appReady) return;
   restoringHistory = true;
   try {
+    // Clean guide URL (/guide/<slug>) takes precedence over query params.
+    const pIso = pathGuideIso();
+    if (pIso) { await openGuideFor(pIso, false); return; }
     const q = new URLSearchParams(location.search);
     const tab = q.get("tab") || "value";
     const vmn = q.get("vmn"), vmSel = $("valueMonth");
@@ -3050,7 +3100,14 @@ if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);
   await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates()]);
   renderMapSafe();
   loadIndex(365);
-  await activateTab("value");
+  // A /guide/<slug> page (server injects window.__WGGC__) opens that country
+  // straight away — no Top Picks flash. Email ?tab=guide&gc= links fall through
+  // to postApplyShared as before.
+  await ensureSlugs();
+  const bootIso = (window.__WGGC__ && /^[A-Z]{2}$/.test(window.__WGGC__))
+    ? window.__WGGC__ : pathGuideIso();
+  if (bootIso) await openGuideFor(bootIso);
+  else await activateTab("value");
   await postApplyShared().catch(() => {});
   appReady = true;          // from here on, user navigation is mirrored to the URL
   syncURL();
