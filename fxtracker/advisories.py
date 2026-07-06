@@ -1,5 +1,8 @@
-"""US State Dept travel advisories: fetch the RSS feed, parse level (1-4) per
-country, and map names to ISO codes so the map can color them. No key."""
+"""Travel advisories from multiple governments, normalized to a 1-4 level per
+country so the map can color them and the score can use them. Which source is
+used follows the traveler's home country (US State Dept by default; German
+Federal Foreign Office for German travelers) — government advisories reflect
+each country's own foreign policy, so a single source can feel skewed. No key."""
 
 import os
 import re
@@ -9,6 +12,17 @@ import html
 from . import rates  # reuse fetch_json's verifying SSL + retries
 
 FEED = "https://travel.state.gov/_res/rss/TAsTWs.xml"
+US_URL = "https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories.html"
+
+# German Federal Foreign Office (Auswärtiges Amt) open data — per-country travel
+# warnings with ISO-2 country codes and warning/partialWarning flags.
+AA_FEED = "https://www.auswaertiges-amt.de/opendata/travelwarning"
+AA_URL = "https://www.auswaertiges-amt.de/de/ReiseUndSicherheit/reise-und-sicherheitshinweise"
+
+SOURCES = {
+    "us": "U.S. State Department",
+    "de": "German Federal Foreign Office (Auswärtiges Amt)",
+}
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GEOJSON = os.path.join(ROOT, "public", "world.geojson")
 
@@ -77,8 +91,43 @@ def _name_to_iso():
     return out
 
 
-def get_advisories():
-    """Return {as_of, items: [{iso, country, level, level_text, link}]}."""
+def get_advisories(source="us"):
+    """Advisories from the given government source, normalized to a common shape:
+    {items: [{iso, country, level, level_text, link}], source, source_name, source_url}."""
+    if source == "de":
+        return _german_advisories()
+    return _us_advisories()
+
+
+def _german_advisories():
+    """German Foreign Office warnings -> 1-4 levels. Germany only issues warnings
+    for genuinely risky places, so most countries read as Level 1 (normal) — a
+    deliberately less-alarmist, non-US view."""
+    raw = rates.fetch_json(AA_FEED)
+    resp = (raw or {}).get("response", {}) if isinstance(raw, dict) else {}
+    items = []
+    for v in resp.values():
+        if not isinstance(v, dict):
+            continue
+        iso = (v.get("countryCode") or "").strip().upper()
+        if len(iso) != 2:
+            continue
+        if v.get("warning"):
+            level, txt = 4, "Reisewarnung (avoid travel)"
+        elif v.get("partialWarning"):
+            level, txt = 3, "Teilreisewarnung (partial warning)"
+        else:
+            level, txt = 1, "Keine Warnung (no warning)"
+        items.append({"iso": iso, "country": v.get("countryName", ""),
+                      "level": level, "level_text": txt, "link": AA_URL})
+    items.sort(key=lambda r: (-r["level"], r["country"]))
+    return {"items": items, "count": len(items),
+            "matched": sum(1 for i in items if i["iso"]),
+            "source": "de", "source_name": SOURCES["de"], "source_url": AA_URL}
+
+
+def _us_advisories():
+    """Return {items: [{iso, country, level, level_text, link}], source...}."""
     raw = _fetch_text(FEED)
     name_iso = _name_to_iso()
 
@@ -110,7 +159,8 @@ def get_advisories():
 
     items.sort(key=lambda r: (-r["level"], r["country"]))
     return {"items": items, "count": len(items),
-            "matched": sum(1 for i in items if i["iso"])}
+            "matched": sum(1 for i in items if i["iso"]),
+            "source": "us", "source_name": SOURCES["us"], "source_url": US_URL}
 
 
 def _tag(block, tag):

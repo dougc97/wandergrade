@@ -665,6 +665,7 @@ function renderGuide(iso) {
   const ssr = $("ssrGuide"); if (ssr) ssr.remove();
   renderGuideHero(iso);
   renderGuideVisa(iso);
+  renderGuideSafety(iso);
   renderGuideAI(iso);
   renderCountryClimate(iso);
   renderActivity(iso);
@@ -759,6 +760,28 @@ function renderGuideVisa(iso) {
   host.innerHTML = `<span class="visa ${info.meta.cls}">🛂 ${esc(info.meta.label)}</span>
     <span class="guidevisa-txt"><b>Visa · ${esc(ppName)} passport:</b> ${esc(detail)}.${link}
     Verify before booking — rules change.</span>`;
+}
+
+// Safety advisory for this country, from the traveler's home-country source
+// (US State Dept by default, German Foreign Office for German travelers). Named
+// so readers know whose guidance it is — advisories are politically colored.
+const ADV_LABEL = { 1: "Level 1 · Normal precautions", 2: "Level 2 · Increased caution",
+                    3: "Level 3 · Reconsider travel", 4: "Level 4 · Avoid travel" };
+function renderGuideSafety(iso) {
+  const host = $("guideSafety");
+  if (!host) return;
+  host.hidden = true;
+  ensureAdvisories().then(() => {
+    if (ccGuideIso !== iso) return;
+    const lvl = advisoryByIso()[iso];
+    if (!lvl) return;
+    const src = advisories.source_name || "US State Dept";
+    const url = advisories.source_url || "#";
+    host.hidden = false;
+    host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>
+      <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b> follows your home country's official guidance
+      (change it in the "From" selector). <a href="${esc(url)}" target="_blank" rel="noopener">official advisory ↗</a></span>`;
+  }).catch(() => {});
 }
 
 // A full-width photo carousel at the top of the guide: one scenic shot at a
@@ -1127,10 +1150,26 @@ function renderCountryClimate(iso) {
 // ===========================================================================
 //  Travel advisories
 // ===========================================================================
+// Which government's advisories to use, driven by the home country (German
+// travelers get the Auswärtiges Amt; everyone else the US State Dept for now).
+// Government advisories reflect that country's foreign policy, so following the
+// traveler's own government is more relevant + less US-skewed.
 let advisories = null;
+const _advBySource = {};
+function advisorySource() { return travelOrigin() === "DE" ? "de" : "us"; }
 async function ensureAdvisories() {
-  if (!advisories) advisories = await getJSON("/api/advisories");
+  const src = advisorySource();
+  if (!_advBySource[src]) _advBySource[src] = await getJSON("/api/advisories?source=" + src);
+  advisories = _advBySource[src];
   return advisories;
+}
+// Re-fetch when the home country moves to a different advisory source. Returns
+// true if the active source changed (so callers can re-render).
+async function reloadAdvisoriesForOrigin() {
+  const src = advisorySource();
+  if (advisories && advisories.source === src) return false;
+  await ensureAdvisories();
+  return true;
 }
 const LVL_COLOR = { 1: "#0a7d28", 2: "#c9a200", 3: "#d4730a", 4: "#b00020" };
 
@@ -1142,10 +1181,12 @@ function renderAdvisories() {
     return it
       ? { fill: LVL_COLOR[it.level], title: `${it.country} — Level ${it.level}: ${it.level_text}` }
       : { fill: NODATA, title: f.properties.name + " — no advisory data" };
-  }, "US travel advisory levels");
+  }, (advisories.source_name || "Travel") + " advisory levels");
 
-  $("advSub").textContent =
-    `${advisories.count} advisories from the US State Dept. Green = safest (Level 1), red = Do Not Travel (Level 4).`;
+  $("advSub").innerHTML =
+    `${advisories.count} advisories from the <b>${esc(advisories.source_name || "US State Dept")}</b> ` +
+    `(follows your home country). Green = safest (Level 1), red = avoid travel (Level 4). ` +
+    `<span class="muted">Government advisories reflect each country's own foreign policy.</span>`;
   $("advLegend").innerHTML = [1, 2, 3, 4]
     .map((l) => `<span><span class="swatch" style="background:${LVL_COLOR[l]}"></span>L${l}</span>`).join(" ");
 
@@ -1331,8 +1372,16 @@ function setTravelOrigin(iso) {
   loadValueFlights(false);                             // Top Picks fares (re-renders)
   renderValue();                                       // immediate: new affordability anchor
   if (loaded.flights) loadFlights();                   // Explore-the-Data fares
+  // Safety source follows the home country too (German travelers -> Auswärtiges
+  // Amt). If it changed, re-score Top Picks and refresh the advisory map + guide.
+  reloadAdvisoriesForOrigin().then((changed) => {
+    if (!changed) return;
+    if (loaded.value) renderValue();
+    if (advisories && document.getElementById("advMap")) renderAdvisories();
+    if (ccGuideIso) renderGuideSafety(ccGuideIso);
+  }).catch(() => {});
   // guide visa + AI + temperature units (default unit follows the home country)
-  if (ccGuideIso) { renderGuideVisa(ccGuideIso); renderGuideAI(ccGuideIso); renderCountryClimate(ccGuideIso); }
+  if (ccGuideIso) { renderGuideVisa(ccGuideIso); renderGuideAI(ccGuideIso); renderCountryClimate(ccGuideIso); renderGuideSafety(ccGuideIso); }
   syncURL();
 }
 

@@ -42,7 +42,7 @@ PUBLIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 CACHE_TTL = 600  # seconds; FX reference rates update at most daily.
 _cache = {"key": None, "at": 0, "data": None}
 _index_cache = {}  # days -> (timestamp, payload)
-_adv_cache = {"at": 0, "data": None}
+_adv_cache = {}     # source -> (timestamp, payload)
 ADV_TTL = 6 * 3600  # advisories change rarely; refresh a few times a day
 _flights_cache = {}  # origin -> (timestamp, payload)
 FLIGHTS_TTL = 3600   # cached fares are fine for an hour
@@ -368,16 +368,22 @@ class Handler(BaseHTTPRequestHandler):
         self._send_json(data)
 
     def _handle_advisories(self):
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        source = (qs.get("source", ["us"])[0] or "us").strip().lower()
+        if source not in advisories.SOURCES:
+            source = "us"
         now = time.time()
-        if _adv_cache["data"] and (now - _adv_cache["at"]) < ADV_TTL:
-            self._send_json(_adv_cache["data"])
+        hit = _adv_cache.get(source)
+        if hit and (now - hit[0]) < ADV_TTL:
+            self._send_json(hit[1])
             return
         try:
-            data = advisories.get_advisories()
+            data = advisories.get_advisories(source)
         except Exception as e:
             self._send_json({"error": str(e)}, 502)
             return
-        _adv_cache.update(at=now, data=data)
+        _adv_cache[source] = (now, data)
         self._send_json(data)
 
     def _handle_popularity(self):

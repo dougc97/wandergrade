@@ -487,6 +487,10 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .tempunit { display: inline-flex; border: 1px solid var(--border-input); border-radius: 8px; overflow: hidden; }
 .tempunit button { background: var(--card); border: none; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--gray); cursor: pointer; }
 .tempunit button.active { background: var(--green); color: #fff; }
+/* Safety advisory badge in the guide (colored by level, like the advisory map). */
+.advbadge { display: inline-block; border-radius: 999px; padding: 3px 11px; font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; }
+.advlvl1 { background: #0a7d28; } .advlvl2 { background: #c9a200; }
+.advlvl3 { background: #d4730a; } .advlvl4 { background: #b00020; }
 .hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
 
 /* ---- picker hierarchy: big question row, quiet filter row ---- */
