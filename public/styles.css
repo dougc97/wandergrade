@@ -482,6 +482,12 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .ssrguide ul { margin: 0 0 8px; padding-left: 20px; line-height: 1.5; }
 .ssrguide li { margin: 0 0 8px; }
 .ssrguide p { line-height: 1.55; }
+/* Instant tooltip for [data-tip] elements (e.g. hazard ⚠️ in Top Picks). */
+.wgtip { position: fixed; z-index: 2000; background: #16181d; color: #fff;
+  border: 1px solid rgba(255,255,255,.16); border-radius: 8px; padding: 7px 11px;
+  font-size: 12.5px; line-height: 1.45; width: max-content; max-width: 300px;
+  white-space: pre-line; pointer-events: none; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.hzmark { cursor: help; }
 /* Temperature unit toggle in the Travel Guide climate panel. */
 .besthead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tempunit { display: inline-flex; border: 1px solid var(--border-input); border-radius: 8px; overflow: hidden; }

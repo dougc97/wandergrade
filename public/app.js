@@ -1996,7 +1996,7 @@ function renderGradeTable(host, list, month, gem) {
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}">${gradePill(s.afford, affordTitle(s))}</td>
       <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl)}</td>
-      <td class="scell" data-go="weather" data-iso="${iso}">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" title="${esc(hz.map((h) => h.note).join("; "))}">⚠️</span>` : ""}</td>
+      <td class="scell" data-go="weather" data-iso="${iso}">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</td>
       <td class="scell" data-go="flights" data-iso="${iso}">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
             : gradePill(s.fly, "Flight deal vs the typical fare for this distance · click for exact prices")}</td>
@@ -3200,6 +3200,29 @@ if ($("visitedStory")) $("visitedStory").addEventListener("click", () => downloa
 if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);
 // ("Use on another device" was removed — the Share button already produces a
 //  URL carrying your map across devices.)
+
+// ---- Instant tooltip ([data-tip]) -------------------------------------------
+// Native title tooltips need a ~1s hover and are easy to miss; anything with a
+// data-tip gets an immediate, styled tooltip instead. Fixed-positioned so the
+// scrollable table wrappers can't clip it. (title="" on the same element
+// suppresses the ancestor row's native tooltip from doubling up.)
+const _tipEl = document.createElement("div");
+_tipEl.className = "wgtip";
+_tipEl.hidden = true;
+document.body.appendChild(_tipEl);
+document.addEventListener("mouseover", (e) => {
+  const t = e.target.closest && e.target.closest("[data-tip]");
+  if (!t || !t.dataset.tip) { _tipEl.hidden = true; return; }
+  _tipEl.textContent = t.dataset.tip;
+  _tipEl.hidden = false;
+  const r = t.getBoundingClientRect();
+  const w = _tipEl.offsetWidth, h = _tipEl.offsetHeight;
+  // clientWidth, not innerWidth — the latter reads 0 in some headless/embedded contexts
+  const vw = document.documentElement.clientWidth || window.innerWidth;
+  _tipEl.style.left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2)) + "px";
+  _tipEl.style.top = (r.top - h - 8 > 8 ? r.top - h - 8 : r.bottom + 8) + "px";
+});
+document.addEventListener("scroll", () => { _tipEl.hidden = true; }, true);
 
 (async function init() {
   initTheme();
