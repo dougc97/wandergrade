@@ -2782,9 +2782,9 @@ for (const b of document.querySelectorAll("#dataMode button"))
 const BUTTONDOWN_USER = "wandergrade";
 
 // ---- feedback form ----------------------------------------------------------
-// Set to the live Google Form URL to show the footer link + the line under the
-// newsletter box; leave "" to hide both until the form exists.
-const FEEDBACK_URL = "";
+// Google Form ("WanderGrade — Feedback", anonymous-friendly). Drives the footer
+// link + the line under the newsletter box; set "" to hide both.
+const FEEDBACK_URL = "https://forms.gle/gzG1Bmg7kKRKubri7";
 
 function renderFeedback() {
   if (!FEEDBACK_URL) return;
