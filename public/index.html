@@ -57,7 +57,7 @@
     <button data-tab="value" class="active">🧭 Top Picks</button>
     <button data-tab="guide">📅 Travel Guide</button>
     <button data-tab="visited">🗺️ Wander List</button>
-    <button data-tab="data">📊 Explore the Data</button>
+    <button data-tab="data">📊 Data</button>
   </nav>
 
   <div id="status" class="status" hidden></div>
@@ -73,45 +73,54 @@
         <button id="surpriseBtn" class="surprisebtn" type="button" title="No idea where to go? Open a random destination guide.">🎲 Surprise me</button>
       </div>
 
+      <!-- Hero controls: the two decisions everyone makes. Everything else
+           lives one tap away in the Filters fold. -->
       <div class="pickers pickersmain">
-        <span class="pickgroup" title="when and where you're thinking of going">
+        <span class="pickgroup" title="when you're going">
           <span class="picklabel">I'm going in</span>
           <select id="valueMonth" title="travel month"></select>
-          <select id="valueRegion" title="filter by region"></select>
         </span>
-        <span class="pickgroup" title="your home country — sets flight prices and what 'cheap' is compared to">
+        <span class="pickgroup" title="your home country — sets flight prices, visas and what 'cheap' is compared to">
           <span class="picklabel">✈️ From</span>
           <select id="valueOrigin"></select>
         </span>
-        <span class="pickgroup" title="your money — sets the FX column and the currency prices are shown in (defaults to your home country's)">
-          <span class="picklabel">💱 In</span>
-          <select id="homeCur"></select>
-        </span>
       </div>
-      <div class="pickers pickersfilters">
-        <span class="pickgroup" title="how many picks to show">
-          <span class="picklabel">Show</span>
-          <select id="pickCount">
-            <option value="5" selected>Top 5</option>
-            <option value="10">Top 10</option>
-            <option value="20">Top 20</option>
-          </select>
-        </span>
-        <span class="pickgroup" title="hide countries below this safety grade (they move to Hidden Gems)">
-          <span class="picklabel">🛡️ Safety at least</span>
-          <select id="safeFloor">
-            <option value="a">A — Level 1 only</option>
-            <option value="b" selected>B — Levels 1–2</option>
-            <option value="any">Any level</option>
-          </select>
-        </span>
-        <span class="pickgroup" id="factorChips" title="which factors count toward the grade — tap to toggle">
-          <span class="picklabel">Count</span>
-        </span>
-      </div>
+      <details class="foldable filtersfold">
+        <summary>⚙️ Filters <span class="muted">— region · currency · safety · what counts</span></summary>
+        <div class="pickers pickersfilters">
+          <span class="pickgroup" title="filter by region">
+            <span class="picklabel">Region</span>
+            <select id="valueRegion" title="filter by region"></select>
+          </span>
+          <span class="pickgroup" title="your money — sets the FX column and the currency prices are shown in (defaults to your home country's)">
+            <span class="picklabel">💱 In</span>
+            <select id="homeCur"></select>
+          </span>
+          <span class="pickgroup" title="hide countries below this safety grade (they move to Hidden Gems)">
+            <span class="picklabel">🛡️ Safety at least</span>
+            <select id="safeFloor">
+              <option value="a">A — Level 1 only</option>
+              <option value="b" selected>B — Levels 1–2</option>
+              <option value="any">Any level</option>
+            </select>
+          </span>
+          <span class="pickgroup" id="factorChips" title="which factors count toward the grade — tap to toggle">
+            <span class="picklabel">Count</span>
+          </span>
+          <span class="pickgroup" title="how many picks to show">
+            <span class="picklabel">Show</span>
+            <select id="pickCount">
+              <option value="5" selected>Top 5</option>
+              <option value="10">Top 10</option>
+              <option value="20">Top 20</option>
+            </select>
+          </span>
+        </div>
+      </details>
 
       <p class="picksnote" id="picksNote"></p>
       <div id="topCards" class="gradewrap">Loading…</div>
+      <button id="showMore" class="showmore" type="button" hidden>Show top 10 ↓</button>
 
       <div class="aibar">
         <button id="aiExport" class="aibtn" title="see a ready-to-use prompt for ChatGPT, Claude, or any AI">✨ Plan these with AI →</button>
@@ -183,6 +192,11 @@
            app.js removes this once it hydrates the interactive guide. -->
       <div id="ssrGuide" class="ssrguide">{{SSR_BODY}}</div>
       <div id="guideHero" class="guidehero"></div>
+      <nav class="guidejump" aria-label="jump to a guide section">
+        <button type="button" data-go="bestDetail">🌤 When to go</button>
+        <button type="button" data-go="actDetail">🎒 What to do</button>
+        <button type="button" data-go="guideStay">🏨 Where to stay</button>
+      </nav>
       <div id="guideVisa" class="guidevisa"></div>
       <div id="guideSafety" class="guidevisa" hidden></div>
       <div id="guideAI" class="guideai"></div>

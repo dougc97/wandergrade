@@ -496,6 +496,24 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   background: var(--card2); }
 .viatorbtn:hover { border-color: var(--green); color: var(--green); }
 .viatorbtn .ext { font-size: 11px; opacity: .6; }
+/* Filters fold on Top Picks (holds the power-user pickers). */
+.filtersfold { margin-top: 10px; }
+.filtersfold .pickers { margin-top: 10px; }
+/* "Show more" under the Top Picks table. */
+.showmore { display: block; margin: 12px auto 0; padding: 8px 20px; border: 1px solid var(--line);
+  border-radius: 999px; background: var(--card2); color: var(--ink); font-size: 13.5px;
+  font-weight: 600; cursor: pointer; }
+.showmore:hover { border-color: var(--green); color: var(--green); }
+/* Guide jump chips. */
+.guidejump { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
+.guidejump button { border: 1px solid var(--line); background: var(--card2); border-radius: 999px;
+  padding: 6px 13px; font-size: 13px; font-weight: 600; color: var(--ink); cursor: pointer; }
+.guidejump button:hover { border-color: var(--green); color: var(--green); }
+/* Month bars double as the month picker. */
+.bars .col[data-mn] { cursor: pointer; }
+.bars .col[data-mn]:hover .fill { filter: brightness(1.25); }
+.bars .col.selmonth .fill { outline: 2px solid var(--ink); outline-offset: 2px; }
+.bars .col.selmonth .mlabel { font-weight: 800; text-decoration: underline; }
 /* Feedback link under the newsletter box (shown once FEEDBACK_URL is set). */
 .feedbacklink { display: block; margin-top: 10px; font-size: 13px; color: var(--gray); text-decoration: none; }
 .feedbacklink:hover { color: var(--green); text-decoration: underline; }

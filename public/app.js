@@ -1122,13 +1122,15 @@ function renderCountryClimate(iso) {
   const temps = c.temps || [];
   const bars = c.scores.map((s, i) => {
     const h = s == null ? 0 : Math.round(s);
-    const col = bestSet.has(i + 1) ? "col best" : "col";
+    const selM = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
+    const col = (bestSet.has(i + 1) ? "col best" : "col") + (i + 1 === selM ? " selmonth" : "");
     const hz = hzByMonth[i + 1];
     const t = temps[i];
     // Bar headline is the month's avg temperature; height + color still encode
-    // weather comfort (score lives in the tooltip).
+    // weather comfort (score lives in the tooltip). Bars double as the month
+    // picker — clicking one plans the trip for that month (planForMonth).
     const head = t != null ? fmtTemp(t) : (s == null ? "" : s);
-    return `<div class="${col}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season${hz ? " · ⚠️ " + esc(hz) : ""}">
+    return `<div class="${col}" data-mn="${i + 1}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season${hz ? " · ⚠️ " + esc(hz) : ""} · click to plan for ${MONTHS[i]}">
       <div class="mscore">${head}</div>
       <div class="fill" style="height:${h}%;background:${t != null ? tempColor(t) : comfortColor(s)}"></div>
       <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? `<span class="hzmark" data-tip="⚠️ ${esc(hz)}" title="">⚠️</span>` : ""}</div></div>`;
@@ -2158,6 +2160,13 @@ function renderValue() {
     : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.";
   lastPicks = picks; lastPicksMonth = month;   // for the AI export
   renderGradeTable($("topCards"), picks, month, false);
+  // "Show more" reveals 10 then 20; hides when maxed out or nothing left.
+  const sm = $("showMore");
+  if (sm) {
+    const cap = pickCount();
+    sm.hidden = cap >= 20 || picks.length < cap;
+    sm.textContent = cap === 5 ? "Show top 10 ↓" : "Show top 20 ↓";
+  }
   // Pulse the picked countries on the map so table and map visibly agree.
   if (!reducedMotion()) {
     const pickSet = new Set(picks.map((s) => s.iso));
@@ -2747,6 +2756,45 @@ document.querySelector(".brand").addEventListener("click", (e) => {
   e.preventDefault();
   activateTab("value", true);
   window.scrollTo(0, 0);
+});
+
+// Clicking a month bar in the guide makes the chart the control: sets the one
+// global travel month (the same one Top Picks ranks by), re-prices the stay
+// map, and rebuilds the AI prompt for that month.
+function planForMonth(m) {
+  const sel = $("valueMonth");
+  if (!sel || !(m >= 1 && m <= 12)) return;
+  sel.value = String(m);
+  if (sel._sync) sel._sync();
+  if (loaded.value) renderValue();
+  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); }
+  status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
+  syncURL();
+}
+$("bestDetail").addEventListener("click", (e) => {
+  const bar = e.target.closest("#bestDetail .bars .col[data-mn]");
+  if (!bar) return;
+  if (e.target.closest(".hzmark")) return;   // ⚠️ taps show the hazard, not switch months
+  planForMonth(parseInt(bar.dataset.mn, 10));
+});
+
+// Guide jump chips: smooth-scroll to a section (buttons, not #hash links, so
+// the clean /guide/<slug> URLs stay untouched).
+document.querySelector(".guidejump").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-go]");
+  if (!b) return;
+  let el = $(b.dataset.go);
+  if (el && el.hidden) el = $("guideSubscribe") || el;   // stay map can be hidden
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+// "Show more" under the Top Picks table: 5 -> 10 -> 20 without a pre-decision
+// dropdown (the Show select still lives in Filters for direct control).
+$("showMore").addEventListener("click", () => {
+  const next = pickCount() === 5 ? "10" : "20";
+  $("pickCount").value = next;
+  localStorage.setItem("fx_pickcount", next);
+  renderValue();
 });
 
 // Explore-the-Data sub-views: currency / cost of living / safety / flights.
