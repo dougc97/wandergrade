@@ -711,16 +711,28 @@ function renderGuideStay(iso) {
     const c = cc[iso];
     if (!c || !c.ll) return;
     const { checkin, checkout } = stayDates();
-    const src = "https://www.stay22.com/embed/gm?aid=" + STAY22_AID +
-      "&lat=" + c.ll[0] + "&lng=" + c.ll[1] +
-      "&checkin=" + checkin + "&checkout=" + checkout +
-      "&maincolor=0a7d28";
-    // No per-map disclaimer — the footer's affiliate disclosure covers stays.
+    // Compact provider buttons instead of the embedded Stay22 map: Allez deep
+    // links land users in Booking/Expedia/Hotels.com's own UI, anchored at the
+    // country's top sight with the traveler's month — still earning through
+    // aid=wandergrade. Hostelworld is a plain link until the Partnerize camref
+    // arrives. Footer disclosure covers the affiliate relationship.
+    const q = "aid=" + STAY22_AID + "&lat=" + c.ll[0] + "&lng=" + c.ll[1] +
+              "&checkin=" + checkin + "&checkout=" + checkout;
+    const allez = (p) => "https://www.stay22.com/allez/" + p + "?" + q;
+    const hw = "https://www.hostelworld.com/search?search_keywords=" +
+               encodeURIComponent(countryName(iso));
+    const btn = (href, label, sponsored) =>
+      '<a class="staybtn" target="_blank" rel="' + (sponsored ? "sponsored nofollow noopener" : "nofollow noopener") +
+      '" href="' + href + '">' + label + ' <span class="ext">↗</span></a>';
     host.innerHTML =
       '<h3 class="staytitle">🏨 Where to stay' +
       (c.near ? ' <span class="staynear">near ' + esc(c.near) + "</span>" : "") + "</h3>" +
-      '<iframe class="staymap" title="Stay22 hotel and hostel price map" loading="lazy" ' +
-      'frameborder="0" referrerpolicy="no-referrer-when-downgrade" src="' + src + '"></iframe>';
+      '<div class="staybtns">' +
+        btn(allez("booking"), "Booking.com", true) +
+        btn(hw, "🎒 Hostelworld", false) +
+        btn(allez("expedia"), "Expedia", true) +
+        btn(allez("hotelscom"), "Hotels.com", true) +
+      "</div>";
     host.hidden = false;
   }).catch(() => {});
 }

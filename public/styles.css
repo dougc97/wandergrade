@@ -475,7 +475,12 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .guidestay { margin-top: 20px; }
 .staytitle { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
 .staynear { font-weight: 400; font-size: 14px; color: var(--gray); }
-.staymap { width: 100%; height: 440px; border: 0; border-radius: 12px; background: var(--card2); }
+/* Compact stay-provider buttons (replaced the embedded Stay22 map). */
+.staybtns { display: flex; gap: 8px; flex-wrap: wrap; }
+.staybtn { display: inline-block; padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px;
+  font-size: 13.5px; font-weight: 600; color: var(--ink); text-decoration: none; background: var(--card2); }
+.staybtn:hover { border-color: var(--green); color: var(--green); }
+.staybtn .ext { font-size: 11px; opacity: .6; }
 /* Server-rendered guide content shown until app.js hydrates the interactive
    guide (then removed). Kept legible so first paint / no-JS reads cleanly. */
 .ssrguide h1 { font-size: 24px; margin: 4px 0 10px; }
