@@ -715,13 +715,12 @@ function renderGuideStay(iso) {
       "&lat=" + c.ll[0] + "&lng=" + c.ll[1] +
       "&checkin=" + checkin + "&checkout=" + checkout +
       "&maincolor=0a7d28";
+    // No per-map disclaimer — the footer's affiliate disclosure covers stays.
     host.innerHTML =
       '<h3 class="staytitle">🏨 Where to stay' +
       (c.near ? ' <span class="staynear">near ' + esc(c.near) + "</span>" : "") + "</h3>" +
       '<iframe class="staymap" title="Stay22 hotel and hostel price map" loading="lazy" ' +
-      'frameborder="0" referrerpolicy="no-referrer-when-downgrade" src="' + src + '"></iframe>' +
-      '<p class="staynote">Live hotel, hostel &amp; rental prices via Stay22, set to your travel month. ' +
-      "WanderGrade may earn a commission if you book — at no extra cost to you.</p>";
+      'frameborder="0" referrerpolicy="no-referrer-when-downgrade" src="' + src + '"></iframe>';
     host.hidden = false;
   }).catch(() => {});
 }
@@ -2787,7 +2786,7 @@ document.querySelector(".guidejump").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-go]");
   if (!b) return;
   let el = $(b.dataset.go);
-  if (el && el.hidden) el = $("guideSubscribe") || el;   // stay map can be hidden
+  if (el && el.hidden) el = $("subscribe") || el;   // stay map can be hidden
   if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
 });
 
@@ -2863,9 +2862,9 @@ function renderFeedback() {
 }
 
 function renderSubscribe() {
-  // Fills every subscribe slot: the main box at the page bottom plus the
-  // compact strip at the end of the Travel Guide (engaged readers).
-  const slots = ["subscribe", "guideSubscribe"].map((id) => $(id)).filter(Boolean);
+  // One subscribe box, at the page bottom. (A second strip at the end of the
+  // guide stacked right on top of it — duplicate, removed.)
+  const slots = ["subscribe"].map((id) => $(id)).filter(Boolean);
   if (!slots.length) return;
   const base = "https://buttondown.com/" + BUTTONDOWN_USER;
   const html = !BUTTONDOWN_USER
