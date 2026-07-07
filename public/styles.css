@@ -123,6 +123,12 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .actdesc { color: var(--gray); font-size: 13px; line-height: 1.45; margin-top: 2px; }
 .seasdesc { flex-basis: 100%; color: var(--gray); font-size: 13px; line-height: 1.45; margin-top: 3px; }
 .actemoji { flex: none; width: 1.3em; text-align: center; }
+/* Per-activity photo thumbnail (right edge of the row, click to enlarge). */
+.actthumbslot { flex: none; margin-left: auto; }
+.actthumb { width: 84px; height: 58px; object-fit: cover; border-radius: 8px;
+  cursor: zoom-in; display: block; }
+.actthumb:hover { filter: brightness(1.12); }
+@media (max-width: 560px) { .actthumb { width: 68px; height: 50px; } }
 .seasrow { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; flex-wrap: wrap; }
 .seasrow:last-child { border-bottom: none; }
 .seasrow .what { flex: 1; min-width: 160px; display: flex; align-items: baseline; gap: 9px; }

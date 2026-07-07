@@ -929,9 +929,29 @@ function openLightbox() {
   // the carousel is instant instead of waiting on each load.
   heroUrls.forEach((p) => { if (p.full && p.full !== p.thumb) { const im = new Image(); im.src = p.full; } });
 }
+// One-off viewer for a single photo (activity thumbnails) — same lightbox,
+// no carousel nav; lbSingle guards the arrow keys from stepping the hero.
+let lbSingle = null;
+function openLightboxSingle(photo) {
+  lbSingle = photo;
+  const lb = ensureLightbox();
+  lb.hidden = false;
+  document.body.style.overflow = "hidden";
+  document.addEventListener("keydown", lbKey);
+  const img = lb.querySelector(".lbimg");
+  img.src = photo.thumb;
+  if (photo.full && photo.full !== photo.thumb) {
+    const hi = new Image();
+    hi.onload = () => { if (!lb.hidden && lbSingle === photo) img.src = photo.full; };
+    hi.src = photo.full;
+  }
+  lb.querySelector(".lbcount").textContent = "";
+  lb.querySelectorAll(".lbnav").forEach((b) => { b.style.display = "none"; });
+}
 function closeLightbox() {
   const lb = $("lightbox");
   if (lb) lb.hidden = true;
+  lbSingle = null;
   document.body.style.overflow = "";
   document.removeEventListener("keydown", lbKey);
 }
@@ -952,6 +972,7 @@ function syncLightbox() {
 }
 function lbKey(e) {
   if (e.key === "Escape") closeLightbox();
+  else if (lbSingle) return;                       // single-photo view: no carousel
   else if (e.key === "ArrowLeft") heroStep(-1);
   else if (e.key === "ArrowRight") heroStep(1);
 }
@@ -2551,10 +2572,17 @@ function renderActivity(iso) {
   const acts = a.activities.map((x) => {
     const label = typeof x === "string" ? x : x.t;
     const desc = (typeof x === "object" && x.d) ? x.d : "";
+    // Photo subject: an explicit per-activity override ("p" in activities.json,
+    // for labels that don't match a Wikipedia title), else the first place in
+    // the parenthetical ("Safari (Yala)" -> "Yala"), else the label itself.
+    // Thumb loads async; rows without a clean photo just stay text-only.
+    const pm = label.match(/\(([^),]+)/);
+    const subj = (typeof x === "object" && x.p) ? x.p
+      : (pm ? pm[1] : label.replace(/\s*\([^)]*\)/g, "")).trim();
     return `<li><span class="actemoji">${activityEmoji(label)}</span><span class="actmain">`
       + `<span class="actlabel">${esc(label)}</span>`
       + (desc ? `<span class="actdesc">${esc(desc)}</span>` : "")
-      + `</span></li>`;
+      + `</span><span class="actthumbslot" data-subj="${esc(subj)}"></span></li>`;
   }).join("");
   const seas = (a.seasonal || []).map((s) => {
     const on = s.months.includes(m);
@@ -2573,8 +2601,47 @@ function renderActivity(iso) {
     <h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
     <ul class="actlist">${acts}</ul>
     <a class="viatorbtn" href="${viatorURL(name)}" target="_blank" rel="sponsored nofollow noopener"
-       title="Browse bookable tours & experiences in ${esc(name)} on Viator">🎟️ Book tours &amp; activities in ${esc(name)} <span class="ext">↗</span></a>
+       title="Browse bookable tours & experiences in ${esc(name)} on Viator">🎟️ Book tours &amp; activities in ${esc(name)} <span class="muted">on Viator</span> <span class="ext">↗</span></a>
     ${seas ? `<h4 style="margin:.6em 0 .2em">🗓️ What's in season <span class="muted">(now: ${MONTHS[m - 1]})</span></h4>${seas}` : ""}`;
+  loadActivityThumbs(iso);
+}
+
+// ---- per-activity photo thumbnails ------------------------------------------
+// Each "top things to do" row gets a small photo of its place (same Wikipedia
+// pageimages source as the hero carousel), clickable to a full-screen view —
+// visualize on-page instead of clicking out. Rows whose subject doesn't
+// resolve to a clean photo silently stay text-only.
+const _actPhotoCache = {};
+async function actPhoto(subject, country) {
+  const key = subject + "|" + country;
+  if (!(key in _actPhotoCache)) {
+    // Bare place names often land on disambiguation pages ("Ella", "Yala") —
+    // no photo there, so retry with the country attached, in both Wikipedia
+    // title styles: "Ella, Sri Lanka" (comma) and "Golden Circle (Iceland)"
+    // (parenthetical).
+    let p = await wikiIconic(subject).catch(() => null);
+    if (!p && country) p = await wikiIconic(subject + ", " + country).catch(() => null);
+    if (!p && country) p = await wikiIconic(subject + " (" + country + ")").catch(() => null);
+    _actPhotoCache[key] = p;
+  }
+  return _actPhotoCache[key];
+}
+function loadActivityThumbs(iso) {
+  const country = countryName(iso);
+  document.querySelectorAll("#actDetail .actthumbslot[data-subj]").forEach(async (slot) => {
+    const p = await actPhoto(slot.dataset.subj, country);
+    if (!p || ccGuideIso !== iso || slot.childElementCount) return;
+    // Derive a lightweight thumb from the API's 1600px URL (standard MediaWiki
+    // size-in-path); fall back to the big one if that variant doesn't exist.
+    const small = p.thumb.replace(/\/(\d+)px-/, "/320px-");
+    const img = document.createElement("img");
+    img.className = "actthumb"; img.loading = "lazy"; img.alt = "";
+    img.title = "view photo";
+    img.onerror = () => { img.onerror = null; img.src = p.thumb; };
+    img.src = small;
+    img.addEventListener("click", () => openLightboxSingle(p));
+    slot.appendChild(img);
+  });
 }
 
 // ===========================================================================
