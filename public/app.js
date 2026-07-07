@@ -872,11 +872,36 @@ async function iconicPhotos(iso) {
   if (out.length) _heroCache[iso] = out;
   return out;
 }
+// The photo subject an activity row will use (shared with renderActivity so
+// the hero's de-dupe stays in lockstep with what the thumbnails show).
+function activitySubject(x) {
+  const label = typeof x === "string" ? x : x.t;
+  if (typeof x === "object" && x.p) return x.p;
+  const pm = label.match(/\(([^),]+)/);
+  return (pm ? pm[1] : label.replace(/\s*\([^)]*\)/g, "")).trim();
+}
+// File keys of every photo the activity thumbnails will display for this
+// country — the hero excludes these so no image appears twice on the page.
+async function activityPhotoKeys(iso) {
+  const a = activities && activities[iso];
+  const country = countryName(iso);
+  const keys = new Set();
+  await Promise.all(((a && a.activities) || []).map(async (x) => {
+    const p = await actPhoto(activitySubject(x), country).catch(() => null);
+    if (p && p.full) keys.add(fileKey(p.full));
+  }));
+  return keys;
+}
+
 function loadHeroPhotos(iso) {
   const host = $("guideHero");
   if (!host) return;
-  iconicPhotos(iso).then((photos) => {
+  Promise.all([iconicPhotos(iso), activityPhotoKeys(iso)]).then(([photos, used]) => {
     if (ccGuideIso !== iso) return;                 // user moved on
+    // De-dupe against the activity thumbnails below; keep the full set if
+    // filtering would leave the hero too thin to be worth a carousel.
+    const kept = photos.filter((p) => !used.has(fileKey(p.full)));
+    if (kept.length >= 2) photos = kept;
     heroUrls = photos.slice(0, 6); heroIdx = 0;
     host.classList.remove("loading");
     if (!heroUrls.length) { host.classList.add("empty"); return; }
@@ -2585,13 +2610,10 @@ function renderActivity(iso) {
   const acts = a.activities.map((x) => {
     const label = typeof x === "string" ? x : x.t;
     const desc = (typeof x === "object" && x.d) ? x.d : "";
-    // Photo subject: an explicit per-activity override ("p" in activities.json,
-    // for labels that don't match a Wikipedia title), else the first place in
-    // the parenthetical ("Safari (Yala)" -> "Yala"), else the label itself.
+    // Photo subject via activitySubject() — the hero carousel de-dupes against
+    // the same derivation, so each image appears exactly once on the page.
     // Thumb loads async; rows without a clean photo just stay text-only.
-    const pm = label.match(/\(([^),]+)/);
-    const subj = (typeof x === "object" && x.p) ? x.p
-      : (pm ? pm[1] : label.replace(/\s*\([^)]*\)/g, "")).trim();
+    const subj = activitySubject(x);
     return `<li><span class="actemoji">${activityEmoji(label)}</span><span class="actmain">`
       + `<span class="actlabel">${esc(label)}</span>`
       + (desc ? `<span class="actdesc">${esc(desc)}</span>` : "")
