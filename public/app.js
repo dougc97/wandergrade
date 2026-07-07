@@ -727,11 +727,12 @@ function renderGuideStay(iso) {
     host.innerHTML =
       '<h3 class="staytitle">🏨 Where to stay' +
       (c.near ? ' <span class="staynear">near ' + esc(c.near) + "</span>" : "") + "</h3>" +
+      // Two buttons, one clear decision: hotel -> Booking, hostel -> Hostelworld.
+      // (Expedia/Hotels.com dropped — same Expedia Group inventory as each other,
+      // and Booking is the stronger global default.)
       '<div class="staybtns">' +
-        btn(allez("booking"), "Booking.com", true) +
+        btn(allez("booking"), "🏨 Booking.com", true) +
         btn(hw, "🎒 Hostelworld", false) +
-        btn(allez("expedia"), "Expedia", true) +
-        btn(allez("hotelscom"), "Hotels.com", true) +
       "</div>";
     host.hidden = false;
   }).catch(() => {});
