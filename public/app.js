@@ -663,6 +663,9 @@ function renderGuide(iso) {
   // Drop the server-rendered crawler block now that we're rendering the real,
   // interactive guide (prevents duplicate content).
   const ssr = $("ssrGuide"); if (ssr) ssr.remove();
+  // The country is the answer — put it in the page title, not just mid-page.
+  const h2c = $("guideH2Country");
+  if (h2c) h2c.innerHTML = " — " + flagEmoji(iso) + " " + esc(countryName(iso));
   renderGuideHero(iso);
   renderGuideVisa(iso);
   renderGuideSafety(iso);

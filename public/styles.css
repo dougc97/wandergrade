@@ -496,6 +496,8 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   background: var(--card2); }
 .viatorbtn:hover { border-color: var(--green); color: var(--green); }
 .viatorbtn .ext { font-size: 11px; opacity: .6; }
+/* The current country, spotlighted in the Travel Guide heading. */
+#guideH2Country { color: var(--green); }
 /* Filters fold on Top Picks (holds the power-user pickers). */
 .filtersfold { margin-top: 10px; }
 .filtersfold .pickers { margin-top: 10px; }
