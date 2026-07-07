@@ -702,38 +702,51 @@ function stayDates() {
                    "-" + String(d.getDate()).padStart(2, "0");
   return { checkin: f(ci), checkout: f(co) };
 }
+let _staySpotIdx = 0, _staySpotIso = null;   // chip selection, reset per country
 function renderGuideStay(iso) {
   const host = $("guideStay");
   if (!host) return;
   host.hidden = true; host.innerHTML = "";
   ensureStayCoords().then((cc) => {
     if (ccGuideIso !== iso) return;                    // user switched country
-    const c = cc[iso];
-    if (!c || !c.ll) return;
+    // Spots = the country's top places (from the curated gallery), each a
+    // stay-search anchor. Tolerate the old single-anchor shape from cache.
+    let spots = cc[iso];
+    if (!spots) return;
+    if (!Array.isArray(spots)) spots = [{ n: spots.near, ll: spots.ll }];
+    spots = spots.filter((s) => s && s.ll && s.n);
+    if (!spots.length) return;
+    if (_staySpotIso !== iso) { _staySpotIso = iso; _staySpotIdx = 0; }
+    if (_staySpotIdx >= spots.length) _staySpotIdx = 0;
+    const sp = spots[_staySpotIdx];
     const { checkin, checkout } = stayDates();
-    // Compact provider buttons instead of the embedded Stay22 map: Allez deep
-    // links land users in Booking/Expedia/Hotels.com's own UI, anchored at the
-    // country's top sight with the traveler's month — still earning through
-    // aid=wandergrade. Hostelworld is a plain link until the Partnerize camref
-    // arrives. Footer disclosure covers the affiliate relationship.
-    const q = "aid=" + STAY22_AID + "&lat=" + c.ll[0] + "&lng=" + c.ll[1] +
+    // Allez deep links land users in Booking's own UI at the chosen spot with
+    // the traveler's month — earning through aid=wandergrade. Hostelworld is a
+    // plain link until the Partnerize camref arrives. Footer disclosure covers
+    // the affiliate relationship.
+    const q = "aid=" + STAY22_AID + "&lat=" + sp.ll[0] + "&lng=" + sp.ll[1] +
               "&checkin=" + checkin + "&checkout=" + checkout;
-    const allez = (p) => "https://www.stay22.com/allez/" + p + "?" + q;
     const hw = "https://www.hostelworld.com/search?search_keywords=" +
-               encodeURIComponent(countryName(iso));
+               encodeURIComponent(sp.n + ", " + countryName(iso));
     const btn = (href, label, sponsored) =>
       '<a class="staybtn" target="_blank" rel="' + (sponsored ? "sponsored nofollow noopener" : "nofollow noopener") +
       '" href="' + href + '">' + label + ' <span class="ext">↗</span></a>';
+    const chips = spots.length > 1
+      ? '<div class="staychips">' + spots.map((s, i) =>
+          '<button type="button" class="staychip' + (i === _staySpotIdx ? " active" : "") +
+          '" data-si="' + i + '">📍 ' + esc(s.n) + "</button>").join("") + "</div>"
+      : "";
     host.innerHTML =
-      '<h3 class="staytitle">🏨 Where to stay' +
-      (c.near ? ' <span class="staynear">near ' + esc(c.near) + "</span>" : "") + "</h3>" +
-      // Two buttons, one clear decision: hotel -> Booking, hostel -> Hostelworld.
-      // (Expedia/Hotels.com dropped — same Expedia Group inventory as each other,
-      // and Booking is the stronger global default.)
+      '<h3 class="staytitle">🏨 Where to stay <span class="staynear">near ' + esc(sp.n) + "</span></h3>" +
+      chips +
       '<div class="staybtns">' +
-        btn(allez("booking"), "🏨 Booking.com", true) +
+        btn("https://www.stay22.com/allez/booking?" + q, "🏨 Booking.com", true) +
         btn(hw, "🎒 Hostelworld", false) +
       "</div>";
+    host.querySelectorAll(".staychip").forEach((b) => b.addEventListener("click", () => {
+      _staySpotIdx = parseInt(b.dataset.si, 10) || 0;
+      renderGuideStay(iso);
+    }));
     host.hidden = false;
   }).catch(() => {});
 }

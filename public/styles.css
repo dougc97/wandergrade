@@ -482,6 +482,11 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .staytitle { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
 .staynear { font-weight: 400; font-size: 14px; color: var(--gray); }
 /* Compact stay-provider buttons (replaced the embedded Stay22 map). */
+.staychips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+.staychip { border: 1px solid var(--line); background: var(--card2); border-radius: 999px;
+  padding: 5px 12px; font-size: 12.5px; font-weight: 600; color: var(--gray); cursor: pointer; }
+.staychip:hover { color: var(--ink); }
+.staychip.active { color: var(--green); border-color: var(--green); }
 .staybtns { display: flex; gap: 8px; flex-wrap: wrap; }
 .staybtn { display: inline-block; padding: 8px 14px; border: 1px solid var(--line); border-radius: 10px;
   font-size: 13.5px; font-weight: 600; color: var(--ink); text-decoration: none; background: var(--card2); }
