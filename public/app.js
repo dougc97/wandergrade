@@ -845,10 +845,16 @@ function photoSubjects(iso) {
   }
   return [...new Set(subs.filter(Boolean))].slice(0, 6);
 }
-async function wikiIconic(subject) {
+async function wikiIconic(subject, minW, minH) {
   // Wikimedia's pageimages API renders a crisp thumbnail server-side and is
   // reliable (CORS-enabled, no proxy/rate-limit). thumbnail = the hero/carousel
   // size (CSS object-fit:cover crops it); original = full-res for the lightbox.
+  // Two-tier quality gate. The hero renders as a wide strip, so WIDTH is the
+  // binding constraint: default requires >=800px wide (or a genuinely tall
+  // >=1000px portrait) — Angola's 620x594 Kissama shot was visibly soft.
+  // 84px activity thumbs pass a lower bar (700x500, via actPhoto).
+  if (minW === undefined) minW = 800;
+  if (minH === undefined) minH = 1000;
   try {
     const api = "https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*" +
       "&prop=pageimages&piprop=thumbnail|original&pithumbsize=1600&redirects=1&titles=" +
@@ -860,10 +866,9 @@ async function wikiIconic(subject) {
     const t = page && page.thumbnail;
     const thumb = t && t.source;
     if (!thumb || PHOTO_BAD.test(thumb)) return null;
-    // Quality gate: we asked for 1600px, so a small delivered thumb means the
-    // source file itself is tiny (Aspire Tower's 319px composite) — it would
-    // render blurry stretched across the hero or a retina thumbnail.
-    if ((t.width || 0) < 700 && (t.height || 0) < 500) return null;
+    // A small delivered thumb means the source itself is tiny (we asked for
+    // 1600px). Reject unless at least one dimension clears its bar.
+    if ((t.width || 0) < minW && (t.height || 0) < minH) return null;
     const orig = page.original && page.original.source;
     return { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb };
   } catch (e) { return null; }
@@ -2661,9 +2666,10 @@ async function actPhoto(subject, country) {
     // no photo there, so retry with the country attached, in both Wikipedia
     // title styles: "Ella, Sri Lanka" (comma) and "Golden Circle (Iceland)"
     // (parenthetical).
-    let p = await wikiIconic(subject).catch(() => null);
-    if (!p && country) p = await wikiIconic(subject + ", " + country).catch(() => null);
-    if (!p && country) p = await wikiIconic(subject + " (" + country + ")").catch(() => null);
+    // Lower quality bar than the hero: these render as 84px thumbs.
+    let p = await wikiIconic(subject, 700, 500).catch(() => null);
+    if (!p && country) p = await wikiIconic(subject + ", " + country, 700, 500).catch(() => null);
+    if (!p && country) p = await wikiIconic(subject + " (" + country + ")", 700, 500).catch(() => null);
     _actPhotoCache[key] = p;
   }
   return _actPhotoCache[key];
