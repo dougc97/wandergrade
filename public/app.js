@@ -857,8 +857,13 @@ async function wikiIconic(subject) {
     if (!r.ok) return null;
     const j = await r.json();
     const page = j.query && j.query.pages && Object.values(j.query.pages)[0];
-    const thumb = page && page.thumbnail && page.thumbnail.source;
+    const t = page && page.thumbnail;
+    const thumb = t && t.source;
     if (!thumb || PHOTO_BAD.test(thumb)) return null;
+    // Quality gate: we asked for 1600px, so a small delivered thumb means the
+    // source file itself is tiny (Aspire Tower's 319px composite) — it would
+    // render blurry stretched across the hero or a retina thumbnail.
+    if ((t.width || 0) < 700 && (t.height || 0) < 500) return null;
     const orig = page.original && page.original.source;
     return { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb };
   } catch (e) { return null; }
@@ -1024,7 +1029,7 @@ const fileKey = (u) => {
   return m ? decodeURIComponent(m[1]) : u;
 };
 // Reject non-scenic files (flags, coats of arms, maps, diagrams) by filename.
-const PHOTO_BAD = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram|\.svg|location|adm[_ ]|administrative|emblem|wikidata/i;
+const PHOTO_BAD = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram|\.svg|location|adm[_ ]|administrative|emblem|wikidata|collage|montage/i;
 // Derive the original (full-resolution) file URL from a Commons thumb URL —
 // strip "/thumb/" and the trailing "/NNNpx-Name" segment. Widened thumbs 400 on
 // many files, but the original always exists.

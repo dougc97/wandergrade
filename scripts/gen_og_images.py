@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PUBLIC = os.path.join(ROOT, "public")
 PHOTO_BAD = re.compile(
     r"map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram"
-    r"|\.svg|location|adm[_ ]|administrative|emblem|wikidata", re.I)
+    r"|\.svg|location|adm[_ ]|administrative|emblem|wikidata|collage|montage", re.I)
 
 
 def thumb(subject):
@@ -32,8 +32,10 @@ def thumb(subject):
             api, headers={"User-Agent": "wandergrade-og/1.0 (291570524+dougc97@users.noreply.github.com)"})
         j = json.load(urllib.request.urlopen(req, timeout=20))
         page = next(iter(j.get("query", {}).get("pages", {}).values()))
-        t = page.get("thumbnail", {}).get("source")
-        if t and not PHOTO_BAD.search(t):
+        th = page.get("thumbnail", {})
+        t = th.get("source")
+        # size gate: a small delivered thumb means a tiny source file
+        if t and not PHOTO_BAD.search(t) and (th.get("width", 0) >= 700 or th.get("height", 0) >= 500):
             return t
     except Exception:
         return None
