@@ -878,7 +878,9 @@ function activitySubject(x) {
   const label = typeof x === "string" ? x : x.t;
   if (typeof x === "object" && x.p) return x.p;
   const pm = label.match(/\(([^),]+)/);
-  return (pm ? pm[1] : label.replace(/\s*\([^)]*\)/g, "")).trim();
+  const subj = (pm ? pm[1] : label.replace(/\s*\([^)]*\)/g, "")).trim();
+  // Wikipedia titles spell these out ("Iona NP" -> "Iona National Park").
+  return subj.replace(/\bNP\b/, "National Park").replace(/\bMt\b/, "Mount");
 }
 // File keys of every photo the activity thumbnails will display for this
 // country — the hero excludes these so no image appears twice on the page.
@@ -1221,7 +1223,7 @@ function renderCountryClimate(iso) {
 
   $("bestDetail").innerHTML = `
     <div class="besthead">
-      <h3>${esc(c.name)} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3>
+      <h3>${esc(c.name)} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span></h3>
       ${unitToggle}
     </div>
     <div class="monthslabel">${c.curated ? "📅 Curated best months" : "📅 Best weather"}:</div>
@@ -2631,7 +2633,7 @@ function renderActivity(iso) {
   const vis = isVisited(iso) ? '<span class="visited-tag">✓ visited</span>' : "";
   // Summary line dropped — it just restated the "things to do" bullets below.
   $("actDetail").innerHTML = `
-    <div class="besthead"><h3>${esc(name)} ${vis} <span class="muted">(${REGIONS[ISO_REGION[iso]] || "—"})</span></h3></div>
+    <div class="besthead"><h3>${esc(name)} ${vis} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span></h3></div>
     <div class="chips">${tags}</div>
     <h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
     <ul class="actlist">${acts}</ul>

@@ -49,40 +49,57 @@ def coords_with_fallback(subject, country):
     return None
 
 
+def expand(s):
+    """Wikipedia titles spell these out ('Iona NP' -> 'Iona National Park')."""
+    return re.sub(r"\bNP\b", "National Park", re.sub(r"\bMt\b", "Mount", s))
+
+
 def act_places(x):
     """Every place an activity names: all parenthetical entries, else the
     photo-subject override, else the cleaned label."""
     label = x if isinstance(x, str) else x.get("t", "")
     m = re.search(r"\(([^)]*)\)", label)
     if m:
-        return [s.strip() for s in m.group(1).split(",") if s.strip()]
+        return [expand(s.strip()) for s in m.group(1).split(",") if s.strip()]
     if isinstance(x, dict) and x.get("p"):
         return [x["p"]]
     clean = re.sub(r"\s*\([^)]*\)", "", label).strip()
-    return [clean] if clean else []
+    return [expand(clean)] if clean else []
 
 
 def label(subject):
     return re.sub(r"\s*\(.*\)", "", subject.split(",")[0]).strip()
 
 
+def same_place(a, b):
+    """'Kalandula' and 'Kalandula Falls' are the same stay anchor."""
+    a, b = a.lower(), b.lower()
+    return a == b or a in b or b in a
+
+
 def build_country(args):
     iso, act, names = args
     country = names.get(iso, iso)
-    candidates = [p for x in (act.get("activities") or []) for p in act_places(x)]
-    candidates += act.get("gallery") or []
-    spots, seen = [], set()
-    for subject in candidates:
-        if len(spots) >= MAX_SPOTS:
-            break
+    act_cands = [p for x in (act.get("activities") or []) for p in act_places(x)]
+    gal_cands = act.get("gallery") or []
+    spots = []
+
+    def add(subject, cap):
+        if len(spots) >= cap:
+            return
         name = label(subject)
-        if not name or name.lower() in seen:
-            continue
+        if not name or any(same_place(name, s["n"]) for s in spots):
+            return
         ll = coords_with_fallback(subject, country)
-        if not ll:
-            continue
-        seen.add(name.lower())
-        spots.append({"n": name, "ll": ll})
+        if ll:
+            spots.append({"n": name, "ll": ll})
+
+    # Activity places first (up to 5) — these mirror "top things to do".
+    for s in act_cands:
+        add(s, MAX_SPOTS)
+    # Gallery places only top up thin lists (to 4), never crowd the itinerary.
+    for s in gal_cands:
+        add(s, 4)
     return iso, spots
 
 
