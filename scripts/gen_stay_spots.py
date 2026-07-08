@@ -71,15 +71,26 @@ def label(subject):
     return re.sub(r"\s*\(.*\)", "", subject.split(",")[0]).strip()
 
 
+import difflib
+
+
 def same_place(a, b):
-    """'Kalandula' and 'Kalandula Falls' are the same stay anchor."""
+    """'Kalandula'/'Kalandula Falls' (containment) and 'Masai Mara'/
+    'Maasai Mara' (spelling variants) are the same stay anchor."""
     a, b = a.lower(), b.lower()
-    return a == b or a in b or b in a
+    return a == b or a in b or b in a or difflib.SequenceMatcher(None, a, b).ratio() >= 0.92
+
+
+try:
+    ALIASES = json.load(open(os.path.join(ROOT, "scripts", "stay-aliases.json"), encoding="utf-8"))
+except OSError:
+    ALIASES = {}
 
 
 def build_country(args):
     iso, act, names = args
     country = names.get(iso, iso)
+    aliases = ALIASES.get(iso, {})
     act_cands = [p for x in (act.get("activities") or []) for p in act_places(x)]
     gal_cands = act.get("gallery") or []
     spots = []
@@ -87,10 +98,12 @@ def build_country(args):
     def add(subject, cap):
         if len(spots) >= cap:
             return
-        name = label(subject)
+        # curated alias: phrase -> real Wikipedia title (+ optional chip label)
+        al = aliases.get(subject) or aliases.get(label(subject))
+        name = (al or {}).get("label") or label((al or {}).get("title") or subject)
         if not name or any(same_place(name, s["n"]) for s in spots):
             return
-        ll = coords_with_fallback(subject, country)
+        ll = coords_with_fallback((al or {}).get("title") or subject, country)
         if ll:
             spots.append({"n": name, "ll": ll})
 

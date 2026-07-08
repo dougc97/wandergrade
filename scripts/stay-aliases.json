@@ -1,0 +1,256 @@
+{
+ "AZ": {
+  "Gobustan": {
+   "label": "Gobustan",
+   "title": "Gobustan State Historical and Cultural Reserve"
+  }
+ },
+ "BA": {
+  "Tara": {
+   "title": "Tara (Drina)"
+  }
+ },
+ "BN": {
+  "Royal Regalia museum": {
+   "title": "Royal Regalia Museum"
+  },
+  "Ulu Temburong": {
+   "label": "Ulu Temburong",
+   "title": "Temburong District"
+  }
+ },
+ "BS": {
+  "Blue holes & diving": {
+   "title": "Dean's Blue Hole"
+  },
+  "Out-island beaches": {
+   "label": "Harbour Island",
+   "title": "Harbour Island, Bahamas"
+  }
+ },
+ "BW": {
+  "Chobe elephants": {
+   "title": "Chobe National Park"
+  },
+  "Makgadikgadi salt pans": {
+   "title": "Makgadikgadi Pan"
+  }
+ },
+ "CG": {
+  "Odzala": {
+   "title": "Odzala-Kokoua National Park"
+  }
+ },
+ "CO": {
+  "Tayrona": {
+   "label": "Tayrona",
+   "title": "Tayrona National Natural Park"
+  }
+ },
+ "CY": {
+  "Troodos": {
+   "title": "Troodos Mountains"
+  }
+ },
+ "ES": {
+  "Ibiza": {
+   "label": "Ibiza",
+   "title": "Ibiza (city)"
+  }
+ },
+ "GY": {
+  "Rupununi": {
+   "label": "Rupununi",
+   "title": "Rupununi savannah"
+  }
+ },
+ "IL": {
+  "Dead Sea": {
+   "title": "Dead Sea"
+  }
+ },
+ "IR": {
+  "Persepolis ruins": {
+   "title": "Persepolis"
+  }
+ },
+ "JM": {
+  "Blue Mountains coffee": {
+   "label": "Blue Mountains",
+   "title": "Blue Mountains (Jamaica)"
+  }
+ },
+ "JP": {
+  "Nagano": {
+   "label": "Nagano",
+   "title": "Nagano Prefecture"
+  }
+ },
+ "KE": {
+  "Diani": {
+   "title": "Diani Beach"
+  }
+ },
+ "KG": {
+  "Song-Kul": {
+   "title": "Song-Köl"
+  }
+ },
+ "KZ": {
+  "Steppe & Baikonur": {
+   "label": "Baikonur",
+   "title": "Baikonur Cosmodrome"
+  }
+ },
+ "LB": {
+  "Cedars & mountains": {
+   "title": "Cedars of God"
+  }
+ },
+ "LR": {
+  "Sapo": {
+   "title": "Sapo National Park"
+  }
+ },
+ "LT": {
+  "Curonian Spit dunes": {
+   "title": "Curonian Spit"
+  }
+ },
+ "LY": {
+  "Acacus": {
+   "title": "Acacus Mountains"
+  }
+ },
+ "MA": {
+  "Atlas Mountains trekking": {
+   "title": "Toubkal"
+  }
+ },
+ "MG": {
+  "Tsingy stone forests": {
+   "label": "Tsingy de Bemaraha",
+   "title": "Tsingy de Bemaraha Strict Nature Reserve"
+  }
+ },
+ "MK": {
+  "Mavrovo": {
+   "title": "Mavrovo National Park"
+  }
+ },
+ "MM": {
+  "Inle": {
+   "title": "Inle Lake"
+  }
+ },
+ "MR": {
+  "Adrar": {
+   "label": "Adrar",
+   "title": "Adrar Plateau"
+  }
+ },
+ "MU": {
+  "Pamplemousses": {
+   "label": "Pamplemousses",
+   "title": "Pamplemousses District"
+  }
+ },
+ "OM": {
+  "Ras al Jinz": {
+   "title": "Ras al-Jinz"
+  }
+ },
+ "PG": {
+  "Kokoda Track": {
+   "label": "Kokoda Track",
+   "title": "Kokoda Track campaign"
+  }
+ },
+ "PK": {
+  "Hunza": {
+   "label": "Hunza",
+   "title": "Hunza (princely state)"
+  }
+ },
+ "PS": {
+  "Jericho & Dead Sea shore": {
+   "title": "Jericho"
+  },
+  "Ramallah": {
+   "title": "Ramallah"
+  }
+ },
+ "RS": {
+  "Tara": {
+   "label": "Tara",
+   "title": "Tara (mountain)"
+  }
+ },
+ "SE": {
+  "Archipelago islands": {
+   "title": "Stockholm Archipelago"
+  }
+ },
+ "SS": {
+  "Boma-Badingilo": {
+   "title": "Boma National Park"
+  }
+ },
+ "SZ": {
+  "Malolotja": {
+   "title": "Malolotja National Park"
+  },
+  "Mkhaya": {
+   "title": "Mkhaya Game Reserve"
+  }
+ },
+ "TF": {
+  "Crozet": {
+   "title": "Crozet Islands"
+  }
+ },
+ "TJ": {
+  "Pamir Highway road trip": {
+   "title": "Pamir Highway"
+  }
+ },
+ "TM": {
+  "Ancient Merv": {
+   "title": "Merv"
+  },
+  "Yangykala": {
+   "title": "Yangykala Canyon"
+  }
+ },
+ "TT": {
+  "Tobago": {
+   "title": "Tobago"
+  }
+ },
+ "UA": {
+  "Odesa": {
+   "title": "Odesa"
+  }
+ },
+ "UY": {
+  "Colonial Colonia": {
+   "title": "Colonia del Sacramento"
+  }
+ },
+ "VE": {
+  "Canaima": {
+   "label": "Canaima",
+   "title": "Canaima National Park"
+  }
+ },
+ "XK": {
+  "Pristina": {
+   "title": "Pristina"
+  }
+ },
+ "ZM": {
+  "Lower Zambezi": {
+   "title": "Lower Zambezi National Park"
+  }
+ }
+}

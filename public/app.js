@@ -2665,9 +2665,13 @@ async function actPhoto(subject, country) {
 }
 function loadActivityThumbs(iso) {
   const country = countryName(iso);
+  const used = new Set();   // two rows resolving to the same image: first one wins
   document.querySelectorAll("#actDetail .actthumbslot[data-subj]").forEach(async (slot) => {
     const p = await actPhoto(slot.dataset.subj, country);
     if (!p || ccGuideIso !== iso || slot.childElementCount) return;
+    const k = fileKey(p.full);
+    if (used.has(k)) return;
+    used.add(k);
     // Derive a lightweight thumb from the API's 1600px URL (standard MediaWiki
     // size-in-path); fall back to the big one if that variant doesn't exist.
     const small = p.thumb.replace(/\/(\d+)px-/, "/320px-");
