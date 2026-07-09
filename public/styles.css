@@ -279,7 +279,7 @@ small { color: var(--gray); font-weight: 400; }
 .charthead h2 { margin: 0; font-size: 18px; }
 .charthead .muted { color: var(--gray); font-weight: 400; font-size: 14px; }
 .chartsub { margin: 4px 0 0; color: var(--gray); font-size: 13px; }
-.bignum { text-align: right; line-height: 1.1; }
+.bignum { text-align: left; line-height: 1.1; }
 .bignum #indexnow { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .bignum small { display: block; font-size: 14px; font-weight: 600; }
 .bignum small.pos { color: var(--green); }
