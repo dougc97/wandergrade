@@ -207,6 +207,9 @@ function renderRates(data) {
     // hide-higher-risk filter (so the Iranian rial isn't row one).
     const ctry = currencyCountry(r.code);
     tr.dataset.adv = String((ctry && adv[ctry]) || 0);
+    // Row links to the representative country's Travel Guide (shared currencies
+    // point at a primary country, e.g. EUR→Germany; XCD has none, so no link).
+    if (ctry) { tr.dataset.iso = ctry; tr.title = "See the " + countryName(ctry) + " travel guide →"; }
     tr.innerHTML = `
       <td><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div></td>
       <td class="num">${fmt(r.rate_now)}</td>
@@ -1298,8 +1301,9 @@ function renderAdvisories() {
   $("advRows").innerHTML = advisories.items.map((it) => {
     const lvl = parseInt(it.level, 10) || 0;
     const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
+    const guideAttr = it.iso ? ` data-iso="${esc(it.iso)}" title="See the ${esc(it.country)} travel guide →"` : "";
     return `
-    <tr data-lvl="${lvl}" data-iso="${esc(it.iso || "")}"><td>${esc(it.country)}</td>
+    <tr data-lvl="${lvl}"${guideAttr}><td>${esc(it.country)}</td>
       <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
       <td>${esc(it.level_text)}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details</a>` : ""}</td>
     </tr>`;
@@ -1337,7 +1341,7 @@ function renderAfford() {
   rows.sort((a, b) => a.pl - b.pl);
   $("affRows").innerHTML = rows.map((r) => {
     const cls = r.pl <= 0.85 ? "pos" : r.pl > 1.15 ? "neg" : "";
-    return `<tr data-iso="${esc(r.iso)}"><td>${esc(r.name)}</td><td>${esc(r.cur)}</td>
+    return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(r.name)} travel guide →"><td>${esc(r.name)}</td><td>${esc(r.cur)}</td>
       <td class="num ${cls}">${r.pl.toFixed(2)}</td>
       <td class="num">$${Math.round(100 / r.pl)} of US goods</td>
       <td>${plWord(r.pl)}</td></tr>`;
@@ -2131,6 +2135,16 @@ document.addEventListener("click", (e) => {
   if (t && t.dataset.iso) openGuideFor(t.dataset.iso, true);
 });
 
+// Data-tab tables (currency, cost of living, safety, flights): a row click opens
+// that country's Travel Guide, so a traveler can go straight from "this looks
+// cheap / safe / close" to planning the trip. In-row links (advisory "details",
+// the fare ↗) keep working via the closest("a") guard above.
+document.addEventListener("click", (e) => {
+  if (e.target.closest("a")) return;
+  const tr = e.target.closest("#rows tr[data-iso], #affRows tr[data-iso], #advRows tr[data-iso], #flightRows tr[data-iso]");
+  if (tr && tr.dataset.iso) openGuideFor(tr.dataset.iso, true);
+});
+
 // Jump from a Top Picks score to the matching detail view, filtered to the
 // country. Weather lives in the Travel Guide; the rest in Explore the Data.
 async function goToDetail(go, iso) {
@@ -2394,7 +2408,7 @@ function renderFlights() {
       ? `<a class="farelink" href="${url}" target="_blank" rel="sponsored nofollow noopener"
             title="Search ${esc(countryName(c.iso))} flights on Aviasales"><b>${fare}</b> <span class="ext">↗</span></a>`
       : `<b>${fare}</b>`;
-    return `<tr data-iso="${esc(c.iso)}"><td>${esc(countryName(c.iso))}</td>
+    return `<tr data-iso="${esc(c.iso)}" title="See the ${esc(countryName(c.iso))} travel guide →"><td>${esc(countryName(c.iso))}</td>
       <td class="num">${fareCell} ${arrow}</td>
       <td class="num">${esc(cur)} ${Number(c.min) || "?"}</td>
       <td class="num">${fmtDuration(c.dur)}</td>

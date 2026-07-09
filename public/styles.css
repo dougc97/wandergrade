@@ -343,6 +343,12 @@ button, select, input, textarea { color: var(--ink); }
 tbody tr:nth-child(even) { background: var(--zebra); }
 tbody tr:hover { background: var(--soft); }
 tbody tr.favorable, tbody tr.favorable:nth-child(even) { background: var(--green-bg); }
+/* Data-tab country rows link to that country's Travel Guide. */
+#rows tr[data-iso], #affRows tr[data-iso], #advRows tr[data-iso], #flightRows tr[data-iso] { cursor: pointer; }
+#rows tr[data-iso]:hover td:first-child,
+#affRows tr[data-iso]:hover td:first-child,
+#advRows tr[data-iso]:hover td:first-child,
+#flightRows tr[data-iso]:hover td:first-child { color: var(--green); }
 .tabs button { transition: color .15s; }
 .map svg, .chart svg { transition: opacity .2s; }
 
