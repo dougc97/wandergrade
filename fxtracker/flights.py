@@ -1,18 +1,35 @@
 """Country-level flight prices via the Travelpayouts (Aviasales) API.
 
 The user picks an ORIGIN COUNTRY; we query cached cheapest fares from that
-country's main air hub, drop domestic routes, and aggregate the results by
-DESTINATION COUNTRY (average + cheapest fare). Free, but requires a token from
-a Travelpayouts account — read from the TRAVELPAYOUTS_TOKEN env var.
+country's main air hub, drop domestic routes and fares older than
+MAX_FARE_AGE_DAYS, and aggregate the rest by DESTINATION COUNTRY (average +
+cheapest fare). Free, but requires a token from a Travelpayouts account —
+read from the TRAVELPAYOUTS_TOKEN env var.
 """
 
+import datetime
 import os
 import urllib.parse
 
 from . import rates  # reuse fetch_json (verifying SSL + retries)
 
 API = "https://api.travelpayouts.com"
+# Cached fares can be months old; only fares Aviasales observed within this
+# window feed the displayed averages, so we never show stale prices as current.
+MAX_FARE_AGE_DAYS = 90
 _cities = None  # city code -> {"name", "country"} (lazy, cached)
+
+
+def _fresh_enough(found_at, cutoff):
+    """True if this fare was observed on/after `cutoff` (a date). Day precision
+    is plenty for a 90-day window and dodges tz/format quirks. Fares with no
+    found_at are kept (the field is normally present; don't over-prune)."""
+    if not found_at:
+        return True
+    try:
+        return datetime.date.fromisoformat(str(found_at)[:10]) >= cutoff
+    except ValueError:
+        return True
 
 # Origin country -> its main international hub (Travelpayouts city codes; the
 # multi-airport codes like NYC/LON/TYO aggregate all airports in that city).
@@ -99,6 +116,7 @@ def get_flights(origin_iso, currency="usd"):
         if len(batch) < 1000:
             break
 
+    cutoff = datetime.date.today() - datetime.timedelta(days=MAX_FARE_AGE_DAYS)
     agg = {}  # dest country iso -> {"sum", "n", "min", "dur", "stops"}
     for r in rows:
         meta = cities.get(r.get("destination"), {})
@@ -106,6 +124,8 @@ def get_flights(origin_iso, currency="usd"):
         price = r.get("value") or r.get("price")
         if price is None or not dest_iso or dest_iso == origin_iso:
             continue
+        if not _fresh_enough(r.get("found_at"), cutoff):
+            continue   # skip stale fares — don't average months-old prices in
         a = agg.setdefault(dest_iso, {"sum": 0.0, "n": 0, "min": price,
                                       "dur": None, "stops": None,
                                       "dest": r.get("destination"), "seen": None})
