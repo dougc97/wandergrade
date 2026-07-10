@@ -349,6 +349,11 @@ tbody tr.favorable, tbody tr.favorable:nth-child(even) { background: var(--green
 #affRows tr[data-iso]:hover td:first-child,
 #advRows tr[data-iso]:hover td:first-child,
 #flightRows tr[data-iso]:hover td:first-child { color: var(--green); }
+/* Sortable currency-table headers. */
+#rates th.sortable { cursor: pointer; user-select: none; }
+#rates th.sortable:hover { color: var(--ink); }
+#rates th[data-sortdir="asc"]::after { content: " ▲"; font-size: 9px; vertical-align: 1px; }
+#rates th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align: 1px; }
 .tabs button { transition: color .15s; }
 .map svg, .chart svg { transition: opacity .2s; }
 

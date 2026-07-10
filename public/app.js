@@ -178,6 +178,50 @@ function renderIndex(data) {
     `</svg>`;
 }
 
+// Client-side sort for the currency table. Default matches the server order
+// (vs-avg, strongest-first); clicking a header re-sorts, clicking again flips.
+const CUR_SORT_GET = {
+  code:  (r) => r.code,
+  rate:  (r) => r.rate_now,
+  vsavg: (r) => r.strength_pct,
+  price: (r) => priceLevelForCurrency(r.code),   // may be null → sorts last
+  range: (r) => { const s = r.high - r.low; return s > 0 ? (r.rate_now - r.low) / s : 0.5; },
+};
+const CUR_SORT_DEFAULT_ASC = { code: true, rate: false, vsavg: false, price: true, range: false };
+let curSort = { key: "vsavg", asc: false };
+
+function sortedRates(rows) {
+  const get = CUR_SORT_GET[curSort.key] || CUR_SORT_GET.vsavg;
+  const dir = curSort.asc ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    const va = get(a), vb = get(b);
+    if (typeof va === "string") return dir * va.localeCompare(vb);
+    // Missing/non-finite values (e.g. no price level) always sort to the bottom.
+    const na = va == null || !isFinite(va), nb = vb == null || !isFinite(vb);
+    if (na || nb) return na - nb;
+    return dir * (va - vb);
+  });
+}
+
+// Show a ▲/▼ marker on the active sort header.
+function updateCurSortIndicators() {
+  document.querySelectorAll('#rates th.sortable').forEach((th) => {
+    const active = th.dataset.sk === curSort.key;
+    th.dataset.sortdir = active ? (curSort.asc ? "asc" : "desc") : "";
+  });
+}
+// Clicking a header sorts by that column (each column has a sensible first
+// direction); clicking the active column again reverses it.
+document.addEventListener("click", (e) => {
+  const th = e.target.closest("#rates th.sortable");
+  if (!th) return;
+  const k = th.dataset.sk;
+  curSort = (curSort.key === k)
+    ? { key: k, asc: !curSort.asc }
+    : { key: k, asc: CUR_SORT_DEFAULT_ASC[k] };
+  if (dataRates) renderRates(dataRates);
+});
+
 function renderRates(data) {
   dataRates = data;
   const base = data.base || "USD";
@@ -197,7 +241,8 @@ function renderRates(data) {
   const adv = advisoryByIso();
   const tbody = $("rows");
   tbody.innerHTML = "";
-  for (const r of data.rows) {
+  updateCurSortIndicators();
+  for (const r of sortedRates(data.rows)) {
     const tr = document.createElement("tr");
     if (r.favorable && r.watched) tr.className = "favorable";
     const sign = r.strength_pct >= 0 ? "pos" : "neg";
