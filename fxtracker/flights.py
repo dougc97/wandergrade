@@ -108,7 +108,7 @@ def get_flights(origin_iso, currency="usd"):
             continue
         a = agg.setdefault(dest_iso, {"sum": 0.0, "n": 0, "min": price,
                                       "dur": None, "stops": None,
-                                      "dest": r.get("destination")})
+                                      "dest": r.get("destination"), "seen": None})
         a["sum"] += price
         a["n"] += 1
         if price <= a["min"]:
@@ -124,9 +124,13 @@ def get_flights(origin_iso, currency="usd"):
             if stops is None:
                 stops = r.get("transfers")
             a["stops"] = stops
+            # When Aviasales last observed this cheapest fare (freshness signal;
+            # found_at is the observation time, distinct from the travel date).
+            a["seen"] = r.get("found_at")
 
     countries = [{"iso": iso, "avg": round(a["sum"] / a["n"]), "min": round(a["min"]),
-                  "n": a["n"], "dur": a["dur"], "stops": a["stops"], "dest": a["dest"]}
+                  "n": a["n"], "dur": a["dur"], "stops": a["stops"], "dest": a["dest"],
+                  "seen": a["seen"]}
                  for iso, a in agg.items()]
     countries.sort(key=lambda c: c["avg"])
 

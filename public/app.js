@@ -2463,9 +2463,11 @@ function renderFlights() {
     const arrow = priceArrow(Number(c.avg) || null, exp, "the typical fare for this distance");
     const fare = `${esc(cur)} ${Number(c.avg) || "?"}`;
     const url = flightSearchURL(c.dest);
+    const seen = fmtSeen(c.seen);
+    const seenTip = seen ? ` · cheapest fare seen ${seen}` : "";
     const fareCell = url
       ? `<a class="farelink" href="${url}" target="_blank" rel="sponsored nofollow noopener"
-            title="Search ${esc(countryName(c.iso))} flights on Aviasales"><b>${fare}</b> <span class="ext">↗</span></a>`
+            title="Cached fare${seenTip} — click to search ${esc(countryName(c.iso))} live on Aviasales"><b>${fare}</b> <span class="ext">↗</span></a>`
       : `<b>${fare}</b>`;
     return `<tr data-iso="${esc(c.iso)}" title="See the ${esc(countryName(c.iso))} travel guide →"><td>${esc(countryName(c.iso))}</td>
       <td class="num">${fareCell} ${arrow}</td>
@@ -2476,6 +2478,20 @@ function renderFlights() {
   }).join("")
     || '<tr><td colspan="6">No fares found from this country.</td></tr>';
   applyFlightFilter();
+}
+
+// Relative freshness of a cached fare from its found_at timestamp: "today",
+// "3 days ago", "2 weeks ago", "4 months ago". Empty string if unknown.
+function fmtSeen(ts) {
+  if (!ts) return "";
+  const t = Date.parse(ts);
+  if (isNaN(t)) return "";
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 14) return days + " days ago";
+  if (days < 60) return Math.round(days / 7) + " weeks ago";
+  return Math.round(days / 30) + " months ago";
 }
 
 // Minutes -> "13h 25m"; null when the provider didn't return a duration.
