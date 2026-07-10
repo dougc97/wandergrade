@@ -85,11 +85,18 @@ function fmt(n) {
 }
 
 function rangeMarker(r) {
-  // Where today's rate sits between the window low and high.
+  // Where today's rate sits between the window low and high. A rate near its
+  // 1-year high means your currency buys more than usual → dot to the right,
+  // on the green (strong) end of the track. Left/grey = weak.
   const span = r.high - r.low;
   const pct = span > 0 ? ((r.rate_now - r.low) / span) * 100 : 50;
   const clamped = Math.max(0, Math.min(100, pct));
-  return `<div class="range" title="low ${fmt(r.low)} · high ${fmt(r.high)}"><span style="left:${clamped}%"></span></div>`;
+  const meaning = clamped >= 66 ? "near its 1-year high — your money buys more than most of the past year"
+                : clamped <= 34 ? "near its 1-year low — your money buys less than most of the past year"
+                : "mid-range for the past year";
+  const tip = `Today sits ${Math.round(clamped)}% up its 1-year range `
+            + `(low ${fmt(r.low)} · high ${fmt(r.high)}) — ${meaning}. Further right = your money goes further.`;
+  return `<div class="range" title="${esc(tip)}"><span style="left:${clamped}%"></span></div>`;
 }
 
 function fmtMonth(iso) {

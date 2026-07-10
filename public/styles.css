@@ -311,8 +311,12 @@ tr.favorable { background: var(--green-bg); }
 .pill.average { background: var(--softer); color: var(--gray); }
 .pill.weak { background: #fdecef; color: var(--red); }
 
-.range { position: relative; height: 8px; background: var(--softer); border-radius: 4px; min-width: 90px; }
-.range > span { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transform: translateX(-50%); }
+/* Track reads left→right = weak→strong: grey low end, green (favourable) high
+   end, so "further right = your money goes further" is visible without a label. */
+.range { position: relative; height: 8px; border-radius: 4px; min-width: 90px;
+  background: linear-gradient(90deg, var(--softer) 0%, var(--softer) 45%, rgba(10,125,40,.45) 100%); }
+.range > span { position: absolute; top: -3px; width: 14px; height: 14px; border-radius: 50%;
+  background: var(--ink); border: 2px solid var(--card); transform: translateX(-50%); }
 
 .subscribe { max-width: 1200px; margin: 22px auto 0; padding: 14px 20px; background: var(--card);
   border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center;
