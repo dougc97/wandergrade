@@ -262,8 +262,9 @@ function renderRates(data) {
     // Row links to the representative country's Travel Guide (shared currencies
     // point at a primary country, e.g. EUR→Germany; XCD has none, so no link).
     if (ctry) { tr.dataset.iso = ctry; tr.title = "See the " + countryName(ctry) + " travel guide →"; }
+    const flag = currencyFlag(r.code, ctry);
     tr.innerHTML = `
-      <td><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div></td>
+      <td><div class="curcell"><span class="curflag">${flag}</span><div><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div></div></div></td>
       <td class="num">${fmt(r.rate_now)}</td>
       <td class="num ${sign}">${r.strength_pct >= 0 ? "+" : ""}${r.strength_pct}%</td>
       <td class="num">${pl == null ? "—" : pl.toFixed(2) + " " + plTag(pl)}</td>
@@ -648,6 +649,12 @@ function currencyCountry(code) {
   if (code in PRIMARY_COUNTRY) return PRIMARY_COUNTRY[code];
   for (const iso in CUR_BY_ISO) if (CUR_BY_ISO[iso] === code) return iso;
   return null;
+}
+// Flag for a currency row: the euro uses the EU flag, multi-country basket/
+// franc codes fall back to a globe, everything else uses its country flag.
+const CUR_SUPRA_FLAG = { EUR: "🇪🇺", XOF: "🌍", XAF: "🌍", XPF: "🌍", XCD: "🌍", XDR: "🌍" };
+function currencyFlag(code, iso) {
+  return CUR_SUPRA_FLAG[code] || (iso ? flagEmoji(iso) : "🌍");
 }
 function priceLevelForCurrency(code) {
   const iso = currencyCountry(code);

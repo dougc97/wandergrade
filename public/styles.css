@@ -303,6 +303,8 @@ tr.favorable { background: var(--green-bg); }
 
 .code { font-weight: 700; }
 .name { color: var(--gray); font-size: 12px; }
+.curcell { display: flex; align-items: center; gap: 9px; }
+.curflag { font-size: 20px; line-height: 1; flex: none; }
 .pos { color: var(--green); font-weight: 700; }
 .neg { color: var(--red); }
 .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
