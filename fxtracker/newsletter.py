@@ -89,7 +89,12 @@ def _pick_card(s, month):
     lines.append("💰 Affordability **{a}**  ·  🛡️ Safety **{sf}**  ·  🌤️ Weather **{w}**".format(
         a=_grade(s["afford"]), sf=_FLAG.get(s["advLvl"], "B"), w=_grade(s["wx"])))
     if s.get("activities"):
-        lines.append("**Don't miss:** " + ", ".join(s["activities"]))
+        # Activities are now either plain strings or {"t": label, "d": insight}
+        # objects — pull the label out of either shape.
+        labels = [a if isinstance(a, str) else a.get("t", "") for a in s["activities"]]
+        labels = [x for x in labels if x][:3]
+        if labels:
+            lines.append("**Don't miss:** " + ", ".join(labels))
     lines.append("📖 [Travel guide]({g})  ·  ✨ [Plan with AI]({ai})".format(
         g=g, ai=_ai_url(s["iso"], month)))
     return "\n".join(lines)
