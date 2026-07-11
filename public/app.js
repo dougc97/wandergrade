@@ -2463,6 +2463,11 @@ function renderFlights() {
     const arrow = priceArrow(Number(c.avg) || null, exp, "the typical fare for this distance");
     const fare = `${esc(cur)} ${Number(c.avg) || "?"}`;
     const url = flightSearchURL(c.dest);
+    // revisit: Kiwi — decided Aviasales-only here (2026-07). A Kiwi booking CTA
+    // would be price-less (no Kiwi data w/o Tequila) beside this priced,
+    // route-specific handoff. Reconsider a SECONDARY "compare on Kiwi" link on
+    // the guide (not this table) at the Oct traffic review, A/B-tested. See the
+    // affiliate-setup memory note for the full rationale.
     const seen = fmtSeen(c.seen);
     const seenTip = seen ? ` · cheapest fare seen ${seen}` : "";
     const fareCell = url
