@@ -33,10 +33,11 @@ emails you a digest of favorable currencies.
    - Value: your Gmail **App Password** (16 chars)
    - This is encrypted by GitHub and never visible in logs.
 
-3. **Confirm email is on** in `config.json` (already set):
+3. **Turn email on** in `config.json` (kept blank in the repo — fill in locally,
+   never commit a real address):
    ```json
-   "email": { "enabled": true, "username": "291570524+dougc97@users.noreply.github.com",
-              "from_addr": "291570524+dougc97@users.noreply.github.com", "to_addr": "291570524+dougc97@users.noreply.github.com", ... }
+   "email": { "enabled": true, "username": "you@example.com",
+              "from_addr": "you@example.com", "to_addr": "you@example.com", ... }
    ```
 
 ### Test it immediately

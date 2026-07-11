@@ -30,7 +30,7 @@ def coords(subject):
            "&prop=coordinates&redirects=1&titles=" + urllib.parse.quote(subject))
     try:
         req = urllib.request.Request(
-            api, headers={"User-Agent": "wandergrade-spots/1.0 (291570524+dougc97@users.noreply.github.com)"})
+            api, headers={"User-Agent": "wandergrade-spots/1.0 (+https://wandergrade.com)"})
         j = json.load(urllib.request.urlopen(req, timeout=20))
         page = next(iter(j.get("query", {}).get("pages", {}).values()))
         c = page.get("coordinates")

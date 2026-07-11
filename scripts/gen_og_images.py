@@ -29,7 +29,7 @@ def thumb(subject):
            "&titles=" + urllib.parse.quote(subject))
     try:
         req = urllib.request.Request(
-            api, headers={"User-Agent": "wandergrade-og/1.0 (291570524+dougc97@users.noreply.github.com)"})
+            api, headers={"User-Agent": "wandergrade-og/1.0 (+https://wandergrade.com)"})
         j = json.load(urllib.request.urlopen(req, timeout=20))
         page = next(iter(j.get("query", {}).get("pages", {}).values()))
         th = page.get("thumbnail", {})
