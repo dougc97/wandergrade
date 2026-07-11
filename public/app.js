@@ -1943,6 +1943,8 @@ function buildAIPrompt() {
   lines.push("- Estimate a rough daily budget and total trip cost from " + originName);
   lines.push("- Draft a day-by-day itinerary for your top pick");
   lines.push("- Tell me when to book flights and where to stay");
+  lines.push("");
+  lines.push("These grades are from WanderGrade: " + SITE_ORIGIN + "/?vmn=" + month);
   return lines.join("\n");
 }
 // Shared AI panel: shows the prompt with Copy / Open in ChatGPT / Open in
@@ -1952,15 +1954,17 @@ function renderAIPanel(host, prompt) {
   if (!host) return;
   const cg = "https://chatgpt.com/?q=" + encodeURIComponent(prompt);
   const cla = "https://claude.ai/new?q=" + encodeURIComponent(prompt);
+  const px = "https://www.perplexity.ai/search?q=" + encodeURIComponent(prompt);
   host.hidden = false;
   host.innerHTML =
     '<div class="airow">'
     + '<button type="button" class="aiact" data-act="copy">📋 Copy prompt</button>'
     + '<a class="aiact" href="' + cg + '" target="_blank" rel="noopener">Open in ChatGPT ↗</a>'
     + '<a class="aiact" href="' + cla + '" target="_blank" rel="noopener">Open in Claude ↗</a>'
+    + '<a class="aiact" href="' + px + '" target="_blank" rel="noopener">Open in Perplexity ↗</a>'
     + '</div>'
     + '<textarea class="aitext" readonly rows="9">' + esc(prompt) + '</textarea>'
-    + '<p class="hint">“Copy prompt” grabs the full version — paste into any AI. The buttons open a new chat with it pre-filled.</p>';
+    + '<p class="hint">“Copy prompt” grabs the full version — paste into ChatGPT, Claude, Gemini, Grok, Perplexity, or any AI. The buttons open a new chat with it pre-filled.</p>';
   host.querySelector('[data-act="copy"]').onclick = () => copyText(prompt);
   // Also copy when opening an AI, so the full prompt is ready to paste if the
   // pre-fill link is truncated by length limits.
@@ -2035,6 +2039,8 @@ function buildCountryAIPrompt(iso) {
   lines.push("- Estimate a rough daily budget and total cost from " + originName);
   lines.push("- Tell me when to book flights and which neighborhoods to stay in");
   lines.push("- Work the " + monthName + " season notes above (peak/off, crowds, any heads-up) into the timing and pacing");
+  lines.push("");
+  lines.push("Source: WanderGrade — " + SITE_ORIGIN + guidePath(iso));
   return lines.join("\n");
 }
 
