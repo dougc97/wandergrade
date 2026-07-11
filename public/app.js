@@ -3849,6 +3849,71 @@ function startGlobe(host) {
   })(last);
 }
 
+// ---- spin sound effects ------------------------------------------------------
+// Synthesized with the Web Audio API — no audio files, so nothing to license,
+// download, or get flagged. Prize-wheel grammar: a whoosh on launch, clicker
+// ticks that drop in pitch as the reel slows, and a two-note chime on landing.
+// The spin always starts from a user click, which satisfies autoplay policies.
+let _sfx = null;
+function sfxCtx() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!_sfx) _sfx = new AC();
+  if (_sfx.state === "suspended") _sfx.resume();
+  return _sfx;
+}
+// One reel click; t = 0..1 spin progress (pitch falls as the wheel slows).
+function sfxTick(t) {
+  const ac = sfxCtx();
+  if (!ac) return;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = "triangle";
+  o.frequency.value = 1500 - 650 * t;
+  g.gain.setValueAtTime(0.05, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.05);
+  o.connect(g).connect(ac.destination);
+  o.start();
+  o.stop(ac.currentTime + 0.06);
+}
+// Launch whoosh: fading noise through a bandpass sweeping downward.
+function sfxWhoosh(dur) {
+  const ac = sfxCtx();
+  if (!ac) return;
+  const n = Math.floor(ac.sampleRate * dur);
+  const buf = ac.createBuffer(1, n, ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let k = 0; k < n; k++) d[k] = (Math.random() * 2 - 1) * (1 - k / n);
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  const f = ac.createBiquadFilter();
+  f.type = "bandpass";
+  f.Q.value = 0.8;
+  f.frequency.setValueAtTime(900, ac.currentTime);
+  f.frequency.exponentialRampToValueAtTime(170, ac.currentTime + dur);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.1, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+  src.connect(f).connect(g).connect(ac.destination);
+  src.start();
+}
+// Landing chime: E5 then B5, soft attack, long decay — "you've arrived".
+function sfxLand() {
+  const ac = sfxCtx();
+  if (!ac) return;
+  [[659.25, 0], [987.77, 0.09]].forEach(([hz, dt]) => {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = "sine";
+    o.frequency.value = hz;
+    const t0 = ac.currentTime + dt;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.13, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.7);
+    o.connect(g).connect(ac.destination);
+    o.start(t0);
+    o.stop(t0 + 0.75);
+  });
+}
+
 // "Surprise me" roulette: spinning globe + a flag/name reel that eases to a stop
 // on `winner`, then runs done(). Click anywhere to skip to the result.
 function spinGlobe(list, winner, done) {
@@ -3859,6 +3924,7 @@ function spinGlobe(list, winner, done) {
     + '<div class="spinhint">tap to skip</div></div>';
   document.body.appendChild(overlay);
   startGlobe(overlay.querySelector(".globe"));
+  sfxWhoosh(2.8);
   requestAnimationFrame(() => overlay.classList.add("show"));
   const flagEl = overlay.querySelector(".spinflag");
   const nameEl = overlay.querySelector(".spinname");
@@ -3872,6 +3938,7 @@ function spinGlobe(list, winner, done) {
     if (stopped) return;
     stopped = true;
     clearTimeout(timer);
+    sfxLand();
     flagEl.textContent = flagEmoji(winner);
     nameEl.innerHTML = "✨ You’re going to <b>" + esc(countryName(winner)) + "</b>";
     overlay.classList.add("landed");
@@ -3887,6 +3954,7 @@ function spinGlobe(list, winner, done) {
     nameEl.textContent = countryName(iso);
     if (++i >= reel.length) { finish(); return; }
     const t = i / reel.length;
+    sfxTick(t);
     timer = setTimeout(tick, 45 + t * t * 340);   // ease-out deceleration
   }
   overlay.addEventListener("click", finish);
