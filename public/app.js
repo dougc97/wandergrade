@@ -1649,6 +1649,47 @@ function buildFactorChips() {
   };
 }
 
+// ---- interest filter (Top Picks) --------------------------------------------
+// Multi-select, per traveler feedback: "culture and nature and food — but for
+// goodness sake don't suggest beaches". A country stays if it matches ANY
+// selected interest; nothing selected = no filtering. Same profile tags the
+// Travel Guide uses (activities.json).
+let wgInterests = null;
+function loadInterests() {
+  if (wgInterests) return wgInterests;
+  try { wgInterests = new Set(JSON.parse(localStorage.getItem("wg_interests") || "[]")); }
+  catch (e) { wgInterests = new Set(); }
+  return wgInterests;
+}
+function matchesInterests(iso) {
+  const sel = loadInterests();
+  if (!sel.size) return true;
+  if (!activities) return true;               // tags not loaded yet — don't hide
+  const prof = (activities[iso] && activities[iso].profile) || [];
+  return prof.some((p) => sel.has(p));
+}
+function buildInterestChips() {
+  const host = $("interestChips");
+  if (!host) return;
+  const sel = loadInterests();
+  host.innerHTML = '<span class="picklabel">Into</span>' + INTERESTS.map((i) =>
+    `<button type="button" class="factorchip ${sel.has(i) ? "on" : ""}" data-i="${esc(i)}"
+       title="${sel.has(i) ? "only countries matching a selected interest are suggested — tap to drop" : "tap to add"}">${PROFILE_EMOJI[i] || ""} ${esc(i)}</button>`).join("");
+  host.onclick = (e) => {
+    const btn = e.target.closest(".factorchip");
+    if (!btn) return;
+    const s = loadInterests();
+    if (s.has(btn.dataset.i)) s.delete(btn.dataset.i); else s.add(btn.dataset.i);
+    localStorage.setItem("wg_interests", JSON.stringify([...s]));
+    buildInterestChips();
+    // profile tags live in activities.json — lazily fetched, then re-rank
+    ensureActivities().catch(() => {}).then(() => renderValue());
+  };
+  // saved interests from a previous visit need the tags before first render
+  if (sel.size && !activities)
+    ensureActivities().catch(() => {}).then(() => renderValue());
+}
+
 function loadPriorities() {
   if (priorities) return priorities;
   try { priorities = JSON.parse(localStorage.getItem("fx_priorities2") || "null"); } catch (e) {}
@@ -1985,6 +2026,14 @@ function buildValueTab() {
     renderValue();
   });
   buildFactorChips();
+  buildInterestChips();
+  if ($("beenFilter")) {
+    $("beenFilter").value = localStorage.getItem("wg_showvisited") === "1" ? "show" : "hide";
+    $("beenFilter").addEventListener("change", () => {
+      localStorage.setItem("wg_showvisited", $("beenFilter").value === "show" ? "1" : "0");
+      renderValue();
+    });
+  }
   for (const b of document.querySelectorAll("#valueMapMode button")) {
     b.addEventListener("click", () => {
       for (const x of document.querySelectorAll("#valueMapMode button"))
@@ -2507,7 +2556,11 @@ function renderValue() {
   // Above the fold = recognizable destinations; Hidden Gems = high-value but
   // off-the-beaten-path. Both come from the safety-filtered, unvisited pool.
   const floor = safetyFloor();
-  const eligible = rankedAll.filter((s) => !visited.has(s.iso) && passesFloor(s, floor));
+  // "Somewhere new" (default) keeps your ✓ been countries out of the picks;
+  // interests narrow to countries matching any selected tag.
+  const showVisited = localStorage.getItem("wg_showvisited") === "1";
+  const eligible = rankedAll.filter((s) =>
+    (showVisited || !visited.has(s.iso)) && passesFloor(s, floor) && matchesInterests(s.iso));
   const popular = eligible.filter((s) => popularSet.has(s.iso));
   const offbeat = eligible.filter((s) => !popularSet.has(s.iso));
   // Fall back to the full list if no popular destinations match the filters.
@@ -3038,6 +3091,100 @@ function countryName(iso) {
   }
 }
 
+// ---- paste-a-list importer ---------------------------------------------------
+// Travelers keep their history in Google Docs / Keep / random notes, mixing
+// countries with cities and parks ("Kyoto", "Machu Picchu"). Parsed entirely
+// client-side: canonical names, aliases, ISO codes, and a famous-places map.
+// Unrecognized lines are reported, never guessed.
+const COUNTRY_ALIASES = {
+  "usa": "US", "u s": "US", "u s a": "US", "america": "US", "united states": "US",
+  "united states of america": "US", "uk": "GB", "great britain": "GB", "britain": "GB",
+  "england": "GB", "scotland": "GB", "wales": "GB", "northern ireland": "GB",
+  "uae": "AE", "emirates": "AE", "south korea": "KR", "korea": "KR", "north korea": "KP",
+  "czechia": "CZ", "czech republic": "CZ", "ivory coast": "CI", "cote d'ivoire": "CI",
+  "myanmar": "MM", "burma": "MM", "holland": "NL", "bosnia": "BA", "bosnia and herz": "BA",
+  "macedonia": "MK", "turkiye": "TR", "viet nam": "VN", "drc": "CD", "swaziland": "SZ",
+  "cape verde": "CV", "east timor": "TL", "timor leste": "TL", "vatican": "VA",
+  "vatican city": "VA", "the gambia": "GM", "the bahamas": "BS", "st lucia": "LC",
+  "saint lucia": "LC", "kyrgyzstan": "KG", "faroe islands": "FO", "palestine": "PS",
+};
+const PLACE_TO_ISO = {
+  // Europe
+  "paris": "FR", "nice": "FR", "lyon": "FR", "london": "GB", "edinburgh": "GB",
+  "rome": "IT", "venice": "IT", "florence": "IT", "milan": "IT", "sicily": "IT",
+  "amalfi": "IT", "barcelona": "ES", "madrid": "ES", "seville": "ES", "ibiza": "ES",
+  "mallorca": "ES", "lisbon": "PT", "porto": "PT", "madeira": "PT", "azores": "PT",
+  "athens": "GR", "santorini": "GR", "mykonos": "GR", "crete": "GR",
+  "amsterdam": "NL", "brussels": "BE", "bruges": "BE", "berlin": "DE", "munich": "DE",
+  "vienna": "AT", "salzburg": "AT", "prague": "CZ", "budapest": "HU", "krakow": "PL",
+  "warsaw": "PL", "zurich": "CH", "geneva": "CH", "interlaken": "CH", "zermatt": "CH",
+  "oslo": "NO", "bergen": "NO", "lofoten": "NO", "stockholm": "SE", "copenhagen": "DK",
+  "helsinki": "FI", "reykjavik": "IS", "dublin": "IE", "moscow": "RU", "dubrovnik": "HR",
+  "split": "HR", "kotor": "ME", "istanbul": "TR", "cappadocia": "TR",
+  // Asia
+  "tokyo": "JP", "kyoto": "JP", "osaka": "JP", "okinawa": "JP", "seoul": "KR",
+  "busan": "KR", "beijing": "CN", "shanghai": "CN", "taipei": "TW", "hong kong": "HK",
+  "macau": "MO", "hanoi": "VN", "saigon": "VN", "ho chi minh": "VN", "ha long": "VN",
+  "bangkok": "TH", "phuket": "TH", "chiang mai": "TH", "krabi": "TH", "bali": "ID",
+  "jakarta": "ID", "kuala lumpur": "MY", "penang": "MY", "manila": "PH", "palawan": "PH",
+  "siem reap": "KH", "angkor": "KH", "angkor wat": "KH", "phnom penh": "KH",
+  "luang prabang": "LA", "yangon": "MM", "bagan": "MM", "kathmandu": "NP",
+  "everest": "NP", "delhi": "IN", "mumbai": "IN", "jaipur": "IN", "agra": "IN",
+  "taj mahal": "IN", "goa": "IN", "kerala": "IN", "colombo": "LK", "male": "MV",
+  "maldives islands": "MV", "dubai": "AE", "abu dhabi": "AE", "doha": "QA",
+  "petra": "JO", "amman": "JO", "jerusalem": "IL", "tel aviv": "IL", "tbilisi": "GE",
+  "yerevan": "AM", "baku": "AZ", "samarkand": "UZ", "tashkent": "UZ",
+  // Africa & Middle East
+  "cairo": "EG", "luxor": "EG", "giza": "EG", "marrakech": "MA", "marrakesh": "MA",
+  "casablanca": "MA", "fez": "MA", "chefchaouen": "MA", "cape town": "ZA",
+  "johannesburg": "ZA", "kruger": "ZA", "nairobi": "KE", "masai mara": "KE",
+  "zanzibar": "TZ", "serengeti": "TZ", "kilimanjaro": "TZ", "victoria falls": "ZM",
+  "okavango": "BW", "addis ababa": "ET", "tunis": "TN", "accra": "GH", "lagos": "NG",
+  // Americas
+  "new york": "US", "nyc": "US", "los angeles": "US", "san francisco": "US",
+  "las vegas": "US", "miami": "US", "chicago": "US", "hawaii": "US", "maui": "US",
+  "alaska": "US", "yellowstone": "US", "yosemite": "US", "grand canyon": "US",
+  "zion": "US", "toronto": "CA", "vancouver": "CA", "montreal": "CA", "banff": "CA",
+  "quebec": "CA", "mexico city": "MX", "cancun": "MX", "tulum": "MX", "oaxaca": "MX",
+  "cabo": "MX", "havana": "CU", "san juan": "PR", "panama city": "PA", "antigua guatemala": "GT",
+  "lima": "PE", "cusco": "PE", "machu picchu": "PE", "bogota": "CO", "cartagena": "CO",
+  "medellin": "CO", "quito": "EC", "galapagos": "EC", "la paz": "BO", "uyuni": "BO",
+  "rio": "BR", "rio de janeiro": "BR", "sao paulo": "BR", "iguazu": "BR",
+  "buenos aires": "AR", "patagonia": "AR", "mendoza": "AR", "santiago": "CL",
+  "atacama": "CL", "easter island": "CL", "montevideo": "UY",
+  // Oceania
+  "sydney": "AU", "melbourne": "AU", "great barrier reef": "AU", "uluru": "AU",
+  "auckland": "NZ", "queenstown": "NZ", "fiji islands": "FJ", "bora bora": "PF",
+  "tahiti": "PF",
+};
+
+function parsePlaceList(text) {
+  const norm = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "")
+    .toLowerCase().replace(/[^a-z\s'&-]/g, " ").replace(/\s+/g, " ").trim();
+  const nameToIso = {};
+  for (const iso of Object.keys(CUR_BY_ISO)) nameToIso[norm(countryName(iso))] = iso;
+  Object.assign(nameToIso, COUNTRY_ALIASES, PLACE_TO_ISO);
+  const isoSet = new Set(Object.keys(CUR_BY_ISO));
+  const found = new Set(), missed = [];
+  for (const raw of text.split(/[\n,;•·|\/]+/)) {
+    const t = norm(raw);
+    if (!t || t.length < 2) continue;
+    const up = raw.trim().toUpperCase();
+    if (up.length === 2 && isoSet.has(up)) { found.add(up); continue; }
+    if (nameToIso[t]) { found.add(nameToIso[t]); continue; }
+    // messy lines ("2019 — Japan (Kyoto!!)"): find the longest known name inside
+    let hit = null;
+    const padded = " " + t + " ";
+    for (const name in nameToIso) {
+      if (name.length >= 4 && padded.includes(" " + name + " ") &&
+          (!hit || name.length > hit.length)) hit = name;
+    }
+    if (hit) found.add(nameToIso[hit]);
+    else missed.push(raw.trim().slice(0, 30));
+  }
+  return { found: [...found], missed };
+}
+
 // Bulk add: seasoned travelers shouldn't have to add 40 countries one search
 // at a time. Every country as a tap-to-toggle chip with a filter box; applies
 // to whichever list (Been / Want to go) is active. Map re-renders on close.
@@ -3054,6 +3201,11 @@ function openBulkAdd() {
   m.innerHTML = '<div class="submodal-card bulkcard"><button class="submodal-x" aria-label="Close">✕</button>'
     + `<span class="sublabel">Tap every country for your <b>${label}</b> list</span>`
     + '<input type="search" class="bulksearch" placeholder="Filter countries…">'
+    + '<button type="button" class="bulkpaste-toggle">📋 Or paste your list from a doc / notes / spreadsheet</button>'
+    + '<div class="bulkpaste" hidden>'
+    + '<textarea class="bulkpastebox" rows="4" placeholder="Paste anything — one place per line or comma-separated. Cities and famous parks count (“Kyoto” → Japan, “Machu Picchu” → Peru)."></textarea>'
+    + '<div class="bulkpaste-actions"><button type="button" class="bulkmatch">Match my list</button>'
+    + '<span class="bulkmatch-out"></span></div></div>'
     + '<div class="bulkchips">' + all.map((c) =>
         `<button type="button" class="bulkchip${on.has(c.iso) ? " on" : ""}" data-iso="${esc(c.iso)}">${flagEmoji(c.iso)} ${esc(c.name)}</button>`
       ).join("") + "</div>"
@@ -3084,6 +3236,25 @@ function openBulkAdd() {
     for (const chip of m.querySelectorAll(".bulkchip"))
       chip.hidden = !!q && !chip.textContent.toLowerCase().includes(q);
   });
+  // paste-a-list: parse free text and switch every match ON (never off)
+  const paste = m.querySelector(".bulkpaste");
+  m.querySelector(".bulkpaste-toggle").onclick = () => {
+    paste.hidden = !paste.hidden;
+    if (!paste.hidden) paste.querySelector("textarea").focus();
+  };
+  m.querySelector(".bulkmatch").onclick = () => {
+    const { found, missed } = parsePlaceList(paste.querySelector("textarea").value);
+    for (const iso of found) {
+      if (!on.has(iso)) toggleMark(iso);
+      const chip = m.querySelector(`.bulkchip[data-iso="${iso}"]`);
+      if (chip) chip.classList.add("on");
+    }
+    m.querySelector(".bulkcount").textContent = on.size + " selected";
+    m.querySelector(".bulkmatch-out").textContent = found.length
+      ? `✓ Matched ${found.length} ${found.length === 1 ? "country" : "countries"}`
+        + (missed.length ? ` · didn't recognize: ${missed.slice(0, 5).join(", ")}${missed.length > 5 ? "…" : ""}` : "")
+      : (missed.length ? "Nothing recognized — try country or major-city names" : "Paste something first");
+  };
   search.focus();
 }
 
@@ -3188,7 +3359,10 @@ function renderVisitedStats() {
     award = `<span class="awardtag locked" title="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
   }
   const flags = [...visited].slice(0, 40).map((iso) => flagEmoji(iso)).join(" ") + (n > 40 ? `  +${n - 40}` : "");
-  host.innerHTML = `<div class="vstats-line">${bits.join(" · ")}${award}</div>`
+  // One <span> per line of text: .vstats-line is a flex row (for the award
+  // pill), and a bare <b> would become its own flex item — the gap property
+  // then splits the number from its own sentence.
+  host.innerHTML = `<div class="vstats-line"><span>${bits.join(" · ")}</span>${award}</div>`
     + (flags.trim() ? `<div class="vflags">${flags}</div>` : "");
 }
 

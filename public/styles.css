@@ -368,6 +368,18 @@ tr.favorable { background: var(--green-bg); }
 .bulkcount { font-size: 13px; color: var(--gray); }
 .bulkdone { padding: 7px 18px; border-radius: 8px; border: 1px solid var(--green);
   background: var(--green); color: #fff; font-weight: 700; cursor: pointer; font: inherit; }
+.bulkpaste-toggle { background: none; border: none; color: var(--green); cursor: pointer;
+  font: inherit; font-size: 12.5px; text-decoration: underline; padding: 0; }
+.bulkpaste { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+.bulkpastebox { width: 100%; padding: 8px 10px; border-radius: 8px; resize: vertical;
+  border: 1px solid var(--line); background: var(--soft); color: var(--ink); font: inherit;
+  font-size: 13px; }
+.bulkpaste-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bulkmatch { padding: 5px 14px; border-radius: 8px; border: 1px solid var(--green);
+  background: none; color: var(--green); font-weight: 700; cursor: pointer; font: inherit;
+  font-size: 13px; }
+.bulkmatch:hover { background: var(--green); color: #fff; }
+.bulkmatch-out { font-size: 12.5px; color: var(--gray); }
 
 /* "Surprise me" spin-the-globe roulette overlay */
 .spinover { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
