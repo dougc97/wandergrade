@@ -348,6 +348,7 @@ tr.favorable { background: var(--green-bg); }
 .spinbox { text-align: center; padding: 20px; transform: scale(.94); transition: transform .3s; }
 .spinover.show .spinbox { transform: scale(1); }
 .globe { display: inline-block; filter: drop-shadow(0 0 26px rgba(90,170,255,.6)); animation: wgbob 2.6s ease-in-out infinite; }
+.globe .globecanvas { display: block; width: 190px; height: 190px; }
 @keyframes wgbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
 .spinflag { font-size: 54px; line-height: 1; margin: 16px 0 4px; }
 .spinname { font-size: 24px; font-weight: 800; color: #fff; min-height: 30px; }
