@@ -3974,11 +3974,13 @@ function sfxLand() {
 }
 
 // ---- ambient soundtrack ------------------------------------------------------
-// Generative ambience synthesized live (Web Audio) — slow warm pad chords, a
-// breath of band-passed air, and occasional high "sparkle" notes. No audio
-// files: nothing to download and nothing to license. Strictly opt-in via the
-// 🎵 header button; the choice persists in localStorage. Returning visitors
-// with music on get it resumed on their first interaction (autoplay policy).
+// Generative ambience synthesized live (Web Audio) — slow stereo pad chords, a
+// soft bass root, a breath of band-passed air, and a sparse kalimba-like
+// melody that follows the chords, all sent through a synthesized reverb and a
+// dub-style echo. No audio files: nothing to download and nothing to license,
+// and it never loops exactly. Strictly opt-in via the 🎵 header button; the
+// choice persists in localStorage. Returning visitors with music on get it
+// resumed on their first interaction (autoplay policy).
 const MUSIC_KEY = "wg_music";
 let _music = null;
 
@@ -3990,50 +3992,103 @@ const MUSIC_CHORDS = [
   [196.00, 246.94, 293.66, 329.63],
 ];
 
+// Synthesized reverb impulse: stereo exponentially-decaying noise. Cheap to
+// build, and it's what turns bare oscillators into something that sounds
+// produced — every voice gets space and distance from it.
+function musicIR(ac, dur, decay) {
+  const len = Math.floor(ac.sampleRate * dur);
+  const ir = ac.createBuffer(2, len, ac.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = ir.getChannelData(ch);
+    for (let i = 0; i < len; i++)
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return ir;
+}
+
 function musicChord() {
   if (!_music) return;
   const ac = _sfx;
   const chord = MUSIC_CHORDS[_music.ci++ % MUSIC_CHORDS.length];
+  _music.chord = chord;                            // the melody reads this
   const dur = 14 + Math.random() * 4;
+  const t0 = ac.currentTime;
   chord.forEach((hz, vi) => {
-    [-4, 3].forEach((cents) => {                 // two detuned layers per note
+    [[-5, -0.45], [4, 0.45]].forEach(([cents, panPos]) => {   // stereo spread
       const o = ac.createOscillator(), g = ac.createGain();
       o.type = vi < 2 ? "sine" : "triangle";
       o.frequency.value = hz;
       o.detune.value = cents;
-      const t0 = ac.currentTime;
       g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.013, t0 + 4);    // slow swell in
-      g.gain.setValueAtTime(0.013, t0 + dur - 5);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur); // slow fade out
-      o.connect(g).connect(_music.lp);
+      g.gain.exponentialRampToValueAtTime(0.011, t0 + 4);     // slow swell in
+      g.gain.setValueAtTime(0.011, t0 + dur - 5);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);  // slow fade out
+      let tail = o.connect(g);
+      if (ac.createStereoPanner) {
+        const pan = ac.createStereoPanner();
+        pan.pan.value = panPos;
+        tail = g.connect(pan);
+      }
+      tail.connect(_music.lp);
       o.start(t0);
       o.stop(t0 + dur + 0.1);
     });
   });
-  _music.timer = setTimeout(musicChord, (dur - 4.5) * 1000); // overlap swells
+  // bass root an octave down — felt more than heard, anchors the chord
+  const b = ac.createOscillator(), bg = ac.createGain();
+  b.type = "sine";
+  b.frequency.value = chord[0] / 2;
+  bg.gain.setValueAtTime(0.0001, t0);
+  bg.gain.exponentialRampToValueAtTime(0.02, t0 + 4);
+  bg.gain.setValueAtTime(0.02, t0 + dur - 5);
+  bg.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  b.connect(bg).connect(_music.dry);
+  b.start(t0);
+  b.stop(t0 + dur + 0.1);
+  _music.timer = setTimeout(musicChord, (dur - 4.5) * 1000);  // overlap swells
 }
 
-function musicSparkle() {
+// One kalimba-ish pluck: fast attack, long decay, a quiet octave partial for
+// timbre, routed through the echo + reverb so it trails off into the distance.
+function musicPluck(hz, t0, vel) {
+  const ac = _sfx;
+  const o = ac.createOscillator(), o2 = ac.createOscillator();
+  const g = ac.createGain(), g2 = ac.createGain();
+  o.type = "sine";
+  o.frequency.value = hz;
+  o2.type = "sine";
+  o2.frequency.value = hz * 2;
+  g2.gain.value = 0.35;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vel, t0 + 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.2);
+  o.connect(g);
+  o2.connect(g2).connect(g);
+  let tail = g;
+  if (ac.createStereoPanner) {
+    const pan = ac.createStereoPanner();
+    pan.pan.value = Math.random() * 1.2 - 0.6;
+    tail = g.connect(pan);
+  }
+  tail.connect(_music.pluckBus);
+  o.start(t0);  o.stop(t0 + 2.4);
+  o2.start(t0); o2.stop(t0 + 2.4);
+}
+
+// Sparse generative phrases — 1–3 notes from the current chord, an octave or
+// two up, with humanized spacing. Silence is part of the instrument.
+function musicMelody() {
   if (!_music) return;
   const ac = _sfx;
-  const notes = [659.25, 783.99, 880.0, 987.77, 1046.5];     // E5 G5 A5 B5 C6
-  const o = ac.createOscillator(), g = ac.createGain();
-  o.type = "sine";
-  o.frequency.value = notes[Math.floor(Math.random() * notes.length)];
-  const t0 = ac.currentTime + 0.05;
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(0.014, t0 + 0.15);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.4);
-  o.connect(g);
-  if (ac.createStereoPanner) {                   // drift the sparkles around
-    const pan = ac.createStereoPanner();
-    pan.pan.value = Math.random() * 1.6 - 0.8;
-    g.connect(pan).connect(_music.master);
-  } else g.connect(_music.master);
-  o.start(t0);
-  o.stop(t0 + 2.5);
-  _music.sparkTimer = setTimeout(musicSparkle, 5000 + Math.random() * 9000);
+  const chord = _music.chord || MUSIC_CHORDS[0];
+  const pool = chord.map((f) => f * 2).concat(chord[0] * 4, chord[2] * 4);
+  const nNotes = 1 + Math.floor(Math.random() * 3);
+  let t = ac.currentTime + 0.05;
+  for (let k = 0; k < nNotes; k++) {
+    musicPluck(pool[Math.floor(Math.random() * pool.length)], t, 0.022 + Math.random() * 0.012);
+    t += 0.22 + Math.random() * 0.28;
+  }
+  _music.melodyTimer = setTimeout(musicMelody, 3500 + Math.random() * 5500);
 }
 
 function startMusic() {
@@ -4044,11 +4099,33 @@ function startMusic() {
   // Deliberately quiet: ambience should sit under the room, not in it.
   master.gain.exponentialRampToValueAtTime(0.55, ac.currentTime + 3);
   master.connect(ac.destination);
-  const lp = ac.createBiquadFilter();              // keeps the pads soft/hazy
+  // dry bus + reverb send
+  const dry = ac.createGain();
+  dry.connect(master);
+  const conv = ac.createConvolver();
+  conv.buffer = musicIR(ac, 3.5, 2.8);
+  const wet = ac.createGain();
+  wet.gain.value = 0.55;
+  wet.connect(conv).connect(master);
+  // pads: lowpass keeps them soft/hazy, then room + a generous reverb send
+  const lp = ac.createBiquadFilter();
   lp.type = "lowpass";
   lp.frequency.value = 1100;
   lp.Q.value = 0.4;
-  lp.connect(master);
+  lp.connect(dry);
+  lp.connect(wet);
+  // plucks: dry + echo; the echo repeats feed the reverb, not the dry bus,
+  // so each repeat drifts further away
+  const pluckBus = ac.createGain();
+  pluckBus.connect(dry);
+  pluckBus.connect(wet);
+  const dly = ac.createDelay(1.5);
+  dly.delayTime.value = 0.44;
+  const fb = ac.createGain();
+  fb.gain.value = 0.34;
+  dly.connect(fb).connect(dly);
+  pluckBus.connect(dly);
+  dly.connect(wet);
   // "air": looped noise through a slowly wandering bandpass, barely there
   const nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
   const nd = nb.getChannelData(0);
@@ -4067,20 +4144,21 @@ function startMusic() {
   const lfoG = ac.createGain();
   lfoG.gain.value = 260;
   lfo.connect(lfoG).connect(bp.frequency);
-  air.connect(bp).connect(airG).connect(master);
+  air.connect(bp).connect(airG).connect(dry);
   air.start();
   lfo.start();
-  _music = { master, lp, timer: null, sparkTimer: null, nodes: [air, lfo], ci: 0 };
+  _music = { master, lp, dry, wet, pluckBus, timer: null, melodyTimer: null,
+             nodes: [air, lfo], ci: 0, chord: null };
   musicChord();
-  musicSparkle();
+  _music.melodyTimer = setTimeout(musicMelody, 2500);
 }
 
 function stopMusic() {
   if (!_music) return;
   const ac = _sfx, m = _music;
-  _music = null;                                   // chord/sparkle loops stop
+  _music = null;                                   // chord/melody loops stop
   clearTimeout(m.timer);
-  clearTimeout(m.sparkTimer);
+  clearTimeout(m.melodyTimer);
   m.master.gain.cancelScheduledValues(ac.currentTime);
   m.master.gain.setValueAtTime(Math.max(m.master.gain.value, 0.0001), ac.currentTime);
   m.master.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 1.2);
