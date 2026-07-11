@@ -580,7 +580,128 @@ function drawMap(hostId, colorFn, ariaLabel) {
       const iso = p && p.getAttribute("data-iso");
       if (iso && iso !== "-99") showCountryCard(iso, host);
     };
+  } else {
+    attachMapZoom(host, W, H);
   }
+}
+
+// ---- map zoom / pan (Wander List map) ---------------------------------------
+// Tiny countries are impossible to tap at world scale: wheel (or pinch) zooms
+// toward the cursor, dragging pans once zoomed, and +/−/⌂ buttons cover touch.
+// Zoom state lives on the host element so it survives the re-render that every
+// country toggle triggers. Event handlers are property-assigned (idempotent).
+function attachMapZoom(host, W, H) {
+  const svg = host.querySelector("svg");
+  if (!svg) return;
+  const st = host._zoom || (host._zoom = { x: 0, y: 0, w: W, h: H });
+  host.style.position = "relative";
+
+  const apply = () => {
+    st.w = Math.max(W / 8, Math.min(W, st.w));
+    st.h = st.w * H / W;
+    st.x = Math.max(0, Math.min(W - st.w, st.x));
+    st.y = Math.max(0, Math.min(H - st.h, st.y));
+    svg.setAttribute("viewBox", `${st.x} ${st.y} ${st.w} ${st.h}`);
+    const zoomed = st.w < W - 0.5;
+    // when zoomed, own the touch gestures (pan/pinch); at world view, let the
+    // page scroll normally
+    host.style.touchAction = zoomed ? "none" : "";
+    host.classList.toggle("zoomed", zoomed);
+  };
+  const zoomAt = (fx, fy, factor) => {      // fx, fy = fractions of the view
+    const px = st.x + fx * st.w, py = st.y + fy * st.h;
+    st.w /= factor;
+    st.h = st.w * H / W;
+    st.x = px - fx * st.w;
+    st.y = py - fy * st.h;
+    apply();
+  };
+
+  // controls (re-created each render — innerHTML wiped the previous ones)
+  if (!host.querySelector(".mapzoom")) {
+    const ctr = document.createElement("div");
+    ctr.className = "mapzoom";
+    ctr.innerHTML = '<button type="button" data-z="in" title="zoom in">＋</button>'
+      + '<button type="button" data-z="out" title="zoom out">－</button>'
+      + '<button type="button" data-z="reset" title="reset view">⌂</button>';
+    ctr.onclick = (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      e.stopPropagation();                  // don't toggle a country underneath
+      if (b.dataset.z === "in") zoomAt(0.5, 0.5, 1.5);
+      else if (b.dataset.z === "out") zoomAt(0.5, 0.5, 1 / 1.5);
+      else { st.x = 0; st.y = 0; st.w = W; st.h = H; apply(); }
+    };
+    host.appendChild(ctr);
+  }
+
+  host.onwheel = (e) => {
+    e.preventDefault();
+    const r = svg.getBoundingClientRect();
+    zoomAt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height,
+           e.deltaY < 0 ? 1.25 : 0.8);
+  };
+
+  // drag to pan (once zoomed) + two-finger pinch; a real drag suppresses the
+  // click so it doesn't also toggle the country under the finger
+  const ptrs = new Map();
+  let pan = null, pinch = null, dragged = false;
+  host.onpointerdown = (e) => {
+    if (e.target.closest(".mapzoom")) return;
+    ptrs.set(e.pointerId, e);
+    if (ptrs.size === 1) {
+      pan = { cx: e.clientX, cy: e.clientY, x: st.x, y: st.y };
+      dragged = false;
+    } else if (ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()];
+      pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), w: st.w };
+      pan = null;
+    }
+  };
+  host.onpointermove = (e) => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.set(e.pointerId, e);
+    const r = svg.getBoundingClientRect();
+    if (ptrs.size === 2 && pinch) {
+      const [a, b] = [...ptrs.values()];
+      const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      if (d > 0 && pinch.d > 0) {
+        const fx = ((a.clientX + b.clientX) / 2 - r.left) / r.width;
+        const fy = ((a.clientY + b.clientY) / 2 - r.top) / r.height;
+        const targetW = pinch.w / (d / pinch.d);
+        zoomAt(fx, fy, st.w / targetW);
+        dragged = true;
+      }
+    } else if (pan && st.w < W - 0.5) {
+      const dx = e.clientX - pan.cx, dy = e.clientY - pan.cy;
+      if (Math.abs(dx) + Math.abs(dy) > 6) dragged = true;
+      if (dragged) {
+        st.x = pan.x - dx * st.w / r.width;
+        st.y = pan.y - dy * st.h / r.height;
+        apply();
+      }
+    }
+  };
+  host.onpointerup = host.onpointercancel = (e) => {
+    ptrs.delete(e.pointerId);
+    if (ptrs.size < 2) pinch = null;
+    if (ptrs.size === 0) {
+      pan = null;
+      if (dragged) host._dragJustHappened = true;
+    }
+  };
+  if (!host._zoomClickGuard) {
+    host._zoomClickGuard = true;
+    host.addEventListener("click", (e) => {
+      if (host._dragJustHappened) {
+        host._dragJustHappened = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    }, true);
+  }
+
+  apply();                                  // restore the pre-render zoom
 }
 
 // ---- tap-for-detail country card -------------------------------------------
@@ -2207,9 +2328,10 @@ function priceArrow(value, baseline, label) {
   return `<span class="farearrow flat" title="about ${esc(label)}">≈</span>`;
 }
 
-// Render a ranked list as a compact report-card table. gem=true swaps the rank
-// number for a 💎 (the hidden-gems list). The why-sentence moves to the row
-// tooltip so the table itself stays scannable.
+// Render a ranked list as a compact report-card table. gem=true marks the
+// hidden-gems list, which ranks #1..#N just like the popular table (the 💎
+// lives in the section title). The why-sentence moves to the row tooltip so
+// the table itself stays scannable.
 function renderGradeTable(host, list, month, gem, sortable) {
   if (!host) return;
   if (!list.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
@@ -2225,7 +2347,7 @@ function renderGradeTable(host, list, month, gem, sortable) {
       (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
     const iso = esc(s.iso);
     return `<tr data-iso="${iso}" title="${esc(whyLine(s, month))}" style="--i:${i}">
-      <td class="rank">${gem ? "💎" : "#" + (i + 1)}</td>
+      <td class="rank">#${i + 1}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}">${gradePill(s.afford, affordTitle(s))}</td>
       <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl)}</td>
@@ -2916,6 +3038,55 @@ function countryName(iso) {
   }
 }
 
+// Bulk add: seasoned travelers shouldn't have to add 40 countries one search
+// at a time. Every country as a tap-to-toggle chip with a filter box; applies
+// to whichever list (Been / Want to go) is active. Map re-renders on close.
+function openBulkAdd() {
+  if (document.querySelector(".bulkmodal")) return;
+  loadVisited(); loadWishlist();
+  const on = visitMode === "visited" ? visited : wishlist;
+  const all = [...new Set(Object.keys(CUR_BY_ISO))]
+    .map((iso) => ({ iso, name: countryName(iso) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const m = document.createElement("div");
+  m.className = "submodal bulkmodal";
+  const label = visitMode === "visited" ? "✓ Been" : "★ Want to go";
+  m.innerHTML = '<div class="submodal-card bulkcard"><button class="submodal-x" aria-label="Close">✕</button>'
+    + `<span class="sublabel">Tap every country for your <b>${label}</b> list</span>`
+    + '<input type="search" class="bulksearch" placeholder="Filter countries…">'
+    + '<div class="bulkchips">' + all.map((c) =>
+        `<button type="button" class="bulkchip${on.has(c.iso) ? " on" : ""}" data-iso="${esc(c.iso)}">${flagEmoji(c.iso)} ${esc(c.name)}</button>`
+      ).join("") + "</div>"
+    + `<div class="bulkfoot"><span class="bulkcount">${on.size} selected</span>`
+    + '<button type="button" class="bulkdone">Done</button></div></div>';
+  document.body.appendChild(m);
+  requestAnimationFrame(() => m.classList.add("show"));
+  const close = () => {
+    m.classList.remove("show");
+    setTimeout(() => m.remove(), 220);
+    renderVisited();                        // one redraw for the whole batch
+  };
+  m.querySelector(".submodal-x").onclick = close;
+  m.querySelector(".bulkdone").onclick = close;
+  m.addEventListener("click", (e) => { if (e.target === m) close(); });
+  const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+  document.addEventListener("keydown", onKey);
+  m.querySelector(".bulkchips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".bulkchip");
+    if (!chip) return;
+    toggleMark(chip.dataset.iso);
+    chip.classList.toggle("on", on.has(chip.dataset.iso));
+    m.querySelector(".bulkcount").textContent = on.size + " selected";
+  });
+  const search = m.querySelector(".bulksearch");
+  search.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    for (const chip of m.querySelectorAll(".bulkchip"))
+      chip.hidden = !!q && !chip.textContent.toLowerCase().includes(q);
+  });
+  search.focus();
+}
+
 function buildVisited() {
   loadVisited(); loadWishlist();
   const pick = $("visitedPick");
@@ -2927,6 +3098,7 @@ function buildVisited() {
     all.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
   enhanceSelect(pick);
   pick.onchange = () => { if (pick.value) { toggleMark(pick.value); pick.value = ""; if (pick._sync) pick._sync(); renderVisited(); } };
+  if ($("visitedBulk")) $("visitedBulk").onclick = openBulkAdd;
   $("visitedClear").onclick = () => {
     const label = visitMode === "visited" ? "been-to" : "wishlist";
     (visitMode === "visited" ? visited : wishlist).clear();
@@ -2964,9 +3136,10 @@ function renderVisited() {
   // Exporting an empty map would render a blank "0 countries" card — keep the
   // share buttons off until at least one country is marked.
   const canShare = visited.size > 0;
-  for (const id of ["visitedImage", "visitedStory"]) {
-    const b = $(id);
-    if (b) { b.disabled = !canShare; b.title = canShare ? "" : "Mark at least one country first ✓"; }
+  const shareBtn = $("visitedImage");
+  if (shareBtn) {
+    shareBtn.disabled = !canShare;
+    shareBtn.title = canShare ? "" : "Mark at least one country first ✓";
   }
   drawMap("visitedMap", (f) => {
     const iso = f.properties.iso;
@@ -4097,7 +4270,8 @@ function startMusic() {
   const master = ac.createGain();
   master.gain.setValueAtTime(0.0001, ac.currentTime);
   // Deliberately quiet: ambience should sit under the room, not in it.
-  master.gain.exponentialRampToValueAtTime(0.55, ac.currentTime + 3);
+  // quick enough that a click gets an audible response, still a fade not a hit
+  master.gain.exponentialRampToValueAtTime(0.55, ac.currentTime + 1.2);
   master.connect(ac.destination);
   // dry bus + reverb send
   const dry = ac.createGain();
@@ -4150,7 +4324,10 @@ function startMusic() {
   _music = { master, lp, dry, wet, pluckBus, timer: null, melodyTimer: null,
              nodes: [air, lfo], ci: 0, chord: null };
   musicChord();
-  _music.melodyTimer = setTimeout(musicMelody, 2500);
+  // greet the click right away: two soft chord-tone plucks, then the loop
+  musicPluck(523.25, ac.currentTime + 0.05, 0.03);
+  musicPluck(659.25, ac.currentTime + 0.32, 0.024);
+  _music.melodyTimer = setTimeout(musicMelody, 1600);
 }
 
 function stopMusic() {
@@ -4182,13 +4359,25 @@ function toggleMusic(on) {
   if (on) startMusic(); else stopMusic();
 }
 if ($("musicBtn")) {
-  $("musicBtn").addEventListener("click", () => toggleMusic(!_music));
+  // Toggle off the button's SHOWN state, not the engine's: with a saved "on"
+  // preference the button can display on before audio has permission to start,
+  // and keying off _music made the first click a no-op there.
+  $("musicBtn").addEventListener("click", () => {
+    const showingOn = $("musicBtn").getAttribute("aria-pressed") === "true";
+    toggleMusic(!showingOn);
+  });
   let saved = null;
   try { saved = localStorage.getItem(MUSIC_KEY); } catch (e) {}
   if (saved === "1") {
     setMusicBtn(true);
     // Browsers require a user gesture before audio: resume on the first one.
-    const arm = () => { if (!_music && localStorage.getItem(MUSIC_KEY) === "1") startMusic(); };
+    // Skip when the gesture is the music button itself — its click handler
+    // owns the decision; resuming here made that first click toggle straight
+    // back off (pointerdown fires before click).
+    const arm = (e) => {
+      if (e.target && e.target.closest && e.target.closest("#musicBtn")) return;
+      if (!_music && localStorage.getItem(MUSIC_KEY) === "1") startMusic();
+    };
     document.addEventListener("pointerdown", arm, { once: true });
     document.addEventListener("keydown", arm, { once: true });
   }
@@ -4247,8 +4436,9 @@ if ($("gemSurprise")) $("gemSurprise").addEventListener("click", (e) => {
   e.stopPropagation();
   surpriseGem();
 });
-$("visitedImage").addEventListener("click", () => downloadVisitedImage("landscape"));
-if ($("visitedStory")) $("visitedStory").addEventListener("click", () => downloadVisitedImage("story"));
+// One share format: vertical/story — these get shared from phones, where
+// portrait is what Stories, TikTok, and messaging previews all want.
+$("visitedImage").addEventListener("click", () => downloadVisitedImage("story"));
 if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);
 // ("Use on another device" was removed — the Share button already produces a
 //  URL carrying your map across devices.)
