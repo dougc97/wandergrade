@@ -201,7 +201,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", cache)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if not getattr(self, "_head_only", False):
+            self.wfile.write(body)   # HEAD: same status/headers, no body
 
     def _send_json(self, obj, status=200):
         self._send_body(json.dumps(obj).encode("utf-8"),
@@ -260,6 +261,16 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     # ---- routing ---------------------------------------------------------
+    def do_HEAD(self):
+        # Serve HEAD by running the GET path with the body suppressed — same
+        # status + headers, no payload. Without this the stdlib base handler
+        # returns 501 to HEAD probes (crawlers, link-checkers, uptime monitors).
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
+
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         # Unauthenticated health check for hosting platforms (Render, etc.).
