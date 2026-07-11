@@ -3164,24 +3164,46 @@ function renderFeedback() {
     `<a class="feedbacklink" href="${FEEDBACK_URL}" target="_blank" rel="noopener">💬 Spotted something off, or missing a feature? Tell me — it takes 30 seconds →</a>`);
 }
 
-function renderSubscribe() {
-  // Prominent box up top (right under the header) so the monthly newsletter is
-  // front-and-centre, plus a catch box at the bottom for late scrollers.
-  const slots = ["subscribeTop", "subscribe"].map((id) => $(id)).filter(Boolean);
-  if (!slots.length) return;
+function subscribeFormHTML() {
   const base = "https://buttondown.com/" + BUTTONDOWN_USER;
-  const html = !BUTTONDOWN_USER
-    ? '<span class="hint">📬 Newsletter signup not configured yet — set BUTTONDOWN_USER in app.js once you have a Buttondown account.</span>'
-    : `
-    <span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
+  if (!BUTTONDOWN_USER)
+    return '<span class="hint">📬 Newsletter signup not configured yet — set BUTTONDOWN_USER in app.js.</span>';
+  return `<span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
     <form action="https://buttondown.com/api/emails/embed/subscribe/${BUTTONDOWN_USER}"
           method="post" target="popupwindow"
           onsubmit="window.open('${base}','popupwindow')" class="subform">
       <input type="email" name="email" placeholder="you@email.com" required>
       <button type="submit">Subscribe</button>
     </form>`;
-  for (const el of slots) el.innerHTML = html;
 }
+
+function renderSubscribe() {
+  // Quiet catch box at the page bottom; the primary CTA is the small header
+  // "📬 Subscribe" button (openSubscribeModal) so the tool — not an email gate —
+  // is what greets people up top.
+  const sub = $("subscribe");
+  if (sub) sub.innerHTML = subscribeFormHTML();
+}
+
+// Small modal for the header Subscribe button — appears only on click, so the
+// newsletter never blocks someone from just using the tool.
+function openSubscribeModal() {
+  if (document.querySelector(".submodal")) return;
+  const m = document.createElement("div");
+  m.className = "submodal";
+  m.innerHTML = '<div class="submodal-card"><button class="submodal-x" aria-label="Close">✕</button>'
+    + subscribeFormHTML() + "</div>";
+  document.body.appendChild(m);
+  requestAnimationFrame(() => m.classList.add("show"));
+  const close = () => { m.classList.remove("show"); setTimeout(() => m.remove(), 220); };
+  m.addEventListener("click", (e) => { if (e.target === m) close(); });
+  m.querySelector(".submodal-x").onclick = close;
+  const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+  document.addEventListener("keydown", onKey);
+  const inp = m.querySelector('input[type="email"]');
+  if (inp) inp.focus();
+}
+if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", openSubscribeModal);
 
 // ===========================================================================
 //  Share: encode the current tab + settings into a URL anyone can open
