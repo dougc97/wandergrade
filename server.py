@@ -95,6 +95,19 @@ _WEBSITE_JSONLD = (
     'decide where and when to travel next."}'
     "</script>"
 )
+def _analytics_tag():
+    """Cloudflare Web Analytics beacon, injected on every page only when
+    CF_ANALYTICS_TOKEN is set (Render → Environment). The token is public (it
+    ships in page source), so it lives in the env, not the repo. Empty string
+    when unset, so dev/self-hosting stay analytics-free."""
+    token = os.environ.get("CF_ANALYTICS_TOKEN", "").strip()
+    if not token:
+        return ""
+    beacon = json.dumps({"token": token})   # safe-encodes the token into the attr
+    return ('<script defer src="https://static.cloudflareinsights.com/beacon.min.js" '
+            "data-cf-beacon='%s'></script>" % beacon)
+
+
 _HTML_DEFAULTS = {
     "TITLE": "WanderGrade — Where Should I Travel to Next?",
     "DESC": "Decide where — and when — to go. Every country graded A+ to F on "
@@ -105,6 +118,7 @@ _HTML_DEFAULTS = {
     "GC_JS": "",
     "SSR_BODY": "",
     "JSONLD": _WEBSITE_JSONLD,
+    "ANALYTICS": _analytics_tag(),
 }
 _html_tpl = None
 
