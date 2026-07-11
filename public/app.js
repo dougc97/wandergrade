@@ -3185,9 +3185,20 @@ function renderSubscribe() {
   if (sub) sub.innerHTML = subscribeFormHTML();
 }
 
-// Small modal for the header Subscribe button — appears only on click, so the
-// newsletter never blocks someone from just using the tool.
-function openSubscribeModal() {
+// Newsletter modal — opened by the header "📬 Subscribe" button, or auto-shown
+// once after the visitor has engaged (see armSubscribeAutoPrompt below). Opening
+// it either way sets a permanent flag so the auto-invite never nags twice.
+const SUB_PROMPT_KEY = "wg_subprompt";
+function subPrompted() {
+  try { return localStorage.getItem(SUB_PROMPT_KEY) === "1"; } catch (e) { return false; }
+}
+function markSubPrompted() {
+  try { localStorage.setItem(SUB_PROMPT_KEY, "1"); } catch (e) {}
+}
+
+function openSubscribeModal(opts) {
+  opts = opts || {};
+  markSubPrompted();   // any open (manual or auto) → never auto-invite again
   if (document.querySelector(".submodal")) return;
   const m = document.createElement("div");
   m.className = "submodal";
@@ -3200,10 +3211,45 @@ function openSubscribeModal() {
   m.querySelector(".submodal-x").onclick = close;
   const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
   document.addEventListener("keydown", onKey);
-  const inp = m.querySelector('input[type="email"]');
-  if (inp) inp.focus();
+  // Focus the field only for a deliberate click — auto-popping the mobile
+  // keyboard on an unrequested modal is jarring.
+  if (!opts.auto) { const inp = m.querySelector('input[type="email"]'); if (inp) inp.focus(); }
 }
-if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", openSubscribeModal);
+if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSubscribeModal());
+
+// Auto-invite: surface the newsletter ONCE, only after the visitor has shown
+// interest — whichever comes first of ~50% scroll depth or 45s dwell. Never
+// interrupts another overlay, and is permanently suppressed after any open, so
+// nobody is asked twice. Fires the tool first; asks for the email second.
+(function armSubscribeAutoPrompt() {
+  if (subPrompted()) return;
+  let done = false;
+  function cleanup() {
+    clearTimeout(timer);
+    window.removeEventListener("scroll", onScroll);
+  }
+  function fire() {
+    if (done || subPrompted()) { cleanup(); return; }
+    // Don't stack on top of a guide lightbox, the spin-globe, or an open modal —
+    // wait until the visitor's attention is free, then try again.
+    if (document.querySelector(".submodal, .lightbox, .spinover")) {
+      setTimeout(fire, 3000);
+      return;
+    }
+    done = true;
+    cleanup();
+    openSubscribeModal({ auto: true });
+  }
+  function onScroll() {
+    const de = document.documentElement;
+    const max = de.scrollHeight - de.clientHeight;
+    if (max <= 0) return;
+    const y = de.scrollTop || document.body.scrollTop || 0;
+    if (y / max >= 0.5) fire();
+  }
+  const timer = setTimeout(fire, 45000);
+  window.addEventListener("scroll", onScroll, { passive: true });
+})();
 
 // ===========================================================================
 //  Share: encode the current tab + settings into a URL anyone can open
