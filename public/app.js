@@ -229,6 +229,58 @@ document.addEventListener("click", (e) => {
   if (dataRates) renderRates(dataRates);
 });
 
+// ---- generic click-to-sort for the other data tables (same UX as currency) --
+// Headers carry class="sortable" data-sk="col"; each table has a getters map, a
+// sort-state object, a first-click direction map (default asc unless false),
+// and a re-render callback.
+function sortRows(rows, state, getters) {
+  const get = getters[state.key];
+  if (!get) return rows.slice();
+  const dir = state.asc ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    const va = get(a), vb = get(b);
+    if (typeof va === "string" || typeof vb === "string")
+      return dir * String(va).localeCompare(String(vb));
+    const na = va == null || !isFinite(va), nb = vb == null || !isFinite(vb);
+    if (na || nb) return na - nb;                 // blanks/unknowns always last
+    return dir * (va - vb);
+  });
+}
+function markSort(theadSel, state) {
+  document.querySelectorAll(theadSel + " th.sortable").forEach((th) => {
+    th.dataset.sortdir = th.dataset.sk === state.key ? (state.asc ? "asc" : "desc") : "";
+  });
+}
+function wireSort(theadSel, state, firstAsc, rerender) {
+  document.addEventListener("click", (e) => {
+    const th = e.target.closest(theadSel + " th.sortable");
+    if (!th) return;
+    if (state.key === th.dataset.sk) state.asc = !state.asc;
+    else { state.key = th.dataset.sk; state.asc = firstAsc[th.dataset.sk] !== false; }
+    rerender();
+  });
+}
+
+// Cost of living: cheapest-first by default; "$100 buys" is the inverse of the
+// price level, so it opens descending (most goods first).
+const AFF_GET = { name: (r) => r.name, cur: (r) => r.cur, pl: (r) => r.pl,
+                  buys: (r) => 100 / r.pl, feels: (r) => r.pl };
+const affSort = { key: "pl", asc: true };
+wireSort("#affTable", affSort, { buys: false }, () => { if (typeof ppp !== "undefined" && ppp) renderAfford(); });
+
+// Safety: safest (Level 1) first by default. The advisory text tracks the
+// level, so that column sorts by severity too.
+const ADV_GET = { country: (it) => it.country, level: (it) => parseInt(it.level, 10) || 0,
+                  text: (it) => parseInt(it.level, 10) || 0 };
+const advSort = { key: "level", asc: true };
+wireSort("#advTable", advSort, {}, () => { if (advisories) renderAdvisories(); });
+
+// Flights: cheapest average first; "routes sampled" opens descending.
+const FLIGHT_GET = { dest: (c) => countryName(c.iso), avg: (c) => c.avg, min: (c) => c.min,
+                     dur: (c) => c.dur, stops: (c) => c.stops, n: (c) => c.n };
+const flightSort = { key: "avg", asc: true };
+wireSort("#flightTable", flightSort, { n: false }, () => { if (flightsData) renderFlights(); });
+
 function renderRates(data) {
   dataRates = data;
   const base = data.base || "USD";
@@ -1357,7 +1409,8 @@ function renderAdvisories() {
   $("advLegend").innerHTML = [1, 2, 3, 4]
     .map((l) => `<span><span class="swatch" style="background:${LVL_COLOR[l]}"></span>L${l}</span>`).join(" ");
 
-  $("advRows").innerHTML = advisories.items.map((it) => {
+  markSort("#advTable", advSort);
+  $("advRows").innerHTML = sortRows(advisories.items, advSort, ADV_GET).map((it) => {
     const lvl = parseInt(it.level, 10) || 0;
     const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
     const guideAttr = it.iso ? ` data-iso="${esc(it.iso)}" title="See the ${esc(it.country)} travel guide →"` : "";
@@ -1397,8 +1450,8 @@ function renderAfford() {
     const name = (ppp[iso] && ppp[iso].name) || (climate && climate[iso] && climate[iso].name) || iso;
     rows.push({ iso, name, cur: CUR_BY_ISO[iso], pl });
   }
-  rows.sort((a, b) => a.pl - b.pl);
-  $("affRows").innerHTML = rows.map((r) => {
+  markSort("#affTable", affSort);
+  $("affRows").innerHTML = sortRows(rows, affSort, AFF_GET).map((r) => {
     const cls = r.pl <= 0.85 ? "pos" : r.pl > 1.15 ? "neg" : "";
     return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(r.name)} travel guide →"><td>${esc(r.name)}</td><td>${esc(r.cur)}</td>
       <td class="num ${cls}">${r.pl.toFixed(2)}</td>
@@ -2458,7 +2511,8 @@ function renderFlights() {
   $("flightLegend").innerHTML =
     '<span>Cheaper</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Pricier</span>';
 
-  $("flightRows").innerHTML = countries.map((c) => {
+  markSort("#flightTable", flightSort);
+  $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET).map((c) => {
     const exp = expected ? expected(c.iso) : null;
     const arrow = priceArrow(Number(c.avg) || null, exp, "the typical fare for this distance");
     const fare = `${esc(cur)} ${Number(c.avg) || "?"}`;
