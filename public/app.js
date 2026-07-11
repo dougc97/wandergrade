@@ -281,6 +281,17 @@ const FLIGHT_GET = { dest: (c) => countryName(c.iso), avg: (c) => c.avg, min: (c
 const flightSort = { key: "avg", asc: true };
 wireSort("#flightTable", flightSort, { n: false }, () => { if (flightsData) renderFlights(); });
 
+// Top Picks report card: default overall-value order. Sorting a column
+// reorders AND renumbers the same top-N set (rank = row position). Grade
+// columns open best-first; Safety opens safest-first (advisory level 1);
+// Destination A→Z. Flights with no fare sort last.
+const PICK_GET = { dest: (s) => s.name, afford: (s) => s.afford, safety: (s) => s.advLvl,
+                   weather: (s) => s.wx, flights: (s) => (s.fly == null ? null : s.fly),
+                   overall: (s) => s.value };
+const pickSort = { key: "overall", asc: false };
+wireSort("#topCards", pickSort, { afford: false, weather: false, flights: false, overall: false },
+         () => { if (lastPicks && lastPicks.length) renderGradeTable($("topCards"), lastPicks, lastPicksMonth, false, true); });
+
 function renderRates(data) {
   dataRates = data;
   const base = data.base || "USD";
@@ -2192,9 +2203,15 @@ function priceArrow(value, baseline, label) {
 // Render a ranked list as a compact report-card table. gem=true swaps the rank
 // number for a 💎 (the hidden-gems list). The why-sentence moves to the row
 // tooltip so the table itself stays scannable.
-function renderGradeTable(host, list, month, gem) {
+function renderGradeTable(host, list, month, gem, sortable) {
   if (!host) return;
   if (!list.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
+  // Sortable tables reorder the same set by the chosen column; rank (#i+1)
+  // renumbers to match. Gems stay in value order.
+  if (sortable) list = sortRows(list, pickSort, PICK_GET);
+  const sa = (sk) => sortable
+    ? ` data-sk="${sk}" data-sortdir="${pickSort.key === sk ? (pickSort.asc ? "asc" : "desc") : ""}"` : "";
+  const sc = sortable ? " sortable" : "";
   const rows = list.map((s, i) => {
     const hz = hazardsFor(s.iso, month);
     const wxTitle = `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}` +
@@ -2213,12 +2230,12 @@ function renderGradeTable(host, list, month, gem) {
     </tr>`;
   }).join("");
   host.innerHTML = `<table class="gradetable">
-    <thead><tr><th></th><th class="dest">Destination</th>
-      <th title="how far your money goes — daily prices vs home, plus how strong your currency is right now">💰 Affordability</th>
-      <th title="US State Dept advisory level">🛡️ Safety</th>
-      <th title="weather comfort for your chosen month">🌤️ Weather</th>
-      <th title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ Flights</th>
-      <th title="everything blended, weighted by your priorities">Overall</th></tr></thead>
+    <thead><tr><th></th><th class="dest${sc}"${sa("dest")}>Destination</th>
+      <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now">💰 Affordability</th>
+      <th class="${sc.trim()}"${sa("safety")} title="US State Dept advisory level">🛡️ Safety</th>
+      <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month">🌤️ Weather</th>
+      <th class="${sc.trim()}"${sa("flights")} title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ Flights</th>
+      <th class="${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
 }
@@ -2370,8 +2387,8 @@ function renderValue() {
   if (picksNote) picksNote.innerHTML = popular.length
     ? `🌍 Popular destinations, ranked by value${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
     : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.";
-  lastPicks = picks; lastPicksMonth = month;   // for the AI export
-  renderGradeTable($("topCards"), picks, month, false);
+  lastPicks = picks; lastPicksMonth = month;   // for the AI export + re-sort
+  renderGradeTable($("topCards"), picks, month, false, true);
   // "Show more" reveals 10 then 20; hides when maxed out or nothing left.
   const sm = $("showMore");
   if (sm) {
