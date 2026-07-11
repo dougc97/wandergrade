@@ -3182,31 +3182,57 @@ function renderSubscribe() {
   // "📬 Subscribe" button (openSubscribeModal) so the tool — not an email gate —
   // is what greets people up top.
   const sub = $("subscribe");
-  if (sub) sub.innerHTML = subscribeFormHTML();
+  if (sub) { sub.innerHTML = subscribeFormHTML(); wireSubForm(sub); }
 }
 
 // Newsletter modal — opened by the header "📬 Subscribe" button, or auto-shown
-// once after the visitor has engaged (see armSubscribeAutoPrompt below). Opening
-// it either way sets a permanent flag so the auto-invite never nags twice.
-const SUB_PROMPT_KEY = "wg_subprompt";
-function subPrompted() {
-  try { return localStorage.getItem(SUB_PROMPT_KEY) === "1"; } catch (e) { return false; }
+// after the visitor has engaged (see armSubscribeAutoPrompt below). Two states
+// govern the auto-invite: submitting a subscribe form marks the visitor as
+// subscribed (never auto-invite again); closing without subscribing records a
+// dismissal that re-arms the invite after 30 days.
+const SUB_DONE_KEY = "wg_sub_done";          // "1" once they submit a signup form
+const SUB_DISMISS_KEY = "wg_sub_dismissed";  // ms timestamp of last dismissal
+const SUB_REARM_MS = 30 * 24 * 60 * 60 * 1000;
+
+function subDone() {
+  try { return localStorage.getItem(SUB_DONE_KEY) === "1"; } catch (e) { return false; }
 }
-function markSubPrompted() {
-  try { localStorage.setItem(SUB_PROMPT_KEY, "1"); } catch (e) {}
+function markSubscribed() {
+  try { localStorage.setItem(SUB_DONE_KEY, "1"); } catch (e) {}
+}
+function markDismissed() {
+  try { localStorage.setItem(SUB_DISMISS_KEY, String(Date.now())); } catch (e) {}
+}
+function shouldAutoPrompt() {
+  if (subDone()) return false;
+  try {
+    const ts = parseInt(localStorage.getItem(SUB_DISMISS_KEY) || "0", 10);
+    if (ts && (Date.now() - ts) < SUB_REARM_MS) return false;   // dismissed < 30 days ago
+  } catch (e) {}
+  return true;
+}
+// Submitting any subscribe form (modal or footer) = subscribed → stop inviting.
+function wireSubForm(root) {
+  const f = root && root.querySelector("form.subform");
+  if (f) f.addEventListener("submit", markSubscribed);
 }
 
 function openSubscribeModal(opts) {
   opts = opts || {};
-  markSubPrompted();   // any open (manual or auto) → never auto-invite again
   if (document.querySelector(".submodal")) return;
   const m = document.createElement("div");
   m.className = "submodal";
   m.innerHTML = '<div class="submodal-card"><button class="submodal-x" aria-label="Close">✕</button>'
     + subscribeFormHTML() + "</div>";
   document.body.appendChild(m);
+  wireSubForm(m);
   requestAnimationFrame(() => m.classList.add("show"));
-  const close = () => { m.classList.remove("show"); setTimeout(() => m.remove(), 220); };
+  const close = () => {
+    // Closed without subscribing → count as a dismissal (re-arm in 30 days).
+    if (!subDone()) markDismissed();
+    m.classList.remove("show");
+    setTimeout(() => m.remove(), 220);
+  };
   m.addEventListener("click", (e) => { if (e.target === m) close(); });
   m.querySelector(".submodal-x").onclick = close;
   const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
@@ -3217,19 +3243,19 @@ function openSubscribeModal(opts) {
 }
 if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSubscribeModal());
 
-// Auto-invite: surface the newsletter ONCE, only after the visitor has shown
-// interest — whichever comes first of ~50% scroll depth or 45s dwell. Never
-// interrupts another overlay, and is permanently suppressed after any open, so
-// nobody is asked twice. Fires the tool first; asks for the email second.
+// Auto-invite: surface the newsletter after the visitor has shown interest —
+// whichever comes first of ~50% scroll depth or 45s dwell. Never interrupts
+// another overlay. Suppressed permanently once they subscribe, and for 30 days
+// after a dismissal, so a not-yet-convinced visitor gets a second chance later.
 (function armSubscribeAutoPrompt() {
-  if (subPrompted()) return;
+  if (!shouldAutoPrompt()) return;
   let done = false;
   function cleanup() {
     clearTimeout(timer);
     window.removeEventListener("scroll", onScroll);
   }
   function fire() {
-    if (done || subPrompted()) { cleanup(); return; }
+    if (done || !shouldAutoPrompt()) { cleanup(); return; }
     // Don't stack on top of a guide lightbox, the spin-globe, or an open modal —
     // wait until the visitor's attention is free, then try again.
     if (document.querySelector(".submodal, .lightbox, .spinover")) {
