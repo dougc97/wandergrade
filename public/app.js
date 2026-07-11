@@ -1883,6 +1883,7 @@ function buildValueTab() {
 // Bridges the exploratory phase (this tool) to planning (the user's LLM):
 // copies their preferences + shortlist as a ready-to-paste prompt.
 let lastPicks = [], lastPicksMonth = null;
+let lastGems = [];   // current hidden-gems list, for the 💎 surprise button
 function buildAIPrompt() {
   const month = lastPicksMonth || curMonth();
   const origin = $("valueOrigin");
@@ -2414,6 +2415,7 @@ function renderValue() {
     }
   }
   const gems = (popular.length ? offbeat : []).slice(0, 8);
+  lastGems = gems;
   const gemsBox = $("gemsBox");
   if (gemsBox) {
     gemsBox.hidden = !gems.length;
@@ -3694,6 +3696,18 @@ function surpriseMe() {
   });
 }
 
+// Same roulette, but across the CURRENT hidden-gems list (top offbeat value
+// under the active filters) instead of the famous-destinations pool.
+function surpriseGem() {
+  const pool = lastGems.map((s) => s.iso);
+  if (!pool.length) return;
+  ensureSlugs().then(() => {
+    const winner = pool[Math.floor(Math.random() * pool.length)];
+    if (reducedMotion()) { openGuideFor(winner, true); return; }
+    spinGlobe(pool, winner, () => openGuideFor(winner, true));
+  });
+}
+
 // Real spinning Earth: orthographic projection of actual coastlines, drawn on
 // a <canvas>. Land outlines are Natural Earth 110m (public domain), simplified
 // to integer degrees and packed below as "lon,lat,lon,lat,..." rings joined
@@ -3957,6 +3971,148 @@ function sfxLand() {
   });
 }
 
+// ---- ambient soundtrack ------------------------------------------------------
+// Generative ambience synthesized live (Web Audio) — slow warm pad chords, a
+// breath of band-passed air, and occasional high "sparkle" notes. No audio
+// files: nothing to download and nothing to license. Strictly opt-in via the
+// 🎵 header button; the choice persists in localStorage. Returning visitors
+// with music on get it resumed on their first interaction (autoplay policy).
+const MUSIC_KEY = "wg_music";
+let _music = null;
+
+// Warm, floaty loop: Fmaj7 → Am(add9) → Cmaj9 → G6. Frequencies in Hz.
+const MUSIC_CHORDS = [
+  [174.61, 220.00, 261.63, 329.63],
+  [220.00, 246.94, 261.63, 329.63],
+  [130.81, 164.81, 196.00, 293.66],
+  [196.00, 246.94, 293.66, 329.63],
+];
+
+function musicChord() {
+  if (!_music) return;
+  const ac = _sfx;
+  const chord = MUSIC_CHORDS[_music.ci++ % MUSIC_CHORDS.length];
+  const dur = 14 + Math.random() * 4;
+  chord.forEach((hz, vi) => {
+    [-4, 3].forEach((cents) => {                 // two detuned layers per note
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = vi < 2 ? "sine" : "triangle";
+      o.frequency.value = hz;
+      o.detune.value = cents;
+      const t0 = ac.currentTime;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.013, t0 + 4);    // slow swell in
+      g.gain.setValueAtTime(0.013, t0 + dur - 5);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur); // slow fade out
+      o.connect(g).connect(_music.lp);
+      o.start(t0);
+      o.stop(t0 + dur + 0.1);
+    });
+  });
+  _music.timer = setTimeout(musicChord, (dur - 4.5) * 1000); // overlap swells
+}
+
+function musicSparkle() {
+  if (!_music) return;
+  const ac = _sfx;
+  const notes = [659.25, 783.99, 880.0, 987.77, 1046.5];     // E5 G5 A5 B5 C6
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = "sine";
+  o.frequency.value = notes[Math.floor(Math.random() * notes.length)];
+  const t0 = ac.currentTime + 0.05;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(0.02, t0 + 0.15);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.4);
+  o.connect(g);
+  if (ac.createStereoPanner) {                   // drift the sparkles around
+    const pan = ac.createStereoPanner();
+    pan.pan.value = Math.random() * 1.6 - 0.8;
+    g.connect(pan).connect(_music.master);
+  } else g.connect(_music.master);
+  o.start(t0);
+  o.stop(t0 + 2.5);
+  _music.sparkTimer = setTimeout(musicSparkle, 5000 + Math.random() * 9000);
+}
+
+function startMusic() {
+  const ac = sfxCtx();
+  if (!ac || _music) return;
+  const master = ac.createGain();
+  master.gain.setValueAtTime(0.0001, ac.currentTime);
+  master.gain.exponentialRampToValueAtTime(0.9, ac.currentTime + 3);
+  master.connect(ac.destination);
+  const lp = ac.createBiquadFilter();              // keeps the pads soft/hazy
+  lp.type = "lowpass";
+  lp.frequency.value = 1100;
+  lp.Q.value = 0.4;
+  lp.connect(master);
+  // "air": looped noise through a slowly wandering bandpass, barely there
+  const nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+  const nd = nb.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  const air = ac.createBufferSource();
+  air.buffer = nb;
+  air.loop = true;
+  const bp = ac.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.value = 520;
+  bp.Q.value = 2.5;
+  const airG = ac.createGain();
+  airG.gain.value = 0.012;
+  const lfo = ac.createOscillator();
+  lfo.frequency.value = 0.02;
+  const lfoG = ac.createGain();
+  lfoG.gain.value = 260;
+  lfo.connect(lfoG).connect(bp.frequency);
+  air.connect(bp).connect(airG).connect(master);
+  air.start();
+  lfo.start();
+  _music = { master, lp, timer: null, sparkTimer: null, nodes: [air, lfo], ci: 0 };
+  musicChord();
+  musicSparkle();
+}
+
+function stopMusic() {
+  if (!_music) return;
+  const ac = _sfx, m = _music;
+  _music = null;                                   // chord/sparkle loops stop
+  clearTimeout(m.timer);
+  clearTimeout(m.sparkTimer);
+  m.master.gain.cancelScheduledValues(ac.currentTime);
+  m.master.gain.setValueAtTime(Math.max(m.master.gain.value, 0.0001), ac.currentTime);
+  m.master.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 1.2);
+  setTimeout(() => {
+    m.nodes.forEach((n) => { try { n.stop(); } catch (e) {} });
+    m.master.disconnect();
+  }, 1500);
+}
+
+function setMusicBtn(on) {
+  const b = $("musicBtn");
+  if (!b) return;
+  b.setAttribute("aria-pressed", on ? "true" : "false");
+  b.classList.toggle("playing", on);
+  b.title = on ? "Ambient soundtrack — on (click to turn off)"
+              : "Ambient soundtrack — off (click to turn on)";
+}
+function toggleMusic(on) {
+  try { localStorage.setItem(MUSIC_KEY, on ? "1" : "0"); } catch (e) {}
+  setMusicBtn(on);
+  if (on) startMusic(); else stopMusic();
+}
+if ($("musicBtn")) {
+  $("musicBtn").addEventListener("click", () => toggleMusic(!_music));
+  let saved = null;
+  try { saved = localStorage.getItem(MUSIC_KEY); } catch (e) {}
+  if (saved === "1") {
+    setMusicBtn(true);
+    // Browsers require a user gesture before audio: resume on the first one.
+    const arm = () => { if (!_music && localStorage.getItem(MUSIC_KEY) === "1") startMusic(); };
+    document.addEventListener("pointerdown", arm, { once: true });
+    document.addEventListener("keydown", arm, { once: true });
+  }
+}
+
 // "Surprise me" roulette: spinning globe + a flag/name reel that eases to a stop
 // on `winner`, then runs done(). Click anywhere to skip to the result.
 function spinGlobe(list, winner, done) {
@@ -4004,6 +4160,12 @@ function spinGlobe(list, winner, done) {
   tick();
 }
 if ($("surpriseBtn")) $("surpriseBtn").addEventListener("click", surpriseMe);
+// Lives inside the <summary>: stop the click from also toggling the fold.
+if ($("gemSurprise")) $("gemSurprise").addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  surpriseGem();
+});
 $("visitedImage").addEventListener("click", () => downloadVisitedImage("landscape"));
 if ($("visitedStory")) $("visitedStory").addEventListener("click", () => downloadVisitedImage("story"));
 if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);

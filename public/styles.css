@@ -173,6 +173,11 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
   padding: 10px 14px; background: var(--card); }
 .foldable > summary { cursor: pointer; font-size: 14px; font-weight: 600; }
 .foldable > summary .muted { font-weight: 400; }
+/* small roulette button inside the Hidden gems summary */
+.gembtn { margin-left: 10px; font-size: 12px; font-weight: 600; padding: 4px 10px;
+  border-radius: 999px; border: 1px solid var(--line); background: var(--card);
+  color: var(--ink); cursor: pointer; }
+.gembtn:hover { border-color: var(--green); color: var(--green); }
 .foldable[open] { padding-bottom: 14px; }
 .foldable .tablewrap { padding: 0; margin-top: 10px; }
 
@@ -368,6 +373,10 @@ footer a { color: var(--gray); }
 .headrow { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .headbtns { display: flex; gap: 8px; flex-shrink: 0; }
 .themebtn { font-size: 14px; padding: 7px 11px; border-radius: 8px; line-height: 1.2; white-space: nowrap; }
+/* music toggle: gentle pulse while playing */
+#musicBtn.playing { animation: wgpulse 2.2s ease-in-out infinite; }
+@keyframes wgpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+@media (prefers-reduced-motion: reduce) { #musicBtn.playing { animation: none; } }
 .rowsplit { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pickgroup { display: inline-flex; align-items: center; gap: 7px; background: var(--soft);
   border-radius: 8px; padding: 4px 8px 4px 10px; white-space: nowrap; }
