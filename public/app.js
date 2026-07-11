@@ -2414,7 +2414,9 @@ function renderValue() {
       }
     }
   }
-  const gems = (popular.length ? offbeat : []).slice(0, 8);
+  // Gems mirror the popular list's count (5 → 10 → 20 via "Show more") so the
+  // two sections always feel like one consistent ranking.
+  const gems = (popular.length ? offbeat : []).slice(0, pickCount());
   lastGems = gems;
   const gemsBox = $("gemsBox");
   if (gemsBox) {
@@ -4021,7 +4023,7 @@ function musicSparkle() {
   o.frequency.value = notes[Math.floor(Math.random() * notes.length)];
   const t0 = ac.currentTime + 0.05;
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(0.02, t0 + 0.15);
+  g.gain.exponentialRampToValueAtTime(0.014, t0 + 0.15);
   g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.4);
   o.connect(g);
   if (ac.createStereoPanner) {                   // drift the sparkles around
@@ -4039,7 +4041,8 @@ function startMusic() {
   if (!ac || _music) return;
   const master = ac.createGain();
   master.gain.setValueAtTime(0.0001, ac.currentTime);
-  master.gain.exponentialRampToValueAtTime(0.9, ac.currentTime + 3);
+  // Deliberately quiet: ambience should sit under the room, not in it.
+  master.gain.exponentialRampToValueAtTime(0.55, ac.currentTime + 3);
   master.connect(ac.destination);
   const lp = ac.createBiquadFilter();              // keeps the pads soft/hazy
   lp.type = "lowpass";
@@ -4058,7 +4061,7 @@ function startMusic() {
   bp.frequency.value = 520;
   bp.Q.value = 2.5;
   const airG = ac.createGain();
-  airG.gain.value = 0.012;
+  airG.gain.value = 0.009;
   const lfo = ac.createOscillator();
   lfo.frequency.value = 0.02;
   const lfoG = ac.createGain();
