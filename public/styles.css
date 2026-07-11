@@ -324,6 +324,26 @@ tr.favorable { background: var(--green-bg); }
   border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center;
   gap: 12px; flex-wrap: wrap; justify-content: center; }
 .subscribe .sublabel { font-size: 14px; font-weight: 600; }
+/* Prominent newsletter band at the top of the page (not an afterthought). */
+.subscribe-top { margin: 14px auto 0; background: rgba(10,125,40,.12); border: 1px solid rgba(10,125,40,.55); }
+.subscribe-top .sublabel { font-size: 15px; }
+
+/* "Surprise me" spin-the-globe roulette overlay */
+.spinover { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center;
+  background: rgba(6,10,16,.82); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity .3s; cursor: pointer; }
+.spinover.show { opacity: 1; }
+.spinbox { text-align: center; padding: 20px; transform: scale(.94); transition: transform .3s; }
+.spinover.show .spinbox { transform: scale(1); }
+.globe { display: inline-block; filter: drop-shadow(0 0 26px rgba(90,170,255,.6)); animation: wgbob 2.6s ease-in-out infinite; }
+@keyframes wgbob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+.spinflag { font-size: 54px; line-height: 1; margin: 16px 0 4px; }
+.spinname { font-size: 24px; font-weight: 800; color: #fff; min-height: 30px; }
+.spinname b { color: #7fe0a0; }
+.spinhint { margin-top: 14px; font-size: 12px; color: rgba(255,255,255,.5); letter-spacing: .04em; }
+.spinover.landed .spinflag { animation: wgpop .55s ease; }
+@keyframes wgpop { 0% { transform: scale(1); } 45% { transform: scale(1.25); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .globe { animation: none; } }
 .subform { display: flex; gap: 8px; }
 .subform input { padding: 8px 10px; border: 1px solid var(--border-input); border-radius: 7px; font-size: 14px; min-width: 200px; }
 .subform button { background: var(--green); color: #fff; border: none; border-radius: 7px; padding: 8px 16px; font-size: 14px; cursor: pointer; }

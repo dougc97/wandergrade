@@ -3165,9 +3165,9 @@ function renderFeedback() {
 }
 
 function renderSubscribe() {
-  // One subscribe box, at the page bottom. (A second strip at the end of the
-  // guide stacked right on top of it — duplicate, removed.)
-  const slots = ["subscribe"].map((id) => $(id)).filter(Boolean);
+  // Prominent box up top (right under the header) so the monthly newsletter is
+  // front-and-centre, plus a catch box at the bottom for late scrollers.
+  const slots = ["subscribeTop", "subscribe"].map((id) => $(id)).filter(Boolean);
   if (!slots.length) return;
   const base = "https://buttondown.com/" + BUTTONDOWN_USER;
   const html = !BUTTONDOWN_USER
@@ -3594,8 +3594,74 @@ function surpriseMe() {
   ensureSlugs().then(() => {
     const pool = SURPRISE_POOL.filter((iso) => !climate || climate[iso]);
     const list = pool.length ? pool : SURPRISE_POOL;
-    openGuideFor(list[Math.floor(Math.random() * list.length)], true);
+    const winner = list[Math.floor(Math.random() * list.length)];
+    if (reducedMotion()) { openGuideFor(winner, true); return; }
+    spinGlobe(list, winner, () => openGuideFor(winner, true));
   });
+}
+
+// Stylized wireframe globe: four meridians whose rx sweeps 86→0→86 (staggered)
+// fake longitude rotation, over an ocean-gradient sphere with parallels + gloss.
+// Pure SVG/SMIL, no assets.
+function globeSVG() {
+  const meridian = (begin) =>
+    '<ellipse cx="100" cy="100" ry="86" rx="86" fill="none" stroke="rgba(255,255,255,.34)" stroke-width="1.3">'
+    + '<animate attributeName="rx" values="86;3;86" dur="2.6s" begin="' + begin + 's" repeatCount="indefinite"'
+    + ' calcMode="spline" keyTimes="0;0.5;1" keySplines="0.45 0 0.55 1;0.45 0 0.55 1"/></ellipse>';
+  return '<svg viewBox="0 0 200 200" width="150" height="150" class="globesvg" aria-hidden="true">'
+    + '<defs><radialGradient id="wgOcean" cx="38%" cy="33%" r="78%">'
+    + '<stop offset="0%" stop-color="#7cc0ff"/><stop offset="55%" stop-color="#2b81d6"/>'
+    + '<stop offset="100%" stop-color="#0a3d75"/></radialGradient></defs>'
+    + '<circle cx="100" cy="100" r="88" fill="url(#wgOcean)"/>'
+    + [0, 0.65, 1.3, 1.95].map(meridian).join("")
+    + '<line x1="14" y1="100" x2="186" y2="100" stroke="rgba(255,255,255,.28)" stroke-width="1"/>'
+    + '<ellipse cx="100" cy="100" rx="86" ry="44" fill="none" stroke="rgba(255,255,255,.18)" stroke-width="1"/>'
+    + '<circle cx="100" cy="100" r="88" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2"/>'
+    + '<ellipse cx="72" cy="62" rx="24" ry="14" fill="rgba(255,255,255,.20)"/>'
+    + '</svg>';
+}
+
+// "Surprise me" roulette: spinning globe + a flag/name reel that eases to a stop
+// on `winner`, then runs done(). Click anywhere to skip to the result.
+function spinGlobe(list, winner, done) {
+  const overlay = document.createElement("div");
+  overlay.className = "spinover";
+  overlay.innerHTML = '<div class="spinbox"><div class="globe">' + globeSVG() + '</div>'
+    + '<div class="spinflag">🌍</div><div class="spinname">Spinning the globe…</div>'
+    + '<div class="spinhint">tap to skip</div></div>';
+  document.body.appendChild(overlay);
+  requestAnimationFrame(() => overlay.classList.add("show"));
+  const flagEl = overlay.querySelector(".spinflag");
+  const nameEl = overlay.querySelector(".spinname");
+
+  const reel = [];
+  for (let k = 0; k < 20; k++) reel.push(list[Math.floor(Math.random() * list.length)]);
+  reel.push(winner);
+
+  let i = 0, timer = null, stopped = false;
+  function finish() {
+    if (stopped) return;
+    stopped = true;
+    clearTimeout(timer);
+    flagEl.textContent = flagEmoji(winner);
+    nameEl.innerHTML = "✨ You’re going to <b>" + esc(countryName(winner)) + "</b>";
+    overlay.classList.add("landed");
+    setTimeout(() => {
+      overlay.classList.remove("show");
+      setTimeout(() => { overlay.remove(); done(); }, 340);
+    }, 900);
+  }
+  function tick() {
+    if (stopped) return;
+    const iso = reel[i];
+    flagEl.textContent = flagEmoji(iso);
+    nameEl.textContent = countryName(iso);
+    if (++i >= reel.length) { finish(); return; }
+    const t = i / reel.length;
+    timer = setTimeout(tick, 45 + t * t * 340);   // ease-out deceleration
+  }
+  overlay.addEventListener("click", finish);
+  tick();
 }
 if ($("surpriseBtn")) $("surpriseBtn").addEventListener("click", surpriseMe);
 $("visitedImage").addEventListener("click", () => downloadVisitedImage("landscape"));
