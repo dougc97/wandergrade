@@ -539,7 +539,7 @@ let worldGeo = null;
 async function ensureWorld() {
   if (worldGeo) return worldGeo;
   // ?v= busts the day-long HTTP cache when the geometry changes (bump manually)
-  worldGeo = await (await fetch("/world.geojson?v=2")).json();
+  worldGeo = await (await fetch("/world.geojson?v=3")).json();
   return worldGeo;
 }
 
@@ -577,7 +577,13 @@ function drawMap(hostId, colorFn, ariaLabel) {
   const W = 1000, latTop = 83, latBot = hostId === "visitedMap" ? -85 : -56;
   const H = Math.round((W * (latTop - latBot)) / 360);
   let paths = "";
+  // UK home nations (sub:"GB") replace the single UK outline on the travel
+  // map, where England/Scotland/Wales are markable in their own right;
+  // everywhere else the plain UK feature draws and the subdivisions skip.
+  const hasSubs = worldGeo.features.some((x) => x.properties.sub);
   for (const f of worldGeo.features) {
+    const isSub = !!f.properties.sub;
+    if (hostId === "visitedMap" ? (f.properties.iso === "GB" && !isSub && hasSubs) : isSub) continue;
     const { fill, title } = colorFn(f);
     const g = f.geometry;
     const polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
@@ -3367,9 +3373,12 @@ function renderVisited() {
     shareBtn.title = canShare ? "" : "Mark at least one country first ✓";
   }
   drawMap("visitedMap", (f) => {
-    const iso = f.properties.iso;
-    if (visited.has(iso)) return { fill: VISITED_COLOR, title: f.properties.name + " — been ✓ (click to remove)" };
-    if (wishlist.has(iso)) return { fill: WISH_COLOR, title: f.properties.name + " — want to go ★ (click to remove)" };
+    const iso = f.properties.iso, par = f.properties.sub;
+    // UK home nations paint with their own mark OR the whole-UK mark
+    if (visited.has(iso) || (par && visited.has(par)))
+      return { fill: VISITED_COLOR, title: f.properties.name + " — been ✓ (click to remove)" };
+    if (wishlist.has(iso) || (par && wishlist.has(par)))
+      return { fill: WISH_COLOR, title: f.properties.name + " — want to go ★ (click to remove)" };
     return { fill: "#e0e4e8",
       title: f.properties.name + " — click to mark " + (visitMode === "visited" ? "been" : "want to go") };
   }, "Your travel map");
@@ -3968,9 +3977,15 @@ function buildVisitedShareSVG(orientation, withPins) {
   const mapW = story ? 960 : 960, latTop = 80, latBot = story ? -85 : -56;
   const mapH = Math.round((mapW * (latTop - latBot)) / 360);
   let paths = "";
+  // same home-nation rules as the live map: the subdivisions replace the UK
+  // outline (when present) and paint with their own mark or the whole-UK mark
+  const hasSubs = worldGeo.features.some((x) => x.properties.sub);
   for (const f of worldGeo.features) {
-    const iso = f.properties.iso;
-    const fill = visited.has(iso) ? "#34d27b" : wishlist.has(iso) ? "#4f9bf0" : "#243449";
+    const iso = f.properties.iso, par = f.properties.sub;
+    if (!par && iso === "GB" && hasSubs) continue;
+    const marked = visited.has(iso) || (par && visited.has(par));
+    const wished = wishlist.has(iso) || (par && wishlist.has(par));
+    const fill = marked ? "#34d27b" : wished ? "#4f9bf0" : "#243449";
     const g = f.geometry, polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
     let d = "";
     for (const poly of polys) for (const ring of poly)
