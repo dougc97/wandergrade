@@ -2312,6 +2312,9 @@ const EXTRA_CONTINENT = {
   "MV": "AS", "SL": "AF", "SS": "AF", "ST": "AF",
   "KI": "OC", "NR": "OC", "WS": "OC", "TO": "OC", "TV": "OC",
   "PF": "OC", "NC": "OC", "CK": "OC",
+  // markable countries missing from the scored region data
+  "SV": "NA", "KP": "AS", "MH": "OC", "FM": "OC", "PW": "OC",
+  "TL": "AS", "ZW": "AF",
 };
 let _allPlaces = null;
 function allPlaces() {
@@ -3470,11 +3473,20 @@ function renderVisitedStats() {
   const flags = [...visited].slice(0, 40)
     .map((iso) => `<span data-tip="${esc(countryName(iso))}" title="">${flagEmoji(iso)}</span>`)
     .join(" ") + (n > 40 ? `  +${n - 40}` : "");
+  // continent progress chips — only continents you've started, gold at 100%
+  const prog = continentProgress().filter((p) => p.n > 0 && p.total > 0);
+  const contRow = prog.length
+    ? '<div class="contbar">' + prog.map((p) =>
+        `<span class="contchip${p.pct === 100 ? " done" : ""}" data-tip="${p.n} of ${p.total} countries in ${esc(p.name)} (UN members)" title="">`
+        + `${p.pct === 100 ? "🏅 " : ""}${esc(p.name)} ${p.pct}%</span>`).join("")
+      + "</div>"
+    : "";
   // One <span> per line of text: .vstats-line is a flex row (for the award
   // pill), and a bare <b> would become its own flex item — the gap property
   // then splits the number from its own sentence.
   host.innerHTML = `<div class="vstats-line"><span>${bits.join(" · ")}</span>${award}</div>`
-    + (flags.trim() ? `<div class="vflags">${flags}</div>` : "");
+    + (flags.trim() ? `<div class="vflags">${flags}</div>` : "")
+    + contRow;
 }
 
 // ===========================================================================
@@ -3983,6 +3995,36 @@ function visitedContinents() {
   for (const iso of visited) { const c = continentOf(iso); if (c) s.add(c); }
   return s.size;
 }
+// ---- per-continent progress -------------------------------------------------
+// "% of each continent" chips under the stats line, gold at 100%. Progress
+// counts UN members only — completing Europe shouldn't require Guernsey,
+// Svalbard and all three UK home nations (territories still count toward the
+// total and % of world). Antarctica is one place; its trophies are the map
+// medallion and the 7-continents badge, so it sits out of this row.
+const UN_MEMBERS = new Set(("AF AL DZ AD AO AG AR AM AU AT AZ BS BH BD BB BY BE BZ BJ BT BO BA BW BR BN BG BF BI " +
+  "CV KH CM CA CF TD CL CN CO KM CG CD CR CI HR CU CY CZ DK DJ DM DO EC EG SV GQ ER EE SZ ET " +
+  "FJ FI FR GA GM GE DE GH GR GD GT GN GW GY HT HN HU IS IN ID IR IQ IE IL IT JM JP JO KZ KE " +
+  "KI KP KR KW KG LA LV LB LS LR LY LI LT LU MG MW MY MV ML MT MH MR MU MX FM MD MC MN ME MA " +
+  "MZ MM NA NR NP NL NZ NI NE NG MK NO OM PK PW PA PG PY PE PH PL PT QA RO RU RW KN LC VC WS " +
+  "SM ST SA SN RS SC SL SG SK SI SB SO ZA SS ES LK SD SR SE CH SY TJ TZ TH TL TG TO TT TN TR " +
+  "TM TV UG UA AE GB US UY UZ VU VE VN YE ZM ZW VA PS").split(" "));
+const CONTINENT_NAMES = { NA: "North America", SA: "South America", EU: "Europe",
+                          AS: "Asia", AF: "Africa", OC: "Oceania" };
+function continentProgress() {
+  const totals = {}, got = {};
+  for (const iso of allPlaces()) {
+    if (!UN_MEMBERS.has(iso)) continue;
+    const c = continentOf(iso);
+    if (!c || c === "AN") continue;
+    totals[c] = (totals[c] || 0) + 1;
+    if (visited.has(iso)) got[c] = (got[c] || 0) + 1;
+  }
+  return Object.keys(CONTINENT_NAMES).map((c) => ({
+    c, name: CONTINENT_NAMES[c], total: totals[c] || 0, n: got[c] || 0,
+    pct: totals[c] ? Math.round(((got[c] || 0) / totals[c]) * 100) : 0,
+  }));
+}
+
 // Honest, count-based milestone tiers (counts are how travelers actually
 // talk — nobody brags in percentages). The ladder has a rule, not vibes:
 // each tier is roughly double the last, then the summit tiers close in on
