@@ -539,7 +539,7 @@ let worldGeo = null;
 async function ensureWorld() {
   if (worldGeo) return worldGeo;
   // ?v= busts the day-long HTTP cache when the geometry changes (bump manually)
-  worldGeo = await (await fetch("/world.geojson?v=3")).json();
+  worldGeo = await (await fetch("/world.geojson?v=4")).json();
   return worldGeo;
 }
 
@@ -557,13 +557,37 @@ function strengthColor(pct) {
 const NODATA = "#e0e4e8";
 const HOME = "#bcd0e6";
 
-function projectRing(ring, W, H, latTop, latBot) {
+// Equal Earth projection (Šavrič–Patterson–Jenny 2018). Equal-area, so
+// Antarctica and the far north keep their true relative size — the flat
+// lon/lat projection stretched them into dominating bands.
+const EE_A1 = 1.340264, EE_A2 = -0.081106, EE_A3 = 0.000893, EE_A4 = 0.003796;
+const EE_M = Math.sqrt(3) / 2;
+function eeXY(lonDeg, latDeg) {
+  const lam = lonDeg * Math.PI / 180, phi = latDeg * Math.PI / 180;
+  const t = Math.asin(EE_M * Math.sin(phi));
+  const t2 = t * t, t6 = t2 * t2 * t2;
+  return [
+    lam * Math.cos(t) / (EE_M * (EE_A1 + 3 * EE_A2 * t2 + t6 * (7 * EE_A3 + 9 * EE_A4 * t2))),
+    t * (EE_A1 + EE_A2 * t2 + t6 * (EE_A3 + EE_A4 * t2)),
+  ];
+}
+// Scale/offset so a W-wide map spans lon ±180 and the lat crop; H follows
+// from the projection (callers must use this H, not a linear one).
+function mapMetrics(W, latTop, latBot) {
+  const xMax = eeXY(180, 0)[0];
+  const scale = W / (2 * xMax);
+  const yTop = eeXY(0, latTop)[1];
+  return { xMax, scale, yTop, H: Math.round((yTop - eeXY(0, latBot)[1]) * scale) };
+}
+function projectPt(lon, lat, mm) {
+  const p = eeXY(lon, lat);
+  return [(p[0] + mm.xMax) * mm.scale, (mm.yTop - p[1]) * mm.scale];
+}
+function projectRing(ring, mm) {
   let d = "";
   for (let i = 0; i < ring.length; i++) {
-    const lon = ring[i][0], lat = ring[i][1];
-    const x = ((lon + 180) / 360) * W;
-    const y = ((latTop - lat) / (latTop - latBot)) * H;
-    d += (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+    const p = projectPt(ring[i][0], ring[i][1], mm);
+    d += (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1);
   }
   return d + "Z";
 }
@@ -575,7 +599,8 @@ function drawMap(hostId, colorFn, ariaLabel) {
   // The travel map shows Antarctica (it's markable — the 7th continent); the
   // scoring maps keep the tighter crop since nothing scored lives below -56.
   const W = 1000, latTop = 83, latBot = hostId === "visitedMap" ? -85 : -56;
-  const H = Math.round((W * (latTop - latBot)) / 360);
+  const mm = mapMetrics(W, latTop, latBot);
+  const H = mm.H;
   let paths = "";
   // UK home nations (sub:"GB") replace the single UK outline on the travel
   // map, where England/Scotland/Wales are markable in their own right;
@@ -590,7 +615,7 @@ function drawMap(hostId, colorFn, ariaLabel) {
     let d = "";
     for (const poly of polys)
       for (const ring of poly)
-        if (ring.length >= 3) d += projectRing(ring, W, H, latTop, latBot);
+        if (ring.length >= 3) d += projectRing(ring, mm);
     if (d) paths += `<path d="${d}" fill="${fill}" data-iso="${esc(f.properties.iso)}"><title>${esc(title)}</title></path>`;
   }
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
@@ -3975,7 +4000,8 @@ function buildVisitedShareSVG(orientation, withPins) {
   // Story card includes Antarctica (slightly narrower map so the taller
   // projection still clears the flag rows); landscape keeps the tight crop.
   const mapW = story ? 960 : 960, latTop = 80, latBot = story ? -85 : -56;
-  const mapH = Math.round((mapW * (latTop - latBot)) / 360);
+  const mm = mapMetrics(mapW, latTop, latBot);
+  const mapH = mm.H;
   let paths = "";
   // same home-nation rules as the live map: the subdivisions replace the UK
   // outline (when present) and paint with their own mark or the whole-UK mark
@@ -3989,7 +4015,7 @@ function buildVisitedShareSVG(orientation, withPins) {
     const g = f.geometry, polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
     let d = "";
     for (const poly of polys) for (const ring of poly)
-      if (ring.length >= 3) d += projectRing(ring, mapW, mapH, latTop, latBot);
+      if (ring.length >= 3) d += projectRing(ring, mm);
     if (d) paths += `<path d="${d}" fill="${fill}" stroke="#0c1422" stroke-width="0.9"/>`;
   }
 
@@ -4001,7 +4027,7 @@ function buildVisitedShareSVG(orientation, withPins) {
     for (const iso of visited) {
       const c = cen[iso];
       if (!c) continue;
-      const px = ((c[0] + 180) / 360) * mapW, py = ((latTop - c[1]) / (latTop - latBot)) * mapH;
+      const [px, py] = projectPt(c[0], c[1], mm);
       if (px < 0 || px > mapW || py < 0 || py > mapH) continue;
       pins += `<g transform="translate(${px.toFixed(1)},${py.toFixed(1)})">`
         + `<path d="M0,0 C-1.5,-3 -6.5,-7.5 -6.5,-12 A6.5,6.5 0 1 1 6.5,-12 C6.5,-7.5 1.5,-3 0,0 Z" fill="#ff4d57" stroke="#0a0c10" stroke-width="0.8"/>`
