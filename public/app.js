@@ -539,7 +539,7 @@ let worldGeo = null;
 async function ensureWorld() {
   if (worldGeo) return worldGeo;
   // ?v= busts the day-long HTTP cache when the geometry changes (bump manually)
-  worldGeo = await (await fetch("/world.geojson?v=4")).json();
+  worldGeo = await (await fetch("/world.geojson?v=5")).json();
   return worldGeo;
 }
 
@@ -2271,15 +2271,25 @@ const EXTRA_PLACES = {
   "SX": "Sint Maarten", "GB-ENG": "England", "GB-SCT": "Scotland",
   "GB-WLS": "Wales",
 };
+// UN members + popular flag territories that sit outside the scored currency
+// dataset (mostly small island nations): markable on the Wander List. Names
+// resolve through Intl.DisplayNames; continents from the map below.
+const MORE_PLACES = ("AG DM GD KN LC VC KY TC BM VG AI MV SL SS ST " +
+  "KI NR WS TO TV PF NC CK").split(" ");
 // continent buckets for the extras (AN unlocks the 7-continent achievement)
 const EXTRA_CONTINENT = {
   "XK": "EU", "AQ": "AN", "PR": "NA", "GU": "OC", "VI": "NA", "AW": "NA",
   "CW": "NA", "SX": "NA", "GB-ENG": "EU", "GB-SCT": "EU", "GB-WLS": "EU",
+  "AG": "NA", "DM": "NA", "GD": "NA", "KN": "NA", "LC": "NA", "VC": "NA",
+  "KY": "NA", "TC": "NA", "BM": "NA", "VG": "NA", "AI": "NA",
+  "MV": "AS", "SL": "AF", "SS": "AF", "ST": "AF",
+  "KI": "OC", "NR": "OC", "WS": "OC", "TO": "OC", "TV": "OC",
+  "PF": "OC", "NC": "OC", "CK": "OC",
 };
 let _allPlaces = null;
 function allPlaces() {
   if (!_allPlaces)
-    _allPlaces = [...new Set([...Object.keys(CUR_BY_ISO), ...Object.keys(EXTRA_PLACES)])];
+    _allPlaces = [...new Set([...Object.keys(CUR_BY_ISO), ...Object.keys(EXTRA_PLACES), ...MORE_PLACES])];
   return _allPlaces;
 }
 
@@ -3162,7 +3172,9 @@ const COUNTRY_ALIASES = {
   "united states of america": "US", "uk": "GB", "great britain": "GB", "britain": "GB",
   "england": "GB-ENG", "scotland": "GB-SCT", "wales": "GB-WLS", "northern ireland": "GB",
   "st maarten": "SX", "saint maarten": "SX", "virgin islands": "VI",
-  "us virgin islands": "VI", "the antarctic": "AQ",
+  "us virgin islands": "VI", "the antarctic": "AQ", "antigua": "AG",
+  "st kitts": "KN", "saint kitts": "KN", "st vincent": "VC",
+  "saint vincent": "VC", "bvi": "VG", "tahiti": "PF", "bora bora": "PF",
   "uae": "AE", "emirates": "AE", "south korea": "KR", "korea": "KR", "north korea": "KP",
   "czechia": "CZ", "czech republic": "CZ", "ivory coast": "CI", "cote d'ivoire": "CI",
   "myanmar": "MM", "burma": "MM", "holland": "NL", "bosnia": "BA", "bosnia and herz": "BA",
@@ -3427,7 +3439,10 @@ function renderVisitedStats() {
   } else if (mi.next && n) {
     award += `<span class="awardtag locked" title="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
   }
-  const flags = [...visited].slice(0, 40).map((iso) => flagEmoji(iso)).join(" ") + (n > 40 ? `  +${n - 40}` : "");
+  // each flag names its place on hover/tap — nobody recognizes every flag
+  const flags = [...visited].slice(0, 40)
+    .map((iso) => `<span data-tip="${esc(countryName(iso))}" title="">${flagEmoji(iso)}</span>`)
+    .join(" ") + (n > 40 ? `  +${n - 40}` : "");
   // One <span> per line of text: .vstats-line is a flex row (for the award
   // pill), and a bare <b> would become its own flex item — the gap property
   // then splits the number from its own sentence.
