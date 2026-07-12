@@ -3422,9 +3422,11 @@ async function activateTab(name, push) {
 }
 for (const b of document.querySelectorAll("#tabs button"))
   b.addEventListener("click", () => activateTab(b.dataset.tab, true));
-// Brand wordmark -> home (Top Picks) as an SPA switch; the href="/" fallback
-// still works for middle-click / open-in-new-tab / no-JS.
-document.querySelector(".brand").addEventListener("click", (e) => {
+// The whole masthead (logo + title + tagline) -> home (Top Picks) as an SPA
+// switch; the href="/" fallback still works for open-in-new-tab / no-JS.
+document.querySelector(".homelink").addEventListener("click", (e) => {
+  // let cmd/ctrl/shift-clicks open a real new tab via the href
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   e.preventDefault();
   activateTab("value", true);
   window.scrollTo(0, 0);

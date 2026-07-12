@@ -211,6 +211,9 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .lvl1 { background: #0a7d28; } .lvl2 { background: #c9a200; } .lvl3 { background: #d4730a; } .lvl4 { background: #b00020; }
 
 header { padding-top: 28px; }
+/* whole masthead is one home link — text keeps its own colors */
+.homelink { display: block; color: inherit; text-decoration: none; cursor: pointer; }
+.homelink:hover .brand { text-decoration: underline; }
 .brand { display: inline-block; font-size: 15px; font-weight: 800; letter-spacing: .3px;
   color: var(--green); margin: 0 0 2px; text-decoration: none; }
 .brand:hover { text-decoration: underline; }
