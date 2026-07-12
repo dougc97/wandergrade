@@ -538,7 +538,8 @@ let worldGeo = null;
 
 async function ensureWorld() {
   if (worldGeo) return worldGeo;
-  worldGeo = await (await fetch("/world.geojson")).json();
+  // ?v= busts the day-long HTTP cache when the geometry changes (bump manually)
+  worldGeo = await (await fetch("/world.geojson?v=2")).json();
   return worldGeo;
 }
 
@@ -571,7 +572,9 @@ function projectRing(ring, W, H, latTop, latBot) {
 function drawMap(hostId, colorFn, ariaLabel) {
   const host = $(hostId);
   if (!worldGeo) { host.textContent = "Map data unavailable."; return; }
-  const W = 1000, latTop = 83, latBot = -56;
+  // The travel map shows Antarctica (it's markable — the 7th continent); the
+  // scoring maps keep the tighter crop since nothing scored lives below -56.
+  const W = 1000, latTop = 83, latBot = hostId === "visitedMap" ? -85 : -56;
   const H = Math.round((W * (latTop - latBot)) / 360);
   let paths = "";
   for (const f of worldGeo.features) {
@@ -3960,7 +3963,9 @@ function buildVisitedShareSVG(orientation, withPins) {
   const host = esc(location.host || "wandergrade.com");
   const font = "-apple-system,'Segoe UI',Arial,sans-serif";
 
-  const mapW = story ? 1040 : 960, latTop = 80, latBot = -56;
+  // Story card includes Antarctica (slightly narrower map so the taller
+  // projection still clears the flag rows); landscape keeps the tight crop.
+  const mapW = story ? 960 : 960, latTop = 80, latBot = story ? -85 : -56;
   const mapH = Math.round((mapW * (latTop - latBot)) / 360);
   let paths = "";
   for (const f of worldGeo.features) {
@@ -4016,13 +4021,13 @@ function buildVisitedShareSVG(orientation, withPins) {
       <text x="${cx}" y="520" text-anchor="middle" font-family="${font}" font-size="48" font-weight="700" fill="#ffffff">${n ? (n === 1 ? "country visited" : "countries visited") : "on my wishlist"}</text>
       ${badge ? pill(cx, 610, badge, "middle") : ""}
       ${statLine ? `<text x="${cx}" y="${badge ? 700 : 660}" text-anchor="middle" font-family="${font}" font-size="36" fill="#9fb3cd">${esc(statLine)}</text>` : ""}
-      <g transform="translate(${(W - mapW) / 2},900)">${paths}${pins}</g>
+      <g transform="translate(${(W - mapW) / 2},870)">${paths}${pins}</g>
       ${listLine ? `<text x="${cx}" y="1480" text-anchor="middle" font-family="${font}" font-size="34" fill="#9fb3cd">✦ ${esc(listLine)}</text>` : ""}
       <circle cx="${cx - 168}" cy="1632" r="9" fill="#34d27b"/><text x="${cx - 150}" y="1641" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">been</text>
       <circle cx="${cx + 14}" cy="1632" r="9" fill="#4f9bf0"/><text x="${cx + 32}" y="1641" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">want to go</text>
       <text x="${cx}" y="1772" text-anchor="middle" font-family="${font}" font-size="32" fill="#8fa3bd">Make your own map →</text>
       <text x="${cx}" y="1822" text-anchor="middle" font-family="${font}" font-size="42" font-weight="800" fill="#7fd99a">${host}</text>`;
-    flag = { x: cx, y: 1350, size: 46, align: "center" };
+    flag = { x: cx, y: 1360, size: 46, align: "center" };
   } else {
     const headline = n
       ? `I've been to <tspan font-size="58" fill="#34d27b">${n}</tspan> ${n === 1 ? "country" : "countries"}`
