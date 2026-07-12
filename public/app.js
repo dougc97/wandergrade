@@ -2248,7 +2248,39 @@ async function openGuideAI(iso) {
 }
 
 // ---- top picks: report-card grade table -------------------------------------
+// ---- markable places beyond ISO countries ------------------------------------
+// House rule (traveler feedback): if it has a flag emoji, it gets its own mark.
+// Kosovo, Antarctica, the Caribbean territories, and the UK home nations are
+// all markable on the Wander List. They don't participate in scoring/guides —
+// no currency/climate data — just the map, chips, counts and share card.
+const EXTRA_PLACES = {
+  "XK": "Kosovo", "AQ": "Antarctica", "PR": "Puerto Rico", "GU": "Guam",
+  "VI": "U.S. Virgin Islands", "AW": "Aruba", "CW": "Curaçao",
+  "SX": "Sint Maarten", "GB-ENG": "England", "GB-SCT": "Scotland",
+  "GB-WLS": "Wales",
+};
+// continent buckets for the extras (AN unlocks the 7-continent achievement)
+const EXTRA_CONTINENT = {
+  "XK": "EU", "AQ": "AN", "PR": "NA", "GU": "OC", "VI": "NA", "AW": "NA",
+  "CW": "NA", "SX": "NA", "GB-ENG": "EU", "GB-SCT": "EU", "GB-WLS": "EU",
+};
+let _allPlaces = null;
+function allPlaces() {
+  if (!_allPlaces)
+    _allPlaces = [...new Set([...Object.keys(CUR_BY_ISO), ...Object.keys(EXTRA_PLACES)])];
+  return _allPlaces;
+}
+
+// England/Scotland/Wales use Unicode tag-sequence flags, not letter pairs.
+const _SUBDIV_FLAG = (s) => "🏴" + [...s].map((c) =>
+  String.fromCodePoint(0xe0000 + c.charCodeAt(0))).join("") + "\u{E007F}";
+const SPECIAL_FLAGS = {
+  "GB-ENG": _SUBDIV_FLAG("gbeng"),
+  "GB-SCT": _SUBDIV_FLAG("gbsct"),
+  "GB-WLS": _SUBDIV_FLAG("gbwls"),
+};
 function flagEmoji(iso) {
+  if (SPECIAL_FLAGS[iso]) return SPECIAL_FLAGS[iso];
   if (!/^[A-Z]{2}$/.test(iso)) return "🌍";
   return String.fromCodePoint(...[...iso].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
 }
@@ -3094,6 +3126,7 @@ function toggleMark(iso) {
 
 let _displayNames = null;
 function countryName(iso) {
+  if (EXTRA_PLACES[iso]) return EXTRA_PLACES[iso];   // flag-emoji places
   const n = (climate && climate[iso] && climate[iso].name) ||
             (ppp && ppp[iso] && ppp[iso].name);
   if (n) return n;
@@ -3115,7 +3148,9 @@ function countryName(iso) {
 const COUNTRY_ALIASES = {
   "usa": "US", "u s": "US", "u s a": "US", "america": "US", "united states": "US",
   "united states of america": "US", "uk": "GB", "great britain": "GB", "britain": "GB",
-  "england": "GB", "scotland": "GB", "wales": "GB", "northern ireland": "GB",
+  "england": "GB-ENG", "scotland": "GB-SCT", "wales": "GB-WLS", "northern ireland": "GB",
+  "st maarten": "SX", "saint maarten": "SX", "virgin islands": "VI",
+  "us virgin islands": "VI", "the antarctic": "AQ",
   "uae": "AE", "emirates": "AE", "south korea": "KR", "korea": "KR", "north korea": "KP",
   "czechia": "CZ", "czech republic": "CZ", "ivory coast": "CI", "cote d'ivoire": "CI",
   "myanmar": "MM", "burma": "MM", "holland": "NL", "bosnia": "BA", "bosnia and herz": "BA",
@@ -3178,9 +3213,9 @@ function parsePlaceList(text) {
   const norm = (s) => s.normalize("NFD").replace(/[̀-ͯ]/g, "")
     .toLowerCase().replace(/[^a-z\s'&-]/g, " ").replace(/\s+/g, " ").trim();
   const nameToIso = {};
-  for (const iso of Object.keys(CUR_BY_ISO)) nameToIso[norm(countryName(iso))] = iso;
+  for (const iso of allPlaces()) nameToIso[norm(countryName(iso))] = iso;
   Object.assign(nameToIso, COUNTRY_ALIASES, PLACE_TO_ISO);
-  const isoSet = new Set(Object.keys(CUR_BY_ISO));
+  const isoSet = new Set(allPlaces().filter((p) => p.length === 2));
   const found = new Set(), missed = [];
   for (const raw of text.split(/[\n,;•·|\/]+/)) {
     const t = norm(raw);
@@ -3208,7 +3243,7 @@ function openBulkAdd() {
   if (document.querySelector(".bulkmodal")) return;
   loadVisited(); loadWishlist();
   const on = visitMode === "visited" ? visited : wishlist;
-  const all = [...new Set(Object.keys(CUR_BY_ISO))]
+  const all = allPlaces()
     .map((iso) => ({ iso, name: countryName(iso) }))
     .sort((a, b) => a.name.localeCompare(b.name));
   const m = document.createElement("div");
@@ -3277,8 +3312,8 @@ function openBulkAdd() {
 function buildVisited() {
   loadVisited(); loadWishlist();
   const pick = $("visitedPick");
-  // dropdown of all mappable countries by name
-  const all = [...new Set(Object.keys(CUR_BY_ISO))]
+  // dropdown of every markable place by name (countries + flag-emoji places)
+  const all = allPlaces()
     .map((iso) => ({ iso, name: countryName(iso) }))
     .sort((a, b) => a.name.localeCompare(b.name));
   pick.innerHTML = '<option value="">+ add a country…</option>' +
@@ -3359,7 +3394,7 @@ function renderVisitedStats() {
   const n = visited.size, m = wishlist.size;
   if (!n && !m) { host.innerHTML = ""; return; }
   const cont = visitedContinents();
-  const pct = Math.max(1, Math.round((n / 195) * 100));
+  const pct = Math.max(1, Math.round((n / allPlaces().length) * 100));
   const bits = [];
   if (n) bits.push(`<b>${n}</b> ${n === 1 ? "country" : "countries"}`);
   if (cont) bits.push(`🌍 ${cont} continent${cont === 1 ? "" : "s"}`);
@@ -3367,12 +3402,15 @@ function renderVisitedStats() {
   if (m) bits.push(`${m} on the wishlist`);
   const mi = milestoneInfo(n);
   let award = "";
+  // All seven continents (Antarctica included) outranks any count tier.
+  if (cont === 7)
+    award += '<span class="awardtag seven" title="Every continent on Earth — Antarctica included. The rarest badge there is.">🌐 All 7 Continents</span>';
   if (mi.earned) {
     const q = `Earned by visiting ${mi.earned.t}+ countries`
       + (mi.next ? ` — ${mi.next.t - n} more for ${mi.next.label}` : " — top tier!");
-    award = `<span class="awardtag" title="${esc(q)}">${esc(mi.earned.label)}</span>`;
+    award += `<span class="awardtag" title="${esc(q)}">${esc(mi.earned.label)}</span>`;
   } else if (mi.next && n) {
-    award = `<span class="awardtag locked" title="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
+    award += `<span class="awardtag locked" title="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
   }
   const flags = [...visited].slice(0, 40).map((iso) => flagEmoji(iso)).join(" ") + (n > 40 ? `  +${n - 40}` : "");
   // One <span> per line of text: .vstats-line is a flex row (for the award
@@ -3876,6 +3914,7 @@ const SHARE_PINS = false; // pins looked busy/off-centre on the export; the pin 
 const _SOUTH_AMERICA = new Set("CO VE GY SR EC PE BR BO PY CL AR UY GF FK".split(" "));
 const _MENA_AFRICA = new Set("EG MA DZ TN LY".split(" "));
 function continentOf(iso) {
+  if (EXTRA_CONTINENT[iso]) return EXTRA_CONTINENT[iso];
   const r = ISO_REGION[iso];
   if (!r) return null;
   if (r === "AMER") return _SOUTH_AMERICA.has(iso) ? "SA" : "NA";
@@ -3913,8 +3952,11 @@ function milestoneInfo(n) {
 function buildVisitedShareSVG(orientation, withPins) {
   const story = orientation === "story";
   const W = story ? STORY_W : SHARE_W, H = story ? STORY_H : SHARE_H;
-  const n = visited.size, m = wishlist.size, pct = Math.max(1, Math.round((n / 195) * 100));
-  const cont = visitedContinents(), badge = travelMilestone(n);
+  const n = visited.size, m = wishlist.size;
+  const pct = Math.max(1, Math.round((n / allPlaces().length) * 100));
+  const cont = visitedContinents();
+  // the 7-continent badge (Antarctica included) outranks any count tier
+  const badge = cont === 7 ? "🌐 All 7 Continents" : travelMilestone(n);
   const host = esc(location.host || "wandergrade.com");
   const font = "-apple-system,'Segoe UI',Arial,sans-serif";
 
@@ -4018,15 +4060,24 @@ async function downloadVisitedImage(orientation) {
     ctx.drawImage(img, 0, 0, W, H);
     URL.revokeObjectURL(blobUrl);
     // Flag emojis of the countries you've been to (canvas fillText renders emoji
-    // where the SVG path can't). Capped so a big list doesn't overflow.
-    const flags = [...visited].slice(0, 26);
+    // where the SVG path can't). Wrapped into full-size rows — a maxWidth here
+    // used to squash all the flags into one compressed line.
+    const flags = [...visited].slice(0, 26).map((iso) => flagEmoji(iso));
+    if (visited.size > flags.length) flags.push("+" + (visited.size - flags.length));
     if (flags.length && flag) {
       ctx.font = flag.size + "px -apple-system,'Segoe UI',Arial,sans-serif";
       ctx.textBaseline = "alphabetic";
       ctx.textAlign = flag.align === "center" ? "center" : "left";
-      let line = flags.map((iso) => flagEmoji(iso)).join(" ");
-      if (visited.size > flags.length) line += "  +" + (visited.size - flags.length);
-      ctx.fillText(line, flag.x, flag.y, W - 120);
+      const maxW = W - 120, rowH = Math.round(flag.size * 1.35);
+      const rows = [];
+      let row = "";
+      for (const f of flags) {
+        const next = row ? row + " " + f : f;
+        if (row && ctx.measureText(next).width > maxW) { rows.push(row); row = f; }
+        else row = next;
+      }
+      if (row) rows.push(row);
+      rows.forEach((r, i) => ctx.fillText(r, flag.x, flag.y + i * rowH));
       ctx.textAlign = "left";
     }
     const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));

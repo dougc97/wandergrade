@@ -89,6 +89,10 @@ html[data-tab="data"]    #tab-data { display: block; }
   /* Wrap compactly so every tab stays visible (no hidden horizontal scroll). */
   .tabs { flex-wrap: wrap; gap: 2px 6px; }
   .tabs button { white-space: nowrap; padding: 9px 11px; font-size: 13px; }
+  /* Stack the header: buttons row up top, then the title at FULL width —
+     side-by-side squeezed the h1 into a sliver next to empty space. */
+  .headrow { flex-direction: column; gap: 6px; }
+  .headbtns { order: -1; align-self: flex-end; flex-wrap: wrap; justify-content: flex-end; }
 }
 
 .cardwide { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 16px; }
@@ -717,4 +721,6 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .awardtag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 999px;
   background: var(--green-bg); color: var(--green); border: 1px solid var(--green); font-size: 13px; font-weight: 700; cursor: help; }
 .awardtag.locked { background: transparent; color: var(--gray); border-color: var(--line); }
+/* all 7 continents — gold, because Antarctica */
+.awardtag.seven { background: rgba(212,175,55,.12); color: #e8c34f; border-color: #b9962e; }
 .vflags { margin-top: 9px; font-size: 22px; line-height: 1.5; letter-spacing: 2px; }
