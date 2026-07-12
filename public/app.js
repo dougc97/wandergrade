@@ -292,6 +292,21 @@ const pickSort = { key: "overall", asc: false };
 wireSort("#topCards", pickSort, { afford: false, weather: false, flights: false, overall: false },
          () => { if (lastPicks && lastPicks.length) renderGradeTable($("topCards"), lastPicks, lastPicksMonth, false, true); });
 
+// Hidden gems: same report-card columns, independent sort state.
+const gemSort = { key: "overall", asc: false };
+wireSort("#gemRows", gemSort, { afford: false, weather: false, flights: false, overall: false },
+         () => { if (lastGems && lastGems.length) renderGradeTable($("gemRows"), lastGems, lastPicksMonth, true, true, gemSort); });
+
+// "Full ranking & the math": every column sorts; numbers open best-first.
+// Sorted over the WHOLE ranked list before the top-40 slice, so sorting by
+// e.g. affordability shows the 40 most affordable, not a reshuffled top 40.
+const FULL_GET = { country: (s) => s.name, value: (s) => s.value, afford: (s) => s.afford,
+                   safety: (s) => s.safe, weather: (s) => s.wx,
+                   flight: (s) => (s.fly == null ? null : s.fly) };
+const fullSort = { key: "value", asc: false };
+wireSort("#valueTable", fullSort, { value: false, afford: false, safety: false, weather: false, flight: false },
+         () => renderValue());
+
 function renderRates(data) {
   dataRates = data;
   const base = data.base || "USD";
@@ -2381,14 +2396,14 @@ function priceArrow(value, baseline, label) {
 // hidden-gems list, which ranks #1..#N just like the popular table (the 💎
 // lives in the section title). The why-sentence moves to the row tooltip so
 // the table itself stays scannable.
-function renderGradeTable(host, list, month, gem, sortable) {
+function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   if (!host) return;
   if (!list.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
   // Sortable tables reorder the same set by the chosen column; rank (#i+1)
-  // renumbers to match. Gems stay in value order.
-  if (sortable) list = sortRows(list, pickSort, PICK_GET);
+  // renumbers to match. Each table gets its own sort state (picks vs gems).
+  if (sortable) list = sortRows(list, state, PICK_GET);
   const sa = (sk) => sortable
-    ? ` data-sk="${sk}" data-sortdir="${pickSort.key === sk ? (pickSort.asc ? "asc" : "desc") : ""}"` : "";
+    ? ` data-sk="${sk}" data-sortdir="${state.key === sk ? (state.asc ? "asc" : "desc") : ""}"` : "";
   const sc = sortable ? " sortable" : "";
   const rows = list.map((s, i) => {
     const hz = hazardsFor(s.iso, month);
@@ -2596,9 +2611,10 @@ function renderValue() {
   const gemsBox = $("gemsBox");
   if (gemsBox) {
     gemsBox.hidden = !gems.length;
-    if (gems.length) renderGradeTable($("gemRows"), gems, month, true);
+    if (gems.length) renderGradeTable($("gemRows"), gems, month, true, true, gemSort);
   }
-  const ranked = rankedAll.slice(0, 40);
+  const ranked = sortRows(rankedAll, fullSort, FULL_GET).slice(0, 40);
+  markSort("#valueTable", fullSort);
   $("valueRows").innerHTML = ranked.map((s) => {
     const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
     const adv = s.advLvl === 1 ? ' <span class="advtag a1" title="Level 1: Exercise Normal Precautions">L1</span>'
