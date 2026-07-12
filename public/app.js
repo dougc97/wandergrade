@@ -3956,10 +3956,14 @@ function visitedContinents() {
   for (const iso of visited) { const c = continentOf(iso); if (c) s.add(c); }
   return s.size;
 }
-// Honest, count-based milestone tiers (not a fabricated "top X%" percentile).
+// Honest, count-based milestone tiers (counts are how travelers actually
+// talk — nobody brags in percentages). The ladder has a rule, not vibes:
+// each tier is roughly double the last, then the summit tiers close in on
+// 193 (every UN member). 100 nods to the Travelers' Century Club.
 const MILESTONE_TIERS = [
-  [7, "🧭 Explorer"], [15, "🌍 Globetrotter"], [25, "🌟 Seasoned Traveler"],
-  [50, "⭐ Globe Master"], [100, "🏆 100+ Club"],
+  [5, "🧭 Explorer"], [10, "🌍 Globetrotter"], [25, "🌟 Seasoned Traveler"],
+  [50, "⭐ Globe Master"], [100, "💯 Century Club"], [150, "🏆 World Elite"],
+  [193, "👑 Every Country Club"],
 ];
 function travelMilestone(n) {
   let label = null;
