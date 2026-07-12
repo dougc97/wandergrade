@@ -596,6 +596,33 @@ function drawMap(hostId, colorFn, ariaLabel) {
         if (ring.length >= 3) d += projectRing(ring, W, H, latTop, latBot);
     if (d) paths += `<path d="${d}" fill="${fill}" data-iso="${esc(f.properties.iso)}"><title>${esc(title)}</title></path>`;
   }
+  // Antarctica medallion: the continent can't sit on this flat map without
+  // stretching into a band, so the travel map gets a small polar-view inset
+  // in the empty southern-ocean corner instead — clickable and painted
+  // exactly like any other place.
+  if (hostId === "visitedMap") {
+    const aq = worldGeo.features.find((x) => x.properties.iso === "AQ");
+    if (aq) {
+      const cx = 60, cy = H - 60, R = 42;
+      const { fill, title } = colorFn(aq);
+      let d = "";
+      for (const poly of aq.geometry.coordinates)
+        for (const ring of poly) {
+          ring.forEach((pt, i) => {
+            const lam = pt[0] * Math.PI / 180;
+            const rad = ((90 + pt[1]) / 30) * (R - 7);   // south-polar azimuthal
+            d += (i ? "L" : "M") + (cx + rad * Math.sin(lam)).toFixed(1) + " "
+               + (cy + rad * Math.cos(lam)).toFixed(1);
+          });
+          d += "Z";
+        }
+      const disc = `M ${cx - R},${cy} a ${R},${R} 0 1,0 ${2 * R},0 a ${R},${R} 0 1,0 ${-2 * R},0 Z`;
+      paths += `<g class="aqmedal">`
+        + `<path d="${disc}" fill="rgba(148,163,184,.10)" stroke="rgba(148,163,184,.55)" stroke-width="1.4" data-iso="AQ"><title>${esc(title)}</title></path>`
+        + `<path d="${d}" fill="${fill}" data-iso="AQ"><title>${esc(title)}</title></path>`
+        + `</g>`;
+    }
+  }
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
 
   // Tap-for-detail on every map (the visited map keeps its toggle behavior).
