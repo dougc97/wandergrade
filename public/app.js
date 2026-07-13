@@ -3533,10 +3533,10 @@ function renderVisited() {
     const been = visited.has(iso) || (par && visited.has(par));
     const want = wishlist.has(iso) || (par && wishlist.has(par));
     if (been && want)
-      return { fill: VISITED_COLOR, cls: "both",
+      return { fill: VISITED_COLOR, cls: "been both",
                title: f.properties.name + " — been ✓ and want to go again ★" };
-    if (been) return { fill: VISITED_COLOR, title: f.properties.name + " — been ✓ (click to remove)" };
-    if (want) return { fill: WISH_COLOR, title: f.properties.name + " — want to go ★ (click to remove)" };
+    if (been) return { fill: VISITED_COLOR, cls: "been", title: f.properties.name + " — been ✓ (click to remove)" };
+    if (want) return { fill: WISH_COLOR, cls: "want", title: f.properties.name + " — want to go ★ (click to remove)" };
     return { fill: "#e0e4e8",
       title: f.properties.name + " — click to mark " + (visitMode === "visited" ? "been" : "want to go") };
   }, "Your travel map");
@@ -3544,8 +3544,8 @@ function renderVisited() {
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((c) => `<span class="chip2 rm ${cls}" data-iso="${esc(c.iso)}" title="remove">${esc(c.name)} ✕</span>`).join("");
   $("visitedSub").innerHTML =
-    `<b style="color:${VISITED_COLOR}">${visited.size} been</b> · ` +
-    `<b style="color:${WISH_COLOR}">${wishlist.size} want to go</b> — ` +
+    `<b class="subbeen">${visited.size} been</b> · ` +
+    `<b class="subwant">${wishlist.size} want to go</b> — ` +
     `marking <b>${visitMode === "visited" ? "✓ been" : "★ want to go"}</b>. Click the map or pick a country.`;
   renderVisitedStats();
   const sections = [];

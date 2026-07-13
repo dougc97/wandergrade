@@ -284,8 +284,15 @@ small { color: var(--gray); font-weight: 400; }
   /* 📍 round-pushpin cursor over the map — keeps it dynamic; the export stays pin-free.
      Rasterized PNG of the emoji (Chrome ignores SVG/vector cursors, so PNG it is). */
   cursor: default; }
+/* travel-map mark colors: darker pair on light theme (contrast against the
+   white unvisited landmass), the share card's bright pair on dark theme so
+   your marks glow instead of receding — one green across site and export. */
+.map svg path.been { fill: #0a7d28; }
+.map svg path.want { fill: #2b6cb0; }
+.subbeen { color: #0a7d28; }
+.subwant { color: #2b6cb0; }
 /* been AND want-to-go-again: green fill with a blue ring */
-.map svg path.both { stroke: #4f9bf0; stroke-width: 1.8; }
+.map svg path.both { stroke: #2b6cb0; stroke-width: 1.8; }
 .map svg path:hover { stroke: #222; stroke-width: 0.9; }
 
 .legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--gray); flex-wrap: wrap; }
@@ -708,7 +715,11 @@ html[data-theme="dark"] .chip2.rm:hover { background: #3a151c; }
 html[data-theme="dark"] .chip2.rm.w { background: #16304a; color: #7fb3e6; }
 html[data-theme="dark"] .visited-tag { background: #4a5158; }
 html[data-theme="dark"] .map svg path { stroke: var(--card); }
+html[data-theme="dark"] .map svg path.been { fill: #34d27b; }
+html[data-theme="dark"] .map svg path.want { fill: #4f9bf0; }
 html[data-theme="dark"] .map svg path.both { stroke: #4f9bf0; }
+html[data-theme="dark"] .subbeen { color: #34d27b; }
+html[data-theme="dark"] .subwant { color: #4f9bf0; }
 html[data-theme="dark"] #check { color: #14181c; }
 html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 
