@@ -1945,11 +1945,64 @@ let _centroids = null;
 function countryCentroids() {
   if (_centroids || !worldGeo) return _centroids || {};
   _centroids = {};
+  const inRing = (pt, ring) => {
+    let inn = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+      if ((yi > pt[1]) !== (yj > pt[1]) &&
+          pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) inn = !inn;
+    }
+    return inn;
+  };
   for (const f of worldGeo.features) {
-    let sx = 0, sy = 0, n = 0;
+    // The Northern Ireland subdivision carries iso "GB" (clicking it toggles
+    // the whole-UK mark) — don't let it overwrite the real UK centroid.
+    if (f.properties.sub && f.properties.iso === f.properties.sub) continue;
+    // Area centroid of the LARGEST ring (the mainland). A plain vertex
+    // average gets dragged toward vertex-dense coastlines — the US pin used
+    // to land near Alaska and Canada's in the Arctic archipelago.
+    let best = null, bestA = -1;
     const polys = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates];
-    for (const poly of polys) for (const ring of poly) for (const pt of ring) { sx += pt[0]; sy += pt[1]; n++; }
-    if (n) _centroids[f.properties.iso] = [sx / n, sy / n];
+    for (const poly of polys) {
+      const ring = poly[0];
+      let a = 0;
+      for (let i = 0; i < ring.length - 1; i++)
+        a += ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1];
+      a = Math.abs(a) / 2;
+      if (a > bestA) { bestA = a; best = ring; }
+    }
+    if (!best) continue;
+    let a2 = 0, cx = 0, cy = 0;                       // shoelace centroid
+    for (let i = 0; i < best.length - 1; i++) {
+      const cr = best[i][0] * best[i + 1][1] - best[i + 1][0] * best[i][1];
+      a2 += cr;
+      cx += (best[i][0] + best[i + 1][0]) * cr;
+      cy += (best[i][1] + best[i + 1][1]) * cr;
+    }
+    if (!a2) continue;
+    let c = [cx / (3 * a2), cy / (3 * a2)];
+    // Concave shapes (Norway's fjord crescent, Croatia's banana, Vietnam's S)
+    // can put the true centroid outside the land — nudge to the interior grid
+    // point nearest the centroid so the pin always sits on the country.
+    if (!inRing(c, best)) {
+      let mnX = 999, mxX = -999, mnY = 999, mxY = -999;
+      for (const pt of best) {
+        if (pt[0] < mnX) mnX = pt[0];
+        if (pt[0] > mxX) mxX = pt[0];
+        if (pt[1] < mnY) mnY = pt[1];
+        if (pt[1] > mxY) mxY = pt[1];
+      }
+      let bestPt = null, bestD = Infinity;
+      const N = 16;
+      for (let gy = 1; gy < N; gy++) for (let gx = 1; gx < N; gx++) {
+        const p = [mnX + (mxX - mnX) * gx / N, mnY + (mxY - mnY) * gy / N];
+        if (!inRing(p, best)) continue;
+        const d = (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2;
+        if (d < bestD) { bestD = d; bestPt = p; }
+      }
+      if (bestPt) c = bestPt;
+    }
+    _centroids[f.properties.iso] = c;
   }
   // markable places with no map geometry still get a share-card pin
   if (!_centroids.BQ) _centroids.BQ = [-68.26, 12.18];   // Caribbean Netherlands (Bonaire)
