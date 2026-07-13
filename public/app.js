@@ -539,7 +539,7 @@ let worldGeo = null;
 async function ensureWorld() {
   if (worldGeo) return worldGeo;
   // ?v= busts the day-long HTTP cache when the geometry changes (bump manually)
-  worldGeo = await (await fetch("/world.geojson?v=6")).json();
+  worldGeo = await (await fetch("/world.geojson?v=7")).json();
   return worldGeo;
 }
 
@@ -1931,6 +1931,8 @@ function countryCentroids() {
     for (const poly of polys) for (const ring of poly) for (const pt of ring) { sx += pt[0]; sy += pt[1]; n++; }
     if (n) _centroids[f.properties.iso] = [sx / n, sy / n];
   }
+  // markable places with no map geometry still get a share-card pin
+  if (!_centroids.BQ) _centroids.BQ = [-68.26, 12.18];   // Caribbean Netherlands (Bonaire)
   return _centroids;
 }
 
@@ -4130,12 +4132,27 @@ function buildVisitedShareSVG(orientation, withPins) {
       + `<path d="${d}" fill="${mFill}"${mStroke}/>`;
   }
 
-  // Optional red "you-are-here" pins on visited countries — the physical-map
-  // marking metaphor, and they also flag tiny countries the fill can't show.
+  // Red pins ONLY on visited places too small for their paint to show at map
+  // scale (Singapore, Barbados, Malta...). Pins sit at a place's centroid —
+  // they were never cities — and on big countries they read as mystery
+  // markers, so those get no pin.
   let pins = "";
   if (withPins) {
     const cen = countryCentroids();
+    const spans = {};
+    for (const f of worldGeo.features) {
+      let minX = 999, maxX = -999, minY = 999, maxY = -999;
+      const polys = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates];
+      for (const poly of polys) for (const ring of poly) for (const pt of ring) {
+        if (pt[0] < minX) minX = pt[0];
+        if (pt[0] > maxX) maxX = pt[0];
+        if (pt[1] < minY) minY = pt[1];
+        if (pt[1] > maxY) maxY = pt[1];
+      }
+      spans[f.properties.iso] = Math.max(maxX - minX, maxY - minY);
+    }
     for (const iso of visited) {
+      if ((spans[iso] ?? 0) >= 1.5) continue;   // visibly painted — no pin needed
       const c = cen[iso];
       if (!c) continue;
       const px = ((c[0] + 180) / 360) * mapW, py = ((latTop - c[1]) / (latTop - latBot)) * mapH;
