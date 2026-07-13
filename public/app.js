@@ -622,6 +622,26 @@ function drawMap(hostId, colorFn, ariaLabel) {
         + `<path d="${d}" fill="${fill}"${cls ? ` class="${cls}"` : ""} data-iso="AQ"><title>${esc(title)}</title></path>`
         + `</g>`;
     }
+    // Dots for MARKED places whose paint is invisible at world scale
+    // (Singapore, Barbados, Monaco...). Drawn as <path> circles so the map's
+    // click-to-toggle and hover titles work on them like any country.
+    const cen = countryCentroids();
+    const spans = placeSpans();
+    const dotFor = (f) => {
+      const { fill, title, cls } = colorFn(f);
+      if (fill === "#e0e4e8") return "";              // unmarked — no dot
+      const c = cen[f.properties.iso];
+      if (!c) return "";
+      const x = ((c[0] + 180) / 360) * W, y = ((latTop - c[1]) / (latTop - latBot)) * H;
+      if (y < 0 || y > H) return "";
+      const r = 4;
+      return `<path d="M ${(x - r).toFixed(1)},${y.toFixed(1)} a ${r},${r} 0 1,0 ${2 * r},0 a ${r},${r} 0 1,0 ${-2 * r},0 Z"`
+        + ` fill="${fill}"${cls ? ` class="${cls}"` : ""} data-iso="${esc(f.properties.iso)}"><title>${esc(title)}</title></path>`;
+    };
+    for (const f of worldGeo.features)
+      if ((spans[f.properties.iso] ?? 0) < 1.5 && !f.properties.sub) paths += dotFor(f);
+    if (!(placeSpans().BQ >= 0))                      // geometry-less places
+      paths += dotFor({ properties: { iso: "BQ", name: "Caribbean Netherlands" } });
   }
   host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
 
@@ -1934,6 +1954,26 @@ function countryCentroids() {
   // markable places with no map geometry still get a share-card pin
   if (!_centroids.BQ) _centroids.BQ = [-68.26, 12.18];   // Caribbean Netherlands (Bonaire)
   return _centroids;
+}
+
+// Max bounding-box span (degrees) per place — the "is its paint even visible
+// at world scale?" test behind the pin/dot markers. No geometry -> no entry.
+let _placeSpans = null;
+function placeSpans() {
+  if (_placeSpans || !worldGeo) return _placeSpans || {};
+  _placeSpans = {};
+  for (const f of worldGeo.features) {
+    let mnX = 999, mxX = -999, mnY = 999, mxY = -999;
+    const polys = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates];
+    for (const poly of polys) for (const ring of poly) for (const pt of ring) {
+      if (pt[0] < mnX) mnX = pt[0];
+      if (pt[0] > mxX) mxX = pt[0];
+      if (pt[1] < mnY) mnY = pt[1];
+      if (pt[1] > mxY) mxY = pt[1];
+    }
+    _placeSpans[f.properties.iso] = Math.max(mxX - mnX, mxY - mnY);
+  }
+  return _placeSpans;
 }
 
 function distKm(a, b) {
@@ -3998,7 +4038,9 @@ async function postApplyShared() {
 // ===========================================================================
 const SHARE_W = 1200, SHARE_H = 630, STORY_W = 1080, STORY_H = 1920;
 const SHARE_SCALE = 4;   // render at 4x (4800px landscape) for max crispness on hi-DPI / 4K
-const SHARE_PINS = false; // pins looked busy/off-centre on the export; the pin lives as the map cursor instead
+// Pins were once disabled for looking busy — that's fixed: they now mark ONLY
+// visited places too small for their paint to show (Singapore, Barbados...).
+const SHARE_PINS = true;
 
 // Refine the app's 6 regions into true continents for the "N continents" flex.
 const _SOUTH_AMERICA = new Set("CO VE GY SR EC PE BR BO PY CL AR UY GF FK".split(" "));
@@ -4139,18 +4181,7 @@ function buildVisitedShareSVG(orientation, withPins) {
   let pins = "";
   if (withPins) {
     const cen = countryCentroids();
-    const spans = {};
-    for (const f of worldGeo.features) {
-      let minX = 999, maxX = -999, minY = 999, maxY = -999;
-      const polys = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates];
-      for (const poly of polys) for (const ring of poly) for (const pt of ring) {
-        if (pt[0] < minX) minX = pt[0];
-        if (pt[0] > maxX) maxX = pt[0];
-        if (pt[1] < minY) minY = pt[1];
-        if (pt[1] > maxY) maxY = pt[1];
-      }
-      spans[f.properties.iso] = Math.max(maxX - minX, maxY - minY);
-    }
+    const spans = placeSpans();
     for (const iso of visited) {
       if ((spans[iso] ?? 0) >= 1.5) continue;   // visibly painted — no pin needed
       const c = cen[iso];
