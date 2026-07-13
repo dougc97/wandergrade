@@ -4174,16 +4174,13 @@ function buildVisitedShareSVG(orientation, withPins) {
       + `<path d="${d}" fill="${mFill}"${mStroke}/>`;
   }
 
-  // Red pins ONLY on visited places too small for their paint to show at map
-  // scale (Singapore, Barbados, Malta...). Pins sit at a place's centroid —
-  // they were never cities — and on big countries they read as mystery
-  // markers, so those get no pin.
+  // A red pushpin on EVERY visited place — the stuck-a-pin-in-the-map
+  // scrapbook metaphor (pins sit at centroids, not cities), and they're what
+  // makes micro places like Singapore visible on the card at all.
   let pins = "";
   if (withPins) {
     const cen = countryCentroids();
-    const spans = placeSpans();
     for (const iso of visited) {
-      if ((spans[iso] ?? 0) >= 1.5) continue;   // visibly painted — no pin needed
       const c = cen[iso];
       if (!c) continue;
       const px = ((c[0] + 180) / 360) * mapW, py = ((latTop - c[1]) / (latTop - latBot)) * mapH;
