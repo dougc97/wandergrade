@@ -539,7 +539,7 @@ let worldGeo = null;
 async function ensureWorld() {
   if (worldGeo) return worldGeo;
   // ?v= busts the day-long HTTP cache when the geometry changes (bump manually)
-  worldGeo = await (await fetch("/world.geojson?v=5")).json();
+  worldGeo = await (await fetch("/world.geojson?v=6")).json();
   return worldGeo;
 }
 
@@ -587,14 +587,14 @@ function drawMap(hostId, colorFn, ariaLabel) {
   for (const f of worldGeo.features) {
     const isSub = !!f.properties.sub;
     if (hostId === "visitedMap" ? (f.properties.iso === "GB" && !isSub && hasSubs) : isSub) continue;
-    const { fill, title } = colorFn(f);
+    const { fill, title, cls } = colorFn(f);
     const g = f.geometry;
     const polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
     let d = "";
     for (const poly of polys)
       for (const ring of poly)
         if (ring.length >= 3) d += projectRing(ring, W, H, latTop, latBot);
-    if (d) paths += `<path d="${d}" fill="${fill}" data-iso="${esc(f.properties.iso)}"><title>${esc(title)}</title></path>`;
+    if (d) paths += `<path d="${d}" fill="${fill}"${cls ? ` class="${cls}"` : ""} data-iso="${esc(f.properties.iso)}"><title>${esc(title)}</title></path>`;
   }
   // Antarctica medallion: the continent can't sit on this flat map without
   // stretching into a band, so the travel map gets a small polar-view inset
@@ -604,7 +604,7 @@ function drawMap(hostId, colorFn, ariaLabel) {
     const aq = worldGeo.features.find((x) => x.properties.iso === "AQ");
     if (aq) {
       const cx = 60, cy = H - 60, R = 42;
-      const { fill, title } = colorFn(aq);
+      const { fill, title, cls } = colorFn(aq);
       let d = "";
       for (const poly of aq.geometry.coordinates)
         for (const ring of poly) {
@@ -619,7 +619,7 @@ function drawMap(hostId, colorFn, ariaLabel) {
       const disc = `M ${cx - R},${cy} a ${R},${R} 0 1,0 ${2 * R},0 a ${R},${R} 0 1,0 ${-2 * R},0 Z`;
       paths += `<g class="aqmedal">`
         + `<path d="${disc}" fill="rgba(148,163,184,.10)" stroke="rgba(148,163,184,.55)" stroke-width="1.4" data-iso="AQ"><title>${esc(title)}</title></path>`
-        + `<path d="${d}" fill="${fill}" data-iso="AQ"><title>${esc(title)}</title></path>`
+        + `<path d="${d}" fill="${fill}"${cls ? ` class="${cls}"` : ""} data-iso="AQ"><title>${esc(title)}</title></path>`
         + `</g>`;
     }
   }
@@ -2296,7 +2296,7 @@ const EXTRA_PLACES = {
   "XK": "Kosovo", "AQ": "Antarctica", "PR": "Puerto Rico", "GU": "Guam",
   "VI": "U.S. Virgin Islands", "AW": "Aruba", "CW": "Curaçao",
   "SX": "Sint Maarten", "GB-ENG": "England", "GB-SCT": "Scotland",
-  "GB-WLS": "Wales",
+  "GB-WLS": "Wales", "GS": "South Georgia", "FK": "Falkland Islands",
 };
 // UN members + popular flag territories that sit outside the scored currency
 // dataset (mostly small island nations): markable on the Wander List. Names
@@ -2315,6 +2315,9 @@ const EXTRA_CONTINENT = {
   // markable countries missing from the scored region data
   "SV": "NA", "KP": "AS", "MH": "OC", "FM": "OC", "PW": "OC",
   "TL": "AS", "ZW": "AF",
+  // South Atlantic territories (grouped with South America, not Antarctica —
+  // the 7-continent badge should mean the actual continent)
+  "GS": "SA", "FK": "SA",
 };
 let _allPlaces = null;
 function allPlaces() {
@@ -3166,13 +3169,14 @@ function loadWishlist() {
 function saveVisited() { localStorage.setItem("fx_visited", JSON.stringify([...visited])); }
 function saveWishlist() { localStorage.setItem("fx_wishlist", JSON.stringify([...wishlist])); }
 function isVisited(iso) { return loadVisited().has(iso); }
-// Toggle a country in the active list; the two lists are mutually exclusive
-// (you've either been or you want to go, not both).
+// Toggle a country in the active list only. Been and Want-to-go can overlap —
+// "I've been to Japan AND want to go back" is a real state (traveler
+// feedback: exclusivity silently stripped been-marks when pasting a bucket
+// list). Overlap paints green with a blue ring.
 function toggleMark(iso) {
   loadVisited(); loadWishlist();
   const on = visitMode === "visited" ? visited : wishlist;
-  const other = visitMode === "visited" ? wishlist : visited;
-  if (on.has(iso)) on.delete(iso); else { on.add(iso); other.delete(iso); }
+  if (on.has(iso)) on.delete(iso); else on.add(iso);
   saveVisited(); saveWishlist();
 }
 
@@ -3205,6 +3209,11 @@ const COUNTRY_ALIASES = {
   "us virgin islands": "VI", "the antarctic": "AQ", "antigua": "AG",
   "st kitts": "KN", "saint kitts": "KN", "st vincent": "VC",
   "saint vincent": "VC", "bvi": "VG", "tahiti": "PF", "bora bora": "PF",
+  "saudi": "SA", "falklands": "FK",
+  // regions travelers list as destinations of their own
+  "tibet": "CN", "lhasa": "CN", "ladakh": "IN", "socotra": "YE",
+  "kurdistan": "IQ", "iraqi kurdistan": "IQ", "mulu": "MY",
+  "peninsular malaysia": "MY", "bornean malaysia": "MY", "zanzibar": "TZ",
   "uae": "AE", "emirates": "AE", "south korea": "KR", "korea": "KR", "north korea": "KP",
   "czechia": "CZ", "czech republic": "CZ", "ivory coast": "CI", "cote d'ivoire": "CI",
   "myanmar": "MM", "burma": "MM", "holland": "NL", "bosnia": "BA", "bosnia and herz": "BA",
@@ -3270,8 +3279,14 @@ function parsePlaceList(text) {
   for (const iso of allPlaces()) nameToIso[norm(countryName(iso))] = iso;
   Object.assign(nameToIso, COUNTRY_ALIASES, PLACE_TO_ISO);
   const isoSet = new Set(allPlaces().filter((p) => p.length === 2));
+  // organizational headers in real bucket lists ("Asia:", "Middle East:") —
+  // not matches, but not worth reporting as unrecognized either
+  const HEADER_NOISE = new Set(["asia", "europe", "africa", "oceania", "americas",
+    "america", "middle east", "north america", "south america", "central america",
+    "caribbean", "pacific", "polar", "travel bucket list", "bucket list", "been",
+    "want to go", "wishlist", "maybe"]);
   const found = new Set(), missed = [];
-  for (const raw of text.split(/[\n,;•·|\/]+/)) {
+  for (const raw of text.split(/[\n,;:•·|\/]+/)) {
     const t = norm(raw);
     if (!t || t.length < 2) continue;
     const up = raw.trim().toUpperCase();
@@ -3285,7 +3300,7 @@ function parsePlaceList(text) {
           (!hit || name.length > hit.length)) hit = name;
     }
     if (hit) found.add(nameToIso[hit]);
-    else missed.push(raw.trim().slice(0, 30));
+    else if (!HEADER_NOISE.has(t)) missed.push(raw.trim().slice(0, 30));
   }
   return { found: [...found], missed };
 }
@@ -3420,10 +3435,13 @@ function renderVisited() {
   drawMap("visitedMap", (f) => {
     const iso = f.properties.iso, par = f.properties.sub;
     // UK home nations paint with their own mark OR the whole-UK mark
-    if (visited.has(iso) || (par && visited.has(par)))
-      return { fill: VISITED_COLOR, title: f.properties.name + " — been ✓ (click to remove)" };
-    if (wishlist.has(iso) || (par && wishlist.has(par)))
-      return { fill: WISH_COLOR, title: f.properties.name + " — want to go ★ (click to remove)" };
+    const been = visited.has(iso) || (par && visited.has(par));
+    const want = wishlist.has(iso) || (par && wishlist.has(par));
+    if (been && want)
+      return { fill: VISITED_COLOR, cls: "both",
+               title: f.properties.name + " — been ✓ and want to go again ★" };
+    if (been) return { fill: VISITED_COLOR, title: f.properties.name + " — been ✓ (click to remove)" };
+    if (want) return { fill: WISH_COLOR, title: f.properties.name + " — want to go ★ (click to remove)" };
     return { fill: "#e0e4e8",
       title: f.properties.name + " — click to mark " + (visitMode === "visited" ? "been" : "want to go") };
   }, "Your travel map");
@@ -4075,11 +4093,13 @@ function buildVisitedShareSVG(orientation, withPins) {
     const marked = visited.has(iso) || (par && visited.has(par));
     const wished = wishlist.has(iso) || (par && wishlist.has(par));
     const fill = marked ? "#34d27b" : wished ? "#4f9bf0" : "#243449";
+    // been + want-to-go-again reads as green with a blue ring, like the live map
+    const stroke = marked && wished ? 'stroke="#4f9bf0" stroke-width="2.4"' : 'stroke="#0c1422" stroke-width="0.9"';
     const g = f.geometry, polys = g.type === "MultiPolygon" ? g.coordinates : [g.coordinates];
     let d = "";
     for (const poly of polys) for (const ring of poly)
       if (ring.length >= 3) d += projectRing(ring, mapW, mapH, latTop, latBot);
-    if (d) paths += `<path d="${d}" fill="${fill}" stroke="#0c1422" stroke-width="0.9"/>`;
+    if (d) paths += `<path d="${d}" fill="${fill}" ${stroke}/>`;
   }
 
   // Optional red "you-are-here" pins on visited countries — the physical-map
