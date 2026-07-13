@@ -3487,10 +3487,11 @@ function renderVisitedStats() {
   } else if (mi.next && n) {
     award += `<span class="awardtag locked" title="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
   }
-  // each flag names its place on hover/tap — nobody recognizes every flag
-  const flags = [...visited].slice(0, 40)
+  // every visited flag, alphabetical — each names its place on hover/tap
+  const flags = [...visited]
+    .sort((a, b) => countryName(a).localeCompare(countryName(b)))
     .map((iso) => `<span data-tip="${esc(countryName(iso))}" title="">${flagEmoji(iso)}</span>`)
-    .join(" ") + (n > 40 ? `  +${n - 40}` : "");
+    .join(" ");
   // continent progress chips — only continents you've started, gold at 100%
   const prog = continentProgress().filter((p) => p.n > 0 && p.total > 0);
   const contRow = prog.length
@@ -4146,12 +4147,13 @@ function buildVisitedShareSVG(orientation, withPins) {
       ${badge ? pill(cx, 610, badge, "middle") : ""}
       ${statLine ? `<text x="${cx}" y="${badge ? 700 : 660}" text-anchor="middle" font-family="${font}" font-size="36" fill="#9fb3cd">${esc(statLine)}</text>` : ""}
       <g transform="translate(${(W - mapW) / 2},900)">${paths}${pins}</g>
-      ${listLine ? `<text x="${cx}" y="1480" text-anchor="middle" font-family="${font}" font-size="34" fill="#9fb3cd">✦ ${esc(listLine)}</text>` : ""}
-      <circle cx="${cx - 168}" cy="1632" r="9" fill="#34d27b"/><text x="${cx - 150}" y="1641" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">been</text>
-      <circle cx="${cx + 14}" cy="1632" r="9" fill="#4f9bf0"/><text x="${cx + 32}" y="1641" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">want to go</text>
+      ${listLine ? `<text x="${cx}" y="1580" text-anchor="middle" font-family="${font}" font-size="34" fill="#9fb3cd">✦ ${esc(listLine)}</text>` : ""}
+      <circle cx="${cx - 168}" cy="1660" r="9" fill="#34d27b"/><text x="${cx - 150}" y="1669" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">been</text>
+      <circle cx="${cx + 14}" cy="1660" r="9" fill="#4f9bf0"/><text x="${cx + 32}" y="1669" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">want to go</text>
       <text x="${cx}" y="1772" text-anchor="middle" font-family="${font}" font-size="32" fill="#8fa3bd">Make your own map →</text>
       <text x="${cx}" y="1822" text-anchor="middle" font-family="${font}" font-size="42" font-weight="800" fill="#7fd99a">${host}</text>`;
-    flag = { x: cx, y: 1350, size: 46, align: "center" };
+    // flags fill the band between the map (~1315) and the wishlist line (1580)
+    flag = { x: cx, y: 1352, size: 46, align: "center", maxH: 195 };
   } else {
     const headline = n
       ? `I've been to <tspan font-size="58" fill="#34d27b">${n}</tspan> ${n === 1 ? "country" : "countries"}`
@@ -4168,10 +4170,29 @@ function buildVisitedShareSVG(orientation, withPins) {
       <circle cx="68" cy="${H - 24}" r="7" fill="#34d27b"/><text x="83" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">been</text>
       <circle cx="152" cy="${H - 24}" r="7" fill="#4f9bf0"/><text x="167" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">want to go</text>
       <text x="${W - 60}" y="${H - 18}" text-anchor="end" font-family="${font}" font-size="19" font-weight="700" fill="#7fd99a">Make your own map → ${host}</text>`;
-    flag = { x: 60, y: H - 64, size: 30, align: "left" };
+    flag = { x: 60, y: H - 64, size: 30, align: "left", maxH: 36 };
   }
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W * SHARE_SCALE}" height="${H * SHARE_SCALE}" viewBox="0 0 ${W} ${H}">${grad}${inner}</svg>`;
   return { svg, W, H, flag };
+}
+
+// Wrap flag emojis into rows at the largest size (starting at startSize,
+// floor 14px) whose wrapped block fits maxW × maxH. Returns { size, rows }.
+function fitFlagRows(ctx, flags, maxW, maxH, startSize) {
+  let size = startSize, rows = [];
+  for (;;) {
+    ctx.font = size + "px -apple-system,'Segoe UI',Arial,sans-serif";
+    rows = [];
+    let row = "";
+    for (const f of flags) {
+      const next = row ? row + " " + f : f;
+      if (row && ctx.measureText(next).width > maxW) { rows.push(row); row = f; }
+      else row = next;
+    }
+    if (row) rows.push(row);
+    if (rows.length * Math.round(size * 1.35) <= maxH || size <= 14) return { size, rows };
+    size -= 2;
+  }
 }
 
 async function downloadVisitedImage(orientation) {
@@ -4188,24 +4209,18 @@ async function downloadVisitedImage(orientation) {
     ctx.scale(SHARE_SCALE, SHARE_SCALE);
     ctx.drawImage(img, 0, 0, W, H);
     URL.revokeObjectURL(blobUrl);
-    // Flag emojis of the countries you've been to (canvas fillText renders emoji
-    // where the SVG path can't). Wrapped into full-size rows — a maxWidth here
-    // used to squash all the flags into one compressed line.
-    const flags = [...visited].slice(0, 26).map((iso) => flagEmoji(iso));
-    if (visited.size > flags.length) flags.push("+" + (visited.size - flags.length));
+    // Flag emojis of EVERY country you've been to (canvas fillText renders
+    // emoji where the SVG path can't), alphabetical. The size shrinks until
+    // all of them fit the reserved band — no more "+62" truncation.
+    const flags = [...visited]
+      .sort((a, b) => countryName(a).localeCompare(countryName(b)))
+      .map((iso) => flagEmoji(iso));
     if (flags.length && flag) {
-      ctx.font = flag.size + "px -apple-system,'Segoe UI',Arial,sans-serif";
       ctx.textBaseline = "alphabetic";
       ctx.textAlign = flag.align === "center" ? "center" : "left";
-      const maxW = W - 120, rowH = Math.round(flag.size * 1.35);
-      const rows = [];
-      let row = "";
-      for (const f of flags) {
-        const next = row ? row + " " + f : f;
-        if (row && ctx.measureText(next).width > maxW) { rows.push(row); row = f; }
-        else row = next;
-      }
-      if (row) rows.push(row);
+      const { size, rows } = fitFlagRows(ctx, flags, W - 120, flag.maxH || 150, flag.size);
+      ctx.font = size + "px -apple-system,'Segoe UI',Arial,sans-serif";
+      const rowH = Math.round(size * 1.35);
       rows.forEach((r, i) => ctx.fillText(r, flag.x, flag.y + i * rowH));
       ctx.textAlign = "left";
     }
