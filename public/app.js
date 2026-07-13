@@ -4091,6 +4091,10 @@ function buildVisitedShareSVG(orientation, withPins) {
   for (const f of worldGeo.features) {
     const iso = f.properties.iso, par = f.properties.sub;
     if (!par && iso === "GB" && hasSubs) continue;
+    // Antarctica projects BELOW the map crop, and unlike the live map there's
+    // no viewBox here to clip it — flat-drawn it smears across the card as a
+    // full-width band. It gets the polar medallion below instead.
+    if (iso === "AQ") continue;
     const marked = visited.has(iso) || (par && visited.has(par));
     const wished = wishlist.has(iso) || (par && wishlist.has(par));
     const fill = marked ? "#34d27b" : wished ? "#4f9bf0" : "#243449";
@@ -4101,6 +4105,29 @@ function buildVisitedShareSVG(orientation, withPins) {
     for (const poly of polys) for (const ring of poly)
       if (ring.length >= 3) d += projectRing(ring, mapW, mapH, latTop, latBot);
     if (d) paths += `<path d="${d}" fill="${fill}" ${stroke}/>`;
+  }
+  // Antarctica medallion — same polar-view inset as the live travel map,
+  // bottom-left of the map band, colored by its mark.
+  let medal = "";
+  const aqF = worldGeo.features.find((x) => x.properties.iso === "AQ");
+  if (aqF) {
+    const mcx = 64, mcy = mapH - 58, mR = 46;
+    const aqBeen = visited.has("AQ"), aqWant = wishlist.has("AQ");
+    const mFill = aqBeen ? "#34d27b" : aqWant ? "#4f9bf0" : "#243449";
+    const mStroke = aqBeen && aqWant ? ' stroke="#4f9bf0" stroke-width="2.4"' : ' stroke="#0c1422" stroke-width="0.9"';
+    let d = "";
+    for (const poly of aqF.geometry.coordinates)
+      for (const ring of poly) {
+        ring.forEach((pt, i) => {
+          const lam = pt[0] * Math.PI / 180;
+          const rad = ((90 + pt[1]) / 30) * (mR - 7);
+          d += (i ? "L" : "M") + (mcx + rad * Math.sin(lam)).toFixed(1) + " "
+             + (mcy + rad * Math.cos(lam)).toFixed(1);
+        });
+        d += "Z";
+      }
+    medal = `<circle cx="${mcx}" cy="${mcy}" r="${mR}" fill="rgba(148,163,184,.10)" stroke="rgba(148,163,184,.5)" stroke-width="1.4"/>`
+      + `<path d="${d}" fill="${mFill}"${mStroke}/>`;
   }
 
   // Optional red "you-are-here" pins on visited countries — the physical-map
@@ -4146,7 +4173,7 @@ function buildVisitedShareSVG(orientation, withPins) {
       <text x="${cx}" y="520" text-anchor="middle" font-family="${font}" font-size="48" font-weight="700" fill="#ffffff">${n ? (n === 1 ? "country visited" : "countries visited") : "on my wishlist"}</text>
       ${badge ? pill(cx, 610, badge, "middle") : ""}
       ${statLine ? `<text x="${cx}" y="${badge ? 700 : 660}" text-anchor="middle" font-family="${font}" font-size="36" fill="#9fb3cd">${esc(statLine)}</text>` : ""}
-      <g transform="translate(${(W - mapW) / 2},900)">${paths}${pins}</g>
+      <g transform="translate(${(W - mapW) / 2},900)">${paths}${pins}${medal}</g>
       ${listLine ? `<text x="${cx}" y="1580" text-anchor="middle" font-family="${font}" font-size="34" fill="#9fb3cd">✦ ${esc(listLine)}</text>` : ""}
       <circle cx="${cx - 168}" cy="1660" r="9" fill="#34d27b"/><text x="${cx - 150}" y="1669" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">been</text>
       <circle cx="${cx + 14}" cy="1660" r="9" fill="#4f9bf0"/><text x="${cx + 32}" y="1669" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">want to go</text>
@@ -4164,7 +4191,7 @@ function buildVisitedShareSVG(orientation, withPins) {
       ${badge ? pill(W - 50, 50, badge, "end") : ""}
       <text x="60" y="116" font-family="${font}" font-size="42" font-weight="800" fill="#ffffff">${headline}</text>
       ${subParts ? `<text x="60" y="150" font-family="${font}" font-size="21" fill="#9fb3cd">${esc(subParts)}</text>` : ""}
-      <g transform="translate(${(W - mapW) / 2},168)">${paths}${pins}</g>
+      <g transform="translate(${(W - mapW) / 2},168)">${paths}${pins}${medal}</g>
       <rect x="0" y="${H - 48}" width="${W}" height="48" fill="#000000"/>
       <rect x="0" y="${H - 49}" width="${W}" height="1.5" fill="#1c2940"/>
       <circle cx="68" cy="${H - 24}" r="7" fill="#34d27b"/><text x="83" y="${H - 18}" font-family="${font}" font-size="19" font-weight="600" fill="#9fb3cd">been</text>
