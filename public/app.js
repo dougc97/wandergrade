@@ -5009,3 +5009,8 @@ document.addEventListener("scroll", () => { _tipEl.hidden = true; }, true);
   appReady = true;          // from here on, user navigation is mirrored to the URL
   syncURL();
 })();
+
+// PWA: installable + offline shell. Registered ONLY on the real domain — a
+// service worker on localhost would serve stale copies during development.
+if ("serviceWorker" in navigator && location.hostname.endsWith("wandergrade.com"))
+  navigator.serviceWorker.register("/sw.js").catch(() => {});

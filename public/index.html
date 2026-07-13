@@ -3,6 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- PWA: installable ("Add to Home Screen") with an offline shell via /sw.js -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#101316">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+  <link rel="apple-touch-icon" href="/icon-180.png">
+  <meta name="apple-mobile-web-app-title" content="WanderGrade">
   <!-- Double-brace tokens below are filled by the server: homepage defaults, or
        country-specific values on /guide/<slug>. Every HTML response is templated. -->
   <title>{{TITLE}}</title>
