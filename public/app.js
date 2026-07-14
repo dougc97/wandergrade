@@ -5034,3 +5034,54 @@ document.addEventListener("scroll", () => { _tipEl.hidden = true; }, true);
 // service worker on localhost would serve stale copies during development.
 if ("serviceWorker" in navigator && location.hostname.endsWith("wandergrade.com"))
   navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+// ---- install-app affordance ---------------------------------------------------
+// iOS never prompts for PWA install and Android only sometimes, so a small 📲
+// header button appears when installation is possible but not done. On iOS it
+// walks through Share → Add to Home Screen (no programmatic prompt exists);
+// elsewhere it fires the browser's real install prompt, captured below.
+(function installAffordance() {
+  const btn = $("installBtn");
+  if (!btn) return;
+  if (window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true)
+    return;                                    // already running as the app
+  let deferred = null;
+  if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+    btn.hidden = false;
+  } else {
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault();
+      deferred = e;
+      btn.hidden = false;
+    });
+  }
+  window.addEventListener("appinstalled", () => { btn.hidden = true; });
+  btn.addEventListener("click", () => {
+    if (deferred) {                            // Chrome/Android: the real prompt
+      deferred.prompt();
+      deferred = null;
+      btn.hidden = true;
+      return;
+    }
+    // iOS: show the ritual (the button only shows without `deferred` on iOS)
+    if (document.querySelector(".submodal")) return;
+    const m = document.createElement("div");
+    m.className = "submodal";
+    m.innerHTML = '<div class="submodal-card"><button class="submodal-x" aria-label="Close">✕</button>'
+      + '<span class="sublabel">📲 Install WanderGrade</span>'
+      + '<ol class="installsteps">'
+      + '<li>Tap the <b>Share</b> button in Safari — the square with the up arrow <span class="sharemark">⬆</span></li>'
+      + '<li>Scroll down and tap <b>“Add to Home Screen”</b></li>'
+      + '<li>Tap <b>Add</b> — then launch WanderGrade from your home screen 🌍</li>'
+      + '</ol>'
+      + '<span class="hint">Full-screen, its own icon, works like an app — always up to date.</span>'
+      + "</div>";
+    document.body.appendChild(m);
+    requestAnimationFrame(() => m.classList.add("show"));
+    const close = () => { m.classList.remove("show"); setTimeout(() => m.remove(), 220); };
+    m.addEventListener("click", (e) => { if (e.target === m) close(); });
+    m.querySelector(".submodal-x").onclick = close;
+    const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+    document.addEventListener("keydown", onKey);
+  });
+})();
