@@ -670,25 +670,50 @@ function attachMapZoom(host, W, H) {
   const st = host._zoom || (host._zoom = { x: 0, y: 0, w: W, h: H });
   host.style.position = "relative";
 
-  const apply = () => {
+  let animTimer = null;
+  const setVB = (v) => svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`);
+  // apply(true) tweens the viewBox like a camera easing in/out; apply(false)
+  // snaps (used for direct manipulation — wheel/drag/pinch — and re-render
+  // restores, where a lag would feel wrong). The tween is clock-driven off a
+  // setTimeout loop so it always completes (rAF is paused in background tabs).
+  const apply = (animate) => {
+    if (animTimer) { clearTimeout(animTimer); animTimer = null; }
     st.w = Math.max(W / 8, Math.min(W, st.w));
     st.h = st.w * H / W;
     st.x = Math.max(0, Math.min(W - st.w, st.x));
     st.y = Math.max(0, Math.min(H - st.h, st.y));
-    svg.setAttribute("viewBox", `${st.x} ${st.y} ${st.w} ${st.h}`);
     const zoomed = st.w < W - 0.5;
     // when zoomed, own the touch gestures (pan/pinch); at world view, let the
     // page scroll normally
     host.style.touchAction = zoomed ? "none" : "";
     host.classList.toggle("zoomed", zoomed);
+    if (!animate || reducedMotion()) { setVB(st); return; }
+    const cur = (svg.getAttribute("viewBox") || `0 0 ${W} ${H}`).split(" ").map(Number);
+    const from = { x: cur[0], y: cur[1], w: cur[2], h: cur[3] };
+    const to = { x: st.x, y: st.y, w: st.w, h: st.h };
+    const t0 = performance.now(), dur = 520;
+    const ease = (t) => 1 - Math.pow(1 - t, 3);   // ease-out cubic
+    const frame = () => {
+      const k = Math.min(1, (performance.now() - t0) / dur), e = ease(k);
+      setVB({ x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e,
+              w: from.w + (to.w - from.w) * e, h: from.h + (to.h - from.h) * e });
+      animTimer = k < 1 ? setTimeout(frame, 16) : null;
+    };
+    frame();
   };
-  const zoomAt = (fx, fy, factor) => {      // fx, fy = fractions of the view
+  const zoomAt = (fx, fy, factor, animate) => {   // fx, fy = fractions of the view
     const px = st.x + fx * st.w, py = st.y + fy * st.h;
     st.w /= factor;
     st.h = st.w * H / W;
     st.x = px - fx * st.w;
     st.y = py - fy * st.h;
-    apply();
+    apply(animate);
+  };
+  // programmatic camera move to an absolute viewBox (used by the continent
+  // filter) — animated by default
+  host._zoomTo = (t, animate = true) => {
+    st.x = t.x; st.y = t.y; st.w = t.w; st.h = t.h;
+    apply(animate);
   };
 
   // controls (re-created each render — innerHTML wiped the previous ones)
@@ -702,9 +727,9 @@ function attachMapZoom(host, W, H) {
       const b = e.target.closest("button");
       if (!b) return;
       e.stopPropagation();                  // don't toggle a country underneath
-      if (b.dataset.z === "in") zoomAt(0.5, 0.5, 1.5);
-      else if (b.dataset.z === "out") zoomAt(0.5, 0.5, 1 / 1.5);
-      else { st.x = 0; st.y = 0; st.w = W; st.h = H; apply(); }
+      if (b.dataset.z === "in") zoomAt(0.5, 0.5, 1.6, true);
+      else if (b.dataset.z === "out") zoomAt(0.5, 0.5, 1 / 1.6, true);
+      else { st.x = 0; st.y = 0; st.w = W; st.h = H; apply(true); }
     };
     host.appendChild(ctr);
   }
@@ -712,8 +737,9 @@ function attachMapZoom(host, W, H) {
   host.onwheel = (e) => {
     e.preventDefault();
     const r = svg.getBoundingClientRect();
+    // instant — wheel is already continuous; tweening each notch would lag
     zoomAt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height,
-           e.deltaY < 0 ? 1.25 : 0.8);
+           e.deltaY < 0 ? 1.25 : 0.8, false);
   };
 
   // drag to pan (once zoomed) + two-finger pinch; a real drag suppresses the
@@ -743,7 +769,7 @@ function attachMapZoom(host, W, H) {
         const fx = ((a.clientX + b.clientX) / 2 - r.left) / r.width;
         const fy = ((a.clientY + b.clientY) / 2 - r.top) / r.height;
         const targetW = pinch.w / (d / pinch.d);
-        zoomAt(fx, fy, st.w / targetW);
+        zoomAt(fx, fy, st.w / targetW, false);   // track the fingers directly
         dragged = true;
       }
     } else if (pan && st.w < W - 0.5) {
@@ -752,7 +778,7 @@ function attachMapZoom(host, W, H) {
       if (dragged) {
         st.x = pan.x - dx * st.w / r.width;
         st.y = pan.y - dy * st.h / r.height;
-        apply();
+        apply(false);
       }
     }
   };
@@ -775,7 +801,7 @@ function attachMapZoom(host, W, H) {
     }, true);
   }
 
-  apply();                                  // restore the pre-render zoom
+  apply(false);                             // restore the pre-render zoom (snap)
 }
 
 // ---- tap-for-detail country card -------------------------------------------
@@ -3571,22 +3597,22 @@ const CONT_VIEW = {   // lon/lat boxes per continent for the map zoom
   NA: [-170, -50, 7, 83], SA: [-85, -32, -56, 13], EU: [-25, 45, 34, 72],
   AS: [25, 180, -12, 78], AF: [-20, 52, -36, 38], OC: [110, 180, -50, 0],
 };
+function continentZoomBox(c) {
+  const [lo1, lo2, la1, la2] = CONT_VIEW[c];
+  const W = 1000, H = 386, latTop = 83, latBot = -56;
+  const x1 = ((lo1 + 180) / 360) * W, x2 = ((lo2 + 180) / 360) * W;
+  const y1 = ((latTop - la2) / (latTop - latBot)) * H, y2 = ((latTop - la1) / (latTop - latBot)) * H;
+  const w = Math.max(x2 - x1, (y2 - y1) * W / H);      // keep aspect, contain box
+  return { x: (x1 + x2) / 2 - w / 2, y: (y1 + y2) / 2 - (w * H / W) / 2, w, h: w * H / W };
+}
 function setContFilter(c) {
   contFilter = contFilter === c ? null : c;
-  const map = $("visitedMap");
-  if (map) {
-    if (contFilter) {
-      const [lo1, lo2, la1, la2] = CONT_VIEW[contFilter];
-      const W = 1000, H = 386, latTop = 83, latBot = -56;
-      const x1 = ((lo1 + 180) / 360) * W, x2 = ((lo2 + 180) / 360) * W;
-      const y1 = ((latTop - la2) / (latTop - latBot)) * H, y2 = ((latTop - la1) / (latTop - latBot)) * H;
-      const w = Math.max(x2 - x1, (y2 - y1) * W / H);      // keep aspect, contain box
-      map._zoom = { x: (x1 + x2) / 2 - w / 2, y: (y1 + y2) / 2 - (w * H / W) / 2, w, h: w * H / W };
-    } else {
-      map._zoom = { x: 0, y: 0, w: 1000, h: 386 };
-    }
-  }
+  // Re-render the filtered content FIRST (at the current zoom, so the map
+  // doesn't jump), then glide the camera to the continent — or back out.
   renderVisited();
+  const map = $("visitedMap");
+  if (map && map._zoomTo)
+    map._zoomTo(contFilter ? continentZoomBox(contFilter) : { x: 0, y: 0, w: 1000, h: 386 }, true);
 }
 
 function renderVisitedStats() {
