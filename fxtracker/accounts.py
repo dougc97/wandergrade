@@ -43,6 +43,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import rates  # reuse the project's verifying SSL context (see _ssl_context)
+
 MAGIC_TTL = 15 * 60          # a link is good for 15 minutes
 SESSION_TTL = 90 * 24 * 3600  # then you sign in again
 RATE_MAX = 5                  # link requests per bucket per hour
@@ -85,7 +87,7 @@ def _redis(*cmd):
                  "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=10) as r:
+    with urllib.request.urlopen(req, timeout=10, context=rates._SSL) as r:
         return json.loads(r.read().decode("utf-8")).get("result")
 
 
@@ -134,7 +136,7 @@ def _send_mail(to, subject, html):
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
             return r.status in (200, 201)
     except urllib.error.HTTPError as e:
         # Surface Resend's own explanation ("domain not verified", bad from
@@ -289,7 +291,7 @@ def _sync_newsletter(email, user):
                                "tags": ["cadence-" + user.get("cadence", "monthly")]}).encode()
             req = urllib.request.Request("https://api.buttondown.email/v1/subscribers",
                                          data=body, headers=hdrs, method="POST")
-            urllib.request.urlopen(req, timeout=10)
+            urllib.request.urlopen(req, timeout=10, context=rates._SSL)
     except urllib.error.HTTPError as e:
         if e.code != 400:                      # 400 = already subscribed; fine
             pass
