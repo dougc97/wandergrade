@@ -386,7 +386,11 @@ tr.favorable { background: var(--green-bg); }
   background: var(--green); color: #fff; font-weight: 700; cursor: pointer; font: inherit; }
 /* account modals: newsletter opt-in + cadence */
 .acctform { width: 100%; justify-content: center; flex-wrap: wrap; }
-.acctcheck { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--gray);
+/* flex-direction must be explicit: the global `label` rule stacks fields in a
+   column, which would otherwise break the checkbox / text / cadence onto three
+   lines. wrap keeps it graceful on narrow phones. */
+.acctcheck { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center;
+  justify-content: center; gap: 7px; font-size: 13px; color: var(--gray);
   cursor: pointer; transition: opacity .15s; }
 .acctcheck select { font-size: 13px; padding: 4px 8px; }
 /* install-app modal: the three iOS steps */

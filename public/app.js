@@ -5216,19 +5216,18 @@ function acctModal(inner) {
 function openSignIn() {
   const m = acctModal(
     '<span class="sublabel">👤 Save your travel map</span>'
-    + '<p class="hint">Your map is stored in this browser — private tabs throw it away.'
-    + ' Sign in and it\'s saved to your account, on every device.</p>'
+    + '<p class="hint">Private tabs wipe it. Sign in and it follows you — on every device.</p>'
     + '<form class="subform acctform"><input type="email" name="email" placeholder="you@email.com" required>'
     + '<button type="submit">Email me a link</button></form>'
-    + '<label class="acctcheck"><input type="checkbox" id="acctSub" checked>'
-    + ' Also send me the monthly newsletter — the best-value places to travel</label>'
-    + '<label class="acctcheck" id="acctCadWrap">How often:'
-    + ' <select id="acctCad"><option value="monthly">Monthly</option>'
-    + '<option value="quarterly">Every 3 months</option></select></label>'
-    + '<span class="hint">No password — we email you a one-time link.</span>');
+    // cadence sits inline so the row reads as one sentence — and so the label
+    // can't claim "monthly" while the picker says every 3 months
+    + '<label class="acctcheck"><input type="checkbox" id="acctSub" checked> Also send the newsletter'
+    + ' <select id="acctCad"><option value="monthly">monthly</option>'
+    + '<option value="quarterly">every 3 months</option></select></label>'
+    + '<span class="hint">No password — just a one-time link.</span>');
   if (!m) return;
-  const sub = m.querySelector("#acctSub"), cadWrap = m.querySelector("#acctCadWrap");
-  sub.onchange = () => { cadWrap.style.opacity = sub.checked ? "1" : ".4"; };
+  const sub = m.querySelector("#acctSub"), cad = m.querySelector("#acctCad");
+  sub.onchange = () => { cad.disabled = !sub.checked; cad.style.opacity = sub.checked ? "1" : ".45"; };
   m.querySelector("form").onsubmit = async (e) => {
     e.preventDefault();
     const email = m.querySelector('input[type="email"]').value.trim();
@@ -5264,10 +5263,9 @@ function openAccount() {
   const cad = u.cadence || "monthly";
   const m = acctModal(
     '<span class="sublabel">👤 Your account</span>'
-    + `<p class="hint">Signed in as <b>${esc(acctState.email)}</b>. Your map syncs automatically.</p>`
+    + `<p class="hint"><b>${esc(acctState.email)}</b> — your map syncs automatically.</p>`
     + '<label class="acctcheck"><input type="checkbox" id="acctSub2"' + (u.subscribed ? " checked" : "")
-    + '> Monthly newsletter — the best-value places to travel</label>'
-    + '<label class="acctcheck">How often: <select id="acctCad2">'
+    + '> Newsletter <select id="acctCad2">'
     + ["monthly", "quarterly", "off"].map((c) =>
         `<option value="${c}"${c === cad ? " selected" : ""}>${CADENCE_LABEL[c]}</option>`).join("")
     + "</select></label>"
