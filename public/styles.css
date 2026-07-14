@@ -384,6 +384,11 @@ tr.favorable { background: var(--green-bg); }
 .bulkcount { font-size: 13px; color: var(--gray); }
 .bulkdone { padding: 7px 18px; border-radius: 8px; border: 1px solid var(--green);
   background: var(--green); color: #fff; font-weight: 700; cursor: pointer; font: inherit; }
+/* account modals: newsletter opt-in + cadence */
+.acctform { width: 100%; justify-content: center; flex-wrap: wrap; }
+.acctcheck { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--gray);
+  cursor: pointer; transition: opacity .15s; }
+.acctcheck select { font-size: 13px; padding: 4px 8px; }
 /* install-app modal: the three iOS steps */
 .installsteps { text-align: left; margin: 4px 0 2px; padding-left: 22px; font-size: 14px;
   line-height: 1.55; display: flex; flex-direction: column; gap: 8px; }

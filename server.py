@@ -23,7 +23,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from fxtracker import advisories, flights, mailer, popularity, rates, render_guide, store
+from fxtracker import accounts, advisories, flights, mailer, popularity, rates, render_guide, store
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
 # runs stay open while a public/tunneled instance can require a login.
@@ -119,6 +119,9 @@ _HTML_DEFAULTS = {
     "SSR_BODY": "",
     "JSONLD": _WEBSITE_JSONLD,
     "ANALYTICS": _analytics_tag(),
+    # Lets the page hide every trace of sign-in until accounts are provisioned.
+    "ACCOUNTS": "<script>window.__WGACCT__=%s</script>" % (
+        "true" if accounts.enabled() else "false"),
 }
 _html_tpl = None
 
@@ -197,7 +200,7 @@ class Handler(BaseHTTPRequestHandler):
     def _gzip_ok(self):
         return "gzip" in (self.headers.get("Accept-Encoding") or "")
 
-    def _send_body(self, body, ctype, status=200, cache=None):
+    def _send_body(self, body, ctype, status=200, cache=None, extra=None):
         """Send a response, gzipping text payloads over ~1KB when accepted.
         world.geojson alone drops ~163KB -> ~50KB, which matters most on
         Render free-tier cold starts."""
@@ -213,14 +216,92 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", encoding)
         if cache:
             self.send_header("Cache-Control", cache)
+        for hk, hv in (extra or []):
+            self.send_header(hk, hv)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         if not getattr(self, "_head_only", False):
             self.wfile.write(body)   # HEAD: same status/headers, no body
 
-    def _send_json(self, obj, status=200):
+    def _send_json(self, obj, status=200, extra=None):
         self._send_body(json.dumps(obj).encode("utf-8"),
-                        "application/json; charset=utf-8", status)
+                        "application/json; charset=utf-8", status, extra=extra)
+
+    # ---- accounts (passwordless magic-link) ------------------------------
+    SESS_COOKIE = "wg_sess"
+
+    def _cookie(self, name):
+        for part in (self.headers.get("Cookie") or "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == name:
+                return v
+        return ""
+
+    def _session_email(self):
+        try:
+            return accounts.session_email(self._cookie(self.SESS_COOKIE))
+        except Exception:
+            return None
+
+    def _set_session_cookie(self, sid, clear=False):
+        # HttpOnly so no script can read it; Lax survives the magic-link
+        # click (a top-level GET from the email) but blocks cross-site POSTs.
+        bits = [f"{self.SESS_COOKIE}={'' if clear else sid}", "Path=/", "HttpOnly",
+                "SameSite=Lax", "Secure",
+                "Max-Age=0" if clear else f"Max-Age={accounts.SESSION_TTL}"]
+        return ("Set-Cookie", "; ".join(bits))
+
+    def _handle_auth_verify(self):
+        """The link target from the email: redeem once, then land on the map."""
+        from urllib.parse import parse_qs, urlparse
+        token = parse_qs(urlparse(self.path).query).get("t", [""])[0]
+        try:
+            email, sid = accounts.consume_token(token)
+        except Exception:
+            email, sid = None, None
+        # Never echo the token back; ?signin= is just a UI hint.
+        self.send_response(303)
+        for hk, hv in SECURITY_HEADERS.items():
+            self.send_header(hk, hv)
+        if email:
+            self.send_header(*self._set_session_cookie(sid))
+        self.send_header("Location", "/?signin=" + ("ok" if email else "expired"))
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _handle_auth_post(self, path):
+        if not accounts.enabled():
+            self._send_json({"error": "accounts are not configured"}, 503)
+            return
+        body = self._read_body()
+        if path == "/api/auth/request":
+            origin = "https://" + (self.headers.get("Host") or "wandergrade.com")
+            ip = (self.headers.get("CF-Connecting-IP")
+                  or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                  or self.client_address[0])
+            try:
+                accounts.request_link(body.get("email", ""), origin, ip)
+            except Exception:
+                pass
+            # Always "sent": revealing whether an address exists (or is
+            # throttled) would let anyone probe the user list.
+            self._send_json({"sent": True})
+            return
+        email = self._session_email()
+        if not email:
+            self._send_json({"error": "not signed in"}, 401)
+            return
+        if path == "/api/auth/sync":
+            user = accounts.sync_map(email, body.get("visited"), body.get("wishlist"))
+            self._send_json({"user": accounts.public_user(user)})
+        elif path == "/api/auth/prefs":
+            user = accounts.set_prefs(email, body.get("subscribed"), body.get("cadence"))
+            self._send_json({"user": accounts.public_user(user)})
+        elif path == "/api/auth/logout":
+            accounts.end_session(self._cookie(self.SESS_COOKIE))
+            self._send_json({"ok": True}, extra=[self._set_session_cookie("", clear=True)])
+        else:
+            self._send_json({"error": "not found"}, 404)
 
     def _send_file(self, path, versioned=False):
         try:
@@ -306,6 +387,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
+        # Accounts are public by design and predate the owner-only auth gate.
+        if path == "/auth/verify":
+            self._handle_auth_verify()
+            return
+        if path == "/api/auth/me":
+            email = self._session_email() if accounts.enabled() else None
+            user = accounts.get_user(email) if email else None
+            self._send_json({"email": email, "user": accounts.public_user(user) if user else None},
+                            extra=[("Cache-Control", "no-store")])
+            return
         if not self._authed():
             return
         if path == "/api/rates":
@@ -369,12 +460,17 @@ class Handler(BaseHTTPRequestHandler):
         self._send_file(safe, versioned=versioned)
 
     def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        # Account endpoints must work on the public site — that's their whole
+        # point — unlike the owner-only settings/email endpoints below.
+        if path.startswith("/api/auth/"):
+            self._handle_auth_post(path)
+            return
         if not self._authed():
             return
         if PUBLIC_MODE:
             self._send_json({"error": "settings and email are disabled on the public site"}, 403)
             return
-        path = self.path.split("?", 1)[0]
         if path == "/api/config":
             self._handle_config_update()
         elif path == "/api/check":

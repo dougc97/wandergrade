@@ -3287,8 +3287,16 @@ function loadWishlist() {
   catch (e) { wishlist = new Set(); }
   return wishlist;
 }
-function saveVisited() { localStorage.setItem("fx_visited", JSON.stringify([...visited])); }
-function saveWishlist() { localStorage.setItem("fx_wishlist", JSON.stringify([...wishlist])); }
+// localStorage stays the source of truth for everyone (accounts are optional);
+// when signed in, every change also pushes to the cloud copy.
+function saveVisited() {
+  localStorage.setItem("fx_visited", JSON.stringify([...visited]));
+  acctQueueSync();
+}
+function saveWishlist() {
+  localStorage.setItem("fx_wishlist", JSON.stringify([...wishlist]));
+  acctQueueSync();
+}
 function isVisited(iso) { return loadVisited().has(iso); }
 // Toggle a country in the active list only. Been and Want-to-go can overlap —
 // "I've been to Japan AND want to go back" is a real state (traveler
@@ -5100,6 +5108,204 @@ document.addEventListener("scroll", () => { _tipEl.hidden = true; }, true);
 // service worker on localhost would serve stale copies during development.
 if ("serviceWorker" in navigator && location.hostname.endsWith("wandergrade.com"))
   navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+// ---- accounts: passwordless magic-link sign-in --------------------------------
+// The Wander List lives in localStorage, which private-browsing tabs discard.
+// Signing in copies the map to the cloud so it survives private tabs and
+// follows you across devices. No passwords: a one-time emailed link is the
+// whole credential. Everything here stays hidden unless the server reports
+// accounts are configured (window.__WGACCT__).
+const ACCT_ON = window.__WGACCT__ === true;
+const CADENCE_LABEL = { monthly: "Monthly", quarterly: "Every 3 months", off: "No emails" };
+let acctState = null;              // { email, user } once signed in
+
+function acctSignedIn() { return !!(acctState && acctState.email); }
+
+async function acctLoad() {
+  if (!ACCT_ON) return;
+  try {
+    const r = await fetch("/api/auth/me", { credentials: "same-origin" });
+    const d = await r.json();
+    acctState = d && d.email ? d : null;
+  } catch (e) { acctState = null; }
+  if (acctSignedIn() && acctState.user) acctMergeDown(acctState.user);
+  acctPaintButton();
+}
+
+// First sign-in on a device: union the cloud map with whatever is already
+// marked locally. Union (not replace) because silently dropping either side
+// would destroy real travel history.
+function acctMergeDown(user) {
+  loadVisited(); loadWishlist();
+  const before = visited.size + wishlist.size;
+  (user.visited || []).forEach((i) => visited.add(i));
+  (user.wishlist || []).forEach((i) => wishlist.add(i));
+  if (visited.size + wishlist.size !== before ||
+      (user.visited || []).length !== visited.size ||
+      (user.wishlist || []).length !== wishlist.size) {
+    localStorage.setItem("fx_visited", JSON.stringify([...visited]));
+    localStorage.setItem("fx_wishlist", JSON.stringify([...wishlist]));
+    acctQueueSync();               // push the merged union back up
+    if (loaded.visited) renderVisited();
+  }
+}
+
+let _syncTimer = null;
+function acctQueueSync() {
+  if (!acctSignedIn()) return;
+  clearTimeout(_syncTimer);        // coalesce bulk edits into one request
+  _syncTimer = setTimeout(acctSync, 800);
+}
+async function acctSync() {
+  if (!acctSignedIn()) return;
+  try {
+    loadVisited(); loadWishlist();
+    await fetch("/api/auth/sync", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visited: [...visited], wishlist: [...wishlist] }),
+    });
+  } catch (e) { /* offline: localStorage still holds it; next change retries */ }
+}
+
+async function acctPrefs(prefs) {
+  try {
+    const r = await fetch("/api/auth/prefs", {
+      method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(prefs),
+    });
+    const d = await r.json();
+    if (d.user && acctState) acctState.user = d.user;
+  } catch (e) {}
+}
+
+function acctPaintButton() {
+  const b = $("acctBtn");
+  if (!b) return;
+  b.hidden = !ACCT_ON;
+  b.textContent = acctSignedIn() ? "👤" : "👤 Sign in";
+  b.title = acctSignedIn()
+    ? "Your account — " + acctState.email
+    : "Save your travel map to an account (works in private tabs)";
+}
+
+function acctModal(inner) {
+  if (document.querySelector(".submodal")) return null;
+  const m = document.createElement("div");
+  m.className = "submodal";
+  m.innerHTML = '<div class="submodal-card"><button class="submodal-x" aria-label="Close">✕</button>'
+    + inner + "</div>";
+  document.body.appendChild(m);
+  requestAnimationFrame(() => m.classList.add("show"));
+  const close = () => { m.classList.remove("show"); setTimeout(() => m.remove(), 220); };
+  m.addEventListener("click", (e) => { if (e.target === m) close(); });
+  m.querySelector(".submodal-x").onclick = close;
+  const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+  document.addEventListener("keydown", onKey);
+  m.close = close;
+  return m;
+}
+
+function openSignIn() {
+  const m = acctModal(
+    '<span class="sublabel">👤 Save your travel map</span>'
+    + '<p class="hint">Your map is stored in this browser — private tabs throw it away.'
+    + ' Sign in and it\'s saved to your account, on every device.</p>'
+    + '<form class="subform acctform"><input type="email" name="email" placeholder="you@email.com" required>'
+    + '<button type="submit">Email me a link</button></form>'
+    + '<label class="acctcheck"><input type="checkbox" id="acctSub" checked>'
+    + ' Also send me the monthly newsletter — the best-value places to travel</label>'
+    + '<label class="acctcheck" id="acctCadWrap">How often:'
+    + ' <select id="acctCad"><option value="monthly">Monthly</option>'
+    + '<option value="quarterly">Every 3 months</option></select></label>'
+    + '<span class="hint">No password — we email you a one-time link.</span>');
+  if (!m) return;
+  const sub = m.querySelector("#acctSub"), cadWrap = m.querySelector("#acctCadWrap");
+  sub.onchange = () => { cadWrap.style.opacity = sub.checked ? "1" : ".4"; };
+  m.querySelector("form").onsubmit = async (e) => {
+    e.preventDefault();
+    const email = m.querySelector('input[type="email"]').value.trim();
+    if (!email) return;
+    // Remember the newsletter choice so it can be applied once the link is
+    // clicked (the click may land in a different tab).
+    try {
+      localStorage.setItem("wg_pending_prefs", JSON.stringify({
+        subscribed: sub.checked,
+        cadence: sub.checked ? m.querySelector("#acctCad").value : "off",
+      }));
+    } catch (err) {}
+    const btn = m.querySelector('button[type="submit"]');
+    btn.disabled = true; btn.textContent = "Sending…";
+    try {
+      await fetch("/api/auth/request", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+    } catch (err) {}
+    m.querySelector(".submodal-card").innerHTML =
+      '<button class="submodal-x" aria-label="Close">✕</button>'
+      + '<span class="sublabel">📬 Check your inbox</span>'
+      + `<p class="hint">If ${esc(email)} is a working address, a one-time sign-in link is on its way.`
+      + ' It expires in 15 minutes.</p>';
+    m.querySelector(".submodal-x").onclick = m.close;
+  };
+}
+
+function openAccount() {
+  const u = (acctState && acctState.user) || {};
+  const cad = u.cadence || "monthly";
+  const m = acctModal(
+    '<span class="sublabel">👤 Your account</span>'
+    + `<p class="hint">Signed in as <b>${esc(acctState.email)}</b>. Your map syncs automatically.</p>`
+    + '<label class="acctcheck"><input type="checkbox" id="acctSub2"' + (u.subscribed ? " checked" : "")
+    + '> Monthly newsletter — the best-value places to travel</label>'
+    + '<label class="acctcheck">How often: <select id="acctCad2">'
+    + ["monthly", "quarterly", "off"].map((c) =>
+        `<option value="${c}"${c === cad ? " selected" : ""}>${CADENCE_LABEL[c]}</option>`).join("")
+    + "</select></label>"
+    + '<div class="bulkfoot"><button type="button" class="bulkdone" id="acctOut">Sign out</button></div>');
+  if (!m) return;
+  const sub = m.querySelector("#acctSub2"), cadSel = m.querySelector("#acctCad2");
+  const push = () => acctPrefs({ subscribed: sub.checked, cadence: cadSel.value });
+  sub.onchange = () => {
+    if (!sub.checked) cadSel.value = "off";
+    else if (cadSel.value === "off") cadSel.value = "monthly";
+    push();
+  };
+  cadSel.onchange = () => { sub.checked = cadSel.value !== "off"; push(); };
+  m.querySelector("#acctOut").onclick = async () => {
+    try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (e) {}
+    acctState = null;
+    acctPaintButton();
+    m.close();
+    status("Signed out — your map stays in this browser.", "ok");
+  };
+}
+
+if ($("acctBtn")) {
+  acctPaintButton();
+  $("acctBtn").addEventListener("click", () => (acctSignedIn() ? openAccount() : openSignIn()));
+}
+if (ACCT_ON) {
+  acctLoad().then(async () => {
+    const q = new URLSearchParams(location.search).get("signin");
+    if (!q) return;
+    history.replaceState(null, "", location.pathname);   // don't leave ?signin= around
+    if (q === "expired") { status("That sign-in link expired — request a new one.", "err"); return; }
+    if (acctSignedIn()) {
+      let pending = null;
+      try { pending = JSON.parse(localStorage.getItem("wg_pending_prefs") || "null"); } catch (e) {}
+      if (pending) {
+        localStorage.removeItem("wg_pending_prefs");
+        await acctPrefs(pending);
+      }
+      await acctSync();               // seed the account with this device's map
+      status("Signed in — your travel map is saved to " + acctState.email + " ✓", "ok");
+    }
+  });
+}
 
 // ---- install-app affordance ---------------------------------------------------
 // iOS never prompts for PWA install and Android only sometimes, so a small 📲
