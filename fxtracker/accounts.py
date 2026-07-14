@@ -133,8 +133,20 @@ def _send_mail(to, subject, html):
                  "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=15) as r:
-        return r.status in (200, 201)
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            return r.status in (200, 201)
+    except urllib.error.HTTPError as e:
+        # Surface Resend's own explanation ("domain not verified", bad from
+        # address, ...). The caller reports success to the browser regardless —
+        # never leak whether an address exists — so this is the only place the
+        # real reason can be seen.
+        detail = ""
+        try:
+            detail = e.read().decode("utf-8", "replace")[:400]
+        except Exception:
+            pass
+        raise RuntimeError("resend HTTP %s: %s" % (e.code, detail)) from None
 
 
 def _magic_email_html(link):

@@ -279,12 +279,15 @@ class Handler(BaseHTTPRequestHandler):
             ip = (self.headers.get("CF-Connecting-IP")
                   or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
                   or self.client_address[0])
+            # The browser is always told "sent" — revealing whether an address
+            # exists (or is throttled) would let anyone probe the user list. So
+            # the server log is the ONLY place a real failure is visible.
             try:
-                accounts.request_link(body.get("email", ""), origin, ip)
-            except Exception:
-                pass
-            # Always "sent": revealing whether an address exists (or is
-            # throttled) would let anyone probe the user list.
+                if not accounts.request_link(body.get("email", ""), origin, ip):
+                    print("[accounts] link NOT sent: invalid address or rate limited",
+                          flush=True)
+            except Exception as e:
+                print("[accounts] link send FAILED: %s" % e, flush=True)
             self._send_json({"sent": True})
             return
         email = self._session_email()
