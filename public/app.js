@@ -3540,7 +3540,10 @@ function renderVisited() {
     return { fill: "#e0e4e8",
       title: f.properties.name + " — click to mark " + (visitMode === "visited" ? "been" : "want to go") };
   }, "Your travel map");
-  const chipsFor = (set, cls) => [...set].map((iso) => ({ iso, name: countryName(iso) }))
+  // an active continent filter (click a % chip) narrows the country chips too
+  const inFilter = (iso) => !contFilter || continentOf(iso) === contFilter;
+  const chipsFor = (set, cls) => [...set].filter(inFilter)
+    .map((iso) => ({ iso, name: countryName(iso) }))
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((c) => `<span class="chip2 rm ${cls}" data-iso="${esc(c.iso)}" title="remove">${esc(c.name)} ✕</span>`).join("");
   $("visitedSub").innerHTML =
@@ -3549,15 +3552,43 @@ function renderVisited() {
     `marking <b>${visitMode === "visited" ? "✓ been" : "★ want to go"}</b>. Click the map or pick a country.`;
   renderVisitedStats();
   const sections = [];
-  if (visited.size) sections.push('<div class="chiprow"><span class="chiplabel">✓ Been</span>' + chipsFor(visited, "v") + '</div>');
-  if (wishlist.size) sections.push('<div class="chiprow"><span class="chiplabel">★ Want to go</span>' + chipsFor(wishlist, "w") + '</div>');
+  const beenChips = chipsFor(visited, "v"), wantChips = chipsFor(wishlist, "w");
+  if (beenChips) sections.push('<div class="chiprow"><span class="chiplabel">✓ Been</span>' + beenChips + '</div>');
+  if (wantChips) sections.push('<div class="chiprow"><span class="chiplabel">★ Want to go</span>' + wantChips + '</div>');
   $("visitedChips").innerHTML = sections.join("") ||
-    '<span class="hint">Nothing yet — click countries on the map.</span>';
+    (contFilter ? '<span class="hint">Nothing marked on this continent yet.</span>'
+                : '<span class="hint">Nothing yet — click countries on the map.</span>');
   syncURL();
 }
 
 // On-page version of the shareable card's stats: flags, an award tag (with a
 // hover tooltip explaining how it's earned), and the continents / % of world text.
+// Continent filter (traveler feedback): clicking a % chip narrows the flag
+// strip and the country chip lists to that continent, and zooms the map to
+// it — "all my places, but also a South America view". Click again to clear.
+let contFilter = null;
+const CONT_VIEW = {   // lon/lat boxes per continent for the map zoom
+  NA: [-170, -50, 7, 83], SA: [-85, -32, -56, 13], EU: [-25, 45, 34, 72],
+  AS: [25, 180, -12, 78], AF: [-20, 52, -36, 38], OC: [110, 180, -50, 0],
+};
+function setContFilter(c) {
+  contFilter = contFilter === c ? null : c;
+  const map = $("visitedMap");
+  if (map) {
+    if (contFilter) {
+      const [lo1, lo2, la1, la2] = CONT_VIEW[contFilter];
+      const W = 1000, H = 386, latTop = 83, latBot = -56;
+      const x1 = ((lo1 + 180) / 360) * W, x2 = ((lo2 + 180) / 360) * W;
+      const y1 = ((latTop - la2) / (latTop - latBot)) * H, y2 = ((latTop - la1) / (latTop - latBot)) * H;
+      const w = Math.max(x2 - x1, (y2 - y1) * W / H);      // keep aspect, contain box
+      map._zoom = { x: (x1 + x2) / 2 - w / 2, y: (y1 + y2) / 2 - (w * H / W) / 2, w, h: w * H / W };
+    } else {
+      map._zoom = { x: 0, y: 0, w: 1000, h: 386 };
+    }
+  }
+  renderVisited();
+}
+
 function renderVisitedStats() {
   const host = $("visitedStats");
   if (!host) return;
@@ -3582,17 +3613,21 @@ function renderVisitedStats() {
   } else if (mi.next && n) {
     award += `<span class="awardtag locked" title="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
   }
-  // every visited flag, alphabetical — each names its place on hover/tap
+  // every visited flag, alphabetical (narrowed by the continent filter when
+  // one is active) — each names its place on hover/tap
   const flags = [...visited]
+    .filter((iso) => !contFilter || continentOf(iso) === contFilter)
     .sort((a, b) => countryName(a).localeCompare(countryName(b)))
     .map((iso) => `<span data-tip="${esc(countryName(iso))}" title="">${flagEmoji(iso)}</span>`)
     .join(" ");
-  // continent progress chips — only continents you've started, gold at 100%
+  // continent progress chips — click to filter to that continent, gold at 100%
   const prog = continentProgress().filter((p) => p.n > 0 && p.total > 0);
   const contRow = prog.length
     ? '<div class="contbar">' + prog.map((p) =>
-        `<span class="contchip${p.pct === 100 ? " done" : ""}" data-tip="${p.n} of ${p.total} countries in ${esc(p.name)} (UN members)" title="">`
+        `<span class="contchip${p.pct === 100 ? " done" : ""}${p.c === contFilter ? " active" : ""}" data-cont="${p.c}"`
+        + ` data-tip="${p.n} of ${p.total} countries in ${esc(p.name)} (UN members) — ${p.c === contFilter ? "tap to show everything again" : "tap to filter to this continent"}" title="">`
         + `${p.pct === 100 ? "🏅 " : ""}${esc(p.name)} ${p.pct}%</span>`).join("")
+      + (contFilter ? `<span class="contchip clear" data-cont="${contFilter}" data-tip="show all continents" title="">✕ clear</span>` : "")
       + "</div>"
     : "";
   // One <span> per line of text: .vstats-line is a flex row (for the award
@@ -3601,6 +3636,11 @@ function renderVisitedStats() {
   host.innerHTML = `<div class="vstats-line"><span>${bits.join(" · ")}</span>${award}</div>`
     + (flags.trim() ? `<div class="vflags">${flags}</div>` : "")
     + contRow;
+  // idempotent across re-renders (property assignment, not addEventListener)
+  host.onclick = (e) => {
+    const chip = e.target.closest(".contchip");
+    if (chip) setContFilter(chip.dataset.cont);
+  };
 }
 
 // ===========================================================================

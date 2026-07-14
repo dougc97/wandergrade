@@ -745,6 +745,11 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .vflags { margin-top: 9px; font-size: 22px; line-height: 1.5; letter-spacing: 2px; }
 /* per-continent progress chips; gold when a continent is 100% done */
 .contbar { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 6px; }
-.contchip { font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: help;
+.contchip { font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--line); color: var(--gray); background: var(--soft); }
+.contchip:hover { border-color: var(--green); }
 .contchip.done { color: #e8c34f; border-color: #b9962e; background: rgba(212,175,55,.12); font-weight: 700; }
+/* active continent filter */
+.contchip.active { color: var(--green); border-color: var(--green); background: var(--green-bg); font-weight: 700; }
+.contchip.done.active { color: #e8c34f; border-color: #e8c34f; }
+.contchip.clear { border-style: dashed; }
