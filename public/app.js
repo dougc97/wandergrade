@@ -3601,9 +3601,15 @@ function renderVisited() {
 // strip and the country chip lists to that continent, and zooms the map to
 // it — "all my places, but also a South America view". Click again to clear.
 let contFilter = null;
-const CONT_VIEW = {   // lon/lat boxes per continent for the map zoom
-  NA: [-170, -50, 7, 83], SA: [-85, -32, -56, 13], EU: [-25, 45, 34, 72],
-  AS: [25, 180, -12, 78], AF: [-20, 52, -36, 38], OC: [110, 180, -50, 0],
+// lon1, lon2, lat1, lat2 per continent — traced to the real extent of the
+// countries we actually file under each one (Russia and Greenland are EUR
+// here, so Asia stops at ~146E/55N and must NOT reach Siberia: empty span
+// gets aspect-padded into a wide view showing the neighbours). Hand-tuned
+// rather than computed, because Europe and Oceania straddle the dateline and
+// a naive bounding box spans the globe.
+const CONT_VIEW = {
+  NA: [-170, -52, 7, 83], SA: [-82, -34, -56, 13], EU: [-25, 45, 34, 72],
+  AS: [30, 150, -11, 56], AF: [-26, 60, -36, 38], OC: [110, 180, -50, 16],
 };
 function continentZoomBox(c) {
   const [lo1, lo2, la1, la2] = CONT_VIEW[c];
