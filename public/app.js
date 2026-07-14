@@ -4265,12 +4265,26 @@ function buildVisitedShareSVG(orientation, withPins) {
   let inner, flag;
   if (story) {
     const cx = W / 2, big = String(n || m || 0);
+    // per-continent progress, matching the site's chips — up to 3 per line so
+    // even all six continents fit the gap between the stats and the map
+    const CONT_SHORT = { NA: "N. America", SA: "S. America", EU: "Europe",
+                         AS: "Asia", AF: "Africa", OC: "Oceania" };
+    const prog = continentProgress().filter((p) => p.n > 0 && p.total > 0);
+    let contLines = "";
+    for (let i = 0; i < prog.length; i += 3) {
+      const parts = prog.slice(i, i + 3).map((p) => p.pct === 100
+        ? `<tspan fill="#e8c34f">🏅 ${CONT_SHORT[p.c]} 100%</tspan>`
+        : `<tspan>${CONT_SHORT[p.c]} ${p.pct}%</tspan>`
+      ).join(`<tspan fill="#4a5a70">   ·   </tspan>`);
+      contLines += `<text x="${cx}" y="${772 + (i / 3) * 46}" text-anchor="middle" font-family="${font}" font-size="30" fill="#9fb3cd">${parts}</text>`;
+    }
     inner = `
       <text x="${cx}" y="160" text-anchor="middle" font-family="${font}" font-size="30" font-weight="800" letter-spacing="6" fill="#7fd99a">🗺️ WANDERLIST</text>
       <text x="${cx}" y="440" text-anchor="middle" font-family="${font}" font-size="260" font-weight="800" fill="#34d27b">${big}</text>
       <text x="${cx}" y="520" text-anchor="middle" font-family="${font}" font-size="48" font-weight="700" fill="#ffffff">${n ? (n === 1 ? "country visited" : "countries visited") : "on my wishlist"}</text>
       ${badge ? pill(cx, 610, badge, "middle") : ""}
       ${statLine ? `<text x="${cx}" y="${badge ? 700 : 660}" text-anchor="middle" font-family="${font}" font-size="36" fill="#9fb3cd">${esc(statLine)}</text>` : ""}
+      ${contLines}
       <g transform="translate(${(W - mapW) / 2},900)">${paths}${pins}${medal}</g>
       ${listLine ? `<text x="${cx}" y="1580" text-anchor="middle" font-family="${font}" font-size="34" fill="#9fb3cd">✦ ${esc(listLine)}</text>` : ""}
       <circle cx="${cx - 168}" cy="1660" r="9" fill="#34d27b"/><text x="${cx - 150}" y="1669" font-family="${font}" font-size="28" font-weight="600" fill="#9fb3cd">been</text>
