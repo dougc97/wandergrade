@@ -4306,7 +4306,8 @@ function buildVisitedShareSVG(orientation, withPins) {
 function fitFlagRows(ctx, flags, maxW, maxH, startSize) {
   let size = startSize, rows = [];
   for (;;) {
-    ctx.font = size + "px -apple-system,'Segoe UI',Arial,sans-serif";
+    // must match the drawing font exactly — measure and paint as one
+    ctx.font = size + "px -apple-system,system-ui,'Segoe UI',Arial,sans-serif";
     rows = [];
     let row = "";
     for (const f of flags) {
@@ -4342,12 +4343,17 @@ async function downloadVisitedImage(orientation) {
       .map((iso) => flagEmoji(iso));
     if (flags.length && flag) {
       ctx.textBaseline = "alphabetic";
-      ctx.textAlign = flag.align === "center" ? "center" : "left";
-      const { size, rows } = fitFlagRows(ctx, flags, W - 120, flag.maxH || 150, flag.size);
-      ctx.font = size + "px -apple-system,'Segoe UI',Arial,sans-serif";
-      const rowH = Math.round(size * 1.35);
-      rows.forEach((r, i) => ctx.fillText(r, flag.x, flag.y + i * rowH));
       ctx.textAlign = "left";
+      const { size, rows } = fitFlagRows(ctx, flags, W - 120, flag.maxH || 150, flag.size);
+      ctx.font = size + "px -apple-system,system-ui,'Segoe UI',Arial,sans-serif";
+      const rowH = Math.round(size * 1.35);
+      // centering is done by hand (measure + offset): iOS Safari canvas has
+      // been seen ignoring textAlign="center" here, anchoring rows at the
+      // midpoint and clipping half the flags off the right edge
+      rows.forEach((r, i) => {
+        const x = flag.align === "center" ? flag.x - ctx.measureText(r).width / 2 : flag.x;
+        ctx.fillText(r, x, flag.y + i * rowH);
+      });
     }
     const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
     const name = orientation === "story" ? "wanderlist-story.png" : "wanderlist-map.png";
