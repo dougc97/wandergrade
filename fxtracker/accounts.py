@@ -24,8 +24,14 @@ Mail: Resend (REST).
 Env:
     UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN   -> storage
     RESEND_API_KEY                                     -> sending
-    MAIL_FROM        (default "WanderGrade <hello@wandergrade.com>")
+    MAIL_FROM        (default "WanderGrade <hello@send.wandergrade.com>")
+    MAIL_REPLY_TO    (default "hello@wandergrade.com")
     SITE_ORIGIN      (default "https://wandergrade.com") — magic-link base
+
+Mail domains are deliberately split: Resend is verified on send.wandergrade.com
+because the apex SPF belongs to Cloudflare Email Routing (~all) and would
+soft-fail anything Resend sent as @wandergrade.com. Replies are pointed back at
+the apex, which Email Routing forwards to a real inbox.
 """
 
 import json
@@ -110,11 +116,16 @@ def _rate_ok(bucket):
 # ---- mail (Resend over REST) ------------------------------------------------
 
 def _send_mail(to, subject, html):
+    # Sends from the send.* subdomain on purpose: the apex SPF belongs to
+    # Cloudflare Email Routing (~all), so sending as @wandergrade.com would
+    # soft-fail and land sign-in links in spam. Replies still go to the real
+    # apex inbox, which Email Routing forwards.
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=json.dumps({
-            "from": _env("MAIL_FROM", "WanderGrade <hello@wandergrade.com>"),
+            "from": _env("MAIL_FROM", "WanderGrade <hello@send.wandergrade.com>"),
             "to": [to],
+            "reply_to": _env("MAIL_REPLY_TO", "hello@wandergrade.com"),
             "subject": subject,
             "html": html,
         }).encode("utf-8"),
