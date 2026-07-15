@@ -5190,7 +5190,7 @@ function acctPaintButton() {
   const b = $("acctBtn");
   if (!b) return;
   b.hidden = !ACCT_ON;
-  b.textContent = acctSignedIn() ? "👤" : "👤 Sign in";
+  b.textContent = acctSignedIn() ? "👤" : "👤 Save map";
   b.title = acctSignedIn()
     ? "Your account — " + acctState.email
     : "Save your travel map to an account (works in private tabs)";

@@ -437,7 +437,9 @@ footer a { color: var(--gray); }
 
 /* ---- header row + theme toggle + layout helpers ---- */
 .headrow { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-.headbtns { display: flex; gap: 8px; flex-shrink: 0; }
+/* wrap, or the six buttons overflow a phone rather than reflowing — flex
+   defaults to nowrap, and flex-shrink:0 keeps each button at full width. */
+.headbtns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
 .themebtn { font-size: 14px; padding: 7px 11px; border-radius: 8px; line-height: 1.2; white-space: nowrap; }
 /* music toggle: gentle pulse while playing */
 #musicBtn.playing { animation: wgpulse 2.2s ease-in-out infinite; }
