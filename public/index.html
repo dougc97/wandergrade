@@ -216,9 +216,13 @@
           <h2>Travel Guide<span id="guideH2Country"></span></h2>
           <p class="chartsub">Best months, peak vs off-season, and what's in season right now.</p>
         </div>
+        <!-- Region and interest pickers used to live here too, duplicating Top
+             Picks' Region select and Into chips with their own unsynced state (and
+             a single-select where the chips are multi). Their only job was to
+             narrow this list, which type-to-search already does. Discovery lives
+             on Top Picks, where the same filters come with grades attached; the
+             Guide is for reading the country you picked. -->
         <div class="pickers">
-          <select id="bestInterest" title="filter by what you're into"></select>
-          <select id="bestRegion"></select>
           <select id="bestCountry"></select>
         </div>
       </div>
@@ -406,9 +410,14 @@
           <thead><tr>
             <th class="sortable" data-sk="name">Country</th><th class="sortable" data-sk="cur">Currency</th>
             <th class="num sortable" data-sk="pl" title="local prices vs the US; below 1.00 = cheaper than home">Price level</th>
-            <th class="num sortable" data-sk="buys">$100 buys ~</th><th class="sortable" data-sk="feels">How it feels</th>
+            <!-- "How it feels" was plWord(pl) printed next to pl: the same fact the
+                 number, its colour, and the map legend above already give. It was
+                 also the widest column here ("about the same"), squeezing the
+                 country names. The word still rides the price level in the
+                 Currency sub-tab, where it isn't sat beside its own source. -->
+            <th class="num sortable" data-sk="buys">$100 buys ~</th>
           </tr></thead>
-          <tbody id="affRows"><tr><td colspan="5">Loading…</td></tr></tbody>
+          <tbody id="affRows"><tr><td colspan="4">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>

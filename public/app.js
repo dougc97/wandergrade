@@ -4,10 +4,14 @@ const $ = (id) => document.getElementById(id);
 let lastRates = null;   // always USD-based — feeds the Top Picks scoring
 let dataRates = null;   // whatever the Explore-the-Data currency view shows
 
-// Home currency for the Explore-the-Data currency view (display only; Top
-// Picks stays a USD-traveler tool). Persisted per browser, default USD.
-let dataBase = /^[A-Z]{3}$/.test(localStorage.getItem("fx_database") || "")
-  ? localStorage.getItem("fx_database") : "USD";
+// The one currency the whole site reasons in. Top Picks' "In" and the Data tab's
+// "My currency" used to be separate state (fx_homecur vs fx_database), so setting
+// one left the other disagreeing — the same question answered twice. Both selects
+// are now views onto this, the way valueOrigin/flightOrigin already share fx_origin.
+// Read from storage here rather than in initHomeCur so the first rates fetch asks
+// for the right base instead of loading USD and correcting itself.
+let homeBase = /^[A-Z]{3}$/.test(localStorage.getItem("fx_homecur") || "")
+  ? localStorage.getItem("fx_homecur") : "USD";
 const baseWord = (b) => (b === "USD" ? "the dollar" : b);
 
 // Escape any externally-sourced string before it goes into innerHTML.
@@ -271,7 +275,7 @@ function wireSort(theadSel, state, firstAsc, rerender) {
 // name sorts by what the row actually shows, or "Laos" would file under L-a-o
 // PDR while the eye looks for it under Laos.
 const AFF_GET = { name: (r) => countryName(r.iso), cur: (r) => r.cur, pl: (r) => r.pl,
-                  buys: (r) => 100 / r.pl, feels: (r) => r.pl };
+                  buys: (r) => 100 / r.pl };
 const affSort = { key: "pl", asc: true };
 wireSort("#affTable", affSort, { buys: false }, () => { if (typeof ppp !== "undefined" && ppp) renderAfford(); });
 
@@ -364,8 +368,8 @@ async function loadRates() {
   try {
     // Top Picks scoring always needs the USD dataset, even when the data tab
     // is viewing the world through another home currency.
-    if (dataBase !== "USD" && !lastRates) lastRates = await getJSON("/api/rates");
-    renderRates(await getJSON("/api/rates" + (dataBase !== "USD" ? "?base=" + dataBase : "")));
+    if (homeBase !== "USD" && !lastRates) lastRates = await getJSON("/api/rates");
+    renderRates(await getJSON("/api/rates" + (homeBase !== "USD" ? "?base=" + homeBase : "")));
     status("");
   } catch (e) {
     status("Could not load rates: " + e.message, "err");
@@ -378,13 +382,11 @@ function buildBaseSelect() {
   if (!sel || sel.options.length > 1 || !lastRates) return;
   const codes = ["USD", ...lastRates.rows.map((r) => r.code).sort()];
   sel.innerHTML = codes.map((c) =>
-    `<option value="${esc(c)}"${c === dataBase ? " selected" : ""}>${esc(c)}</option>`).join("");
-  sel.onchange = () => {
-    dataBase = sel.value;
-    localStorage.setItem("fx_database", dataBase);
-    loadRates();
-    loadIndex(activeDays);
-  };
+    `<option value="${esc(c)}"${c === homeBase ? " selected" : ""}>${esc(c)}</option>`).join("");
+  // Writes through the same setter as Top Picks' "In" picker, so the two can't
+  // drift apart. manual=true: touching this select is an explicit choice and
+  // should stop the currency following the From country.
+  sel.onchange = () => setHomeCur(sel.value, true);
   enhanceSelect(sel);
 }
 
@@ -483,7 +485,7 @@ async function loadIndex(days) {
   }
   try {
     lastIndexData = await getJSON("/api/index?days=" + days +
-      (dataBase !== "USD" ? "&base=" + dataBase : ""));
+      (homeBase !== "USD" ? "&base=" + homeBase : ""));
     renderIndex(lastIndexData);
     syncURL();
   } catch (e) {
@@ -1453,31 +1455,20 @@ async function photoGallery(iso) {
 
 const INTERESTS = ["Beach & islands", "Nature", "City", "Culture", "Adventure", "Food", "Shopping"];
 function buildBestPickers() {
-  const reg = $("bestRegion"), ctry = $("bestCountry"), intr = $("bestInterest");
-  reg.innerHTML = '<option value="all">All regions</option>' +
-    Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
-  intr.innerHTML = '<option value="all">All interests</option>' +
-    INTERESTS.map((i) => `<option value="${esc(i)}">${PROFILE_EMOJI[i] || ""} ${esc(i)}</option>`).join("");
-  const fill = (keepCurrent) => {
-    const region = reg.value, want = intr.value, prev = ctry.value;
+  const ctry = $("bestCountry");
+  // Every country, always: the region/interest narrowing that used to live here
+  // duplicated Top Picks' filters with its own state, and this list is a
+  // type-to-search combo — the filters were saving a keystroke at the cost of two
+  // controls that could disagree with the ones on the main tab.
+  const fill = () => {
     const list = Object.keys(climate)
-      .filter((iso) => region === "all" || ISO_REGION[iso] === region)
-      .filter((iso) => want === "all" ||
-        ((activities[iso] && activities[iso].profile) || []).includes(want))
       .map((iso) => ({ iso, name: climate[iso].name }))
       .sort((a, b) => a.name.localeCompare(b.name));
-    ctry.innerHTML = list.length
-      ? list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("")
-      : '<option value="">No countries match — widen your filters</option>';
-    if (!list.length) { $("guideHero").className = "guidehero empty"; $("bestDetail").innerHTML = ""; $("actDetail").innerHTML = ""; $("guideVisa").hidden = true; return; }
-    // keep the same country if it still qualifies, else jump to the first match
-    if (keepCurrent && list.some((c) => c.iso === prev)) ctry.value = prev;
+    ctry.innerHTML = list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
     renderGuide(ctry.value);
   };
-  reg.onchange = () => fill(true);
-  intr.onchange = () => fill(true);
   ctry.onchange = () => renderGuide(ctry.value);
-  fill(false);
+  fill();
   if ([...ctry.options].some((o) => o.value === "JP")) { ctry.value = "JP"; renderGuide("JP"); }
   enhanceSelect(ctry);
 }
@@ -1701,8 +1692,7 @@ function renderAfford() {
     const cn = countryName(r.iso);
     return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(cn)} travel guide →"><td>${esc(cn)}</td><td>${esc(r.cur)}</td>
       <td class="num ${cls}">${r.pl.toFixed(2)}</td>
-      <td class="num">$${Math.round(100 / r.pl).toLocaleString()} <span class="lbl-lg">of US goods</span></td>
-      <td>${plWord(r.pl)}</td></tr>`;
+      <td class="num">$${Math.round(100 / r.pl).toLocaleString()} <span class="lbl-lg">of US goods</span></td></tr>`;
   }).join("");
   applyAffordFilter();
 }
@@ -1851,7 +1841,8 @@ function advisoryByIso() {
 // "In" picks the money (FX column + the currency prices are shown in). It
 // follows the From country automatically until the user overrides it — an
 // American expat hopping countries can pin USD and it stays pinned.
-let homeBase = "USD";        // currency code the main tab reasons in
+// homeBase itself is declared at the top of the file — the Data tab's rates fetch
+// runs long before this point and needs it.
 let homeRates = null;        // /api/rates dataset for that base (= lastRates for USD)
 let homeManual = localStorage.getItem("fx_homecur_manual") === "1";
 const _baseRatesCache = {};
@@ -1903,14 +1894,25 @@ async function loadHomeRates() {
 }
 
 function setHomeCur(code, manual) {
+  const changed = homeBase !== code;
   homeBase = code;
   homeManual = manual;
   localStorage.setItem("fx_homecur", code);
   localStorage.setItem("fx_homecur_manual", manual ? "1" : "0");
-  const sel = $("homeCur");
-  if (sel && sel.value !== code) sel.value = code;
-  if (sel && sel._sync) sel._sync();
+  // Mirror into both pickers — Top Picks' "In" and the Data tab's "My currency"
+  // are two views of one value, so neither may be left showing the other's.
+  // Programmatic assignment doesn't re-fire change, so this can't loop.
+  for (const id of ["homeCur", "dataBase"]) {
+    const sel = $(id);
+    if (!sel || !sel.options.length) continue;
+    if ([...sel.options].some((o) => o.value === code) && sel.value !== code) sel.value = code;
+    if (sel._sync) sel._sync();
+  }
   loadHomeRates().catch(() => {}).then(() => { if (loaded.value) renderValue(); });
+  // The Data tab reasons in this currency too, so refetch it in the new base.
+  // Guarded on lastRates, not a loaded.* flag: the rates table isn't lazy — it
+  // loads at boot — so there is no flag for it, and there was never one to check.
+  if (changed && lastRates) { loadRates(); loadIndex(activeDays); }
 }
 
 function initHomeCur() {
@@ -4026,7 +4028,7 @@ function buildShareURL(forShare) {
   } else if (tab === "data") {
     if (dataMode !== "currency") q.set("dm", dataMode);
     if (dataMode === "currency" && activeDays !== 365) q.set("win", String(activeDays));
-    if (dataMode === "currency" && dataBase !== "USD") q.set("db", dataBase);
+    if (dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
     if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
     // Clean, indexable URL: /guide/<slug> (no query string). Same-origin so
     // history.pushState in syncURL accepts it.
@@ -4166,13 +4168,9 @@ async function postApplyShared() {
   }
   if (sharedQ.get("win")) loadIndex(parseInt(sharedQ.get("win"), 10) || 365);
   const db = sharedQ.get("db");
-  if (db && /^[A-Z]{3}$/.test(db) && db !== dataBase) {
-    dataBase = db;
-    const sel = $("dataBase");
-    if (sel && [...sel.options].some((o) => o.value === db)) sel.value = db;
-    loadRates();
-    loadIndex(activeDays);
-  }
+  // A currency carried on a shared link is an explicit choice: pin it, and let
+  // setHomeCur mirror both pickers and refresh whatever has loaded.
+  if (db && /^[A-Z]{3}$/.test(db) && db !== homeBase) setHomeCur(db, true);
   if (sharedQ.get("v") && tab === "visited") {
     renderVisited();
     status(`Viewing a shared map of ${visited.size} countries — editing it will overwrite your own saved list.`, "ok");

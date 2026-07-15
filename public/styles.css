@@ -486,17 +486,11 @@ small { color: var(--gray); font-weight: 400; }
      so the phrase is the third time we say it. Everything fits, no wrap. */
   #affTable { min-width: 0; }
   #affTable th:nth-child(2), #affTable td:nth-child(2) { display: none; }
-  /* Cell padding pays for the country column. "about the same" needs 127px in
-     How it feels, which left Country ~86 and cut 46 of 157 names — "Indonesia"
-     and "Argentina" among them, which is just broken-looking. Tighter padding
-     buys ~34px: 7 names still ellipsis, all genuinely long ("Trinidad and
-     Tobago"), where a cut reads as deliberate rather than as a bug. */
+  /* Dropping "How it feels" returned its 127px to the country names, so the cap
+     can be generous now — long names ellipsis only where they truly are long. */
   #affTable th, #affTable td { padding: 8px 6px; }
-  #affTable td:first-child { max-width: 120px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* Both value columns nowrap, or the wrap just moves: freeing the dollar figure
-     let "very cheap" break instead. With both held whole the row is a single
-     line — 82px at the start of this, 41px now. */
-  #affTable td:nth-child(4), #affTable td:nth-child(5) { white-space: nowrap; }
+  #affTable td:first-child { max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #affTable td:nth-child(4) { white-space: nowrap; }
 }
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
