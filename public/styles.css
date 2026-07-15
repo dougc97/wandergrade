@@ -85,6 +85,11 @@ html[data-tab="value"]   #tab-value,
 html[data-tab="guide"]   #tab-guide,
 html[data-tab="visited"] #tab-visited,
 html[data-tab="data"]    #tab-data { display: block; }
+/* Long/short label pairs. This sits ABOVE the media queries on purpose: they add
+   no specificity of their own, so a base rule further down the file would beat
+   the overrides below and hide both halves, leaving the control unlabelled. */
+.lbl-sm { display: none; }
+
 @media (max-width: 760px) {
   /* Wrap compactly so every tab stays visible (no hidden horizontal scroll). */
   .tabs { flex-wrap: wrap; gap: 2px 6px; }
@@ -135,11 +140,8 @@ html[data-tab="data"]    #tab-data { display: block; }
      "✈️" leave combos of 97px and 123px, which fit "September", "United States"
      and "United Kingdom" without clipping. Weighting the origin wider actually
      made it worse — it starved the month below "September". */
-  /* Qualified with .picklabel to outrank the base `.lbl-sm { display: none }`,
-     which sits further down the file — a media query lends no specificity, so
-     the bare selector loses and hides BOTH labels, leaving the field unnamed. */
-  .picklabel .lbl-lg { display: none; }
-  .picklabel .lbl-sm { display: inline; }
+  .lbl-lg { display: none; }
+  .lbl-sm { display: inline; }
   .pickersmain { flex-wrap: nowrap; }
   .pickersmain .pickgroup { flex: 1 1 0; min-width: 0; }
   /* The <select> is swapped for a .combo at runtime, so the combo is what has to
@@ -151,6 +153,24 @@ html[data-tab="data"]    #tab-data { display: block; }
   #tab-value .charthead { flex-wrap: nowrap; gap: 10px; }
   #tab-value .charthead > div { flex: 1 1 auto; min-width: 0; }
   #tab-value .surprisebtn { flex-shrink: 0; }
+  /* 663px of controls in 345px should pack into two rows; it took three, because
+     nothing gave. Letting the search box surrender its slack (and Share image
+     drop to Share) fits them in two. */
+  #tab-visited .pickers .combo { flex: 1 1 120px; min-width: 0; }
+  #tab-visited .pickers .combo-input { width: 100%; min-width: 0; }
+  /* Interests, regions and country each claimed a full row (115px) because none
+     of them would shrink. Two across, country below: 74px.
+     The 140px floor is load-bearing: with min-width:0 all three crammed onto one
+     row and the country picker shrank to 6px wide rather than wrapping. */
+  /* Here the country combo IS a direct child of .pickers (Top Picks nests its
+     combos inside a .pickgroup), so it takes the floor above like its siblings —
+     a min-width:0 rule aimed at the nested case collapsed it to 16px instead. */
+  #tab-guide .pickers > * { flex: 1 1 140px; min-width: 140px; }
+  #tab-guide .pickers .combo-input { width: 100%; min-width: 0; }
+  #tab-guide .pickers select { width: 100%; }
+  /* The three jump chips needed 357 against 345 — twelve pixels short, and paid a
+     whole second row for it (70px). A hair smaller: one row, 31px. */
+  #tab-guide .guidejump > * { white-space: nowrap; font-size: 12.5px; padding: 6px 9px; }
 }
 @media (max-width: 374px) {
   /* Below 375 there is no honest one-row answer: a 320px screen offers 280px
@@ -392,6 +412,22 @@ small { color: var(--gray); font-weight: 400; }
   .tablewrap table { min-width: 560px; }
   .grid { grid-template-columns: 1fr; }
 }
+@media (max-width: 560px) {
+  /* The currency table was pinned to 560 in a 375 phone — 213px hidden, and even
+     unpinned it wants 482. Range position is a decorative bar (and the widest
+     column at 115px); dropping it brings the table to 367, which fits. The number
+     it illustrates is already in "vs avg" one column over, and the bar is
+     unreadable at phone width anyway. Desktop keeps it. */
+  #rates { min-width: 0; }
+  #rates th:nth-child(5), #rates td:nth-child(5) { display: none; }
+  /* Dropping the bar leaves 368 against 347 of card; the desktop cell padding is
+     the last 21px. */
+  #rates th, #rates td { padding: 8px 7px; }
+  /* Every data sub-tab label was wrapping inside its own button ("Cost of
+     living" over two lines), standing the row up at 49px to say four words.
+     nowrap at 12px keeps all four on one 32px row. */
+  #tab-data .windowtoggle button { white-space: nowrap; font-size: 12px; padding: 5px 8px; }
+}
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
 th { background: var(--tablehead); font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--gray); }
@@ -515,9 +551,6 @@ footer a { color: var(--gray); }
 @keyframes wgpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
 @media (prefers-reduced-motion: reduce) { #musicBtn.playing { animation: none; } }
 .rowsplit { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-/* Short forms of the picker labels; only ever visible on a phone (see the 600px
-   query), where the long form eats the field it labels. */
-.lbl-sm { display: none; }
 .pickgroup { display: inline-flex; align-items: center; gap: 7px; background: var(--soft);
   border-radius: 8px; padding: 4px 8px 4px 10px; white-space: nowrap; }
 .rankby { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
