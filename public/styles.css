@@ -93,6 +93,13 @@ html[data-tab="data"]    #tab-data { display: block; }
      side-by-side squeezed the h1 into a sliver next to empty space. */
   .headrow { flex-direction: column; gap: 6px; }
   .headbtns { order: -1; align-self: flex-end; flex-wrap: wrap; justify-content: flex-end; }
+  /* The 16+8 of margin here reads as ~50px once the tabs' own 9px padding and
+     line-box slack are added, which strands the tabs from the title on a phone,
+     where vertical space is the scarce thing. Qualified with `header` because
+     the base `.sub` rule sits further down the file and a media query adds no
+     specificity — an unqualified `.sub` loses to it and silently does nothing. */
+  header .sub { margin-bottom: 4px; }
+  .tabs { margin-top: 2px; }
 }
 @media (max-width: 480px) {
   /* The six buttons need ~442px of row; below ~482px of viewport they no longer
