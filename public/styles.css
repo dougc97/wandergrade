@@ -94,6 +94,30 @@ html[data-tab="data"]    #tab-data { display: block; }
   .headrow { flex-direction: column; gap: 6px; }
   .headbtns { order: -1; align-self: flex-end; flex-wrap: wrap; justify-content: flex-end; }
 }
+@media (max-width: 480px) {
+  /* The six buttons need ~442px of row; below ~482px of viewport they no longer
+     fit and wrap into two ragged lines stacked above the wordmark. Drop the
+     labels on Share and the account button — the icons carry, and title= still
+     names them — which buys ~108px and restores a single line. Subscribe keeps
+     its word: it's the conversion ask, and 📬 alone doesn't say "newsletter".
+     Hidden from eyes, not from screen readers: display:none would drop the word
+     from the accessibility tree and announce the button as its emoji. */
+  #shareBtn .btxt, #acctBtn .btxt {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+}
+@media (max-width: 440px) {
+  /* Four tabs want ~403px and a phone offers ~335, so they wrapped 3+1 and left
+     Data orphaned. Tightening padding and type only recovers ~55px and would
+     still break on a 320px screen, so make the wrap deliberate instead: an even
+     2x2 reads as a grid rather than a mistake. */
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; }
+  /* justify-self keeps each button hugging its label, so the active underline
+     tracks the word instead of stretching the full half-width cell and reading
+     as a segmented control. */
+  .tabs button { justify-self: center; padding: 9px 6px; }
+}
 
 .cardwide { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 16px; }
 .pickers { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
