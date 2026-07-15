@@ -66,6 +66,22 @@ results.append(ok(u["cadence"] == "off" and u["subscribed"] is False, "unsubscri
 results.append(ok(set(accounts.public_user(u)) == {"visited", "wishlist", "cadence", "subscribed"},
                   "public_user exposes only safe fields"))
 
+# --- the session window rolls forward on use ---------------------------------
+# Shrink the 90 days to 2 seconds so real time can prove it: read the session a
+# second in, and it must outlive the original expiry. A fixed window would have
+# logged this traveler out mid-trip.
+_real_ttl = accounts.SESSION_TTL
+accounts.SESSION_TTL = 2
+accounts._kv_set("sess:" + sid, email, accounts.SESSION_TTL)
+time.sleep(1)
+touched = accounts.session_email(sid)          # GETEX: re-stamps to 2s from now
+results.append(ok(touched == email, "session reads back while alive"))
+time.sleep(1.5)                                 # 2.5s since created: fixed TTL would be dead
+results.append(ok(accounts.session_email(sid) == email,
+                  "active session outlives its original expiry (window rolled)"))
+accounts.SESSION_TTL = _real_ttl
+accounts._kv_set("sess:" + sid, email, accounts.SESSION_TTL)
+
 # --- sign out ----------------------------------------------------------------
 accounts.end_session(sid)
 results.append(ok(accounts.session_email(sid) is None, "sign out kills the session"))

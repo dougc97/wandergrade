@@ -234,7 +234,15 @@ def consume_token(token):
 
 
 def session_email(sid):
-    return _kv_get("sess:" + sid) if sid else None
+    """Read a session and roll its window forward in the same breath.
+
+    GETEX fetches the value and re-stamps the TTL atomically, so keeping a
+    traveler signed in costs no extra round trip. The 90 days therefore run
+    from the last visit, not from sign-in: plan a trip every few months and
+    you never see another magic link, while a genuinely dormant session still
+    ages out. server.py re-sends the cookie so its Max-Age tracks this.
+    """
+    return _redis("GETEX", "sess:" + sid, "EX", SESSION_TTL) if sid else None
 
 
 def end_session(sid):

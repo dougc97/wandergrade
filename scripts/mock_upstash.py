@@ -45,6 +45,14 @@ class H(BaseHTTPRequestHandler):
                 res = "OK"
             elif op == "GET":
                 res = _alive(cmd[1])
+            elif op == "GETEX":
+                res = _alive(cmd[1])
+                if res is not None and len(cmd) >= 4 and cmd[2].upper() == "EX":
+                    DB[cmd[1]] = (res, time.time() + int(cmd[3]))
+            elif op == "TTL":
+                v = DB.get(cmd[1])
+                res = -2 if _alive(cmd[1]) is None else (
+                    -1 if v[1] is None else int(v[1] - time.time()))
             elif op == "DEL":
                 res = 1 if DB.pop(cmd[1], None) else 0
             elif op == "INCR":

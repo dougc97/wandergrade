@@ -397,8 +397,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth/me":
             email = self._session_email() if accounts.enabled() else None
             user = accounts.get_user(email) if email else None
+            extra = [("Cache-Control", "no-store")]
+            if email:
+                # session_email() just rolled the stored session forward; re-stamp
+                # Max-Age to match, or the cookie would still die 90 days after
+                # sign-in and log out an active traveler anyway. Fires once per
+                # page load, and costs no extra storage call.
+                extra.append(self._set_session_cookie(self._cookie(self.SESS_COOKIE)))
             self._send_json({"email": email, "user": accounts.public_user(user) if user else None},
-                            extra=[("Cache-Control", "no-store")])
+                            extra=extra)
             return
         if not self._authed():
             return
