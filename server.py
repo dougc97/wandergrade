@@ -224,6 +224,19 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(body)   # HEAD: same status/headers, no body
 
     def _send_json(self, obj, status=200, extra=None):
+        # Say something about caching, or the browser decides for us. With no
+        # Cache-Control at all it caches JSON heuristically and can keep serving a
+        # pre-deploy payload: a returning visitor was still holding an advisories
+        # response from before Palestine got a Level 4, so it stayed graded and
+        # visible for them long after the fix shipped. Five minutes bounds that —
+        # the data behind it only moves a few times a day (ADV_TTL is 6h server
+        # side), so this costs nothing and caps staleness at something survivable.
+        # Errors are never cached, and callers that set their own (auth: no-store)
+        # keep it — a duplicate header would be ambiguous.
+        extra = list(extra or [])
+        if not any(k.lower() == "cache-control" for k, _ in extra):
+            extra.append(("Cache-Control",
+                          "public, max-age=300" if status == 200 else "no-store"))
         self._send_body(json.dumps(obj).encode("utf-8"),
                         "application/json; charset=utf-8", status, extra=extra)
 
