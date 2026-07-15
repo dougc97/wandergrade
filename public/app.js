@@ -1855,6 +1855,13 @@ function advisoryByIso() {
   if (advisories) for (const it of advisories.items) if (it.iso) m[it.iso] = it.level;
   return m;
 }
+// The whole item, for the few places that need to name whose advisory it is —
+// the server stamps `via` on any level the other government filled in.
+function advisoryMetaByIso() {
+  const m = {};
+  if (advisories) for (const it of advisories.items) if (it.iso) m[it.iso] = it;
+  return m;
+}
 
 // ---- home currency for Top Picks --------------------------------------------
 // "From" picks the country (flights + what "cheap" is measured against);
@@ -1957,6 +1964,13 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   const pl = plUS / (anchorPl || 1);
   const advLvl = advMap[iso];
   if (advLvl === 4) return null;                     // Do Not Travel: excluded outright
+  // Unrated means unrated. This used to read as Level 2 and grade B, which put
+  // Palestine — Level 4 by Germany's read, and unpublished by America's — into the
+  // picks. Two governments now fill each other's gaps (see advisories.py); if
+  // NEITHER rates a place we decline to recommend it rather than invent a level.
+  // Costs Puerto Rico and a few uninhabited territories from the picks; that is
+  // the price of not making safety claims we can't source.
+  if (!advLvl) return null;
   const cur = CUR_BY_ISO[iso];
   // FX strength is judged from the chosen home currency's dataset. While a
   // non-USD dataset is still loading, FX reads neutral rather than wrong.
@@ -2511,12 +2525,23 @@ function gradePill(score, title, extra) {
 }
 // Safety grades come from the advisory level, not the score curve, so the
 // letter matches the State Dept tier exactly.
-const SAFE_GRADE = { 1: "A", 2: "B", 3: "D" };
+// 4 has no caller today — valueScores drops Do Not Travel before anything can ask
+// for its pill — but leaving the hole meant safetyPill(4) crashed on an undefined
+// grade. F, so the map is total and the next caller can't fall through it.
+const SAFE_GRADE = { 1: "A", 2: "B", 3: "D", 4: "F" };
 const ADV_TEXT = { 1: "Level 1: Exercise Normal Precautions", 2: "Level 2: Exercise Increased Caution",
                    3: "Level 3: Reconsider Travel", 4: "Level 4: Do Not Travel" };
-function safetyPill(advLvl) {
-  const g = advLvl ? SAFE_GRADE[advLvl] : "B";
-  return `<span class="gr ${gradeCls(g)}" title="${esc(advLvl ? ADV_TEXT[advLvl] : "No US advisory published — treated as Level 2")}">${g}</span>`;
+// iso is optional: with it, a level filled in by the other government says so.
+function safetyPill(advLvl, iso) {
+  // Unrated is its own answer, not a quiet B. Saying "treated as Level 2" in a
+  // tooltip while showing a B is still showing a B — and B is recommendable.
+  if (!advLvl) {
+    return `<span class="gr grx" title="${esc("Not rated — neither government we follow publishes an advisory for this destination, so it isn't graded or ranked.")}">—</span>`;
+  }
+  const meta = iso ? advisoryMetaByIso()[iso] : null;
+  const via = meta && meta.via_name
+    ? ` — no advisory from your home government; level per ${meta.via_name}` : "";
+  return `<span class="gr ${gradeCls(SAFE_GRADE[advLvl])}" title="${esc(ADV_TEXT[advLvl] + via)}">${SAFE_GRADE[advLvl]}</span>`;
 }
 
 // ---- month-level hazards (curated in activities.json) -----------------------
@@ -2658,7 +2683,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <td class="rank">#${i + 1}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}">${gradePill(s.afford, affordTitle(s))}</td>
-      <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl)}</td>
+      <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl, iso)}</td>
       <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span></td>
       <td class="scell" data-go="flights" data-iso="${iso}">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'

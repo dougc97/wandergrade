@@ -99,12 +99,48 @@ def _name_to_iso():
     return out
 
 
+def _from(source):
+    return _german_advisories() if source == "de" else _us_advisories()
+
+
 def get_advisories(source="us"):
     """Advisories from the given government source, normalized to a common shape:
-    {items: [{iso, country, level, level_text, link}], source, source_name, source_url}."""
-    if source == "de":
-        return _german_advisories()
-    return _us_advisories()
+    {items: [{iso, country, level, level_text, link, via?, via_name?}], source, ...}.
+
+    Where the home government publishes nothing, the other government fills in and
+    the item is stamped with `via` so the UI can say whose call it is. This is not
+    tidiness: the US feed silently omits Israel, the West Bank and Gaza, and Brazil
+    (verified — 219 entries, A-Z, no Israel between Ireland and Italy), and an
+    unrated country used to be read as Level 2, so Palestine came out graded B and
+    recommendable. Germany rates it Level 4.
+
+    Nothing is invented. A country neither government rates stays unrated, and
+    valueScores() drops it from the picks rather than guess a level for it.
+
+    Caveat worth knowing: the German feed is binary (warning / partial warning), so
+    it can never express Level 3 — a partial warning arrives here as Level 2. That
+    makes it a lossy filler. A source with a native 1-4 scale (Canada, Australia)
+    would fill these gaps more faithfully.
+    """
+    primary = _from(source)
+    other_key = "us" if source == "de" else "de"
+    try:
+        other = _from(other_key)
+    except Exception:
+        return primary          # a filler that won't load must never break the page
+    have = {i["iso"] for i in primary["items"] if i.get("iso")}
+    for it in other["items"]:
+        iso = it.get("iso")
+        if not iso or iso in have:
+            continue
+        fill = dict(it, via=other_key, via_name=SOURCES[other_key])
+        primary["items"].append(fill)
+        have.add(iso)
+    primary["items"].sort(key=lambda r: (-r["level"], r["country"]))
+    primary["count"] = len(primary["items"])
+    primary["matched"] = sum(1 for i in primary["items"] if i["iso"])
+    primary["filled"] = sum(1 for i in primary["items"] if i.get("via"))
+    return primary
 
 
 def _german_advisories():
