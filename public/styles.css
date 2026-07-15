@@ -114,11 +114,19 @@ html[data-tab="data"]    #tab-data { display: block; }
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
   }
 }
-@media (max-width: 440px) {
-  /* Four tabs want ~403px and a phone offers ~335, so they wrapped 3+1 and left
-     Data orphaned. Tightening padding and type only recovers ~55px and would
-     still break on a 320px screen, so make the wrap deliberate instead: an even
-     2x2 reads as a grid rather than a mistake. */
+@media (min-width: 375px) and (max-width: 760px) {
+  /* All four fit one row once the padding and type tighten: measured at 326px
+     against the 335px available at 375. Which puts the floor at a 366px
+     viewport (326 + the 20px side padding each side), so 375 is the honest
+     breakpoint — every current phone (375/390/393/414/430) clears it. */
+  .tabs { gap: 0 4px; }
+  .tabs button { padding: 9px 5px; font-size: 12px; }
+}
+@media (max-width: 374px) {
+  /* Below 375 there is no honest one-row answer: a 320px screen offers 280px
+     and the four tabs need 286 even at 11px type — only dropping the emoji
+     fits, which costs more than the wrap does. So make the wrap deliberate:
+     an even 2x2 reads as a grid rather than a 3+1 mistake. */
   .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; }
   /* justify-self keeps each button hugging its label, so the active underline
      tracks the word instead of stretching the full half-width cell and reading
