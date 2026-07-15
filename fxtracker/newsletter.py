@@ -46,8 +46,19 @@ def send(subject, body_markdown, draft=False):
         return resp.status in (200, 201)
 
 
+def _span_words(days):
+    """Say "1-year", not "364-day". The FX free tier only reaches ~366 days back so
+    history caps at 364, and printing that at a reader is precision nobody asked
+    for — a day either way cannot change what "vs its average" means. Snap to the
+    nearest round span within a week; anything else still prints its day count."""
+    for n, word in ((365, "1-year"), (180, "6-month"), (90, "3-month"), (30, "1-month")):
+        if abs(days - n) <= 7:
+            return word
+    return "{0}-day".format(days)
+
+
 def render_markdown(rows, as_of, baseline_days):
-    lines = ["The US dollar is favorable vs its {0}-day average for:".format(baseline_days), ""]
+    lines = ["The US dollar is favorable vs its {0} average for:".format(_span_words(baseline_days)), ""]
     for r in rows:
         lines.append("- **{code}** ({name}): 1 USD = {rate} {code} — +{pct}% vs avg".format(
             code=r["code"], name=r["name"], rate=r["rate_now"], pct=r["strength_pct"]))
