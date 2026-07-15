@@ -5292,9 +5292,14 @@ if ($("acctBtn")) {
   acctPaintButton();
   $("acctBtn").addEventListener("click", () => (acctSignedIn() ? openAccount() : openSignIn()));
 }
+// Read at parse time, not inside the .then(): syncURL() rebuilds the address bar
+// from app state as soon as init finishes and drops every param it doesn't own,
+// so ?signin= is often gone by the time acctLoad()'s round trip resolves. Reading
+// it late made the whole sign-in result a coin flip on which finished first.
+const SIGNIN_RESULT = new URLSearchParams(location.search).get("signin");
 if (ACCT_ON) {
   acctLoad().then(async () => {
-    const q = new URLSearchParams(location.search).get("signin");
+    const q = SIGNIN_RESULT;
     if (!q) return;
     history.replaceState(null, "", location.pathname);   // don't leave ?signin= around
     if (q === "expired") { status("That sign-in link expired — request a new one.", "err"); return; }
