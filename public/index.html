@@ -77,6 +77,9 @@
   </nav>
 
   <div id="status" class="status" hidden></div>
+  <!-- Sign-in results live in their own slot: #status is a transient line that
+       loadRates() clears a second after load, which swallowed this entirely. -->
+  <div id="acctnote" class="status" hidden></div>
 
   <!-- ============ TAB: TOP PICKS ============ -->
   <section class="tab" id="tab-value">

@@ -5297,12 +5297,23 @@ if ($("acctBtn")) {
 // so ?signin= is often gone by the time acctLoad()'s round trip resolves. Reading
 // it late made the whole sign-in result a coin flip on which finished first.
 const SIGNIN_RESULT = new URLSearchParams(location.search).get("signin");
+
+// Sign-in results get their own banner. #status is a transient line — loadRates()
+// clears it a second or two after load — so a sign-in message posted there showed
+// up and then vanished before it could be read.
+function acctNote(msg, kind) {
+  const el = $("acctnote");
+  if (!el) return;
+  el.textContent = msg;
+  el.className = "status " + (kind || "");
+  el.hidden = !msg;
+}
 if (ACCT_ON) {
   acctLoad().then(async () => {
     const q = SIGNIN_RESULT;
     if (!q) return;
     history.replaceState(null, "", location.pathname);   // don't leave ?signin= around
-    if (q === "expired") { status("That sign-in link expired — request a new one.", "err"); return; }
+    if (q === "expired") { acctNote("That sign-in link expired — request a new one.", "err"); return; }
     if (acctSignedIn()) {
       let pending = null;
       try { pending = JSON.parse(localStorage.getItem("wg_pending_prefs") || "null"); } catch (e) {}
@@ -5311,7 +5322,7 @@ if (ACCT_ON) {
         await acctPrefs(pending);
       }
       await acctSync();               // seed the account with this device's map
-      status("Signed in — your travel map is saved to " + acctState.email + " ✓", "ok");
+      acctNote("Signed in — your travel map is saved to " + acctState.email + " ✓", "ok");
       return;
     }
     // The token verified but this browser has no session: the link was opened in
@@ -5319,8 +5330,8 @@ if (ACCT_ON) {
     // cookie in its own jar. Saying nothing here left the map looking unchanged
     // with no reason why — the one failure the sign-in path must not be silent
     // about, since a fresh link is the only way forward.
-    status("Sign-in didn't stick — your email app opened the link in its own browser."
-           + " Request a new link and open it here.", "err");
+    acctNote("Sign-in didn't stick — your email app opened the link in its own browser."
+             + " Request a new link and open it here.", "err");
   });
 }
 
