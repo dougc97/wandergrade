@@ -1694,7 +1694,7 @@ function renderAfford() {
     const cls = r.pl <= 0.85 ? "pos" : r.pl > 1.15 ? "neg" : "";
     return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(r.name)} travel guide →"><td>${esc(r.name)}</td><td>${esc(r.cur)}</td>
       <td class="num ${cls}">${r.pl.toFixed(2)}</td>
-      <td class="num">$${Math.round(100 / r.pl)} of US goods</td>
+      <td class="num">$${Math.round(100 / r.pl).toLocaleString()} <span class="lbl-lg">of US goods</span></td>
       <td>${plWord(r.pl)}</td></tr>`;
   }).join("");
   applyAffordFilter();

@@ -477,6 +477,20 @@ small { color: var(--gray); font-weight: 400; }
      the worst 107 -> 58, and hands Price level the width it was missing. */
   #rates td:first-child { max-width: 104px; }
   #rates .curcell .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Cost of living had the same 560px pin: 213px hidden, and "$1163 of US goods"
+     broke across two lines. Unpinned it wants 404. The Currency column is 94px
+     to show a 3-letter code — its own header is what makes it that wide — and it
+     is the one thing here the Currency sub-tab already covers, so it goes. The
+     country ellipses ("Iran, Islamic Rep." wrapped otherwise), and "of US goods"
+     drops: the card says "how far $100 goes" and the header says "$100 buys ~",
+     so the phrase is the third time we say it. Everything fits, no wrap. */
+  #affTable { min-width: 0; }
+  #affTable th:nth-child(2), #affTable td:nth-child(2) { display: none; }
+  #affTable td:first-child { max-width: 86px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Both value columns nowrap, or the wrap just moves: freeing the dollar figure
+     let "very cheap" break instead. With both held whole the row is a single
+     line — 82px at the start of this, 41px now. */
+  #affTable td:nth-child(4), #affTable td:nth-child(5) { white-space: nowrap; }
 }
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
