@@ -268,7 +268,9 @@ function wireSort(theadSel, state, firstAsc, rerender) {
 
 // Cost of living: cheapest-first by default; "$100 buys" is the inverse of the
 // price level, so it opens descending (most goods first).
-const AFF_GET = { name: (r) => r.name, cur: (r) => r.cur, pl: (r) => r.pl,
+// name sorts by what the row actually shows, or "Laos" would file under L-a-o
+// PDR while the eye looks for it under Laos.
+const AFF_GET = { name: (r) => countryName(r.iso), cur: (r) => r.cur, pl: (r) => r.pl,
                   buys: (r) => 100 / r.pl, feels: (r) => r.pl };
 const affSort = { key: "pl", asc: true };
 wireSort("#affTable", affSort, { buys: false }, () => { if (typeof ppp !== "undefined" && ppp) renderAfford(); });
@@ -1692,7 +1694,12 @@ function renderAfford() {
   markSort("#affTable", affSort);
   $("affRows").innerHTML = sortRows(rows, affSort, AFF_GET).map((r) => {
     const cls = r.pl <= 0.85 ? "pos" : r.pl > 1.15 ? "neg" : "";
-    return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(r.name)} travel guide →"><td>${esc(r.name)}</td><td>${esc(r.cur)}</td>
+    // countryName(), not r.name: r.name is the World Bank's label from the PPP
+    // feed ("Iran, Islamic Rep.", "Lao PDR", "Slovak Republic"), which is not what
+    // the rest of the site calls these places — and the filter matches on row
+    // text, so searching "Laos" found nothing.
+    const cn = countryName(r.iso);
+    return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(cn)} travel guide →"><td>${esc(cn)}</td><td>${esc(r.cur)}</td>
       <td class="num ${cls}">${r.pl.toFixed(2)}</td>
       <td class="num">$${Math.round(100 / r.pl).toLocaleString()} <span class="lbl-lg">of US goods</span></td>
       <td>${plWord(r.pl)}</td></tr>`;
