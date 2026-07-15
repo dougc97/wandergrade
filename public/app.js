@@ -337,7 +337,14 @@ function renderRates(data) {
   $("mapH2").innerHTML = `Where ${esc(w)} is strong <span class="muted">vs each currency's 1-year average</span>`;
   $("chartH2").innerHTML = `Overall ${esc(w === "the dollar" ? "dollar" : w)} strength <span class="muted">vs rest of world</span>`;
   $("rateColHead").textContent = `1 ${base} =`;
-  $("vsAvgHead").title = `vs its own 1-year average — positive = ${w} is stronger than usual`;
+  // Says "fixed at a year" on purpose: the chart's window toggle sits directly
+  // above this column and looks like it drives it. It must not — this figure is
+  // 30% of every Affordability grade, so a zoom control cannot be allowed to
+  // re-grade the site, and a one-month average is noise anyway.
+  $("vsAvgHead").title =
+    `vs its own 1-year average — positive = ${w} is stronger than usual. `
+    + `Fixed at a year (the chart's window above doesn't change it): a shorter `
+    + `average is mostly noise, and this figure feeds the Affordability grade.`;
   $("asof").textContent = "As of " + data.as_of;
   const fav = data.rows.filter((r) => r.favorable && r.watched);
   // "364-day avg" was the history cap leaking into the copy; the column header one
