@@ -5307,7 +5307,15 @@ if (ACCT_ON) {
       }
       await acctSync();               // seed the account with this device's map
       status("Signed in — your travel map is saved to " + acctState.email + " ✓", "ok");
+      return;
     }
+    // The token verified but this browser has no session: the link was opened in
+    // a mail app's in-app browser, which spent the single-use token and kept the
+    // cookie in its own jar. Saying nothing here left the map looking unchanged
+    // with no reason why — the one failure the sign-in path must not be silent
+    // about, since a fresh link is the only way forward.
+    status("Sign-in didn't stick — your email app opened the link in its own browser."
+           + " Request a new link and open it here.", "err");
   });
 }
 
