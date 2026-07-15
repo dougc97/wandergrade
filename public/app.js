@@ -1627,7 +1627,9 @@ function renderCountryClimate(iso) {
 // traveler's own government is more relevant + less US-skewed.
 let advisories = null;
 const _advBySource = {};
-function advisorySource() { return travelOrigin() === "DE" ? "de" : "us"; }
+// Your own government first; the others fill its gaps (server-side, stamped `via`).
+const ADV_SOURCE_BY_ORIGIN = { DE: "de", CA: "ca" };
+function advisorySource() { return ADV_SOURCE_BY_ORIGIN[travelOrigin()] || "us"; }
 async function ensureAdvisories() {
   const src = advisorySource();
   if (!_advBySource[src]) _advBySource[src] = await getJSON("/api/advisories?source=" + src);

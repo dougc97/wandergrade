@@ -19,10 +19,22 @@ US_URL = "https://travel.state.gov/content/travel/en/traveladvisories/traveladvi
 AA_FEED = "https://www.auswaertiges-amt.de/opendata/travelwarning"
 AA_URL = "https://www.auswaertiges-amt.de/de/ReiseUndSicherheit/reise-und-sicherheitshinweise"
 
+# Global Affairs Canada open data: one JSON, ISO-2 codes already in it, and a
+# native four-level scale that lands 1:1 on ours. The best-shaped feed of the
+# three, which is why it fills gaps before the others do.
+CA_FEED = "https://data.international.gc.ca/travel-voyage/index-alpha-eng.json"
+CA_URL = "https://travel.gc.ca/travelling/advisories"
+
 SOURCES = {
     "us": "U.S. State Department",
     "de": "German Federal Foreign Office (Auswärtiges Amt)",
+    "ca": "Global Affairs Canada",
 }
+
+# Who fills a gap first. Ordered by how well the source's own scale maps to ours:
+# Canada and the US publish four levels; Germany publishes a binary warning and
+# cannot express Level 3, so it goes last and only covers what the others miss.
+FALLBACK_ORDER = ("ca", "us", "de")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GEOJSON = os.path.join(ROOT, "public", "world.geojson")
 
@@ -99,8 +111,43 @@ def _name_to_iso():
     return out
 
 
+def _canadian_advisories():
+    """Global Affairs Canada -> 1-4. advisory-state is 0-3 on a scale that matches
+    ours rung for rung (normal precautions / high degree of caution / avoid
+    non-essential travel / avoid all travel), so the mapping is +1 and no
+    interpretation is needed. Countries arrive with ISO-2 attached, so unlike the
+    US feed there is no name matching to get wrong."""
+    raw = rates.fetch_json(CA_FEED)
+    data = (raw or {}).get("data") or {}
+    items = []
+    for v in (data.values() if isinstance(data, dict) else data):
+        if not isinstance(v, dict):
+            continue
+        iso = (v.get("country-iso") or "").strip().upper()
+        state = v.get("advisory-state")
+        if len(iso) != 2 or state is None:
+            continue
+        eng = v.get("eng") or {}
+        slug = eng.get("url-slug")
+        items.append({
+            "iso": iso,
+            "country": eng.get("name") or v.get("country-eng") or iso,
+            "level": int(state) + 1,
+            "level_text": eng.get("advisory-text") or LEVEL_TEXT.get(int(state) + 1, ""),
+            "link": ("https://travel.gc.ca/destinations/" + slug) if slug else CA_URL,
+        })
+    items.sort(key=lambda r: (-r["level"], r["country"]))
+    return {"items": items, "count": len(items),
+            "matched": sum(1 for i in items if i["iso"]),
+            "source": "ca", "source_name": SOURCES["ca"], "source_url": CA_URL}
+
+
 def _from(source):
-    return _german_advisories() if source == "de" else _us_advisories()
+    if source == "de":
+        return _german_advisories()
+    if source == "ca":
+        return _canadian_advisories()
+    return _us_advisories()
 
 
 def get_advisories(source="us"):
@@ -123,19 +170,20 @@ def get_advisories(source="us"):
     would fill these gaps more faithfully.
     """
     primary = _from(source)
-    other_key = "us" if source == "de" else "de"
-    try:
-        other = _from(other_key)
-    except Exception:
-        return primary          # a filler that won't load must never break the page
     have = {i["iso"] for i in primary["items"] if i.get("iso")}
-    for it in other["items"]:
-        iso = it.get("iso")
-        if not iso or iso in have:
+    for key in FALLBACK_ORDER:
+        if key == source:
             continue
-        fill = dict(it, via=other_key, via_name=SOURCES[other_key])
-        primary["items"].append(fill)
-        have.add(iso)
+        try:
+            other = _from(key)
+        except Exception:
+            continue            # a filler that won't load must never break the page
+        for it in other["items"]:
+            iso = it.get("iso")
+            if not iso or iso in have:
+                continue
+            primary["items"].append(dict(it, via=key, via_name=SOURCES[key]))
+            have.add(iso)
     primary["items"].sort(key=lambda r: (-r["level"], r["country"]))
     primary["count"] = len(primary["items"])
     primary["matched"] = sum(1 for i in primary["items"] if i["iso"])
