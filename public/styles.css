@@ -572,6 +572,12 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .grF  { background: #b00020; }
 .grx  { background: var(--soft); color: var(--gray); }
 .hzmark { font-size: 12px; margin-left: 3px; cursor: help; }
+/* The hazard mark rides the pill's corner instead of sitting after it: inline, a
+   narrow weather column breaks the line and that row alone grows a second line.
+   Absolute takes it out of line layout, so the break cannot happen at any column
+   width — and it costs the row no height. */
+.pillwrap { position: relative; display: inline-block; }
+.pillwrap .hzmark { position: absolute; top: -7px; right: -9px; margin: 0; font-size: 10px; line-height: 1; }
 .gradetable td.overall { white-space: nowrap; }
 
 /* visa pill (an <a> when an official link exists) */

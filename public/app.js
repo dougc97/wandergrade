@@ -2623,7 +2623,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}">${gradePill(s.afford, affordTitle(s))}</td>
       <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl)}</td>
-      <td class="scell" data-go="weather" data-iso="${iso}">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</td>
+      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span></td>
       <td class="scell" data-go="flights" data-iso="${iso}">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
             : gradePill(s.fly, "Flight deal vs the typical fare for this distance · click for exact prices")}</td>
