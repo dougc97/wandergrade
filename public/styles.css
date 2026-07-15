@@ -470,6 +470,13 @@ small { color: var(--gray); font-weight: 400; }
   /* Safety's table was pinned at 560 in 347 — 213px hidden, cutting the advisory
      text mid-word. It fits unpinned. */
   #advTable { min-width: 0; }
+  /* The long currency names were the real column hog: "Bosnia-Herzegovina
+     Convertible Mark" wrapped to three lines and stood its row up at 107px while
+     starving Price level next to it. Ellipsis instead — the code above it (BAM)
+     is the identifier, the name is a gloss — which drops the median row 72 -> 55,
+     the worst 107 -> 58, and hands Price level the width it was missing. */
+  #rates td:first-child { max-width: 104px; }
+  #rates .curcell .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }

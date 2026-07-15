@@ -79,9 +79,14 @@ async function postJSON(url, body) {
 }
 
 function fmt(n) {
-  // Compact but readable for both 0.85 and 18070.
-  if (n >= 1000) return n.toLocaleString(undefined, { maximumFractionDigits: 0 });
-  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+  // Decimals scale with magnitude, so every rate reads to about four significant
+  // figures and none of them are longer than they need to be. A flat one decimal
+  // would round the euro to 0.9 and the dinar to 0.3 — precision that matters at
+  // that scale — while 336.2501 was four digits of noise eating the column next
+  // to it. Yields 18,067 · 336.3 · 47.03 · 0.8612.
+  const a = Math.abs(n);
+  const dp = a >= 1000 ? 0 : a >= 100 ? 1 : a >= 1 ? 2 : 4;
+  return n.toLocaleString(undefined, { maximumFractionDigits: dp });
 }
 
 function rangeMarker(r) {
@@ -344,7 +349,7 @@ function renderRates(data) {
     tr.innerHTML = `
       <td><div class="curcell"><span class="curflag">${flag}</span><div><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div></div></div></td>
       <td class="num">${fmt(r.rate_now)}</td>
-      <td class="num ${sign}">${r.strength_pct >= 0 ? "+" : ""}${r.strength_pct}%</td>
+      <td class="num ${sign}">${r.strength_pct >= 0 ? "+" : ""}${r.strength_pct.toFixed(1)}%</td>
       <td class="num">${pl == null ? "—" : pl.toFixed(2) + " " + plTag(pl)}</td>
       <td class="num">${rangeMarker(r)}</td>`;
     tbody.appendChild(tr);
@@ -948,7 +953,9 @@ function plWord(pl) { return pl < 0.55 ? "very cheap" : pl < 0.85 ? "cheap" : pl
 function plTag(pl) {
   const w = plWord(pl);
   const cls = pl <= 0.85 ? "pos" : pl > 1.15 ? "neg" : "";
-  return `<span class="${cls}" style="font-size:11px">${w}</span>`;
+  // nowrap: "very cheap" is one phrase, and a narrow column split it across two
+  // lines under the number, making the row three deep to say two words.
+  return `<span class="${cls}" style="font-size:11px;white-space:nowrap">${w}</span>`;
 }
 function affordColor(pl) {
   return pl <= 1 ? mix("#eef0f1", "#0a7d28", Math.min(1, (1 - pl) / 0.8))
