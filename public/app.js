@@ -116,12 +116,21 @@ function fmtMonth(iso) {
 }
 
 const DAY_LABEL = { 30: "1 month", 90: "3 months", 180: "6 months", 365: "1 year" };
+// The FX free tier only reaches ~366 days back, so rates.py caps history at 364 —
+// which meant asking for a year got 364 days, missed this map's exact 365 key, and
+// printed a raw "364d" at people. Nobody is served by that pedantry: snap to the
+// named window when we're within a week of it. The subtitle prints the exact dates
+// either way, so precision isn't lost, only the noise.
+function dayLabel(days) {
+  for (const d of Object.keys(DAY_LABEL)) if (Math.abs(days - d) <= 7) return DAY_LABEL[d];
+  return days + "d";
+}
 
 function renderIndex(data) {
   const pts = data.index || [];
   const chg = data.index_change_pct || 0;
   const up = chg >= 0;
-  const label = DAY_LABEL[data.days] || (data.days + "d");
+  const label = dayLabel(data.days);
 
   $("indexnow").textContent = pts.length ? pts[pts.length - 1].value.toFixed(1) : "—";
   const chgEl = $("indexchg");
@@ -331,8 +340,12 @@ function renderRates(data) {
   $("vsAvgHead").title = `vs its own 1-year average — positive = ${w} is stronger than usual`;
   $("asof").textContent = "As of " + data.as_of;
   const fav = data.rows.filter((r) => r.favorable && r.watched);
+  // "364-day avg" was the history cap leaking into the copy; the column header one
+  // line over already calls the same number a 1-year average, so say that here too.
+  // Hyphenate as a compound modifier: "1 year" -> "1-year avg", "6 months" -> "6-month".
+  const avgSpan = dayLabel(data.baseline_days).replace(/^(\d+) (\w+?)s?$/, "$1-$2");
   $("summary").textContent =
-    `${data.rows.length} currencies · ${fav.length} favorable (≥ +${data.threshold_pct}% vs ${data.baseline_days}-day avg)`;
+    `${data.rows.length} currencies · ${fav.length} favorable (≥ +${data.threshold_pct}% vs ${avgSpan} avg)`;
 
   const adv = advisoryByIso();
   const tbody = $("rows");
@@ -2705,8 +2718,12 @@ async function goToDetail(go, iso) {
     const r = document.querySelector(`#${tbodyId} tr[data-iso="${iso}"]`);
     return r ? r.children[0].textContent.trim() : countryName(iso);
   };
+  // Jumping to a specific country must never land on an empty table, so reveal
+  // Level 3–4 if that's what's being asked for. Not persisted: this is one look
+  // at one country, not a standing preference. Applies to every risk-filtered
+  // sub-tab now, not just currency.
+  if ((advisoryByIso()[iso] || 0) >= 3 && !showRisky) setShowRisky(true, false);
   if (go === "currency") {
-    if (advisoryByIso()[iso] >= 3 && $("curRisky")) $("curRisky").checked = true;  // reveal if risk-hidden
     $("curFilter").value = code || countryName(iso); applyCurrencyFilter(); scrollTo("#dataSubCurrency .tablewrap");
   } else if (go === "afford") {
     $("affFilter").value = rowName("affRows"); applyAffordFilter(); scrollTo("#affTable");
@@ -3026,17 +3043,46 @@ function filterRows(tbodyId, predicate) {
 }
 const _q = (id) => (($(id) && $(id).value) || "").trim().toLowerCase();
 
+// "Include higher-risk (L3–4)" is one answer for the Data tab, not one per table.
+// Currency hid Level 3–4 by default; Cost of living and Flights had no such filter
+// at all, so Iran and Afghanistan (both Do Not Travel) sat at the top of Cost of
+// living while the same countries were hidden one sub-tab over. Three checkboxes,
+// one state — mirrored, the way the currency pickers are.
+const RISKY_KEY = "wg_showrisky";
+let showRisky = localStorage.getItem(RISKY_KEY) === "1";
+const RISKY_BOXES = ["curRisky", "affRisky", "flightRisky"];
+
+function riskyOf(tr) {
+  // Currency rows carry data-adv; the others carry the iso, so look it up.
+  const d = parseInt(tr.dataset.adv || "0", 10);
+  if (d) return d >= 3;
+  const lvl = tr.dataset.iso ? advisoryByIso()[tr.dataset.iso] : 0;
+  return (lvl || 0) >= 3;
+}
+
+function setShowRisky(on, persist) {
+  showRisky = !!on;
+  if (persist) localStorage.setItem(RISKY_KEY, showRisky ? "1" : "0");
+  for (const id of RISKY_BOXES) {
+    const el = $(id);
+    if (el && el.checked !== showRisky) el.checked = showRisky;
+  }
+  applyCurrencyFilter(); applyAffordFilter(); applyFlightFilter();
+}
+
 function applyCurrencyFilter() {
   const q = _q("curFilter");
-  const showRisky = $("curRisky") && $("curRisky").checked;
   filterRows("rows", (tr) => {
-    if (!showRisky && parseInt(tr.dataset.adv || "0", 10) >= 3) return false;
+    if (!showRisky && riskyOf(tr)) return false;
     return !q || tr.textContent.toLowerCase().includes(q);
   });
 }
 function applyAffordFilter() {
   const q = _q("affFilter");
-  filterRows("affRows", (tr) => !q || tr.textContent.toLowerCase().includes(q));
+  filterRows("affRows", (tr) => {
+    if (!showRisky && riskyOf(tr)) return false;
+    return !q || tr.textContent.toLowerCase().includes(q);
+  });
 }
 function applyAdvFilter() {
   const q = _q("advFilter");
@@ -3047,15 +3093,25 @@ function applyAdvFilter() {
 }
 function applyFlightFilter() {
   const q = _q("flightFilter");
-  filterRows("flightRows", (tr) => !q || tr.textContent.toLowerCase().includes(q));
+  filterRows("flightRows", (tr) => {
+    if (!showRisky && riskyOf(tr)) return false;
+    return !q || tr.textContent.toLowerCase().includes(q);
+  });
 }
 // Wire filter controls once (elements are static in the markup).
-[["curFilter", applyCurrencyFilter], ["curRisky", applyCurrencyFilter],
+// The Safety sub-tab is deliberately absent: listing advisories is its whole job,
+// and it has its own level select. Hiding Level 4 there would hide the point.
+[["curFilter", applyCurrencyFilter],
  ["affFilter", applyAffordFilter], ["advFilter", applyAdvFilter],
  ["advLevel", applyAdvFilter], ["flightFilter", applyFlightFilter]
 ].forEach(([id, fn]) => {
   const el = $(id);
   if (el) el.addEventListener(el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input", fn);
+});
+// All three risk checkboxes drive the one shared answer.
+RISKY_BOXES.forEach((id) => {
+  const el = $(id);
+  if (el) { el.checked = showRisky; el.addEventListener("change", () => setShowRisky(el.checked, true)); }
 });
 
 // ===========================================================================
@@ -3800,12 +3856,17 @@ async function setDataMode(mode) {
     x.classList.toggle("active", x.dataset.dm === mode);
   for (const m in DATA_SUBS) $(DATA_SUBS[m]).hidden = m !== mode;
   try {
+    // Every risk-filtered view needs the advisories to know what to hide — this
+    // used to be loaded for the currency table alone, which is half of why Cost
+    // of living showed Iran: no filter, and nothing to filter with.
+    if (mode !== "advisory" && !loaded.risk) {
+      await ensureAdvisories().catch(() => {});
+      loaded.risk = true;
+    }
     if (mode === "currency") {
       if (!lastIndexData) loadIndex(activeDays);   // deferred from init
-      // Load advisories so the hide-higher-risk filter works, then re-render
-      // the (already-populated) rates table to tag rows + apply the filter.
+      // Re-render the (already-populated) rates table so rows carry their level.
       if (!loaded.curRisk) {
-        await ensureAdvisories().catch(() => {});
         loaded.curRisk = true;
         if (dataRates) renderRates(dataRates);
       }

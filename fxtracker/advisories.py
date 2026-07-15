@@ -61,6 +61,14 @@ ALIASES = {
     "bahrain": "BH", "comoros": "KM", "solomon islands": "SB", "hong kong": "HK",
     "macau": "MO", "sao tome and principe": "ST", "maldives": "MV",
     "mauritius": "MU", "kingdom of denmark": "DK",
+    # Names the feed publishes that the map spells differently. Without these the
+    # country silently has no advisory and safetyPill() reads it as Level 2 — so
+    # Kyrgyzstan (actually Level 1) was being marked down, not up.
+    "kyrgyz republic": "KG", "kyrgyzstan": "KG",
+    "federated states of micronesia": "FM",
+    "turks and caicos islands": "TC", "montserrat": "MS",
+    "saint kitts and nevis": "KN", "saint vincent and the grenadines": "VC",
+    "french guiana": "GF",
 }
 
 
