@@ -271,12 +271,14 @@
     <div class="bar">
       <div class="windowtoggle" id="dataMode">
         <button data-dm="currency" class="active">💱 Currency</button>
-        <button data-dm="afford">💰 Cost of living</button>
+        <button data-dm="afford">💰 <span class="lbl-lg">Cost of living</span><span class="lbl-sm">Cost</span></button>
         <button data-dm="advisory">⚠️ Safety</button>
         <button data-dm="flights">✈️ Flights</button>
       </div>
       <div class="actions">
-        <button id="refresh">Refresh</button>
+        <!-- aria-label, not title: with the word hidden the accessible name would
+             otherwise be the bare "↻" glyph. -->
+        <button id="refresh" aria-label="Refresh" title="Refresh"><span class="lbl-lg">Refresh</span><span class="lbl-sm">↻</span></button>
         <button id="check">Check &amp; email now</button>
         <button id="toggleSettings">Settings</button>
       </div>
@@ -289,7 +291,7 @@
           <span id="summary"></span>
         </div>
         <span class="pickgroup" title="see everything from another home currency's point of view">
-          <span class="picklabel">💱 My currency</span>
+          <span class="picklabel">💱 <span class="lbl-lg">My currency</span></span>
           <select id="dataBase"></select>
         </span>
       </div>

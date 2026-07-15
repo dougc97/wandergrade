@@ -164,8 +164,11 @@ html[data-tab="data"]    #tab-data { display: block; }
      row and the country picker shrank to 6px wide rather than wrapping. */
   /* Here the country combo IS a direct child of .pickers (Top Picks nests its
      combos inside a .pickgroup), so it takes the floor above like its siblings —
-     a min-width:0 rule aimed at the nested case collapsed it to 16px instead. */
-  #tab-guide .pickers > * { flex: 1 1 140px; min-width: 140px; }
+     a min-width:0 rule aimed at the nested case collapsed it to 16px instead.
+     100 rather than 140: all three then fit one 34px row instead of two (74px).
+     A long country truncates in the box, which is fine — the H2 right above it
+     already reads "Travel Guide — 🇯🇵 Japan". */
+  #tab-guide .pickers > * { flex: 1 1 100px; min-width: 100px; }
   #tab-guide .pickers .combo-input { width: 100%; min-width: 0; }
   #tab-guide .pickers select { width: 100%; }
   /* The three jump chips needed 357 against 345 — twelve pixels short, and paid a
@@ -426,7 +429,20 @@ small { color: var(--gray); font-weight: 400; }
   /* Every data sub-tab label was wrapping inside its own button ("Cost of
      living" over two lines), standing the row up at 49px to say four words.
      nowrap at 12px keeps all four on one 32px row. */
-  #tab-data .windowtoggle button { white-space: nowrap; font-size: 12px; padding: 5px 8px; }
+  #tab-data .windowtoggle button { white-space: nowrap; font-size: 12px; padding: 5px 6px; }
+  /* Refresh sat alone on a 34px row (its two neighbours are owner-only and hidden
+     in public mode). With "Cost of living" short and Refresh down to its glyph,
+     the sub-tabs and Refresh share one row: 102px -> 55px. */
+  #tab-data > .bar { flex-wrap: nowrap; }
+  #tab-data > .bar .windowtoggle { min-width: 0; }
+  #tab-data > .bar .actions { flex-shrink: 0; }
+  /* "As of…" and the currency picker each took a row for one line of text and one
+     field. Side by side: 108px -> 76px. */
+  #dataSubCurrency > .bar { flex-wrap: nowrap; gap: 8px; }
+  #dataSubCurrency > .bar .meta { flex: 1 1 0; min-width: 0; }
+  #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 140px; }
+  #dataSubCurrency > .bar .pickgroup .combo { min-width: 0; flex: 1; }
+  #dataSubCurrency > .bar .pickgroup .combo-input { width: 100%; min-width: 0; }
 }
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
