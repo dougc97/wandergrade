@@ -96,11 +96,15 @@
            lives one tap away in the Filters fold. -->
       <div class="pickers pickersmain">
         <span class="pickgroup" title="when you're going">
-          <span class="picklabel">I'm going in</span>
+          <!-- "I'm going in" costs 81px of a 169px group on a phone, squeezing the
+               month itself down to 55px. "When" says the same thing in 39px. -->
+          <span class="picklabel"><span class="lbl-lg">I'm going in</span><span class="lbl-sm">When</span></span>
           <select id="valueMonth" title="travel month"></select>
         </span>
         <span class="pickgroup" title="your home country — sets flight prices, visas and what 'cheap' is compared to">
-          <span class="picklabel">✈️ From</span>
+          <!-- The plane alone carries "from where" on a phone, and the 33px it
+               saves is what lets "United Kingdom" render without clipping. -->
+          <span class="picklabel"><span class="lbl-lg">✈️ From</span><span class="lbl-sm">✈️</span></span>
           <select id="valueOrigin"></select>
         </span>
       </div>

@@ -122,6 +122,36 @@ html[data-tab="data"]    #tab-data { display: block; }
   .tabs { gap: 0 4px; }
   .tabs button { padding: 9px 5px; font-size: 12px; }
 }
+@media (min-width: 375px) and (max-width: 600px) {
+  /* Same 375 floor as the tabs, and for the same reason: below it a 320px screen
+     starves the combos (70px/96px — everything clips) and pinning Surprise me
+     beside the heading actually costs 12px, because the subtitle then wraps to
+     more lines than the button saves. Under 375 the stacked default is better.
+
+     The two hero pickers each ate a full row (279px and 251px against 333px of
+     card), stacking into 104px for what is really one question: when, and from
+     where. Side by side they cost 48px.
+     An even split only works once the labels shrink: measured at 375, "When" +
+     "✈️" leave combos of 97px and 123px, which fit "September", "United States"
+     and "United Kingdom" without clipping. Weighting the origin wider actually
+     made it worse — it starved the month below "September". */
+  /* Qualified with .picklabel to outrank the base `.lbl-sm { display: none }`,
+     which sits further down the file — a media query lends no specificity, so
+     the bare selector loses and hides BOTH labels, leaving the field unnamed. */
+  .picklabel .lbl-lg { display: none; }
+  .picklabel .lbl-sm { display: inline; }
+  .pickersmain { flex-wrap: nowrap; }
+  .pickersmain .pickgroup { flex: 1 1 0; min-width: 0; }
+  /* The <select> is swapped for a .combo at runtime, so the combo is what has to
+     be allowed to shrink — min-width:auto on a flex item would refuse. */
+  .pickersmain .combo { min-width: 0; flex: 1; }
+  .pickersmain .combo-input { width: 100%; min-width: 0; }
+  /* Surprise me wrapped to its own line, spending 33px to say what fits beside
+     the heading. The subtitle takes the second line instead. */
+  #tab-value .charthead { flex-wrap: nowrap; gap: 10px; }
+  #tab-value .charthead > div { flex: 1 1 auto; min-width: 0; }
+  #tab-value .surprisebtn { flex-shrink: 0; }
+}
 @media (max-width: 374px) {
   /* Below 375 there is no honest one-row answer: a 320px screen offers 280px
      and the four tabs need 286 even at 11px type — only dropping the emoji
@@ -485,6 +515,9 @@ footer a { color: var(--gray); }
 @keyframes wgpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
 @media (prefers-reduced-motion: reduce) { #musicBtn.playing { animation: none; } }
 .rowsplit { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* Short forms of the picker labels; only ever visible on a phone (see the 600px
+   query), where the long form eats the field it labels. */
+.lbl-sm { display: none; }
 .pickgroup { display: inline-flex; align-items: center; gap: 7px; background: var(--soft);
   border-radius: 8px; padding: 4px 8px 4px 10px; white-space: nowrap; }
 .rankby { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
