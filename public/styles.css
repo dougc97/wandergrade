@@ -398,9 +398,13 @@ small { color: var(--gray); font-weight: 400; }
 .windowtoggle { display: inline-flex; gap: 4px; margin-top: 10px; background: var(--soft); padding: 3px; border-radius: 8px; }
 /* ...but not when it's one control in a centered row: align-items centres the
    MARGIN box, so that 10px top pushed Been/Want-to-go 5px below the search field
-   and buttons beside it. The margin is still wanted where the toggle sits under
-   something (the 1M/3M/6M row, the map-mode switch). */
-.pickers .windowtoggle { margin-top: 0; }
+   beside it, and the data sub-tabs 5px below Refresh. The margin is still wanted
+   where the toggle sits under something (the 1M/3M/6M row, the map-mode switch). */
+.pickers .windowtoggle, .bar .windowtoggle { margin-top: 0; }
+/* That margin was doing two jobs: aligning nothing, and holding the sub-tabs off
+   the tab nav above. Put the gap on the container, where it spaces the row
+   without shifting one item inside it. */
+#tab-data > .bar { margin-top: 10px; }
 .windowtoggle button { border: none; background: transparent; padding: 5px 12px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--gray); }
 .windowtoggle button.active { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 
@@ -451,6 +455,12 @@ small { color: var(--gray); font-weight: 400; }
   #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 140px; }
   #dataSubCurrency > .bar .pickgroup .combo { min-width: 0; flex: 1; }
   #dataSubCurrency > .bar .pickgroup .combo-input { width: 100%; min-width: 0; }
+  /* Filter box and risk checkbox on one row: the search field's 220px floor and
+     the full label (267px) can't share 347px, so the field gives up its floor and
+     the label uses its short form. */
+  .filterbar { flex-wrap: nowrap; gap: 8px; }
+  .filterbar .tablefilter { min-width: 0; flex: 1 1 auto; }
+  .filterbar .chk { flex-shrink: 0; }
 }
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
