@@ -53,6 +53,11 @@ CADENCES = ("monthly", "quarterly", "off")
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$")
 
+# Identify ourselves on every outbound call. Both APIs sit behind Cloudflare,
+# whose Browser Integrity Check answers urllib's default "Python-urllib/3.x"
+# with 403 "error code: 1010" — a ban on the User-Agent, not on the credentials.
+_UA = "Wandergrade/1.0 (+https://wandergrade.com)"
+
 
 def _env(name, default=""):
     return os.environ.get(name, default).strip()
@@ -84,7 +89,8 @@ def _redis(*cmd):
         base,
         data=json.dumps([str(c) for c in cmd]).encode("utf-8"),
         headers={"Authorization": "Bearer " + token,
-                 "Content-Type": "application/json"},
+                 "Content-Type": "application/json",
+                 "User-Agent": _UA},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=10, context=rates._SSL) as r:
@@ -132,7 +138,8 @@ def _send_mail(to, subject, html):
             "html": html,
         }).encode("utf-8"),
         headers={"Authorization": "Bearer " + _env("RESEND_API_KEY"),
-                 "Content-Type": "application/json"},
+                 "Content-Type": "application/json",
+                 "User-Agent": _UA},
         method="POST",
     )
     try:
@@ -284,7 +291,8 @@ def _sync_newsletter(email, user):
     key = _env("BUTTONDOWN_API_KEY")
     if not key:
         return
-    hdrs = {"Authorization": "Token " + key, "Content-Type": "application/json"}
+    hdrs = {"Authorization": "Token " + key, "Content-Type": "application/json",
+            "User-Agent": _UA}
     try:
         if user.get("subscribed") and user.get("cadence") != "off":
             body = json.dumps({"email_address": email,
