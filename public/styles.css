@@ -771,7 +771,20 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   .gradetable td.dest { font-size: 14px; }
   .gr { min-width: 22px; padding: 2px 5px; font-size: 12px; }
   .visa { padding: 2px 6px; font-size: 11px; }
-  .gradewrap .gradetable { min-width: 600px; }
+  /* The 600px pin put Weather, Flights and — worst — Overall past the right edge
+     of a 345px phone: 255px hidden, including the column the table is sorted by
+     and the verdict the whole product exists to give. Dropping the header words
+     to their emoji brings the table to 345 exactly, so every grade is on screen
+     with no sideways scroll. Full words need 511; "Afford/Safe/Wx/Fly" still
+     needs 390 — the emoji is the only thing that actually fits.
+     The words stay in the DOM, clipped, so screen readers still announce the
+     column rather than reading an emoji name. Overall keeps its word: it fits,
+     and it is the one users look for. */
+  .gradewrap .gradetable { min-width: 0; }
+  .gradetable th .thword {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
 }
 
 /* ---- dark theme ---- */

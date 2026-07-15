@@ -2632,10 +2632,10 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   }).join("");
   host.innerHTML = `<table class="gradetable">
     <thead><tr><th></th><th class="dest${sc}"${sa("dest")}>Destination</th>
-      <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now">💰 Affordability</th>
-      <th class="${sc.trim()}"${sa("safety")} title="US State Dept advisory level">🛡️ Safety</th>
-      <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month">🌤️ Weather</th>
-      <th class="${sc.trim()}"${sa("flights")} title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ Flights</th>
+      <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now">💰 <span class="thword">Affordability</span></th>
+      <th class="${sc.trim()}"${sa("safety")} title="US State Dept advisory level">🛡️ <span class="thword">Safety</span></th>
+      <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month">🌤️ <span class="thword">Weather</span></th>
+      <th class="${sc.trim()}"${sa("flights")} title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ <span class="thword">Flights</span></th>
       <th class="${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
