@@ -303,7 +303,9 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .chiplabel { font-size: 12px; font-weight: 700; color: var(--gray); margin-right: 2px; }
 
 /* advisory level badges */
-.lvl { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }
+/* nowrap: "Level 1" is one token to a reader, and a narrow column would otherwise
+   break it across two lines inside the pill and stand the whole row up. */
+.lvl { display: inline-block; white-space: nowrap; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }
 .lvl1 { background: #0a7d28; } .lvl2 { background: #c9a200; } .lvl3 { background: #d4730a; } .lvl4 { background: #b00020; }
 
 header { padding-top: 28px; }
@@ -455,12 +457,18 @@ small { color: var(--gray); font-weight: 400; }
   #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 140px; }
   #dataSubCurrency > .bar .pickgroup .combo { min-width: 0; flex: 1; }
   #dataSubCurrency > .bar .pickgroup .combo-input { width: 100%; min-width: 0; }
-  /* Filter box and risk checkbox on one row: the search field's 220px floor and
-     the full label (267px) can't share 347px, so the field gives up its floor and
-     the label uses its short form. */
-  .filterbar { flex-wrap: nowrap; gap: 8px; }
-  .filterbar .tablefilter { min-width: 0; flex: 1 1 auto; }
-  .filterbar .chk { flex-shrink: 0; }
+  /* Every filter bar goes to one row: the search field gives up its 220px floor
+     and its partner (checkbox, level select) keeps its size.
+     Qualified with #tab-data because the base `.filterbar { flex-wrap: wrap }`
+     lives ~600 lines further down, and a media query lends no specificity — the
+     bare selector loses and the bar silently keeps wrapping. */
+  #tab-data .filterbar { flex-wrap: nowrap; gap: 8px; }
+  #tab-data .filterbar .tablefilter { min-width: 0; flex: 1 1 auto; }
+  #tab-data .filterbar .chk,
+  #tab-data .filterbar select { flex-shrink: 0; }
+  /* Safety's table was pinned at 560 in 347 — 213px hidden, cutting the advisory
+     text mid-word. It fits unpinned. */
+  #advTable { min-width: 0; }
 }
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
