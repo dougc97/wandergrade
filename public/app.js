@@ -2246,6 +2246,18 @@ function buildValueTab() {
     localStorage.setItem("fx_pickcount", $("pickCount").value);
     renderValue();
   });
+  // Budget + days. Persisted like the other filters, and re-rendered on `input`
+  // rather than `change` so typing a figure updates the picks as you go.
+  for (const [id, key] of [["budgetTotal", "wg_budget"], ["budgetDays", "wg_budgetdays"]]) {
+    const el = $(id);
+    if (!el) continue;
+    const saved = localStorage.getItem(key);
+    if (saved) el.value = saved;
+    el.addEventListener("input", () => {
+      localStorage.setItem(key, el.value);
+      renderValue();
+    });
+  }
   const sf = localStorage.getItem("fx_safefloor");
   if (sf && ["a", "b", "any"].includes(sf)) $("safeFloor").value = sf;
   $("safeFloor").addEventListener("change", () => {
@@ -2617,6 +2629,54 @@ function safetyFloor() {
   const v = (sel && sel.value) || localStorage.getItem("fx_safefloor") || "b";
   return ["a", "b", "any"].includes(v) ? v : "b";
 }
+// ---- budget ---------------------------------------------------------------
+// "I have $2000 and 10 days — where can I actually go?"
+//
+// The obvious way to answer that needs a daily-cost number per country, and we
+// don't have one: the PPP feed gives a price LEVEL (how local prices compare to
+// home), not dollars. Turning that into "$47/day in Vietnam" needs an anchor —
+// "a day of travel at home costs $X" — and no government publishes it. Inventing
+// one and then eliminating countries on the strength of it would be the site's
+// worst habit: a confident number nobody can check.
+//
+// So this doesn't invent the anchor, it removes the need for one. Two answers,
+// both from data we actually hold:
+//   1. The flight is real money (cached Travelpayouts fares). If it alone exceeds
+//      the budget, the trip is impossible — no assumptions required.
+//   2. What's left, per day, converted into home-money terms by the price level.
+//      "$110/day, which buys what $260/day buys at home." The traveler knows
+//      whether that's comfortable; we don't.
+// Whole dollars: cents on a $260/day estimate would imply a precision that isn't
+// there — the fare is a cached average and the price level is an annual index.
+function fmtMoney(n) {
+  return "$" + Math.round(n).toLocaleString();
+}
+
+function budgetOf() {
+  const t = parseFloat(($("budgetTotal") || {}).value);
+  const d = parseInt(($("budgetDays") || {}).value, 10);
+  return { total: t > 0 ? t : null, days: d > 0 ? d : 10 };
+}
+
+// Null when there's no budget set or no fare to reason from — callers treat that
+// as "no opinion", never as "affordable".
+function budgetFit(s) {
+  const { total, days } = budgetOf();
+  if (!total || s.fare == null) return null;
+  const left = total - s.fare;
+  const perDay = left / days;
+  // s.pl is already relative to the traveler's home country, so dividing by it
+  // converts local spending power back into home money.
+  const homeEquiv = s.pl > 0 ? perDay / s.pl : null;
+  return { total, days, fare: s.fare, fareEst: s.fareEst, left,
+           perDay, homeEquiv, impossible: left <= 0 };
+}
+
+function passesBudget(s) {
+  const f = budgetFit(s);
+  return !f || !f.impossible;
+}
+
 function passesFloor(s, floor) {
   return floor === "any" || (floor === "a" ? s.advLvl === 1 : s.advLvl !== 3);
 }
@@ -2633,6 +2693,15 @@ function whyLine(s, month) {
     else bits.push("pricier than home");
   }
   if (s.fx != null && s.fx >= 2) bits.push(`${money} is unusually strong there right now`);
+  // Only when a budget is set. Says what the flight leaves and what it's worth
+  // there, and admits when the fare is a distance estimate rather than a seen one.
+  const bf = budgetFit(s);
+  if (bf && !bf.impossible) {
+    bits.push(`${fmtMoney(bf.fare)} flight${bf.fareEst ? " (est.)" : ""} leaves `
+      + `${fmtMoney(bf.perDay)}/day`
+      + (bf.homeEquiv && s.pl < 0.95
+          ? ` — like ${fmtMoney(bf.homeEquiv)}/day at home` : ""));
+  }
   if (s.wx >= 75) bits.push(`great weather in ${MONTHS[month - 1]}`);
   else if (s.wx >= 55) bits.push(`decent weather in ${MONTHS[month - 1]}`);
   if (s.advLvl === 1) bits.push("safest travel rating");
@@ -2849,16 +2918,26 @@ function renderValue() {
   // "Somewhere new" (default) keeps your ✓ been countries out of the picks;
   // interests narrow to countries matching any selected tag.
   const showVisited = localStorage.getItem("wg_showvisited") === "1";
-  const eligible = rankedAll.filter((s) =>
+  const preBudget = rankedAll.filter((s) =>
     (showVisited || !visited.has(s.iso)) && passesFloor(s, floor) && matchesInterests(s.iso));
+  const eligible = preBudget.filter(passesBudget);
+  // Counted so the note can say the filter did something. At a roomy budget it
+  // drops nothing, and a control that silently changes nothing reads as broken.
+  const outOfReach = preBudget.length - eligible.length;
   const popular = eligible.filter((s) => popularSet.has(s.iso));
   const offbeat = eligible.filter((s) => !popularSet.has(s.iso));
   // Fall back to the full list if no popular destinations match the filters.
   const picks = (popular.length ? popular : eligible).slice(0, pickCount());
   const picksNote = $("picksNote");
-  if (picksNote) picksNote.innerHTML = popular.length
+  const bud = budgetOf();
+  const budNote = bud.total
+    ? ` 💵 <b>${fmtMoney(bud.total)} for ${bud.days} days</b>`
+      + (outOfReach ? ` — ${outOfReach} ${outOfReach === 1 ? "country is" : "countries are"} out of reach on the flight alone.` : " — every pick below is reachable.")
+      + ` <span class="muted" data-tip="Flights are real cached fares. What's left is your budget minus the fare, spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
+    : "";
+  if (picksNote) picksNote.innerHTML = (popular.length
     ? `🌍 Popular destinations, ranked by value${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
-    : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.";
+    : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.") + budNote;
   lastPicks = picks; lastPicksMonth = month;   // for the AI export + re-sort
   renderGradeTable($("topCards"), picks, month, false, true);
   // "Show more" reveals 10 then 20; hides when maxed out or nothing left.

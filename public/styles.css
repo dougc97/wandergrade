@@ -79,6 +79,10 @@ html[data-tab="data"]    #tab-data { display: block; }
 .cardwide { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 16px; }
 .pickers { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius: 7px; font-size: 14px; background: var(--card); }
+/* Budget/days boxes: same shell as select, sized to the number rather than the
+   browser's default input width, which is far too wide for four digits. */
+.numin { padding: 7px 10px; border: 1px solid var(--border-input); border-radius: 7px;
+  font-size: 14px; background: var(--card); color: var(--ink); width: 76px; }
 
 /* best-time by country */
 .bestdetail { margin-top: 14px; }
