@@ -195,6 +195,44 @@ def _gem_line(s, month):
         _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]))
 
 
+# One line of human at the end of a page of grades. Every author here died long
+# before 1929, so the text is public domain and safe to print — and every quote is
+# cited to the work it's actually from.
+#
+# That sourcing is the point, not pedantry. The best-known travel quotes are mostly
+# misattributed: "the world is a book and those who do not travel read only one
+# page" is not Augustine, "twenty years from now you will be more disappointed by
+# the things you didn't do" is not Twain, and "travel is the only thing you buy
+# that makes you richer" has no author at all. A site that grades transparently
+# cannot print a confident citation it hasn't checked. If you add to this list,
+# add the work — and if you can't name the work, don't add the quote.
+QUOTES = [
+    ("Travel is fatal to prejudice, bigotry, and narrow-mindedness.",
+     "Mark Twain", "The Innocents Abroad, 1869"),
+    ("I travel not to go anywhere, but to go. I travel for travel’s sake.",
+     "Robert Louis Stevenson", "Travels with a Donkey in the Cévennes, 1879"),
+    ("Though we travel the world over to find the beautiful, "
+     "we must carry it with us, or we find it not.",
+     "Ralph Waldo Emerson", "Essays: First Series, 1841"),
+    ("I am tormented with an everlasting itch for things remote.",
+     "Herman Melville", "Moby-Dick, 1851"),
+    ("The mountains are calling and I must go.",
+     "John Muir", "letter to his sister Sarah, 1873"),
+]
+
+
+def _quote_for(year, month):
+    """Deterministic by month: every issue gets a different one, and re-rendering
+    the same issue gets the same one (a random pick would make the archive lie)."""
+    q, who, src = QUOTES[(year * 12 + month) % len(QUOTES)]
+    return (
+        '<p style="font-size:13px;line-height:1.6;color:#666;font-style:italic;'
+        'border-top:1px solid #e0e0e0;margin:20px 0 0;padding-top:16px;text-align:center">'
+        '“{0}”<br>'
+        '<span style="font-style:normal;color:#888">— {1}, <i>{2}</i></span></p>'
+    ).format(_esc(q), _esc(who), _esc(src))
+
+
 def render_digest(data):
     """Return (subject, html_body) for the monthly graded-picks email."""
     mn, yr, m = data["month_name"], data["year"], data["month"]
@@ -238,11 +276,13 @@ def render_digest(data):
     <a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px">See every country’s grades →</a>
   </div>
   <p style="font-size:13px;color:#555;margin:16px 0 0">\U0001f4ac Tell me where you’re headed — just hit reply, or write to <a href="mailto:hello@wandergrade.com" style="color:#555"><b>hello@wandergrade.com</b></a>. I read every message.</p>
+  %s
   <p style="font-size:12px;color:#888;line-height:1.6;border-top:1px solid #e0e0e0;margin-top:14px;padding-top:14px">
     Grades are for a US traveler planning %s travel; set your home country on the site to re-grade for you. Currency data as of %s. Photos via Wikimedia Commons.<br>
     <b>WanderGrade</b> · once a month, no spam · <a href="%s" style="color:#888">wandergrade.com</a> · <a href="%s" style="color:#888">unsubscribe</a>
   </p>
 </div>""" % (_esc(preheader), _esc(mn), yr, _esc(mn), SITE, GREEN, hero, rest, ai_callout,
-             gems_block, month_link, GREEN, _esc(mn), _esc(data["as_of"]), SITE, UNSUB)
+             gems_block, month_link, GREEN, _quote_for(yr, m),
+             _esc(mn), _esc(data["as_of"]), SITE, UNSUB)
 
     return subject, body
