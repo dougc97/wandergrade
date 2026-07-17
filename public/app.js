@@ -4961,6 +4961,7 @@ function sfxLand() {
 // resumed on their first interaction (autoplay policy).
 const MUSIC_KEY = "wg_music";
 let _music = null;
+let _musicStarting = false;   // graph build is waiting on the context to resume
 
 // Warm, floaty loop: Fmaj7 → Am(add9) → Cmaj9 → G6. Frequencies in Hz.
 const MUSIC_CHORDS = [
@@ -5069,9 +5070,24 @@ function musicMelody() {
   _music.melodyTimer = setTimeout(musicMelody, 3500 + Math.random() * 5500);
 }
 
+// resume() is async and the AudioContext clock stays frozen until it resolves;
+// building the graph before then schedules every note against a stopped clock, so
+// when the context finally starts they're all in the past and nothing is heard —
+// while _music is set and the button reads "playing". Resume first, build after.
 function startMusic() {
   const ac = sfxCtx();
-  if (!ac || _music) return;
+  if (!ac || _music || _musicStarting) return;
+  if (ac.state === "running") { _buildMusic(ac); return; }
+  _musicStarting = true;
+  ac.resume().then(() => {
+    _musicStarting = false;
+    // aria-pressed is the intent; abort if it was toggled off during the resume
+    // gap, or if something already built the graph.
+    const b = $("musicBtn");
+    if (!_music && b && b.getAttribute("aria-pressed") === "true") _buildMusic(ac);
+  }).catch(() => { _musicStarting = false; });
+}
+function _buildMusic(ac) {
   const master = ac.createGain();
   master.gain.setValueAtTime(0.0001, ac.currentTime);
   // Deliberately quiet: ambience should sit under the room, not in it.
