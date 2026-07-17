@@ -5257,9 +5257,15 @@ const _tipEl = document.createElement("div");
 _tipEl.className = "wgtip";
 _tipEl.hidden = true;
 document.body.appendChild(_tipEl);
-function _tipShowFor(e) {
-  const t = e.target.closest && e.target.closest("[data-tip]");
-  if (!t || !t.dataset.tip) { _tipEl.hidden = true; return; }
+let _tipFor = null;   // the element the tooltip is currently displaying for
+
+function _hideTip() { _tipEl.hidden = true; _tipFor = null; }
+
+function _showTipFor(t) {
+  if (!t || !t.dataset.tip) { _hideTip(); return; }
+  // Already showing for this exact element — don't reposition, that just jitters.
+  if (t === _tipFor && !_tipEl.hidden) return;
+  _tipFor = t;
   _tipEl.textContent = t.dataset.tip;
   _tipEl.hidden = false;
   const r = t.getBoundingClientRect();
@@ -5269,11 +5275,40 @@ function _tipShowFor(e) {
   _tipEl.style.left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2)) + "px";
   _tipEl.style.top = (r.top - h - 8 > 8 ? r.top - h - 8 : r.bottom + 8) + "px";
 }
+
+const _tipShowFor = (e) => _showTipFor(e.target.closest && e.target.closest("[data-tip]"));
 document.addEventListener("mouseover", _tipShowFor);
-// Touch screens have no hover — a tap on the element shows the tooltip, a tap
-// anywhere else dismisses it (the closest() miss hides in _tipShowFor).
-document.addEventListener("click", _tipShowFor);
-document.addEventListener("scroll", () => { _tipEl.hidden = true; }, true);
+
+// mouseover fires on ENTERING an element — which never happens when the cursor
+// is stationary and the DOM changes underneath it. Two ways that bit people:
+//   - the tables re-render on every filter/budget change, destroying the hovered
+//     node; the replacement appears under the still cursor with no mouseover, so
+//     the tip wouldn't show until you moved off and back.
+//   - the scroll handler below hides the tip on any scroll (a trackpad twitch
+//     counts), and it wouldn't return without re-entering.
+// A mousemove fallback fixes both cheaply: it only does work while the tip is
+// hidden, or when the element it was showing for has been replaced — so any tiny
+// movement re-shows it, no need to leave and come back.
+document.addEventListener("mousemove", (e) => {
+  if (_tipEl.hidden || (_tipFor && !_tipFor.isConnected)) _tipShowFor(e);
+}, { passive: true });
+
+// Info-only markers (the ⓘ hints and the ⚠️ hazard mark) sit inside clickable
+// rows/cells. A click on one used to bubble to the row's navigation handler and
+// redirect you before you'd read anything — and those handlers run first, so the
+// tip's own click couldn't stop them. Intercept in the CAPTURE phase, which runs
+// before any bubble-phase handler: show the tip, and stop the click there so it
+// never reaches navigation. Interactive tips (continent chips) aren't matched, so
+// they still filter on click.
+document.addEventListener("click", (e) => {
+  const info = e.target.closest && e.target.closest(".hzmark, .muted[data-tip]");
+  if (info) { _showTipFor(info); e.stopPropagation(); return; }
+  // Touch screens have no hover: a tap on any other tipped element shows it, a
+  // tap elsewhere dismisses. (closest() miss hides.)
+  _tipShowFor(e);
+}, true);
+
+document.addEventListener("scroll", _hideTip, true);
 
 (async function init() {
   initTheme();
