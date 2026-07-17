@@ -4028,11 +4028,18 @@ function subscribeFormHTML() {
   const base = "https://buttondown.com/" + BUTTONDOWN_USER;
   if (!BUTTONDOWN_USER)
     return '<span class="hint">📬 Newsletter signup not configured yet — set BUTTONDOWN_USER in app.js.</span>';
+  // embed-subscribe, with a HYPHEN. It was embed/subscribe — a slash — which
+  // Buttondown 404s, so every visitor who ever tried to subscribe landed on
+  // "Not found" and no one was ever added to the list. The endpoint is otherwise
+  // unchanged; nothing here was ever going to reveal it, because the form posts
+  // to a popup and the site never sees the response.
+  // The hidden embed=1 is what Buttondown's own embed docs specify.
   return `<span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
-    <form action="https://buttondown.com/api/emails/embed/subscribe/${BUTTONDOWN_USER}"
+    <form action="https://buttondown.com/api/emails/embed-subscribe/${BUTTONDOWN_USER}"
           method="post" target="popupwindow"
           onsubmit="window.open('${base}','popupwindow')" class="subform">
       <input type="email" name="email" placeholder="you@email.com" required>
+      <input type="hidden" name="embed" value="1">
       <button type="submit">Subscribe</button>
     </form>`;
 }
