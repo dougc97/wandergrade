@@ -868,7 +868,8 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   #tab-guide .pickers select { width: 100%; }
   /* The three jump chips needed 357 against 345 — twelve pixels short, and paid a
      whole second row for it (70px). A hair smaller: one row, 31px. */
-  #tab-guide .guidejump > * { white-space: nowrap; font-size: 12.5px; padding: 6px 9px; }
+  /* (the jump chips moved to the max-width:600 block — they wrap at every phone
+     width, including below 375 where this block does not apply) */
 }
 
 @media (max-width: 374px) {
@@ -971,6 +972,16 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   .pickersmain select, .pickersfilters select { max-width: 100%; }
   .gradetable td { padding: 8px 4px; }
   .gradetable td.dest { font-size: 14px; }
+  /* The destination cell is nowrap with no max-width, so a long country name
+     forces the whole table wider than its container and pushes Overall — the
+     verdict the table exists to deliver — off the right edge. Hidden Gems lost
+     55px to "North Macedonia"; Top Picks only escaped because the countries
+     ranking that day happened to be short, and North Macedonia was #1 in the full
+     ranking the same evening. Ellipsis makes it independent of who ranks. */
+  .gradetable td.dest { max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+  /* Gems sits inside a .foldable, whose 14px side padding costs it 30px against
+     Top Picks — enough on its own to clip a column. */
+  .foldable { padding-left: 8px; padding-right: 8px; }
   .gr { min-width: 22px; padding: 2px 5px; font-size: 12px; }
   .visa { padding: 2px 6px; font-size: 11px; }
   /* The 600px pin put Weather, Flights and — worst — Overall past the right edge
@@ -995,4 +1006,11 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 @media (max-width: 600px) {
   .sumfull { display: none; }
   .sumshort { display: inline; }
+  /* Jump chips live here, NOT in the 375-600 block: they wrap at every phone
+     width, and a 360px Android — a very common size — falls below that floor and
+     was getting no mobile sizing at all, needing 382px in 330. Trimmed they need
+     ~314, which clears 360 and 375 with room. Below ~340 they still take two
+     rows, which is fine; nothing is hidden. */
+  #tab-guide .guidejump { gap: 6px; }
+  #tab-guide .guidejump > * { white-space: nowrap; font-size: 12px; padding: 6px 7px; }
 }
