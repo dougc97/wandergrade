@@ -109,7 +109,12 @@
         </span>
       </div>
       <details class="foldable filtersfold">
-        <summary>⚙️ Filters <span class="muted">— region · currency · safety · what counts</span></summary>
+        <!-- Two lengths: the full list needs 339px and a phone offers 315 (260 at
+             320px), so it wrapped "counts" onto a second line. The short form is
+             three items because that is all that fits at 320. Budget earns its
+             place in both — it is the newest filter and a collapsed panel gave no
+             hint it existed. -->
+        <summary>⚙️ Filters <span class="muted"><span class="sumfull">— region · currency · safety · budget · what counts</span><span class="sumshort">— region · safety · budget</span></span></summary>
         <div class="pickers pickersfilters">
           <span class="pickgroup" title="filter by region">
             <span class="picklabel">Region</span>

@@ -75,6 +75,10 @@ html[data-tab="data"]    #tab-data { display: block; }
    no specificity of their own, so a base rule further down the file would beat
    the overrides below and hide both halves, leaving the control unlabelled. */
 .lbl-sm { display: none; }
+/* Deliberately NOT .lbl-sm: that pair swaps only between 375 and 600px, because
+   it is tied to the pickers going side by side. This line wraps at every phone
+   width, 320 included, so it needs its own switch (see the max-width:600 block). */
+.sumshort { display: none; }
 
 .cardwide { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 16px; }
 .pickers { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -983,4 +987,12 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
     position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
   }
+}
+
+/* The Filters summary is one long line at any phone width — including below 375,
+   where the .lbl-sm pair deliberately does not apply — so it gets its own switch.
+   Full list needs 339px; a phone offers 315, and 260 at 320px. */
+@media (max-width: 600px) {
+  .sumfull { display: none; }
+  .sumshort { display: inline; }
 }
