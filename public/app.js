@@ -4967,10 +4967,12 @@ function sfxLand() {
 }
 
 // ---- ambient soundtrack ------------------------------------------------------
-// Generative ambience synthesized live (Web Audio) — slow stereo pad chords, a
-// soft bass root, a breath of band-passed air, and a sparse kalimba-like
-// melody that follows the chords, all sent through a synthesized reverb and a
-// dub-style echo. No audio files: nothing to download and nothing to license,
+// Generative ambience synthesized live (Web Audio) — bright stereo pad chords on
+// an optimistic I–V–vi–IV, a soft bass root, a breath of band-passed air, and a
+// kalimba-like melody that follows the chords, all sent through a synthesized
+// reverb and a dub-style echo. Tuned to feel like the start of a trip rather than
+// a waiting room: someone here is picking where to go next, and the soundtrack
+// should share the mood. No audio files: nothing to download and nothing to license,
 // and it never loops exactly. Strictly opt-in via the 🎵 header button; the
 // choice persists in localStorage. Returning visitors with music on get it
 // resumed on their first interaction (autoplay policy).
@@ -4978,12 +4980,15 @@ const MUSIC_KEY = "wg_music";
 let _music = null;
 let _musicStarting = false;   // graph build is waiting on the context to resume
 
-// Warm, floaty loop: Fmaj7 → Am(add9) → Cmaj9 → G6. Frequencies in Hz.
+// Cadd9 → G6 → Am7 → Fmaj9 — the I–V–vi–IV that every optimistic song leans on,
+// and starting on the tonic rather than drifting in on the IV, so it reads as
+// confident instead of wistful. Voiced with 9ths up top for sparkle. chord[0] is
+// the root: the bass line halves it, giving C-G-A-F underneath. Frequencies in Hz.
 const MUSIC_CHORDS = [
-  [174.61, 220.00, 261.63, 329.63],
-  [220.00, 246.94, 261.63, 329.63],
-  [130.81, 164.81, 196.00, 293.66],
+  [261.63, 329.63, 392.00, 587.33],
   [196.00, 246.94, 293.66, 329.63],
+  [220.00, 261.63, 329.63, 392.00],
+  [174.61, 261.63, 329.63, 392.00],
 ];
 
 // Synthesized reverb impulse: stereo exponentially-decaying noise. Cheap to
@@ -5005,7 +5010,10 @@ function musicChord() {
   const ac = _sfx;
   const chord = MUSIC_CHORDS[_music.ci++ % MUSIC_CHORDS.length];
   _music.chord = chord;                            // the melody reads this
-  const dur = 14 + Math.random() * 4;
+  // ~8s a chord, not ~16. Harmonic rhythm is most of what "upbeat" means here:
+  // at sixteen seconds a chord the loop reads as weather, at eight it reads as
+  // music that is going somewhere.
+  const dur = 7.5 + Math.random() * 2.5;
   const t0 = ac.currentTime;
   chord.forEach((hz, vi) => {
     [[-5, -0.45], [4, 0.45]].forEach(([cents, panPos]) => {   // stereo spread
@@ -5014,9 +5022,9 @@ function musicChord() {
       o.frequency.value = hz;
       o.detune.value = cents;
       g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.011, t0 + 4);     // slow swell in
-      g.gain.setValueAtTime(0.011, t0 + dur - 5);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);  // slow fade out
+      g.gain.exponentialRampToValueAtTime(0.012, t0 + 1.6);   // arrives, not drifts in
+      g.gain.setValueAtTime(0.012, t0 + dur - 2.6);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
       let tail = o.connect(g);
       if (ac.createStereoPanner) {
         const pan = ac.createStereoPanner();
@@ -5033,13 +5041,15 @@ function musicChord() {
   b.type = "sine";
   b.frequency.value = chord[0] / 2;
   bg.gain.setValueAtTime(0.0001, t0);
-  bg.gain.exponentialRampToValueAtTime(0.02, t0 + 4);
-  bg.gain.setValueAtTime(0.02, t0 + dur - 5);
+  bg.gain.exponentialRampToValueAtTime(0.02, t0 + 1.6);
+  bg.gain.setValueAtTime(0.02, t0 + dur - 2.6);
   bg.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
   b.connect(bg).connect(_music.dry);
   b.start(t0);
   b.stop(t0 + dur + 0.1);
-  _music.timer = setTimeout(musicChord, (dur - 4.5) * 1000);  // overlap swells
+  // Overlap tracks the release: hand over as this chord fades, so the next one
+  // is already blooming. Kept at 4.5s against an 8s chord they would pile up.
+  _music.timer = setTimeout(musicChord, (dur - 2.6) * 1000);
 }
 
 // One kalimba-ish pluck: fast attack, long decay, a quiet octave partial for
@@ -5055,7 +5065,9 @@ function musicPluck(hz, t0, vel) {
   g2.gain.value = 0.35;
   g.gain.setValueAtTime(0.0001, t0);
   g.gain.exponentialRampToValueAtTime(vel, t0 + 0.012);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.2);
+  // 1.7s not 2.2 — with phrases arriving twice as often, a shorter decay keeps
+  // notes articulate instead of smearing into each other.
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.7);
   o.connect(g);
   o2.connect(g2).connect(g);
   let tail = g;
@@ -5065,8 +5077,8 @@ function musicPluck(hz, t0, vel) {
     tail = g.connect(pan);
   }
   tail.connect(_music.pluckBus);
-  o.start(t0);  o.stop(t0 + 2.4);
-  o2.start(t0); o2.stop(t0 + 2.4);
+  o.start(t0);  o.stop(t0 + 1.9);   // matches the shorter decay above
+  o2.start(t0); o2.stop(t0 + 1.9);
 }
 
 // Sparse generative phrases — 1–3 notes from the current chord, an octave or
@@ -5076,13 +5088,16 @@ function musicMelody() {
   const ac = _sfx;
   const chord = _music.chord || MUSIC_CHORDS[0];
   const pool = chord.map((f) => f * 2).concat(chord[0] * 4, chord[2] * 4);
-  const nNotes = 1 + Math.floor(Math.random() * 3);
+  // 2-4 notes, closer together, and a phrase every 1.6-4s instead of every
+  // 3.5-9s. Silence is still part of the instrument — there is just less of it,
+  // so the melody feels like it is leading somewhere rather than punctuating.
+  const nNotes = 2 + Math.floor(Math.random() * 3);
   let t = ac.currentTime + 0.05;
   for (let k = 0; k < nNotes; k++) {
-    musicPluck(pool[Math.floor(Math.random() * pool.length)], t, 0.022 + Math.random() * 0.012);
-    t += 0.22 + Math.random() * 0.28;
+    musicPluck(pool[Math.floor(Math.random() * pool.length)], t, 0.024 + Math.random() * 0.012);
+    t += 0.16 + Math.random() * 0.24;
   }
-  _music.melodyTimer = setTimeout(musicMelody, 3500 + Math.random() * 5500);
+  _music.melodyTimer = setTimeout(musicMelody, 1600 + Math.random() * 2400);
 }
 
 // resume() is async and the AudioContext clock stays frozen until it resolves;
@@ -5115,12 +5130,17 @@ function _buildMusic(ac) {
   const conv = ac.createConvolver();
   conv.buffer = musicIR(ac, 3.5, 2.8);
   const wet = ac.createGain();
-  wet.gain.value = 0.55;
+  // Less wash: at 0.55 the reverb sits in front of the notes, which suits
+  // drifting ambience but blurs a livelier melody. 0.42 keeps the space
+  // without the haze.
+  wet.gain.value = 0.42;
   wet.connect(conv).connect(master);
   // pads: lowpass keeps them soft/hazy, then room + a generous reverb send
   const lp = ac.createBiquadFilter();
   lp.type = "lowpass";
-  lp.frequency.value = 1100;
+  // 2200, not 1100: at 1100 the pads lose their upper partials and read as fog.
+  // Opening it up lets the 9ths through, which is where the brightness lives.
+  lp.frequency.value = 2200;
   lp.Q.value = 0.4;
   lp.connect(dry);
   lp.connect(wet);
@@ -5130,7 +5150,7 @@ function _buildMusic(ac) {
   pluckBus.connect(dry);
   pluckBus.connect(wet);
   const dly = ac.createDelay(1.5);
-  dly.delayTime.value = 0.44;
+  dly.delayTime.value = 0.36;   // tighter echo, so repeats support the faster phrases
   const fb = ac.createGain();
   fb.gain.value = 0.34;
   dly.connect(fb).connect(dly);
@@ -5161,8 +5181,11 @@ function _buildMusic(ac) {
              nodes: [air, lfo], ci: 0, chord: null };
   musicChord();
   // greet the click right away: two soft chord-tone plucks, then the loop
-  musicPluck(523.25, ac.currentTime + 0.05, 0.03);
-  musicPluck(659.25, ac.currentTime + 0.32, 0.024);
+  // A rising C–E–G, quick and in time: the click should feel like a door opening,
+  // not a pad slowly waking up. Two notes read as a chime; three read as "off we go".
+  musicPluck(523.25, ac.currentTime + 0.05, 0.030);
+  musicPluck(659.25, ac.currentTime + 0.22, 0.026);
+  musicPluck(783.99, ac.currentTime + 0.39, 0.022);
   _music.melodyTimer = setTimeout(musicMelody, 1600);
 }
 
