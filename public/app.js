@@ -1267,10 +1267,16 @@ async function iconicPhotos(iso) {
   if (out.length) _heroCache[iso] = out;
   return out;
 }
+// Every activity is a {t: title, d: description} object — the bare-string form is
+// legacy tolerance, nothing in activities.json uses it. Anything that prints one
+// has to pull the title out: joining the raw objects is how both AI prompts came
+// to say "Known for: [object Object]; [object Object]".
+function actLabel(x) { return (typeof x === "string" ? x : (x && x.t)) || ""; }
+
 // The photo subject an activity row will use (shared with renderActivity so
 // the hero's de-dupe stays in lockstep with what the thumbnails show).
 function activitySubject(x) {
-  const label = typeof x === "string" ? x : x.t;
+  const label = actLabel(x);
   if (typeof x === "object" && x.p) return x.p;
   const pm = label.match(/\(([^),]+)/);
   const subj = (pm ? pm[1] : label.replace(/\s*\([^)]*\)/g, "")).trim();
@@ -2351,7 +2357,7 @@ function buildAIPrompt() {
     if (vi) lines.push(`   - Visa (${passport === "US" ? "US" : countryName(passport)} passport): ${vi.meta.long}${vi.note ? " — " + vi.note : ""}`);
     if (best) lines.push(`   - Best months: ${best}; ${monthName} is ${seas === "peak" ? "peak season" : seas === "off" ? "off-season" : "shoulder season"}`);
     if (hz.length) lines.push(`   - ${monthName} heads-up: ${hz.join("; ")}`);
-    if (acts.length) lines.push(`   - Known for: ${acts.join("; ")}`);
+    if (acts.length) lines.push(`   - Known for: ${acts.map(actLabel).filter(Boolean).join("; ")}`);
     if (fl) lines.push(`   - Flights: ${fl}`);
   });
   lines.push("");
@@ -2449,7 +2455,7 @@ function buildCountryAIPrompt(iso) {
   if (vi) lines.push("VISA (" + (passport === "US" ? "US" : countryName(passport)) + " passport): " + vi.meta.long + (vi.note ? " — " + vi.note : ""));
   if (best) lines.push("BEST MONTHS: " + best + "; " + monthName + " is " + (seas === "peak" ? "peak season" : seas === "off" ? "off-season" : "shoulder season"));
   if (hz.length) lines.push(monthName + " HEADS-UP: " + hz.join("; "));
-  if (acts.length) lines.push("HIGHLIGHTS: " + acts.join("; "));
+  if (acts.length) lines.push("HIGHLIGHTS: " + acts.map(actLabel).filter(Boolean).join("; "));
   lines.push("");
   lines.push("USING THE ABOVE, please:");
   lines.push("- Recommend specific cities/regions and how many days in each");
@@ -3387,7 +3393,7 @@ function renderActivity(iso) {
     `<span class="chip2">${PROFILE_EMOJI[p] ? PROFILE_EMOJI[p] + " " : ""}${esc(p)}</span>`).join("");
   // Each activity is either a plain label or { t: label, d: one-line insight }.
   const acts = a.activities.map((x) => {
-    const label = typeof x === "string" ? x : x.t;
+    const label = actLabel(x);
     const desc = (typeof x === "object" && x.d) ? x.d : "";
     // Photo subject via activitySubject() — the hero carousel de-dupes against
     // the same derivation, so each image appears exactly once on the page.
