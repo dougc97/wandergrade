@@ -5011,25 +5011,83 @@ function musicIR(ac, dur, decay) {
   return ir;
 }
 
-function musicChord() {
+// ---- tempo grid -------------------------------------------------------------
+// The old engine had no pulse: pads swelled, plucks drifted, and nothing kept
+// time — which is why brightening it still read as meditative. Energy comes from
+// a beat, so everything below is scheduled on a shared 8th-note grid instead of
+// on loose setTimeouts.
+const MUSIC_BPM = 108;                  // brisk-walk tempo; lively without racing
+const MUSIC_STEP = 30 / MUSIC_BPM;      // one 8th note, in seconds
+const STEPS_PER_BAR = 8;                // 4/4 counted in 8ths
+const STEPS_PER_CHORD = 16;             // a chord lasts two bars (~4.4s)
+// Which chord tone the arpeggio takes on each 8th of a bar. Up, down, up again —
+// movement rather than a scale run, so it stays a texture and not a melody line
+// fighting the page for attention.
+const MUSIC_ARP = [0, 2, 1, 3, 2, 1, 3, 2];
+
+// Soft kick: a sine dropping in pitch, which is all a kick drum really is. Felt
+// more than heard at this volume — it is the metronome the rest hangs off.
+function musicKick(t, vel) {
+  const ac = _sfx;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = "sine";
+  o.frequency.setValueAtTime(140, t);
+  o.frequency.exponentialRampToValueAtTime(46, t + 0.11);
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vel, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  o.connect(g).connect(_music.dry);
+  o.start(t); o.stop(t + 0.26);
+}
+
+// Shaker: a short burst of high-passed noise. On every 8th, accented off-beat —
+// this is the part that actually creates forward motion.
+function musicShaker(t, vel) {
+  const ac = _sfx;
+  const n = ac.createBufferSource();
+  n.buffer = _music.noise;
+  const hp = ac.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = 6000;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vel, t + 0.004);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
+  n.connect(hp).connect(g).connect(_music.dry);
+  n.start(t); n.stop(t + 0.08);
+}
+
+// Short plucked bass on the beat, replacing the drone that used to hold under the
+// whole chord. A bass that restates the root is rhythm; one that sustains is fog.
+function musicBass(hz, t, vel) {
+  const ac = _sfx;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = "triangle";
+  o.frequency.value = hz;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vel, t + 0.014);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+  o.connect(g).connect(_music.dry);
+  o.start(t); o.stop(t + 0.46);
+}
+
+// Pads now sit UNDER the rhythm: quieter, quick in, gone by the end of the chord.
+// They colour the harmony instead of being the whole piece.
+function musicChordAt(t0) {
   if (!_music) return;
   const ac = _sfx;
   const chord = MUSIC_CHORDS[_music.ci++ % MUSIC_CHORDS.length];
-  _music.chord = chord;                            // the melody reads this
-  // ~8s a chord, not ~16. Harmonic rhythm is most of what "upbeat" means here:
-  // at sixteen seconds a chord the loop reads as weather, at eight it reads as
-  // music that is going somewhere.
-  const dur = 7.5 + Math.random() * 2.5;
-  const t0 = ac.currentTime;
+  _music.chord = chord;
+  const dur = MUSIC_STEP * STEPS_PER_CHORD;
   chord.forEach((hz, vi) => {
-    [[-5, -0.45], [4, 0.45]].forEach(([cents, panPos]) => {   // stereo spread
+    [[-5, -0.45], [4, 0.45]].forEach(([cents, panPos]) => {
       const o = ac.createOscillator(), g = ac.createGain();
       o.type = vi < 2 ? "sine" : "triangle";
       o.frequency.value = hz;
       o.detune.value = cents;
       g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.012, t0 + 1.6);   // arrives, not drifts in
-      g.gain.setValueAtTime(0.012, t0 + dur - 2.6);
+      g.gain.exponentialRampToValueAtTime(0.007, t0 + 0.25);
+      g.gain.setValueAtTime(0.007, t0 + dur - 0.5);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
       let tail = o.connect(g);
       if (ac.createStereoPanner) {
@@ -5042,68 +5100,70 @@ function musicChord() {
       o.stop(t0 + dur + 0.1);
     });
   });
-  // bass root an octave down — felt more than heard, anchors the chord
-  const b = ac.createOscillator(), bg = ac.createGain();
-  b.type = "sine";
-  b.frequency.value = chord[0] / 2;
-  bg.gain.setValueAtTime(0.0001, t0);
-  bg.gain.exponentialRampToValueAtTime(0.02, t0 + 1.6);
-  bg.gain.setValueAtTime(0.02, t0 + dur - 2.6);
-  bg.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  b.connect(bg).connect(_music.dry);
-  b.start(t0);
-  b.stop(t0 + dur + 0.1);
-  // Overlap tracks the release: hand over as this chord fades, so the next one
-  // is already blooming. Kept at 4.5s against an 8s chord they would pile up.
-  _music.timer = setTimeout(musicChord, (dur - 2.6) * 1000);
 }
 
-// One kalimba-ish pluck: fast attack, long decay, a quiet octave partial for
-// timbre, routed through the echo + reverb so it trails off into the distance.
+// The arpeggio voice. Decay is 0.34s — deliberately shorter than the 0.28s gap
+// between notes, so each one is nearly gone before the next lands. The old
+// ambient version rang for 1.7s, which is what made a stream of notes read as a
+// wash of pad rather than a rhythm.
 function musicPluck(hz, t0, vel) {
   const ac = _sfx;
   const o = ac.createOscillator(), o2 = ac.createOscillator();
   const g = ac.createGain(), g2 = ac.createGain();
-  o.type = "sine";
+  o.type = "triangle";           // a little bite; sine alone is too soft to cut
   o.frequency.value = hz;
   o2.type = "sine";
   o2.frequency.value = hz * 2;
-  g2.gain.value = 0.35;
+  g2.gain.value = 0.3;
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(vel, t0 + 0.012);
-  // 1.7s not 2.2 — with phrases arriving twice as often, a shorter decay keeps
-  // notes articulate instead of smearing into each other.
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.7);
+  g.gain.exponentialRampToValueAtTime(vel, t0 + 0.006);   // fast attack = plucked
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.34);
   o.connect(g);
   o2.connect(g2).connect(g);
   let tail = g;
   if (ac.createStereoPanner) {
     const pan = ac.createStereoPanner();
-    pan.pan.value = Math.random() * 1.2 - 0.6;
-    tail = g.connect(pan);
+    pan.pan.value = Math.random() * 0.7 - 0.35;   // narrower than before; the
+    tail = g.connect(pan);                        // groove should feel centred
   }
   tail.connect(_music.pluckBus);
-  o.start(t0);  o.stop(t0 + 1.9);   // matches the shorter decay above
-  o2.start(t0); o2.stop(t0 + 1.9);
+  o.start(t0);  o.stop(t0 + 0.4);
+  o2.start(t0); o2.stop(t0 + 0.4);
 }
 
-// Sparse generative phrases — 1–3 notes from the current chord, an octave or
-// two up, with humanized spacing. Silence is part of the instrument.
-function musicMelody() {
+// One 8th note of the arrangement. Everything that plays is decided here, from
+// the step number alone, so the parts can never drift apart.
+function musicStep(step, t) {
+  if (!_music) return;
+  const inBar = step % STEPS_PER_BAR;
+  if (step % STEPS_PER_CHORD === 0) musicChordAt(t);
+  const chord = _music.chord || MUSIC_CHORDS[0];
+  // kick on beats 1 and 3 — a pulse, not four-on-the-floor
+  if (inBar === 0) musicKick(t, 0.20);
+  else if (inBar === 4) musicKick(t, 0.15);
+  // shaker every 8th, accented off the beat
+  musicShaker(t, inBar % 2 === 1 ? 0.017 : 0.008);
+  // bass restates the root each half bar
+  if (inBar === 0) musicBass(chord[0] / 2, t, 0.055);
+  else if (inBar === 4) musicBass(chord[0] / 2, t, 0.04);
+  // arpeggio an octave above the pad, second bar lifted for a small climb
+  const hz = chord[MUSIC_ARP[inBar]] * 2 * (step % STEPS_PER_CHORD >= STEPS_PER_BAR ? 2 : 1);
+  musicPluck(hz, t, inBar % 2 === 0 ? 0.020 : 0.014);
+}
+
+// Lookahead scheduler. setTimeout is far too jittery to place a beat, so it only
+// decides WHEN TO THINK: every 25ms it schedules any step falling in the next
+// 120ms at an exact AudioContext time. The audio clock keeps the groove; the
+// timer just keeps the queue fed.
+function musicScheduler() {
   if (!_music) return;
   const ac = _sfx;
-  const chord = _music.chord || MUSIC_CHORDS[0];
-  const pool = chord.map((f) => f * 2).concat(chord[0] * 4, chord[2] * 4);
-  // 2-4 notes, closer together, and a phrase every 1.6-4s instead of every
-  // 3.5-9s. Silence is still part of the instrument — there is just less of it,
-  // so the melody feels like it is leading somewhere rather than punctuating.
-  const nNotes = 2 + Math.floor(Math.random() * 3);
-  let t = ac.currentTime + 0.05;
-  for (let k = 0; k < nNotes; k++) {
-    musicPluck(pool[Math.floor(Math.random() * pool.length)], t, 0.024 + Math.random() * 0.012);
-    t += 0.16 + Math.random() * 0.24;
+  while (_music.nextTime < ac.currentTime + 0.12) {
+    musicStep(_music.step, _music.nextTime);
+    _music.nextTime += MUSIC_STEP;
+    _music.step++;
   }
-  _music.melodyTimer = setTimeout(musicMelody, 1600 + Math.random() * 2400);
+  _music.schedTimer = setTimeout(musicScheduler, 25);
 }
 
 // resume() is async and the AudioContext clock stays frozen until it resolves;
@@ -5183,24 +5243,29 @@ function _buildMusic(ac) {
   air.connect(bp).connect(airG).connect(dry);
   air.start();
   lfo.start();
-  _music = { master, lp, dry, wet, pluckBus, timer: null, melodyTimer: null,
-             nodes: [air, lfo], ci: 0, chord: null };
-  musicChord();
-  // greet the click right away: two soft chord-tone plucks, then the loop
-  // A rising C–E–G, quick and in time: the click should feel like a door opening,
-  // not a pad slowly waking up. Two notes read as a chime; three read as "off we go".
+  // One short noise buffer, reused by every shaker hit — building a fresh one per
+  // 8th note would allocate ~7 buffers a second for no audible gain.
+  const nz = ac.createBuffer(1, Math.floor(ac.sampleRate * 0.1), ac.sampleRate);
+  const nzd = nz.getChannelData(0);
+  for (let i = 0; i < nzd.length; i++) nzd[i] = Math.random() * 2 - 1;
+
+  _music = { master, lp, dry, wet, pluckBus, schedTimer: null, noise: nz,
+             nodes: [air, lfo], ci: 0, chord: null,
+             step: 0, nextTime: ac.currentTime + 0.06 };
+  // A rising C–E–G before the groove starts: the click should feel like a door
+  // opening, not a pad slowly waking up.
   musicPluck(523.25, ac.currentTime + 0.05, 0.030);
   musicPluck(659.25, ac.currentTime + 0.22, 0.026);
   musicPluck(783.99, ac.currentTime + 0.39, 0.022);
-  _music.melodyTimer = setTimeout(musicMelody, 1600);
+  _music.nextTime = ac.currentTime + 0.55;   // downbeat lands as the flourish ends
+  musicScheduler();
 }
 
 function stopMusic() {
   if (!_music) return;
   const ac = _sfx, m = _music;
   _music = null;                                   // chord/melody loops stop
-  clearTimeout(m.timer);
-  clearTimeout(m.melodyTimer);
+  clearTimeout(m.schedTimer);           // stops the step scheduler
   m.master.gain.cancelScheduledValues(ac.currentTime);
   m.master.gain.setValueAtTime(Math.max(m.master.gain.value, 0.0001), ac.currentTime);
   m.master.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 1.2);
