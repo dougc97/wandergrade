@@ -308,7 +308,16 @@ small { color: var(--gray); font-weight: 400; }
 .windowtoggle button.active { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 
 .charthead { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
-.charthead h2 { margin: 0; font-size: 18px; }
+.charthead h2, .charthead h1.cardtitle { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0; }
+/* On a country guide the page's heading is the guide's own h1, so the generic
+   site h1 and its homepage pitch stand down: one h1 per page, and it names the
+   country. Every /guide/ page used to inherit "Where Should I Travel to Next?" —
+   176 pages claiming the same heading, with the country demoted to an h2 that
+   only existed after hydration. This also returns ~150px above the fold on the
+   pages most likely to be someone's first arrival from search.
+   data-tab is set pre-paint by the inline script in <head>, so nothing flashes. */
+html[data-tab="guide"] header h1,
+html[data-tab="guide"] header .sub { display: none; }
 .charthead .muted { color: var(--gray); font-weight: 400; font-size: 14px; }
 .chartsub { margin: 4px 0 0; color: var(--gray); font-size: 13px; }
 .bignum { text-align: left; line-height: 1.1; }

@@ -230,7 +230,12 @@
     <div class="cardwide">
       <div class="charthead">
         <div>
-          <h2>Travel Guide<span id="guideH2Country"></span></h2>
+          <!-- h1, not h2: this is the page's subject. The generic site h1 steps
+               aside on guide routes (see styles.css), so each of the 176 country
+               pages finally has its own heading instead of all sharing one.
+               Starts hidden — until app.js hydrates, the SSR block below carries
+               the visible h1, and two would be worse than none. -->
+          <h1 class="cardtitle" id="guideH1" hidden>Travel Guide<span id="guideH2Country"></span></h1>
           <p class="chartsub">Best months, peak vs off-season, and what's in season right now.</p>
         </div>
         <!-- Region and interest pickers used to live here too, duplicating Top

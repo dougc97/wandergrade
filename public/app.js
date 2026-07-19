@@ -1043,6 +1043,14 @@ function renderGuide(iso) {
   // The country is the answer — put it in the page title, not just mid-page.
   const h2c = $("guideH2Country");
   if (h2c) h2c.innerHTML = " — " + flagEmoji(iso) + " " + esc(countryName(iso));
+  // Reveal the real h1 only now: the SSR block it replaces has been removed just
+  // above, so exactly one h1 is visible before and after hydration.
+  const gh1 = $("guideH1"); if (gh1) gh1.hidden = false;
+  // Title and canonical here, not only in openGuideFor: the country picker and a
+  // plain return to the guide tab both re-render without going through it, which
+  // left the h1 naming one country while the title still said another (or the
+  // site default). Every path that draws a guide now describes that guide.
+  setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
   renderGuideHero(iso);
   renderGuideVisa(iso);
   renderGuideSafety(iso);
@@ -3874,9 +3882,16 @@ function renderVisitedStats() {
 const loaded = {};
 async function activateTab(name, push) {
   document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
-  // Leaving the guide -> restore the homepage title/canonical (openGuideFor sets
-  // the country-specific ones when a guide opens).
-  if (name !== "guide") setDocMeta(_DEFAULT_TITLE, _DEFAULT_URL);
+  // Meta follows the tab in BOTH directions. Leaving the guide restores the
+  // homepage title/canonical; returning to an already-rendered guide has to put
+  // the country's back, because nothing re-renders it — which otherwise left the
+  // h1 naming a country under the homepage title.
+  if (name !== "guide") {
+    setDocMeta(_DEFAULT_TITLE, _DEFAULT_URL);
+  } else {
+    const iso = ($("bestCountry") || {}).value;
+    if (iso) setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
+  }
   for (const b of document.querySelectorAll("#tabs button"))
     b.classList.toggle("active", b.dataset.tab === name);
   for (const s of document.querySelectorAll(".tab"))
