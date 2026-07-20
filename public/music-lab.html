@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>WanderGrade — music lab (local only)</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 28px; background: #0f1115; color: #e7ebf0;
+    font: 15px/1.5 -apple-system, system-ui, sans-serif; max-width: 640px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  p.note { color: #9aa4b2; margin: 0 0 18px; }
+  #status { margin: 0 0 16px; font-weight: 600; color: #f59e0b; }
+  #status.ready { color: #7fd1a6; }
+  .row { display: flex; align-items: center; gap: 12px; margin: 9px 0; }
+  .row label { width: 150px; flex: none; }
+  .row input[type=range] { flex: 1; }
+  .row output { width: 62px; text-align: right; font-variant-numeric: tabular-nums; color: #7fd1a6; }
+  button {
+    font: inherit; font-weight: 600; padding: 12px 22px; border: 0; border-radius: 10px;
+    cursor: pointer; margin-right: 10px;
+  }
+  #play { background: #22c55e; color: #06210f; }
+  #stop, #dump { background: #2a2f3a; color: #e7ebf0; }
+  button[disabled] { opacity: 0.4; cursor: default; }
+  .bar { margin: 20px 0; }
+  pre#out {
+    background: #05070a; border: 1px solid #1e2530; border-radius: 8px; padding: 14px;
+    white-space: pre-wrap; color: #a7f3d0; font-size: 13px; display: none;
+  }
+  .hint { color: #6b7280; font-size: 13px; }
+</style>
+
+<!-- Stub any element the site's app.js wires at load. app.js touches ~dozen DOM
+     nodes at top level (event listeners, sort tables); missing ones would throw
+     and halt init before MUSIC_CFG is defined. Returning a real detached node
+     for anything absent lets the engine initialize in THIS document — no iframe,
+     one origin — so the tuning hook (window._musicLab) is reachable. Must run
+     BEFORE app.js. -->
+<script>
+(function () {
+  const realGet = document.getElementById.bind(document);
+  const realQS  = document.querySelector.bind(document);
+  const stubs = {};
+  function stub(key) {
+    if (!stubs[key]) stubs[key] = document.createElement("input");   // has value/checked + all element methods
+    return stubs[key];
+  }
+  document.getElementById = function (id) { return realGet(id) || stub("#" + id); };
+  document.querySelector  = function (s)  { return realQS(s)  || stub(s); };
+})();
+</script>
+</head>
+<body>
+  <h1>🎵 Music lab</h1>
+  <p class="note">Local tuning only — not linked from the site. Press Play, drag sliders while it
+  plays, land on a feel you like, hit <b>Copy settings</b>, and paste them back to me. Every change
+  applies live.</p>
+  <p id="status">Loading engine…</p>
+
+  <div class="bar">
+    <button id="play" disabled>▶ Play</button>
+    <button id="stop" disabled>■ Stop</button>
+    <button id="dump" disabled>Copy settings</button>
+  </div>
+
+  <div id="knobs"></div>
+
+  <pre id="out"></pre>
+  <p class="hint">Biggest levers for “upbeat”: <b>bpm</b> (try 118–128) and drum levels
+  (<b>kick</b>, <b>clap</b>, <b>ohat</b>). Feels busy? Drop <b>lead</b> and <b>wet</b>.</p>
+
+  <!-- real button the engine's toggle logic expects; kept hidden -->
+  <button id="musicBtn" aria-pressed="false" style="display:none"></button>
+
+  <!-- the real engine. With the stubs above it initializes fully here. -->
+  <script src="app.js?lab=6"></script>
+
+  <script>
+  (function () {
+    const SPEC = [
+      ["bpm",    100, 132, 1],
+      ["master", 0,   1,   0.01],
+      ["wet",    0,   0.7, 0.01],
+      ["lp",     800, 6000, 50],
+      ["kick",   0,   1.4, 0.02],
+      ["clap",   0,   1,   0.02],
+      ["ohat",   0,   0.6, 0.01],
+      ["chat",   0,   0.4, 0.01],
+      ["bass",   0,   0.8, 0.02],
+      ["lead",   0,   0.6, 0.01],
+    ];
+    const status = document.getElementById("status");
+    const lab = window._musicLab;
+    if (!lab) { status.textContent = "Engine failed to load — check console."; return; }
+
+    const knobs = document.getElementById("knobs");
+    SPEC.forEach(([k, min, max, step]) => {
+      const row = document.createElement("div");
+      row.className = "row";
+      row.innerHTML =
+        '<label for="k_' + k + '">' + k + '</label>' +
+        '<input type="range" id="k_' + k + '" min="' + min + '" max="' + max +
+          '" step="' + step + '" value="' + lab.cfg[k] + '">' +
+        '<output id="o_' + k + '">' + lab.cfg[k] + '</output>';
+      knobs.appendChild(row);
+      const inp = row.querySelector("input"), out = row.querySelector("output");
+      inp.addEventListener("input", () => {
+        const v = parseFloat(inp.value);
+        out.textContent = v;
+        lab.live(k, v);
+      });
+    });
+
+    status.textContent = "Ready — press Play.";
+    status.className = "ready";
+    ["play", "dump"].forEach(id => document.getElementById(id).disabled = false);
+
+    document.getElementById("play").onclick = () => {
+      document.getElementById("musicBtn").setAttribute("aria-pressed", "true");
+      lab.start();
+      document.getElementById("stop").disabled = false;
+    };
+    document.getElementById("stop").onclick = () => {
+      document.getElementById("musicBtn").setAttribute("aria-pressed", "false");
+      lab.stop();
+    };
+    document.getElementById("dump").onclick = () => {
+      const cfg = {};
+      SPEC.forEach(([k]) => cfg[k] = lab.cfg[k]);
+      const txt = JSON.stringify(cfg, null, 2);
+      const out = document.getElementById("out");
+      out.style.display = "block";
+      out.textContent = txt;
+      navigator.clipboard && navigator.clipboard.writeText(txt).catch(() => {});
+    };
+  })();
+  </script>
+</body>
+</html>

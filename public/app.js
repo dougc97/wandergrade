@@ -5012,63 +5012,132 @@ function musicIR(ac, dur, decay) {
 }
 
 // ---- tempo grid -------------------------------------------------------------
-// The old engine had no pulse: pads swelled, plucks drifted, and nothing kept
-// time — which is why brightening it still read as meditative. Energy comes from
-// a beat, so everything below is scheduled on a shared 8th-note grid instead of
-// on loose setTimeouts.
-const MUSIC_BPM = 108;                  // brisk-walk tempo; lively without racing
-const MUSIC_STEP = 30 / MUSIC_BPM;      // one 8th note, in seconds
-const STEPS_PER_BAR = 8;                // 4/4 counted in 8ths
-const STEPS_PER_CHORD = 16;             // a chord lasts two bars (~4.4s)
-// Which chord tone the arpeggio takes on each 8th of a bar. Up, down, up again —
-// movement rather than a scale run, so it stays a texture and not a melody line
-// fighting the page for attention.
-const MUSIC_ARP = [0, 2, 1, 3, 2, 1, 3, 2];
+// v1 had no pulse (pads + drifting plucks); v2 added a beat but the WRONG one —
+// kick on 1 & 3 with no backbeat is a half-time feel, the calmest pattern there
+// is, at a mid-tempo 108. Upbeat = faster + four-on-the-floor + a backbeat on
+// 2 & 4 + an off-beat hat pump. That's this version.
+//
+// All the knobs that decide the FEEL live in one object so they can be tuned
+// live (see music-lab.html) instead of being scattered as hardcoded gains. Bake
+// whatever sounds right back in as the defaults here.
+const MUSIC_CFG = {
+  bpm: 122,        // upbeat pop/house tempo (was 108, a brisk walk)
+  master: 0.55,    // overall level
+  wet: 0.30,       // reverb send — less wash than v2's 0.42, so the beat stays tight
+  lp: 3000,        // pad brightness (lowpass cutoff, Hz)
+  kick: 0.90,      // four-on-the-floor — the engine of the whole thing
+  clap: 0.42,      // backbeat on 2 & 4 — what makes it feel like it's driving
+  ohat: 0.22,      // open hi-hat on the off-beats — the "pump"
+  chat: 0.10,      // closed hi-hat 16ths — forward motion
+  bass: 0.34,      // moving, syncopated bass
+  lead: 0.22,      // syncopated melodic lead
+};
+const STEPS_PER_BAR = 16;               // 4/4 counted in 16ths (was 8) for hat detail
+const STEPS_PER_CHORD = 32;             // a chord lasts two bars (~3.9s at 122)
+function musicStepDur() { return 15 / MUSIC_CFG.bpm; }   // one 16th note, seconds
+// A syncopated melodic riff over one bar: chord-tone index, or null for a rest.
+// Rests and repeats give it contour and swing — a MELODY, not the wall-to-wall
+// up/down arpeggio v2 ran, which is exactly what read as ambient texture.
+const MUSIC_LEAD = [2, null, null, 3, 2, null, 1, 2, 3, null, 2, null, 1, null, 2, 3];
+// Bass: root (0) on the beat, octave-up (8) as a push before the next beat. The
+// bounce is what a static held root can never give.
+const MUSIC_BASS = [0, null, null, null, 8, null, 0, null, 0, null, null, null, 8, null, 0, null];
 
-// Soft kick: a sine dropping in pitch, which is all a kick drum really is. Felt
-// more than heard at this volume — it is the metronome the rest hangs off.
+// Debug/tuning hook. music-lab.html embeds the real site in an iframe (app.js
+// can't init standalone — it wires site DOM at load) and drives the engine
+// through this. The closure captures MUSIC_CFG/_music/_sfx so live tweaks work
+// regardless of how they're declared. No effect on normal use.
+try {
+  window._musicLab = {
+    cfg: MUSIC_CFG,
+    start: function () { startMusic(); },
+    stop: function () { stopMusic(); },
+    // apply a knob live: gains/bpm are read fresh each step; master/wet/lp are
+    // live audio params, so nudge them on the running graph too.
+    live: function (k, v) {
+      MUSIC_CFG[k] = v;
+      if (!_music) return;
+      const now = _sfx.currentTime;
+      if (k === "master") _music.master.gain.setTargetAtTime(v, now, 0.05);
+      else if (k === "wet") _music.wet.gain.setTargetAtTime(v, now, 0.05);
+      else if (k === "lp") _music.lp.frequency.setTargetAtTime(v, now, 0.05);
+    },
+  };
+} catch (e) {}
+
+// Punchy kick: a sine snapping down in pitch. Louder and tighter than v2's — on
+// four-on-the-floor it IS the energy, not a background metronome.
 function musicKick(t, vel) {
   const ac = _sfx;
   const o = ac.createOscillator(), g = ac.createGain();
   o.type = "sine";
-  o.frequency.setValueAtTime(140, t);
-  o.frequency.exponentialRampToValueAtTime(46, t + 0.11);
+  o.frequency.setValueAtTime(160, t);
+  o.frequency.exponentialRampToValueAtTime(48, t + 0.07);   // faster drop = more thump
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vel, t + 0.008);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+  g.gain.exponentialRampToValueAtTime(vel, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
   o.connect(g).connect(_music.dry);
-  o.start(t); o.stop(t + 0.26);
+  o.start(t); o.stop(t + 0.2);
 }
 
-// Shaker: a short burst of high-passed noise. On every 8th, accented off-beat —
-// this is the part that actually creates forward motion.
-function musicShaker(t, vel) {
+// Clap/snare on the backbeat (2 & 4). A band-passed noise burst with three fast
+// amplitude taps for the hand-clap flam. THIS is the part that makes a groove
+// feel like it's pushing forward — v2 had no backbeat at all.
+function musicClap(t, vel) {
   const ac = _sfx;
   const n = ac.createBufferSource();
   n.buffer = _music.noise;
-  const hp = ac.createBiquadFilter();
-  hp.type = "highpass";
-  hp.frequency.value = 6000;
+  n.loop = true;
+  const bp = ac.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.value = 1600;
+  bp.Q.value = 0.9;
   const g = ac.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vel, t + 0.004);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.06);
-  n.connect(hp).connect(g).connect(_music.dry);
-  n.start(t); n.stop(t + 0.08);
+  // three quick taps then a short tail — the classic clap smear
+  [0, 0.009, 0.018].forEach((dt) => {
+    g.gain.exponentialRampToValueAtTime(vel, t + dt + 0.001);
+    g.gain.exponentialRampToValueAtTime(vel * 0.4, t + dt + 0.008);
+  });
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+  n.connect(bp).connect(g).connect(_music.dry);
+  n.start(t); n.stop(t + 0.16);
 }
 
-// Short plucked bass on the beat, replacing the drone that used to hold under the
-// whole chord. A bass that restates the root is rhythm; one that sustains is fog.
+// Hi-hat: high-passed noise. `open` gives the long off-beat "pump"; closed is a
+// tight 16th tick for drive. One function, two envelopes.
+function musicHat(t, vel, open) {
+  const ac = _sfx;
+  const n = ac.createBufferSource();
+  n.buffer = _music.noise;
+  n.loop = true;
+  const hp = ac.createBiquadFilter();
+  hp.type = "highpass";
+  hp.frequency.value = open ? 7000 : 9000;
+  const g = ac.createGain();
+  const dur = open ? 0.16 : 0.035;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vel, t + 0.003);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  n.connect(hp).connect(g).connect(_music.dry);
+  n.start(t); n.stop(t + dur + 0.02);
+}
+
+// Moving bass: root and octave-up, punchy and short so it bounces rather than
+// drones. Sawtooth through a lowpass for a rounded, present low end.
 function musicBass(hz, t, vel) {
   const ac = _sfx;
   const o = ac.createOscillator(), g = ac.createGain();
-  o.type = "triangle";
+  const lp = ac.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 900;
+  o.type = "sawtooth";
   o.frequency.value = hz;
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vel, t + 0.014);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
-  o.connect(g).connect(_music.dry);
-  o.start(t); o.stop(t + 0.46);
+  g.gain.exponentialRampToValueAtTime(vel, t + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);   // short = bouncy
+  o.connect(lp).connect(g).connect(_music.dry);
+  o.start(t); o.stop(t + 0.22);
 }
 
 // Pads now sit UNDER the rhythm: quieter, quick in, gone by the end of the chord.
@@ -5078,7 +5147,7 @@ function musicChordAt(t0) {
   const ac = _sfx;
   const chord = MUSIC_CHORDS[_music.ci++ % MUSIC_CHORDS.length];
   _music.chord = chord;
-  const dur = MUSIC_STEP * STEPS_PER_CHORD;
+  const dur = musicStepDur() * STEPS_PER_CHORD;
   chord.forEach((hz, vi) => {
     [[-5, -0.45], [4, 0.45]].forEach(([cents, panPos]) => {
       const o = ac.createOscillator(), g = ac.createGain();
@@ -5131,24 +5200,38 @@ function musicPluck(hz, t0, vel) {
   o2.start(t0); o2.stop(t0 + 0.4);
 }
 
-// One 8th note of the arrangement. Everything that plays is decided here, from
-// the step number alone, so the parts can never drift apart.
+// One 16th note of the arrangement. Everything that plays is decided here from
+// the step number, so the parts can never drift apart. Beats fall on 0,4,8,12.
 function musicStep(step, t) {
   if (!_music) return;
+  const c = MUSIC_CFG;
   const inBar = step % STEPS_PER_BAR;
   if (step % STEPS_PER_CHORD === 0) musicChordAt(t);
   const chord = _music.chord || MUSIC_CHORDS[0];
-  // kick on beats 1 and 3 — a pulse, not four-on-the-floor
-  if (inBar === 0) musicKick(t, 0.20);
-  else if (inBar === 4) musicKick(t, 0.15);
-  // shaker every 8th, accented off the beat
-  musicShaker(t, inBar % 2 === 1 ? 0.017 : 0.008);
-  // bass restates the root each half bar
-  if (inBar === 0) musicBass(chord[0] / 2, t, 0.055);
-  else if (inBar === 4) musicBass(chord[0] / 2, t, 0.04);
-  // arpeggio an octave above the pad, second bar lifted for a small climb
-  const hz = chord[MUSIC_ARP[inBar]] * 2 * (step % STEPS_PER_CHORD >= STEPS_PER_BAR ? 2 : 1);
-  musicPluck(hz, t, inBar % 2 === 0 ? 0.020 : 0.014);
+  const onBeat = inBar % 4 === 0;          // 0,4,8,12
+  const offBeat = inBar % 4 === 2;         // 2,6,10,14 — the "&"
+
+  // KICK — four-on-the-floor, every beat. Beat 1 hits hardest.
+  if (onBeat) musicKick(t, inBar === 0 ? c.kick : c.kick * 0.82);
+  // CLAP — backbeat on beats 2 & 4 (steps 4, 12).
+  if (inBar === 4 || inBar === 12) musicClap(t, c.clap);
+  // HATS — open on the off-beats (the pump), closed 16ths elsewhere for drive.
+  if (offBeat) musicHat(t, c.ohat, true);
+  else musicHat(t, onBeat ? c.chat * 0.7 : c.chat, false);
+
+  // BASS — moving pattern; index 0 = root an octave down, 8 = octave up push.
+  const bStep = MUSIC_BASS[inBar];
+  if (bStep !== null) {
+    const bhz = bStep === 8 ? chord[0] : chord[0] / 2;
+    musicBass(bhz, t, c.bass);
+  }
+  // LEAD — syncopated riff, second bar of the chord lifted an octave for a climb.
+  const lStep = MUSIC_LEAD[inBar];
+  if (lStep !== null) {
+    const oct = step % STEPS_PER_CHORD >= STEPS_PER_BAR ? 2 : 1;
+    const hz = chord[lStep] * 2 * oct;
+    musicPluck(hz, t, onBeat ? c.lead : c.lead * 0.75);
+  }
 }
 
 // Lookahead scheduler. setTimeout is far too jittery to place a beat, so it only
@@ -5158,9 +5241,10 @@ function musicStep(step, t) {
 function musicScheduler() {
   if (!_music) return;
   const ac = _sfx;
+  const stepDur = musicStepDur();
   while (_music.nextTime < ac.currentTime + 0.12) {
     musicStep(_music.step, _music.nextTime);
-    _music.nextTime += MUSIC_STEP;
+    _music.nextTime += stepDur;
     _music.step++;
   }
   _music.schedTimer = setTimeout(musicScheduler, 25);
@@ -5188,7 +5272,7 @@ function _buildMusic(ac) {
   master.gain.setValueAtTime(0.0001, ac.currentTime);
   // Deliberately quiet: ambience should sit under the room, not in it.
   // quick enough that a click gets an audible response, still a fade not a hit
-  master.gain.exponentialRampToValueAtTime(0.55, ac.currentTime + 1.2);
+  master.gain.exponentialRampToValueAtTime(MUSIC_CFG.master, ac.currentTime + 1.2);
   master.connect(ac.destination);
   // dry bus + reverb send
   const dry = ac.createGain();
@@ -5199,14 +5283,14 @@ function _buildMusic(ac) {
   // Less wash: at 0.55 the reverb sits in front of the notes, which suits
   // drifting ambience but blurs a livelier melody. 0.42 keeps the space
   // without the haze.
-  wet.gain.value = 0.42;
+  wet.gain.value = MUSIC_CFG.wet;
   wet.connect(conv).connect(master);
   // pads: lowpass keeps them soft/hazy, then room + a generous reverb send
   const lp = ac.createBiquadFilter();
   lp.type = "lowpass";
   // 2200, not 1100: at 1100 the pads lose their upper partials and read as fog.
   // Opening it up lets the 9ths through, which is where the brightness lives.
-  lp.frequency.value = 2200;
+  lp.frequency.value = MUSIC_CFG.lp;
   lp.Q.value = 0.4;
   lp.connect(dry);
   lp.connect(wet);
@@ -5243,9 +5327,10 @@ function _buildMusic(ac) {
   air.connect(bp).connect(airG).connect(dry);
   air.start();
   lfo.start();
-  // One short noise buffer, reused by every shaker hit — building a fresh one per
-  // 8th note would allocate ~7 buffers a second for no audible gain.
-  const nz = ac.createBuffer(1, Math.floor(ac.sampleRate * 0.1), ac.sampleRate);
+  // One short noise buffer, reused (looped) by every hat/clap hit — building a
+  // fresh one per 16th would allocate a dozen buffers a second for no gain. 0.3s
+  // so an open hat's 0.16s tail fits without a loop seam being audible.
+  const nz = ac.createBuffer(1, Math.floor(ac.sampleRate * 0.3), ac.sampleRate);
   const nzd = nz.getChannelData(0);
   for (let i = 0; i < nzd.length; i++) nzd[i] = Math.random() * 2 - 1;
 
