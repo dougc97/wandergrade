@@ -5020,25 +5020,33 @@ function musicIR(ac, dur, decay) {
 // All the knobs that decide the FEEL live in one object so they can be tuned
 // live (see music-lab.html) instead of being scattered as hardcoded gains. Bake
 // whatever sounds right back in as the defaults here.
+// Preset tuned to the "travel-vlog" reference genre = TROPICAL HOUSE (Kygo
+// "Firestone" ~112 BPM, the genre sits 100–115), with the tempo nudged up for
+// energy and Avicii "Wake Me Up" (~124) as the upper anchor. The defining
+// signature of that sound isn't the drums — it's the plucky off-beat
+// marimba/steel-pan LEAD, so it's mixed forward here (the genre "lets the
+// melody take the spotlight"). Tune by ear in music-lab.html; sensible range in
+// [brackets].
 const MUSIC_CFG = {
-  bpm: 122,        // upbeat pop/house tempo (was 108, a brisk walk)
-  master: 0.55,    // overall level
-  wet: 0.30,       // reverb send — less wash than v2's 0.42, so the beat stays tight
-  lp: 3000,        // pad brightness (lowpass cutoff, Hz)
-  kick: 0.90,      // four-on-the-floor — the engine of the whole thing
-  clap: 0.42,      // backbeat on 2 & 4 — what makes it feel like it's driving
-  ohat: 0.22,      // open hi-hat on the off-beats — the "pump"
-  chat: 0.10,      // closed hi-hat 16ths — forward motion
-  bass: 0.34,      // moving, syncopated bass
-  lead: 0.22,      // syncopated melodic lead
+  bpm: 116,        // [112–124] tropical-house pocket, top end for energy
+  master: 0.60,    // overall level
+  wet: 0.34,       // [0.25–0.45] tropical house has shimmer/space — more than v3
+  lp: 3400,        // brighter — the genre is airy and sunlit
+  kick: 0.90,      // four-on-the-floor — the engine
+  clap: 0.42,      // backbeat on 2 & 4
+  ohat: 0.22,      // off-beat open hat — the "pump"
+  chat: 0.10,      // closed 16ths — drive
+  bass: 0.36,      // warm, bouncy bass
+  lead: 0.28,      // the marimba pluck — the signature, mixed forward
 };
 const STEPS_PER_BAR = 16;               // 4/4 counted in 16ths (was 8) for hat detail
 const STEPS_PER_CHORD = 32;             // a chord lasts two bars (~3.9s at 122)
 function musicStepDur() { return 15 / MUSIC_CFG.bpm; }   // one 16th note, seconds
-// A syncopated melodic riff over one bar: chord-tone index, or null for a rest.
-// Rests and repeats give it contour and swing — a MELODY, not the wall-to-wall
-// up/down arpeggio v2 ran, which is exactly what read as ambient texture.
-const MUSIC_LEAD = [2, null, null, 3, 2, null, 1, 2, 3, null, 2, null, 1, null, 2, 3];
+// The lead riff — chord-tone index per 16th, or null for a rest. This is the
+// tropical-house SIGNATURE: a plucky pattern on the 8ths (steps 0,2,4,…,14),
+// landing on the off-beats (2,6,10,14) as much as the beats, with a rolling
+// melodic contour. That off-beat pluck is what makes a track read as "travel."
+const MUSIC_LEAD = [2, null, 1, null, 3, null, 2, null, 1, null, 3, null, 2, null, 1, null];
 // Bass: root (0) on the beat, octave-up (8) as a push before the next beat. The
 // bounce is what a static held root can never give.
 const MUSIC_BASS = [0, null, null, null, 8, null, 0, null, 0, null, null, null, 8, null, 0, null];
@@ -5177,27 +5185,42 @@ function musicChordAt(t0) {
 // wash of pad rather than a rhythm.
 function musicPluck(hz, t0, vel) {
   const ac = _sfx;
+  // Body: triangle fundamental + a sine octave — the warm "boop".
   const o = ac.createOscillator(), o2 = ac.createOscillator();
   const g = ac.createGain(), g2 = ac.createGain();
-  o.type = "triangle";           // a little bite; sine alone is too soft to cut
+  o.type = "triangle";
   o.frequency.value = hz;
   o2.type = "sine";
   o2.frequency.value = hz * 2;
-  g2.gain.value = 0.3;
+  g2.gain.value = 0.28;
   g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(vel, t0 + 0.006);   // fast attack = plucked
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.34);
+  g.gain.exponentialRampToValueAtTime(vel, t0 + 0.005);   // fast attack = plucked/struck
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.32);
   o.connect(g);
   o2.connect(g2).connect(g);
-  let tail = g;
+  // Mallet "ping": a bright, slightly inharmonic partial that decays in ~60ms.
+  // This transient is what turns a plain synth pluck into a marimba/steel-pan
+  // strike — the defining timbre of the tropical-house travel sound.
+  const o3 = ac.createOscillator(), g3 = ac.createGain();
+  o3.type = "sine";
+  o3.frequency.value = hz * 4.2;          // 4.2, not 4: inharmonic = struck metal/wood
+  g3.gain.setValueAtTime(0.0001, t0);
+  g3.gain.exponentialRampToValueAtTime(vel * 0.5, t0 + 0.004);
+  g3.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.06);
+  o3.connect(g3);
+  const mix = ac.createGain();
+  g.connect(mix);
+  g3.connect(mix);
+  let tail = mix;
   if (ac.createStereoPanner) {
     const pan = ac.createStereoPanner();
-    pan.pan.value = Math.random() * 0.7 - 0.35;   // narrower than before; the
-    tail = g.connect(pan);                        // groove should feel centred
+    pan.pan.value = Math.random() * 0.7 - 0.35;
+    tail = mix.connect(pan);
   }
   tail.connect(_music.pluckBus);
-  o.start(t0);  o.stop(t0 + 0.4);
-  o2.start(t0); o2.stop(t0 + 0.4);
+  o.start(t0);  o.stop(t0 + 0.38);
+  o2.start(t0); o2.stop(t0 + 0.38);
+  o3.start(t0); o3.stop(t0 + 0.1);
 }
 
 // One 16th note of the arrangement. Everything that plays is decided here from
