@@ -4983,7 +4983,18 @@ function sfxLand() {
 // track sounds better than oscillators ever did.
 const MUSIC_KEY = "wg_music";
 const MUSIC_SRC = "/music.mp3";
-const MUSIC_VOL = 0.35;           // background level — under the room, not in it
+// Volumes are set from measurement, not feel. The track's body sits at ~-10.5
+// dBFS RMS (a loud modern master); listeners calibrate their system volume to
+// "normal music" ≈ -14 LUFS (every streaming service normalizes there), and
+// background music convention is 8-12 dB under that foreground anchor. Cruise
+// at 0.26 (-11.7 dB) puts the body at ~-22 effective — clearly music, doesn't
+// fight reading. The track's first ~20s (and its outro, = the loop seam) are
+// ~7 dB quieter than the body, which at cruise volume would make the first
+// click sound broken — so those stretches play at a higher volume and glide
+// down as the song's own crescendo arrives.
+const MUSIC_VOL = 0.26;           // cruise: track body ≈ -22 dB effective
+const MUSIC_VOL_INTRO = 0.5;      // first ~15s / loop seam: lifts -19 dBFS intro to ~-25
+const MUSIC_INTRO_END = 15;       // seconds; the song reaches cruise loudness ~20s
 let _music = null;                // HTMLAudioElement, created on first start
 let _musicFade = null;
 
@@ -5006,11 +5017,30 @@ function _fadeMusic(to, ms, done) {
 
 function musicOn() { return !!(_music && !_music.paused); }
 
+// The right volume for wherever the playhead is: lifted through the quiet
+// intro (which the loop seam replays every 3:20), cruise everywhere else.
+function _musicWantVol() {
+  return _music && _music.currentTime < MUSIC_INTRO_END ? MUSIC_VOL_INTRO : MUSIC_VOL;
+}
+
 function startMusic() {
   if (!_music) {
     _music = new Audio(MUSIC_SRC);
     _music.loop = true;
     _music.preload = "auto";
+    // In the DOM (renders nothing without `controls`) so devtools can see it.
+    _music.style.display = "none";
+    document.body.appendChild(_music);
+    // Loudness rider: when the playhead crosses the intro boundary — or wraps
+    // back over it at the loop seam — glide to the new target over 6s. The
+    // glide runs against the song's own crescendo/outro, so the perceived
+    // level stays steady. Never fights an explicit start/stop fade (those own
+    // _musicFade while active, and a paused element fires no timeupdate).
+    _music.addEventListener("timeupdate", () => {
+      if (_musicFade || !musicOn()) return;
+      const want = _musicWantVol();
+      if (Math.abs(_music.volume - want) > 0.01) _fadeMusic(want, 6000);
+    });
   }
   if (musicOn()) return;
   _music.volume = 0;
@@ -5019,7 +5049,7 @@ function startMusic() {
   // first-interaction arm at the bottom retries. Nothing else (404, decode
   // error) should wedge the button either.
   if (p && p.catch) p.catch(() => {});
-  _fadeMusic(MUSIC_VOL, 900);
+  _fadeMusic(_musicWantVol(), 900);
 }
 
 function stopMusic() {
