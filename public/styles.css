@@ -452,6 +452,18 @@ footer a { color: var(--gray); }
 /* music toggle: gentle pulse while playing */
 #musicBtn.playing { animation: wgpulse 2.2s ease-in-out infinite; }
 @keyframes wgpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+/* first-visit hint: a soft ring that breathes six times, then rests. app.js
+   adds .hint once ever (localStorage), only for visitors who have never
+   touched the toggle. Distinct from .playing's scale bounce so the two states
+   don't read alike. No motion-reduce variant needed beyond the guard: the
+   animation IS the feature, so it simply doesn't run there. */
+@media (prefers-reduced-motion: no-preference) {
+  #musicBtn.hint { animation: wghint 2.4s ease-in-out 6; }
+  @keyframes wghint {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    50%      { box-shadow: 0 0 0 6px rgba(34, 197, 94, .35); }
+  }
+}
 
 .rowsplit { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pickgroup { display: inline-flex; align-items: center; gap: 7px; background: var(--soft);

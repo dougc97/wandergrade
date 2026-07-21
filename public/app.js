@@ -5063,6 +5063,18 @@ if ($("musicBtn")) {
     document.addEventListener("pointerdown", arm, { once: true });
     document.addEventListener("keydown", arm, { once: true });
   }
+  // First-visit nudge: visitors who have never touched the toggle get a soft
+  // ring that breathes a few times on the 🎵 button — deliberate discovery,
+  // since sound before a gesture is (rightly) impossible. One visit only, and
+  // any press on the button ends it early.
+  let hinted = null;
+  try { hinted = localStorage.getItem(MUSIC_KEY + "_hint"); } catch (e) {}
+  if (saved === null && !hinted) {
+    $("musicBtn").classList.add("hint");
+    try { localStorage.setItem(MUSIC_KEY + "_hint", "1"); } catch (e) {}
+    $("musicBtn").addEventListener("pointerdown",
+      () => $("musicBtn").classList.remove("hint"), { once: true });
+  }
 }
 
 // "Surprise me" roulette: spinning globe + a flag/name reel that eases to a stop
