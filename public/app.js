@@ -4972,415 +4972,59 @@ function sfxLand() {
   });
 }
 
-// ---- ambient soundtrack ------------------------------------------------------
-// Generative ambience synthesized live (Web Audio) — bright stereo pad chords on
-// an optimistic I–V–vi–IV, a soft bass root, a breath of band-passed air, and a
-// kalimba-like melody that follows the chords, all sent through a synthesized
-// reverb and a dub-style echo. Tuned to feel like the start of a trip rather than
-// a waiting room: someone here is picking where to go next, and the soundtrack
-// should share the mood. No audio files: nothing to download and nothing to license,
-// and it never loops exactly. Strictly opt-in via the 🎵 header button; the
-// choice persists in localStorage. Returning visitors with music on get it
-// resumed on their first interaction (autoplay policy).
+// ---- soundtrack --------------------------------------------------------------
+// "My Love" by SoundEden — melodic afro/deep house, from Pixabay (track 343626;
+// Pixabay Content License: free for commercial use, no attribution required).
+// Served from /music.mp3 (~6 MB, 3:20, loops); the file is only fetched when
+// the music is actually turned on, so it never touches first paint. Strictly
+// opt-in via the 🎵 header button; the choice persists in localStorage.
+// Returning visitors with music on get it resumed on their first interaction
+// (autoplay policy). This replaced a generative Web Audio engine — a real
+// track sounds better than oscillators ever did.
 const MUSIC_KEY = "wg_music";
-let _music = null;
-let _musicStarting = false;   // graph build is waiting on the context to resume
+const MUSIC_SRC = "/music.mp3";
+const MUSIC_VOL = 0.35;           // background level — under the room, not in it
+let _music = null;                // HTMLAudioElement, created on first start
+let _musicFade = null;
 
-// Cadd9 → G6 → Am7 → Fmaj9 — the I–V–vi–IV that every optimistic song leans on,
-// and starting on the tonic rather than drifting in on the IV, so it reads as
-// confident instead of wistful. Voiced with 9ths up top for sparkle. chord[0] is
-// the root: the bass line halves it, giving C-G-A-F underneath. Frequencies in Hz.
-const MUSIC_CHORDS = [
-  [261.63, 329.63, 392.00, 587.33],
-  [196.00, 246.94, 293.66, 329.63],
-  [220.00, 261.63, 329.63, 392.00],
-  [174.61, 261.63, 329.63, 392.00],
-];
-
-// Synthesized reverb impulse: stereo exponentially-decaying noise. Cheap to
-// build, and it's what turns bare oscillators into something that sounds
-// produced — every voice gets space and distance from it.
-function musicIR(ac, dur, decay) {
-  const len = Math.floor(ac.sampleRate * dur);
-  const ir = ac.createBuffer(2, len, ac.sampleRate);
-  for (let ch = 0; ch < 2; ch++) {
-    const d = ir.getChannelData(ch);
-    for (let i = 0; i < len; i++)
-      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
-  }
-  return ir;
+// Linear volume fade so starts/stops are a door opening, not a light switch.
+function _fadeMusic(to, ms, done) {
+  if (_musicFade) clearInterval(_musicFade);
+  const el = _music;
+  if (!el) return;
+  const from = el.volume, t0 = Date.now();
+  _musicFade = setInterval(() => {
+    const k = Math.min(1, (Date.now() - t0) / ms);
+    el.volume = from + (to - from) * k;
+    if (k === 1) {
+      clearInterval(_musicFade);
+      _musicFade = null;
+      if (done) done();
+    }
+  }, 40);
 }
 
-// ---- tempo grid -------------------------------------------------------------
-// v1 had no pulse (pads + drifting plucks); v2 added a beat but the WRONG one —
-// kick on 1 & 3 with no backbeat is a half-time feel, the calmest pattern there
-// is, at a mid-tempo 108. Upbeat = faster + four-on-the-floor + a backbeat on
-// 2 & 4 + an off-beat hat pump. That's this version.
-//
-// All the knobs that decide the FEEL live in one object so they can be tuned
-// live (see music-lab.html) instead of being scattered as hardcoded gains. Bake
-// whatever sounds right back in as the defaults here.
-// Preset tuned to the "travel-vlog" reference genre = TROPICAL HOUSE (Kygo
-// "Firestone" ~112 BPM, the genre sits 100–115), with the tempo nudged up for
-// energy and Avicii "Wake Me Up" (~124) as the upper anchor. The defining
-// signature of that sound isn't the drums — it's the plucky off-beat
-// marimba/steel-pan LEAD, so it's mixed forward here (the genre "lets the
-// melody take the spotlight"). Tune by ear in music-lab.html; sensible range in
-// [brackets].
-const MUSIC_CFG = {
-  bpm: 116,        // [112–124] tropical-house pocket, top end for energy
-  master: 0.60,    // overall level
-  wet: 0.34,       // [0.25–0.45] tropical house has shimmer/space — more than v3
-  lp: 3400,        // brighter — the genre is airy and sunlit
-  kick: 0.90,      // four-on-the-floor — the engine
-  clap: 0.42,      // backbeat on 2 & 4
-  ohat: 0.22,      // off-beat open hat — the "pump"
-  chat: 0.10,      // closed 16ths — drive
-  bass: 0.36,      // warm, bouncy bass
-  lead: 0.28,      // the marimba pluck — the signature, mixed forward
-};
-const STEPS_PER_BAR = 16;               // 4/4 counted in 16ths (was 8) for hat detail
-const STEPS_PER_CHORD = 32;             // a chord lasts two bars (~3.9s at 122)
-function musicStepDur() { return 15 / MUSIC_CFG.bpm; }   // one 16th note, seconds
-// The lead riff — chord-tone index per 16th, or null for a rest. This is the
-// tropical-house SIGNATURE: a plucky pattern on the 8ths (steps 0,2,4,…,14),
-// landing on the off-beats (2,6,10,14) as much as the beats, with a rolling
-// melodic contour. That off-beat pluck is what makes a track read as "travel."
-const MUSIC_LEAD = [2, null, 1, null, 3, null, 2, null, 1, null, 3, null, 2, null, 1, null];
-// Bass: root (0) on the beat, octave-up (8) as a push before the next beat. The
-// bounce is what a static held root can never give.
-const MUSIC_BASS = [0, null, null, null, 8, null, 0, null, 0, null, null, null, 8, null, 0, null];
+function musicOn() { return !!(_music && !_music.paused); }
 
-// Debug/tuning hook. music-lab.html embeds the real site in an iframe (app.js
-// can't init standalone — it wires site DOM at load) and drives the engine
-// through this. The closure captures MUSIC_CFG/_music/_sfx so live tweaks work
-// regardless of how they're declared. No effect on normal use.
-try {
-  window._musicLab = {
-    cfg: MUSIC_CFG,
-    start: function () { startMusic(); },
-    stop: function () { stopMusic(); },
-    // apply a knob live: gains/bpm are read fresh each step; master/wet/lp are
-    // live audio params, so nudge them on the running graph too.
-    live: function (k, v) {
-      MUSIC_CFG[k] = v;
-      if (!_music) return;
-      const now = _sfx.currentTime;
-      if (k === "master") _music.master.gain.setTargetAtTime(v, now, 0.05);
-      else if (k === "wet") _music.wet.gain.setTargetAtTime(v, now, 0.05);
-      else if (k === "lp") _music.lp.frequency.setTargetAtTime(v, now, 0.05);
-    },
-  };
-} catch (e) {}
-
-// Punchy kick: a sine snapping down in pitch. Louder and tighter than v2's — on
-// four-on-the-floor it IS the energy, not a background metronome.
-function musicKick(t, vel) {
-  const ac = _sfx;
-  const o = ac.createOscillator(), g = ac.createGain();
-  o.type = "sine";
-  o.frequency.setValueAtTime(160, t);
-  o.frequency.exponentialRampToValueAtTime(48, t + 0.07);   // faster drop = more thump
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vel, t + 0.005);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-  o.connect(g).connect(_music.dry);
-  o.start(t); o.stop(t + 0.2);
-}
-
-// Clap/snare on the backbeat (2 & 4). A band-passed noise burst with three fast
-// amplitude taps for the hand-clap flam. THIS is the part that makes a groove
-// feel like it's pushing forward — v2 had no backbeat at all.
-function musicClap(t, vel) {
-  const ac = _sfx;
-  const n = ac.createBufferSource();
-  n.buffer = _music.noise;
-  n.loop = true;
-  const bp = ac.createBiquadFilter();
-  bp.type = "bandpass";
-  bp.frequency.value = 1600;
-  bp.Q.value = 0.9;
-  const g = ac.createGain();
-  g.gain.setValueAtTime(0.0001, t);
-  // three quick taps then a short tail — the classic clap smear
-  [0, 0.009, 0.018].forEach((dt) => {
-    g.gain.exponentialRampToValueAtTime(vel, t + dt + 0.001);
-    g.gain.exponentialRampToValueAtTime(vel * 0.4, t + dt + 0.008);
-  });
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
-  n.connect(bp).connect(g).connect(_music.dry);
-  n.start(t); n.stop(t + 0.16);
-}
-
-// Hi-hat: high-passed noise. `open` gives the long off-beat "pump"; closed is a
-// tight 16th tick for drive. One function, two envelopes.
-function musicHat(t, vel, open) {
-  const ac = _sfx;
-  const n = ac.createBufferSource();
-  n.buffer = _music.noise;
-  n.loop = true;
-  const hp = ac.createBiquadFilter();
-  hp.type = "highpass";
-  hp.frequency.value = open ? 7000 : 9000;
-  const g = ac.createGain();
-  const dur = open ? 0.16 : 0.035;
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vel, t + 0.003);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  n.connect(hp).connect(g).connect(_music.dry);
-  n.start(t); n.stop(t + dur + 0.02);
-}
-
-// Moving bass: root and octave-up, punchy and short so it bounces rather than
-// drones. Sawtooth through a lowpass for a rounded, present low end.
-function musicBass(hz, t, vel) {
-  const ac = _sfx;
-  const o = ac.createOscillator(), g = ac.createGain();
-  const lp = ac.createBiquadFilter();
-  lp.type = "lowpass";
-  lp.frequency.value = 900;
-  o.type = "sawtooth";
-  o.frequency.value = hz;
-  g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(vel, t + 0.008);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);   // short = bouncy
-  o.connect(lp).connect(g).connect(_music.dry);
-  o.start(t); o.stop(t + 0.22);
-}
-
-// Pads now sit UNDER the rhythm: quieter, quick in, gone by the end of the chord.
-// They colour the harmony instead of being the whole piece.
-function musicChordAt(t0) {
-  if (!_music) return;
-  const ac = _sfx;
-  const chord = MUSIC_CHORDS[_music.ci++ % MUSIC_CHORDS.length];
-  _music.chord = chord;
-  const dur = musicStepDur() * STEPS_PER_CHORD;
-  chord.forEach((hz, vi) => {
-    [[-5, -0.45], [4, 0.45]].forEach(([cents, panPos]) => {
-      const o = ac.createOscillator(), g = ac.createGain();
-      o.type = vi < 2 ? "sine" : "triangle";
-      o.frequency.value = hz;
-      o.detune.value = cents;
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.exponentialRampToValueAtTime(0.007, t0 + 0.25);
-      g.gain.setValueAtTime(0.007, t0 + dur - 0.5);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      let tail = o.connect(g);
-      if (ac.createStereoPanner) {
-        const pan = ac.createStereoPanner();
-        pan.pan.value = panPos;
-        tail = g.connect(pan);
-      }
-      tail.connect(_music.lp);
-      o.start(t0);
-      o.stop(t0 + dur + 0.1);
-    });
-  });
-}
-
-// The arpeggio voice. Decay is 0.34s — deliberately shorter than the 0.28s gap
-// between notes, so each one is nearly gone before the next lands. The old
-// ambient version rang for 1.7s, which is what made a stream of notes read as a
-// wash of pad rather than a rhythm.
-function musicPluck(hz, t0, vel) {
-  const ac = _sfx;
-  // Body: triangle fundamental + a sine octave — the warm "boop".
-  const o = ac.createOscillator(), o2 = ac.createOscillator();
-  const g = ac.createGain(), g2 = ac.createGain();
-  o.type = "triangle";
-  o.frequency.value = hz;
-  o2.type = "sine";
-  o2.frequency.value = hz * 2;
-  g2.gain.value = 0.28;
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(vel, t0 + 0.005);   // fast attack = plucked/struck
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.32);
-  o.connect(g);
-  o2.connect(g2).connect(g);
-  // Mallet "ping": a bright, slightly inharmonic partial that decays in ~60ms.
-  // This transient is what turns a plain synth pluck into a marimba/steel-pan
-  // strike — the defining timbre of the tropical-house travel sound.
-  const o3 = ac.createOscillator(), g3 = ac.createGain();
-  o3.type = "sine";
-  o3.frequency.value = hz * 4.2;          // 4.2, not 4: inharmonic = struck metal/wood
-  g3.gain.setValueAtTime(0.0001, t0);
-  g3.gain.exponentialRampToValueAtTime(vel * 0.5, t0 + 0.004);
-  g3.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.06);
-  o3.connect(g3);
-  const mix = ac.createGain();
-  g.connect(mix);
-  g3.connect(mix);
-  let tail = mix;
-  if (ac.createStereoPanner) {
-    const pan = ac.createStereoPanner();
-    pan.pan.value = Math.random() * 0.7 - 0.35;
-    tail = mix.connect(pan);
-  }
-  tail.connect(_music.pluckBus);
-  o.start(t0);  o.stop(t0 + 0.38);
-  o2.start(t0); o2.stop(t0 + 0.38);
-  o3.start(t0); o3.stop(t0 + 0.1);
-}
-
-// One 16th note of the arrangement. Everything that plays is decided here from
-// the step number, so the parts can never drift apart. Beats fall on 0,4,8,12.
-function musicStep(step, t) {
-  if (!_music) return;
-  const c = MUSIC_CFG;
-  const inBar = step % STEPS_PER_BAR;
-  if (step % STEPS_PER_CHORD === 0) musicChordAt(t);
-  const chord = _music.chord || MUSIC_CHORDS[0];
-  const onBeat = inBar % 4 === 0;          // 0,4,8,12
-  const offBeat = inBar % 4 === 2;         // 2,6,10,14 — the "&"
-
-  // KICK — four-on-the-floor, every beat. Beat 1 hits hardest.
-  if (onBeat) musicKick(t, inBar === 0 ? c.kick : c.kick * 0.82);
-  // CLAP — backbeat on beats 2 & 4 (steps 4, 12).
-  if (inBar === 4 || inBar === 12) musicClap(t, c.clap);
-  // HATS — open on the off-beats (the pump), closed 16ths elsewhere for drive.
-  if (offBeat) musicHat(t, c.ohat, true);
-  else musicHat(t, onBeat ? c.chat * 0.7 : c.chat, false);
-
-  // BASS — moving pattern; index 0 = root an octave down, 8 = octave up push.
-  const bStep = MUSIC_BASS[inBar];
-  if (bStep !== null) {
-    const bhz = bStep === 8 ? chord[0] : chord[0] / 2;
-    musicBass(bhz, t, c.bass);
-  }
-  // LEAD — syncopated riff, second bar of the chord lifted an octave for a climb.
-  const lStep = MUSIC_LEAD[inBar];
-  if (lStep !== null) {
-    const oct = step % STEPS_PER_CHORD >= STEPS_PER_BAR ? 2 : 1;
-    const hz = chord[lStep] * 2 * oct;
-    musicPluck(hz, t, onBeat ? c.lead : c.lead * 0.75);
-  }
-}
-
-// Lookahead scheduler. setTimeout is far too jittery to place a beat, so it only
-// decides WHEN TO THINK: every 25ms it schedules any step falling in the next
-// 120ms at an exact AudioContext time. The audio clock keeps the groove; the
-// timer just keeps the queue fed.
-function musicScheduler() {
-  if (!_music) return;
-  const ac = _sfx;
-  const stepDur = musicStepDur();
-  while (_music.nextTime < ac.currentTime + 0.12) {
-    musicStep(_music.step, _music.nextTime);
-    _music.nextTime += stepDur;
-    _music.step++;
-  }
-  _music.schedTimer = setTimeout(musicScheduler, 25);
-}
-
-// resume() is async and the AudioContext clock stays frozen until it resolves;
-// building the graph before then schedules every note against a stopped clock, so
-// when the context finally starts they're all in the past and nothing is heard —
-// while _music is set and the button reads "playing". Resume first, build after.
 function startMusic() {
-  const ac = sfxCtx();
-  if (!ac || _music || _musicStarting) return;
-  if (ac.state === "running") { _buildMusic(ac); return; }
-  _musicStarting = true;
-  ac.resume().then(() => {
-    _musicStarting = false;
-    // aria-pressed is the intent; abort if it was toggled off during the resume
-    // gap, or if something already built the graph.
-    const b = $("musicBtn");
-    if (!_music && b && b.getAttribute("aria-pressed") === "true") _buildMusic(ac);
-  }).catch(() => { _musicStarting = false; });
-}
-function _buildMusic(ac) {
-  const master = ac.createGain();
-  master.gain.setValueAtTime(0.0001, ac.currentTime);
-  // Deliberately quiet: ambience should sit under the room, not in it.
-  // quick enough that a click gets an audible response, still a fade not a hit
-  master.gain.exponentialRampToValueAtTime(MUSIC_CFG.master, ac.currentTime + 1.2);
-  master.connect(ac.destination);
-  // dry bus + reverb send
-  const dry = ac.createGain();
-  dry.connect(master);
-  const conv = ac.createConvolver();
-  conv.buffer = musicIR(ac, 3.5, 2.8);
-  const wet = ac.createGain();
-  // Less wash: at 0.55 the reverb sits in front of the notes, which suits
-  // drifting ambience but blurs a livelier melody. 0.42 keeps the space
-  // without the haze.
-  wet.gain.value = MUSIC_CFG.wet;
-  wet.connect(conv).connect(master);
-  // pads: lowpass keeps them soft/hazy, then room + a generous reverb send
-  const lp = ac.createBiquadFilter();
-  lp.type = "lowpass";
-  // 2200, not 1100: at 1100 the pads lose their upper partials and read as fog.
-  // Opening it up lets the 9ths through, which is where the brightness lives.
-  lp.frequency.value = MUSIC_CFG.lp;
-  lp.Q.value = 0.4;
-  lp.connect(dry);
-  lp.connect(wet);
-  // plucks: dry + echo; the echo repeats feed the reverb, not the dry bus,
-  // so each repeat drifts further away
-  const pluckBus = ac.createGain();
-  pluckBus.connect(dry);
-  pluckBus.connect(wet);
-  const dly = ac.createDelay(1.5);
-  dly.delayTime.value = 0.36;   // tighter echo, so repeats support the faster phrases
-  const fb = ac.createGain();
-  fb.gain.value = 0.34;
-  dly.connect(fb).connect(dly);
-  pluckBus.connect(dly);
-  dly.connect(wet);
-  // "air": looped noise through a slowly wandering bandpass, barely there
-  const nb = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
-  const nd = nb.getChannelData(0);
-  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
-  const air = ac.createBufferSource();
-  air.buffer = nb;
-  air.loop = true;
-  const bp = ac.createBiquadFilter();
-  bp.type = "bandpass";
-  bp.frequency.value = 520;
-  bp.Q.value = 2.5;
-  const airG = ac.createGain();
-  airG.gain.value = 0.009;
-  const lfo = ac.createOscillator();
-  lfo.frequency.value = 0.02;
-  const lfoG = ac.createGain();
-  lfoG.gain.value = 260;
-  lfo.connect(lfoG).connect(bp.frequency);
-  air.connect(bp).connect(airG).connect(dry);
-  air.start();
-  lfo.start();
-  // One short noise buffer, reused (looped) by every hat/clap hit — building a
-  // fresh one per 16th would allocate a dozen buffers a second for no gain. 0.3s
-  // so an open hat's 0.16s tail fits without a loop seam being audible.
-  const nz = ac.createBuffer(1, Math.floor(ac.sampleRate * 0.3), ac.sampleRate);
-  const nzd = nz.getChannelData(0);
-  for (let i = 0; i < nzd.length; i++) nzd[i] = Math.random() * 2 - 1;
-
-  _music = { master, lp, dry, wet, pluckBus, schedTimer: null, noise: nz,
-             nodes: [air, lfo], ci: 0, chord: null,
-             step: 0, nextTime: ac.currentTime + 0.06 };
-  // A rising C–E–G before the groove starts: the click should feel like a door
-  // opening, not a pad slowly waking up.
-  musicPluck(523.25, ac.currentTime + 0.05, 0.030);
-  musicPluck(659.25, ac.currentTime + 0.22, 0.026);
-  musicPluck(783.99, ac.currentTime + 0.39, 0.022);
-  _music.nextTime = ac.currentTime + 0.55;   // downbeat lands as the flourish ends
-  musicScheduler();
+  if (!_music) {
+    _music = new Audio(MUSIC_SRC);
+    _music.loop = true;
+    _music.preload = "auto";
+  }
+  if (musicOn()) return;
+  _music.volume = 0;
+  const p = _music.play();
+  // An autoplay block (no user gesture yet) lands here: fine — the
+  // first-interaction arm at the bottom retries. Nothing else (404, decode
+  // error) should wedge the button either.
+  if (p && p.catch) p.catch(() => {});
+  _fadeMusic(MUSIC_VOL, 900);
 }
 
 function stopMusic() {
-  if (!_music) return;
-  const ac = _sfx, m = _music;
-  _music = null;                                   // chord/melody loops stop
-  clearTimeout(m.schedTimer);           // stops the step scheduler
-  m.master.gain.cancelScheduledValues(ac.currentTime);
-  m.master.gain.setValueAtTime(Math.max(m.master.gain.value, 0.0001), ac.currentTime);
-  m.master.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 1.2);
-  setTimeout(() => {
-    m.nodes.forEach((n) => { try { n.stop(); } catch (e) {} });
-    m.master.disconnect();
-  }, 1500);
+  if (!musicOn()) return;
+  _fadeMusic(0, 700, () => { if (_music) _music.pause(); });
 }
 
 function setMusicBtn(on) {
@@ -5388,8 +5032,8 @@ function setMusicBtn(on) {
   if (!b) return;
   b.setAttribute("aria-pressed", on ? "true" : "false");
   b.classList.toggle("playing", on);
-  b.title = on ? "Ambient soundtrack — on (click to turn off)"
-              : "Ambient soundtrack — off (click to turn on)";
+  b.title = on ? "Soundtrack — on (click to turn off)"
+              : "Soundtrack — off (click to turn on)";
 }
 function toggleMusic(on) {
   try { localStorage.setItem(MUSIC_KEY, on ? "1" : "0"); } catch (e) {}
@@ -5414,7 +5058,7 @@ if ($("musicBtn")) {
     // back off (pointerdown fires before click).
     const arm = (e) => {
       if (e.target && e.target.closest && e.target.closest("#musicBtn")) return;
-      if (!_music && localStorage.getItem(MUSIC_KEY) === "1") startMusic();
+      if (!musicOn() && localStorage.getItem(MUSIC_KEY) === "1") startMusic();
     };
     document.addEventListener("pointerdown", arm, { once: true });
     document.addEventListener("keydown", arm, { once: true });

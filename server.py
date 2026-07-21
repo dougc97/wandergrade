@@ -61,6 +61,7 @@ CONTENT_TYPES = {
     ".jpeg": "image/jpeg",
     ".txt": "text/plain; charset=utf-8",
     ".xml": "application/xml; charset=utf-8",
+    ".mp3": "audio/mpeg",
 }
 
 # Sent on every response. The CSP allows our own assets plus the few external
@@ -333,7 +334,7 @@ class Handler(BaseHTTPRequestHandler):
         # effectively static; other data files change with deploys, so keep
         # their staleness window short (10 min) to not mask fresh releases.
         cache = "public, max-age=31536000, immutable" if versioned \
-            else "public, max-age=86400" if ext == ".geojson" \
+            else "public, max-age=86400" if ext in (".geojson", ".mp3") \
             else "public, max-age=600" if ext == ".json" \
             else "public, max-age=300"
         self._send_body(body, ctype, cache=cache)
