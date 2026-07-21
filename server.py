@@ -21,6 +21,7 @@ import os
 import re
 import sys
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import accounts, advisories, flights, mailer, popularity, rates, render_guide, store
@@ -647,12 +648,39 @@ def _redact_email(email_cfg):
     return out
 
 
+def _keep_warm():
+    # Render's free tier sleeps the service after ~15 idle minutes (next visitor
+    # waits ~50s). The GitHub Actions cron that was meant to prevent this fires
+    # 1.5-3h apart in practice — GitHub throttles */10 schedules hard — so the
+    # service keeps itself warm instead: while it's awake, it pings its own
+    # public /healthz every 10 minutes, which counts as inbound traffic and
+    # resets the idle clock indefinitely. A sleeping service runs nothing, so
+    # this can't WAKE it — deploys and the (slow) GH cron remain that layer.
+    # Through Cloudflare, so the UA matters: default Python-urllib gets a 1010.
+    import threading
+
+    def loop():
+        while True:
+            time.sleep(600)
+            try:
+                req = urllib.request.Request(
+                    "https://wandergrade.com/healthz",
+                    headers={"User-Agent": "Wandergrade/1.0 (+https://wandergrade.com; keep-warm)"})
+                urllib.request.urlopen(req, timeout=20, context=rates._SSL).read()
+            except Exception:
+                pass   # transient failure just means the next tick tries again
+
+    threading.Thread(target=loop, daemon=True).start()
+
+
 def main():
     # Port: CLI arg wins, else $PORT (hosting platforms set this), else 8000.
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 8000))
     # Bind localhost-only when run locally; bind all interfaces when a platform
     # provides $PORT (so the host can route traffic to the container).
     host = "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1"
+    if os.environ.get("RENDER"):   # set by Render; never self-ping from a laptop
+        _keep_warm()
     httpd = ThreadingHTTPServer((host, port), Handler)
     print("fx-tracker dashboard on {0}:{1}".format(host, port))
     print("Press Ctrl+C to stop.")
