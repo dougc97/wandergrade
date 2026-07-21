@@ -164,13 +164,21 @@ def get_advisories(source="us"):
     Nothing is invented. A country neither government rates stays unrated, and
     valueScores() drops it from the picks rather than guess a level for it.
 
-    Caveat worth knowing: the German feed is binary (warning / partial warning), so
-    it can never express Level 3 — a partial warning arrives here as Level 2. That
-    makes it a lossy filler. A source with a native 1-4 scale (Canada, Australia)
-    would fill these gaps more faithfully.
+    Gap-fills are MOST-CAUTIOUS-WINS: when more than one other government rates
+    a country the home source is silent on, the sternest published level fills
+    the gap (ties go to the earlier source in FALLBACK_ORDER, which is ordered
+    by scale fidelity). The home government stays authoritative whenever it
+    speaks — this only governs substitutes. Rationale: the German feed is
+    binary (warning / partial warning), so it can never express Level 3 and a
+    partial warning arrives here as a flat Level 2. Under first-source-wins,
+    Canada's feed dropping a country it rates L3 would have silently handed the
+    fill to that lossy L2 — the country would look SAFER because a cautious
+    voice vanished. A substitute judgment must never be softer than any
+    government's published view.
     """
     primary = _from(source)
     have = {i["iso"] for i in primary["items"] if i.get("iso")}
+    fills = {}   # iso -> (item, source_key) with the highest level seen
     for key in FALLBACK_ORDER:
         if key == source:
             continue
@@ -182,8 +190,11 @@ def get_advisories(source="us"):
             iso = it.get("iso")
             if not iso or iso in have:
                 continue
-            primary["items"].append(dict(it, via=key, via_name=SOURCES[key]))
-            have.add(iso)
+            best = fills.get(iso)
+            if best is None or it["level"] > best[0]["level"]:
+                fills[iso] = (it, key)
+    for it, key in fills.values():
+        primary["items"].append(dict(it, via=key, via_name=SOURCES[key]))
     primary["items"].sort(key=lambda r: (-r["level"], r["country"]))
     primary["count"] = len(primary["items"])
     primary["matched"] = sum(1 for i in primary["items"] if i["iso"])
