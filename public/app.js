@@ -4992,8 +4992,10 @@ const MUSIC_SRC = "/music.mp3";
 // ~7 dB quieter than the body, which at cruise volume would make the first
 // click sound broken — so those stretches play at a higher volume and glide
 // down as the song's own crescendo arrives.
-const MUSIC_VOL = 0.26;           // cruise: track body ≈ -22 dB effective
-const MUSIC_VOL_INTRO = 0.5;      // first ~15s / loop seam: lifts -19 dBFS intro to ~-25
+// Doug's ear check (2026-07-21): measured levels were right but "a bit lower
+// would be good" — both knobs dropped ~2.3 dB, same intro/cruise ratio.
+const MUSIC_VOL = 0.2;            // cruise: track body ≈ -24 dB effective
+const MUSIC_VOL_INTRO = 0.38;     // first ~15s / loop seam: keeps the quiet intro audible
 const MUSIC_INTRO_END = 15;       // seconds; the song reaches cruise loudness ~20s
 let _music = null;                // HTMLAudioElement, created on first start
 let _musicFade = null;
