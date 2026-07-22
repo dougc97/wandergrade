@@ -24,14 +24,23 @@ Mail: Resend (REST).
 Env:
     UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN   -> storage
     RESEND_API_KEY                                     -> sending
-    MAIL_FROM        (default "WanderGrade <hello@send.wandergrade.com>")
+    MAIL_FROM        (default "WanderGrade <signin@wandergrade.com>")
     MAIL_REPLY_TO    (default "hello@wandergrade.com")
     SITE_ORIGIN      (default "https://wandergrade.com") — magic-link base
 
-Mail domains are deliberately split: Resend is verified on send.wandergrade.com
-because the apex SPF belongs to Cloudflare Email Routing (~all) and would
-soft-fail anything Resend sent as @wandergrade.com. Replies are pointed back at
-the apex, which Email Routing forwards to a real inbox.
+Mail setup (since 2026-07-22): the ROOT domain wandergrade.com is the one
+verified Resend domain (the free plan allows exactly one; it used to be the
+send. subdomain). From-addresses are @wandergrade.com, DKIM-signed
+d=wandergrade.com. SPF is evaluated against Resend's return-path
+(send.wandergrade.com, SES include) — not the apex — so the apex SPF/MX can
+keep belonging to Cloudflare Email Routing for inbound; both DKIM and SPF
+align for DMARC (p=quarantine). The same domain backs Gmail's send-as for
+hello@wandergrade.com via Resend SMTP. Replies go to the apex, which Email
+Routing forwards to a real inbox.
+
+NOTE: Resend API keys are domain-scoped at creation and cannot be re-scoped —
+if the verified domain ever changes again, the production key dies with it
+and a new one must be minted and set on Render (learned the hard way).
 """
 
 import json
@@ -131,7 +140,7 @@ def _send_mail(to, subject, html):
     req = urllib.request.Request(
         "https://api.resend.com/emails",
         data=json.dumps({
-            "from": _env("MAIL_FROM", "WanderGrade <hello@send.wandergrade.com>"),
+            "from": _env("MAIL_FROM", "WanderGrade <signin@wandergrade.com>"),
             "to": [to],
             "reply_to": _env("MAIL_REPLY_TO", "hello@wandergrade.com"),
             "subject": subject,
