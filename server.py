@@ -20,11 +20,13 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from fxtracker import accounts, advisories, flights, mailer, popularity, rates, render_guide, store
+from fxtracker import (accounts, advisories, build_ppp, flights, mailer, popularity,
+                       rates, render_guide, store)
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
 # runs stay open while a public/tunneled instance can require a login.
@@ -49,6 +51,8 @@ _flights_cache = {}  # origin -> (timestamp, payload)
 FLIGHTS_TTL = 3600   # cached fares are fine for an hour
 _pop_cache = {"at": 0, "data": None}
 POP_TTL = 7 * 24 * 3600   # tourist arrivals are annual; refresh weekly
+_ppp_cache = {"at": 0, "data": None}
+PPP_TTL = 30 * 24 * 3600  # PPP is annual data; a monthly re-check is plenty
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -150,6 +154,53 @@ def _index_template():
 
 
 _SITE = "https://wandergrade.com"   # canonical origin for sitemap URLs
+
+
+def _ppp_data():
+    """PPP table, refreshed from the World Bank monthly, falling back to the
+    file committed in public/.
+
+    Why live rather than the static file alone: the committed ppp.json silently
+    drifted a full year behind (only 42 countries on 2025 when the World Bank
+    had published 2025 for 185) because nothing re-ran the builder. Same shape
+    as _handle_popularity, which already does this for tourism receipts.
+
+    Nothing here ever blocks on the network: a request is answered from the
+    committed file (or the last good fetch) immediately, and the refresh runs on
+    a background thread. Fetching inline would have made the first visitor after
+    a deploy wait up to 40s for the World Bank.
+    """
+    now = time.time()
+    if _ppp_cache["data"] is None:
+        try:
+            _ppp_cache["data"] = build_ppp.committed()
+        except Exception:
+            _ppp_cache["data"] = {}
+    if (now - _ppp_cache["at"]) >= PPP_TTL and not _ppp_cache.get("busy"):
+        _ppp_cache["busy"] = True
+
+        def refresh():
+            try:
+                base = _ppp_cache["data"] or {}
+                live = build_ppp.build()
+                # A truncated or partly-null API response must never quietly
+                # shrink the number of gradeable countries.
+                if live and len(live) >= max(1, int(len(base) * 0.9)):
+                    _ppp_cache["data"] = live
+                    _ppp_cache["at"] = time.time()
+                    print("[ppp] refreshed: %d countries" % len(live))
+                else:
+                    _ppp_cache["at"] = time.time()   # don't hammer a bad upstream
+                    print("[ppp] live fetch gave %d vs %d committed; keeping current"
+                          % (len(live or {}), len(base)))
+            except Exception as e:
+                _ppp_cache["at"] = time.time()
+                print("[ppp] live fetch failed (%s); keeping current" % e)
+            finally:
+                _ppp_cache["busy"] = False
+
+        threading.Thread(target=refresh, daemon=True).start()
+    return _ppp_cache["data"]
 
 
 def _sitemap():
@@ -517,6 +568,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(_sitemap(), "application/xml; charset=utf-8",
                             cache="public, max-age=3600")
             return
+        if path == "/ppp.json":
+            self._send_json(_ppp_data(), extra=[("Cache-Control", "public, max-age=86400")])
+            return
         # static files
         rel = path.lstrip("/")
         safe = os.path.normpath(os.path.join(PUBLIC, rel))
@@ -700,8 +754,6 @@ def _keep_warm():
     # resets the idle clock indefinitely. A sleeping service runs nothing, so
     # this can't WAKE it — deploys and the (slow) GH cron remain that layer.
     # Through Cloudflare, so the UA matters: default Python-urllib gets a 1010.
-    import threading
-
     def loop():
         while True:
             time.sleep(600)

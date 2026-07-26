@@ -35,7 +35,14 @@ def _fetch():
     return json.loads(raw)[1] or []
 
 
-def main():
+def build():
+    """Fetch and shape the PPP table: {iso: {ppp, year, name}}.
+
+    Shared by main() (writes the committed file) and the server's live refresh,
+    so both paths can never disagree about how the data is derived. Keeps the
+    latest available year PER COUNTRY — the World Bank publishes with a lag and
+    not every country lands in the same year.
+    """
     # Only keep real countries that exist on our map.
     with open(GEOJSON, encoding="utf-8") as f:
         valid = {feat["properties"]["iso"] for feat in json.load(f)["features"]
@@ -51,8 +58,18 @@ def main():
         if iso not in latest or year > latest[iso][0]:
             latest[iso] = (year, val, r["country"]["value"])
 
-    out = {iso: {"ppp": round(v, 6), "year": y, "name": nm}
-           for iso, (y, v, nm) in latest.items()}
+    return {iso: {"ppp": round(v, 6), "year": y, "name": nm}
+            for iso, (y, v, nm) in latest.items()}
+
+
+def committed():
+    """The ppp.json checked into the repo — the fallback when the API is down."""
+    with open(OUT, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def main():
+    out = build()
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"), sort_keys=True)
     print("wrote {0} countries -> {1}".format(len(out), OUT))
