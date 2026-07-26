@@ -1178,9 +1178,12 @@ function renderGuideVisa(iso) {
   const detail = info.meta.long + (info.note ? " · " + info.note : "");
   const link = /^https:\/\/travel\.state\.gov\//.test(info.link)
     ? ` <a href="${esc(info.link)}" target="_blank" rel="noopener">official details ↗</a>` : "";
+  const checked = visaVerified(passport);
+  const asOf = checked ? ` Checked ${esc(checked)}; verify before booking — rules change.`
+                       : " Verify before booking — rules change.";
   host.innerHTML = `<span class="visa ${info.meta.cls}">🛂 ${esc(info.meta.label)}</span>
     <span class="guidevisa-txt"><b>Visa · ${esc(ppName)} passport:</b> ${esc(detail)}.${link}
-    Verify before booking — rules change.</span>`;
+    ${asOf}</span>`;
 }
 
 // Safety advisory for this country, from the traveler's home-country source
@@ -3319,6 +3322,20 @@ const VISA_META = {
   special:  { label: "Restricted",  cls: "vhard",  long: "Special restrictions apply" },
   check:    { label: "Check",       cls: "vchk",   long: "Requirements vary — verify before booking" },
 };
+// When the visa data was last checked by hand. There is no reliable free visa
+// API, so these tables are curated and can only be as fresh as the last review
+// — saying so beats implying a freshness we can't guarantee, especially on data
+// where being wrong costs someone a trip. Read from the files themselves so the
+// date can never drift from what shipped.
+function visaVerified(passport) {
+  const src = passport === "US" ? visa : visaMatrix;
+  const raw = src && src._verified;
+  if (!raw) return "";
+  const [y, m] = raw.split("-");
+  const MON = ["January", "February", "March", "April", "May", "June", "July",
+               "August", "September", "October", "November", "December"];
+  return m ? MON[+m - 1] + " " + y : y;
+}
 function visaInfo(iso, passport) {
   passport = /^[A-Z]{2}$/.test(passport) ? passport : "US";
   if (passport === iso) return { home: true, passport };   // their own country
