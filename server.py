@@ -149,6 +149,41 @@ def _index_template():
     return _html_tpl
 
 
+_SITE = "https://wandergrade.com"   # canonical origin for sitemap URLs
+
+
+def _sitemap():
+    """Generate sitemap.xml from the live slug list.
+
+    Was a static file committed 2026-07-06, which had two problems Search
+    Console showed: no <lastmod> at all (Google ignores changefreq/priority, so
+    the file carried NO freshness signal), and it listed ?tab= variants of the
+    homepage that canonicalize to "/" — Google filed those as "Alternate page
+    with proper canonical tag" and they wasted crawl budget. Generating it
+    means it can never drift from the real page set either.
+
+    lastmod is the mtime of the newest file that actually feeds guide content —
+    honest freshness, not a fabricated "now" on every request (which search
+    engines learn to distrust).
+    """
+    mtimes = []
+    for name in ("slugs.json", "climate.json", "activities.json",
+                 "country-names.json", "visa.json", "index.html"):
+        try:
+            mtimes.append(os.path.getmtime(os.path.join(PUBLIC, name)))
+        except OSError:
+            pass
+    stamp = time.strftime("%Y-%m-%d", time.gmtime(max(mtimes) if mtimes else time.time()))
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+           '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp)]
+    for slug, _iso in render_guide.all_slugs():
+        out.append('  <url><loc>%s/guide/%s</loc><lastmod>%s</lastmod></url>'
+                   % (_SITE, slug, stamp))
+    out.append('</urlset>')
+    return ("\n".join(out) + "\n").encode("utf-8")   # _send_body takes bytes
+
+
 def _render_index(gc_iso=None):
     """Fill index.html's tokens. gc_iso=None -> homepage defaults; otherwise a
     country page with server-rendered <title>/meta/canonical and body."""
@@ -473,6 +508,10 @@ class Handler(BaseHTTPRequestHandler):
                                 cache="public, max-age=300")
             else:
                 self._send_json({"error": "country not found"}, 404)
+            return
+        if path == "/sitemap.xml":
+            self._send_body(_sitemap(), "application/xml; charset=utf-8",
+                            cache="public, max-age=3600")
             return
         # static files
         rel = path.lstrip("/")
