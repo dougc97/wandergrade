@@ -23,7 +23,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 GEOJSON = os.path.join(ROOT, "public", "world.geojson")
 OUT = os.path.join(ROOT, "public", "climate.json")
 ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
-YEAR = ("2024-01-01", "2024-12-31")
+# A five-year window over the last COMPLETE calendar years, derived from the
+# clock. Was hardcoded to 2024 alone, which had two problems: it could never
+# refresh, and one year is a thin basis for "typical" weather — a single wet or
+# freak-hot year permanently skewed a country's best months. Five years averages
+# anomalies out while staying recent enough to reflect current climate. The end
+# year is the last complete one, since a partial year would bias whichever
+# months have already happened.
+_LAST_COMPLETE = time.gmtime().tm_year - 1
+WINDOW_YEARS = 5
+YEAR = ("%d-01-01" % (_LAST_COMPLETE - WINDOW_YEARS + 1), "%d-12-31" % _LAST_COMPLETE)
 
 # Curated best-months for major destinations (1=Jan). Overlaid on weather scores
 # so the "best months" reflect travel knowledge (shoulder seasons, dry seasons,
@@ -84,17 +93,23 @@ def monthly_scores(lat, lon):
     times = daily.get("time", [])
     temps = daily.get("temperature_2m_mean", [])
     rains = daily.get("precipitation_sum", [])
-    mt, mr = defaultdict(list), defaultdict(list)
+    # Temperature averages over every matching day, but rain must be totalled
+    # PER (year, month) and then averaged across years — comfort() expects one
+    # month's rainfall in mm. Summing every matching day across a 5-year window
+    # would report five Januaries of rain as one, quintupling the penalty and
+    # driving nearly every score to the floor.
+    mt = defaultdict(list)                          # month -> daily temps
+    mr = defaultdict(lambda: defaultdict(float))    # month -> year -> total mm
     for t, tp, rn in zip(times, temps, rains):
-        m = int(t[5:7])
+        y, m = int(t[0:4]), int(t[5:7])
         if tp is not None:
             mt[m].append(tp)
         if rn is not None:
-            mr[m].append(rn)
+            mr[m][y] += rn
     scores, temps = [], []
     for m in range(1, 13):
         at = sum(mt[m]) / len(mt[m]) if mt[m] else None
-        tr = sum(mr[m]) if mr[m] else 0
+        tr = (sum(mr[m].values()) / len(mr[m])) if mr[m] else 0
         scores.append(comfort(at, tr))
         temps.append(round(at) if at is not None else None)  # avg °C, shown in the guide
     return scores, temps
@@ -136,11 +151,30 @@ def main():
             print("  [{0}/{1}] {2} {3} ok".format(i + 1, len(feats), iso, name))
         except (urllib.error.HTTPError, urllib.error.URLError, Exception) as e:
             print("  [{0}/{1}] {2} {3} FAILED: {4}".format(i + 1, len(feats), iso, name, e))
-        time.sleep(0.4)  # be gentle with the free API
+        # 0.4s was fine for one-year requests; five-year ones are ~5x the payload
+        # and Open-Meteo started returning 429 about 190 countries in.
+        time.sleep(0.9)
 
+    # MERGE onto whatever is already committed rather than replacing it. A run
+    # that gets rate-limited half way through used to write only the countries
+    # it managed to fetch, silently deleting the rest — the 2026-07 rebuild lost
+    # 39 (Singapore, the Maldives, most of the Caribbean) before this existed.
+    # Stale data for a country beats no data for it.
+    previous = {}
+    try:
+        with open(OUT, encoding="utf-8") as f:
+            previous = json.load(f)
+    except (OSError, ValueError):
+        pass
+    kept = [k for k in previous if k not in out]
+    merged = dict(previous)
+    merged.update(out)
     with open(OUT, "w", encoding="utf-8") as f:
-        json.dump(out, f, separators=(",", ":"), sort_keys=True)
-    print("wrote {0} countries -> {1}".format(len(out), OUT))
+        json.dump(merged, f, separators=(",", ":"), sort_keys=True)
+    print("wrote {0} countries -> {1} ({2} fresh, {3} kept from the previous file)"
+          .format(len(merged), OUT, len(out), len(kept)))
+    if kept:
+        print("  kept: {0}".format(", ".join(sorted(kept)[:20])))
 
 
 if __name__ == "__main__":
