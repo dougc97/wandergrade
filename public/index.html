@@ -89,7 +89,13 @@
           <h2>Where should you go?</h2>
           <p class="chartsub">Graded like a report card — tap a row for the full guide.</p>
         </div>
-        <button id="surpriseBtn" class="surprisebtn" type="button" title="No idea where to go? Open a random destination guide.">🎲 Surprise me</button>
+        <div class="herobtns">
+          <!-- Guided entry: a tester froze at the filter row because filters
+               assume you already know your criteria. Three questions set them
+               for you. The ranking below still loads instantly either way. -->
+          <button id="guideMeBtn" class="guidemebtn" type="button" title="Answer three quick questions and we'll pick for you.">✨ Help me choose</button>
+          <button id="surpriseBtn" class="surprisebtn" type="button" title="No idea where to go? Open a random destination guide.">🎲 Surprise me</button>
+        </div>
       </div>
 
       <!-- Hero controls: the two decisions everyone makes. Everything else

@@ -4712,6 +4712,87 @@ $("shareBtn").addEventListener("click", shareCurrent);
 // well-known destination's guide. Leans into the decide-where-to-go angle.
 const SURPRISE_POOL = ("JP TH IT FR ES GR PT VN ID IN MX PE EG IS KE AR MA TR ZA CR " +
   "NP LK KH JO GE CO PH MY TZ HR CZ NO CH NZ AU BR CL").split(" ");
+// ---- guided picker ----------------------------------------------------------
+// A tester opened the site and didn't know where to start: the filter row asks
+// you to configure a query, which only works if you already know your criteria,
+// while the promise is "decide for me". This asks three questions instead and
+// sets the existing filters from the answers — the instant ranking underneath is
+// untouched, so nobody who prefers filters loses anything. One screen rather
+// than a multi-step wizard: fewer clicks, and it can't strand you halfway.
+const GUIDE_PRIORITY = {
+  money: { afford: "high", safe: "med",  wx: "low",  fly: "med"  },
+  warm:  { afford: "med",  safe: "med",  wx: "high", fly: "low"  },
+  safe:  { afford: "med",  safe: "high", wx: "med",  fly: "low"  },
+  near:  { afford: "med",  safe: "med",  wx: "low",  fly: "high" },
+};
+const GUIDE_PRIORITY_LABEL = [
+  ["money", "💰", "My money going furthest"],
+  ["warm",  "🌤️", "Great weather"],
+  ["safe",  "🛡️", "Feeling safe"],
+  ["near",  "✈️", "A short, cheap flight"],
+];
+
+function openGuidedPicker() {
+  const monthSel = $("valueMonth");
+  const months = monthSel ? [...monthSel.options].map((o) => `<option value="${esc(o.value)}">${esc(o.textContent)}</option>`).join("") : "";
+  const m = acctModal(`
+    <h3 class="gqh">Let's narrow it down</h3>
+    <p class="gqsub">Three questions. Skip any of them.</p>
+    <div class="gqrow">
+      <label class="gqlabel" for="gqMonth">When are you going?</label>
+      <select id="gqMonth" class="gqinput">${months}</select>
+    </div>
+    <div class="gqrow">
+      <label class="gqlabel" for="gqBudget">What's your total budget?</label>
+      <span class="gqbudget">
+        <input id="gqBudget" class="gqinput numin" type="number" min="0" step="100" placeholder="any" inputmode="numeric">
+        <span class="gqfor">for</span>
+        <input id="gqDays" class="gqinput numin" type="number" min="1" max="365" step="1" placeholder="10" inputmode="numeric">
+        <span class="gqfor">days</span>
+      </span>
+    </div>
+    <div class="gqrow">
+      <span class="gqlabel">What matters most?</span>
+      <div class="gqpick" id="gqPick">${GUIDE_PRIORITY_LABEL.map(([k, ic, lab], i) =>
+        `<button type="button" data-k="${k}" class="${i === 0 ? "active" : ""}">${ic} ${esc(lab)}</button>`).join("")}</div>
+    </div>
+    <button id="gqGo" class="gqgo" type="button">Show me where to go →</button>
+  `);
+  if (!m) return;
+  // Seed from whatever's already set, so this reflects rather than resets state.
+  if (monthSel) m.querySelector("#gqMonth").value = monthSel.value;
+  const bt = $("budgetTotal"), bd = $("budgetDays");
+  if (bt && bt.value) m.querySelector("#gqBudget").value = bt.value;
+  if (bd && bd.value) m.querySelector("#gqDays").value = bd.value;
+
+  let want = GUIDE_PRIORITY_LABEL[0][0];
+  m.querySelector("#gqPick").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    want = b.dataset.k;
+    m.querySelectorAll("#gqPick button").forEach((x) => x.classList.toggle("active", x === b));
+  });
+
+  m.querySelector("#gqGo").onclick = () => {
+    const mo = m.querySelector("#gqMonth").value;
+    if (monthSel && mo) { monthSel.value = mo; monthSel.dispatchEvent(new Event("change", { bubbles: true })); }
+    const budget = m.querySelector("#gqBudget").value.trim();
+    const days = m.querySelector("#gqDays").value.trim();
+    if (bt) bt.value = budget;
+    if (bd) bd.value = days;
+    loadPriorities();
+    Object.assign(priorities, GUIDE_PRIORITY[want] || {});
+    savePriorities();
+    if (typeof buildWeightSliders === "function") buildWeightSliders();
+    m.close();
+    renderValue();
+    // Land the user on the answer, not back at the top of the page.
+    const rows = $("valueRows") || $("topCards");
+    if (rows) rows.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
+  };
+}
+if ($("guideMeBtn")) $("guideMeBtn").addEventListener("click", openGuidedPicker);
+
 function surpriseMe() {
   ensureSlugs().then(() => {
     const pool = SURPRISE_POOL.filter((iso) => !climate || climate[iso]);

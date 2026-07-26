@@ -1035,3 +1035,42 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   #tab-guide .guidejump { gap: 6px; }
   #tab-guide .guidejump > * { white-space: nowrap; font-size: 12px; padding: 6px 7px; }
 }
+
+/* ---- guided picker ("Help me choose") ---- */
+.herobtns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.guidemebtn { font-size: 14px; font-weight: 700; padding: 8px 14px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--soft); color: var(--ink); cursor: pointer;
+  white-space: nowrap; }
+.guidemebtn:hover { border-color: var(--green); color: var(--green); }
+.gqh { margin: 0 0 2px; font-size: 20px; }
+.gqsub { margin: 0 0 18px; color: var(--gray); font-size: 14px; }
+.gqrow { margin-bottom: 16px; }
+.gqlabel { display: block; font-size: 13px; font-weight: 700; color: var(--gray);
+  text-transform: uppercase; letter-spacing: .03em; margin-bottom: 6px; }
+.gqinput { font: inherit; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: var(--bg); color: var(--ink); }
+.gqbudget { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gqbudget .numin { width: 96px; }
+.gqfor { color: var(--gray); font-size: 14px; }
+.gqpick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.gqpick button { font: inherit; font-size: 14px; text-align: left; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg);
+  color: var(--ink); cursor: pointer; }
+.gqpick button.active { border-color: var(--green); background: var(--green-bg);
+  color: var(--green); font-weight: 700; }
+.gqgo { width: 100%; margin-top: 6px; font: inherit; font-weight: 800; font-size: 15px;
+  padding: 12px; border: 0; border-radius: 10px; background: var(--green); color: #fff;
+  cursor: pointer; }
+
+/* Phones: the heading plus two buttons can't share a row at 390px, so the pair
+   drops to its own full-width row TOGETHER rather than stacking one per row —
+   one extra row instead of two above the fold. Appended after the base rules
+   above so it wins regardless of the media-query ordering elsewhere. */
+@media (max-width: 600px) {
+  /* #tab-value .charthead sets flex-wrap:nowrap (line ~869) to keep the heading
+     and the old single button on one row. An ID selector outranks a class one
+     whatever the source order, so this override has to match its specificity. */
+  #tab-value .charthead { flex-wrap: wrap; }
+  #tab-value .herobtns { width: 100%; justify-content: flex-start; }
+  #tab-value .herobtns > button { flex: 1 1 0; min-width: 0; text-align: center; }
+}
