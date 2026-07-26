@@ -166,9 +166,13 @@ def _sitemap():
     honest freshness, not a fabricated "now" on every request (which search
     engines learn to distrust).
     """
+    # Content data only — deliberately NOT index.html. The template changes on
+    # every CSS/markup tweak, which would bump all 177 lastmods for edits that
+    # don't touch what a guide page actually says. A lastmod that moves
+    # constantly is one Google stops believing.
     mtimes = []
     for name in ("slugs.json", "climate.json", "activities.json",
-                 "country-names.json", "visa.json", "index.html"):
+                 "country-names.json", "visa.json"):
         try:
             mtimes.append(os.path.getmtime(os.path.join(PUBLIC, name)))
         except OSError:
