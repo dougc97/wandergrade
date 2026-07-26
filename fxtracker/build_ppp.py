@@ -11,6 +11,7 @@ Run: python3 -m fxtracker.build_ppp
 
 import json
 import os
+import time
 import urllib.request
 
 from . import rates  # reuse the verifying SSL context
@@ -19,8 +20,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "public", "ppp.json")
 GEOJSON = os.path.join(ROOT, "public", "world.geojson")
 # PA.NUS.PPP = PPP conversion factor, GDP (local currency units per international $)
+# The end year was hardcoded to 2025, which would have silently ignored 2026
+# data the moment the World Bank published it. Ask for next year too — absent
+# years simply come back null and are skipped.
+_THIS_YEAR = time.gmtime().tm_year
 URL = ("https://api.worldbank.org/v2/country/all/indicator/PA.NUS.PPP"
-       "?format=json&date=2017:2025&per_page=20000")
+       "?format=json&date=2017:%d&per_page=20000" % (_THIS_YEAR + 1))
 
 
 def _fetch():

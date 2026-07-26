@@ -944,9 +944,17 @@ function rateForCurrency(code) {
   return r ? r.rate_now : null;
 }
 // price level vs US for a country: PPP factor / market rate. <1 = cheaper than US.
+// Countries whose World Bank PPP factor is denominated in a DIFFERENT currency
+// from the one circulating locally. Bulgaria's 2025 factor was restated in euros
+// (it dropped by ~1.94, the BGN/EUR peg, within the same data year), so dividing
+// it by the lev rate reported Bulgaria at half its real price level — $100 would
+// have "bought" $410 instead of $216. Dividing by the euro rate reproduces the
+// previous year's value to within 2%, which is what confirmed the restatement.
+// Expect this to recur whenever a country redenominates or joins the euro.
+const PPP_CUR = { BG: "EUR" };
 function priceLevel(iso) {
   if (!ppp || !ppp[iso]) return null;
-  const cur = CUR_BY_ISO[iso];
+  const cur = PPP_CUR[iso] || CUR_BY_ISO[iso];
   if (!cur) return null;
   const rate = rateForCurrency(cur);
   if (!rate) return null;
