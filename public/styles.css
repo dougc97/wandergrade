@@ -1074,3 +1074,29 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   #tab-value .herobtns { width: 100%; justify-content: flex-start; }
   #tab-value .herobtns > button { flex: 1 1 0; min-width: 0; text-align: center; }
 }
+
+/* ---- tap targets (measured, not guessed) ----
+   Audit at 390px found the ⚠️ hazard mark rendering at 11x10 CSS px and the ⓘ
+   info marks at 13x16 — both well under the 24px minimum, and both carrying
+   information available nowhere else ("Jul–Aug: heatwaves and peak coastal
+   crowds"). On a phone they were effectively untappable, which quietly made the
+   ⓘ-hover pattern this site relies on a desktop-only feature.
+   The fix expands the HIT area via a transparent pseudo-element and leaves the
+   visual size alone, so nothing about the design changes. .hzmark needs a
+   positioning context for that; inside .pillwrap it is already absolute, which
+   also counts. */
+.hzmark { position: relative; }
+.hzmark::after,
+.muted[data-tip]::after,
+[data-tip]:not(.factorchip):not(button)::after {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  /* purely a touch target — must never intercept a hover meant for the row */
+  pointer-events: auto;
+}
+.muted[data-tip], [data-tip]:not(.factorchip):not(button) { position: relative; }
+
+/* Factor chips were 22px tall — just under the threshold, and they are the
+   primary control for what the ranking weights. */
+.factorchip { min-height: 24px; display: inline-flex; align-items: center; }
