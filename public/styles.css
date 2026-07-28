@@ -1100,3 +1100,35 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 /* Factor chips were 22px tall — just under the threshold, and they are the
    primary control for what the ranking weights. */
 .factorchip { min-height: 24px; display: inline-flex; align-items: center; }
+
+/* ---- even column rhythm on the ranking tables (desktop) ----
+   Both ranking tables let their columns auto-size to header text, so the grade
+   columns came out ragged — measured at 1440px, .gradetable gave Affordability
+   258px against Safety's 149. Scanning a row meant crossing five unevenly
+   spaced stops, which defeats the point of a report card.
+
+   Two different tables, two different cell classes, which is what tripped an
+   earlier attempt at this: .gradetable (Top Picks + Hidden gems, built by
+   renderGradeTable) uses .scell for four grade columns and .overall for the
+   fifth; #valueTable (the Data tab's full ranking) uses .num throughout.
+
+   Desktop only — the mobile layout is tuned and scrolls inside its own
+   wrapper, where equal widths would fight the min-width. */
+@media (min-width: 900px) {
+  /* rank is "#1" — give it only what it needs, or the leftover percentage
+     inflates it to ~98px and shoves every grade to the right. */
+  .gradetable td.rank { width: 4%; }
+  .gradetable td.dest, .gradetable th.dest { width: 28%; }
+  .gradetable td.scell, .gradetable td.overall { width: 13.5%; }
+  #valueTable td.num, #valueTable th.num { width: 13%; }
+}
+
+/* Remaining sub-24px controls found in the same 390px audit.
+   The High/Med/Low priority buttons decide how the ranking is weighted — the
+   most consequential control on the page — and sat at 22px tall. The Filters
+   disclosure is the only route to region/budget/safety and sat at 20px.
+   Both are real controls people tap, unlike the footer source credits, which
+   stay as-is: they're inline links inside a sentence, where padding would
+   break the line box, and WCAG exempts inline text links for that reason. */
+.prigroup button { min-height: 24px; display: inline-flex; align-items: center; }
+.foldable > summary, .weights summary { min-height: 24px; display: flex; align-items: center; }
