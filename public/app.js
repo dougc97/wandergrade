@@ -396,13 +396,23 @@ async function loadRates() {
   }
 }
 
+// "AED" and "ANG" mean nothing to most people, so the pickers spell the
+// currency out the way the rates table below them already does. The name comes
+// from the same rows the table renders, so the two can never disagree. It also
+// makes the searchable select match on words — typing "turkish" finds TRY.
+function curLabel(code) {
+  const row = lastRates && lastRates.rows.find((r) => r.code === code);
+  const name = row && row.name;
+  return name && name !== code ? code + " (" + name + ")" : code;
+}
+
 // Populate the "My currency" picker once real data exists (USD first).
 function buildBaseSelect() {
   const sel = $("dataBase");
   if (!sel || sel.options.length > 1 || !lastRates) return;
   const codes = ["USD", ...lastRates.rows.map((r) => r.code).sort()];
   sel.innerHTML = codes.map((c) =>
-    `<option value="${esc(c)}"${c === homeBase ? " selected" : ""}>${esc(c)}</option>`).join("");
+    `<option value="${esc(c)}"${c === homeBase ? " selected" : ""}>${esc(curLabel(c))}</option>`).join("");
   // Writes through the same setter as Top Picks' "In" picker, so the two can't
   // drift apart. manual=true: touching this select is an explicit choice and
   // should stop the currency following the From country.
@@ -1980,7 +1990,7 @@ function initHomeCur() {
   const sel = $("homeCur");
   if (!sel || sel.options.length > 1 || !lastRates) return;
   const codes = ["USD", ...lastRates.rows.map((r) => r.code).sort()];
-  sel.innerHTML = codes.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+  sel.innerHTML = codes.map((c) => `<option value="${esc(c)}">${esc(curLabel(c))}</option>`).join("");
   const stored = localStorage.getItem("fx_homecur");
   const start = homeManual && codes.includes(stored) ? stored : homeCurAuto();
   sel.value = start;
