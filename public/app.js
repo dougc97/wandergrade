@@ -989,9 +989,16 @@ function plTag(pl) {
   // lines under the number, making the row three deep to say two words.
   return `<span class="${cls}" style="font-size:11px;white-space:nowrap">${w}</span>`;
 }
+// Diverging around parity: 1.00 means $100 buys exactly $100 of what it buys at
+// home. That threshold is the only one a traveler cares about, so it gets a hard
+// visual break rather than being the pale middle of a smooth ramp.
+// The red side starts at 45% saturation the moment a country crosses 1.00.
+// Without that floor the handful of genuinely pricier countries (Switzerland at
+// 1.13, Iceland 1.17) rendered as near-white and vanished into the map — the
+// one group a US traveler most needs to spot.
 function affordColor(pl) {
-  return pl <= 1 ? mix("#eef0f1", "#0a7d28", Math.min(1, (1 - pl) / 0.8))
-                 : mix("#eef0f1", "#b00020", Math.min(1, (pl - 1) / 0.4));
+  if (pl <= 1) return mix("#eef0f1", "#0a7d28", Math.min(1, (1 - pl) / 0.8));
+  return mix("#eef0f1", "#b00020", 0.45 + 0.55 * Math.min(1, (pl - 1) / 0.35));
 }
 
 // ---- wiring ---------------------------------------------------------------
@@ -3076,10 +3083,22 @@ async function loadFlights() {
   syncURL();
 }
 
-function flightColor(price, min, max) {
+// Colour by fare RELATIVE TO THE DISTANCE-FIT TYPICAL, not by absolute price.
+// Colouring by absolute fare scaled across min..max made the whole map green:
+// fare distributions are heavily right-skewed, so a handful of $3k long-hauls
+// stretched the top of the range and every ordinary $400-900 fare fell into the
+// bottom quarter. It was really drawing a distance map, and it contradicted the
+// caption, which already promises "below/above the typical fare for the
+// distance" — the measure the table's ▼/▲ arrows use.
+// Now the midpoint is a ratio of 1.0 (fare exactly as predicted for that
+// distance), so roughly half the map sits either side and red means genuinely
+// overpriced for how far you're going. ±35% spans the full ramp.
+function flightColor(price, expectedFare) {
   if (price == null) return NODATA;
-  const t = max > min ? (price - min) / (max - min) : 0;        // 0 cheap -> 1 pricey
-  return t <= 0.5 ? mix("#0a7d28", "#eef0f1", t * 2) : mix("#eef0f1", "#b00020", (t - 0.5) * 2);
+  if (!expectedFare) return mix("#eef0f1", "#0a7d28", 0.15);   // no fit: neutral
+  const ratio = price / expectedFare;
+  const t = Math.max(-1, Math.min(1, (ratio - 1) / 0.35));     // -1 bargain, +1 pricey
+  return t <= 0 ? mix("#eef0f1", "#0a7d28", -t) : mix("#eef0f1", "#b00020", t);
 }
 
 function renderFlights() {
@@ -3100,13 +3119,16 @@ function renderFlights() {
     const p = byC[f.properties.iso];
     return p == null
       ? { fill: NODATA, title: f.properties.name + " — no fares sampled" }
-      : { fill: flightColor(p, min, max), title: `${f.properties.name} — avg ${cur} ${p} round-trip` };
+      : { fill: flightColor(p, expected && expected(f.properties.iso)),
+          title: `${f.properties.name} — avg ${cur} ${p} round-trip` };
   }, "Average flight prices by destination country");
 
   $("flightSub").innerHTML =
-    `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · greener = cheaper · <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above the typical fare for the distance · <b>click a fare ↗</b> to search that route live on Aviasales.`;
+    `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · map colours show the fare vs the typical fare for that distance — <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above, so a long-haul can still be a bargain · <b>click a fare ↗</b> to search that route live on Aviasales.`;
+  // Legend names the comparison, not just the direction — the colours are
+  // relative to the distance-fit typical fare, not to the cheapest fare shown.
   $("flightLegend").innerHTML =
-    '<span>Cheaper</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Pricier</span>';
+    '<span>Below typical</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Above typical</span>';
 
   markSort("#flightTable", flightSort);
   $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET).map((c) => {
