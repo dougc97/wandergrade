@@ -962,6 +962,36 @@ function rateForCurrency(code) {
 // previous year's value to within 2%, which is what confirmed the restatement.
 // Expect this to recur whenever a country redenominates or joins the euro.
 const PPP_CUR = { BG: "EUR" };
+
+// Price level = a PPP factor measured in year Y, divided by TODAY's exchange
+// rate. When a currency has collapsed since year Y, that arithmetic reports a
+// country as far cheaper than it now is — local prices simply haven't caught up
+// with the rate yet, and the World Bank won't restate until the next release.
+// This was previously disclosed only as a footnote on one map, which meant the
+// caveat never travelled with the number into the rankings, the guide pages or
+// the budget filter.
+// Threshold from the live distribution rather than taste: median one-year drift
+// is 1.0% and the 90th percentile 4.4%, so 15% flags only genuine outliers —
+// currently Iran (84%, already excluded as Do Not Travel) and Bolivia (66%,
+// sitting at #1 in Top Picks). strength_pct is the dollar's move against that
+// currency, so a positive number is exactly the case we care about.
+const PPP_DRIFT_WARN = 15;
+function pppDrift(iso) {
+  const code = PPP_CUR[iso] || CUR_BY_ISO[iso];
+  if (!code || !lastRates || !lastRates.rows) return null;
+  const row = lastRates.rows.find((r) => r.code === code);
+  const pct = row && row.strength_pct;
+  if (typeof pct !== "number" || pct < PPP_DRIFT_WARN) return null;
+  const year = ppp && ppp[iso] && ppp[iso].year;
+  return { pct, year, code };
+}
+function pppDriftNote(iso) {
+  const d = pppDrift(iso);
+  if (!d) return "";
+  return `⚠️ The ${d.code} has fallen ${Math.round(d.pct)}% against the dollar in the past year`
+       + (d.year ? `, but the price level uses World Bank data from ${d.year}` : "")
+       + ". Local prices may not have caught up yet, so this reads cheaper than it currently feels.";
+}
 function priceLevel(iso) {
   if (!ppp || !ppp[iso]) return null;
   const cur = PPP_CUR[iso] || CUR_BY_ISO[iso];
@@ -1728,8 +1758,10 @@ function renderAfford() {
     const pl = priceLevel(f.properties.iso);
     if (pl == null) return { fill: NODATA, title: f.properties.name + " — no price data" };
     n++;
+    const drift = pppDriftNote(f.properties.iso);
     return { fill: affordColor(pl),
-      title: `${f.properties.name} — price level ${pl.toFixed(2)} (${plWord(pl)} vs US)` };
+      title: `${f.properties.name} — price level ${pl.toFixed(2)} (${plWord(pl)} vs US)`
+             + (drift ? " · " + drift : "") };
   }, "Cost of living (price level vs US)");
 
   $("affSub").textContent =
@@ -2792,10 +2824,12 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     const wxTitle = `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}` +
       (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
     const iso = esc(s.iso);
+    // Same ⚠️ affordance the weather column uses for seasonal hazards.
+    const driftNote = pppDriftNote(s.iso);
     return `<tr data-iso="${iso}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">#${i + 1}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
-      <td class="scell" data-go="afford" data-iso="${iso}">${gradePill(s.afford, affordTitle(s))}</td>
+      <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl, iso)}</td>
       <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span></td>
       <td class="scell" data-go="flights" data-iso="${iso}">${s.fare == null ? '<span class="muted">—</span>'
