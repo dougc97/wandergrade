@@ -578,7 +578,7 @@ let worldGeo = null;
 async function ensureWorld() {
   if (worldGeo) return worldGeo;
   // ?v= busts the day-long HTTP cache when the geometry changes (bump manually)
-  worldGeo = await (await fetch("/world.geojson?v=7")).json();
+  worldGeo = await (await fetch("/world.geojson?v=8")).json();
   return worldGeo;
 }
 
