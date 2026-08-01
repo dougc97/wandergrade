@@ -1142,3 +1142,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .guideindex-links { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 12px 0 0; }
 .guideindex-links a { font-size: 12.5px; color: var(--gray); text-decoration: none; }
 .guideindex-links a:hover { color: var(--green); text-decoration: underline; }
+
+/* "Why now" tags in the ranking table — the reason to go this month, not just
+   the score. Deliberately quiet: they sit beside the country name and must not
+   compete with the grades, which are what the row is for. */
+.seastag { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px;
+  padding: 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  background: var(--green-bg); color: var(--green); white-space: nowrap;
+  vertical-align: middle; cursor: help; position: relative; }
+.seastag::after { content: ""; position: absolute; inset: -7px; }  /* tap target */
+.seastag.seasmore { background: var(--soft); color: var(--gray); }
+@media (max-width: 600px) { .seastag { display: none; } }  /* row is tight enough */

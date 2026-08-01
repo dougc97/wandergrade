@@ -2811,6 +2811,31 @@ function priceArrow(value, baseline, label) {
 // hidden-gems list, which ranks #1..#N just like the popular table (the 💎
 // lives in the section title). The why-sentence moves to the row tooltip so
 // the table itself stays scannable.
+// ---- "why now" ---------------------------------------------------------------
+// The ranking answers "how good is this place" but never "why this month". The
+// seasonal data to answer it already existed — 282 entries across all 176
+// countries, each with months, a short name and a description — but it only
+// appeared on the guide page, one click PAST the decision. Surfacing the ones
+// that match the selected month turns a weather grade into a reason: "August is
+// pleasant in Japan" becomes "Autumn leaves". Idea borrowed from a friend's
+// weekend-trips site, which does this better than we did.
+function seasonalNow(iso, month) {
+  const a = activities && activities[iso];
+  if (!a || !a.seasonal) return [];
+  return a.seasonal.filter((x) => (x.months || []).includes(month));
+}
+function seasonalTags(iso, month, max) {
+  const hits = seasonalNow(iso, month);
+  if (!hits.length) return "";
+  const shown = hits.slice(0, max || 2).map((x) =>
+    `<span class="seastag" data-tip="${esc(x.what + (x.d ? " — " + x.d : ""))}" title="">`
+    + `${activityEmoji(x.what)} ${esc(x.what)}</span>`).join("");
+  const more = hits.length > (max || 2)
+    ? `<span class="seastag seasmore" data-tip="${esc(hits.slice(max || 2).map((x) => x.what).join(" · "))}" title="">+${hits.length - (max || 2)}</span>`
+    : "";
+  return shown + more;
+}
+
 function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   if (!host) return;
   if (!list.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
@@ -2829,7 +2854,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     const driftNote = pppDriftNote(s.iso);
     return `<tr data-iso="${iso}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">#${i + 1}</td>
-      <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}</td>
+      <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}${seasonalTags(s.iso, month)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl, iso)}</td>
       <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span></td>
