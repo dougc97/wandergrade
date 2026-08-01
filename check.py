@@ -64,15 +64,34 @@ def run(dry_run=False):
     # Personal currency-favorability alert (Gmail/SMTP) to your own address.
     # NOTE: subscriber newsletter is the graded travel digest (send_digest.py),
     # not this FX alert — this stays an owner-only heads-up.
+    # This alert is a personal convenience and must never be able to fail the
+    # job: in the monthly workflow it runs BEFORE the subscriber digest, and a
+    # non-zero exit here skips that step entirely. That is exactly what
+    # happened — the July and August 2026 digests never went out because this
+    # returned 1 when SMTP simply wasn't configured, which is a normal state,
+    # not an error. Subscribers' newsletter must not depend on the owner's
+    # Gmail app password still being valid.
     if mailer.is_configured(cfg["email"]):
-        mailer.send_email(cfg["email"], subject, text, html)
-        print("Sent alert to {0}.".format(cfg["email"]["to_addr"]))
-        sent_any = True
+        try:
+            mailer.send_email(cfg["email"], subject, text, html)
+            print("Sent alert to {0}.".format(cfg["email"]["to_addr"]))
+            sent_any = True
+        except Exception as e:
+            print("WARNING: personal alert failed to send ({0}). Continuing — "
+                  "this must not block the newsletter.".format(e))
     else:
         print("Personal email not configured (FX_SMTP_PASSWORD). Skipping.")
 
     if not sent_any:
-        return 1
+        # Nothing was delivered, but there is nothing to retry and nothing
+        # downstream depends on it. Say so loudly, exit clean — and do NOT
+        # stamp these currencies as alerted, or an undelivered alert would be
+        # suppressed by the cooldown forever. They stay "new" until one
+        # actually goes out.
+        print("No personal alert delivered; not treating that as a failure. "
+              "Leaving {0} currencies unstamped so they alert next time."
+              .format(len(fresh)))
+        return 0
 
     stamp = _now().isoformat()
     for r in fresh:
