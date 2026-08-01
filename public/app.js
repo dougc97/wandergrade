@@ -3995,9 +3995,22 @@ function renderVisitedStats() {
   // One <span> per line of text: .vstats-line is a flex row (for the award
   // pill), and a bare <b> would become its own flex item — the gap property
   // then splits the number from its own sentence.
+  // Save prompt lives HERE, not only in the header. The header button reads
+  // "Save map" on all four tabs, three of which contain no map — and it asks
+  // for the save before the reader has anything worth saving. Motivation peaks
+  // at exactly this point: they have just marked N countries and can see what
+  // they'd lose. Only shown once there is something to lose, and never to
+  // someone already signed in.
+  const saveCta = (ACCT_ON && !acctSignedIn() && (n || m))
+    ? `<div class="vsave"><button type="button" id="visitedSave">👤 Save this map</button>`
+      + `<span class="vsavenote">Marked in this browser only — signing in keeps ${n + m} `
+      + `${n + m === 1 ? "country" : "countries"} across devices and private tabs.</span></div>`
+    : "";
   host.innerHTML = `<div class="vstats-line"><span>${bits.join(" · ")}</span>${award}</div>`
     + (flags.trim() ? `<div class="vflags">${flags}</div>` : "")
-    + contRow;
+    + contRow + saveCta;
+  const sb = $("visitedSave");
+  if (sb) sb.onclick = () => openSignIn();
   // idempotent across re-renders (property assignment, not addEventListener)
   host.onclick = (e) => {
     const chip = e.target.closest(".contchip");

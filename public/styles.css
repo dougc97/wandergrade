@@ -1153,3 +1153,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .seastag::after { content: ""; position: absolute; inset: -7px; }  /* tap target */
 .seastag.seasmore { background: var(--soft); color: var(--gray); }
 @media (max-width: 600px) { .seastag { display: none; } }  /* row is tight enough */
+
+/* Contextual save prompt in Wander List — appears once there is something to
+   lose, which is the moment it persuades. The header button asks before the
+   reader has marked anything. */
+.vsave { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--soft); }
+.vsave button { font: inherit; font-weight: 700; font-size: 14px; padding: 8px 14px;
+  border: 0; border-radius: 8px; background: var(--green); color: #fff;
+  cursor: pointer; min-height: 24px; }
+.vsavenote { font-size: 13px; color: var(--gray); }
