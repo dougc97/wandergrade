@@ -123,6 +123,7 @@ _HTML_DEFAULTS = {
     "OGIMAGE": "https://wandergrade.com/og.png",
     "GC_JS": "",
     "SSR_BODY": "",
+    "GUIDE_LINKS": "",
     "JSONLD": _WEBSITE_JSONLD,
     "ANALYTICS": _analytics_tag(),
     # Lets the page hide every trace of sign-in until accounts are provisioned.
@@ -203,6 +204,28 @@ def _ppp_data():
     return _ppp_cache["data"]
 
 
+_guide_links_html = None
+
+
+def _guide_links():
+    """Anchors to every /guide/<slug>, for the collapsed index in the footer.
+
+    The homepage previously contained no link to any guide page at all — the
+    ranking table is built client-side, so a crawler saw a homepage that linked
+    nowhere and 176 pages reachable only via the sitemap. Sitemap discovery
+    alone gives no internal link equity and a lower crawl priority, which is a
+    large part of why so few guides were indexed.
+
+    Built once and cached: the slug list only changes on deploy.
+    """
+    global _guide_links_html
+    if _guide_links_html is None:
+        _guide_links_html = "".join(
+            '<a href="/guide/%s">%s</a>' % (slug, html.escape(render_guide.name_for_iso(iso) or slug.title()))
+            for slug, iso in render_guide.all_slugs())
+    return _guide_links_html
+
+
 def _sitemap():
     """Generate sitemap.xml from the live slug list.
 
@@ -243,6 +266,7 @@ def _render_index(gc_iso=None):
     """Fill index.html's tokens. gc_iso=None -> homepage defaults; otherwise a
     country page with server-rendered <title>/meta/canonical and body."""
     vals = dict(_HTML_DEFAULTS)
+    vals["GUIDE_LINKS"] = _guide_links()
     if gc_iso:
         r = render_guide.render(gc_iso)
         vals.update(

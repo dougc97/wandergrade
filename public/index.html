@@ -522,6 +522,18 @@
 
   <section class="subscribe" id="subscribe"></section>
 
+  <!-- Every country guide, server-rendered as real anchors. Until this existed
+       there was NO crawlable path from the homepage to any of the 176 guide
+       pages — rows in the ranking table are built by JS, so a crawler saw a
+       homepage that linked nowhere. Discovery rested entirely on the sitemap,
+       and no internal link equity reached the pages that are supposed to rank.
+       Collapsed by default so it costs the reader nothing; <details> content is
+       still in the HTML and still crawled. -->
+  <details class="guideindex">
+    <summary>Browse all country guides</summary>
+    <nav class="guideindex-links">{{GUIDE_LINKS}}</nav>
+  </details>
+
   <footer>
     Currency: <a href="https://fxratesapi.com" target="_blank" rel="noopener">fxratesapi.com</a> ·
     PPP: World Bank ·

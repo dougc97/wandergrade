@@ -173,3 +173,11 @@ def render(iso):
 def all_slugs():
     """Every (slug, iso) for the sitemap and any build tooling."""
     return sorted(_load()["slugs"].items())
+
+
+def name_for_iso(iso):
+    """Display name for an ISO2, or None. Used by the homepage's crawlable
+    index of every guide page — anchor text needs the country's real name, not
+    the slug, both for readers and because the words in a link are a ranking
+    signal for the page it points at."""
+    return (_load()["names"] or {}).get(iso)

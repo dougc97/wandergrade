@@ -1765,7 +1765,8 @@ function renderAfford() {
   }, "Cost of living (price level vs US)");
 
   $("affSub").textContent =
-    `Below 1.00 = cheaper than the US (a dollar buys more). World Bank PPP ÷ live rate · ${n} countries.`;
+    `Below 1.00 = cheaper than the US (a dollar buys more). World Bank PPP ÷ live rate · ${n} countries. `
+    + `These are national averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.`;
   $("affLegend2").innerHTML =
     '<span>Pricey</span><span class="bar"></span><span>Cheap</span>' +
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
@@ -2859,7 +2860,13 @@ function affordTitle(s) {
   }
   if (s.fx != null && Math.abs(s.fx) >= 1)
     parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average`);
-  return (parts.join(" · ") || "affordability") + " · click for cost-of-living detail";
+  // Repeatedly the sharpest critique this gets: PPP is a national consumption
+  // basket, so it under-weights the one cost a visitor most feels — rent in the
+  // few neighbourhoods foreigners actually stay in. Say so where the number is
+  // read rather than burying it in a methodology note.
+  return (parts.join(" · ") || "affordability")
+    + " · national average — tourist areas and foreigner rents run higher"
+    + " · click for cost-of-living detail";
 }
 
 // One delegated click for the grade table:
