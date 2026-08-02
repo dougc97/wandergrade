@@ -26,13 +26,37 @@ GEOJSON = os.path.join(ROOT, "public", "world.geojson")
 _THIS_YEAR = time.gmtime().tm_year
 URL = ("https://api.worldbank.org/v2/country/all/indicator/PA.NUS.PPP"
        "?format=json&date=2017:%d&per_page=20000" % (_THIS_YEAR + 1))
+# GDP per capita in current US$. Not used for the grade — only to sanity-check the
+# price level. Price level tracks income log-linearly (the Penn effect), so a
+# country whose price level is wildly out of line with its income is almost always
+# a broken exchange rate rather than a genuinely expensive place. Sudan is the
+# live example: the official rate is pegged near 602 SDG/USD while the currency
+# really trades far weaker, which made the site rank Sudan the most expensive
+# country on earth, ahead of Iceland and Switzerland.
+GDP_URL = ("https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD"
+           "?format=json&date=2017:%d&per_page=20000" % (_THIS_YEAR + 1))
 
 
-def _fetch():
-    req = urllib.request.Request(URL, headers={"User-Agent": "fx-tracker/1.0"})
+def _fetch(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "fx-tracker/1.0"})
     with urllib.request.urlopen(req, timeout=40, context=rates._SSL) as resp:
         raw = resp.read().decode("utf-8-sig")
     return json.loads(raw)[1] or []
+
+
+def _latest_by_iso(rows, valid):
+    """Newest non-null value per country. The World Bank publishes with a lag and
+    not every country lands in the same year, so we keep the latest PER COUNTRY."""
+    latest = {}  # iso -> (year, value, name)
+    for r in rows:
+        iso = r["country"]["id"]
+        val = r["value"]
+        if val is None or len(iso) != 2 or not iso.isalpha() or iso not in valid:
+            continue
+        year = int(r["date"])
+        if iso not in latest or year > latest[iso][0]:
+            latest[iso] = (year, val, r["country"]["value"])
+    return latest
 
 
 def build():
@@ -48,18 +72,23 @@ def build():
         valid = {feat["properties"]["iso"] for feat in json.load(f)["features"]
                  if feat["properties"].get("iso") and feat["properties"]["iso"] != "-99"}
 
-    latest = {}  # iso -> (year, value, name)
-    for r in _fetch():
-        iso = r["country"]["id"]
-        val = r["value"]
-        if val is None or len(iso) != 2 or not iso.isalpha() or iso not in valid:
-            continue
-        year = int(r["date"])
-        if iso not in latest or year > latest[iso][0]:
-            latest[iso] = (year, val, r["country"]["value"])
+    latest = _latest_by_iso(_fetch(URL), valid)
+    out = {iso: {"ppp": round(v, 6), "year": y, "name": nm}
+           for iso, (y, v, nm) in latest.items()}
 
-    return {iso: {"ppp": round(v, 6), "year": y, "name": nm}
-            for iso, (y, v, nm) in latest.items()}
+    # Income is a cross-check, not an input to the grade, so it must never be able
+    # to fail the PPP build. If it's unavailable the entries simply carry no
+    # gdppc and the client falls back to its absolute plausibility bounds.
+    try:
+        for iso, (y, v, _nm) in _latest_by_iso(_fetch(GDP_URL), valid).items():
+            if iso in out:
+                out[iso]["gdppc"] = round(v, 2)
+                out[iso]["gdppc_year"] = y
+    except Exception as e:
+        print("WARNING: GDP per capita fetch failed ({0}). "
+              "Price-level plausibility check will fall back to absolute bounds.".format(e))
+
+    return out
 
 
 def committed():

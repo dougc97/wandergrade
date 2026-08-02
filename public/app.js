@@ -992,7 +992,7 @@ function pppDriftNote(iso) {
        + (d.year ? `, but the price level uses World Bank data from ${d.year}` : "")
        + ". Local prices may not have caught up yet, so this reads cheaper than it currently feels.";
 }
-function priceLevel(iso) {
+function priceLevelRaw(iso) {
   if (!ppp || !ppp[iso]) return null;
   const cur = PPP_CUR[iso] || CUR_BY_ISO[iso];
   if (!cur) return null;
@@ -1003,6 +1003,64 @@ function priceLevel(iso) {
   // a redenominated currency). Real price levels sit roughly in [0.1, 4].
   if (pl < 0.08 || pl > 6) return null;
   return pl;
+}
+// Those absolute bounds only catch the wild cases. The subtler failure is a
+// country whose price level is merely *implausible*: Sudan came out at 1.95 —
+// the most expensive country on the site, ahead of Iceland and Switzerland —
+// because its official rate is pegged near 602 SDG/USD while the currency really
+// trades far weaker. Dividing a PPP factor by a fictional rate gives a fictional
+// price level, and 1.95 sits comfortably inside [0.08, 6].
+//
+// Price level tracks income log-linearly (the Penn effect: richer countries are
+// genuinely pricier), so income is the cross-check. A country far off that line
+// is nearly always a broken exchange rate — a managed peg, or a collapsed
+// currency — rather than a real outlier. Those are treated as no-data, which
+// every caller already handles, instead of being shown as a confident grade.
+// This is deliberately complementary to pppDrift(), which watches currency
+// strength and so cannot see a peg that never moves.
+const PL_PLAUSIBLE_SD = 3;
+let _plFitFor, _plFitVal;
+function _computePlFit() {
+  if (!ppp) return null;
+  const pts = [];
+  for (const iso in ppp) {
+    const g = ppp[iso].gdppc, pl = priceLevelRaw(iso);
+    if (g > 0 && pl) pts.push([Math.log(g), Math.log(pl)]);
+  }
+  const fit = (rows) => {
+    const n = rows.length;
+    if (n < 40) return null;              // too few to trust a band; skip the check
+    const mx = rows.reduce((s, p) => s + p[0], 0) / n;
+    const my = rows.reduce((s, p) => s + p[1], 0) / n;
+    let sxy = 0, sxx = 0;
+    for (const p of rows) { sxy += (p[0] - mx) * (p[1] - my); sxx += (p[0] - mx) * (p[0] - mx); }
+    if (!sxx) return null;
+    const b = sxy / sxx, a = my - b * mx;
+    const sd = Math.sqrt(rows.reduce((s, p) => s + Math.pow(p[1] - (a + b * p[0]), 2), 0) / n);
+    return sd > 0 ? { a, b, sd } : null;
+  };
+  const first = fit(pts);
+  if (!first) return null;
+  // Refit once without the extremes, so a single broken country can't widen the
+  // band enough to hide itself inside it.
+  const trimmed = pts.filter((p) => Math.abs(p[1] - (first.a + first.b * p[0])) <= 3 * first.sd);
+  return fit(trimmed) || first;
+}
+function plFit() {
+  // Recompute when rates change; the fit depends on every country's price level.
+  if (_plFitFor !== lastRates) { _plFitFor = lastRates; _plFitVal = _computePlFit(); }
+  return _plFitVal;
+}
+function plImplausible(iso) {
+  const g = ppp && ppp[iso] && ppp[iso].gdppc;
+  const pl = priceLevelRaw(iso);
+  if (!(g > 0) || !pl) return false;
+  const f = plFit();
+  if (!f) return false;
+  return Math.abs(Math.log(pl) - (f.a + f.b * Math.log(g))) > PL_PLAUSIBLE_SD * f.sd;
+}
+function priceLevel(iso) {
+  return plImplausible(iso) ? null : priceLevelRaw(iso);
 }
 // Representative country for a currency (for the per-currency table column).
 const PRIMARY_COUNTRY = { EUR: "DE", XOF: "SN", XAF: "CM", USD: "US", XCD: null };

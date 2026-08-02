@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "fx-tracker",
-      "runtimeExecutable": "python3",
+      "runtimeExecutable": "/usr/bin/python3",
       "runtimeArgs": ["server.py", "8000"],
       "port": 8000
     }
