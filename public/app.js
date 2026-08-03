@@ -1,6 +1,15 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
+
+// This script's own deploy stamp (server.py rewrites /app.js to /app.js?v=<mtime>).
+// Must be read at top level: document.currentScript is only set while the script
+// is first executing, not later inside a function.
+const ASSET_V = (() => {
+  const m = ((document.currentScript && document.currentScript.src) || "").match(/[?&]v=([^&]+)/);
+  return m ? m[1] : "";
+})();
+const stamped = (path) => (ASSET_V ? path + "?v=" + ASSET_V : path);
 let lastRates = null;   // always USD-based — feeds the Top Picks scoring
 let dataRates = null;   // whatever the Explore-the-Data currency view shows
 
@@ -945,7 +954,12 @@ function renderMapSafe() {
 // ---- PPP / affordability ---------------------------------------------------
 let ppp = null;
 async function ensurePPP() {
-  if (!ppp) ppp = await (await fetch("/ppp.json")).json();
+  // Stamped because ppp.json is browser-cached for a full day (server.py) while
+  // app.js ships on a 5-minute cache. When the data gains a field the code depends
+  // on — as it just did for the income cross-check — that skew leaves returning
+  // visitors running new code against day-old data, with the guard silently inert.
+  // The stamp makes the two bust together without giving up the day of caching.
+  if (!ppp) ppp = await (await fetch(stamped("/ppp.json"))).json();
   return ppp;
 }
 function rateForCurrency(code) {
