@@ -602,7 +602,15 @@ function strengthColor(pct) {
   return t >= 0 ? mix("#eef0f1", "#0a7d28", t) : mix("#eef0f1", "#b00020", -t);
 }
 
-const NODATA = "#e0e4e8";
+// Mid-slate, deliberately NOT a near-white grey. Every scale on this site ends
+// at a pale neutral for its middle value — "price level about the same as home",
+// "currency flat against its average" — so a near-white no-data read as data. On
+// the cost-of-living map that put Australia, Canada and the US in the same tone
+// as Sudan, Iran and Venezuela, and 53 territories that have no World Bank entry
+// at all were silently rendering as if they did. A mid tone is the one choice
+// that separates from both a near-black ocean and a near-white one, so it holds
+// in either theme without branching. Shared by all four maps.
+const NODATA = "#6b7681";
 const HOME = "#bcd0e6";
 
 // Flat lon/lat projection, cropped at -56 — Antarctica is deliberately off
@@ -677,7 +685,14 @@ function drawMap(hostId, colorFn, ariaLabel) {
     const spans = placeSpans();
     const dotFor = (f) => {
       const { fill, title, cls } = colorFn(f);
-      if (fill === "#e0e4e8") return "";              // unmarked — no dot
+      // No dot for a country we have nothing to say about. Two distinct fills
+      // mean that: NODATA on the data maps, and the pale "not marked yet" fill
+      // on the Wander List map (they are deliberately different colours — one
+      // is missing data, the other is an invitation to click). Checking only the
+      // literal used to be enough, back when NODATA happened to be that same
+      // pale grey; it no longer is, and dropping the NODATA case here would
+      // speckle the data maps with dots for microstates we have no figures for.
+      if (fill === "#e0e4e8" || fill === NODATA) return "";
       const c = cen[f.properties.iso];
       if (!c) return "";
       const x = ((c[0] + 180) / 360) * W, y = ((latTop - c[1]) / (latTop - latBot)) * H;

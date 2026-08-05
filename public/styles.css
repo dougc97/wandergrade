@@ -294,7 +294,8 @@ small { color: var(--gray); font-weight: 400; }
 .legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--gray); flex-wrap: wrap; }
 .legend .bar { width: 130px; height: 10px; border-radius: 5px;
   background: linear-gradient(90deg, #b00020, #e88, #f0f0f0, #8c8, #0a7d28); }
-.legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: #e0e4e8; vertical-align: -1px; margin-right: 3px; }
+/* Keep in step with NODATA in app.js — this is the legend key for it. */
+.legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: #6b7681; vertical-align: -1px; margin-right: 3px; }
 
 .windowtoggle { display: inline-flex; gap: 4px; margin-top: 10px; background: var(--soft); padding: 3px; border-radius: 8px; }
 /* ...but not when it's one control in a centered row: align-items centres the
