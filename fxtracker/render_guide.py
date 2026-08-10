@@ -17,6 +17,19 @@ PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 SITE = "https://wandergrade.com"
 MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+# Spelled out for prose. Every search that reaches these pages is some form of
+# "best time to visit <country>", and people type "December", not "Dec" — the
+# abbreviations were fine as chip labels and invisible as body copy.
+MON_FULL = ["January", "February", "March", "April", "May", "June", "July",
+            "August", "September", "October", "November", "December"]
+
+
+def _join_and(items):
+    """a, b and c — reads as a sentence rather than a data dump."""
+    items = list(items)
+    if len(items) <= 1:
+        return items[0] if items else ""
+    return "%s and %s" % (", ".join(items[:-1]), items[-1])
 
 _data = None
 
@@ -133,7 +146,16 @@ def render(iso):
     if summary:
         p.append("<p>%s</p>" % html.escape(summary))
     if best_txt:
-        p.append("<p><strong>Best months to visit:</strong> %s</p>" % html.escape(best_txt))
+        # Every query landing here is "best time to visit <country>", and that
+        # phrase used to appear only in the <title> — the body answered it under
+        # the heading "What's in season", which is a different question, and in
+        # abbreviated months nobody searches for. Heading and prose now say the
+        # thing people actually typed.
+        best_full = _join_and(MON_FULL[m - 1] for m in best if 1 <= m <= 12)
+        p.append("<h2>Best time to visit %s</h2>" % html.escape(name))
+        p.append("<p>The best months to visit %s are <strong>%s</strong>, "
+                 "judged on weather and seasonality.</p>"
+                 % (html.escape(name), html.escape(best_full)))
     if acts:
         p.append("<h2>Top things to do in %s</h2><ul>" % html.escape(name))
         for x in acts:

@@ -51,7 +51,7 @@
     <div class="headrow">
       <a class="homelink" href="/" title="Back to Top Picks">
         <span class="brand">🌍 WanderGrade</span>
-        <h1>Where Should I Travel to Next?</h1>
+        {{SITE_HEADING}}
         <p class="sub">Every country, graded A+ to F — free, no sign-up.</p>
       </a>
       <div class="headbtns">
@@ -241,7 +241,10 @@
                pages finally has its own heading instead of all sharing one.
                Starts hidden — until app.js hydrates, the SSR block below carries
                the visible h1, and two would be worse than none. -->
-          <h1 class="cardtitle" id="guideH1" hidden>Travel Guide<span id="guideH2Country"></span></h1>
+          <!-- h2, not h1: this is a card title inside the client-rendered Travel
+               Guide tab, and it was emitting a second "Travel Guide" h1 into
+               every server-rendered country page. -->
+          <h2 class="cardtitle" id="guideH1" hidden>Travel Guide<span id="guideH2Country"></span></h2>
           <p class="chartsub">Best months, peak vs off-season, and what's in season right now.</p>
         </div>
         <!-- Region and interest pickers used to live here too, duplicating Top
@@ -543,6 +546,7 @@
     Photos: <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia</a> ·
     Visas: <a href="https://github.com/ilyankou/passport-index-dataset" target="_blank" rel="noopener">Passport Index</a> &amp; <a href="https://travel.state.gov" target="_blank" rel="noopener">US State Dept</a> ·
     Popularity: <a href="https://data.worldbank.org/indicator/ST.INT.RCPT.CD" target="_blank" rel="noopener">UN Tourism / World Bank</a>.
+    <br><a href="/data"><strong>Free dataset:</strong> cost of living by country (CSV &amp; JSON)</a>
     Informational only — verify before booking.
     <span id="feedbackFoot" hidden> · <a href="#" target="_blank" rel="noopener">💬 Feedback</a></span>
     <span class="disclosure">WanderGrade earns a commission when you book through some of our flight, stay &amp; activity links, at no extra cost to you.</span>

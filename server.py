@@ -129,6 +129,12 @@ _HTML_DEFAULTS = {
     "OGIMAGE": "https://wandergrade.com/og.png",
     "GC_JS": "",
     "SSR_BODY": "",
+    # The homepage's own h1. On a /guide/<country> page this becomes a plain
+    # paragraph instead: that page's h1 belongs to the country, and this shell
+    # headline is byte-identical across all 176 of them, so leaving it as an h1
+    # meant every guide's first and strongest heading said nothing about the
+    # country it was for. Same pixels either way — .sitetitle carries the style.
+    "SITE_HEADING": '<h1 class="sitetitle">Where Should I Travel to Next?</h1>',
     "GUIDE_LINKS": "",
     "JSONLD": _WEBSITE_JSONLD,
     "ANALYTICS": _analytics_tag(),
@@ -283,12 +289,95 @@ def _sitemap():
     stamp = time.strftime("%Y-%m-%d", time.gmtime(max(mtimes) if mtimes else time.time()))
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
-           '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp)]
+           '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
+           '  <url><loc>%s/data</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp)]
     for slug, _iso in render_guide.all_slugs():
         out.append('  <url><loc>%s/guide/%s</loc><lastmod>%s</lastmod></url>'
                    % (_SITE, slug, stamp))
     out.append('</urlset>')
     return ("\n".join(out) + "\n").encode("utf-8")   # _send_body takes bytes
+
+
+_DATA_TITLE = "Cost of Living by Country — Free CSV & JSON Dataset | WanderGrade"
+_DATA_DESC = ("Free dataset: what US$100 buys in 173 countries, from World Bank PPP "
+              "divided by today's market exchange rate. CSV and JSON, no sign-up.")
+
+
+def _data_page_body():
+    """The dataset's own page. A public data URL nothing links to is a dead
+    letter — crawlers never reach it and nobody can tell what it means, so the
+    file needs somewhere to explain its method and licence.
+
+    Served as a standalone document rather than through the app shell: the shell
+    is a single-page app that boots into Top Picks and paints over any server
+    body it wasn't expecting, so this page would have rendered the picks table
+    to a reader who asked for a dataset.
+    """
+    return (
+        '<div class="ssrguide">'
+        "<h1>Cost of living by country: the dataset</h1>"
+        "<p>What US$100 buys in <strong>173 countries</strong>, as a free CSV or JSON "
+        "download. No sign-up, no key, updated continuously.</p>"
+        '<p><a href="/data/price-levels.csv"><strong>Download CSV</strong></a> &middot; '
+        '<a href="/data/price-levels.json"><strong>Download JSON</strong></a></p>'
+        "<h2>What's in it</h2>"
+        "<ul>"
+        "<li><strong>price_level</strong> — World Bank PPP conversion factor divided by "
+        "the market exchange rate. 1.00 means prices match the US, 0.50 means half.</li>"
+        "<li><strong>usd100_buys</strong> — the local purchasing power of US$100, in US "
+        "dollars. Vietnam sits near $370.</li>"
+        "<li>Plus the inputs, so you can check the arithmetic: PPP factor and its year, "
+        "GDP per capita and its year, and the currency used.</li>"
+        "</ul>"
+        "<h2>Why it differs from other PPP tables</h2>"
+        "<p>Most purchasing-power figures divide by an exchange rate fixed at the time "
+        "the PPP was published, so they drift as currencies move. This divides by "
+        "<em>today's</em> market rate, which is why a country whose currency has fallen "
+        "shows up as cheaper here than in a year-old table.</p>"
+        "<h2>What it is not</h2>"
+        "<p>These are national averages for residents. Neighbourhoods popular with "
+        "visitors, and rent paid by foreigners, run well above them — useful for "
+        "comparing countries against each other, not as a travel budget.</p>"
+        "<p>Countries whose exchange rate is a managed peg, or otherwise so far out of "
+        "line with their income that the result would be fictional, are left out rather "
+        "than guessed at. That is why the count is 173 and not every country on earth.</p>"
+        "<h2>Sources and licence</h2>"
+        "<p>PPP conversion factors and GDP per capita from the World Bank "
+        "(<a href=\"https://data.worldbank.org\" rel=\"noopener\" target=\"_blank\">data.worldbank.org</a>, "
+        "CC BY 4.0); exchange rates from "
+        "<a href=\"https://fxratesapi.com\" rel=\"noopener\" target=\"_blank\">fxratesapi.com</a>. "
+        "The derived figures are free to reuse with attribution to "
+        "<a href=\"/\">WanderGrade</a>.</p>"
+        "</div>"
+    )
+
+
+def _render_data_page():
+    """A whole, self-contained HTML document for /data — no app.js."""
+    return (
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        "<title>%s</title>"
+        '<meta name="description" content="%s">'
+        '<link rel="canonical" href="%s/data">'
+        '<meta property="og:title" content="Cost of Living by Country — Free Dataset">'
+        '<meta property="og:description" content="%s">'
+        '<meta property="og:url" content="%s/data">'
+        '<link rel="stylesheet" href="/styles.css?v=%s">'
+        "%s</head><body>"
+        '<header><div class="headrow"><a class="homelink" href="/">'
+        '<span class="brand">🌍 WanderGrade</span>'
+        '<p class="sitetitle">Where Should I Travel to Next?</p>'
+        '<p class="sub">Every country, graded A+ to F — free, no sign-up.</p>'
+        "</a></div></header><main>%s</main>"
+        '<footer>Data: <a href="https://data.worldbank.org" rel="noopener" '
+        'target="_blank">World Bank</a> &amp; '
+        '<a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
+        '&middot; <a href="/">Back to WanderGrade</a></footer></body></html>'
+        % (html.escape(_DATA_TITLE), html.escape(_DATA_DESC, quote=True), _SITE,
+           html.escape(_DATA_DESC, quote=True), _SITE,
+           _asset_version("styles.css"), _analytics_tag(), _data_page_body())
+    ).encode("utf-8")
 
 
 def _render_index(gc_iso=None):
@@ -306,6 +395,8 @@ def _render_index(gc_iso=None):
             SSR_BODY=r["body"],                       # already-safe HTML
             GC_JS="<script>window.__WGGC__=%s;</script>" % json.dumps(gc_iso),
             JSONLD=r.get("jsonld", ""),               # FAQPage schema (raw JSON-LD)
+            # Demoted so the country's own <h1> is the only one on the page.
+            SITE_HEADING='<p class="sitetitle">Where Should I Travel to Next?</p>',
         )
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
@@ -620,6 +711,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/sitemap.xml":
             self._send_body(_sitemap(), "application/xml; charset=utf-8",
                             cache="public, max-age=3600")
+            return
+        if path in ("/data", "/data/"):
+            self._send_body(_render_data_page(), "text/html; charset=utf-8",
+                            cache="public, max-age=300")
             return
         if path == "/ppp.json":
             self._send_json(_ppp_data(), extra=[("Cache-Control", "public, max-age=86400")])

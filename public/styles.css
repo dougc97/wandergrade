@@ -212,7 +212,10 @@ header { padding-top: 28px; }
 .brand { display: inline-block; font-size: 15px; font-weight: 800; letter-spacing: .3px;
   color: var(--green); margin: 0 0 2px; text-decoration: none; }
 .brand:hover { text-decoration: underline; }
-h1 { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spacing: -0.4px; }
+/* .sitetitle is the header headline, which is an <h1> on the homepage and a
+   <p> on country pages (their <h1> belongs to the country). Styled together so
+   the demotion is invisible. */
+h1, .sitetitle { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spacing: -0.4px; }
 .sub { color: var(--gray); margin: 0 0 16px; }
 
 .bar {
@@ -317,7 +320,7 @@ small { color: var(--gray); font-weight: 400; }
    only existed after hydration. This also returns ~150px above the fold on the
    pages most likely to be someone's first arrival from search.
    data-tab is set pre-paint by the inline script in <head>, so nothing flashes. */
-html[data-tab="guide"] header h1,
+html[data-tab="guide"] header .sitetitle,
 html[data-tab="guide"] header .sub { display: none; }
 .charthead .muted { color: var(--gray); font-weight: 400; font-size: 14px; }
 .chartsub { margin: 4px 0 0; color: var(--gray); font-size: 13px; }
