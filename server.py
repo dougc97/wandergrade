@@ -79,7 +79,13 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
     "Content-Security-Policy": (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline'; "
+        # static.cloudflareinsights.com is the Web Analytics beacon that
+        # _analytics_tag() injects. Without it here the browser refuses the
+        # script (script-src-elem) and the site records zero traffic while
+        # looking perfectly healthy — the tag is in the HTML, the token is
+        # valid, and nothing reports. That is exactly what happened: Search
+        # Console showed real clicks while the Cloudflare dashboard sat at 0.
+        "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; "
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data: https://fonts.gstatic.com; "
