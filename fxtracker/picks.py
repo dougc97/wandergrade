@@ -24,7 +24,7 @@ import os
 import urllib.parse
 import urllib.request
 
-from . import advisories, popularity, rates
+from . import advisories, popularity, pricelevel, rates
 
 # Wikimedia blocks the default urllib UA; identify ourselves.
 _UA = "Wandergrade/1.0 (https://wandergrade.com; hello@newsletter.wandergrade.com)"
@@ -158,18 +158,14 @@ def cover_photo(query, width=1024, height=420):
         return None
 
 
-def _price_level(iso, ppp, rate_by_code):
-    p = ppp.get(iso)
-    cur = CUR_BY_ISO.get(iso)
-    if not p or not cur:
-        return None
-    rate = 1.0 if cur == "USD" else rate_by_code.get(cur)
-    if not rate:
-        return None
-    pl = p["ppp"] / rate
-    if pl < 0.08 or pl > 6:          # guard against broken World Bank values
-        return None
-    return pl
+def _price_level(iso, ppp, rate_by_code, fit=None):
+    """Delegates to the canonical implementation — see fxtracker/pricelevel.py.
+
+    This used to be its own copy of the arithmetic, which is how it silently
+    fell behind when the income plausibility guard was added to the browser
+    only. Pass `fit` to apply that guard here too.
+    """
+    return pricelevel.price_level(iso, ppp, rate_by_code, CUR_BY_ISO, fit)
 
 
 def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso):

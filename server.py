@@ -25,8 +25,8 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from fxtracker import (accounts, advisories, build_ppp, flights, mailer, popularity,
-                       rates, render_guide, store)
+from fxtracker import (accounts, advisories, build_dataset, build_ppp, flights,
+                       mailer, popularity, rates, render_guide, store)
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
 # runs stay open while a public/tunneled instance can require a login.
@@ -161,6 +161,29 @@ def _index_template():
 
 
 _SITE = "https://wandergrade.com"   # canonical origin for sitemap URLs
+
+
+_dataset_cache = {"at": 0, "payload": None, "csv": None}
+_DATASET_TTL = 3600
+
+
+def _dataset():
+    """The public price-level dataset, rebuilt at most hourly.
+
+    Building costs a rates fetch, so it is cached; if a rebuild fails we keep
+    serving the last good copy rather than 503-ing a public data URL that other
+    people may have wired into something.
+    """
+    now = time.time()
+    if _dataset_cache["payload"] is None or now - _dataset_cache["at"] > _DATASET_TTL:
+        try:
+            payload = build_dataset.build(_ppp_data())
+            _dataset_cache.update(at=now, payload=payload,
+                                  csv=build_dataset.to_csv(payload))
+        except Exception:
+            if _dataset_cache["payload"] is None:
+                raise
+    return _dataset_cache
 
 
 def _ppp_data():
@@ -600,6 +623,25 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/ppp.json":
             self._send_json(_ppp_data(), extra=[("Cache-Control", "public, max-age=86400")])
+            return
+        if path in ("/data/price-levels.json", "/data/price-levels.csv"):
+            try:
+                data = _dataset()
+            except Exception as e:
+                self._send_json({"error": "dataset unavailable: %s" % e}, 503)
+                return
+            # Hour cache: the PPP half is annual, the rate half moves slowly, and
+            # the build costs a rates fetch. CORS-open because the whole point is
+            # that other people can pull it.
+            extra = [("Cache-Control", "public, max-age=3600"),
+                     ("Access-Control-Allow-Origin", "*")]
+            if path.endswith(".csv"):
+                extra.append(("Content-Disposition",
+                              'inline; filename="wandergrade-price-levels.csv"'))
+                self._send_body(data["csv"].encode("utf-8"),
+                                "text/csv; charset=utf-8", extra=extra)
+            else:
+                self._send_json(data["payload"], extra=extra)
             return
         # static files
         rel = path.lstrip("/")
