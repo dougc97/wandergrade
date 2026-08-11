@@ -1177,6 +1177,30 @@ async function ensureClimate() {
   return climate;
 }
 
+// EKTA travel insurance via Travelpayouts — the client-side twin of the link
+// render_guide.py puts in the server block. Both are needed: the server copy is
+// what a crawler reads, and renderGuide() deletes it a few lines below, so the
+// server copy alone would be a link no human ever sees. sub_id matches on both
+// sides so a click counts once, against the right country.
+//
+// A plain <a>, never their widget: a third-party script is a failure mode this
+// site does not need. EKTA has no per-country pages, so every link lands on the
+// same quote form — which is why the text says "travel insurance" rather than
+// naming the country. Promising a country-specific page we cannot deliver would
+// buy a few more clicks with a small lie.
+function insuranceHref(iso) {
+  const slug = (typeof ISO2SLUG !== "undefined" && ISO2SLUG && ISO2SLUG[iso]) || iso.toLowerCase();
+  return "https://tp.media/r?campaign_id=225&marker=738472&p=5869&sub_id=guide-"
+       + encodeURIComponent(slug) + "&trs=541205&u=https%3A%2F%2Fektatraveling.com";
+}
+function renderGuideInsurance(iso) {
+  const host = $("guideInsurance");
+  if (!host) return;
+  host.innerHTML = '<a href="' + insuranceHref(iso) + '" rel="sponsored nofollow noopener" '
+    + 'target="_blank">Compare travel insurance</a> '
+    + '<span class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</span>';
+}
+
 // -- Tab: country guide (best time + things to do, one picker) ---------------
 function renderGuide(iso) {
   // Drop the server-rendered crawler block now that we're rendering the real,
@@ -1188,6 +1212,7 @@ function renderGuide(iso) {
   // Reveal the real h1 only now: the SSR block it replaces has been removed just
   // above, so exactly one h1 is visible before and after hydration.
   const gh1 = $("guideH1"); if (gh1) gh1.hidden = false;
+  renderGuideInsurance(iso);
   // Title and canonical here, not only in openGuideFor: the country picker and a
   // plain return to the guide tab both re-render without going through it, which
   // left the h1 naming one country while the title still said another (or the

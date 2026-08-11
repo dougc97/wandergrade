@@ -79,6 +79,31 @@ def _clip(text, n=157):
     return text if len(text) <= n else text[:n].rsplit(" ", 1)[0] + "…"
 
 
+# EKTA travel insurance, via Travelpayouts. A plain link on purpose: their only
+# alternative is an embedded widget, and a third-party script is a failure mode
+# this site does not need (a blocked one silently cost us every analytics number
+# we had). marker=738472 is the affiliate id and is public by design — it ships
+# in the URL either way.
+#
+# sub_id is the only part that varies. EKTA has no per-country pages — every
+# destination is chosen inside one quote form on their homepage, and guessed
+# paths like /colombia 404 — so all 176 links land in the same place. Tagging
+# each with its slug costs nothing and is the only way to learn which guide
+# pages actually convert. It does NOT make the destination country-specific,
+# which is why the link text below says "travel insurance" and not "Colombia
+# travel insurance": the reader picks their own destination once they arrive,
+# and promising otherwise would be a lie for a few extra clicks.
+_EKTA = ("https://tp.media/r?campaign_id=225&marker=738472&p=5869"
+         "&sub_id=guide-%s&trs=541205&u=https%%3A%%2F%%2Fektatraveling.com")
+
+
+def _insurance_link(slug):
+    return ('<p class="afflink"><a href="%s" rel="sponsored nofollow noopener" '
+            'target="_blank">Compare travel insurance</a> '
+            '<span class="affnote">Affiliate link — we may earn a commission, '
+            "at no extra cost to you.</span></p>" % html.escape(_EKTA % slug, quote=True))
+
+
 def _faq_jsonld(name, best_txt, acts, seasonal, summary):
     """FAQPage schema for the questions people actually search — 'best time to
     visit X', 'things to do in X', 'what's in season' — so the page can win
@@ -179,6 +204,7 @@ def render(iso):
     if v.get("note") or v.get("status"):
         vtxt = " ".join(x for x in (v.get("status", ""), v.get("note", "")) if x)
         p.append("<p><strong>Visa (US passport):</strong> %s</p>" % html.escape(vtxt))
+    p.append(_insurance_link(slug))
 
     return {
         "iso": iso,

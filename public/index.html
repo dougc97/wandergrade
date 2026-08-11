@@ -241,10 +241,12 @@
                pages finally has its own heading instead of all sharing one.
                Starts hidden — until app.js hydrates, the SSR block below carries
                the visible h1, and two would be worse than none. -->
-          <!-- h2, not h1: this is a card title inside the client-rendered Travel
-               Guide tab, and it was emitting a second "Travel Guide" h1 into
-               every server-rendered country page. -->
-          <h2 class="cardtitle" id="guideH1" hidden>Travel Guide<span id="guideH2Country"></span></h2>
+          <!-- Stays an h1, and stays hidden until renderGuide() removes the SSR
+               block: that swap is what keeps exactly one h1 on screen before and
+               after hydration. Demoting this to h2 (briefly tried) leaves the
+               rendered page with no h1 at all, because the SSR h1 it replaces is
+               deleted a moment earlier. -->
+          <h1 class="cardtitle" id="guideH1" hidden>Travel Guide<span id="guideH2Country"></span></h1>
           <p class="chartsub">Best months, peak vs off-season, and what's in season right now.</p>
         </div>
         <!-- Region and interest pickers used to live here too, duplicating Top
@@ -273,6 +275,14 @@
       <hr class="softrule">
       <div id="actDetail" class="bestdetail"></div>
       <div id="guideStay" class="guidestay" hidden></div>
+      <!-- Mirrors the link in the server-rendered block, which renderGuide()
+           deletes on hydration — without this a reader would never see it.
+           Deliberately down here, below where-to-stay, and NOT under the safety
+           badge: an insurance link sitting directly beneath "Level 3 —
+           Reconsider travel" makes the safety grade look like it exists to sell
+           the insurance. The grades are the product; nothing gets to cast doubt
+           on them for affiliate revenue. -->
+      <div id="guideInsurance" class="afflink"></div>
     </div>
   </section>
 

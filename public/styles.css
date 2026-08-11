@@ -651,6 +651,10 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 /* Server-rendered guide content shown until app.js hydrates the interactive
    guide (then removed). Kept legible so first paint / no-JS reads cleanly. */
 .ssrguide h1 { font-size: 24px; margin: 4px 0 10px; }
+/* Disclosure sits beside the link, not in a footer — it only does its job if
+   it's read at the moment the link is. */
+.afflink { margin-top: 14px; }
+.affnote { color: var(--gray); font-size: 12px; }
 .ssrguide h2 { font-size: 18px; margin: 18px 0 8px; }
 .ssrguide ul { margin: 0 0 8px; padding-left: 20px; line-height: 1.5; }
 .ssrguide li { margin: 0 0 8px; }
