@@ -1161,6 +1161,13 @@ const ISO_REGION = (() => {
 const MONTHS = ["January","February","March","April","May","June","July",
   "August","September","October","November","December"];
 const MON_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+// "a, b and c" — mirrors _join_and() in render_guide.py so the server and client
+// copies of the best-months sentence read identically.
+function joinAnd(items) {
+  items = Array.from(items);
+  if (items.length <= 1) return items[0] || "";
+  return items.slice(0, -1).join(", ") + " and " + items[items.length - 1];
+}
 
 function comfortColor(s) {
   if (s == null) return NODATA;
@@ -1755,6 +1762,18 @@ function renderCountryClimate(iso) {
   for (const h of hazards) for (const m of h.months || []) hzByMonth[m] = h.note;
 
   const chips = c.best.map((m) => `<span class="chip2">${MON_ABBR[m - 1]}</span>`).join("");
+  // Spelled out, in a sentence, under a heading that repeats the question.
+  // Every search that reaches these pages is some form of "best time to visit
+  // <country>", and this block is what a reader — and a JS-rendering crawler —
+  // actually sees: renderGuide() deletes the server-rendered copy on hydration,
+  // so saying it only there says it to nobody. Chips stay as the quick visual;
+  // "Dec" is fine to glance at and matches nothing anyone types.
+  const bestFull = joinAnd(c.best.filter((m) => m >= 1 && m <= 12).map((m) => MONTHS[m - 1]));
+  const bestLine = !bestFull
+    ? (c.curated ? "📅 Curated best months:" : "📅 Best weather:")
+    : c.curated
+      ? `📅 The best months to visit ${esc(c.name)} are <strong>${bestFull}</strong> — judged on weather and seasonality.`
+      : `📅 The best weather in ${esc(c.name)} is in <strong>${bestFull}</strong>.`;
   const temps = c.temps || [];
   const bars = c.scores.map((s, i) => {
     const h = s == null ? 0 : Math.round(s);
@@ -1783,10 +1802,10 @@ function renderCountryClimate(iso) {
 
   $("bestDetail").innerHTML = `
     <div class="besthead">
-      <h3>${esc(c.name)} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span></h3>
+      <h2>Best time to visit ${esc(c.name)} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span></h2>
       ${unitToggle}
     </div>
-    <div class="monthslabel">${c.curated ? "📅 Curated best months" : "📅 Best weather"}:</div>
+    <div class="monthslabel">${bestLine}</div>
     <div class="chips">${chips}</div>
     <div class="seasons">
       <span><b class="peak">☀️ Peak</b> (best weather, busiest &amp; priciest): ${fmtMonths(peakM)}</span>
