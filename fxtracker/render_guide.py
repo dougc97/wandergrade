@@ -97,106 +97,6 @@ _EKTA = ("https://tp.media/r?campaign_id=225&marker=738472&p=5869"
          "&sub_id=guide-%s&trs=541205&u=https%%3A%%2F%%2Fektatraveling.com")
 
 
-def _seasons(scores):
-    """peak / shoulder / off per month. Mirrors seasons() in app.js — same
-    min-max normalisation, same 0.66 / 0.34 cuts — so the prose below can never
-    disagree with the bars the reader sees next to it."""
-    valid = [s for s in scores if s is not None]
-    if not valid:
-        return ["na"] * len(scores)
-    mn, mx = min(valid), max(valid)
-    rng = (mx - mn) or 1
-    out = []
-    for s in scores:
-        if s is None:
-            out.append("na")
-            continue
-        f = (s - mn) / float(rng)
-        out.append("peak" if f >= 0.66 else "off" if f <= 0.34 else "shoulder")
-    return out
-
-
-def _month_by_month(name, clim, acts):
-    """A month-by-month section, generated from data the site already holds.
-
-    The reason this exists: the server-rendered body was ~173 words per country,
-    wrapped in an app shell identical across all 176 pages. Google reads that as
-    a near-duplicate template and files it under "Discovered - currently not
-    indexed" — found, judged not worth an index slot. 121 pages sat there. No
-    quantity of backlinks fixes a 173-word page.
-
-    Every figure here is real: monthly temperatures and comfort scores from
-    climate.json, month-tagged hazards from activities.json. Nothing is padded
-    or invented — a table of plausible-sounding filler would be worse than the
-    thin page it replaced.
-    """
-    temps = (clim.get("temps") or [])
-    scores = (clim.get("scores") or [])
-    if len(scores) != 12:
-        return ""
-    seas = _seasons(scores)
-    best = set(clim.get("best") or [])
-
-    hz = {}
-    for h in (acts.get("hazards") or []):
-        for m in (h.get("months") or []):
-            if h.get("note"):
-                hz.setdefault(m, h["note"])
-
-    peak = [i + 1 for i, s in enumerate(seas) if s == "peak"]
-    off = [i + 1 for i, s in enumerate(seas) if s == "off"]
-
-    # Its own element because renderGuide() deletes the rest of the server block
-    # on hydration — everything else in there (the h1, best-time, things to do,
-    # visa) is duplicated by client UI, but this table is not. It gets moved into
-    # the live guide instead of dropped, so a reader sees it and a JS-rendering
-    # crawler still finds it after hydration.
-    p = ['<section id="ssrMonths" class="ssrmonths">']
-    p.append("<h2>%s month by month</h2>" % html.escape(name))
-    lead = []
-    if peak:
-        lead.append("The most comfortable stretch is %s"
-                    % _join_and([MON_FULL[m - 1] for m in peak]))
-    if off:
-        lead.append("the least comfortable is %s"
-                    % _join_and([MON_FULL[m - 1] for m in off]))
-    if lead:
-        p.append("<p>%s, judged on temperature and general weather comfort. "
-                 "Off-peak months are usually cheaper and quieter, which can be "
-                 "the better trade depending on what you want.</p>"
-                 % html.escape("; ".join(lead)))
-
-    rows = []
-    for i in range(12):
-        t = temps[i] if i < len(temps) else None
-        label = {"peak": "Peak", "shoulder": "Shoulder", "off": "Off-peak"}.get(seas[i], "—")
-        note = hz.get(i + 1, "")
-        if (i + 1) in best and not note:
-            note = "One of the best months to visit"
-        rows.append(
-            "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>" % (
-                html.escape(MON_FULL[i]),
-                # Both units: the client has a °C/°F toggle, but this copy is
-                # static, and the search traffic is a mix of metric and not.
-                ("%d&deg;C (%d&deg;F)" % (round(t), round(t * 9.0 / 5 + 32)))
-                if t is not None else "&mdash;",
-                html.escape(label),
-                html.escape(note) or "&mdash;"))
-    p.append('<table class="mbm"><thead><tr><th>Month</th><th>Avg temp</th>'
-             "<th>Season</th><th>Notes</th></tr></thead><tbody>%s</tbody></table>"
-             % "".join(rows))
-
-    rainy = [h for h in (acts.get("hazards") or []) if h.get("note")]
-    if rainy:
-        bits = ["<strong>%s:</strong> %s" % (
-            html.escape(_join_and([MON_FULL[m - 1] for m in (h.get("months") or []) if 1 <= m <= 12])),
-            html.escape(h["note"])) for h in rainy if h.get("months")]
-        if bits:
-            p.append("<p>Worth planning around &mdash; %s.</p>" % "; ".join(bits))
-    p.append("</section>")
-    return "".join(p)
-
-
 def _insurance_link(slug):
     return ('<p class="afflink"><a href="%s" rel="sponsored nofollow noopener" '
             'target="_blank">Compare travel insurance</a> '
@@ -281,9 +181,6 @@ def render(iso):
         p.append("<p>The best months to visit %s are <strong>%s</strong>, "
                  "judged on weather and seasonality.</p>"
                  % (html.escape(name), html.escape(best_full)))
-    mbm = _month_by_month(name, c, a)
-    if mbm:
-        p.append(mbm)
     if acts:
         p.append("<h2>Top things to do in %s</h2><ul>" % html.escape(name))
         for x in acts:
