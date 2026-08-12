@@ -602,6 +602,23 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
    column instead of one long line across a desktop card. */
 .aihint { font-size: 12px; color: var(--gray); line-height: 1.45; max-width: 46ch; }
 
+/* Trip builder — the working set that feeds "Plan these with AI". */
+.tripbar { margin: 12px 0 0; }
+.triphint { display: block; font-size: 13px; color: var(--gray); line-height: 1.5; }
+.triphead { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; }
+.tripdays { font-size: 13px; color: var(--gray); }
+.tripdays input { width: 56px; margin: 0 4px; padding: 4px 6px; font: inherit;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card2); color: inherit; }
+.tripseed { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line);
+  border-radius: 999px; background: none; color: var(--gray); cursor: pointer; }
+.tripseed:hover { border-color: var(--green); color: var(--green); }
+.tripchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tripchip { font-size: 13px; padding: 5px 10px; border: 1px solid var(--green);
+  border-radius: 999px; background: none; color: inherit; cursor: pointer; }
+.tripchip .x { color: var(--gray); margin-left: 2px; }
+.tripchip:hover { border-color: #b00020; }
+.tripchip:hover .x { color: #b00020; }
+
 /* Travel Guide per-country "Plan with AI" */
 .guideai { margin: 12px 0 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .guideai .aihint { flex: 1 1 240px; }

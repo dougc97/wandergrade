@@ -913,6 +913,7 @@ function renderCountryCard() {
       ${(act || cl) ? '<button data-cc="todo">Country guide →</button>' : ""}
       <button data-cc="visit">${vis ? "✓ Been (remove)" : "✓ Been"}</button>
       <button data-cc="wish">${loadWishlist().has(iso) ? "★ On wishlist (remove)" : "★ Want to go"}</button>
+      <button data-cc="trip">${tripHas(iso) ? "🧳 On this trip (remove)" : "🧳 Add to trip"}</button>
     </div>`;
   card.querySelector(".ccclose").onclick = () => { card.remove(); ccCurrent = null; };
   const todo = card.querySelector('[data-cc="todo"]');
@@ -925,6 +926,11 @@ function renderCountryCard() {
   };
   card.querySelector('[data-cc="visit"]').onclick = () => mark("visited");
   card.querySelector('[data-cc="wish"]').onclick = () => mark("wishlist");
+  card.querySelector('[data-cc="trip"]').onclick = () => {
+    tripToggle(iso);
+    renderCountryCard();
+    if (loaded.value && !$("tab-value").hidden) renderValue();
+  };
 }
 
 function renderMap(rows, base) {
@@ -2505,6 +2511,147 @@ function buildValueTab() {
 // copies their preferences + shortlist as a ready-to-paste prompt.
 let lastPicks = [], lastPicksMonth = null;
 let lastGems = [];   // current hidden-gems list, for the 💎 surprise button
+
+// ---- Trip builder -----------------------------------------------------------
+// A working set for ONE trip, deliberately separate from the ★ wishlist. The
+// wishlist is a lifetime list and can run to dozens of countries; feeding that
+// into "plan my two weeks" produces mush. This is the three-to-eight you are
+// actually choosing between. Persisted, because planning happens over weeks.
+//
+// Grouping is left to the AI on purpose. Which countries make one trip is not a
+// geometry problem — it turns on flight connections, land borders, visas and
+// season — and a distance-based clustering would produce tidy, travel-naive
+// answers (splitting the Baltics from Poland on centroids, routing a Balkans
+// loop through an awkward crossing). We hand over coordinates and let it judge.
+let _trip = null;
+function loadTrip() {
+  if (!_trip) {
+    try { _trip = new Set(JSON.parse(localStorage.getItem("fx_trip") || "[]")); }
+    catch (e) { _trip = new Set(); }
+  }
+  return _trip;
+}
+function saveTrip() {
+  try { localStorage.setItem("fx_trip", JSON.stringify([...loadTrip()])); } catch (e) {}
+}
+function tripHas(iso) { return loadTrip().has(iso); }
+function tripToggle(iso) {
+  const t = loadTrip();
+  if (t.has(iso)) t.delete(iso); else t.add(iso);
+  saveTrip();
+  renderTripBar();
+  return t.has(iso);
+}
+function tripDays() {
+  const el = $("tripDays");
+  const n = el ? parseInt(el.value, 10) : NaN;
+  return (n >= 1 && n <= 180) ? n : null;
+}
+
+function renderTripBar() {
+  const host = $("tripBar");
+  if (!host) return;
+  const t = loadTrip();
+  loadWishlist();
+  const seedable = wishlist && wishlist.size && [...wishlist].some((i) => !t.has(i));
+  if (!t.size) {
+    host.innerHTML = '<span class="triphint">🧳 <strong>Building a trip?</strong> '
+      + "Tap a country row, then “Add to trip”. Pick a few and we'll ask an AI to "
+      + "group them into realistic routes for the days you have."
+      + (seedable ? ' <button type="button" class="tripseed" id="tripSeed">Use my ★ wishlist</button>' : "")
+      + "</span>";
+  } else {
+    const chips = [...t].map((iso) =>
+      '<button type="button" class="tripchip" data-iso="' + iso + '" title="Remove '
+      + esc(countryName(iso)) + '">' + flagEmoji(iso) + " " + esc(countryName(iso))
+      + ' <span class="x">×</span></button>').join("");
+    host.innerHTML = '<div class="triphead"><strong>🧳 Your trip</strong> '
+      + '<span class="muted">' + t.size + " " + (t.size === 1 ? "country" : "countries") + "</span>"
+      + '<label class="tripdays">for <input id="tripDays" type="number" min="1" max="180" '
+      + 'value="' + (localStorage.getItem("fx_tripdays") || 14) + '" inputmode="numeric"> days</label>'
+      + (seedable ? '<button type="button" class="tripseed" id="tripSeed">+ my ★ wishlist</button>' : "")
+      + '<button type="button" class="tripseed" id="tripClear">Clear</button></div>'
+      + '<div class="tripchips">' + chips + "</div>";
+  }
+  host.querySelectorAll(".tripchip").forEach((b) =>
+    b.addEventListener("click", () => { tripToggle(b.dataset.iso); renderValue(); }));
+  const seed = $("tripSeed");
+  if (seed) seed.onclick = () => {
+    loadWishlist().forEach((i) => loadTrip().add(i));
+    saveTrip(); renderTripBar(); renderValue();
+  };
+  const clr = $("tripClear");
+  if (clr) clr.onclick = () => { loadTrip().clear(); saveTrip(); renderTripBar(); renderValue(); };
+  const days = $("tripDays");
+  if (days) days.onchange = () => {
+    try { localStorage.setItem("fx_tripdays", String(tripDays() || 14)); } catch (e) {}
+  };
+}
+
+// The trip prompt. Everything the model cannot look up goes in: coordinates so
+// it can reason about routing, the season fit for the chosen month, the local
+// price level, and the visa position for this passport.
+function buildTripAIPrompt() {
+  const t = [...loadTrip()];
+  const month = lastPicksMonth || curMonth();
+  const monthName = MONTHS[month - 1];
+  const days = tripDays() || 14;
+  const origin = $("valueOrigin");
+  const originName = origin && origin.selectedOptions[0] ? origin.selectedOptions[0].textContent : "the US";
+  const passport = guidePassport();
+  const cen = countryCentroids();
+  const anchorPl = priceLevel(($("valueOrigin") || {}).value || "US") || 1;
+
+  const lines = [];
+  lines.push("I have " + days + " days in " + monthName + ", travelling from " + originName
+    + ", and a shortlist of countries I'm interested in. I used a travel-value tool (WanderGrade) "
+    + "for the underlying data — use what's below, don't re-derive it.");
+  lines.push("");
+  lines.push("MY SHORTLIST (" + t.length + " countries, " + days + " days total):");
+  t.forEach((iso) => {
+    const bits = [];
+    const c = cen[iso];
+    if (c) bits.push("approx " + c[1].toFixed(0) + "°" + (c[1] >= 0 ? "N" : "S")
+      + ", " + Math.abs(c[0]).toFixed(0) + "°" + (c[0] >= 0 ? "E" : "W"));
+    const reg = REGIONS[ISO_REGION[iso]];
+    if (reg) bits.push(reg);
+    const cl = climate && climate[iso];
+    if (cl) {
+      const s = seasons(cl.scores)[month - 1];
+      bits.push(monthName + " is " + (s === "peak" ? "peak season" : s === "off" ? "off-season" : "shoulder season"));
+      if (cl.best && cl.best.length) bits.push("best months " + cl.best.map((m) => MON_ABBR[m - 1]).join("/"));
+    }
+    const pl = priceLevel(iso);
+    if (pl) bits.push("100 at home ≈ " + Math.round(100 * (pl / anchorPl)) + " here");
+    const vi = visaInfo(iso, passport);
+    if (vi && vi.meta) bits.push("visa: " + vi.meta.long);
+    const hz = hazardsFor(iso, month).map((h) => h.note);
+    if (hz.length) bits.push("heads-up: " + hz.join("; "));
+    lines.push("- " + countryName(iso) + " — " + bits.join(" · "));
+  });
+  if (visited && visited.size) {
+    lines.push("");
+    lines.push("ALREADY BEEN (fine to route through, don't build days around): "
+      + [...visited].map(countryName).join(", "));
+  }
+  lines.push("");
+  lines.push("PLEASE:");
+  lines.push("- Group these into realistic trips using the coordinates above — countries that genuinely combine into one route, not just ones that are near each other. Consider flight connections, land borders and border crossings, and whether the visas work together.");
+  lines.push("- Name each trip the way a traveller would (\"Balkans loop\", \"Benelux + Rhine\", \"Northern Vietnam & Laos\").");
+  // The honest-failure instruction. Without it the model will cheerfully cram
+  // every country in and hand back an itinerary that reads fine and would be
+  // miserable to actually travel.
+  lines.push("- BE HONEST ABOUT WHAT DOESN'T FIT. If " + days + " days can't cover this shortlist well, say so plainly: tell me which countries make the best single trip, which should wait for another one, and what the minimum sensible number of days would be for the rest. I would much rather drop countries than rush them.");
+  lines.push("- For the trip you recommend first: a day-by-day outline, rough travel times between places, and where to fly into and out of.");
+  lines.push("- Give a daily budget range (budget / mid-range / comfortable) using the price figures above rather than generic assumptions.");
+  lines.push("- Use the " + monthName + " season notes: if a country is off-season or has a heads-up, say whether to reorder, swap it out, or accept the trade.");
+  lines.push("");
+  lines.push("Then end with the 2-3 questions that would most change this plan, so I can refine it with you.");
+  lines.push("");
+  lines.push("Source: WanderGrade — " + SITE_ORIGIN + "/");
+  return lines.join("\n");
+}
+
 function buildAIPrompt() {
   const month = lastPicksMonth || curMonth();
   const origin = $("valueOrigin");
@@ -2596,11 +2743,14 @@ function renderAIPanel(host, prompt) {
 }
 
 async function exportAIPrompt() {
-  if (!lastPicks.length) { status("Load some picks first.", "err"); return; }
+  const hasTrip = loadTrip().size > 0;
+  if (!hasTrip && !lastPicks.length) { status("Load some picks first.", "err"); return; }
   // Make sure visa data for the chosen passport is loaded so the export can
   // embed it (US uses visa.json; other From countries need the matrix).
   if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
-  renderAIPanel($("aiPanel"), buildAIPrompt());
+  // A hand-picked trip beats the algorithmic shortlist: the user has already
+  // told us which countries they mean, which is better information than a rank.
+  renderAIPanel($("aiPanel"), hasTrip ? buildTripAIPrompt() : buildAIPrompt());
 }
 
 // Shared clipboard helper (secure-context API + execCommand fallback).
@@ -3148,6 +3298,7 @@ function renderValue() {
   const region = $("valueRegion").value;
   const month = parseInt($("valueMonth").value, 10);
   setSeason(month);
+  renderTripBar();
   const advMap = advisoryByIso();
 
   // Fare context: known fares per country + distance-based estimates for the rest.
