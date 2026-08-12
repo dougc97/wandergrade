@@ -2654,13 +2654,42 @@ function buildCountryAIPrompt(iso) {
   if (best) lines.push("BEST MONTHS: " + best + "; " + monthName + " is " + (seas === "peak" ? "peak season" : seas === "off" ? "off-season" : "shoulder season"));
   if (hz.length) lines.push(monthName + " HEADS-UP: " + hz.join("; "));
   if (acts.length) lines.push("HIGHLIGHTS: " + acts.map(actLabel).filter(Boolean).join("; "));
+  // The cost line is the whole reason this prompt beats asking an AI cold: it
+  // is the one number here the model cannot look up and would otherwise guess.
+  // Expressed against the traveller's own home prices, not the US, so it means
+  // something to a reader who isn't American.
+  const origIso = ($("valueOrigin") || {}).value || "US";
+  const anchorPl = priceLevel(origIso) || 1;
+  const pl = priceLevel(iso);
+  if (pl) {
+    const rel = pl / anchorPl;
+    // Phrased as a concrete comparison rather than "% of <origin> prices",
+    // which reads badly for every origin name ("the US prices").
+    lines.push("LOCAL PRICES: what costs 100 in " + originName + " costs about "
+      + Math.round(100 * rel) + " here. National averages for residents; "
+      + "tourist areas and foreigner rent run well above this.");
+  }
+  try {
+    const fc = buildFareContext();
+    const f = fc && fc.prices && fc.prices[iso];
+    if (f != null) {
+      lines.push("TYPICAL ROUND-TRIP FLIGHT: about $" + Math.round(f) + " from " + originName
+        + (fc.est && fc.est.has && fc.est.has(iso) ? " (distance-based estimate)" : " (recently seen fares)"));
+    }
+  } catch (e) { /* fares are a bonus; never block the prompt on them */ }
+
   lines.push("");
   lines.push("USING THE ABOVE, please:");
-  lines.push("- Recommend specific cities/regions and how many days in each");
-  lines.push("- Draft a day-by-day itinerary for a ~5–7 day trip");
-  lines.push("- Estimate a rough daily budget and total cost from " + originName);
-  lines.push("- Tell me when to book flights and which neighborhoods to stay in");
+  lines.push("- Recommend specific cities/regions and how many days in each, with rough travel times between them");
+  lines.push("- Draft a day-by-day itinerary. Assume about 7 days unless I say otherwise — and tell me if this country really wants more or less");
+  lines.push("- Base the budget on the LOCAL PRICES figure above rather than generic assumptions, and give me a daily range for budget / mid-range / comfortable");
+  lines.push("- Tell me when to book flights and which neighbourhoods to stay in, and why those ones");
   lines.push("- Work the " + monthName + " season notes above (peak/off, crowds, any heads-up) into the timing and pacing");
+  lines.push("- Flag anything that needs booking well ahead, or any permit/reservation I could miss");
+  // A confident plan built on guessed preferences is worth less than a decent
+  // plan plus the questions that would fix it. This is a starting point.
+  lines.push("");
+  lines.push("Then end with the 2-3 questions that would most change this plan — budget, pace, who I'm travelling with, what I actually care about — so I can refine it with you.");
   lines.push("");
   lines.push("Source: WanderGrade — " + SITE_ORIGIN + guidePath(iso));
   return lines.join("\n");
@@ -2670,9 +2699,17 @@ function renderGuideAI(iso) {
   const host = $("guideAI");
   if (!host) return;
   const name = countryName(iso);
+  // The button alone reads as "an AI writes your trip", which is not what this
+  // does and oversells it. It writes the *prompt* — with the month, the visa
+  // rules for your passport, the season, and the local price level already
+  // filled in — and hands it to whichever AI you use. Saying so is both more
+  // honest and more appealing than the vague version.
   host.innerHTML = '<button id="guideAIBtn" type="button" class="aibtn"'
-    + ' title="Generate a ready-to-use AI planning prompt for ' + esc(name) + '">'
+    + ' title="Builds a ready-to-paste planning prompt for ' + esc(name) + '">'
     + '✨ Plan ' + esc(name) + ' with AI →</button>'
+    + '<span class="aihint">Writes the prompt for you — ' + esc(name)
+    + "'s season, visa rules and local prices already filled in. "
+    + 'Copy it, or open it in ChatGPT, Claude or Perplexity.</span>'
     + '<div id="guideAIPanel" class="aipanel" hidden></div>';
   $("guideAIBtn").onclick = () => openGuideAI(iso);
 }
