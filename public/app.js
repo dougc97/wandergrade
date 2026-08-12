@@ -1212,7 +1212,17 @@ function renderGuideInsurance(iso) {
 function renderGuide(iso) {
   // Drop the server-rendered crawler block now that we're rendering the real,
   // interactive guide (prevents duplicate content).
-  const ssr = $("ssrGuide"); if (ssr) ssr.remove();
+  // Everything in the server block is duplicated by the interactive UI below —
+  // except the month-by-month table, which exists nowhere else. Keep that,
+  // drop the rest. Deleting it wholesale is how this morning's SEO copy ended
+  // up visible to crawlers and to no one else.
+  const ssr = $("ssrGuide");
+  if (ssr) {
+    const months = ssr.querySelector("#ssrMonths");
+    const host = $("guideMonths");
+    if (months && host) { host.innerHTML = ""; host.appendChild(months); }
+    ssr.remove();
+  }
   // The country is the answer — put it in the page title, not just mid-page.
   const h2c = $("guideH2Country");
   if (h2c) h2c.innerHTML = " — " + flagEmoji(iso) + " " + esc(countryName(iso));

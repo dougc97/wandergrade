@@ -651,6 +651,13 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 /* Server-rendered guide content shown until app.js hydrates the interactive
    guide (then removed). Kept legible so first paint / no-JS reads cleanly. */
 .ssrguide h1 { font-size: 24px; margin: 4px 0 10px; }
+/* Month-by-month table in the server-rendered guide. Scrolls rather than
+   squeezing on a phone — four columns will not fit 360px honestly. */
+.ssrguide .mbm { width: 100%; border-collapse: collapse; margin: 10px 0 14px; font-size: 14px; }
+.ssrguide .mbm th, .ssrguide .mbm td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.ssrguide .mbm th { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; color: var(--gray); }
+.ssrguide .mbm td:first-child { font-weight: 600; white-space: nowrap; }
+.ssrguide .mbm td:nth-child(2) { white-space: nowrap; }
 /* Disclosure sits beside the link, not in a footer — it only does its job if
    it's read at the moment the link is. */
 .afflink { margin-top: 14px; }
