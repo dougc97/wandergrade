@@ -3312,6 +3312,21 @@ function renderValue() {
     const s = valueScores(iso, month, advMap, fares, anchorPl);
     if (s) scored[iso] = s;
   }
+  // Title, sub and key follow whichever map is showing.
+  const vTitle = $("valueMapTitle"), vSub = $("valueMapSub"), vLeg = $("valueLegend");
+  if (vTitle) vTitle.textContent = valueMapMode === "weather"
+    ? "Weather comfort in " + MONTHS[month - 1]
+    : "Best value destinations in " + MONTHS[month - 1];
+  if (vSub) vSub.textContent = valueMapMode === "weather"
+    ? "Greener = more comfortable weather that month."
+    : "Greener = better overall value — affordability, safety, weather and flights combined.";
+  if (vLeg) vLeg.innerHTML = valueMapMode === "weather"
+    ? '<span>Harsh</span><span class="bar"></span><span>Comfortable</span>'
+      + '<span style="margin-left:6px"><span class="swatch"></span>No data</span>'
+    : '<span>Lower value</span><span class="bar"></span><span>Higher value</span>'
+      + '<span style="margin-left:6px"><span class="swatch"></span>No data</span>'
+      + '<span style="margin-left:6px"><span class="swatch" style="background:#b00020"></span>Do Not Travel</span>';
+
   if (valueMapMode === "weather" && climate) {
     // Weather-only view (absorbed the old "best places by month" tab).
     drawMap("valueMap", (f) => {

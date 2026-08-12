@@ -195,6 +195,17 @@
         <div id="gemRows" class="gradewrap"></div>
       </details>
 
+      <!-- The map had no visible title or key at all — drawMap()'s label is only
+           an aria-label, and the mode toggle sits below it. A reader arriving
+           here saw a coloured world map with nothing saying what the colour
+           meant. Title and sub swap with the map mode; see renderValue(). -->
+      <div class="charthead">
+        <div>
+          <h2 id="valueMapTitle">Best value destinations</h2>
+          <p class="chartsub" id="valueMapSub">Greener = better overall value this month.</p>
+        </div>
+        <div class="legend" id="valueLegend"></div>
+      </div>
       <div id="valueMap" class="map">Loading…</div>
 
       <details class="foldable" id="customizeBox">
