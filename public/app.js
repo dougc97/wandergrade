@@ -713,13 +713,19 @@ function drawMap(hostId, colorFn, ariaLabel) {
   // and works on touch where hover tooltips don't.
   if (hostId !== "visitedMap") {
     host.onclick = (e) => {
+      // A pan gesture ends with a click event; attachMapZoom sets this flag so
+      // dragging the map doesn't open whatever country you happened to release
+      // over. Same discrimination the Wander List map already relied on.
+      if (host._dragJustHappened) { host._dragJustHappened = false; return; }
       const p = e.target.closest("path");
       const iso = p && p.getAttribute("data-iso");
       if (iso && iso !== "-99") showCountryCard(iso, host);
     };
-  } else {
-    attachMapZoom(host, W, H);
   }
+  // Every map gets zoom, not just the Wander List one. Tiny countries are
+  // unhittable at world scale, and the Top Picks map is where people are
+  // actually trying to click through to a guide.
+  attachMapZoom(host, W, H);
 }
 
 // ---- map zoom / pan (Wander List map) ---------------------------------------
