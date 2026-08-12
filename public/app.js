@@ -1203,9 +1203,15 @@ function insuranceHref(iso) {
 function renderGuideInsurance(iso) {
   const host = $("guideInsurance");
   if (!host) return;
-  host.innerHTML = '<a href="' + insuranceHref(iso) + '" rel="sponsored nofollow noopener" '
-    + 'target="_blank">Compare travel insurance</a> '
-    + '<span class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</span>';
+  // Named, and styled like the stay buttons it sits beside. It used to read
+  // "Compare travel insurance" as a bare text link, which was wrong twice: it
+  // compares nothing — it is one insurer's quote form — and an unfamiliar brand
+  // in plain text under two styled buttons for names people know reads as an ad
+  // somebody slipped in rather than a tool the site offers.
+  host.innerHTML = '<div class="staybtns"><a class="staybtn" target="_blank" '
+    + 'rel="sponsored nofollow noopener" href="' + insuranceHref(iso) + '">'
+    + '🛡️ Travel insurance (EKTA) <span class="ext">↗</span></a></div>'
+    + '<p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p>';
 }
 
 // -- Tab: country guide (best time + things to do, one picker) ---------------

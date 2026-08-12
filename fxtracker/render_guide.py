@@ -98,8 +98,11 @@ _EKTA = ("https://tp.media/r?campaign_id=225&marker=738472&p=5869"
 
 
 def _insurance_link(slug):
-    return ('<p class="afflink"><a href="%s" rel="sponsored nofollow noopener" '
-            'target="_blank">Compare travel insurance</a> '
+    # Names the insurer. "Compare travel insurance" claimed a comparison that
+    # does not exist — this is one company's quote form, not a marketplace.
+    return ('<p class="afflink"><a class="staybtn" href="%s" '
+            'rel="sponsored nofollow noopener" target="_blank">'
+            "\U0001f6e1️ Travel insurance (EKTA)</a> "
             '<span class="affnote">Affiliate link — we may earn a commission, '
             "at no extra cost to you.</span></p>" % html.escape(_EKTA % slug, quote=True))
 
