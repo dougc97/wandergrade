@@ -1196,3 +1196,11 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 
 /* Share-image buttons sit in the map headers beside the legend. */
 .charthead .shareimg { margin-left: auto; align-self: center; white-space: nowrap; }
+
+/* Trip toggle on the guide page — sits beside "Plan with AI", muted until
+   active so the green AI button stays the primary action. */
+.tripbtn { background: none; color: inherit; border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 700;
+  cursor: pointer; }
+.tripbtn:hover { border-color: var(--green); color: var(--green); }
+.tripbtn.on { border-color: var(--green); color: var(--green); }

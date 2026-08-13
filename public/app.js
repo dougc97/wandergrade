@@ -2562,7 +2562,7 @@ function renderTripBar() {
   const seedable = wishlist && wishlist.size && [...wishlist].some((i) => !t.has(i));
   if (!t.size) {
     host.innerHTML = '<span class="triphint">🧳 <strong>Building a trip?</strong> '
-      + "Tap a country row, then “Add to trip”. Pick a few and we'll ask an AI to "
+      + "Open any country and hit “Add to my trip”. Pick a few and we'll ask an AI to "
       + "group them into realistic routes for the days you have."
       + (seedable ? ' <button type="button" class="tripseed" id="tripSeed">Use my ★ wishlist</button>' : "")
       + "</span>";
@@ -2860,7 +2860,17 @@ function renderGuideAI(iso) {
   // rules for your passport, the season, and the local price level already
   // filled in — and hands it to whichever AI you use. Saying so is both more
   // honest and more appealing than the vague version.
-  host.innerHTML = '<button id="guideAIBtn" type="button" class="aibtn"'
+  // The trip toggle lives here rather than in the ranked row. A row already
+  // navigates to this page, and two document-level handlers open the guide from
+  // a row click — a button inside one fights both of them and still loses. Here
+  // the flow reads straight through: row -> guide -> add it, no interception.
+  host.innerHTML = '<button id="guideTripBtn" type="button" class="tripbtn'
+    + (tripHas(iso) ? " on" : "") + '" title="'
+    + (tripHas(iso) ? "Remove " + esc(name) + " from your trip"
+                    : "Add " + esc(name) + " to the trip you're building") + '">'
+    + (tripHas(iso) ? "🧳 On your trip — remove" : "🧳 Add " + esc(name) + " to my trip")
+    + "</button>"
+    + '<button id="guideAIBtn" type="button" class="aibtn"'
     + ' title="Builds a ready-to-paste planning prompt for ' + esc(name) + '">'
     + '✨ Plan ' + esc(name) + ' with AI →</button>'
     + '<span class="aihint">Writes the prompt for you — ' + esc(name)
@@ -2868,6 +2878,13 @@ function renderGuideAI(iso) {
     + 'Copy it, or open it in ChatGPT, Claude or Perplexity.</span>'
     + '<div id="guideAIPanel" class="aipanel" hidden></div>';
   $("guideAIBtn").onclick = () => openGuideAI(iso);
+  $("guideTripBtn").onclick = () => {
+    tripToggle(iso);
+    renderGuideAI(iso);                       // relabel in place
+    if (loaded.value) renderValue();          // keep the Top Picks trip bar in step
+    status(tripHas(iso) ? "Added to your trip — plan it from Top Picks 🧳"
+                        : "Removed from your trip.", "ok");
+  };
 }
 
 async function openGuideAI(iso) {
