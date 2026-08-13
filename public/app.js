@@ -611,6 +611,12 @@ function strengthColor(pct) {
 // that separates from both a near-black ocean and a near-white one, so it holds
 // in either theme without branching. Shared by all four maps.
 const NODATA = "#6b7681";
+// Level 4 "Do Not Travel" on the value map. Deliberately softer than the #b00020
+// used for grade pills and diverging scales: at pill size that red is a small
+// accent, but as a map fill it becomes whole continents of alarm sitting beside
+// pale greens, which reads as danger-first rather than "excluded from ranking".
+// Same hue, mixed 55% toward the neutral, so it still says stop without shouting.
+const DNT_FILL = mix("#eef0f1", "#b00020", 0.55);
 const HOME = "#bcd0e6";
 
 // Flat lon/lat projection, cropped at -56 — Antarctica is deliberately off
@@ -3435,7 +3441,7 @@ function renderValue() {
       + '<span style="margin-left:6px"><span class="swatch"></span>No data</span>'
     : '<span>Lower value</span><span class="bar"></span><span>Higher value</span>'
       + '<span style="margin-left:6px"><span class="swatch"></span>No data</span>'
-      + '<span style="margin-left:6px"><span class="swatch" style="background:#b00020"></span>Do Not Travel</span>';
+      + '<span style="margin-left:6px"><span class="swatch" style="background:' + DNT_FILL + '"></span>Do Not Travel</span>';
 
   if (valueMapMode === "weather" && climate) {
     // Weather-only view (absorbed the old "best places by month" tab).
@@ -3452,7 +3458,7 @@ function renderValue() {
       if (s) return { fill: comfortColor(s.value),
         title: `${s.name}: value ${s.value}/100 (afford ${s.afford}, safe ${s.safe}, wx ${s.wx}${s.fly != null ? ", fly " + s.fly : ""})` };
       if (advMap[f.properties.iso] === 4)
-        return { fill: "#b00020", title: f.properties.name + " — Level 4: Do Not Travel (excluded)" };
+        return { fill: DNT_FILL, title: f.properties.name + " — Level 4: Do Not Travel (excluded)" };
       return { fill: NODATA, title: f.properties.name + " — not scored" };
     }, "Best value destinations");
   }
@@ -5961,7 +5967,7 @@ if ($("valueShare")) $("valueShare").addEventListener("click", () => {
     gradient: ["#b00020", "#eef0f1", "#0a7d28"],
     leftLabel: weather ? "Harsh" : "Lower", rightLabel: weather ? "Comfortable" : "Higher",
     swatches: weather ? [{ c: NODATA, label: "no data" }]
-                      : [{ c: NODATA, label: "no data" }, { c: "#b00020", label: "do not travel" }],
+                      : [{ c: NODATA, label: "no data" }, { c: DNT_FILL, label: "do not travel" }],
     footer: "Graded free at wandergrade.com — no sign-up.",
     filename: "wandergrade-" + (weather ? "weather-" : "best-value-") + month.toLowerCase() + ".png",
   });
