@@ -176,7 +176,33 @@
       </details>
 
       <p class="picksnote" id="picksNote"></p>
-      <div id="topCards" class="gradewrap">Loading…</div>
+      <!-- A skeleton of the real table, not a "Loading…" line: this swaps for a
+           five-row grade table (the Show default), and the old one-line
+           placeholder meant everything below it dropped 280px on first paint —
+           measured, and the single biggest layout shift on the site. Built from
+           the markup renderGradeTable emits so the height tracks the real pill
+           metrics; see styles.css on why it reserves the shorter of the two row
+           heights. Five rows because that is the pickCount default a first-time
+           visitor gets; a returning one with ?pc=10 still shifts by the extra
+           five. renderGradeTable overwrites this wholesale, so nothing clears
+           it. -->
+      <div id="topCards" class="gradewrap">
+        <table class="gradetable skeleton" aria-hidden="true">
+          <thead><tr><th></th><th class="dest">Destination</th>
+            <th>💰 <span class="thword">Affordability</span></th>
+            <th>🛡️ <span class="thword">Safety</span></th>
+            <th>🌤️ <span class="thword">Weather</span></th>
+            <th>✈️ <span class="thword">Flights</span></th>
+            <th>Overall</th></tr></thead>
+          <tbody>
+            <tr><td class="rank">#1</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
+            <tr><td class="rank">#2</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
+            <tr><td class="rank">#3</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
+            <tr><td class="rank">#4</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
+            <tr><td class="rank">#5</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
+          </tbody>
+        </table>
+      </div>
       <button id="showMore" class="showmore" type="button" hidden>Show top 10 ↓</button>
 
       <!-- Cart pointer, not the cart. Browsing lives here; the trip lives in its

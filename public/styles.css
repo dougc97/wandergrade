@@ -271,6 +271,14 @@ small { color: var(--gray); font-weight: 400; }
 
 .mapcard, .chartcard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 14px; }
 .map { margin-top: 10px; }
+/* Every .map starts as a one-line "Loading…" and becomes a full-width world SVG,
+   which shoved everything below it down the page — the biggest layout shift on
+   the site after the picks table. Reserve the SVG's own box (drawMap draws
+   1000x386) so the swap costs nothing. The :not(:has(svg)) drops the rule the
+   instant the map exists, so zoom/pan — which rewrites the viewBox and with it
+   the rendered aspect — is left entirely alone. Browsers without :has() just
+   get today's behaviour. */
+.map:not(:has(svg)) { aspect-ratio: 1000 / 386; }
 /* zoom controls on the Wander List map */
 .mapzoom { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column;
   gap: 6px; z-index: 5; }
@@ -505,6 +513,26 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .gradetable th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em;
   color: var(--gray); text-align: center; padding: 6px 4px; white-space: nowrap; }
 .gradetable td { padding: 9px 6px; text-align: center; border-top: 1px solid var(--line); }
+/* The first-paint placeholder (see #topCards in index.html). It reuses the real
+   .gr pills rather than approximating them, so the reserved height tracks the
+   real pill metrics instead of a magic number that drifts when padding changes.
+   Measured: a skeleton row is 48.75px, which is exactly a real row whose weather
+   cell carries no ⚠️ hazard mark. A row WITH one is 54.84 — the emoji is taller
+   than any pill — so rows vary by data and no single height fits all of them.
+   48.75 is deliberately the floor: it under-reserves by ~6px on hazard rows and
+   never over-reserves, so content only ever settles downward, never jumps up.
+   These rules only stop it reading as real data. */
+.gradetable.skeleton tbody tr { cursor: default; }
+.gradetable.skeleton td.rank { color: var(--line); }
+.gr.skel { background: var(--soft); }
+.gradetable.skeleton td.dest::after {
+  content: ""; display: inline-block; vertical-align: middle;
+  height: 9px; width: 84%; border-radius: 999px; background: var(--soft);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .gr.skel, .gradetable.skeleton td.dest::after { animation: skelpulse 1.6s ease-in-out infinite; }
+  @keyframes skelpulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+}
 .gradetable th.dest, .gradetable td.dest { text-align: left; }
 .gradetable td.dest { font-weight: 700; font-size: 15px; white-space: nowrap; }
 .gradetable td.rank { color: var(--gray); font-weight: 800; font-size: 13px; width: 34px; }
