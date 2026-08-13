@@ -3403,12 +3403,8 @@ function renderValue() {
   // In weather mode the TABLE follows the map: ranked by weather comfort for the
   // chosen month (value as tiebreak), with a note explaining the sort.
   const weatherMode = valueMapMode === "weather";
+  // Filled in below, once the filters have run and we know what they removed.
   const note = $("rankNote");
-  if (note) {
-    note.hidden = !weatherMode;
-    if (weatherMode) note.textContent =
-      `Ranked by weather comfort in ${MONTHS[month - 1]} — switch back to “Value” for the blended score ranking.`;
-  }
   const rankedAll = Object.values(scored)
     .sort(weatherMode ? ((a, b) => (b.wx - a.wx) || (b.value - a.value))
                       : ((a, b) => b.value - a.value));
@@ -3424,6 +3420,20 @@ function renderValue() {
   // Counted so the note can say the filter did something. At a roomy budget it
   // drops nothing, and a control that silently changes nothing reads as broken.
   const outOfReach = preBudget.length - eligible.length;
+  // The "Somewhere new" filter is on by default and works, but it lives inside
+  // a collapsed Filters fold — so a reader with 34 countries marked sees them
+  // silently missing from the ranking and has no idea why. Say it out loud.
+  const hiddenVisited = showVisited ? 0 : rankedAll.filter((s) => visited.has(s.iso)).length;
+  if (note) {
+    const bits = [];
+    if (weatherMode) bits.push(`Ranked by weather comfort in ${MONTHS[month - 1]} — `
+      + "switch back to “Value” for the blended score ranking.");
+    if (hiddenVisited) bits.push(`Hiding ${hiddenVisited} `
+      + (hiddenVisited === 1 ? "country" : "countries")
+      + " you've marked ✓ been — change that under ⚙️ Filters → Been-to.");
+    note.hidden = !bits.length;
+    note.textContent = bits.join(" · ");
+  }
   const popular = eligible.filter((s) => popularSet.has(s.iso));
   const offbeat = eligible.filter((s) => !popularSet.has(s.iso));
   // Fall back to the full list if no popular destinations match the filters.
