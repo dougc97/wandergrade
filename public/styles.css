@@ -1206,3 +1206,19 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .tripbtn.on { border-color: var(--green); color: var(--green); }
 /* "Nothing in season" chip — muted, so it reads as context not as a highlight. */
 .seastag.seasoff { color: var(--gray); border-color: var(--line); opacity: .85; }
+
+/* 12-month season strip in the weather column. Twelve blocks, Jan-Dec, showing
+   how wide a country's good window is — the thing a single month's grade can
+   never say. Presentation only; it reads climate.json, changes no score. */
+.seasonstrip { display: flex; gap: 1px; margin-top: 4px; justify-content: center; }
+.seasonstrip .sc { width: 5px; height: 9px; border-radius: 1px; background: var(--line); display: block; }
+.seasonstrip .sc.peak { background: #0a7d28; }
+.seasonstrip .sc.shoulder { background: #c9a227; }
+.seasonstrip .sc.off { background: #55606b; }
+.seasonstrip .sc.na { background: var(--line); opacity: .4; }
+/* The current month gets a tick beneath, so "where am I in this window" is
+   readable without counting blocks. */
+.seasonstrip .sc.now { box-shadow: 0 3px 0 -1px var(--fg, #f2f5f7); }
+/* A narrow window is the signal worth surfacing — three good months in a year
+   is a different proposition from twelve, and the ranking cannot say so. */
+.seasonstrip.scarce .sc.peak { box-shadow: inset 0 0 0 1px #7ee2a8; }

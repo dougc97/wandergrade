@@ -3171,6 +3171,36 @@ function seasonalNow(iso, month) {
   if (!a || !a.seasonal) return [];
   return a.seasonal.filter((x) => (x.months || []).includes(month));
 }
+// ---- 12-month season strip --------------------------------------------------
+// The weather column was a single letter for the chosen month, which cannot say
+// the thing that actually decides trips: how WIDE a country's good window is.
+// The Baltics are usable roughly June to mid-September and unusable otherwise;
+// the Balkans have two windows; Benelux is a shoulder destination year-round.
+// A "B in August" reads identically for all three.
+//
+// The twelve monthly comfort scores have been sitting in climate.json the whole
+// time — the guide page already draws them as bars. This is the same data at
+// glance size, next to the grade it explains. Presentation only: no score, no
+// ordering and no grade changes, so it cannot silently reshuffle the ranking.
+function seasonStrip(iso, month) {
+  const cl = climate && climate[iso];
+  if (!cl || !cl.scores || cl.scores.length !== 12) return "";
+  const seas = seasons(cl.scores);
+  const good = seas.filter((s) => s === "peak").length;
+  const cells = seas.map((s, i) => {
+    const cur = (i + 1) === month ? " now" : "";
+    return `<i class="sc ${s}${cur}" data-m="${i + 1}"></i>`;
+  }).join("");
+  // Scarcity is the point: a country good three months a year, in one of them,
+  // is a different proposition from one that is pleasant all year.
+  const scarce = good > 0 && good <= 4;
+  const peakMonths = seas.map((s, i) => (s === "peak" ? MON_ABBR[i] : null)).filter(Boolean);
+  const tip = (good ? "Best: " + peakMonths.join(", ") + ". " : "")
+    + (scarce ? "Only " + good + (good === 1 ? " month" : " months") + " at its best — a narrow window. " : "")
+    + "Each block is a month, January to December; brighter is more comfortable.";
+  return `<span class="seasonstrip${scarce ? " scarce" : ""}" data-tip="${esc(tip)}" title="">${cells}</span>`;
+}
+
 function seasonalTags(iso, month, max) {
   const hits = seasonalNow(iso, month);
   // Nothing in season is itself the answer, and a blank cell doesn't say it.
@@ -3233,7 +3263,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}${seasonalTags(s.iso, month)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl, iso)}</td>
-      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span></td>
+      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
       <td class="scell" data-go="flights" data-iso="${iso}">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
             : gradePill(s.fly, "Flight deal vs the typical fare for this distance · click for exact prices")}</td>
