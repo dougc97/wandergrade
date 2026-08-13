@@ -3173,7 +3173,36 @@ function seasonalNow(iso, month) {
 }
 function seasonalTags(iso, month, max) {
   const hits = seasonalNow(iso, month);
-  if (!hits.length) return "";
+  // Nothing in season is itself the answer, and a blank cell doesn't say it.
+  // Egypt in August has two seasonal windows, neither covering August, because
+  // August is genuinely its dead month — but next to Bulgaria's "Beach season"
+  // the empty cell read as "we have nothing on this country" rather than "this
+  // is the wrong month". Say the true thing, sourced from the hazard note or
+  // the off-peak classification, never invented.
+  if (!hits.length) {
+    const hz = hazardsFor(iso, month).map((h) => h.note).filter(Boolean);
+    const cl = climate && climate[iso];
+    const seas = cl && cl.scores ? seasons(cl.scores)[month - 1] : null;
+    if (hz.length) {
+      // Short label, full text in the tooltip — these notes are written as
+      // sentences ("Intense desert heat — Luxor and Aswan regularly exceed
+      // 105F / 40C") and would blow the column apart at full length.
+      const short = hz[0].split(/[—.(]/)[0].trim();
+      return `<span class="seastag seasoff" data-tip="${esc(hz.join(" · "))}" title="">`
+           + `⚠️ ${esc(short.length > 30 ? short.slice(0, 29).trimEnd() + "…" : short)}</span>`;
+    }
+    // Otherwise point at when this country IS at its best. That answers the
+    // question the blank cell raises ("is there nothing here?") with the most
+    // useful thing we know, and it comes straight from climate.best.
+    const best = (cl && cl.best) || [];
+    if (best.length) {
+      const span = best.map((m) => MON_ABBR[m - 1]).join(", ");
+      return `<span class="seastag seasoff" data-tip="${esc("Nothing peaks in "
+        + MONTHS[month - 1] + ". This country is at its best in " + span + ".")}" title="">`
+        + `🗓️ Best in ${esc(span)}</span>`;
+    }
+    return "";
+  }
   const shown = hits.slice(0, max || 2).map((x) =>
     `<span class="seastag" data-tip="${esc(x.what + (x.d ? " — " + x.d : ""))}" title="">`
     + `${activityEmoji(x.what)} ${esc(x.what)}</span>`).join("");

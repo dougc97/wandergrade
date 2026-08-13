@@ -1204,3 +1204,5 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   cursor: pointer; }
 .tripbtn:hover { border-color: var(--green); color: var(--green); }
 .tripbtn.on { border-color: var(--green); color: var(--green); }
+/* "Nothing in season" chip — muted, so it reads as context not as a highlight. */
+.seastag.seasoff { color: var(--gray); border-color: var(--line); opacity: .85; }
