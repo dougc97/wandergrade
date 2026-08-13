@@ -5874,6 +5874,24 @@ if ($("affShare")) $("affShare").addEventListener("click", () => downloadMapImag
   footer: "National averages for residents — tourist areas and rent paid by foreigners run well above these. wandergrade.com",
   filename: "wandergrade-cost-of-living.png",
 }));
+if ($("advShare")) $("advShare").addEventListener("click", () => downloadMapImage("advMap", {
+  title: "Where governments say it's safe to travel",
+  sub: "US State Department advisory levels, 1 (normal precautions) to 4 (do not travel).",
+  swatches: [{ c: "#0a7d28", label: "Level 1" }, { c: "#c9a227", label: "Level 2" },
+             { c: "#d9822b", label: "Level 3" }, { c: "#b00020", label: "Level 4" },
+             { c: NODATA, label: "no data" }],
+  footer: "Advisories are one government's read and change often — check the current notice before booking. wandergrade.com",
+  filename: "wandergrade-travel-advisories.png",
+}));
+if ($("flightShare")) $("flightShare").addEventListener("click", () => downloadMapImage("flightMap", {
+  title: "What a round-trip flight costs, by country",
+  sub: "Cheapest recent round-trip fares seen by Aviasales, averaged per destination country.",
+  gradient: ["#b00020", "#eef0f1", "#0a7d28"],
+  leftLabel: "Pricier", rightLabel: "Cheaper",
+  swatches: [{ c: NODATA, label: "no fares sampled" }],
+  footer: "Cached fares from real searches, not live prices — and they move. wandergrade.com",
+  filename: "wandergrade-flight-prices.png",
+}));
 if ($("valueShare")) $("valueShare").addEventListener("click", () => {
   const month = MONTHS[(parseInt(($("valueMonth") || {}).value, 10) || curMonth()) - 1];
   const weather = valueMapMode === "weather";
