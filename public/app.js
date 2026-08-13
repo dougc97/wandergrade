@@ -3208,6 +3208,25 @@ function seasonalNow(iso, month) {
   if (!a || !a.seasonal) return [];
   return a.seasonal.filter((x) => (x.months || []).includes(month));
 }
+// Grey on the value map is three different situations wearing one colour, and
+// "not scored" told the reader none of them. Filling the gaps is not the fix —
+// two of the three are grey on purpose — so the fix is saying which it is.
+function notScoredReason(iso) {
+  if (!iso || iso === "-99") return "not a tracked country";
+  const hasPl = priceLevel(iso) != null;
+  const hasAdv = advisoryByIso()[iso] != null;
+  // Deliberate suppression: the exchange rate is a peg or otherwise so far out
+  // of line with income that a price level would be fiction. See plImplausible.
+  if (!hasPl && typeof plImplausible === "function" && plImplausible(iso)) {
+    return "no reliable price data — its exchange rate is pegged or distorted, "
+         + "so any figure here would be fictional";
+  }
+  if (!hasPl && !hasAdv) return "no price or safety data";
+  if (!hasPl) return "no price data — no World Bank PPP figure for this country";
+  if (!hasAdv) return "no safety rating — neither government we follow publishes one";
+  return "not scored this month";
+}
+
 // ---- coverage: what the overall score is actually standing on ---------------
 // The weighted mean already excludes dimensions we have no data for — a missing
 // fare never enters the numerator or the denominator. That is the correct
@@ -3482,7 +3501,7 @@ function renderValue() {
         title: `${s.name}: value ${s.value}/100 (afford ${s.afford}, safe ${s.safe}, wx ${s.wx}${s.fly != null ? ", fly " + s.fly : ""})` };
       if (advMap[f.properties.iso] === 4)
         return { fill: DNT_FILL, title: f.properties.name + " — Level 4: Do Not Travel (excluded)" };
-      return { fill: NODATA, title: f.properties.name + " — not scored" };
+      return { fill: NODATA, title: f.properties.name + " — " + notScoredReason(f.properties.iso) };
     }, "Best value destinations");
   }
 
