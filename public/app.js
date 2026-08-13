@@ -2234,6 +2234,14 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
            afford: comps.afford, safe: comps.safe, wx: comps.wx,
            fly: comps.fly, fare, fareEst, fareBase, advLvl, value,
+           // Which dimensions this score is actually built on. A country with
+           // no fare data is averaged over three, so its remaining three carry
+           // full weight and it can float above a country measured on four —
+           // which is how three microstates outranked a country with a JFK
+           // nonstop. The average was right; the row just never said it was
+           // standing on less.
+           wxMissing: !(cl && cl.scores && cl.scores[month - 1] != null),
+           flyMissing: comps.fly == null,
            pl, fx: row ? row.strength_pct : null };
 }
 
@@ -3171,6 +3179,26 @@ function seasonalNow(iso, month) {
   if (!a || !a.seasonal) return [];
   return a.seasonal.filter((x) => (x.months || []).includes(month));
 }
+// ---- coverage: what the overall score is actually standing on ---------------
+// The weighted mean already excludes dimensions we have no data for — a missing
+// fare never enters the numerator or the denominator. That is the correct
+// arithmetic, and it produces a wrong-looking table: a country scored on three
+// dimensions has those three carrying full weight, so Malta, Andorra and San
+// Marino floated above Serbia, which has a JFK nonstop and a real fare.
+//
+// The fix is not to change the average. It is to stop the row implying it knows
+// four things when it knows three.
+function coverageMark(s) {
+  const missing = [];
+  if (s.flyMissing) missing.push("flight prices");
+  if (s.wxMissing) missing.push("weather");
+  if (!missing.length) return "";
+  const n = 4 - missing.length;
+  return `<span class="covmark" data-tip="${esc("Graded on " + n + " of 4 measures — no "
+    + missing.join(" or ") + " data for this country. The score is the average of what we "
+    + "do know, so it is not directly comparable with a fully-measured country.")}" title="">${n}/4</span>`;
+}
+
 // ---- 12-month season strip --------------------------------------------------
 // The weather column was a single letter for the chosen month, which cannot say
 // the thing that actually decides trips: how WIDE a country's good window is.
@@ -3267,7 +3295,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <td class="scell" data-go="flights" data-iso="${iso}">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
             : gradePill(s.fly, "Flight deal vs the typical fare for this distance · click for exact prices")}</td>
-      <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span></td>
+      <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span>${coverageMark(s)}</td>
     </tr>`;
   }).join("");
   host.innerHTML = `<table class="gradetable">

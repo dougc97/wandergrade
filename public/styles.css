@@ -1220,5 +1220,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    readable without counting blocks. */
 .seasonstrip .sc.now { box-shadow: 0 3px 0 -1px var(--fg, #f2f5f7); }
 /* A narrow window is the signal worth surfacing — three good months in a year
-   is a different proposition from twelve, and the ranking cannot say so. */
-.seasonstrip.scarce .sc.peak { box-shadow: inset 0 0 0 1px #7ee2a8; }
+   is a different proposition from twelve, and the ranking cannot say so.
+   Uses outline, NOT box-shadow: .sc.now already owns box-shadow for the
+   current-month tick, and two rules on one property meant the tick silently
+   disappeared on any scarce row whose current month happened to be a peak. */
+.seasonstrip.scarce .sc.peak { outline: 1px solid #7ee2a8; outline-offset: -1px; }
+
+/* Coverage marker on the overall grade: says when a score is built on fewer
+   than four measures, so a three-dimension country cannot quietly outrank a
+   four-dimension one without saying so. */
+.covmark { display: block; margin-top: 3px; font-size: 10px; color: var(--gray);
+  letter-spacing: .02em; cursor: help; }
