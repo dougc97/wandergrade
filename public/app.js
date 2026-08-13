@@ -2568,7 +2568,30 @@ function tripDays() {
   return (n >= 1 && n <= 180) ? n : null;
 }
 
+// The cart badge and the Top Picks pointer. The basket itself lives in its own
+// tab; these two just say it exists and has something in it, which is the part
+// you need while browsing.
+function renderTripBadge() {
+  const t = loadTrip();
+  const label = $("tripTabLabel");
+  if (label) {
+    label.innerHTML = "Trip" + (t.size ? '<span class="tripcount">' + t.size + "</span>" : "");
+  }
+  const peek = $("tripPeek");
+  if (peek) {
+    peek.hidden = !t.size;
+    if (t.size) {
+      peek.innerHTML = "🧳 <strong>" + t.size + "</strong> "
+        + (t.size === 1 ? "country" : "countries") + " in your trip"
+        + '<button type="button" id="tripPeekGo">View trip →</button>';
+      const go = $("tripPeekGo");
+      if (go) go.onclick = () => activateTab("trip", true);
+    }
+  }
+}
+
 function renderTripBar() {
+  renderTripBadge();
   const host = $("tripBar");
   if (!host) return;
   const t = loadTrip();
@@ -2896,7 +2919,7 @@ function renderGuideAI(iso) {
     tripToggle(iso);
     renderGuideAI(iso);                       // relabel in place
     if (loaded.value) renderValue();          // keep the Top Picks trip bar in step
-    status(tripHas(iso) ? "Added to your trip — plan it from Top Picks 🧳"
+    status(tripHas(iso) ? "Added to your trip 🧳 — open the Trip tab to plan it."
                         : "Removed from your trip.", "ok");
   };
 }
@@ -4490,6 +4513,7 @@ function renderVisitedStats() {
 const loaded = {};
 async function activateTab(name, push) {
   document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
+  if (name === "trip") renderTripBar();
   // Meta follows the tab in BOTH directions. Leaving the guide restores the
   // homepage title/canonical; returning to an already-rendered guide has to put
   // the country's back, because nothing re-renders it — which otherwise left the
@@ -5923,6 +5947,14 @@ if ($("gemSurprise")) $("gemSurprise").addEventListener("click", (e) => {
 // One share format: vertical/story — these get shared from phones, where
 // portrait is what Stories, TikTok, and messaging previews all want.
 $("visitedImage").addEventListener("click", () => downloadVisitedImage("story"));
+// The Trip tab's own plan button: always the basket, never the algorithmic
+// shortlist. "Plan these with AI" in Top Picks still plans what is on screen
+// there, which is the ranked list — two buttons, two clearly different subjects.
+if ($("tripPlanBtn")) $("tripPlanBtn").addEventListener("click", async () => {
+  if (!loadTrip().size) { status("Add a country to your trip first — open any country and hit “Add to my trip”.", "err"); return; }
+  if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
+  renderAIPanel($("tripPanel"), buildTripAIPrompt());
+});
 if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);
 
 // Share buttons for the data maps. Titles state the finding, not the product —

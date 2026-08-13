@@ -70,6 +70,7 @@ html[data-tab] .tab { display: none; }
 html[data-tab="value"]   #tab-value,
 html[data-tab="guide"]   #tab-guide,
 html[data-tab="visited"] #tab-visited,
+html[data-tab="trip"]    #tab-trip,
 html[data-tab="data"]    #tab-data { display: block; }
 /* Long/short label pairs. This sits ABOVE the media queries on purpose: they add
    no specificity of their own, so a base rule further down the file would beat
@@ -1231,3 +1232,15 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    four-dimension one without saying so. */
 .covmark { display: block; margin-top: 3px; font-size: 10px; color: var(--gray);
   letter-spacing: .02em; cursor: help; }
+
+/* Cart pointer in Top Picks — says the basket has something in it and where it
+   lives, without putting the basket itself in the browsing tab. */
+.trippeek { margin: 12px 0 0; font-size: 13px; color: var(--gray); }
+.trippeek button { font: inherit; background: none; border: 1px solid var(--green);
+  color: var(--green); border-radius: 999px; padding: 4px 12px; cursor: pointer;
+  margin-left: 6px; }
+.trippeek button:hover { background: rgba(10,125,40,.12); }
+/* Count badge on the Trip tab, so the cart reads as filled from anywhere. */
+#tabs .tripcount { display: inline-block; min-width: 17px; padding: 0 5px; margin-left: 4px;
+  border-radius: 999px; background: var(--green); color: #fff; font-size: 11px;
+  font-weight: 700; line-height: 17px; text-align: center; }

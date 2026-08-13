@@ -37,7 +37,7 @@
   <script>(function(){var t;
     if(/^\/guide\//.test(location.pathname))t="guide";
     else t=(new URLSearchParams(location.search).get("tab")||"value");
-    if(!/^(value|guide|visited|data)$/.test(t))t="value";
+    if(!/^(value|guide|visited|data|trip)$/.test(t))t="value";
     document.documentElement.setAttribute("data-tab",t);})();</script>
   {{JSONLD}}
   {{GC_JS}}
@@ -72,6 +72,7 @@
   <nav class="tabs" id="tabs">
     <button data-tab="value" class="active">🧭 Top Picks</button>
     <button data-tab="guide">📅 Travel Guide</button>
+    <button data-tab="trip">🧳 <span id="tripTabLabel">Trip</span></button>
     <button data-tab="visited">🗺️ Wander List</button>
     <button data-tab="data">📊 Data</button>
   </nav>
@@ -178,14 +179,14 @@
       <div id="topCards" class="gradewrap">Loading…</div>
       <button id="showMore" class="showmore" type="button" hidden>Show top 10 ↓</button>
 
-      <!-- Trip builder: a working set for ONE trip, separate from the ★ wishlist
-           (which is a lifetime list and would swamp a two-week plan). When it
-           has countries, "Plan these with AI" plans THOSE instead of the
-           algorithmic shortlist — the user has already said what they mean. -->
-      <div id="tripBar" class="tripbar"></div>
+      <!-- Cart pointer, not the cart. Browsing lives here; the trip lives in its
+           own tab. Previously the basket sat in this tab, which meant adding a
+           country sent you to its guide and then back here to plan — three tabs
+           for one task. -->
+      <div id="tripPeek" class="trippeek" hidden></div>
       <div class="aibar">
         <button id="aiExport" class="aibtn" title="see a ready-to-use prompt for ChatGPT, Claude, or any AI">✨ Plan these with AI →</button>
-        <span class="aihint">Picked a country? This writes the prompt — your month, budget and shortlist filled in — to paste into ChatGPT, Claude or Perplexity for a first-draft itinerary.</span>
+        <span class="aihint">Writes a prompt from this shortlist — your month, budget and the ranked picks filled in — to paste into ChatGPT, Claude or Perplexity for a first-draft itinerary.</span>
       </div>
       <div id="aiPanel" class="aipanel" hidden></div>
 
@@ -304,6 +305,27 @@
   </section>
 
   <!-- ============ TAB: COUNTRIES VISITED ============ -->
+  <!-- ============ TAB: TRIP ============ -->
+  <!-- The cart. Browsing happens in Top Picks, adding happens on a country's
+       guide, and planning happens here — one place per job, instead of routing
+       the user back to Top Picks to plan something they assembled elsewhere. -->
+  <section class="tab" id="tab-trip" hidden>
+    <div class="cardwide">
+      <div class="charthead">
+        <div>
+          <h2>Your trip</h2>
+          <p class="chartsub" id="tripSub">Countries you're considering, and how long you have.</p>
+        </div>
+      </div>
+      <div id="tripBar" class="tripbar"></div>
+      <div class="aibar">
+        <button id="tripPlanBtn" class="aibtn" type="button" title="Build a planning prompt for these countries">✨ Plan this trip with AI →</button>
+        <span class="aihint">Groups your countries into realistic routes for the days you have — and says plainly which ones don't fit. Paste into ChatGPT, Claude or Perplexity.</span>
+      </div>
+      <div id="tripPanel" class="aipanel" hidden></div>
+    </div>
+  </section>
+
   <section class="tab" id="tab-visited" hidden>
     <div class="cardwide">
       <div class="charthead">
