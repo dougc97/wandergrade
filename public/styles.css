@@ -1193,3 +1193,6 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   border: 0; border-radius: 8px; background: var(--green); color: #fff;
   cursor: pointer; min-height: 24px; }
 .vsavenote { font-size: 13px; color: var(--gray); }
+
+/* Share-image buttons sit in the map headers beside the legend. */
+.charthead .shareimg { margin-left: auto; align-self: center; white-space: nowrap; }

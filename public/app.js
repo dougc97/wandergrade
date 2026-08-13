@@ -5111,6 +5111,81 @@ function fitFlagRows(ctx, flags, maxW, maxH, startSize) {
   }
 }
 
+// ---- shareable data-map images ---------------------------------------------
+// The Wander List share card worked because it is a *finding about you*. The
+// data maps have the same property — "what $100 buys" travelled on Reddit —
+// but had no way to leave the site except a screenshot. This wraps whichever
+// map is on screen in a title, key and caveat and exports a PNG.
+//
+// The caveat is baked into the image on purpose: these get reposted without
+// their captions, and a purchasing-power map read as a travel budget is the
+// misreading that actually costs us credibility.
+function buildMapShareSVG(hostId, o) {
+  const src = $(hostId) && $(hostId).querySelector("svg");
+  if (!src) throw new Error("map not ready");
+  const HEAD = 88, FOOT = 22, W = 1000, MAPH = 386, H = MAPH + HEAD + FOOT;
+  const BG = "#101316", FG = "#f2f5f7", MUTE = "#9aa4ad", DIM = "#7d868f";
+  const F = "Helvetica Neue, Helvetica, Arial, sans-serif";
+  const esc2 = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  let leg = "";
+  const sw = o.swatches || [];
+  if (o.gradient) {
+    leg += '<defs><linearGradient id="lg" x1="0" x2="1">'
+      + '<stop offset="0" stop-color="' + o.gradient[0] + '"/>'
+         + '<stop offset="0.5" stop-color="' + o.gradient[1] + '"/>'
+         + '<stop offset="1" stop-color="' + o.gradient[2] + '"/></linearGradient></defs>'
+      + '<text x="16" y="68" font-family="' + F + '" font-size="9" fill="' + MUTE + '">' + esc2(o.leftLabel) + "</text>"
+      + '<rect x="' + (20 + o.leftLabel.length * 5) + '" y="59" width="150" height="9" rx="2" fill="url(#lg)"/>'
+      + '<text x="' + (178 + o.leftLabel.length * 5) + '" y="68" font-family="' + F + '" font-size="9" fill="' + MUTE + '">' + esc2(o.rightLabel) + "</text>";
+  }
+  let x = (o.gradient ? 250 + o.leftLabel.length * 5 : 16);
+  sw.forEach((s) => {
+    leg += '<rect x="' + x + '" y="59" width="9" height="9" rx="2" fill="' + s.c + '"/>'
+         + '<text x="' + (x + 13) + '" y="68" font-family="' + F + '" font-size="9" fill="' + MUTE + '">' + esc2(s.label) + "</text>";
+    x += 22 + s.label.length * 5;
+  });
+
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H
+    + '" viewBox="0 0 ' + W + " " + H + '">'
+    + '<rect width="' + W + '" height="' + H + '" fill="' + BG + '"/>'
+    + '<text x="16" y="27" font-family="' + F + '" font-size="19" font-weight="700" fill="' + FG + '">' + esc2(o.title) + "</text>"
+    + '<text x="16" y="45" font-family="' + F + '" font-size="9.5" fill="' + MUTE + '">' + esc2(o.sub) + "</text>"
+    + leg
+    + '<g transform="translate(0,' + HEAD + ')">' + src.innerHTML + "</g>"
+    + '<text x="16" y="' + (HEAD + MAPH + 15) + '" font-family="' + F + '" font-size="8" fill="' + DIM + '">' + esc2(o.footer) + "</text>"
+    + "</svg>";
+  return { svg, W, H };
+}
+
+async function downloadMapImage(hostId, o) {
+  try {
+    const { svg, W, H } = buildMapShareSVG(hostId, o);
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const c = document.createElement("canvas");
+    c.width = W * SHARE_SCALE; c.height = H * SHARE_SCALE;
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#101316"; ctx.fillRect(0, 0, c.width, c.height);
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+    const file = new File([blob], o.filename, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: o.title }); return; }
+      catch (e) { /* cancelled -> fall through to download */ }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = o.filename;
+    a.click();
+    status("Map image downloaded — post it anywhere 🌍", "ok");
+  } catch (e) {
+    status("Could not build map image: " + e.message, "err");
+  }
+}
+
 async function downloadVisitedImage(orientation) {
   try {
     await ensureWorld();
@@ -5729,6 +5804,36 @@ if ($("gemSurprise")) $("gemSurprise").addEventListener("click", (e) => {
 // portrait is what Stories, TikTok, and messaging previews all want.
 $("visitedImage").addEventListener("click", () => downloadVisitedImage("story"));
 if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);
+
+// Share buttons for the data maps. Titles state the finding, not the product —
+// "What US$100 actually buys" is what travelled on Reddit; "WanderGrade cost of
+// living map" is not. The footer carries the caveat because these get reposted
+// without their captions.
+if ($("affShare")) $("affShare").addEventListener("click", () => downloadMapImage("affMap", {
+  title: "What US$100 actually buys around the world",
+  sub: "Local purchasing power of US$100, in US dollars. World Bank PPP divided by today's market exchange rate.",
+  gradient: ["#b00020", "#eef0f1", "#0a7d28"],
+  leftLabel: "Pricey", rightLabel: "Cheap",
+  swatches: [{ c: NODATA, label: "no data" }],
+  footer: "National averages for residents — tourist areas and rent paid by foreigners run well above these. wandergrade.com",
+  filename: "wandergrade-cost-of-living.png",
+}));
+if ($("valueShare")) $("valueShare").addEventListener("click", () => {
+  const month = MONTHS[(parseInt(($("valueMonth") || {}).value, 10) || curMonth()) - 1];
+  const weather = valueMapMode === "weather";
+  downloadMapImage("valueMap", {
+    title: weather ? "Where the weather is best in " + month
+                   : "Best-value places to travel in " + month,
+    sub: weather ? "Weather comfort by country, scored 0-100 for this month."
+                 : "Affordability, safety, weather and flight cost, combined into one grade.",
+    gradient: ["#b00020", "#eef0f1", "#0a7d28"],
+    leftLabel: weather ? "Harsh" : "Lower", rightLabel: weather ? "Comfortable" : "Higher",
+    swatches: weather ? [{ c: NODATA, label: "no data" }]
+                      : [{ c: NODATA, label: "no data" }, { c: "#b00020", label: "do not travel" }],
+    footer: "Graded free at wandergrade.com — no sign-up.",
+    filename: "wandergrade-" + (weather ? "weather-" : "best-value-") + month.toLowerCase() + ".png",
+  });
+});
 // ("Use on another device" was removed — the Share button already produces a
 //  URL carrying your map across devices.)
 
