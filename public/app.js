@@ -2695,6 +2695,13 @@ function buildTripAIPrompt() {
   return lines.join("\n");
 }
 
+// UNREFERENCED as of 2026-08-13. This built a prompt from the algorithmic top
+// ten, behind a "Plan these with AI" button in Top Picks. Removed because it
+// wore the same label as the Trip tab's plan button while doing a different
+// job, so the two read as one feature duplicated — and nobody travels to a
+// top-ten list. The ranked table answers "which of these" better than a prompt.
+// Kept rather than deleted because it is a working exploratory prompt if that
+// idea ever comes back with its own name; delete it freely if it never does.
 function buildAIPrompt() {
   const month = lastPicksMonth || curMonth();
   const origin = $("valueOrigin");
@@ -2785,16 +2792,6 @@ function renderAIPanel(host, prompt) {
   host.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-async function exportAIPrompt() {
-  const hasTrip = loadTrip().size > 0;
-  if (!hasTrip && !lastPicks.length) { status("Load some picks first.", "err"); return; }
-  // Make sure visa data for the chosen passport is loaded so the export can
-  // embed it (US uses visa.json; other From countries need the matrix).
-  if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
-  // A hand-picked trip beats the algorithmic shortlist: the user has already
-  // told us which countries they mean, which is better information than a rank.
-  renderAIPanel($("aiPanel"), hasTrip ? buildTripAIPrompt() : buildAIPrompt());
-}
 
 // Shared clipboard helper (secure-context API + execCommand fallback).
 async function copyText(text, quiet) {
@@ -5978,7 +5975,7 @@ if ($("tripPlanBtn")) $("tripPlanBtn").addEventListener("click", async () => {
   if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
   renderAIPanel($("tripPanel"), buildTripAIPrompt());
 });
-if ($("aiExport")) $("aiExport").addEventListener("click", exportAIPrompt);
+
 
 // Share buttons for the data maps. Titles state the finding, not the product —
 // "What US$100 actually buys" is what travelled on Reddit; "WanderGrade cost of

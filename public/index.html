@@ -210,11 +210,12 @@
            country sent you to its guide and then back here to plan — three tabs
            for one task. -->
       <div id="tripPeek" class="trippeek" hidden></div>
-      <div class="aibar">
-        <button id="aiExport" class="aibtn" title="see a ready-to-use prompt for ChatGPT, Claude, or any AI">✨ Plan these with AI →</button>
-        <span class="aihint">Writes a prompt from this shortlist — your month, budget and the ranked picks filled in — to paste into ChatGPT, Claude or Perplexity for a first-draft itinerary.</span>
-      </div>
-      <div id="aiPanel" class="aipanel" hidden></div>
+      <!-- No AI button here on purpose. There used to be one, planning the
+           algorithmic top ten — a different job from planning a trip, but with
+           the same label, so the two read as the same feature twice. Nobody
+           travels to a top-ten list, and the ranked table above already answers
+           "which of these should I pick" better than a prompt would. Planning
+           lives in the Trip tab, on countries you actually chose. -->
 
       <details class="foldable" id="gemsBox" hidden>
         <summary>💎 Hidden gems <span class="muted">— high value, off the beaten path</span>
