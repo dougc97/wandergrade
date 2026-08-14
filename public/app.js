@@ -3224,6 +3224,22 @@ function notScoredReason(iso) {
   return "not scored this month";
 }
 
+function renderMapPicksOverlay(picks, month) {
+  const host = $("valueMap");
+  if (!host) return;
+  let box = host.querySelector(".mappicks");
+  const show = valueMapMode !== "weather" && picks && picks.length;
+  if (!show) { if (box) box.remove(); return; }
+  if (!box) {
+    box = document.createElement("div");
+    box.className = "mappicks";
+    host.appendChild(box);          // host is position:relative via attachMapZoom
+  }
+  box.innerHTML = '<strong>Best value in ' + esc(MONTHS[month - 1]) + "</strong>"
+    + picks.slice(0, 8).map((s, i) =>
+        "<span>" + (i + 1) + ". " + esc(s.name) + "</span>").join("");
+}
+
 // ---- coverage: what the overall score is actually standing on ---------------
 // The weighted mean already excludes dimensions we have no data for — a missing
 // fare never enters the numerator or the denominator. That is the correct
@@ -3575,6 +3591,10 @@ function renderValue() {
       }
     }
   }
+  // The same ranked list the exported PNG carries, on the live map — so what
+  // you see is what you would be sharing. It also does the pulse's job for
+  // anyone with reduced motion on, where nothing pulses at all.
+  renderMapPicksOverlay(picks, month);
   // Gems mirror the popular list's count (5 → 10 → 20 via "Show more") so the
   // two sections always feel like one consistent ranking.
   const gems = (popular.length ? offbeat : []).slice(0, pickCount());
