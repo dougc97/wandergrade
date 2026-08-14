@@ -5310,6 +5310,24 @@ function buildMapShareSVG(hostId, o) {
     x += 22 + s.label.length * 5;
   });
 
+  // The pulse that marks top picks on screen cannot survive a PNG, and a
+  // shared image with no answer in it is just a green map. List them instead,
+  // bottom-left over the empty Pacific — the reader gets the takeaway without
+  // decoding colours, which is what made the Reddit maps travel.
+  let picksOverlay = "";
+  if (o.picks && o.picks.length) {
+    const rows = o.picks.slice(0, 8);
+    const lh = 13, padY = 9, boxH = rows.length * lh + padY * 2 + 12;
+    const boxW = 168, x = 16, y = HEAD + MAPH - boxH - 10;
+    picksOverlay = '<rect x="' + x + '" y="' + y + '" width="' + boxW + '" height="' + boxH
+      + '" rx="6" fill="#101316" fill-opacity="0.82"/>'
+      + '<text x="' + (x + 11) + '" y="' + (y + padY + 10) + '" font-family="' + F
+      + '" font-size="9.5" font-weight="700" fill="' + FG + '">' + esc2(o.picksTitle || "Top picks") + "</text>"
+      + rows.map((n2, i) =>
+          '<text x="' + (x + 11) + '" y="' + (y + padY + 10 + 14 + i * lh) + '" font-family="' + F
+          + '" font-size="9" fill="' + MUTE + '">' + esc2((i + 1) + ". " + n2) + "</text>").join("");
+  }
+
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H
     + '" viewBox="0 0 ' + W + " " + H + '">'
     + '<rect width="' + W + '" height="' + H + '" fill="' + BG + '"/>'
@@ -5317,6 +5335,7 @@ function buildMapShareSVG(hostId, o) {
     + '<text x="16" y="45" font-family="' + F + '" font-size="9.5" fill="' + MUTE + '">' + esc2(o.sub) + "</text>"
     + leg
     + '<g transform="translate(0,' + HEAD + ')">' + src.innerHTML + "</g>"
+    + picksOverlay
     + '<text x="16" y="' + (HEAD + MAPH + 15) + '" font-family="' + F + '" font-size="8" fill="' + DIM + '">' + esc2(o.footer) + "</text>"
     + "</svg>";
   return { svg, W, H };
@@ -6020,6 +6039,11 @@ if ($("valueShare")) $("valueShare").addEventListener("click", () => {
     leftLabel: weather ? "Harsh" : "Lower", rightLabel: weather ? "Comfortable" : "Higher",
     swatches: weather ? [{ c: NODATA, label: "no data" }]
                       : [{ c: NODATA, label: "no data" }, { c: DNT_FILL, label: "do not travel" }],
+    // Names the ranked countries in the image itself. On screen they pulse;
+    // in a PNG they cannot, and a shared map with no answer in it is just
+    // colours. lastPicks is whatever the table is currently showing.
+    picks: weather ? null : (lastPicks || []).slice(0, 8).map((p2) => p2.name),
+    picksTitle: weather ? null : "Best value in " + month,
     footer: "Graded free at wandergrade.com — no sign-up.",
     filename: "wandergrade-" + (weather ? "weather-" : "best-value-") + month.toLowerCase() + ".png",
   });
