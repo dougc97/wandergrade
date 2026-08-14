@@ -966,6 +966,7 @@ function renderMap(rows, base) {
     }
     return { fill: NODATA, title: f.properties.name + " — not tracked" };
   }, base + " strength world heatmap");
+  markTopPicksOn("map");
 
   $("mapsub").textContent =
     `Greener = ${baseWord(base)} stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`;
@@ -1872,6 +1873,19 @@ async function reloadAdvisoriesForOrigin() {
   return true;
 }
 const LVL_COLOR = { 1: "#0a7d28", 2: "#c9a200", 3: "#d4730a", 4: "#b00020" };
+// Map fills, softer than the pill colours above. Those are tuned for a small
+// accent on a dark row; at continent scale four saturated colours compete for
+// attention at once and the map is tiring to read — the same problem Level 4
+// had on the value map before DNT_FILL. Mixed toward the neutral by the amount
+// each hue needs: red and orange shout loudest, so they come down furthest.
+// Ordering stays legible because the hues are still distinct, and the legend
+// below is drawn from this same table so key and map cannot disagree.
+const LVL_MAP_COLOR = {
+  1: mix("#eef0f1", "#0a7d28", 0.62),
+  2: mix("#eef0f1", "#c9a200", 0.58),
+  3: mix("#eef0f1", "#d4730a", 0.55),
+  4: mix("#eef0f1", "#b00020", 0.55),
+};
 
 function renderAdvisories() {
   const byIso = {};
@@ -1879,16 +1893,17 @@ function renderAdvisories() {
   drawMap("advMap", (f) => {
     const it = byIso[f.properties.iso];
     return it
-      ? { fill: LVL_COLOR[it.level], title: `${it.country} — Level ${it.level}: ${it.level_text}` }
+      ? { fill: LVL_MAP_COLOR[it.level], title: `${it.country} — Level ${it.level}: ${it.level_text}` }
       : { fill: NODATA, title: f.properties.name + " — no advisory data" };
   }, (advisories.source_name || "Travel") + " advisory levels");
+  markTopPicksOn("advMap");
 
   $("advSub").innerHTML =
     `${advisories.count} advisories from the <b>${esc(advisories.source_name || "US State Dept")}</b> ` +
     `(follows your home country). Green = safest (Level 1), red = avoid travel (Level 4). ` +
     `<span class="muted">Government advisories reflect each country's own foreign policy.</span>`;
   $("advLegend").innerHTML = [1, 2, 3, 4]
-    .map((l) => `<span><span class="swatch" style="background:${LVL_COLOR[l]}"></span>L${l}</span>`).join(" ");
+    .map((l) => `<span><span class="swatch" style="background:${LVL_MAP_COLOR[l]}"></span>L${l}</span>`).join(" ");
 
   markSort("#advTable", advSort);
   $("advRows").innerHTML = sortRows(advisories.items, advSort, ADV_GET).map((it) => {
@@ -1918,6 +1933,7 @@ function renderAfford() {
       title: `${f.properties.name} — price level ${pl.toFixed(2)} (${plWord(pl)} vs US)`
              + (drift ? " · " + drift : "") };
   }, "Cost of living (price level vs US)");
+  markTopPicksOn("affMap");
 
   $("affSub").textContent =
     `Below 1.00 = cheaper than the US (a dollar buys more). World Bank PPP ÷ live rate · ${n} countries. `
@@ -3224,8 +3240,29 @@ function notScoredReason(iso) {
   return "not scored this month";
 }
 
-function renderMapPicksOverlay(picks, month) {
-  const host = $("valueMap");
+// Applies the top-picks treatment — pulse plus the named list — to any map.
+// The Data tab maps each show one dimension; marking where the overall picks
+// land gives them a common reference point, and makes every one of them
+// shareable with the takeaway already in the picture.
+function markTopPicksOn(hostId) {
+  const host = $(hostId);
+  if (!host || !lastPicks || !lastPicks.length) return;
+  const month = lastPicksMonth || curMonth();
+  if (!reducedMotion()) {
+    const set = new Set(lastPicks.map((s) => s.iso));
+    let i = 0;
+    for (const p of host.querySelectorAll("path")) {
+      if (set.has(p.getAttribute("data-iso"))) {
+        p.classList.add("toppick");
+        p.style.animationDelay = (i++ * 0.25) + "s";
+      }
+    }
+  }
+  renderMapPicksOverlay(lastPicks, month, hostId);
+}
+
+function renderMapPicksOverlay(picks, month, hostId) {
+  const host = $(hostId || "valueMap");
   if (!host) return;
   let box = host.querySelector(".mappicks");
   const show = valueMapMode !== "weather" && picks && picks.length;
@@ -3727,13 +3764,18 @@ function renderFlights() {
       : { fill: flightColor(p, expected && expected(f.properties.iso)),
           title: `${f.properties.name} — avg ${cur} ${p} round-trip` };
   }, "Average flight prices by destination country");
+  markTopPicksOn("flightMap");
 
   $("flightSub").innerHTML =
     `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · map colours show the fare vs the typical fare for that distance — <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above, so a long-haul can still be a bargain · <b>click a fare ↗</b> to search that route live on Aviasales.`;
   // Legend names the comparison, not just the direction — the colours are
   // relative to the distance-fit typical fare, not to the cheapest fare shown.
   $("flightLegend").innerHTML =
-    '<span>Below typical</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Above typical</span>';
+    '<span>Below typical</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Above typical</span>'
+    // This map has the most grey of any of them — Aviasales only knows routes
+    // somebody recently searched, so roughly a third of countries have no
+    // sampled fare at all. Unlabelled, that grey read as a colour on the scale.
+    + '<span style="margin-left:6px"><span class="swatch"></span>No fares sampled</span>';
 
   markSort("#flightTable", flightSort);
   $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET).map((c) => {
@@ -6032,8 +6074,8 @@ if ($("affShare")) $("affShare").addEventListener("click", () => downloadMapImag
 if ($("advShare")) $("advShare").addEventListener("click", () => downloadMapImage("advMap", {
   title: "Where governments say it's safe to travel",
   sub: "US State Department advisory levels, 1 (normal precautions) to 4 (do not travel).",
-  swatches: [{ c: "#0a7d28", label: "Level 1" }, { c: "#c9a227", label: "Level 2" },
-             { c: "#d9822b", label: "Level 3" }, { c: "#b00020", label: "Level 4" },
+  swatches: [{ c: LVL_MAP_COLOR[1], label: "Level 1" }, { c: LVL_MAP_COLOR[2], label: "Level 2" },
+             { c: LVL_MAP_COLOR[3], label: "Level 3" }, { c: LVL_MAP_COLOR[4], label: "Level 4" },
              { c: NODATA, label: "no data" }],
   footer: "Advisories are one government's read and change often — check the current notice before booking. wandergrade.com",
   filename: "wandergrade-travel-advisories.png",

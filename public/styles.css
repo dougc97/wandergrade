@@ -857,7 +857,7 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   .gradetable tbody tr { animation: rowin .38s ease both; animation-delay: calc(var(--i, 0) * 55ms); }
   @keyframes rowin { from { opacity: 0; transform: translateY(7px); } }
 
-  #valueMap path.toppick { animation: mappulse 2.6s ease-in-out infinite; }
+  .map path.toppick { animation: mappulse 2.6s ease-in-out infinite; }
   @keyframes mappulse { 50% { opacity: .5; } }
 }
 
