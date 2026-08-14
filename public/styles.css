@@ -1279,3 +1279,9 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    nothing. */
 .seasonstrip.skel { display: block; height: 9px; margin-top: 4px; background: none; }
 .covmark.skel { visibility: hidden; }
+/* Legend key for the map pulse. Same animation as #valueMap path.toppick so the
+   key and the thing it describes are visibly the same effect. */
+.legend .swatch.pulsekey { background: #0a7d28; }
+@media (prefers-reduced-motion: no-preference) {
+  .legend .swatch.pulsekey { animation: mappulse 2.6s ease-in-out infinite; }
+}

@@ -3482,6 +3482,10 @@ function renderValue() {
     ? '<span>Harsh</span><span class="bar"></span><span>Comfortable</span>'
       + '<span style="margin-left:6px"><span class="swatch"></span>No data</span>'
     : '<span>Lower value</span><span class="bar"></span><span>Higher value</span>'
+      // Only claimed when the pulse actually runs — reducedMotion() suppresses
+      // it, and a key describing an animation nobody sees is worse than none.
+      + (reducedMotion() ? ""
+         : '<span style="margin-left:6px"><span class="swatch pulsekey"></span>Pulsing = your top picks</span>')
       + '<span style="margin-left:6px"><span class="swatch"></span>No data</span>'
       + '<span style="margin-left:6px"><span class="swatch" style="background:' + DNT_FILL + '"></span>Do Not Travel</span>';
 
