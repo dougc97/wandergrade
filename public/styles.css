@@ -1272,3 +1272,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 #tabs .tripcount { display: inline-block; min-width: 17px; padding: 0 5px; margin-left: 4px;
   border-radius: 999px; background: var(--green); color: #fff; font-size: 11px;
   font-weight: 700; line-height: 17px; text-align: center; }
+/* Skeleton spacers for the two things added after it was last measured: the
+   season strip and the coverage marker. Without these the reservation was
+   48.75px against a real 66.25px row — 87.5px of shift across five rows, which
+   is what pushed CLS on #topCards to 0.359 (Poor). They reserve space and show
+   nothing. */
+.seasonstrip.skel { display: block; height: 9px; margin-top: 4px; background: none; }
+.covmark.skel { visibility: hidden; }
