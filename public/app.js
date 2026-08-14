@@ -2584,6 +2584,22 @@ function tripDays() {
   return (n >= 1 && n <= 180) ? n : null;
 }
 
+// When you travel changes the answer more than where you start from, so the
+// trip carries its own month rather than silently inheriting whichever month
+// the Top Picks slider happens to sit on. Three states: unset follows the
+// global month (the old behaviour, and right for someone who set the slider
+// deliberately), 0 means flexible, 1-12 is an explicit pick. Flexible is the
+// interesting one — it turns "is August any good for these" into "when should
+// I go", which is the question most people with a shortlist actually have.
+function tripMonth() {
+  const el = $("tripMonth");
+  const raw = el ? el.value : (localStorage.getItem("fx_tripmonth") || "");
+  if (raw === "0") return { month: null, flexible: true };
+  const n = parseInt(raw, 10);
+  if (n >= 1 && n <= 12) return { month: n, flexible: false };
+  return { month: lastPicksMonth || curMonth(), flexible: false };
+}
+
 // The cart badge and the Top Picks pointer. The basket itself lives in its own
 // tab; these two just say it exists and has something in it, which is the part
 // you need while browsing.
@@ -2613,6 +2629,7 @@ function renderTripBar() {
   const t = loadTrip();
   loadWishlist();
   const seedable = wishlist && wishlist.size && [...wishlist].some((i) => !t.has(i));
+  const savedM = localStorage.getItem("fx_tripmonth") || "";
   if (!t.size) {
     host.innerHTML = '<span class="triphint">🧳 <strong>Building a trip?</strong> '
       + "Open any country and hit “Add to my trip”. Pick a few and we'll ask an AI to "
@@ -2628,6 +2645,12 @@ function renderTripBar() {
       + '<span class="muted">' + t.size + " " + (t.size === 1 ? "country" : "countries") + "</span>"
       + '<label class="tripdays">for <input id="tripDays" type="number" min="1" max="180" '
       + 'value="' + (localStorage.getItem("fx_tripdays") || 14) + '" inputmode="numeric"> days</label>'
+      + '<label class="tripmonth">in <select id="tripMonth">'
+      + '<option value="0"' + (savedM === "0" ? " selected" : "") + ">I'm flexible — suggest when</option>"
+      + MONTHS.map((m, i) => '<option value="' + (i + 1) + '"'
+        + ((savedM === "0" ? false : (parseInt(savedM, 10) || (lastPicksMonth || curMonth())) === i + 1)
+          ? " selected" : "") + ">" + m + "</option>").join("")
+      + "</select></label>"
       + (seedable ? '<button type="button" class="tripseed" id="tripSeed">+ my ★ wishlist</button>' : "")
       + '<button type="button" class="tripseed" id="tripClear">Clear</button></div>'
       + '<div class="tripchips">' + chips + "</div>";
@@ -2644,7 +2667,21 @@ function renderTripBar() {
   const days = $("tripDays");
   if (days) days.onchange = () => {
     try { localStorage.setItem("fx_tripdays", String(tripDays() || 14)); } catch (e) {}
+    refreshTripPrompt();
   };
+  const mon = $("tripMonth");
+  if (mon) mon.onchange = () => {
+    try { localStorage.setItem("fx_tripmonth", mon.value); } catch (e) {}
+    refreshTripPrompt();
+  };
+}
+
+// Days and month both sit above the prompt box, so once the box is open you
+// can see it not changing. Rebuild it in place — but only if it is already
+// open, since generating it is what the plan button is for.
+function refreshTripPrompt() {
+  const p = $("tripPanel");
+  if (p && !p.hidden && p.innerHTML) renderAIPanel(p, buildTripAIPrompt());
 }
 
 // The trip prompt. Everything the model cannot look up goes in: coordinates so
@@ -2652,7 +2689,9 @@ function renderTripBar() {
 // price level, and the visa position for this passport.
 function buildTripAIPrompt() {
   const t = [...loadTrip()];
-  const month = lastPicksMonth || curMonth();
+  const tm = tripMonth();
+  const flexible = tm.flexible;
+  const month = tm.month || lastPicksMonth || curMonth();
   const monthName = MONTHS[month - 1];
   const days = tripDays() || 14;
   const origin = $("valueOrigin");
@@ -2662,11 +2701,14 @@ function buildTripAIPrompt() {
   const anchorPl = priceLevel(($("valueOrigin") || {}).value || "US") || 1;
 
   const lines = [];
-  lines.push("I have " + days + " days in " + monthName + ", travelling from " + originName
+  lines.push("I have " + days + " days"
+    + (flexible ? " and I'm flexible on when to go — help me pick the month"
+                : " in " + monthName)
+    + ", travelling from " + originName
     + ", and a shortlist of countries I'm interested in. I used a travel-value tool (WanderGrade) "
     + "for the underlying data — use what's below, don't re-derive it.");
   lines.push("");
-  lines.push("MY SHORTLIST (" + t.length + " countries, " + days + " days total):");
+  lines.push("MY SHORTLIST (" + t.length + (t.length === 1 ? " country, " : " countries, ") + days + " days total):");
   t.forEach((iso) => {
     const bits = [];
     const c = cen[iso];
@@ -2676,15 +2718,30 @@ function buildTripAIPrompt() {
     if (reg) bits.push(reg);
     const cl = climate && climate[iso];
     if (cl) {
-      const s = seasons(cl.scores)[month - 1];
-      bits.push(monthName + " is " + (s === "peak" ? "peak season" : s === "off" ? "off-season" : "shoulder season"));
+      // Fixed month: how this country scores in it. Flexible: the whole shape
+      // of the year, since the model is choosing the month rather than judging
+      // one — worst months matter as much as best when it has to find overlap.
+      if (!flexible) {
+        const s = seasons(cl.scores)[month - 1];
+        bits.push(monthName + " is " + (s === "peak" ? "peak season" : s === "off" ? "off-season" : "shoulder season"));
+      } else {
+        const ss = seasons(cl.scores);
+        const off = ss.map((s, i) => (s === "off" ? i + 1 : 0)).filter(Boolean);
+        if (off.length) bits.push("avoid " + monthSpan(off));
+      }
       if (cl.best && cl.best.length) bits.push("best months " + cl.best.map((m) => MON_ABBR[m - 1]).join("/"));
     }
     const pl = priceLevel(iso);
     if (pl) bits.push("100 at home ≈ " + Math.round(100 * (pl / anchorPl)) + " here");
     const vi = visaInfo(iso, passport);
     if (vi && vi.meta) bits.push("visa: " + vi.meta.long);
-    const hz = hazardsFor(iso, month).map((h) => h.note);
+    // Fixed month: only what bites in that month. Flexible: every seasonal
+    // hazard with the months it covers, so the model can route around cyclone
+    // or monsoon season instead of being told about it after the fact.
+    const hz = flexible
+      ? ((activities && activities[iso] && activities[iso].hazards) || [])
+          .map((h) => h.note + (h.months && h.months.length < 12 ? " (" + monthSpan(h.months) + ")" : ""))
+      : hazardsFor(iso, month).map((h) => h.note);
     if (hz.length) bits.push("heads-up: " + hz.join("; "));
     lines.push("- " + countryName(iso) + " — " + bits.join(" · "));
   });
@@ -2703,7 +2760,16 @@ function buildTripAIPrompt() {
   lines.push("- BE HONEST ABOUT WHAT DOESN'T FIT. If " + days + " days can't cover this shortlist well, say so plainly: tell me which countries make the best single trip, which should wait for another one, and what the minimum sensible number of days would be for the rest. I would much rather drop countries than rush them.");
   lines.push("- For the trip you recommend first: a day-by-day outline, rough travel times between places, and where to fly into and out of.");
   lines.push("- Give a daily budget range (budget / mid-range / comfortable) using the price figures above rather than generic assumptions.");
-  lines.push("- Use the " + monthName + " season notes: if a country is off-season or has a heads-up, say whether to reorder, swap it out, or accept the trade.");
+  if (flexible) {
+    // The whole point of the flexible mode: make the model commit to a window
+    // rather than hedge across the year. It has best months, off months and
+    // dated hazards for every country above, so it can.
+    lines.push("- TELL ME WHEN TO GO. For each trip you propose, name the specific month — or a two-week window — that works best across the countries in it, and say why using the best-months and avoid-months above. Give a second-choice window too.");
+    lines.push("- If no single month suits the whole group, say so and split it: which countries belong in a trip at one time of year and which in another. Don't average the year into a compromise month that is mediocre everywhere.");
+    lines.push("- Flag anything where timing is the deciding factor — a hazard season, a short peak window, or prices that swing hard between seasons.");
+  } else {
+    lines.push("- Use the " + monthName + " season notes: if a country is off-season or has a heads-up, say whether to reorder, swap it out, or accept the trade.");
+  }
   lines.push("");
   lines.push("Then end with the 2-3 questions that would most change this plan, so I can refine it with you.");
   lines.push("");
