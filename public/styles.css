@@ -663,6 +663,16 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   border-radius: 999px; background: none; color: var(--gray); cursor: pointer; }
 .tripseed:hover { border-color: var(--green); color: var(--green); }
 .tripchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* Booking links for the trip — one row per country, same partners as the
+   guide pages. Pills echo .tripseed so the tab keeps one visual language. */
+.tripbook { margin-top: 14px; }
+.tbhead { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.tbrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 0; }
+.tbname { font-size: 13px; min-width: 130px; }
+.triplink { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line);
+  border-radius: 999px; color: var(--ink); text-decoration: none; }
+.triplink:hover { border-color: var(--green); color: var(--green); }
+.triplink .ext { color: var(--gray); font-size: 10px; }
 .tripchip { font-size: 13px; padding: 5px 10px; border: 1px solid var(--green);
   border-radius: 999px; background: none; color: inherit; cursor: pointer; }
 .tripchip .x { color: var(--gray); margin-left: 2px; }

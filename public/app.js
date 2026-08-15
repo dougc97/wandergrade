@@ -2669,7 +2669,9 @@ function renderTripBar() {
       + "</select></label>"
       + (seedable ? '<button type="button" class="tripseed" id="tripSeed">+ my ★ wishlist</button>' : "")
       + '<button type="button" class="tripseed" id="tripClear">Clear</button></div>'
-      + '<div class="tripchips">' + chips + "</div>";
+      + '<div class="tripchips">' + chips + "</div>"
+      + '<div class="tripbook" id="tripBook"></div>';
+    renderTripBook([...t]);
   }
   host.querySelectorAll(".tripchip").forEach((b) =>
     b.addEventListener("click", () => { tripToggle(b.dataset.iso); renderValue(); }));
@@ -2689,7 +2691,63 @@ function renderTripBar() {
   if (mon) mon.onchange = () => {
     try { localStorage.setItem("fx_tripmonth", mon.value); } catch (e) {}
     refreshTripPrompt();
+    renderTripBook([...loadTrip()]);   // stay links carry month-derived dates
   };
+}
+
+// Booking links for the trip itself. The Trip tab is the one surface where
+// the visitor has already told us where, how long, and when — which is the
+// moment flights, stays and insurance actually get bought. Same partners and
+// helpers as the guide pages (Aviasales marker, Stay22 Allez, Viator, EKTA);
+// this only changes where they appear, not what they are. Dates come from the
+// trip's own month, not the Top Picks slider.
+function tripStayDates() {
+  const month = tripMonth().month || lastPicksMonth || curMonth();
+  const now = new Date();
+  let y = now.getFullYear();
+  if (month < now.getMonth() + 1) y++;
+  const ci = new Date(y, month - 1, 15);
+  const co = new Date(ci); co.setDate(co.getDate() + 3);
+  const f = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
+                   "-" + String(d.getDate()).padStart(2, "0");
+  return { checkin: f(ci), checkout: f(co) };
+}
+function renderTripBook(isos) {
+  const host = $("tripBook");
+  if (!host) return;
+  const A = (href, label) => '<a class="triplink" target="_blank" '
+    + 'rel="sponsored nofollow noopener" href="' + href + '">' + label
+    + ' <span class="ext">↗</span></a>';
+  const rows = isos.map((iso) => {
+    const links = [];
+    const fr = flightsData && flightsData.countries
+      ? flightsData.countries.find((r) => r.iso === iso) : null;
+    const fu = fr && fr.dest ? flightSearchURL(fr.dest) : null;
+    if (fu) links.push(A(fu, "✈️ Flights"));
+    // Stay link needs coordinates that load async; the span keeps the row's
+    // shape until fillTripStays swaps it for the real anchor (width-only
+    // change, no reflow below).
+    links.push('<span class="tbstay" data-iso="' + iso + '"></span>');
+    links.push(A(viatorURL(countryName(iso)), "🎟️ Things to do"));
+    return '<div class="tbrow"><span class="tbname">' + flagEmoji(iso) + " "
+      + esc(countryName(iso)) + "</span>" + links.join("") + "</div>";
+  }).join("");
+  host.innerHTML = '<div class="tbhead">Book the pieces</div>' + rows
+    + '<div class="tbrow"><span class="tbname">🛡️ The whole trip</span>'
+    + A(insuranceHref(isos[0] || "US"), "Travel insurance (EKTA)") + "</div>"
+    + '<p class="affnote">These earn us a commission at no extra cost to you — it’s what keeps the site free.</p>';
+  ensureStayCoords().then((cc) => {
+    const { checkin, checkout } = tripStayDates();
+    host.querySelectorAll(".tbstay").forEach((el) => {
+      let spots = cc[el.dataset.iso];
+      if (spots && !Array.isArray(spots)) spots = [{ n: spots.near, ll: spots.ll }];
+      const sp = spots && spots.filter((s) => s && s.ll)[0];
+      if (!sp) { el.remove(); return; }
+      el.outerHTML = A("https://www.stay22.com/allez/booking?aid=" + STAY22_AID
+        + "&lat=" + sp.ll[0] + "&lng=" + sp.ll[1]
+        + "&checkin=" + checkin + "&checkout=" + checkout, "🏨 Stays");
+    });
+  }).catch(() => {});
 }
 
 // Days and month both sit above the prompt box, so once the box is open you
