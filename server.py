@@ -25,8 +25,10 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from fxtracker import (accounts, advisories, build_dataset, build_ppp, flights,
-                       mailer, popularity, rates, render_guide, store)
+from fxtracker import (
+    accounts, advisories, build_dataset, build_ppp, flights,
+    mailer, popularity, rates, render_guide, store, watchouts
+)
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
 # runs stay open while a public/tunneled instance can require a login.
@@ -671,6 +673,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/advisories":
             self._handle_advisories()
+            return
+        if path == "/api/watchouts":
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            iso = (qs.get("iso", [""])[0] or "")[:2]
+            self._send_json(watchouts.get_watchouts(iso))
             return
         if path == "/api/flights":
             self._handle_flights()

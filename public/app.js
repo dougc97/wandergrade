@@ -1404,8 +1404,37 @@ function renderGuideSafety(iso) {
     host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
       <a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a>
-      <span class="advsrcnote">Follows your home country's official guidance — change it in the “From” selector.</span></span>`;
+      <span class="advsrcnote">Follows your home country's official guidance — change it in the “From” selector.</span>
+      <span id="guideWatchouts"></span></span>`;
+    renderWatchouts(iso);
   }).catch(() => {});
+}
+
+// Specific watchouts, lifted verbatim from Global Affairs Canada's structured
+// advisory pages (topic heading + their first sentence — hover a chip to read
+// it). Canada is the one government that publishes this text as data; the
+// LEVEL above still follows the traveler's own government, and both are named
+// so nobody mistakes whose words are whose. Nothing here is paraphrased.
+const _watchoutCache = {};
+function renderWatchouts(iso) {
+  const paint = (w) => {
+    const host = $("guideWatchouts");
+    if (!host || ccGuideIso !== iso) return;
+    if (!w || (!w.watchouts.length && !w.regional.length)) return;
+    const chips = w.watchouts.map((x) =>
+      '<span class="wochip"' + (x.d ? ' data-tip="' + esc(x.d) + '" title=""' : "") + ">"
+      + esc(x.t) + "</span>").join("");
+    const reg = w.regional.length
+      ? '<span class="woreg">📍 ' + w.regional.map(esc).join(" · ") + "</span>" : "";
+    host.innerHTML = '<span class="wohead">Watch out for <span class="muted">(per '
+      + esc(w.source) + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "")
+      + ")</span></span>"
+      + '<span class="wochips">' + chips + "</span>" + reg;
+  };
+  if (_watchoutCache[iso]) { paint(_watchoutCache[iso]); return; }
+  getJSON("/api/watchouts?iso=" + encodeURIComponent(iso))
+    .then((w) => { _watchoutCache[iso] = w; paint(w); })
+    .catch(() => {});
 }
 
 // A full-width photo carousel at the top of the guide: one scenic shot at a
@@ -6364,6 +6393,19 @@ if ($("tripPlanBtn")) $("tripPlanBtn").addEventListener("click", async () => {
 // "What US$100 actually buys" is what travelled on Reddit; "WanderGrade cost of
 // living map" is not. The footer carries the caveat because these get reposted
 // without their captions.
+if ($("fxShare")) $("fxShare").addEventListener("click", () => {
+  const base = homeBase || "USD";
+  downloadMapImage("map", {
+    title: "Where the " + (base === "USD" ? "dollar" : base) + " is strong right now",
+    sub: "Each country's currency vs its own 1-year average against " + base
+       + ". Greener = your money goes further than usual there.",
+    gradient: ["#b00020", "#eef0f1", "#0a7d28"],
+    leftLabel: "Weaker", rightLabel: "Stronger",
+    swatches: [{ c: "#bcd0e6", label: base + "-linked" }, { c: NODATA, label: "no data" }],
+    footer: "Exchange-rate strength only — not prices. Pair with the cost-of-living map for what money buys. wandergrade.com",
+    filename: "wandergrade-currency-strength.png",
+  });
+});
 if ($("affShare")) $("affShare").addEventListener("click", () => downloadMapImage("affMap", {
   title: "What US$100 actually buys around the world",
   sub: "Local purchasing power of US$100, in US dollars. World Bank PPP divided by today's market exchange rate.",
