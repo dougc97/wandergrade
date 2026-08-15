@@ -661,6 +661,12 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   border: 1px solid var(--line); border-radius: 8px; background: var(--card2); color: inherit; }
 .tripseed { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line);
   border-radius: 999px; background: none; color: var(--gray); cursor: pointer; }
+/* Empty-trip doorways to the tabs where countries live. Green-bordered like
+   the trip chips so they read as the same feature, not a new one. */
+.tripstart { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.tripgo { font-size: 13px; font-weight: 600; padding: 7px 14px; border: 1px solid var(--green);
+  border-radius: 999px; background: none; color: var(--green); cursor: pointer; }
+.tripgo:hover { background: rgba(10,125,40,.12); }
 .tripseed:hover { border-color: var(--green); color: var(--green); }
 .tripchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 /* Booking links for the trip — one row per country, same partners as the

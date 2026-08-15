@@ -2647,12 +2647,20 @@ function renderTripBar() {
   const seedable = wishlist && wishlist.size && [...wishlist].some((i) => !t.has(i));
   const savedM = localStorage.getItem("fx_tripmonth") || "";
   if (!t.size) {
-    host.innerHTML = '<span class="triphint">🧳 <strong>Building a trip?</strong> '
-      + "Open any country and hit “Add to my trip”. Pick a few and we'll ask an AI to "
-      + "group them into realistic routes for the days you have — and each country you "
-      + "add gets direct booking links for flights, stays and things to do."
-      + (seedable ? ' <button type="button" class="tripseed" id="tripSeed">Use my ★ wishlist</button>' : "")
-      + "</span>";
+    // Empty state gets doors, not just directions: the owner read the text-only
+    // version and still asked where to start. Two buttons jump straight to the
+    // places countries actually live.
+    host.innerHTML = '<span class="triphint">🧳 <strong>Your trip is empty.</strong> '
+      + "Find a country and hit “Add to my trip” — every country you add gets booking "
+      + "links for flights, stays and things to do.</span>"
+      + '<div class="tripstart">'
+      + '<button type="button" class="tripgo" id="tripGoPicks">🧭 Browse Top Picks</button>'
+      + '<button type="button" class="tripgo" id="tripGoGuide">📅 Open the Travel Guide</button>'
+      + (seedable ? '<button type="button" class="tripseed" id="tripSeed">★ Use my wishlist</button>' : "")
+      + "</div>";
+    const goP = $("tripGoPicks"), goG = $("tripGoGuide");
+    if (goP) goP.onclick = () => activateTab("value", true);
+    if (goG) goG.onclick = () => activateTab("guide", true);
   } else {
     const chips = [...t].map((iso) =>
       '<button type="button" class="tripchip" data-iso="' + iso + '" title="Remove '
@@ -2952,11 +2960,11 @@ function renderAIPanel(host, prompt) {
     + '<button type="button" class="aiact" data-act="copy">📋 Copy prompt</button>'
     + '<a class="aiact" href="' + cg + '" target="_blank" rel="noopener">Open in ChatGPT ↗</a>'
     + '<a class="aiact" href="' + cla + '" target="_blank" rel="noopener">Open in Claude ↗</a>'
-    + '<a class="aiact" href="' + px + '" target="_blank" rel="noopener">Open in Perplexity ↗</a>'
     + '<a class="aiact" href="' + gk + '" target="_blank" rel="noopener">Open in Grok ↗</a>'
+    + '<a class="aiact" href="' + px + '" target="_blank" rel="noopener">Open in Perplexity ↗</a>'
     + '</div>'
     + '<textarea class="aitext" readonly rows="9">' + esc(prompt) + '</textarea>'
-    + '<p class="hint">“Copy prompt” grabs the full version — paste into ChatGPT, Claude, Gemini, Grok, Perplexity, or any AI. The buttons open a new chat with it pre-filled.</p>';
+    + '<p class="hint">“Copy prompt” grabs the full version — paste into ChatGPT, Claude, Grok, Perplexity, or any AI. The buttons open a new chat with it pre-filled.</p>';
   host.querySelector('[data-act="copy"]').onclick = () => copyText(prompt);
   // Also copy when opening an AI, so the full prompt is ready to paste if the
   // pre-fill link is truncated by length limits.
@@ -3082,7 +3090,7 @@ function renderGuideAI(iso) {
     + '✨ Plan ' + esc(name) + ' with AI →</button>'
     + '<span class="aihint">Writes the prompt for you — ' + esc(name)
     + "'s season, visa rules and local prices already filled in. "
-    + 'Copy it, or open it in ChatGPT, Claude, Perplexity or Grok.</span>'
+    + 'Copy it, or open it in ChatGPT, Claude, Grok or Perplexity.</span>'
     + '<div id="guideAIPanel" class="aipanel" hidden></div>';
   $("guideAIBtn").onclick = () => openGuideAI(iso);
   $("guideTripBtn").onclick = () => {
