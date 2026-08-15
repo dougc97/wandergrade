@@ -2649,7 +2649,8 @@ function renderTripBar() {
   if (!t.size) {
     host.innerHTML = '<span class="triphint">🧳 <strong>Building a trip?</strong> '
       + "Open any country and hit “Add to my trip”. Pick a few and we'll ask an AI to "
-      + "group them into realistic routes for the days you have."
+      + "group them into realistic routes for the days you have — and each country you "
+      + "add gets direct booking links for flights, stays and things to do."
       + (seedable ? ' <button type="button" class="tripseed" id="tripSeed">Use my ★ wishlist</button>' : "")
       + "</span>";
   } else {
