@@ -2941,6 +2941,11 @@ function renderAIPanel(host, prompt) {
   const cg = "https://chatgpt.com/?q=" + encodeURIComponent(prompt);
   const cla = "https://claude.ai/new?q=" + encodeURIComponent(prompt);
   const px = "https://www.perplexity.ai/search?q=" + encodeURIComponent(prompt);
+  // Grok verified 2026-08-15: grok.com/?q= prefills the composer even logged
+  // out. The others were checked and rejected: Copilot ignores ?q=, Gemini has
+  // no public prefill URL at all, Mistral has none documented. A button that
+  // opens an empty chat is worse than no button — those stay on the paste path.
+  const gk = "https://grok.com/?q=" + encodeURIComponent(prompt);
   host.hidden = false;
   host.innerHTML =
     '<div class="airow">'
@@ -2948,6 +2953,7 @@ function renderAIPanel(host, prompt) {
     + '<a class="aiact" href="' + cg + '" target="_blank" rel="noopener">Open in ChatGPT ↗</a>'
     + '<a class="aiact" href="' + cla + '" target="_blank" rel="noopener">Open in Claude ↗</a>'
     + '<a class="aiact" href="' + px + '" target="_blank" rel="noopener">Open in Perplexity ↗</a>'
+    + '<a class="aiact" href="' + gk + '" target="_blank" rel="noopener">Open in Grok ↗</a>'
     + '</div>'
     + '<textarea class="aitext" readonly rows="9">' + esc(prompt) + '</textarea>'
     + '<p class="hint">“Copy prompt” grabs the full version — paste into ChatGPT, Claude, Gemini, Grok, Perplexity, or any AI. The buttons open a new chat with it pre-filled.</p>';
@@ -3076,7 +3082,7 @@ function renderGuideAI(iso) {
     + '✨ Plan ' + esc(name) + ' with AI →</button>'
     + '<span class="aihint">Writes the prompt for you — ' + esc(name)
     + "'s season, visa rules and local prices already filled in. "
-    + 'Copy it, or open it in ChatGPT, Claude or Perplexity.</span>'
+    + 'Copy it, or open it in ChatGPT, Claude, Perplexity or Grok.</span>'
     + '<div id="guideAIPanel" class="aipanel" hidden></div>';
   $("guideAIBtn").onclick = () => openGuideAI(iso);
   $("guideTripBtn").onclick = () => {
