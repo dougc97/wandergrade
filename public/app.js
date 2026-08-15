@@ -914,6 +914,7 @@ function renderCountryCard() {
   if (pl != null) facts.push(`💰 price level ${pl.toFixed(2)} (${plWord(pl)})`);
   if (advLvl) facts.push(`⚠️ advisory Level ${advLvl}${advLvl === 4 ? " — Do Not Travel" : ""}`);
   if (cl && cl.best && cl.best.length) facts.push(`📅 best months: ${cl.best.map((m) => MON_ABBR[m - 1]).join(", ")}`);
+  if (act && act.days) facts.push(`🧳 worth ${act.days[0]}–${act.days[1]} days`);
 
   const vis = isVisited(iso);
   card.innerHTML = `
@@ -2750,6 +2751,11 @@ function buildTripAIPrompt() {
     if (pl) bits.push("100 at home ≈ " + Math.round(100 * (pl / anchorPl)) + " here");
     const vi = visaInfo(iso, passport);
     if (vi && vi.meta) bits.push("visa: " + vi.meta.long);
+    // Curated first-visit range. This is what lets the model refuse a cramped
+    // plan with numbers instead of vibes — "your five countries want 23 days
+    // minimum and you have 10" beats a polite paragraph about pacing.
+    const dm = activities && activities[iso] && activities[iso].days;
+    if (dm) bits.push("worth " + dm[0] + "-" + dm[1] + " days on a first visit");
     // Fixed month: only what bites in that month. Flexible: every seasonal
     // hazard with the months it covers, so the model can route around cyclone
     // or monsoon season instead of being told about it after the fact.
@@ -2772,7 +2778,12 @@ function buildTripAIPrompt() {
   // The honest-failure instruction. Without it the model will cheerfully cram
   // every country in and hand back an itinerary that reads fine and would be
   // miserable to actually travel.
-  lines.push("- BE HONEST ABOUT WHAT DOESN'T FIT. If " + days + " days can't cover this shortlist well, say so plainly: tell me which countries make the best single trip, which should wait for another one, and what the minimum sensible number of days would be for the rest. I would much rather drop countries than rush them.");
+  // The sum the model should be doing anyway, done for it — and for the user,
+  // who sees the arithmetic of an overstuffed shortlist before any AI does.
+  const mins = t.map((iso) => activities && activities[iso] && activities[iso].days)
+    .filter(Boolean).reduce((s2, d) => s2 + d[0], 0);
+  lines.push("- BE HONEST ABOUT WHAT DOESN'T FIT. If " + days + " days can't cover this shortlist well, say so plainly: tell me which countries make the best single trip, which should wait for another one, and what the minimum sensible number of days would be for the rest. I would much rather drop countries than rush them."
+    + (mins ? " (The first-visit minimums above already sum to " + mins + " days against my " + days + ".)" : ""));
   lines.push("- For the trip you recommend first: a day-by-day outline, rough travel times between places, and where to fly into and out of.");
   lines.push("- Give a daily budget range (budget / mid-range / comfortable) using the price figures above rather than generic assumptions.");
   if (flexible) {
