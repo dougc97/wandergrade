@@ -97,11 +97,24 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .picksnote { font-size: 12.5px; color: var(--gray); margin: 14px 0 0; line-height: 1.45; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 14px; }
 .chip2 { background: var(--green-bg); color: var(--green); border-radius: 999px; padding: 3px 11px; font-size: 13px; font-weight: 600; }
-.bars { display: grid; grid-template-columns: repeat(12, 1fr); gap: 6px; align-items: end; height: 150px; }
-.bars .col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+/* minmax(0, 1fr), not 1fr: a bare 1fr is minmax(auto, 1fr), and that auto floor
+   lets a column refuse to shrink below its label. The hazard triangle and the
+   bold peak-season months are wider than a plain grey off-season month, so they
+   were widening their own tracks and stealing width from the others — the bar
+   is 70% of its column, so the label was quietly sizing the chart. Bars encode
+   comfort in their HEIGHT; width carrying accidental meaning is a lie. */
+.bars { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; align-items: end; height: 150px; }
+.bars .col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
+.bars .mscore, .bars .mlabel { white-space: nowrap; }
 .bars .fill { width: 70%; border-radius: 4px 4px 0 0; background: var(--green); }
 .bars .col.best .fill { outline: 2px solid var(--ink); outline-offset: -1px; }
 .bars .mlabel { font-size: 10px; color: var(--gray); margin-top: 4px; }
+/* Out of the label's flow entirely — inline, it was the single biggest thing
+   widening a column (see .bars above), and on a phone "Jan ⚠️" is wider than
+   the whole track. Sits on the foot of its own bar instead, which is less
+   ambiguous about which month it belongs to than a mark beside the name. */
+.bars .mlabel .hzmark { position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: 15px; margin: 0; font-size: 10px; line-height: 1; }
 .bars .mlabel.peak { color: var(--green); font-weight: 700; }
 .bars .mlabel.shoulder { color: var(--amber); }
 .bars .mlabel.off { color: #aaa; }
