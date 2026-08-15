@@ -2394,6 +2394,21 @@ function buildFareContext() {
     expected = (iso) => (C[iso] ? Math.max(50, a + b * distKm(o, C[iso])) : null);
     const known = Object.values(prices);
     const lo = Math.min(...known), hi = Math.max(...known) * 1.4;
+    // Shrink thin evidence toward the distance baseline. Half the covered
+    // countries stand on fewer than 5 sampled routes, and an "average" of one
+    // route is just that itinerary — Croatia's only sample is a 4-stop fare.
+    // Weight n/(n+3): one route keeps a quarter of its own price, ten routes
+    // keep ~77%, a well-sampled country is untouched in practice. The fit
+    // itself is over all ~114 points, so one outlier barely bends the line it
+    // is being pulled toward.
+    const nBy = {};
+    for (const r of flightsData.countries || []) nBy[r.iso] = r.n;
+    for (const iso in prices) {
+      const e = C[iso] ? a + b * distKm(o, C[iso]) : null;
+      if (e == null) continue;
+      const wN = (nBy[iso] || 1) / ((nBy[iso] || 1) + 3);
+      prices[iso] = Math.round(wN * prices[iso] + (1 - wN) * Math.max(50, e));
+    }
     for (const iso in CUR_BY_ISO) {
       if (prices[iso] != null || !C[iso] || iso === flightsData.origin) continue;
       const e = a + b * distKm(o, C[iso]);
