@@ -29,7 +29,14 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌍</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap">
+  <!-- display=optional, not swap: RUM showed the swap rewrapping whole tabs on
+       slow connections (CLS 0.83 on the Data tab, attributed to the section
+       itself — every line re-breaks when Jakarta's metrics replace Arial's).
+       optional means a font that misses first paint sits out that pageview and
+       serves from cache on the next one; a font can't shift what it never
+       swaps into. Cold visitors get system-ui once, then the brand font
+       forever. -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=optional">
   <link rel="stylesheet" href="/styles.css">
   <!-- Set the active tab from the URL before first paint, so refreshing inside a
        tab doesn't flash Top Picks before app.js switches. CSS (html[data-tab])
@@ -38,7 +45,13 @@
     if(/^\/guide\//.test(location.pathname))t="guide";
     else t=(new URLSearchParams(location.search).get("tab")||"value");
     if(!/^(value|guide|visited|data|trip)$/.test(t))t="value";
-    document.documentElement.setAttribute("data-tab",t);})();</script>
+    document.documentElement.setAttribute("data-tab",t);
+    // Returning visitors with a trip get the "N countries in your trip" peek
+    // bar on Top Picks. Its height is known NOW, from localStorage — reserving
+    // it here (CSS keys off data-trip) means renderTripBadge fills a box that
+    // already exists instead of pushing the whole tab down after JS loads.
+    try{if(JSON.parse(localStorage.getItem("fx_trip")||"[]").length)
+      document.documentElement.setAttribute("data-trip","1");}catch(e){}})();</script>
   {{JSONLD}}
   {{GC_JS}}
   {{ANALYTICS}}

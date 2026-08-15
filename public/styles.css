@@ -353,6 +353,10 @@ html[data-tab="guide"] header .sub { display: none; }
 .bignum small.pos { color: var(--green); }
 .bignum small.neg { color: var(--red); }
 .chart { margin-top: 12px; }
+/* Same trick as .map below: the chart starts empty and becomes an 800x260 SVG,
+   pushing the note and table under it down a card-height. Reserve its box until
+   the SVG exists. */
+.chart:not(:has(svg)) { aspect-ratio: 800 / 260; }
 .chart svg { width: 100%; height: auto; display: block; }
 .chartnote { color: var(--gray); font-size: 12px; margin: 6px 0 0; }
 
@@ -1281,6 +1285,13 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 /* Cart pointer in Top Picks — says the basket has something in it and where it
    lives, without putting the basket itself in the browsing tab. */
 .trippeek { margin: 12px 0 0; font-size: 13px; color: var(--gray); }
+/* Pre-paint reservation: html[data-trip] is set from localStorage in the head
+   script, before first paint, whenever the trip is non-empty — so the box the
+   peek bar will occupy exists from the first frame. min-height matches the
+   rendered bar (13px text + the 4px-padded pill button — measured 29px).
+   [hidden] is display:none, so the un-hide in renderTripBadge would otherwise
+   grow the page by that much on every returning visit. */
+html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-height: 29px; }
 .trippeek button { font: inherit; background: none; border: 1px solid var(--green);
   color: var(--green); border-radius: 999px; padding: 4px 12px; cursor: pointer;
   margin-left: 6px; }
