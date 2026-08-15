@@ -2576,6 +2576,7 @@ let lastGems = [];   // current hidden-gems list, for the 💎 surprise button
 // answers (splitting the Baltics from Poland on centroids, routing a Balkans
 // loop through an awkward crossing). We hand over coordinates and let it judge.
 let _trip = null;
+let sharedTripView = null;   // {td, tm} while viewing a shared trip link
 function loadTrip() {
   if (!_trip) {
     try { _trip = new Set(JSON.parse(localStorage.getItem("fx_trip") || "[]")); }
@@ -2645,7 +2646,7 @@ function renderTripBar() {
   const t = loadTrip();
   loadWishlist();
   const seedable = wishlist && wishlist.size && [...wishlist].some((i) => !t.has(i));
-  const savedM = localStorage.getItem("fx_tripmonth") || "";
+  const savedM = (sharedTripView && sharedTripView.tm != null ? sharedTripView.tm : localStorage.getItem("fx_tripmonth")) || "";
   if (!t.size) {
     // Empty state gets doors, not just directions: the owner read the text-only
     // version and still asked where to start. Two buttons jump straight to the
@@ -2669,7 +2670,7 @@ function renderTripBar() {
     host.innerHTML = '<div class="triphead"><strong>🧳 Your trip</strong> '
       + '<span class="muted">' + t.size + " " + (t.size === 1 ? "country" : "countries") + "</span>"
       + '<label class="tripdays">for <input id="tripDays" type="number" min="1" max="180" '
-      + 'value="' + (localStorage.getItem("fx_tripdays") || 14) + '" inputmode="numeric"> days</label>'
+      + 'value="' + ((sharedTripView && sharedTripView.td) || localStorage.getItem("fx_tripdays") || 14) + '" inputmode="numeric"> days</label>'
       + '<label class="tripmonth">in <select id="tripMonth">'
       + '<option value="0"' + (savedM === "0" ? " selected" : "") + ">I'm flexible — suggest when</option>"
       + MONTHS.map((m, i) => '<option value="' + (i + 1) + '"'
@@ -2693,11 +2694,13 @@ function renderTripBar() {
   if (clr) clr.onclick = () => { loadTrip().clear(); saveTrip(); renderTripBar(); renderValue(); };
   const days = $("tripDays");
   if (days) days.onchange = () => {
+    sharedTripView = null;             // an edit makes the trip the recipient's own
     try { localStorage.setItem("fx_tripdays", String(tripDays() || 14)); } catch (e) {}
     refreshTripPrompt();
   };
   const mon = $("tripMonth");
   if (mon) mon.onchange = () => {
+    sharedTripView = null;
     try { localStorage.setItem("fx_tripmonth", mon.value); } catch (e) {}
     refreshTripPrompt();
     renderTripBook([...loadTrip()]);   // stay links carry month-derived dates
@@ -5115,6 +5118,18 @@ function buildShareURL(forShare) {
     // explicit Share (embedding it on every refresh would wrongly trip the
     // "viewing a shared map" warning against the user's own list).
     if (visited.size && forShare) q.set("v", [...visited].join(","));
+  } else if (tab === "trip") {
+    // Same deal as the visited map: the trip lives in localStorage, so without
+    // embedding it a shared Trip link opens empty for the recipient — the one
+    // tab where "share this" silently shared nothing.
+    const t = loadTrip();
+    if (t.size && forShare) {
+      q.set("tp", [...t].join(","));
+      const d = tripDays();
+      if (d) q.set("td", String(d));
+      const m = localStorage.getItem("fx_tripmonth");
+      if (m) q.set("tm", m);
+    }
   }
   // Non-guide tabs all live at the root path (guide returns early above); using
   // "/" avoids leaving a stale /guide/<slug> path when switching tabs.
@@ -5195,6 +5210,18 @@ function preApplyShared() {
     loadVisited();
     visited = new Set(v.split(",").map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z]{2}$/.test(s)));
   }
+  // Shared trip: in-memory only, like the visited list above — nothing touches
+  // the recipient's saved trip unless they edit, and the warning in
+  // postApplyShared says so before they do.
+  const tp = sharedQ.get("tp");
+  if (tp) {
+    _trip = new Set(tp.split(",").map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z]{2}$/.test(s)));
+    // Days/month from the link override the recipient's saved ones for this
+    // view only — renderTripBar reads this instead of localStorage until the
+    // recipient edits either control, which dissolves the shared view into
+    // their own (and only then persists).
+    sharedTripView = { td: sharedQ.get("td"), tm: sharedQ.get("tm") };
+  }
 }
 
 async function postApplyShared() {
@@ -5249,6 +5276,12 @@ async function postApplyShared() {
   if (sharedQ.get("v") && tab === "visited") {
     renderVisited();
     status(`Viewing a shared map of ${visited.size} countries — editing it will overwrite your own saved list.`, "ok");
+  }
+  if (sharedQ.get("tp") && tab === "trip") {
+    renderTripBar();
+    // renderTripBar reads sharedTripView, so the link's days/month are already
+    // in the controls; nothing here touches localStorage.
+    status(`Viewing a shared trip of ${loadTrip().size} ${loadTrip().size === 1 ? "country" : "countries"} — changing it will overwrite your own.`, "ok");
   }
   resyncCombos();   // reflect restored values in the search inputs
 }
