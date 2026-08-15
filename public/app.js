@@ -1882,17 +1882,18 @@ async function reloadAdvisoriesForOrigin() {
   return true;
 }
 const LVL_COLOR = { 1: "#0a7d28", 2: "#c9a200", 3: "#d4730a", 4: "#b00020" };
-// Map fills, softer than the pill colours above. Those are tuned for a small
-// accent on a dark row; at continent scale four saturated colours compete for
-// attention at once and the map is tiring to read — the same problem Level 4
-// had on the value map before DNT_FILL. Mixed toward the neutral by the amount
-// each hue needs: red and orange shout loudest, so they come down furthest.
-// Ordering stays legible because the hues are still distinct, and the legend
-// below is drawn from this same table so key and map cannot disagree.
+// Map fills: the pill colours above stay on pills, but the MAP samples the
+// same red-neutral-green ramp every other map on the site is built from —
+// switching Data sub-tabs used to jump from red/green worlds to a
+// yellow/orange one, which read as a different product. Four discrete stops
+// on one diverging ramp: rich green, pale green, pale rose, deep rose — and
+// Level 4 is exactly DNT_FILL, so "do not travel" is one colour everywhere
+// (value map, safety map, exported images). The legend draws from this same
+// table so key and map cannot disagree.
 const LVL_MAP_COLOR = {
   1: mix("#eef0f1", "#0a7d28", 0.62),
-  2: mix("#eef0f1", "#c9a200", 0.58),
-  3: mix("#eef0f1", "#d4730a", 0.55),
+  2: mix("#eef0f1", "#0a7d28", 0.16),
+  3: mix("#eef0f1", "#b00020", 0.30),
   4: mix("#eef0f1", "#b00020", 0.55),
 };
 
