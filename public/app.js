@@ -5512,6 +5512,101 @@ async function downloadMapImage(hostId, o) {
   }
 }
 
+// The ranked list itself as an image — the product's actual answer, which the
+// map exports only gesture at. Portrait, because rankings get shared from
+// phones. Emoji flags can't ride inside the SVG (SVG-in-<img> has no emoji
+// font); we return their positions and the canvas pass draws them with
+// fillText, the same split buildVisitedShareSVG settled on.
+const RANK_GRADE_FILL = { "A+": "#067a23", "A": "#2f9e44", "B+": "#74b816",
+                          "B": "#c9a200", "C": "#e8590c", "D": "#d9480f", "F": "#b00020" };
+function buildRankShareSVG() {
+  if (!lastPicks || !lastPicks.length) throw new Error("ranking not ready");
+  const picks = lastPicks.slice(0, 10);
+  const month = MONTHS[(lastPicksMonth || curMonth()) - 1];
+  const originSel = $("valueOrigin");
+  const originName = originSel && originSel.selectedOptions[0]
+    ? originSel.selectedOptions[0].textContent : "the US";
+  const anchorPl = priceLevel((originSel || {}).value || "US") || 1;
+  const W = 640, HEAD = 118, ROWH = 62, FOOT = 54;
+  const H = HEAD + picks.length * ROWH + FOOT;
+  const BG = "#101316", FG = "#f2f5f7", MUTE = "#9aa4ad", DIM = "#7d868f", LINE = "#242a30";
+  const F = "Helvetica Neue, Helvetica, Arial, sans-serif";
+  const esc2 = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  let body = "";
+  const flags = [];
+  picks.forEach((s, i) => {
+    const y = HEAD + i * ROWH;
+    const g = grade(s.value);
+    const gw = g.length > 1 ? 46 : 38;
+    if (i) body += '<line x1="24" x2="' + (W - 24) + '" y1="' + y + '" y2="' + y
+      + '" stroke="' + LINE + '" stroke-width="1"/>';
+    body += '<text x="30" y="' + (y + 38) + '" font-family="' + F
+      + '" font-size="17" font-weight="800" fill="' + DIM + '">' + (i + 1) + "</text>";
+    flags.push({ iso: s.iso, x: 62, y: y + 39 });
+    body += '<text x="102" y="' + (y + 30) + '" font-family="' + F
+      + '" font-size="17" font-weight="700" fill="' + FG + '">' + esc2(s.name) + "</text>";
+    const bits = [];
+    if (s.fare != null) bits.push("flights from $" + Math.round(s.fare) + (s.fareEst ? " (est.)" : ""));
+    if (s.pl) bits.push("your $100 feels like $" + Math.round(100 * (anchorPl / s.pl)));
+    body += '<text x="102" y="' + (y + 48) + '" font-family="' + F
+      + '" font-size="11" fill="' + MUTE + '">' + esc2(bits.join("  ·  ")) + "</text>";
+    body += '<rect x="' + (W - 30 - gw) + '" y="' + (y + 17) + '" width="' + gw
+      + '" height="28" rx="8" fill="' + (RANK_GRADE_FILL[g] || "#55606b") + '"/>'
+      + '<text x="' + (W - 30 - gw / 2) + '" y="' + (y + 37) + '" text-anchor="middle" font-family="' + F
+      + '" font-size="16" font-weight="800" fill="#fff">' + g + "</text>";
+  });
+
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H
+    + '" viewBox="0 0 ' + W + " " + H + '">'
+    + '<rect width="' + W + '" height="' + H + '" fill="' + BG + '"/>'
+    + '<text x="24" y="44" font-family="' + F + '" font-size="26" font-weight="800" fill="' + FG
+    + '">' + esc2("Where to travel in " + month) + "</text>"
+    + '<text x="24" y="70" font-family="' + F + '" font-size="12.5" fill="' + MUTE
+    + '">' + esc2("Top " + picks.length + " by value from " + originName
+      + " — affordability, safety, weather and flights, graded A+ to F") + "</text>"
+    + '<line x1="24" x2="' + (W - 24) + '" y1="' + (HEAD - 10) + '" y2="' + (HEAD - 10)
+    + '" stroke="' + LINE + '" stroke-width="1"/>'
+    + body
+    + '<text x="24" y="' + (H - 22) + '" font-family="' + F + '" font-size="10.5" fill="' + DIM
+    + '">' + esc2("wandergrade.com — free, no sign-up. World Bank PPP + live FX; safety per your own government; cached fares.") + "</text>"
+    + "</svg>";
+  return { svg, W, H, flags };
+}
+
+async function downloadRankImage() {
+  try {
+    const { svg, W, H, flags } = buildRankShareSVG();
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const c = document.createElement("canvas");
+    c.width = W * SHARE_SCALE; c.height = H * SHARE_SCALE;
+    const ctx = c.getContext("2d");
+    ctx.scale(SHARE_SCALE, SHARE_SCALE);
+    ctx.fillStyle = "#101316"; ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(img, 0, 0, W, H);
+    URL.revokeObjectURL(url);
+    ctx.font = "24px -apple-system,system-ui,'Segoe UI',Arial,sans-serif";
+    ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+    for (const f of flags) ctx.fillText(flagEmoji(f.iso), f.x, f.y);
+    const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+    const name = "wandergrade-top" + flags.length + ".png";
+    const file = new File([blob], name, { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: "Where to travel next" }); return; }
+      catch (e) { /* cancelled -> fall through to download */ }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    status("Ranking image downloaded — post it anywhere 🌍", "ok");
+  } catch (e) {
+    status("Could not build the image: " + e.message, "err");
+  }
+}
+
 async function downloadVisitedImage(orientation) {
   try {
     await ensureWorld();
@@ -6170,6 +6265,7 @@ if ($("flightShare")) $("flightShare").addEventListener("click", () => downloadM
   footer: "Cached fares from real searches, not live prices — and they move. wandergrade.com",
   filename: "wandergrade-flight-prices.png",
 }));
+if ($("rankShare")) $("rankShare").addEventListener("click", downloadRankImage);
 if ($("valueShare")) $("valueShare").addEventListener("click", () => {
   const month = MONTHS[(parseInt(($("valueMonth") || {}).value, 10) || curMonth()) - 1];
   const weather = valueMapMode === "weather";

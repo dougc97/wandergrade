@@ -175,6 +175,10 @@
         </div>
       </details>
 
+      <!-- Static, not injected after the table loads: injecting it would grow
+           the page below the skeleton and re-open the CLS wound c742c6a closed. -->
+      <div class="rankshare"><button id="rankShare" class="themebtn shareimg" type="button"
+        title="Download the ranked list as an image — grades, fares and sourcing included">📸 <span class="btxt">Share ranking</span></button></div>
       <p class="picksnote" id="picksNote"></p>
       <!-- A skeleton of the real table, not a "Loading…" line: this swaps for a
            five-row grade table (the Show default), and the old one-line
