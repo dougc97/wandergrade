@@ -570,6 +570,10 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .grD  { background: #d9480f; }
 .grF  { background: #b00020; }
 .grx  { background: var(--soft); color: var(--gray); }
+/* The advisory's own words on the guide safety line. Quoted styling on
+   purpose — it is the government speaking, not us. */
+.advwhy { display: block; margin: 4px 0 2px; font-style: italic; color: var(--ink); }
+.advsrcnote { display: block; margin-top: 3px; font-size: 11.5px; color: var(--gray); }
 .hzmark { font-size: 12px; margin-left: 3px; cursor: help; }
 /* The hazard mark rides the pill's corner instead of sitting after it: inline, a
    narrow weather column breaks the line and that row alone grows a second line.
@@ -1276,7 +1280,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 /* 12-month season strip in the weather column. Twelve blocks, Jan-Dec, showing
    how wide a country's good window is — the thing a single month's grade can
    never say. Presentation only; it reads climate.json, changes no score. */
-.seasonstrip { display: flex; gap: 1px; margin-top: 4px; justify-content: center; }
+/* Dimmed at rest, full on row hover: the strip is an annotation on the grade,
+   not a second element competing with it. Weather keeps its 12-month strip
+   because it is the one column where the month changes the answer; the other
+   columns have no monthly data, so they get no bars — decoration pretending
+   to be data would be worse than honest asymmetry. */
+.seasonstrip { display: flex; gap: 1px; margin-top: 4px; justify-content: center;
+  opacity: .55; transition: opacity .15s; }
+tr:hover .seasonstrip, .seasonstrip:hover { opacity: 1; }
 .seasonstrip .sc { width: 5px; height: 9px; border-radius: 1px; background: var(--line); display: block; }
 .seasonstrip .sc.peak { background: #0a7d28; }
 .seasonstrip .sc.shoulder { background: #c9a227; }

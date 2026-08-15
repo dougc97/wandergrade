@@ -261,12 +261,58 @@ def _us_advisories():
             "level": level,
             "level_text": LEVEL_TEXT.get(level, ""),
             "link": link,
+            # The government's own words on WHY, not just the level number.
+            # 1-4 is black and white; "conditions vary widely from state to
+            # state" is the nuance a traveler actually needs, and quoting the
+            # feed keeps us out of the business of authoring safety claims.
+            "summary": _summary(_tag(block, "description")),
         })
 
     items.sort(key=lambda r: (-r["level"], r["country"]))
     return {"items": items, "count": len(items),
             "matched": sum(1 for i in items if i["iso"]),
             "source": "us", "source_name": SOURCES["us"], "source_url": US_URL}
+
+
+def _summary(desc):
+    """First two meaningful sentences of the advisory description, plain text.
+    The description opens by restating the level ("Exercise increased caution
+    in Mexico due to...") — that first sentence carries the WHY (due to
+    terrorism, crime, and kidnapping), the next carries the flavor. Capped so
+    a chatty advisory can't flood a guide page; the full text is one click
+    away on the linked page."""
+    if not desc:
+        return ""
+    text = re.sub(r"<!\[CDATA\[|\]\]>", "", desc)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(re.sub(r"\s+", " ", text)).strip()
+    # "Read the entire Travel Advisory." is boilerplate in most items, and
+    # "Advisory summary" is a section heading that survives tag-stripping.
+    text = re.sub(r"\s*Read the entire Travel Advisory\.?", "", text, flags=re.I)
+    text = re.sub(r"\bAdvisory summary\b", "", text, flags=re.I)
+    # Shield abbreviations the sentence splitter would break on ("...travel to
+    # Japan, U.S. government employees...").
+    text = text.replace("U.S.", "U\x00S\x00")
+    parts = [p.replace("U\x00S\x00", "U.S.") for p in re.split(r"(?<=[.!?])\s+", text)]
+    # Drop the bookkeeping sentences ("Reissued after periodic review...",
+    # "An area of increased risk was added.") — they describe the document,
+    # not the country — and the read-more boilerplate.
+    BOILER = re.compile(r"reissued|periodic review|advisory level was|no changes to the risk"
+                        r"|risk indicators|updated? to reflect|was (added|updated|removed)"
+                        r"|country information page|travel guidance for", re.I)
+    keep = [p.strip() for p in parts if p.strip() and not BOILER.search(p)]
+    # Anchor on the canonical lead ("Exercise increased caution in X due to...",
+    # "Reconsider travel to X...") when present — everything before it is noise.
+    LEAD = re.compile(r"^(exercise|reconsider|do not travel)", re.I)
+    for i, p in enumerate(keep):
+        if LEAD.match(p):
+            keep = keep[i:]
+            break
+    out = re.sub(r"\s+", " ", " ".join(keep[:2])).strip()
+    out = re.sub(r"\s+([.,;])", r"\1", out)   # feed HTML leaves "Thailand ." artifacts
+    if out and not LEAD.match(out) and len(out) < 40:
+        return ""          # nothing informative survived; better silent than junk
+    return (out[:277] + "...") if len(out) > 280 else out
 
 
 def _tag(block, tag):

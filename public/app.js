@@ -1389,14 +1389,22 @@ function renderGuideSafety(iso) {
   host.hidden = true;
   ensureAdvisories().then(() => {
     if (ccGuideIso !== iso) return;
-    const lvl = advisoryByIso()[iso];
-    if (!lvl) return;
-    const src = advisories.source_name || "US State Dept";
-    const url = advisories.source_url || "#";
+    const it = advisoryMetaByIso()[iso];
+    if (!it) return;
+    const lvl = it.level;
+    const src = it.via_name || advisories.source_name || "US State Dept";
+    const url = it.link || advisories.source_url || "#";
+    // The government's own sentences on WHY, when the feed carries them — a
+    // level number is black and white; "some areas have increased risk" is the
+    // nuance that actually shapes an itinerary. Quoted, never paraphrased:
+    // this site does not author safety claims.
+    const why = it.summary
+      ? ` <span class="advwhy">“${esc(it.summary)}”</span>` : "";
     host.hidden = false;
     host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>
-      <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b> follows your home country's official guidance
-      (change it in the "From" selector). <a href="${esc(url)}" target="_blank" rel="noopener">official advisory ↗</a></span>`;
+      <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
+      <a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a>
+      <span class="advsrcnote">Follows your home country's official guidance — change it in the “From” selector.</span></span>`;
   }).catch(() => {});
 }
 
