@@ -3523,10 +3523,50 @@ function fmtMoney(n) {
   return "$" + Math.round(n).toLocaleString();
 }
 
+// The budget's own currency — an Argentine thinks in pesos, and a number box
+// that silently means US dollars turns their budget into nonsense (the owner
+// watched it happen: a leftover $1,000 from a US test read as an impossible
+// budget from Buenos Aires). Entered amount converts to USD internally, since
+// the cached fares are USD; every display of it uses the entered currency.
+function budgetCur() {
+  try {
+    const c = localStorage.getItem("wg_budgetcur");
+    if (c && /^[A-Z]{3}$/.test(c)) return c;
+  } catch (e) {}
+  return /^[A-Z]{3}$/.test(homeBase || "") ? homeBase : "USD";
+}
+function budgetRate() {   // units of budget currency per USD
+  const c = budgetCur();
+  return c === "USD" ? 1 : (rateForCurrency(c) || null);
+}
+// Format a USD-space number in the budget currency, for every budget-adjacent
+// display — one arithmetic, one look.
+function fmtBC(usd) {
+  const c = budgetCur(), r = budgetRate();
+  if (c === "USD" || !r) return fmtMoney(usd);
+  return c + " " + Math.round(usd * r).toLocaleString();
+}
+function initBudgetCur() {
+  const sel = $("budgetCur");
+  if (!sel || sel.options.length || !lastRates) return;
+  const codes = ["USD"].concat(lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort());
+  sel.innerHTML = codes.map((c) => `<option value="${c}">${c}</option>`).join("");
+  const want = budgetCur();
+  if (codes.includes(want)) sel.value = want;
+  sel.onchange = () => {
+    try { localStorage.setItem("wg_budgetcur", sel.value); } catch (e) {}
+    renderValue();
+  };
+}
+
 function budgetOf() {
   const t = parseFloat(($("budgetTotal") || {}).value);
   const d = parseInt(($("budgetDays") || {}).value, 10);
-  return { total: t > 0 ? t : null, days: d > 0 ? d : 10 };
+  const r = budgetRate();
+  // No conversion rate yet (rates still loading) -> treat as unset rather than
+  // filter every country on a wrong number.
+  const usd = t > 0 && r ? t / r : null;
+  return { total: usd, days: d > 0 ? d : 10, entered: t > 0 ? t : null, cur: budgetCur() };
 }
 
 // Null when there's no budget set or no fare to reason from — callers treat that
@@ -3568,10 +3608,10 @@ function whyLine(s, month) {
   // there, and admits when the fare is a distance estimate rather than a seen one.
   const bf = budgetFit(s);
   if (bf && !bf.impossible) {
-    bits.push(`${fmtMoney(bf.fare)} flight${bf.fareEst ? " (est.)" : ""} leaves `
-      + `${fmtMoney(bf.perDay)}/day`
+    bits.push(`${fmtBC(bf.fare)} flight${bf.fareEst ? " (est.)" : ""} leaves `
+      + `${fmtBC(bf.perDay)}/day`
       + (bf.homeEquiv && s.pl < 0.95
-          ? ` — like ${fmtMoney(bf.homeEquiv)}/day at home` : ""));
+          ? ` — like ${fmtBC(bf.homeEquiv)}/day at home` : ""));
   }
   if (s.wx >= 75) bits.push(`great weather in ${MONTHS[month - 1]}`);
   else if (s.wx >= 55) bits.push(`decent weather in ${MONTHS[month - 1]}`);
@@ -4015,9 +4055,10 @@ function renderValue() {
   // Fall back to the full list if no popular destinations match the filters.
   const picks = (popular.length ? popular : eligible).slice(0, pickCount());
   const picksNote = $("picksNote");
+  initBudgetCur();
   const bud = budgetOf();
   const budNote = bud.total
-    ? ` 💵 <b>${fmtMoney(bud.total)} for ${bud.days} days</b>`
+    ? ` 💵 <b>${bud.cur === "USD" ? fmtMoney(bud.entered) : bud.cur + " " + Math.round(bud.entered).toLocaleString()} for ${bud.days} days</b>`
       + (outOfReach ? ` — ${outOfReach} ${outOfReach === 1 ? "country is" : "countries are"} out of reach on the flight alone.` : " — every pick below is reachable.")
       + ` <span class="muted" data-tip="Flights are real cached fares. What's left is your budget minus the fare, spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
     : "";
@@ -5325,6 +5366,30 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
 // whichever comes first of ~50% scroll depth or 45s dwell. Never interrupts
 // another overlay. Suppressed permanently once they subscribe, and for 30 days
 // after a dismissal, so a not-yet-convinced visitor gets a second chance later.
+// Geo-seeded defaults: first-time visitors start on their own country instead
+// of the US — home country, currency, budget and fare display all follow.
+// Strictly a SEED: any stored choice wins, and nothing is written until the
+// seed applies so a later explicit pick behaves exactly as before. The country
+// comes from Cloudflare's per-request header via /api/geo (no-store; the HTML
+// is edge-cached and must never carry one visitor's country to the next).
+(async function seedGeoDefaults() {
+  try {
+    if (localStorage.getItem("fx_origin")) return;      // they've already chosen
+    const g = await getJSON("/api/geo");
+    const iso = (g.country || "").toUpperCase();
+    if (!/^[A-Z]{2}$/.test(iso) || iso === "US") return;
+    const list = await ensureOrigins();
+    if (!list.some((o) => o.iso === iso)) return;       // not a supported origin
+    setTravelOrigin(iso);
+    if (!homeManual && CUR_BY_ISO[iso]) setHomeCur(CUR_BY_ISO[iso], false);
+    const vo = $("valueOrigin");
+    if (vo && [...vo.options].some((o) => o.value === iso)) {
+      vo.value = iso;
+      vo.dispatchEvent(new Event("change"));   // re-run fares/visas for the seeded origin
+    }
+  } catch (e) { /* geo is a nicety; silence is the right failure mode */ }
+})();
+
 (function armSubscribeAutoPrompt() {
   // First visit is for the product. The auto-invite waits for a RETURN visit:
   // interrupting someone mid-scroll on the pageview where they are deciding

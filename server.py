@@ -674,6 +674,19 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/advisories":
             self._handle_advisories()
             return
+        if path == "/api/geo":
+            # Visitor's country from Cloudflare's CF-IPCountry header — pure
+            # per-request geolocation, nothing stored, no third-party service.
+            # no-store is load-bearing twice over: the answer is personal, and
+            # the HTML this feeds defaults into is edge-cached, so geo must
+            # never ride anything cacheable. ?as=XX is a dev override (the
+            # local server sits behind no proxy and has no header to read).
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            country = (qs.get("as", [""])[0] or self.headers.get("CF-IPCountry", "") or "").strip().upper()[:2]
+            self._send_json({"country": country if country.isalpha() else ""},
+                            extra=[("Cache-Control", "no-store")])
+            return
         if path == "/api/watchouts":
             from urllib.parse import parse_qs, urlparse
             qs = parse_qs(urlparse(self.path).query)
