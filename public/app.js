@@ -1420,8 +1420,7 @@ function renderGuideSafety(iso) {
     host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
       <a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a>
-      <span class="advsrcnote">Follows your home country's official guidance —
-        <a href="#" class="advsrcjump">switch the source in the Safety tab</a>.</span>
+      <span class="advsrcnote"><a href="#" class="advsrcjump">Switch the advisory source (US · CA · DE) in the Safety tab</a>.</span>
       <span id="guideWatchouts"></span></span>`;
     const jump = host.querySelector(".advsrcjump");
     if (jump) jump.onclick = async (e) => {
@@ -1439,6 +1438,25 @@ function renderGuideSafety(iso) {
 // LEVEL above still follows the traveler's own government, and both are named
 // so nobody mistakes whose words are whose. Nothing here is paraphrased.
 const _watchoutCache = {};
+// One builder for the full watchouts block (chips + regional lines) so the
+// guide and the safety table can't drift apart in how they render the same data.
+function watchoutsBlockHTML(w) {
+  const chips = w.watchouts.map((x) =>
+    '<span class="wochip"' + (x.d ? ' data-tip="' + esc(x.d) + '" title=""' : "") + ">"
+    + esc(x.t) + "</span>").join("");
+  const reg = (w.regional || []).map((r) => {
+    const head = (r.t || "").split(" - ").pop();
+    const list = r.regions && r.regions.length
+      ? ": " + r.regions.slice(0, 10).join(", ")
+        + (r.regions.length > 10 ? " +" + (r.regions.length - 10) + " more" : "")
+      : (r.lead ? ": " + r.lead : "");
+    const starred = r.regions && r.regions.some((x) => /\*$/.test(x));
+    return '<span class="woreg">📍 <b>' + esc(head) + "</b>" + esc(list)
+      + (starred ? ' <span class="muted">(* parts excepted — see details)</span>' : "")
+      + "</span>";
+  }).join("");
+  return { chips: '<span class="wochips">' + chips + "</span>", reg };
+}
 function renderWatchouts(iso) {
   const paint = (w) => {
     const host = $("guideWatchouts");
@@ -1452,23 +1470,12 @@ function renderWatchouts(iso) {
     // avoid-travel lines always show — they only exist when real.
     const lvl = (advisoryMetaByIso()[iso] || {}).level || 0;
     const calm = lvl > 0 && lvl <= 2;
-    const chips = w.watchouts.map((x) =>
-      '<span class="wochip"' + (x.d ? ' data-tip="' + esc(x.d) + '" title=""' : "") + ">"
-      + esc(x.t) + "</span>").join("");
+    const built = watchoutsBlockHTML(w);
+    const chips = built.chips;
     // Structured regional advisories: "Avoid all travel: Narathiwat, Pattani,
     // Yala..." — the named places a flat Level number hides. A star on a name
     // means the source lists exceptions for it; they live on the linked page.
-    const reg = (w.regional || []).map((r) => {
-      const head = (r.t || "").split(" - ").pop();
-      const list = r.regions && r.regions.length
-        ? ": " + r.regions.slice(0, 10).join(", ")
-          + (r.regions.length > 10 ? " +" + (r.regions.length - 10) + " more" : "")
-        : (r.lead ? ": " + r.lead : "");
-      const starred = r.regions && r.regions.some((x) => /\*$/.test(x));
-      return '<span class="woreg">📍 <b>' + esc(head) + "</b>" + esc(list)
-        + (starred ? ' <span class="muted">(* parts excepted — see details)</span>' : "")
-        + "</span>";
-    }).join("");
+    const reg = built.reg;
     const srcNote = '<span class="muted">(per ' + esc(w.source)
       + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "") + ")</span>";
     const tabLink = ' <a href="#" class="wotab">full picture → Safety tab</a>';
@@ -1950,17 +1957,17 @@ function renderCountryClimate(iso) {
 let advisories = null;
 const _advBySource = {};
 // Your own government first; the others fill its gaps (server-side, stamped `via`).
-const ADV_SOURCE_BY_ORIGIN = { DE: "de", CA: "ca" };
-// An explicit pick on the safety tab overrides the home-country default —
-// advisories reflect each government's own foreign policy, and reading
-// another's view is the point of offering the choice. The override feeds the
-// same global everything else reads, so guides and scoring follow it too.
+// Three governments, one explicit dropdown, no magic: the source used to
+// follow the home country automatically, and the owner called it — with only
+// three sources referenced, silent switching confused more than it helped.
+// The pick persists and feeds the same global everything reads (map, table,
+// guides, scoring); US is simply the default.
 function advisorySource() {
   try {
     const o = localStorage.getItem("wg_advsrc");
     if (o === "us" || o === "ca" || o === "de") return o;
   } catch (e) {}
-  return ADV_SOURCE_BY_ORIGIN[travelOrigin()] || "us";
+  return "us";
 }
 async function ensureAdvisories() {
   const src = advisorySource();
@@ -1968,8 +1975,9 @@ async function ensureAdvisories() {
   advisories = _advBySource[src];
   return advisories;
 }
-// Re-fetch when the home country moves to a different advisory source. Returns
-// true if the active source changed (so callers can re-render).
+// Re-fetch if the active advisory source changed since last load. The source
+// used to follow the home country; it is an explicit dropdown now, so this is
+// only a consistency check (returns true if a re-render is needed).
 async function reloadAdvisoriesForOrigin() {
   const src = advisorySource();
   if (advisories && advisories.source === src) return false;
@@ -2037,8 +2045,8 @@ function renderAdvisories() {
     };
   }
   $("advSub").innerHTML =
-    `${advisories.count} advisories from the <b>${esc(advisories.source_name || "US State Dept")}</b> ` +
-    `(follows your home country). Green = safest (Level 1), red = avoid travel (Level 4). ` +
+    `${advisories.count} advisories from the <b>${esc(advisories.source_name || "US State Dept")}</b>. ` +
+    `Green = safest (Level 1), red = avoid travel (Level 4). ` +
     `<span class="muted">Government advisories reflect each country's own foreign policy.</span>`;
   $("advLegend").innerHTML = [1, 2, 3, 4]
     .map((l) => `<span><span class="swatch" style="background:${LVL_MAP_COLOR[l]}"></span>L${l}</span>`).join(" ");
@@ -2051,10 +2059,54 @@ function renderAdvisories() {
     return `
     <tr data-lvl="${lvl}"${guideAttr}><td>${esc(it.country)}</td>
       <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
-      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details</a>` : ""}</td>
+      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}">▸ watchouts</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details</a>` : ""}</td>
     </tr>`;
   }).join("");
   applyAdvFilter();
+  wireWatchoutRows();
+}
+
+// The table is where safety research happens, so the full watchouts live here
+// too (the owner moved them from the guide's front door). Lazy per country —
+// one fetch on first open, shared cache with the guides — and the toggle stops
+// propagation so it doesn't trip the row's open-the-guide handler.
+function wireWatchoutRows() {
+  const host = $("advRows");
+  if (!host || host._woWired) return;
+  host._woWired = true;
+  host.addEventListener("click", async (e) => {
+    const btn = e.target.closest(".worow");
+    if (!btn) return;
+    e.stopPropagation();
+    const tr = btn.closest("tr");
+    const iso = btn.dataset.iso;
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains("wodetail")) {
+      next.remove();
+      btn.textContent = "▸ watchouts";
+      return;
+    }
+    btn.textContent = "▾ watchouts";
+    const det = document.createElement("tr");
+    det.className = "wodetail";
+    det.innerHTML = '<td colspan="3">Loading…</td>';
+    tr.insertAdjacentElement("afterend", det);
+    try {
+      const w = _watchoutCache[iso]
+        || (_watchoutCache[iso] = await getJSON("/api/watchouts?iso=" + encodeURIComponent(iso)));
+      if (!det.isConnected) return;
+      if (!w.watchouts.length && !w.regional.length) {
+        det.innerHTML = '<td colspan="3"><span class="muted">No structured watchouts published for this country.</span></td>';
+        return;
+      }
+      const built = watchoutsBlockHTML(w);
+      det.innerHTML = '<td colspan="3">' + built.reg + built.chips
+        + '<span class="advsrcnote">Per ' + esc(w.source || "Global Affairs Canada")
+        + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "") + "</span></td>";
+    } catch (err) {
+      if (det.isConnected) det.innerHTML = '<td colspan="3"><span class="muted">Could not load watchouts.</span></td>';
+    }
+  });
 }
 
 // ===========================================================================
@@ -2325,8 +2377,8 @@ function setTravelOrigin(iso) {
   loadValueFlights(false);                             // Top Picks fares (re-renders)
   renderValue();                                       // immediate: new affordability anchor
   if (loaded.flights) loadFlights();                   // Explore-the-Data fares
-  // Safety source follows the home country too (German travelers -> Auswärtiges
-  // Amt). If it changed, re-score Top Picks and refresh the advisory map + guide.
+  // The advisory source is an explicit dropdown (no longer tied to the home
+  // country); this is a consistency re-check and normally a no-op.
   reloadAdvisoriesForOrigin().then((changed) => {
     if (!changed) return;
     if (loaded.value) renderValue();

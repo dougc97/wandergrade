@@ -1187,6 +1187,11 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   .budgethero .bdays { width: 44px; }
 }
 
+.worow { margin-left: 8px; font-size: 11px; padding: 2px 8px; border: 1px solid var(--line);
+  border-radius: 999px; background: none; color: var(--gray); cursor: pointer; }
+.worow:hover { border-color: var(--green); color: var(--green); }
+.wodetail td { background: var(--card2); padding: 10px 14px 12px; }
+.wodetail .wochips { margin-top: 6px; }
 /* Calm watchouts fold on L1/L2 guides. */
 .wofold { margin-top: 8px; font-size: 12.5px; }
 .wofold summary { cursor: pointer; color: var(--gray); font-weight: 600; }
