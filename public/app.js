@@ -1420,8 +1420,15 @@ function renderGuideSafety(iso) {
     host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
       <a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a>
-      <span class="advsrcnote">Follows your home country's official guidance — change it in the “From” selector.</span>
+      <span class="advsrcnote">Follows your home country's official guidance —
+        <a href="#" class="advsrcjump">switch the source in the Safety tab</a>.</span>
       <span id="guideWatchouts"></span></span>`;
+    const jump = host.querySelector(".advsrcjump");
+    if (jump) jump.onclick = async (e) => {
+      e.preventDefault();
+      await activateTab("data", true);
+      setDataMode("advisory");
+    };
     renderWatchouts(iso);
   }).catch(() => {});
 }
