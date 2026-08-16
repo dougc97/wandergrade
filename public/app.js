@@ -1427,8 +1427,20 @@ function renderWatchouts(iso) {
     const chips = w.watchouts.map((x) =>
       '<span class="wochip"' + (x.d ? ' data-tip="' + esc(x.d) + '" title=""' : "") + ">"
       + esc(x.t) + "</span>").join("");
-    const reg = w.regional.length
-      ? '<span class="woreg">📍 ' + w.regional.map(esc).join(" · ") + "</span>" : "";
+    // Structured regional advisories: "Avoid all travel: Narathiwat, Pattani,
+    // Yala..." — the named places a flat Level number hides. A star on a name
+    // means the source lists exceptions for it; they live on the linked page.
+    const reg = (w.regional || []).map((r) => {
+      const head = (r.t || "").split(" - ").pop();
+      const list = r.regions && r.regions.length
+        ? ": " + r.regions.slice(0, 10).join(", ")
+          + (r.regions.length > 10 ? " +" + (r.regions.length - 10) + " more" : "")
+        : (r.lead ? ": " + r.lead : "");
+      const starred = r.regions && r.regions.some((x) => /\*$/.test(x));
+      return '<span class="woreg">📍 <b>' + esc(head) + "</b>" + esc(list)
+        + (starred ? ' <span class="muted">(* parts excepted — see details)</span>' : "")
+        + "</span>";
+    }).join("");
     host.innerHTML = '<span class="wohead">Watch out for <span class="muted">(per '
       + esc(w.source) + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "")
       + ")</span></span>"

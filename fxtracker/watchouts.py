@@ -58,6 +58,42 @@ def _sections(html_str):
     return out
 
 
+def _top_level_items(fragment):
+    """Region names from the FIRST-level <ul> of a regional-advisory block.
+    The source nests each region's exclusion list inside its <li> — or, when
+    the HTML is malformed (Sinaloa on the Mexico page), as a sibling <ul>
+    right after it — so a depth counter, not a tree, finds the regions."""
+    out, cur, depth, pos = [], None, 0, 0
+    for m in re.finditer(r"<(/?)(ul|li)[^>]*>", fragment, re.I):
+        if cur is not None and depth == 1:
+            cur.append(fragment[pos:m.start()])
+        pos = m.end()
+        closing, tag = m.group(1) == "/", m.group(2).lower()
+        if tag == "ul":
+            depth += (-1 if closing else 1)
+            if depth != 1 and cur is not None:
+                out.append("".join(cur)); cur = None
+            if depth == 0:
+                break                      # first top-level list only
+        elif tag == "li" and depth == 1:
+            if cur is not None:
+                out.append("".join(cur))
+            cur = [] if not closing else None
+    if cur:
+        out.append("".join(cur))
+    regions = []
+    for raw in out:
+        t = _txt(raw)
+        if not t:
+            continue
+        # "Chihuahua, excluding Chihuahua City" -> "Chihuahua*" — the star says
+        # exceptions exist; the linked page has them.
+        base = re.split(r",?\s+(?:excluding|except|within|in all areas|only if)\b", t, flags=re.I)[0].strip(" ,:;")
+        if base and base.lower() not in (r.rstrip("*").lower() for r in regions):
+            regions.append(base + ("*" if base != t.strip(" ,:;") else ""))
+    return regions[:14]
+
+
 def get_watchouts(iso):
     iso = (iso or "").strip().lower()[:2]
     if not re.fullmatch(r"[a-z]{2}", iso):
@@ -75,15 +111,27 @@ def get_watchouts(iso):
         if eng.get("url-slug"):
             out["link"] = "https://travel.gc.ca/destinations/" + eng["url-slug"]
         name = (eng.get("name") or "").strip().lower()
-        # Regional advisories live in the `advisories` block as their own
-        # "<Region> - Avoid ..." headings; the country-wide heading repeats the
-        # country name, so it is filtered rather than shown twice.
-        for m in re.finditer(r"<h3[^>]*>(.*?)</h3>", eng.get("advisories", "") or "", re.S):
-            t = _txt(m.group(1))
-            if t and " - " in t and not t.lower().startswith(name):
-                if t not in out["regional"]:
-                    out["regional"].append(t[:120])
-        out["regional"] = out["regional"][:6]
+        # Regional advisories live in the `advisories` block as their own headed
+        # sections. The country-wide heading repeats the country name and is
+        # skipped; the rest carry the state/city-level nuance a flat 1-4 level
+        # hides — heading, the "due to" clause, and the named regions (starred
+        # when the source lists exceptions for them).
+        adv_html = eng.get("advisories", "") or ""
+        parts = re.split(r"<h3[^>]*>", adv_html)
+        for chunk in parts[1:]:
+            hm = re.match(r"(.*?)</h3>(.*)", chunk, re.S)
+            if not hm:
+                continue
+            t = _txt(hm.group(1))
+            if not t or t.lower().startswith(name):
+                continue
+            body = hm.group(2)
+            lead = _first_sentence(body)
+            entry = {"t": t[:120], "lead": lead[:200],
+                     "regions": _top_level_items(body)}
+            if entry not in out["regional"]:
+                out["regional"].append(entry)
+        out["regional"] = out["regional"][:4]
         secs = _sections(eng.get("security", "")) + _sections(eng.get("disasters-climate", ""))
         out["watchouts"] = secs[:8]
     except Exception:
