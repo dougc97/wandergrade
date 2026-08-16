@@ -1999,25 +1999,35 @@ function renderAdvisories() {
 // ===========================================================================
 function renderAfford() {
   let n = 0;
+  // The reference is the traveler's From country, not a hard-coded US — the
+  // owner's question, and Top Picks already anchors this way (anchorPl). A
+  // German comparing prices wants "vs Germany, in euros"; price levels are
+  // all stored vs the US, so dividing by the anchor's own level rebases them.
+  const anchorIso = ($("valueOrigin") || {}).value || "US";
+  const anchorPl = priceLevel(anchorIso) || 1;
+  const anchorCur = CUR_BY_ISO[anchorIso] || "USD";
+  const anchorName = anchorIso === "US" ? "the US" : countryName(anchorIso);
+  const sym = anchorCur === "USD" ? "$" : anchorCur + " ";
   drawMap("affMap", (f) => {
     const pl = priceLevel(f.properties.iso);
     if (pl == null) return { fill: NODATA, title: f.properties.name + " — no price data" };
     n++;
+    const rel = pl / anchorPl;
     const drift = pppDriftNote(f.properties.iso);
-    return { fill: affordColor(pl),
-      title: `${f.properties.name} — price level ${pl.toFixed(2)} (${plWord(pl)} vs US)`
+    return { fill: affordColor(rel),
+      title: `${f.properties.name} — price level ${rel.toFixed(2)} (${plWord(rel)} vs ${anchorName})`
              + (drift ? " · " + drift : "") };
-  }, "Cost of living (price level vs US)");
+  }, "Cost of living (price level vs " + anchorName + ")");
   const cheap = Object.keys(CUR_BY_ISO)
     .map((iso) => ({ iso, pl: priceLevel(iso) }))
     .filter((x) => x.pl != null && countryName(x.iso) !== x.iso)
     .sort((a, b) => a.pl - b.pl).slice(0, 8);
-  renderDimPicks("affMap", "Where $100 goes furthest",
-    cheap.map((x) => countryName(x.iso) + " · $100≈$" + Math.round(100 / x.pl)),
+  renderDimPicks("affMap", "Where " + sym + "100 goes furthest",
+    cheap.map((x) => countryName(x.iso) + " · " + sym + "100≈" + sym + Math.round(100 * anchorPl / x.pl)),
     cheap.map((x) => x.iso));
 
   $("affSub").textContent =
-    `Below 1.00 = cheaper than the US (a dollar buys more). World Bank PPP ÷ live rate · ${n} countries. `
+    `Below 1.00 = cheaper than ${anchorName} (your money buys more — follows the “From” selector). World Bank PPP ÷ live rate · ${n} countries. `
     + `These are national averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.`;
   $("affLegend2").innerHTML =
     '<span>Pricey</span><span class="bar"></span><span>Cheap</span>' +
@@ -2033,15 +2043,16 @@ function renderAfford() {
   }
   markSort("#affTable", affSort);
   $("affRows").innerHTML = sortRows(rows, affSort, AFF_GET).map((r) => {
-    const cls = r.pl <= 0.85 ? "pos" : r.pl > 1.15 ? "neg" : "";
+    const rel = r.pl / anchorPl;
+    const cls = rel <= 0.85 ? "pos" : rel > 1.15 ? "neg" : "";
     // countryName(), not r.name: r.name is the World Bank's label from the PPP
     // feed ("Iran, Islamic Rep.", "Lao PDR", "Slovak Republic"), which is not what
     // the rest of the site calls these places — and the filter matches on row
     // text, so searching "Laos" found nothing.
     const cn = countryName(r.iso);
     return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(cn)} travel guide →"><td>${esc(cn)}</td><td>${esc(r.cur)}</td>
-      <td class="num ${cls}">${r.pl.toFixed(2)}</td>
-      <td class="num">$${Math.round(100 / r.pl).toLocaleString()} <span class="lbl-lg">of US goods</span></td></tr>`;
+      <td class="num ${cls}">${rel.toFixed(2)}</td>
+      <td class="num">${sym}${Math.round(100 * anchorPl / r.pl).toLocaleString()} <span class="lbl-lg">of at-home goods</span></td></tr>`;
   }).join("");
   applyAffordFilter();
 }
@@ -4013,6 +4024,30 @@ function flightColor(price, expectedFare) {
   return t <= 0 ? mix("#eef0f1", "#0a7d28", -t) : mix("#eef0f1", "#b00020", t);
 }
 
+// The fare CACHE is USD; the fare DISPLAY is the reader's choice — a German
+// flying home from the US wants EUR numbers. Conversion is today's rate over
+// the cached fares, display-only (scoring and the budget filter stay in USD),
+// which also makes switching currencies instant. Defaults to "My currency".
+function flightDisplayCur() {
+  try {
+    const saved = localStorage.getItem("wg_flightcur");
+    if (saved && /^[A-Z]{3}$/.test(saved)) return saved;
+  } catch (e) {}
+  return /^[A-Z]{3}$/.test(homeBase || "") ? homeBase : "USD";
+}
+function initFlightCur() {
+  const sel = $("flightCur");
+  if (!sel || sel.options.length || !lastRates) return;
+  const codes = ["USD"].concat(lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort());
+  sel.innerHTML = codes.map((c) => `<option value="${c}">${c}</option>`).join("");
+  const want = flightDisplayCur();
+  if (codes.includes(want)) sel.value = want;
+  sel.onchange = () => {
+    try { localStorage.setItem("wg_flightcur", sel.value); } catch (e) {}
+    renderFlights();
+  };
+}
+
 function renderFlights() {
   const countries = flightsData.countries || [];
   const byC = flightsData.by_country || {};
@@ -4021,7 +4056,15 @@ function renderFlights() {
   // out the green end — the cheapest real average should read as fully cheap).
   const min = prices.length ? Math.min(...prices) : 0;
   const max = prices.length ? Math.max(...prices) : 1;
-  const cur = (flightsData.currency || "usd").toUpperCase();
+  initFlightCur();
+  const dispCur = ($("flightCur") || {}).value || flightDisplayCur();
+  const feedCur = (flightsData.currency || "usd").toUpperCase();
+  const conv = dispCur === feedCur ? 1 : (rateForCurrency(dispCur) || null);
+  // Fall back to the feed currency rather than show unconverted numbers under
+  // the wrong label.
+  const cur = conv ? dispCur : feedCur;
+  const F = (v) => (conv ? Math.round(v * conv) : Math.round(v));
+  const approx = cur !== feedCur ? "≈" : "";
   // Distance-fit baseline so the arrows flag a genuine deal (a long-haul fare
   // can be "below typical" even though it's a bigger number than a short hop).
   const fares = buildFareContext();
@@ -4032,7 +4075,7 @@ function renderFlights() {
     return p == null
       ? { fill: NODATA, title: f.properties.name + " — no fares sampled" }
       : { fill: flightColor(p, expected && expected(f.properties.iso)),
-          title: `${f.properties.name} — avg ${cur} ${p} round-trip` };
+          title: `${f.properties.name} — avg ${approx}${cur} ${F(p).toLocaleString()} round-trip` };
   }, "Average flight prices by destination country");
   // Same order as the table below it (cheapest average first) — the owner
   // caught the list ranking by deal-vs-distance while the table ranked by
@@ -4043,11 +4086,12 @@ function renderFlights() {
     .filter((r) => r.n >= 2 && countryName(r.iso) !== r.iso)
     .sort((a, b) => a.avg - b.avg).slice(0, 8);
   renderDimPicks("flightMap", "Cheapest round-trips right now",
-    cheapest.map((d) => countryName(d.iso) + " · " + cur + " " + d.avg),
+    cheapest.map((d) => countryName(d.iso) + " · " + approx + cur + " " + F(d.avg).toLocaleString()),
     cheapest.map((d) => d.iso));
 
   $("flightSub").innerHTML =
-    `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · map colours show the fare vs the typical fare for that distance — <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above, so a long-haul can still be a bargain · <b>click a fare ↗</b> to search that route live on Aviasales.`;
+    `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · map colours show the fare vs the typical fare for that distance — <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above, so a long-haul can still be a bargain · <b>click a fare ↗</b> to search that route live on Aviasales.`
+    + (cur !== feedCur ? ` <span class="muted">Fares cached in ${esc(feedCur)}; shown ≈${esc(cur)} at today's rate.</span>` : "");
   // Legend names the comparison, not just the direction — the colours are
   // relative to the distance-fit typical fare, not to the cheapest fare shown.
   $("flightLegend").innerHTML =
@@ -4061,7 +4105,7 @@ function renderFlights() {
   $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET).map((c) => {
     const exp = expected ? expected(c.iso) : null;
     const arrow = priceArrow(Number(c.avg) || null, exp, "the typical fare for this distance");
-    const fare = `${esc(cur)} ${Number(c.avg) || "?"}`;
+    const fare = Number(c.avg) ? `${approx}${esc(cur)} ${F(Number(c.avg)).toLocaleString()}` : `${esc(cur)} ?`;
     const url = flightSearchURL(c.dest);
     // revisit: Kiwi — decided Aviasales-only here (2026-07). A Kiwi booking CTA
     // would be price-less (no Kiwi data w/o Tequila) beside this priced,
@@ -4076,7 +4120,7 @@ function renderFlights() {
       : `<b>${fare}</b>`;
     return `<tr data-iso="${esc(c.iso)}" title="See the ${esc(countryName(c.iso))} travel guide →"><td>${esc(countryName(c.iso))}</td>
       <td class="num">${fareCell} ${arrow}</td>
-      <td class="num">${esc(cur)} ${Number(c.min) || "?"}</td>
+      <td class="num">${Number(c.min) ? `${approx}${esc(cur)} ${F(Number(c.min)).toLocaleString()}` : `${esc(cur)} ?`}</td>
       <td class="num">${fmtDuration(c.dur)}</td>
       <td class="num">${fmtStops(c.stops)}</td>
       <td class="num">${Number(c.n) || 0}</td></tr>`;

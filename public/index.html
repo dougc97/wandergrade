@@ -526,7 +526,7 @@
       <div class="cardwide">
         <div class="charthead">
           <div>
-            <h2>Cost of living <span class="muted">how far $100 goes</span></h2>
+            <h2>Cost of living <span class="muted">how far your money goes</span></h2>
             <p id="affSub" class="chartsub">Loading…</p>
           </div>
           <div class="legend" id="affLegend2"></div>
@@ -599,6 +599,14 @@
             <span class="pickgroup" title="your home country — fares are averaged from its main hub">
               <span class="picklabel">✈️ From</span>
               <select id="flightOrigin"></select>
+            </span>
+            <!-- Display currency is its own choice, not the origin's: a German
+                 flying home from the US wants EUR fares. Conversion is today's
+                 rate over the cached USD fares — display only; scoring stays
+                 in USD. Defaults to the "My currency" choice. -->
+            <span class="pickgroup" title="show fares in this currency — converted at today's rate. Fares are cached in USD; other currencies are approximate.">
+              <span class="picklabel">💱 In</span>
+              <select id="flightCur"></select>
             </span>
             <div class="legend" id="flightLegend"></div>
             <button id="flightShare" class="themebtn shareimg" type="button" title="Download this map as an image">📸 <span class="btxt">Share image</span></button>
