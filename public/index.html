@@ -115,13 +115,13 @@
       <!-- Hero controls: the two decisions everyone makes. Everything else
            lives one tap away in the Filters fold. -->
       <div class="pickers pickersmain">
-        <span class="pickgroup" title="when you're going">
+        <span class="pickgroup" data-tip="when you're going" title="">
           <!-- "I'm going in" costs 81px of a 169px group on a phone, squeezing the
                month itself down to 55px. "When" says the same thing in 39px. -->
           <span class="picklabel"><span class="lbl-lg">I'm going in</span><span class="lbl-sm">When</span></span>
           <select id="valueMonth" title="travel month"></select>
         </span>
-        <span class="pickgroup" title="your home country — sets flight prices, visas and what 'cheap' is compared to">
+        <span class="pickgroup" data-tip="your home country — sets flight prices, visas and what 'cheap' is compared to" title="">
           <!-- The plane alone carries "from where" on a phone, and the 33px it
                saves is what lets "United Kingdom" render without clipping. -->
           <span class="picklabel"><span class="lbl-lg">✈️ From</span><span class="lbl-sm">✈️</span></span>
@@ -148,15 +148,15 @@
              hint it existed. -->
         <summary>⚙️ Filters <span class="muted"><span class="sumfull">— region · currency · safety · what counts</span><span class="sumshort">— region · safety</span></span></summary>
         <div class="pickers pickersfilters">
-          <span class="pickgroup" title="filter by region">
+          <span class="pickgroup" data-tip="filter by region" title="">
             <span class="picklabel">Region</span>
             <select id="valueRegion" title="filter by region"></select>
           </span>
-          <span class="pickgroup" title="your money — sets the FX column and the currency prices are shown in (defaults to your home country's)">
+          <span class="pickgroup" data-tip="your money — sets the FX column and the currency prices are shown in (defaults to your home country's)" title="">
             <span class="picklabel">💱 In</span>
             <select id="homeCur"></select>
           </span>
-          <span class="pickgroup" title="hide countries below this safety grade (they move to Hidden Gems)">
+          <span class="pickgroup" data-tip="hide countries below this safety grade (they move to Hidden Gems)" title="">
             <span class="picklabel">🛡️ Safety at least</span>
             <select id="safeFloor">
               <option value="a">A — Level 1 only</option>
@@ -167,7 +167,7 @@
           <span class="pickgroup" id="interestChips" title="only suggest countries matching at least one of these — tap to toggle">
             <span class="picklabel">Into</span>
           </span>
-          <span class="pickgroup" title="countries marked ✓ been on your travel map — hide them from picks, or include them">
+          <span class="pickgroup" data-tip="countries marked ✓ been on your travel map — hide them from picks, or include them" title="">
             <span class="picklabel">Been-to</span>
             <select id="beenFilter">
               <option value="hide" selected>Somewhere new</option>
@@ -177,7 +177,7 @@
           <span class="pickgroup" id="factorChips" title="which factors count toward the grade — tap to toggle">
             <span class="picklabel">Count</span>
           </span>
-          <span class="pickgroup" title="how many picks to show">
+          <span class="pickgroup" data-tip="how many picks to show" title="">
             <span class="picklabel">Show</span>
             <select id="pickCount">
               <option value="5" selected>Top 5</option>
@@ -319,6 +319,9 @@
              Guide is for reading the country you picked. -->
         <div class="pickers">
           <select id="bestCountry"></select>
+          <!-- Every other surface exports; the guide was the one share-less
+               page. Static, not injected — the CLS rule. -->
+          <button id="guideShare" class="themebtn shareimg" type="button" title="Download this country as a shareable card — grade, months, prices, safety">📸 <span class="btxt">Share card</span></button>
         </div>
       </div>
       <!-- Server-rendered guide content for crawlers + instant first paint;
@@ -418,7 +421,7 @@
           <span id="asof">Loading…</span>
           <span id="summary"></span>
         </div>
-        <span class="pickgroup" title="see everything from another home currency's point of view">
+        <span class="pickgroup" data-tip="see everything from another home currency's point of view" title="">
           <span class="picklabel">💱 <span class="lbl-lg">My currency</span></span>
           <select id="dataBase"></select>
         </span>
@@ -532,7 +535,7 @@
           <!-- Same home-country state as the From selector on Top Picks —
                mirrored here so the reference is visible and changeable where
                the comparison is actually read. -->
-          <span class="pickgroup" title="compare prices against this home country — same setting as the From selector">
+          <span class="pickgroup" data-tip="compare prices against this home country — same setting as the From selector" title="">
             <span class="picklabel">🏠 Vs home</span>
             <select id="affAnchor"></select>
           </span>
@@ -573,7 +576,7 @@
                government (From selector); picking one here overrides it —
                advisories reflect each government's own foreign policy, and
                seeing another's view is the point of offering the choice. -->
-          <span class="pickgroup" title="which government's travel advice — advisories reflect each country's own foreign policy">
+          <span class="pickgroup" data-tip="which government's travel advice — advisories reflect each country's own foreign policy" title="">
             <span class="picklabel">🏛️ Per</span>
             <select id="advSource">
               <option value="us">U.S. State Department</option>
@@ -615,7 +618,7 @@
             <p id="flightSub" class="chartsub">Pick where you're flying from. International routes only, averaged per destination country.</p>
           </div>
           <div class="pickers">
-            <span class="pickgroup" title="your home country — fares are averaged from its main hub">
+            <span class="pickgroup" data-tip="your home country — fares are averaged from its main hub" title="">
               <span class="picklabel">✈️ From</span>
               <select id="flightOrigin"></select>
             </span>
@@ -623,7 +626,7 @@
                  flying home from the US wants EUR fares. Conversion is today's
                  rate over the cached USD fares — display only; scoring stays
                  in USD. Defaults to the "My currency" choice. -->
-            <span class="pickgroup" title="show fares in this currency — converted at today's rate. Fares are cached in USD; other currencies are approximate.">
+            <span class="pickgroup" data-tip="show fares in this currency — converted at today's rate. Fares are cached in USD; other currencies are approximate." title="">
               <span class="picklabel">💱 In</span>
               <select id="flightCur"></select>
             </span>
@@ -670,7 +673,8 @@
     Currency: <a href="https://fxratesapi.com" target="_blank" rel="noopener">fxratesapi.com</a> ·
     PPP: World Bank ·
     Climate: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> ·
-    Advisories: <a href="https://travel.state.gov" target="_blank" rel="noopener">US State Dept</a> ·
+    Advisories: <a href="https://travel.state.gov" target="_blank" rel="noopener">U.S. State Dept</a>, <a href="https://travel.gc.ca/travelling/advisories" target="_blank" rel="noopener">Global Affairs Canada</a> &amp; <a href="https://www.auswaertiges-amt.de/de/ReiseUndSicherheit/reise-und-sicherheitshinweise" target="_blank" rel="noopener">German Foreign Office</a> ·
+    Safety notes: Global Affairs Canada ·
     Flights: <a href="https://www.aviasales.com" target="_blank" rel="noopener" title="Cheapest round-trip fares Aviasales has seen from real searches in roughly the last 90 days, aggregated by destination country — cached, not live prices. Accessed via the Travelpayouts API.">Aviasales</a> (cached fares) ·
     Photos: <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia</a> ·
     Visas: <a href="https://github.com/ilyankou/passport-index-dataset" target="_blank" rel="noopener">Passport Index</a> &amp; <a href="https://travel.state.gov" target="_blank" rel="noopener">US State Dept</a> ·

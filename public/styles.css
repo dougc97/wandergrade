@@ -1181,6 +1181,9 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   /* Currency: hide Range position (5) — the widest column, and the one whose
      meaning needs the ⓘ anyway. */
   #rates th:nth-child(5), #rates td:nth-child(5) { display: none; }
+  /* "Recently changed" renders under the map AND above the table; on a phone
+     they are a screen apart and read as a duplicate — one copy is enough. */
+  #advRecent { display: none; }
   /* Budget hero: inputs and their words stay on one line inside the group. */
   .budgethero { flex-wrap: nowrap; }
   .budgethero .numin { width: 64px; }

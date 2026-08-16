@@ -1480,11 +1480,11 @@ function renderWatchouts(iso) {
       + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "") + ")</span>";
     const tabLink = ' <a href="#" class="wotab">full picture → Safety tab</a>';
     host.innerHTML = calm
-      ? reg + '<details class="wofold"><summary>🧭 Local tips &amp; watchouts ('
+      ? reg + '<details class="wofold"><summary>🧭 Safety notes ('
         + w.watchouts.length + ") " + srcNote + "</summary>"
         + '<span class="wochips">' + chips + "</span></details>"
         + '<span class="advsrcnote">Nothing unusual for a Level ' + lvl + " country." + tabLink + "</span>"
-      : '<span class="wohead">Watch out for ' + srcNote + "</span>"
+      : '<span class="wohead">Safety notes ' + srcNote + "</span>"
         + '<span class="wochips">' + chips + "</span>" + reg
         + '<span class="advsrcnote">' + tabLink.trim() + "</span>";
     const wt = host.querySelector(".wotab");
@@ -2059,7 +2059,7 @@ function renderAdvisories() {
     return `
     <tr data-lvl="${lvl}"${guideAttr}><td>${esc(it.country)}</td>
       <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
-      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}">▸ watchouts</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details</a>` : ""}</td>
+      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}">▸ safety notes</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details ↗</a>` : ""}</td>
     </tr>`;
   }).join("");
   applyAdvFilter();
@@ -2083,10 +2083,10 @@ function wireWatchoutRows() {
     const next = tr.nextElementSibling;
     if (next && next.classList.contains("wodetail")) {
       next.remove();
-      btn.textContent = "▸ watchouts";
+      btn.textContent = "▸ safety notes";
       return;
     }
-    btn.textContent = "▾ watchouts";
+    btn.textContent = "▾ safety notes";
     const det = document.createElement("tr");
     det.className = "wodetail";
     det.innerHTML = '<td colspan="3">Loading…</td>';
@@ -3048,7 +3048,8 @@ function buildTripAIPrompt() {
       if (cl.best && cl.best.length) bits.push("best months " + cl.best.map((m) => MON_ABBR[m - 1]).join("/"));
     }
     const pl = priceLevel(iso);
-    if (pl) bits.push("100 at home ≈ " + Math.round(100 * (pl / anchorPl)) + " here");
+    // Same direction as every other surface: purchasing power, bigger = cheaper.
+    if (pl) bits.push("your 100 ≈ " + Math.round(100 * (anchorPl / pl)) + " there");
     const vi = visaInfo(iso, passport);
     if (vi && vi.meta) bits.push("visa: " + vi.meta.long);
     // Curated first-visit range. This is what lets the model refuse a cramped
@@ -3682,19 +3683,14 @@ function dimPicksFromDom(hostId) {
 }
 
 function renderMapPicksOverlay(picks, month, hostId) {
-  const host = $(hostId || "valueMap");
-  if (!host) return;
-  let box = host.querySelector(".mappicks");
+  // Below the map, not on it — the same call the Data maps made when their
+  // overlays covered continents on narrow layouts. The EXPORTED image keeps
+  // its on-map list (an image needs the answer inside itself); the live map
+  // stays unobstructed.
   const show = valueMapMode !== "weather" && picks && picks.length;
-  if (!show) { if (box) box.remove(); return; }
-  if (!box) {
-    box = document.createElement("div");
-    box.className = "mappicks";
-    host.appendChild(box);          // host is position:relative via attachMapZoom
-  }
-  box.innerHTML = '<strong>Best value in ' + esc(MONTHS[month - 1]) + "</strong>"
-    + picks.slice(0, 8).map((s, i) =>
-        "<span>" + (i + 1) + ". " + esc(s.name) + "</span>").join("");
+  renderDimPicks(hostId || "valueMap",
+    "Best value in " + MONTHS[month - 1],
+    show ? picks.slice(0, 8).map((s) => s.name) : null);
 }
 
 // ---- coverage: what the overall score is actually standing on ---------------
@@ -4124,7 +4120,29 @@ async function fillOriginSelect(sel) {
   enhanceSelect(sel);
 }
 
+// The last selector living outside the one-home-country model: flights kept
+// its own origin, so From=Germany on Top Picks still showed US fares here.
+// Mirrored both ways now, same pattern as the cost tab's anchor.
+function syncFlightOrigin() {
+  const fo = $("flightOrigin"), vo = $("valueOrigin");
+  if (!fo || fo._synced) return;
+  fo._synced = true;
+  fo.addEventListener("change", () => {
+    if (vo && vo.options.length && vo.value !== fo.value) {
+      vo.value = fo.value;
+      vo.dispatchEvent(new Event("change"));
+    }
+  });
+}
+
 async function loadFlights() {
+  syncFlightOrigin();
+  const vo = $("valueOrigin");
+  if (vo && vo.options.length && $("flightOrigin").options.length
+      && $("flightOrigin").value !== vo.value) {
+    $("flightOrigin").value = vo.value;
+    resyncCombos();
+  }
   const origin = $("flightOrigin").value || "US";
   $("flightSub").textContent = "Averaging international fares from " +
     ($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin) + "…";
@@ -6033,6 +6051,88 @@ async function downloadRankImage() {
   }
 }
 
+// The country card: every other surface exports, the guide didn't — and a
+// guide is the natural "look where I'm going" share. Typographic on purpose:
+// the hero photos are remote and would taint the canvas; the data IS the brand.
+function buildGuideCardSVG(iso) {
+  const name = countryName(iso);
+  const W = 640, H = 356;
+  const BG = "#101316", FG = "#f2f5f7", MUTE = "#9aa4ad", DIM = "#7d868f", LINE = "#242a30";
+  const F = "Helvetica Neue, Helvetica, Arial, sans-serif";
+  const esc2 = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const month = (parseInt(($("valueMonth") || {}).value, 10)) || curMonth();
+  const anchorIso = ($("valueOrigin") || {}).value || "US";
+  const anchorPl = priceLevel(anchorIso) || 1;
+
+  let s = null;
+  try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), anchorPl); } catch (e) {}
+  const g = s ? grade(s.value) : null;
+
+  const facts = [];
+  const cl = climate && climate[iso];
+  if (cl && cl.best && cl.best.length)
+    facts.push("📅  Best months: " + cl.best.map((m) => MON_ABBR[m - 1]).join(", "));
+  const pl = priceLevel(iso);
+  if (pl) facts.push("💰  Your 100 ≈ " + Math.round(100 * (anchorPl / pl)) + " there");
+  const adv = advisoryMetaByIso()[iso];
+  if (adv) facts.push("🛡️  Level " + adv.level + " · " + (ADV_LABEL[adv.level] || "").split("· ")[1]
+    + "  (per " + (adv.via_name || advisories.source_name || "U.S. State Department") + ")");
+  const act = activities && activities[iso];
+  if (act && act.days) facts.push("🧳  Worth " + act.days[0] + "–" + act.days[1] + " days on a first visit");
+
+  const gw = g && g.length > 1 ? 64 : 54;
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H
+    + '" viewBox="0 0 ' + W + " " + H + '">'
+    + '<rect width="' + W + '" height="' + H + '" fill="' + BG + '"/>'
+    + '<text x="96" y="72" font-family="' + F + '" font-size="34" font-weight="800" fill="' + FG + '">' + esc2(name) + "</text>"
+    + '<text x="96" y="98" font-family="' + F + '" font-size="13" fill="' + MUTE + '">' + esc2(MONTHS[month - 1] + " · WanderGrade report card") + "</text>"
+    + (g ? '<rect x="' + (W - 36 - gw) + '" y="34" width="' + gw + '" height="46" rx="10" fill="'
+        + (RANK_GRADE_FILL[g] || "#55606b") + '"/>'
+        + '<text x="' + (W - 36 - gw / 2) + '" y="66" text-anchor="middle" font-family="' + F
+        + '" font-size="26" font-weight="800" fill="#fff">' + g + "</text>" : "")
+    + '<line x1="36" x2="' + (W - 36) + '" y1="122" y2="122" stroke="' + LINE + '"/>'
+    + facts.map((t, i) => '<text x="36" y="' + (162 + i * 38) + '" font-family="' + F
+        + '" font-size="16.5" fill="' + FG + '">' + esc2(t) + "</text>").join("")
+    + '<text x="36" y="' + (H - 24) + '" font-family="' + F + '" font-size="11" fill="' + DIM
+    + '">' + esc2("wandergrade.com/guide/" + ((typeof ISO2SLUG !== "undefined" && ISO2SLUG && ISO2SLUG[iso]) || iso.toLowerCase())
+    + " — sourced data, graded A+ to F, free") + "</text>"
+    + "</svg>";
+  return { svg, W, H, flags: [{ iso, x: 36, y: 76 }] };
+}
+
+async function downloadGuideCard(iso) {
+  try {
+    await ensureAdvisories().catch(() => {});
+    const { svg, W, H, flags } = buildGuideCardSVG(iso);
+    const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
+    const img = new Image();
+    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = url; });
+    const c = document.createElement("canvas");
+    c.width = W * SHARE_SCALE; c.height = H * SHARE_SCALE;
+    const ctx = c.getContext("2d");
+    ctx.scale(SHARE_SCALE, SHARE_SCALE);
+    ctx.fillStyle = "#101316"; ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(img, 0, 0, W, H);
+    URL.revokeObjectURL(url);
+    ctx.font = "44px -apple-system,system-ui,'Segoe UI',Arial,sans-serif";
+    for (const f of flags) ctx.fillText(flagEmoji(f.iso), f.x, f.y);
+    const blob = await new Promise((r) => c.toBlob(r, "image/png"));
+    const nameSlug = countryName(iso).toLowerCase().replace(/[^a-z]+/g, "-");
+    const file = new File([blob], "wandergrade-" + nameSlug + ".png", { type: "image/png" });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: countryName(iso) }); return; }
+      catch (e) { /* cancelled -> download */ }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = file.name;
+    a.click();
+    status("Country card downloaded — post it anywhere 🌍", "ok");
+  } catch (e) {
+    status("Could not build the card: " + e.message, "err");
+  }
+}
+
 async function downloadVisitedImage(orientation) {
   try {
     await ensureWorld();
@@ -6710,6 +6810,8 @@ if ($("flightShare")) $("flightShare").addEventListener("click", () => downloadM
   filename: "wandergrade-flight-prices.png",
 }));
 if ($("rankShare")) $("rankShare").addEventListener("click", downloadRankImage);
+if ($("guideShare")) $("guideShare").addEventListener("click", () =>
+  downloadGuideCard(($("bestCountry") || {}).value || ccGuideIso || "JP"));
 if ($("valueShare")) $("valueShare").addEventListener("click", () => {
   const month = MONTHS[(parseInt(($("valueMonth") || {}).value, 10) || curMonth()) - 1];
   const weather = valueMapMode === "weather";
