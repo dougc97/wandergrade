@@ -529,6 +529,13 @@
             <h2>Cost of living <span class="muted">how far your money goes</span></h2>
             <p id="affSub" class="chartsub">Loading…</p>
           </div>
+          <!-- Same home-country state as the From selector on Top Picks —
+               mirrored here so the reference is visible and changeable where
+               the comparison is actually read. -->
+          <span class="pickgroup" title="compare prices against this home country — same setting as the From selector">
+            <span class="picklabel">🏠 Vs home</span>
+            <select id="affAnchor"></select>
+          </span>
           <div class="legend" id="affLegend2"></div>
           <button id="affShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
         </div>
@@ -559,9 +566,21 @@
       <div class="cardwide">
         <div class="charthead">
           <div>
-            <h2>US State Dept travel advisories</h2>
+            <h2 id="advH2">Travel advisories</h2>
             <p id="advSub" class="chartsub">Loading…</p>
           </div>
+          <!-- Whose judgement you're reading. Defaults to your home country's
+               government (From selector); picking one here overrides it —
+               advisories reflect each government's own foreign policy, and
+               seeing another's view is the point of offering the choice. -->
+          <span class="pickgroup" title="which government's travel advice — advisories reflect each country's own foreign policy">
+            <span class="picklabel">🏛️ Per</span>
+            <select id="advSource">
+              <option value="us">U.S. State Department</option>
+              <option value="ca">Global Affairs Canada</option>
+              <option value="de">German Foreign Office</option>
+            </select>
+          </span>
           <div class="legend" id="advLegend"></div>
           <button id="advShare" class="themebtn shareimg" type="button" title="Download this map as an image">📸 <span class="btxt">Share image</span></button>
         </div>

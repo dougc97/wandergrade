@@ -66,11 +66,24 @@ function initTheme() {
 }
 let lastIndexData = null;
 
-function status(msg, kind) {
+// Transient by default: a "fares folded into the score" note was sitting at
+// the top of the page across tab switches until something happened to
+// overwrite it (the owner asked why). Non-sticky messages fade after a few
+// seconds and die on tab switch; sticky ones (the shared-view warnings, which
+// describe an ongoing state) stay until replaced.
+let _statusTimer = null;
+function status(msg, kind, sticky) {
   const el = $("status");
+  clearTimeout(_statusTimer);
   el.textContent = msg;
   el.className = "status " + (kind || "");
   el.hidden = !msg;
+  el.dataset.sticky = sticky ? "1" : "";
+  if (msg && !sticky) _statusTimer = setTimeout(() => { el.hidden = true; }, 6000);
+}
+function clearTransientStatus() {
+  const el = $("status");
+  if (el && !el.dataset.sticky) { clearTimeout(_statusTimer); el.hidden = true; }
 }
 
 async function getJSON(url) {
@@ -1910,7 +1923,17 @@ let advisories = null;
 const _advBySource = {};
 // Your own government first; the others fill its gaps (server-side, stamped `via`).
 const ADV_SOURCE_BY_ORIGIN = { DE: "de", CA: "ca" };
-function advisorySource() { return ADV_SOURCE_BY_ORIGIN[travelOrigin()] || "us"; }
+// An explicit pick on the safety tab overrides the home-country default —
+// advisories reflect each government's own foreign policy, and reading
+// another's view is the point of offering the choice. The override feeds the
+// same global everything else reads, so guides and scoring follow it too.
+function advisorySource() {
+  try {
+    const o = localStorage.getItem("wg_advsrc");
+    if (o === "us" || o === "ca" || o === "de") return o;
+  } catch (e) {}
+  return ADV_SOURCE_BY_ORIGIN[travelOrigin()] || "us";
+}
 async function ensureAdvisories() {
   const src = advisorySource();
   if (!_advBySource[src]) _advBySource[src] = await getJSON("/api/advisories?source=" + src);
@@ -1973,6 +1996,18 @@ function renderAdvisories() {
       : "";
   }
 
+  const advH2 = $("advH2");
+  if (advH2) advH2.textContent = (advisories.source_name || "Travel") + " travel advisories";
+  const srcSel = $("advSource");
+  if (srcSel) {
+    srcSel.value = advisories.source || advisorySource();
+    srcSel.onchange = async () => {
+      try { localStorage.setItem("wg_advsrc", srcSel.value); } catch (e) {}
+      await ensureAdvisories();
+      renderAdvisories();
+      if (loaded.value) renderValue();   // safety grades follow the chosen source
+    };
+  }
   $("advSub").innerHTML =
     `${advisories.count} advisories from the <b>${esc(advisories.source_name || "US State Dept")}</b> ` +
     `(follows your home country). Green = safest (Level 1), red = avoid travel (Level 4). ` +
@@ -1997,12 +2032,36 @@ function renderAdvisories() {
 // ===========================================================================
 //  Cost of living (PPP) tab — its own map + ranked table
 // ===========================================================================
+// The cost tab's home selector is the SAME state as the From selector on Top
+// Picks, mirrored (the homeCur/dataBase pattern): one home country, visible
+// and changeable wherever the comparison is read. Changing it here changes it
+// everywhere, fares and visas included.
+function initAffAnchor() {
+  const sel = $("affAnchor"), vo = $("valueOrigin");
+  if (!sel) return;
+  sel.onchange = () => {
+    if (vo) { vo.value = sel.value; vo.dispatchEvent(new Event("change")); }
+    renderAfford();
+  };
+  if (sel.options.length <= 1) {
+    // Fill from the same source as the From selector rather than cloning it:
+    // on a direct Data-tab load, valueOrigin may not be populated yet.
+    fillOriginSelect(sel).then(() => {
+      if (vo && vo.options.length && sel.value !== vo.value) sel.value = vo.value;
+      renderAfford();          // repaint with the anchor the select now shows
+    }).catch(() => {});
+    return;
+  }
+  if (vo && vo.options.length && sel.value !== vo.value) sel.value = vo.value;
+}
+
 function renderAfford() {
   let n = 0;
   // The reference is the traveler's From country, not a hard-coded US — the
   // owner's question, and Top Picks already anchors this way (anchorPl). A
   // German comparing prices wants "vs Germany, in euros"; price levels are
   // all stored vs the US, so dividing by the anchor's own level rebases them.
+  initAffAnchor();
   const anchorIso = ($("valueOrigin") || {}).value || "US";
   const anchorPl = priceLevel(anchorIso) || 1;
   const anchorCur = CUR_BY_ISO[anchorIso] || "USD";
@@ -4918,6 +4977,7 @@ function renderVisitedStats() {
 // ===========================================================================
 const loaded = {};
 async function activateTab(name, push) {
+  clearTransientStatus();   // a note about the old tab shouldn't outlive it
   document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
   if (name === "trip") renderTripBar();
   // Meta follows the tab in BOTH directions. Leaving the guide restores the
@@ -5444,13 +5504,13 @@ async function postApplyShared() {
   if (db && /^[A-Z]{3}$/.test(db) && db !== homeBase) setHomeCur(db, true);
   if (sharedQ.get("v") && tab === "visited") {
     renderVisited();
-    status(`Viewing a shared map of ${visited.size} countries — editing it will overwrite your own saved list.`, "ok");
+    status(`Viewing a shared map of ${visited.size} countries — editing it will overwrite your own saved list.`, "ok", true);
   }
   if (sharedQ.get("tp") && tab === "trip") {
     renderTripBar();
     // renderTripBar reads sharedTripView, so the link's days/month are already
     // in the controls; nothing here touches localStorage.
-    status(`Viewing a shared trip of ${loadTrip().size} ${loadTrip().size === 1 ? "country" : "countries"} — changing it will overwrite your own.`, "ok");
+    status(`Viewing a shared trip of ${loadTrip().size} ${loadTrip().size === 1 ? "country" : "countries"} — changing it will overwrite your own.`, "ok", true);
   }
   resyncCombos();   // reflect restored values in the search inputs
 }
