@@ -967,7 +967,10 @@ function renderMap(rows, base) {
     }
     return { fill: NODATA, title: f.properties.name + " — not tracked" };
   }, base + " strength world heatmap");
-  markTopPicksOn("map");
+  const winners = rows.filter((r) => r.strength_pct > 0)
+    .sort((a, b) => b.strength_pct - a.strength_pct).slice(0, 8);
+  renderDimPicks("map", "Biggest currency wins vs " + base,
+    winners.map((r) => r.code + " " + sgn(r.strength_pct)));
 
   $("mapsub").textContent =
     `Greener = ${baseWord(base)} stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`;
@@ -1935,7 +1938,7 @@ function renderAdvisories() {
       ? { fill: LVL_MAP_COLOR[it.level], title: `${it.country} — Level ${it.level}: ${it.level_text}` }
       : { fill: NODATA, title: f.properties.name + " — no advisory data" };
   }, (advisories.source_name || "Travel") + " advisory levels");
-  markTopPicksOn("advMap");
+  renderDimPicks("advMap", "", null);   // a hundred Level-1 ties can't be ranked
 
   $("advSub").innerHTML =
     `${advisories.count} advisories from the <b>${esc(advisories.source_name || "US State Dept")}</b> ` +
@@ -1952,7 +1955,7 @@ function renderAdvisories() {
     return `
     <tr data-lvl="${lvl}"${guideAttr}><td>${esc(it.country)}</td>
       <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
-      <td>${esc(it.level_text)}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details</a>` : ""}</td>
+      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details</a>` : ""}</td>
     </tr>`;
   }).join("");
   applyAdvFilter();
@@ -1972,7 +1975,13 @@ function renderAfford() {
       title: `${f.properties.name} — price level ${pl.toFixed(2)} (${plWord(pl)} vs US)`
              + (drift ? " · " + drift : "") };
   }, "Cost of living (price level vs US)");
-  markTopPicksOn("affMap");
+  const cheap = Object.keys(CUR_BY_ISO)
+    .map((iso) => ({ iso, pl: priceLevel(iso) }))
+    .filter((x) => x.pl != null && countryName(x.iso) !== x.iso)
+    .sort((a, b) => a.pl - b.pl).slice(0, 8);
+  renderDimPicks("affMap", "Where $100 goes furthest",
+    cheap.map((x) => countryName(x.iso) + " · $100≈$" + Math.round(100 / x.pl)),
+    cheap.map((x) => x.iso));
 
   $("affSub").textContent =
     `Below 1.00 = cheaper than the US (a dollar buys more). World Bank PPP ÷ live rate · ${n} countries. `
@@ -3450,12 +3459,27 @@ function notScoredReason(iso) {
 // The Data tab maps each show one dimension; marking where the overall picks
 // land gives them a common reference point, and makes every one of them
 // shareable with the takeaway already in the picture.
-function markTopPicksOn(hostId) {
+// Each Data map annotates with ITS OWN dimension's leaders. The overall value
+// ranking already lives on the Top Picks map; repeating it under a currency or
+// fares map mislabeled what the colours were showing (the owner caught it).
+// The list also moved BELOW the map — as an overlay it covered a continent on
+// narrow layouts. Safety gets no list at all: ~100 countries tie at Level 1,
+// and ranking a tie is invention.
+function renderDimPicks(hostId, title, items, isos) {
   const host = $(hostId);
-  if (!host || !lastPicks || !lastPicks.length) return;
-  const month = lastPicksMonth || curMonth();
-  if (!reducedMotion()) {
-    const set = new Set(lastPicks.map((s) => s.iso));
+  if (!host) return;
+  let row = host.parentElement.querySelector('.mappicksrow[data-for="' + hostId + '"]');
+  if (!items || !items.length) { if (row) row.remove(); return; }
+  if (!row) {
+    row = document.createElement("div");
+    row.className = "mappicksrow";
+    row.dataset.for = hostId;
+    host.insertAdjacentElement("afterend", row);
+  }
+  row.innerHTML = "<strong>" + esc(title) + "</strong>"
+    + items.slice(0, 8).map((t, i) => "<span>" + (i + 1) + ". " + esc(t) + "</span>").join("");
+  if (isos && isos.length && !reducedMotion()) {
+    const set = new Set(isos);
     let i = 0;
     for (const p of host.querySelectorAll("path")) {
       if (set.has(p.getAttribute("data-iso"))) {
@@ -3464,7 +3488,14 @@ function markTopPicksOn(hostId) {
       }
     }
   }
-  renderMapPicksOverlay(lastPicks, month, hostId);
+}
+// The share images read whatever list is on screen, so map and export can't
+// disagree about what the map claims.
+function dimPicksFromDom(hostId) {
+  const row = document.querySelector('.mappicksrow[data-for="' + hostId + '"]');
+  if (!row) return { picks: null, title: null };
+  return { picks: [...row.querySelectorAll("span")].map((x) => x.textContent.replace(/^\d+\.\s*/, "")),
+           title: (row.querySelector("strong") || {}).textContent || null };
 }
 
 function renderMapPicksOverlay(picks, month, hostId) {
@@ -3970,7 +4001,13 @@ function renderFlights() {
       : { fill: flightColor(p, expected && expected(f.properties.iso)),
           title: `${f.properties.name} — avg ${cur} ${p} round-trip` };
   }, "Average flight prices by destination country");
-  markTopPicksOn("flightMap");
+  const deals = countries
+    .filter((r) => r.n >= 2 && expected && expected(r.iso) && countryName(r.iso) !== r.iso)
+    .map((r) => ({ iso: r.iso, fare: byC[r.iso], ratio: byC[r.iso] / expected(r.iso) }))
+    .sort((a, b) => a.ratio - b.ratio).slice(0, 8);
+  renderDimPicks("flightMap", "Best fare deals vs typical for the distance",
+    deals.map((d) => countryName(d.iso) + " · " + cur + " " + d.fare),
+    deals.map((d) => d.iso));
 
   $("flightSub").innerHTML =
     `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · map colours show the fare vs the typical fare for that distance — <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above, so a long-haul can still be a bargain · <b>click a fare ↗</b> to search that route live on Aviasales.`;
@@ -5050,6 +5087,19 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
 // another overlay. Suppressed permanently once they subscribe, and for 30 days
 // after a dismissal, so a not-yet-convinced visitor gets a second chance later.
 (function armSubscribeAutoPrompt() {
+  // First visit is for the product. The auto-invite waits for a RETURN visit:
+  // interrupting someone mid-scroll on the pageview where they are deciding
+  // whether the site is any good was the most user-hostile moment we had.
+  // Visits are counted once per browser session; the header Subscribe button
+  // and the footer form work on visit one as always.
+  try {
+    if (!sessionStorage.getItem("wg_sess")) {
+      sessionStorage.setItem("wg_sess", "1");
+      localStorage.setItem("wg_visits",
+        String((parseInt(localStorage.getItem("wg_visits") || "0", 10) || 0) + 1));
+    }
+    if ((parseInt(localStorage.getItem("wg_visits") || "0", 10) || 0) < 2) return;
+  } catch (e) {}
   if (!shouldAutoPrompt()) return;
   let done = false;
   function cleanup() {
@@ -6395,7 +6445,9 @@ if ($("tripPlanBtn")) $("tripPlanBtn").addEventListener("click", async () => {
 // without their captions.
 if ($("fxShare")) $("fxShare").addEventListener("click", () => {
   const base = homeBase || "USD";
+  const dp = dimPicksFromDom("map");
   downloadMapImage("map", {
+    picks: dp.picks, picksTitle: dp.title,
     title: "Where the " + (base === "USD" ? "dollar" : base) + " is strong right now",
     sub: "Each country's currency vs its own 1-year average against " + base
        + ". Greener = your money goes further than usual there.",
@@ -6407,6 +6459,7 @@ if ($("fxShare")) $("fxShare").addEventListener("click", () => {
   });
 });
 if ($("affShare")) $("affShare").addEventListener("click", () => downloadMapImage("affMap", {
+  picks: dimPicksFromDom("affMap").picks, picksTitle: dimPicksFromDom("affMap").title,
   title: "What US$100 actually buys around the world",
   sub: "Local purchasing power of US$100, in US dollars. World Bank PPP divided by today's market exchange rate.",
   gradient: ["#b00020", "#eef0f1", "#0a7d28"],
@@ -6425,6 +6478,7 @@ if ($("advShare")) $("advShare").addEventListener("click", () => downloadMapImag
   filename: "wandergrade-travel-advisories.png",
 }));
 if ($("flightShare")) $("flightShare").addEventListener("click", () => downloadMapImage("flightMap", {
+  picks: dimPicksFromDom("flightMap").picks, picksTitle: dimPicksFromDom("flightMap").title,
   title: "What a round-trip flight costs, by country",
   sub: "Cheapest recent round-trip fares seen by Aviasales, averaged per destination country.",
   gradient: ["#b00020", "#eef0f1", "#0a7d28"],

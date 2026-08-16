@@ -293,6 +293,12 @@ small { color: var(--gray); font-weight: 400; }
    the rendered aspect — is left entirely alone. Browsers without :has() just
    get today's behaviour. */
 .map:not(:has(svg)) { aspect-ratio: 1000 / 386; }
+/* Per-dimension leaders under each Data map — below, not overlaying: as an
+   overlay this list covered a continent on narrow layouts. */
+.mappicksrow { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline;
+  margin-top: 8px; font-size: 12.5px; color: var(--gray); }
+.mappicksrow strong { color: var(--ink); font-size: 12.5px; }
+
 /* zoom controls on the Wander List map */
 .mapzoom { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column;
   gap: 6px; z-index: 5; }
@@ -660,6 +666,11 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
    column instead of one long line across a desktop card. */
 .aihint { font-size: 12px; color: var(--gray); line-height: 1.45; max-width: 46ch; }
 
+/* Budget in the hero row: two small inputs reading "$N for N days". */
+.budgethero .numin { width: 78px; }
+.budgethero .bdays { width: 54px; }
+.bdgtsep { font-size: 12px; color: var(--gray); margin: 0 2px; white-space: nowrap; }
+
 /* Trip builder — the working set that feeds "Plan these with AI". */
 .tripbar { margin: 12px 0 0; }
 .triphint { display: block; font-size: 13px; color: var(--gray); line-height: 1.5; }
@@ -752,6 +763,13 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .staybtn .ext { font-size: 11px; opacity: .6; }
 /* Server-rendered guide content shown until app.js hydrates the interactive
    guide (then removed). Kept legible so first paint / no-JS reads cleanly. */
+/* The SSR block below is real, visible content that renderGuide() deletes on
+   hydration — that swap was the guide tab's RUM CLS (0.196). Reserving the
+   card at viewport height means the swap happens inside a box that never
+   shrinks on screen: content below the fold can reshuffle freely without a
+   single visible element moving. Guides are always taller than a viewport
+   anyway, so nothing real is padded. */
+html[data-tab="guide"] #tab-guide .cardwide { min-height: 100vh; }
 .ssrguide h1 { font-size: 24px; margin: 4px 0 10px; }
 /* Disclosure sits beside the link, not in a footer — it only does its job if
    it's read at the moment the link is. */
@@ -968,7 +986,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
      made it worse — it starved the month below "September". */
   .lbl-lg { display: none; }
   .lbl-sm { display: inline; }
-  .pickersmain { flex-wrap: nowrap; }
+  .pickersmain { flex-wrap: wrap; }
+  /* When + From keep their measured 50/50 split on row one; budget takes a
+     full row beneath rather than crushing all three into 375px. */
+  .pickersmain .budgethero { flex: 1 1 100%; }
   .pickersmain .pickgroup { flex: 1 1 0; min-width: 0; }
   /* The <select> is swapped for a .combo at runtime, so the combo is what has to
      be allowed to shrink — min-width:auto on a flex item would refuse. */

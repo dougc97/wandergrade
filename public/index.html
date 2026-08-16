@@ -127,6 +127,18 @@
           <span class="picklabel"><span class="lbl-lg">✈️ From</span><span class="lbl-sm">✈️</span></span>
           <select id="valueOrigin"></select>
         </span>
+        <!-- Budget lives up here, not in the fold: it is the site's sharpest
+             differentiator and it was invisible until a click. Drops countries
+             the flight alone puts out of reach (real cached fares), shows
+             what's left per day in home-money terms. Blank = off. No invented
+             daily-cost anchor, ever. -->
+        <span class="pickgroup budgethero" title="your whole trip budget — flights plus spending. Countries whose flight alone costs more are dropped; the rest show what's left per day. Blank = no budget.">
+          <span class="picklabel"><span class="lbl-lg">💵 Budget</span><span class="lbl-sm">💵</span></span>
+          <input id="budgetTotal" class="numin" type="number" min="0" step="50" placeholder="any $" inputmode="numeric">
+          <span class="bdgtsep">for</span>
+          <input id="budgetDays" class="numin bdays" type="number" min="1" max="365" step="1" placeholder="10" inputmode="numeric">
+          <span class="bdgtsep">days</span>
+        </span>
       </div>
       <details class="foldable filtersfold">
         <!-- Two lengths: the full list needs 339px and a phone offers 315 (260 at
@@ -134,7 +146,7 @@
              three items because that is all that fits at 320. Budget earns its
              place in both — it is the newest filter and a collapsed panel gave no
              hint it existed. -->
-        <summary>⚙️ Filters <span class="muted"><span class="sumfull">— region · currency · safety · budget · what counts</span><span class="sumshort">— region · safety · budget</span></span></summary>
+        <summary>⚙️ Filters <span class="muted"><span class="sumfull">— region · currency · safety · what counts</span><span class="sumshort">— region · safety</span></span></summary>
         <div class="pickers pickersfilters">
           <span class="pickgroup" title="filter by region">
             <span class="picklabel">Region</span>
@@ -164,18 +176,6 @@
           </span>
           <span class="pickgroup" id="factorChips" title="which factors count toward the grade — tap to toggle">
             <span class="picklabel">Count</span>
-          </span>
-          <!-- Budget: drops countries the flight alone puts out of reach, and turns
-               what's left into home-money terms. No invented daily-cost anchor —
-               real fares and World Bank price levels only, so the traveler judges
-               whether the number is liveable. Blank = off. -->
-          <span class="pickgroup" title="your whole trip budget — flights plus spending. Countries whose flight alone costs more are dropped; the rest show what's left per day.">
-            <span class="picklabel">💵 Budget</span>
-            <input id="budgetTotal" class="numin" type="number" min="0" step="50" placeholder="any" inputmode="numeric">
-          </span>
-          <span class="pickgroup" title="how long you're going for — sets what the leftover budget is worth per day">
-            <span class="picklabel">Days</span>
-            <input id="budgetDays" class="numin" type="number" min="1" max="365" step="1" placeholder="10" inputmode="numeric">
           </span>
           <span class="pickgroup" title="how many picks to show">
             <span class="picklabel">Show</span>
@@ -327,24 +327,24 @@
       <div id="guideHero" class="guidehero"></div>
       <nav class="guidejump" aria-label="jump to a guide section">
         <button type="button" data-go="bestDetail">🌤 When to go</button>
-        <button type="button" data-go="actDetail">🎒 What to do</button>
         <button type="button" data-go="guideStay">🏨 Where to stay</button>
+        <button type="button" data-go="actDetail">🎒 What to do</button>
       </nav>
       <div id="guideVisa" class="guidevisa"></div>
       <div id="guideSafety" class="guidevisa" hidden></div>
       <div id="guideAI" class="guideai"></div>
       <div id="bestDetail" class="bestdetail">Loading…</div>
       <hr class="softrule">
-      <div id="actDetail" class="bestdetail"></div>
-      <div id="guideStay" class="guidestay" hidden></div>
-      <!-- Mirrors the link in the server-rendered block, which renderGuide()
-           deletes on hydration — without this a reader would never see it.
-           Deliberately down here, below where-to-stay, and NOT under the safety
-           badge: an insurance link sitting directly beneath "Level 3 —
+      <!-- Where-to-stay sits above what-to-do: it is the money section, and on
+           a phone it was two screens down. Insurance rides directly under it —
+           and NOT under the safety badge: an insurance link beneath "Level 3 —
            Reconsider travel" makes the safety grade look like it exists to sell
            the insurance. The grades are the product; nothing gets to cast doubt
            on them for affiliate revenue. -->
+      <div id="guideStay" class="guidestay" hidden></div>
       <div id="guideInsurance" class="afflink"></div>
+      <hr class="softrule">
+      <div id="actDetail" class="bestdetail"></div>
     </div>
   </section>
 
