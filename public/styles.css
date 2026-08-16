@@ -991,7 +991,7 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   .pickersmain { flex-wrap: wrap; }
   /* When + From keep their measured 50/50 split on row one; budget takes a
      full row beneath rather than crushing all three into 375px. */
-  .pickersmain .budgethero { flex: 1 1 100%; }
+  .pickersmain .pickgroup.budgethero { flex: 1 1 100%; }
   .pickersmain .pickgroup { flex: 1 1 0; min-width: 0; }
   /* The <select> is swapped for a .combo at runtime, so the combo is what has to
      be allowed to shrink — min-width:auto on a flex item would refuse. */
@@ -1168,6 +1168,30 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   #tab-guide .guidejump { gap: 6px; }
   #tab-guide .guidejump > * { white-space: nowrap; font-size: 12px; padding: 6px 7px; }
 }
+
+
+/* ---- narrow-screen table diet (owner's mobile screenshots: columns crushed
+   into two-line rows). Drop the least load-bearing columns; every hidden fact
+   is still one tap away on the country's guide or in the row tooltips. ---- */
+@media (max-width: 640px) {
+  /* Flights: hide Flight time (4) and Routes sampled (6) — keep destination,
+     both prices and stops, which is what a fare decision needs. */
+  #flightTable th:nth-child(4), #flightTable td:nth-child(4),
+  #flightTable th:nth-child(6), #flightTable td:nth-child(6) { display: none; }
+  /* Currency: hide Range position (5) — the widest column, and the one whose
+     meaning needs the ⓘ anyway. */
+  #rates th:nth-child(5), #rates td:nth-child(5) { display: none; }
+  /* Budget hero: inputs and their words stay on one line inside the group. */
+  .budgethero { flex-wrap: nowrap; }
+  .budgethero .numin { width: 64px; }
+  .budgethero .bdays { width: 44px; }
+}
+
+/* Calm watchouts fold on L1/L2 guides. */
+.wofold { margin-top: 8px; font-size: 12.5px; }
+.wofold summary { cursor: pointer; color: var(--gray); font-weight: 600; }
+.wofold .wochips { margin-top: 7px; }
+.wotab { font-size: 11.5px; }
 
 /* ---- guided picker ("Help me choose") ---- */
 .herobtns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

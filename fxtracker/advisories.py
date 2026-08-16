@@ -304,7 +304,9 @@ def _summary(desc):
     # not the country — and the read-more boilerplate.
     BOILER = re.compile(r"reissued|periodic review|advisory level was|no changes to the risk"
                         r"|risk indicators|updated? to reflect|was (added|updated|removed)"
-                        r"|country information page|travel guidance for", re.I)
+                        r"|country information page|travel guidance for"
+                        r"|always exercise caution when traveling"
+                        r"|smart traveler enrollment|general tips to stay safe", re.I)
     keep = [p.strip() for p in parts if p.strip() and not BOILER.search(p)]
     # Anchor on the canonical lead ("Exercise increased caution in X due to...",
     # "Reconsider travel to X...") when present — everything before it is noise.
@@ -313,7 +315,11 @@ def _summary(desc):
         if LEAD.match(p):
             keep = keep[i:]
             break
-    out = re.sub(r"\s+", " ", " ".join(keep[:2])).strip()
+    # A "normal precautions" advisory has said everything in sentence one —
+    # every sentence after it is program plugs and generic tips, and padding a
+    # Level 1 country's summary with them made safe places read scary.
+    take = keep[:1] if keep and re.match(r"exercise normal precautions", keep[0], re.I) else keep[:2]
+    out = re.sub(r"\s+", " ", " ".join(take)).strip()
     out = re.sub(r"\s+([.,;])", r"\1", out)   # feed HTML leaves "Thailand ." artifacts
     if out and not LEAD.match(out) and len(out) < 40:
         return ""          # nothing informative survived; better silent than junk

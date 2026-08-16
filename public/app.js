@@ -1437,6 +1437,14 @@ function renderWatchouts(iso) {
     const host = $("guideWatchouts");
     if (!host || ccGuideIso !== iso) return;
     if (!w || (!w.watchouts.length && !w.regional.length)) return;
+    // Proportionate display (the owner's call, and right): eight topic chips
+    // under a Level 1 country read as a warning wall — Japan looked dangerous
+    // because Canada writes thorough pages about safe places. At L1/L2 the
+    // chips live in a collapsed fold; the loud treatment is reserved for
+    // countries whose own government is loud (L3+), and regional
+    // avoid-travel lines always show — they only exist when real.
+    const lvl = (advisoryMetaByIso()[iso] || {}).level || 0;
+    const calm = lvl > 0 && lvl <= 2;
     const chips = w.watchouts.map((x) =>
       '<span class="wochip"' + (x.d ? ' data-tip="' + esc(x.d) + '" title=""' : "") + ">"
       + esc(x.t) + "</span>").join("");
@@ -1454,10 +1462,23 @@ function renderWatchouts(iso) {
         + (starred ? ' <span class="muted">(* parts excepted — see details)</span>' : "")
         + "</span>";
     }).join("");
-    host.innerHTML = '<span class="wohead">Watch out for <span class="muted">(per '
-      + esc(w.source) + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "")
-      + ")</span></span>"
-      + '<span class="wochips">' + chips + "</span>" + reg;
+    const srcNote = '<span class="muted">(per ' + esc(w.source)
+      + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "") + ")</span>";
+    const tabLink = ' <a href="#" class="wotab">full picture → Safety tab</a>';
+    host.innerHTML = calm
+      ? reg + '<details class="wofold"><summary>🧭 Local tips &amp; watchouts ('
+        + w.watchouts.length + ") " + srcNote + "</summary>"
+        + '<span class="wochips">' + chips + "</span></details>"
+        + '<span class="advsrcnote">Nothing unusual for a Level ' + lvl + " country." + tabLink + "</span>"
+      : '<span class="wohead">Watch out for ' + srcNote + "</span>"
+        + '<span class="wochips">' + chips + "</span>" + reg
+        + '<span class="advsrcnote">' + tabLink.trim() + "</span>";
+    const wt = host.querySelector(".wotab");
+    if (wt) wt.onclick = async (e) => {
+      e.preventDefault();
+      await activateTab("data", true);
+      setDataMode("advisory");
+    };
   };
   if (_watchoutCache[iso]) { paint(_watchoutCache[iso]); return; }
   getJSON("/api/watchouts?iso=" + encodeURIComponent(iso))
