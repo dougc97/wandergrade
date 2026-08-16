@@ -1950,7 +1950,28 @@ function renderAdvisories() {
       ? { fill: LVL_MAP_COLOR[it.level], title: `${it.country} — Level ${it.level}: ${it.level_text}` }
       : { fill: NODATA, title: f.properties.name + " — no advisory data" };
   }, (advisories.source_name || "Travel") + " advisory levels");
-  renderDimPicks("advMap", "", null);   // a hundred Level-1 ties can't be ranked
+  // No "top" list — a hundred Level-1 ties can't be ranked. What CAN be said
+  // is what MOVED: the feed's own "level was increased/decreased" statements,
+  // dated. Shown under the map and again above the table.
+  const cutoff = new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10);
+  const changed = advisories.items
+    .filter((it) => it.change && it.updated && it.updated >= cutoff)
+    .sort((a, b) => (a.updated < b.updated ? 1 : -1)).slice(0, 8);
+  const chLine = (it) => {
+    const d = new Date(it.updated + "T12:00:00");
+    const when = isNaN(d) ? it.updated : MON_ABBR[d.getMonth()] + " " + d.getDate();
+    return it.country + " " + (it.change === "up" ? "▲ raised" : "▼ lowered")
+      + " to L" + it.level + " (" + when + ")";
+  };
+  renderDimPicks("advMap", "Recently changed", changed.map(chLine), changed.map((it) => it.iso));
+  const rec = $("advRecent");
+  if (rec) {
+    rec.hidden = !changed.length;
+    rec.innerHTML = changed.length
+      ? "<strong>Recently changed</strong>" + changed.map((it) =>
+          '<span class="' + (it.change === "up" ? "chup" : "chdown") + '">' + esc(chLine(it)) + "</span>").join("")
+      : "";
+  }
 
   $("advSub").innerHTML =
     `${advisories.count} advisories from the <b>${esc(advisories.source_name || "US State Dept")}</b> ` +
@@ -4013,13 +4034,17 @@ function renderFlights() {
       : { fill: flightColor(p, expected && expected(f.properties.iso)),
           title: `${f.properties.name} — avg ${cur} ${p} round-trip` };
   }, "Average flight prices by destination country");
-  const deals = countries
-    .filter((r) => r.n >= 2 && expected && expected(r.iso) && countryName(r.iso) !== r.iso)
-    .map((r) => ({ iso: r.iso, fare: byC[r.iso], ratio: byC[r.iso] / expected(r.iso) }))
-    .sort((a, b) => a.ratio - b.ratio).slice(0, 8);
-  renderDimPicks("flightMap", "Best fare deals vs typical for the distance",
-    deals.map((d) => countryName(d.iso) + " · " + cur + " " + d.fare),
-    deals.map((d) => d.iso));
+  // Same order as the table below it (cheapest average first) — the owner
+  // caught the list ranking by deal-vs-distance while the table ranked by
+  // fare, so map text and table disagreed. The deal story stays in the map
+  // colours and each row's arrow; the LIST mirrors the table, like every
+  // other Data tab.
+  const cheapest = countries
+    .filter((r) => r.n >= 2 && countryName(r.iso) !== r.iso)
+    .sort((a, b) => a.avg - b.avg).slice(0, 8);
+  renderDimPicks("flightMap", "Cheapest round-trips right now",
+    cheapest.map((d) => countryName(d.iso) + " · " + cur + " " + d.avg),
+    cheapest.map((d) => d.iso));
 
   $("flightSub").innerHTML =
     `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · map colours show the fare vs the typical fare for that distance — <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above, so a long-haul can still be a bargain · <b>click a fare ↗</b> to search that route live on Aviasales.`;
@@ -6481,6 +6506,7 @@ if ($("affShare")) $("affShare").addEventListener("click", () => downloadMapImag
   filename: "wandergrade-cost-of-living.png",
 }));
 if ($("advShare")) $("advShare").addEventListener("click", () => downloadMapImage("advMap", {
+  picks: dimPicksFromDom("advMap").picks, picksTitle: dimPicksFromDom("advMap").title,
   title: "Where governments say it's safe to travel",
   sub: "US State Department advisory levels, 1 (normal precautions) to 4 (do not travel).",
   swatches: [{ c: LVL_MAP_COLOR[1], label: "Level 1" }, { c: LVL_MAP_COLOR[2], label: "Level 2" },

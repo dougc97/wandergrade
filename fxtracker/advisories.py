@@ -266,6 +266,11 @@ def _us_advisories():
             # state" is the nuance a traveler actually needs, and quoting the
             # feed keeps us out of the business of authoring safety claims.
             "summary": _summary(_tag(block, "description")),
+            # The bookkeeping sentences _summary discards ("The advisory level
+            # was decreased to 1") are exactly the change signal — captured
+            # here with the item's publish date so the UI can show what moved.
+            "change": _change(_tag(block, "description")),
+            "updated": _pubdate(_tag(block, "pubDate")),
         })
 
     items.sort(key=lambda r: (-r["level"], r["country"]))
@@ -313,6 +318,31 @@ def _summary(desc):
     if out and not LEAD.match(out) and len(out) < 40:
         return ""          # nothing informative survived; better silent than junk
     return (out[:277] + "...") if len(out) > 280 else out
+
+
+def _change(desc):
+    """'up' if the advisory level was raised (riskier), 'down' if lowered."""
+    if not desc:
+        return None
+    text = re.sub(r"<[^>]+>", " ", desc)
+    m = re.search(r"\b(increased|raised|decreased|lowered)\b[^.]{0,40}\bLevel\b"
+                  r"|advisory level was (increased|raised|decreased|lowered)", text, re.I)
+    if not m:
+        return None
+    word = (m.group(1) or m.group(2) or "").lower()
+    return "up" if word in ("increased", "raised") else "down"
+
+
+def _pubdate(raw):
+    """'Fri, 10 Jul 2026' -> '2026-07-10' (empty on anything unparseable)."""
+    m = re.search(r"\d{1,2} \w{3} \d{4}", raw or "")
+    if not m:
+        return ""
+    try:
+        import datetime
+        return datetime.datetime.strptime(m.group(0), "%d %b %Y").date().isoformat()
+    except ValueError:
+        return ""
 
 
 def _tag(block, tag):
