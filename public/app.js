@@ -2738,6 +2738,9 @@ async function loadValueFlights(silent) {
     } else {
       flightsData = data;
       if (!silent) status(`Average fares from ${data.origin_name || origin} folded into the score.`, "ok");
+      // A guide opened before fares arrived rendered its fare strip against
+      // nothing and stayed hidden — give it its data now.
+      if (ccGuideIso) renderGuideFares(ccGuideIso);
     }
   } catch (e) {
     if (!silent) status("Could not load flights: " + e.message, "err");
