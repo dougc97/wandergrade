@@ -1253,7 +1253,7 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .hzmark { position: relative; }
 .hzmark::after,
 .muted[data-tip]::after,
-[data-tip]:not(.factorchip):not(button)::after {
+[data-tip]:not(.factorchip):not(button):not(.pickgroup)::after {
   content: "";
   position: absolute;
   inset: -9px;
@@ -1261,6 +1261,13 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   pointer-events: auto;
 }
 .muted[data-tip], [data-tip]:not(.factorchip):not(button) { position: relative; }
+/* CONTAINERS with a tip must not grow the touch-target overlay: a positioned
+   ::after paints ABOVE non-positioned children, so on a .pickgroup it sat on
+   top of the select and ate every click (the owner found the dropdowns dead
+   with a help cursor). The tip still shows — hover lands on the child, and the
+   delegate walks up to the [data-tip] ancestor — the overlay just stops
+   intercepting. */
+.pickgroup[data-tip] { cursor: default; }
 
 /* Factor chips were 22px tall — just under the threshold, and they are the
    primary control for what the ranking weights. */
