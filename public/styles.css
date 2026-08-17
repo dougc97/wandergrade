@@ -1195,6 +1195,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .worow:hover { border-color: var(--green); color: var(--green); }
 .wodetail td { background: var(--card2); padding: 10px 14px 12px; }
 .wodetail .wochips { margin-top: 6px; }
+/* Fare strip inside a picks-table row: mirrors the season strip beside it —
+   same calendar axis, same size, same "now" outline. */
+.rowfares { display: block; margin-top: 4px; text-align: center; }
+.rowfares .farestrip .fcell { width: 5px; height: 9px; border-radius: 1px; }
+/* Guide fare bars: shorter cousin of the temperature chart above them. */
+.farebars { height: 96px; margin-top: 8px; }
+.farebars .fill.na { background: var(--soft); opacity: .4; }
+
 /* Fare-by-month strip (guide + trip). Same visual grammar as the season
    strip: cells across a year, colour carries the answer, tips carry numbers. */
 .guidefares { display: block; margin: 14px 0 4px; }

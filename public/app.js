@@ -1304,12 +1304,15 @@ async function ensureFareMonths(iso) {
 // too little to say (a one-month curve is a number, not a season).
 function fareStripHTML(months, opts) {
   opts = opts || {};
+  // Calendar Jan-Dec order, NOT next-12-months order: these strips sit beside
+  // the season strips, which are calendar-ordered, and two same-looking strips
+  // with different month axes in one row would be a quiet lie. Each month
+  // shows its NEXT occurrence's fare.
   const now = new Date();
   const keys = [];
-  for (let i = 0; i < 12; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    keys.push({ key: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"),
-                mon: d.getMonth() + 1 });
+  for (let m = 1; m <= 12; m++) {
+    const y = m > now.getMonth() ? now.getFullYear() : now.getFullYear() + 1;
+    keys.push({ key: y + "-" + String(m).padStart(2, "0"), mon: m });
   }
   const present = keys.filter((k) => months[k.key]);
   if (present.length < 3) return null;
@@ -1351,11 +1354,45 @@ async function renderGuideFares(iso) {
   // Origin name from the strip's own payload — flightsData may be null on a
   // direct guide load (that null is what hid the first production version).
   const originName = countryName(fm.origin || travelOrigin() || "US");
+  // The guide gets real bars, not chips: it sits directly under the full-size
+  // temperature chart and must speak that chart's language — 12 labeled
+  // columns, the number on the bar, taller = cheaper (tall means "go", same
+  // as the comfort bars above; colour double-codes it so nobody misreads).
+  const dispCur = flightDisplayCur();
+  const conv2 = dispCur === "USD" ? 1 : (rateForCurrency(dispCur) || 1);
+  const cur2 = conv2 === 1 ? "USD" : dispCur;
+  const fmv = (v) => (cur2 === "USD" ? "$" + Math.round(v * conv2).toLocaleString()
+                                     : "≈" + Math.round(v * conv2).toLocaleString());
+  const now2 = new Date();
+  const prices = [];
+  for (let m = 1; m <= 12; m++) {
+    const y = m > now2.getMonth() ? now2.getFullYear() : now2.getFullYear() + 1;
+    const rec = fm.months[y + "-" + String(m).padStart(2, "0")];
+    prices.push(rec ? rec.price : null);
+  }
+  const known = prices.filter((p) => p != null);
+  const lo = Math.min(...known), hi = Math.max(...known);
+  const cols = prices.map((p, i) => {
+    if (p == null) return '<div class="col"><div class="mscore"></div>'
+      + '<div class="fill na" style="height:8%" data-tip="'
+      + esc(MONTHS[i] + " — no cached fares") + '" title=""></div>'
+      + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
+    const t = hi > lo ? (p - lo) / (hi - lo) : 0.5;         // 0 = cheapest
+    const h = 30 + (1 - t) * 65;                            // taller = cheaper
+    const fill = t <= 0.5 ? mix("#eef0f1", "#0a7d28", 1 - t * 1.3)
+                          : mix("#eef0f1", "#b00020", (t - 0.5) * 1.3);
+    return '<div class="col"><div class="mscore">' + fmv(p) + "</div>"
+      + '<div class="fill" style="height:' + h + '%;background:' + fill + '" data-tip="'
+      + esc(MONTHS[i] + ": from " + fmv(p) + " round-trip") + '" title=""></div>'
+      + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
+  }).join("");
   host.innerHTML = '<span class="fareshead">✈️ Fares by month <span class="muted">'
-    + esc(originName + " → " + countryName(iso)
-      + " · next 12 months · " + strip.note) + "</span></span>"
-    + '<span class="farestrip big">' + strip.cells + "</span>"
-    + '<span class="advsrcnote">Cheapest cached round-trip Aviasales has seen for each month — indicative, not live. Grey = no fares sampled that month.</span>';
+    + esc(originName + " → " + countryName(iso) + " · taller = cheaper · " + strip.note)
+    + "</span></span>"
+    + '<div class="bars farebars">' + cols + "</div>"
+    + '<span class="advsrcnote">Cheapest cached round-trip Aviasales has seen for each month'
+    + (cur2 !== "USD" ? " (≈" + esc(cur2) + " at today's rate)" : "")
+    + " — indicative, not live.</span>";
 }
 
 // ---- Travel Guide: "Where to stay" Stay22 map -------------------------------
@@ -3927,6 +3964,22 @@ function seasonalTags(iso, month, max) {
   return shown + more;
 }
 
+// Fare strips for the picks table, filled after render: one cached call per
+// row via /api/flight-months (12h server cache per route). Filling an empty
+// inline slot changes nothing vertically — the weather cell already sets the
+// row height — so the async arrival costs no CLS. The chosen month is
+// outlined, same mark the season strip uses.
+function fillRowFareStrips(hostSel, month) {
+  const slots = document.querySelectorAll(hostSel + " .rowfares");
+  slots.forEach(async (slot) => {
+    const iso = slot.dataset.iso;
+    const fm = await ensureFareMonths(iso);
+    if (!fm || !fm.months || !slot.isConnected) return;
+    const strip = fareStripHTML(fm.months, { highlightMonth: month });
+    if (strip) slot.innerHTML = '<span class="farestrip">' + strip.cells + "</span>";
+  });
+}
+
 function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   if (!host) return;
   if (!list.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
@@ -3949,9 +4002,9 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl, iso)}</td>
       <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
-      <td class="scell" data-go="flights" data-iso="${iso}">${s.fare == null ? '<span class="muted">—</span>'
+      <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
-            : gradePill(s.fly, "Flight deal vs the typical fare for this distance · click for exact prices")}</td>
+            : gradePill(s.fly, "Flight deal vs the typical fare for this distance · click for exact prices")}</span><span class="rowfares" data-iso="${iso}"></span></td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span>${coverageMark(s)}</td>
     </tr>`;
   }).join("");
@@ -3964,6 +4017,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <th class="${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
+  fillRowFareStrips("#" + host.id, month);
 }
 // Tooltip for the merged Affordability cell: explains both the price level and
 // the FX timing, both measured against the traveler's home country/currency.
