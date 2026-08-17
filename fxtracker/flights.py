@@ -163,3 +163,40 @@ def get_flights(origin_iso, currency="usd"):
         "countries": countries,
         "by_country": {c["iso"]: c["avg"] for c in countries},
     }
+
+
+# ---- monthly fare curve for one route --------------------------------------
+# /v1/prices/monthly returns the cheapest CACHED fare per month, up to a year
+# forward — forward-looking booking data, which is exactly the "when should I
+# fly" question. Same cached-search caveat as everything else here: months
+# nobody searched simply don't appear, and that absence must render as absence.
+_monthly_cache = {}
+MONTHLY_TTL = 12 * 3600
+
+
+def get_monthly(origin_iso, dest_city, currency="usd"):
+    import time as _time
+    origin_iso = (origin_iso or "US").strip().upper()[:2]
+    dest_city = (dest_city or "").strip().upper()[:3]
+    if not is_configured() or origin_iso not in ORIGIN_HUBS or len(dest_city) != 3:
+        return {"configured": is_configured(), "months": {}}
+    hub = ORIGIN_HUBS[origin_iso][0]
+    key = (hub, dest_city, currency)
+    now = _time.time()
+    hit = _monthly_cache.get(key)
+    if hit and now - hit[0] < MONTHLY_TTL:
+        return hit[1]
+    out = {"configured": True, "origin": origin_iso, "hub": hub,
+           "dest": dest_city, "currency": currency, "months": {}}
+    try:
+        qs = urllib.parse.urlencode({"origin": hub, "destination": dest_city,
+                                     "currency": currency, "token": token()})
+        data = rates.fetch_json("{0}/v1/prices/monthly?{1}".format(API, qs))
+        for k, v in ((data or {}).get("data") or {}).items():
+            if isinstance(v, dict) and v.get("price") is not None:
+                out["months"][k[:7]] = {"price": round(v["price"]),
+                                        "stops": v.get("transfers")}
+    except Exception:
+        pass
+    _monthly_cache[key] = (now, out)
+    return out

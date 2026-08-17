@@ -674,6 +674,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/advisories":
             self._handle_advisories()
             return
+        if path == "/api/flight-months":
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            origin = (qs.get("origin", ["US"])[0] or "US")[:2]
+            dest = (qs.get("dest", [""])[0] or "")[:3]
+            self._send_json(flights.get_monthly(origin, dest))
+            return
         if path == "/api/geo":
             # Visitor's country from Cloudflare's CF-IPCountry header — pure
             # per-request geolocation, nothing stored, no third-party service.
