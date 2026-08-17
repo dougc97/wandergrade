@@ -677,8 +677,27 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/flight-months":
             from urllib.parse import parse_qs, urlparse
             qs = parse_qs(urlparse(self.path).query)
-            origin = (qs.get("origin", ["US"])[0] or "US")[:2]
-            dest = (qs.get("dest", [""])[0] or "")[:3]
+            origin = (qs.get("origin", ["US"])[0] or "US").strip().upper()[:2]
+            dest = (qs.get("dest", [""])[0] or "").strip().upper()[:3]
+            iso = (qs.get("iso", [""])[0] or "").strip().upper()[:2]
+            # iso -> destination city resolves HERE, against the same cached
+            # fares payload the flights tab uses — so a guide page needs only
+            # this one call, with no client-side fares bootstrap to race.
+            if not dest and iso:
+                now = time.time()
+                hit = _flights_cache.get(origin)
+                payload = hit[1] if hit and (now - hit[0]) < FLIGHTS_TTL else None
+                if payload is None:
+                    try:
+                        payload = flights.get_flights(origin)
+                        if payload.get("configured"):
+                            _flights_cache[origin] = (now, payload)
+                    except Exception:
+                        payload = None
+                if payload:
+                    row = next((r for r in payload.get("countries", []) if r.get("iso") == iso), None)
+                    if row and row.get("dest"):
+                        dest = row["dest"]
             self._send_json(flights.get_monthly(origin, dest))
             return
         if path == "/api/geo":

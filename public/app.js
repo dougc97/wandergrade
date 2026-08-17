@@ -1286,14 +1286,15 @@ function renderGuide(iso) {
 // a few days of API behavior say the rate limits can carry 20 rows at once.
 const _fareMonthsCache = {};
 async function ensureFareMonths(iso) {
-  if (!(flightsData && flightsData.configured && flightsData.countries)) return null;
-  const row = flightsData.countries.find((r) => r.iso === iso);
-  if (!row || !row.dest) return null;
-  const origin = flightsData.origin || "US";
-  const key = origin + ":" + row.dest;
+  // iso resolves to a destination city on the SERVER against its cached fares,
+  // so this works on a direct guide load with no client fares bootstrap — the
+  // first production version raced that bootstrap and stayed hidden forever.
+  const origin = (flightsData && flightsData.origin) || travelOrigin() || "US";
+  const key = origin + ":" + iso;
   if (!_fareMonthsCache[key]) {
     _fareMonthsCache[key] = getJSON("/api/flight-months?origin=" + encodeURIComponent(origin)
-      + "&dest=" + encodeURIComponent(row.dest)).catch(() => null);
+      + "&iso=" + encodeURIComponent(iso)).then((r) => (r && r.months && Object.keys(r.months).length ? r : null))
+      .catch(() => null);
   }
   return _fareMonthsCache[key];
 }
