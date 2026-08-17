@@ -1358,8 +1358,7 @@ async function renderGuideFares(iso) {
   // temperature chart and must speak that chart's language — 12 labeled
   // columns, the number on the bar, taller = cheaper (tall means "go", same
   // as the comfort bars above; colour double-codes it so nobody misreads).
-  const dispCur = flightDisplayCur();
-  const conv2 = dispCur === "USD" ? 1 : (rateForCurrency(dispCur) || 1);
+  const conv2 = conv;                       // dispCur/conv declared above
   const cur2 = conv2 === 1 ? "USD" : dispCur;
   const fmv = (v) => (cur2 === "USD" ? "$" + Math.round(v * conv2).toLocaleString()
                                      : "≈" + Math.round(v * conv2).toLocaleString());
