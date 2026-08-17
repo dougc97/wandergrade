@@ -1348,8 +1348,11 @@ async function renderGuideFares(iso) {
   const strip = fareStripHTML(fm.months, { cur: conv === 1 ? "USD" : dispCur, conv });
   if (!strip) return;
   host.hidden = false;
+  // Origin name from the strip's own payload — flightsData may be null on a
+  // direct guide load (that null is what hid the first production version).
+  const originName = countryName(fm.origin || travelOrigin() || "US");
   host.innerHTML = '<span class="fareshead">✈️ Fares by month <span class="muted">'
-    + esc((flightsData.origin_name || flightsData.origin) + " → " + countryName(iso)
+    + esc(originName + " → " + countryName(iso)
       + " · next 12 months · " + strip.note) + "</span></span>"
     + '<span class="farestrip big">' + strip.cells + "</span>"
     + '<span class="advsrcnote">Cheapest cached round-trip Aviasales has seen for each month — indicative, not live. Grey = no fares sampled that month.</span>';
