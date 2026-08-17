@@ -3548,15 +3548,20 @@ function fmtBC(usd) {
 }
 function initBudgetCur() {
   const sel = $("budgetCur");
-  if (!sel || sel.options.length || !lastRates) return;
-  const codes = ["USD"].concat(lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort());
-  sel.innerHTML = codes.map((c) => `<option value="${c}">${c}</option>`).join("");
+  if (!sel || !lastRates) return;
+  if (!sel.options.length) {
+    const codes = ["USD"].concat(lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort());
+    sel.innerHTML = codes.map((c) => `<option value="${c}">${c}</option>`).join("");
+    sel.onchange = () => {
+      try { localStorage.setItem("wg_budgetcur", sel.value); } catch (e) {}
+      renderValue();
+    };
+  }
+  // Unpinned budget currency follows "My currency" — switching home to
+  // Germany should carry the budget to EUR unless the visitor explicitly
+  // chose otherwise (an explicit pick persists and wins).
   const want = budgetCur();
-  if (codes.includes(want)) sel.value = want;
-  sel.onchange = () => {
-    try { localStorage.setItem("wg_budgetcur", sel.value); } catch (e) {}
-    renderValue();
-  };
+  if (sel.value !== want && [...sel.options].some((o) => o.value === want)) sel.value = want;
 }
 
 function budgetOf() {
@@ -4235,15 +4240,19 @@ function flightDisplayCur() {
 }
 function initFlightCur() {
   const sel = $("flightCur");
-  if (!sel || sel.options.length || !lastRates) return;
-  const codes = ["USD"].concat(lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort());
-  sel.innerHTML = codes.map((c) => `<option value="${c}">${c}</option>`).join("");
+  if (!sel || !lastRates) return;
+  if (!sel.options.length) {
+    const codes = ["USD"].concat(lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort());
+    sel.innerHTML = codes.map((c) => `<option value="${c}">${c}</option>`).join("");
+    sel.onchange = () => {
+      try { localStorage.setItem("wg_flightcur", sel.value); } catch (e) {}
+      renderFlights();
+    };
+  }
+  // Unpinned display currency follows "My currency", same rule as the budget:
+  // an explicit pick persists and wins; the default tracks the home switch.
   const want = flightDisplayCur();
-  if (codes.includes(want)) sel.value = want;
-  sel.onchange = () => {
-    try { localStorage.setItem("wg_flightcur", sel.value); } catch (e) {}
-    renderFlights();
-  };
+  if (sel.value !== want && [...sel.options].some((o) => o.value === want)) sel.value = want;
 }
 
 function renderFlights() {
