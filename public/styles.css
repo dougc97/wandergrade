@@ -1195,6 +1195,18 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .worow:hover { border-color: var(--green); color: var(--green); }
 .wodetail td { background: var(--card2); padding: 10px 14px 12px; }
 .wodetail .wochips { margin-top: 6px; }
+/* Fare-by-month strip (guide + trip). Same visual grammar as the season
+   strip: cells across a year, colour carries the answer, tips carry numbers. */
+.guidefares { display: block; margin: 14px 0 4px; }
+.fareshead { display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 6px; }
+.farestrip { display: inline-flex; gap: 2px; }
+.farestrip .fcell { width: 13px; height: 15px; border-radius: 2px; cursor: help; }
+.farestrip.big .fcell { width: 22px; height: 18px; border-radius: 3px; }
+.farestrip .fcell.na { background: var(--soft); opacity: .45; }
+.farestrip .fcell.now { outline: 2px solid var(--ink); outline-offset: 1px; }
+.tbfare { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; }
+.tbfarenote { font-size: 11px; white-space: nowrap; }
+
 /* Calm watchouts fold on L1/L2 guides. */
 .wofold { margin-top: 8px; font-size: 12.5px; }
 .wofold summary { cursor: pointer; color: var(--gray); font-weight: 600; }

@@ -1274,7 +1274,84 @@ function renderGuide(iso) {
   renderCountryClimate(iso);
   renderActivity(iso);
   renderGuideStay(iso);
+  renderGuideFares(iso);
   syncURL();
+}
+
+// ---- Fare-by-month strip ----------------------------------------------------
+// The flights answer to "when should I go": /api/flight-months serves the
+// cheapest cached fare per month up to a year forward for one route. Months
+// nobody searched are absent and render as absence — a gap cell, never an
+// invented number. Guide + Trip only for now; the Top Picks table waits until
+// a few days of API behavior say the rate limits can carry 20 rows at once.
+const _fareMonthsCache = {};
+async function ensureFareMonths(iso) {
+  if (!(flightsData && flightsData.configured && flightsData.countries)) return null;
+  const row = flightsData.countries.find((r) => r.iso === iso);
+  if (!row || !row.dest) return null;
+  const origin = flightsData.origin || "US";
+  const key = origin + ":" + row.dest;
+  if (!_fareMonthsCache[key]) {
+    _fareMonthsCache[key] = getJSON("/api/flight-months?origin=" + encodeURIComponent(origin)
+      + "&dest=" + encodeURIComponent(row.dest)).catch(() => null);
+  }
+  return _fareMonthsCache[key];
+}
+
+// The next 12 months as cells, coloured within THIS route's own range —
+// cheapest month green, priciest red, missing grey. Returns null when there's
+// too little to say (a one-month curve is a number, not a season).
+function fareStripHTML(months, opts) {
+  opts = opts || {};
+  const now = new Date();
+  const keys = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    keys.push({ key: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"),
+                mon: d.getMonth() + 1 });
+  }
+  const present = keys.filter((k) => months[k.key]);
+  if (present.length < 3) return null;
+  const vals = present.map((k) => months[k.key].price);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const conv = opts.conv || 1, cur = opts.cur || "USD";
+  const fm = (v) => (cur === "USD" ? "$" + Math.round(v * conv).toLocaleString()
+                                   : "≈" + cur + " " + Math.round(v * conv).toLocaleString());
+  const cells = keys.map((k) => {
+    const m = months[k.key];
+    const nowCls = opts.highlightMonth === k.mon ? " now" : "";
+    if (!m) return '<span class="fcell na' + nowCls + '" data-tip="'
+      + esc(MONTHS[k.mon - 1] + " — no cached fares for this month") + '" title=""></span>';
+    const t = hi > lo ? (m.price - lo) / (hi - lo) : 0.5;
+    const fill = t <= 0.5 ? mix("#eef0f1", "#0a7d28", 1 - t * 1.3)
+                          : mix("#eef0f1", "#b00020", (t - 0.5) * 1.3);
+    return '<span class="fcell' + nowCls + '" style="background:' + fill + '" data-tip="'
+      + esc(MONTHS[k.mon - 1] + ": from " + fm(m.price) + " round-trip"
+        + (m.stops != null ? " · " + fmtStops(m.stops).replace(/<[^>]+>/g, "") : "")) + '" title=""></span>';
+  }).join("");
+  const cheap = present.reduce((a, b) => (months[a.key].price <= months[b.key].price ? a : b));
+  const dear = present.reduce((a, b) => (months[a.key].price >= months[b.key].price ? a : b));
+  return { cells, note: "cheapest " + MON_ABBR[cheap.mon - 1] + " " + fm(months[cheap.key].price)
+      + " · priciest " + MON_ABBR[dear.mon - 1] + " " + fm(months[dear.key].price),
+    cheapMon: cheap.mon };
+}
+
+async function renderGuideFares(iso) {
+  const host = $("guideFares");
+  if (!host) return;
+  host.hidden = true;
+  const fm = await ensureFareMonths(iso);
+  if (ccGuideIso !== iso || !fm || !fm.months) return;
+  const dispCur = flightDisplayCur();
+  const conv = dispCur === "USD" ? 1 : (rateForCurrency(dispCur) || 1);
+  const strip = fareStripHTML(fm.months, { cur: conv === 1 ? "USD" : dispCur, conv });
+  if (!strip) return;
+  host.hidden = false;
+  host.innerHTML = '<span class="fareshead">✈️ Fares by month <span class="muted">'
+    + esc((flightsData.origin_name || flightsData.origin) + " → " + countryName(iso)
+      + " · next 12 months · " + strip.note) + "</span></span>"
+    + '<span class="farestrip big">' + strip.cells + "</span>"
+    + '<span class="advsrcnote">Cheapest cached round-trip Aviasales has seen for each month — indicative, not live. Grey = no fares sampled that month.</span>';
 }
 
 // ---- Travel Guide: "Where to stay" Stay22 map -------------------------------
@@ -2972,12 +3049,26 @@ function renderTripBook(isos) {
     links.push('<span class="tbstay" data-iso="' + iso + '"></span>');
     links.push(A(viatorURL(countryName(iso)), "🎟️ Things to do"));
     return '<div class="tbrow"><span class="tbname">' + flagEmoji(iso) + " "
-      + esc(countryName(iso)) + "</span>" + links.join("") + "</div>";
+      + esc(countryName(iso)) + "</span>" + links.join("")
+      + '<span class="tbfare" data-iso="' + iso + '"></span></div>';
   }).join("");
   host.innerHTML = '<div class="tbhead">Book the pieces</div>' + rows
     + '<div class="tbrow"><span class="tbname">🛡️ The whole trip</span>'
     + A(insuranceHref(isos[0] || "US"), "Travel insurance (EKTA)") + "</div>"
     + '<p class="affnote">These earn us a commission at no extra cost to you — it’s what keeps the site free.</p>';
+  // Mini fare strip under each country, the trip's month marked — "your
+  // November flight is $723; October would be $550" is exactly the nudge the
+  // month selector is for.
+  const tripM = tripMonth().month || lastPicksMonth || curMonth();
+  isos.forEach(async (iso2) => {
+    const fm = await ensureFareMonths(iso2);
+    const slot = host.querySelector('.tbfare[data-iso="' + iso2 + '"]');
+    if (!fm || !fm.months || !slot) return;
+    const strip = fareStripHTML(fm.months, { highlightMonth: tripM });
+    if (!strip) return;
+    slot.innerHTML = '<span class="farestrip">' + strip.cells + "</span>"
+      + '<span class="muted tbfarenote">' + esc(strip.note) + "</span>";
+  });
   ensureStayCoords().then((cc) => {
     const { checkin, checkout } = tripStayDates();
     host.querySelectorAll(".tbstay").forEach((el) => {
