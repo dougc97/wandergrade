@@ -4099,8 +4099,8 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     return `<tr data-iso="${iso}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">#${i + 1}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}${seasonalTags(s.iso, month)}</td>
-      <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}</span>${fxMark(s.iso)}</td>
-      <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</td>
+      <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}${fxMark(s.iso)}</span></td>
+      <td class="scell" data-go="advisory" data-iso="${iso}"><span class="pillwrap">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</span></td>
       <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
       <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
