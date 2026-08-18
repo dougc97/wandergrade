@@ -105,6 +105,11 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
    is 70% of its column, so the label was quietly sizing the chart. Bars encode
    comfort in their HEIGHT; width carrying accidental meaning is a lie. */
 .bars { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; align-items: end; height: 150px; }
+/* The legend lines that used to sit between the hazard text and the chart
+   were cut; without them the temperature labels crowd the text above. The
+   chart carries its own buffer now (guide temp chart only — the fare panel
+   spaces itself). */
+#bestDetail .bars { margin-top: 18px; }
 .bars .col { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; position: relative; }
 .bars .mscore, .bars .mlabel { white-space: nowrap; }
 .bars .fill { width: 70%; border-radius: 4px 4px 0 0; background: var(--green); }
