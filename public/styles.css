@@ -1232,6 +1232,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   /* The verdict badge steps down with the viewport so the Overall column
      never forces the table wider than the phone. */
   .gr.big { min-width: 36px; font-size: 16px; padding: 4px 8px; }
+  /* Fare-panel columns are ~27px here — "$1,167" cannot fit and a clipped
+     price is worse than none. The header names cheapest and priciest, and
+     each bar's tooltip keeps its exact price. */
+  .farebars .mscore { display: none; }
+  /* Same reasoning for the table's FX mark: half-clipped "+9%" reads as
+     broken. The full signal lives on the guide's trend line. The ▲/▼
+     advisory arrow stays — a single glyph fits anywhere. */
+  .gradetable .fxmark { display: none; }
   .budgethero .numin { width: 64px; }
   .budgethero .bdays { width: 44px; }
 }
