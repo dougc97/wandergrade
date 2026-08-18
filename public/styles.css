@@ -648,6 +648,12 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .guidevisa { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
   margin: 0 0 14px; font-size: 13px; color: var(--gray); line-height: 1.5; }
 .guidevisa .guidevisa-txt { flex: 1; min-width: 200px; }
+/* Safety flows as LINES, not columns: the level chip is one short element
+   beside a five-line block, and a column layout left a hole under the chip,
+   right above the action buttons. Inline chip + heading, everything else
+   full-width below — same left edge as the visa row and the buttons. */
+#guideSafety { display: block; }
+#guideSafety .advbadge { margin-right: 4px; }
 .guidevisa b { color: var(--ink); }
 .grnum { font-size: 12.5px; font-weight: 800; color: var(--ink); margin-left: 6px;
   font-variant-numeric: tabular-nums; }
