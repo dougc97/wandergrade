@@ -2067,13 +2067,14 @@ function renderCountryClimate(iso) {
   const hzByMonth = {};
   for (const h of hazards) for (const m of h.months || []) hzByMonth[m] = h.note;
 
-  const chips = c.best.map((m) => `<span class="chip2">${MON_ABBR[m - 1]}</span>`).join("");
   // Spelled out, in a sentence, under a heading that repeats the question.
   // Every search that reaches these pages is some form of "best time to visit
   // <country>", and this block is what a reader — and a JS-rendering crawler —
   // actually sees: renderGuide() deletes the server-rendered copy on hydration,
-  // so saying it only there says it to nobody. Chips stay as the quick visual;
-  // "Dec" is fine to glance at and matches nothing anyone types.
+  // so saying it only there says it to nobody. The sentence stands alone: a
+  // month-chip row underneath repeated it verbatim and was cut for exactly
+  // that reason — same fact twice in adjacent lines, and chips match nothing
+  // anyone types.
   const bestFull = joinAnd(c.best.filter((m) => m >= 1 && m <= 12).map((m) => MONTHS[m - 1]));
   const bestLine = !bestFull
     ? (c.curated ? "📅 Curated best months:" : "📅 Best weather:")
@@ -2108,18 +2109,16 @@ function renderCountryClimate(iso) {
 
   $("bestDetail").innerHTML = `
     <div class="besthead">
-      <h2>Best time to visit ${esc(c.name)} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span></h2>
+      <h2>Best time to visit ${esc(c.name)} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span>${
+        hasTemps ? `<span class="legendinfo" data-tip="Each bar is a month — the number is its average temperature, taller = comfier weather, and color = heat: blue cold, green ideal, amber warm, red hot. Month labels underneath: green = peak season, amber = shoulder, grey = off-season." title="">ⓘ</span>` : ""}</h2>
       ${unitToggle}
     </div>
     <div class="monthslabel">${bestLine}</div>
-    <div class="chips">${chips}</div>
     <div class="seasons">
       <span><b class="peak">☀️ Peak</b> (best weather, busiest &amp; priciest): ${fmtMonths(peakM)}</span>
       <span><b class="off">💸 Off-peak</b> (cheapest, fewest crowds): ${fmtMonths(offM)}</span>
     </div>
     ${hazardLines}
-    ${hasTemps ? `<div class="monthslabel">🌡️ Avg temperature (${tempUnit() === "F" ? "°F" : "°C"}) · taller bar = comfier month · color = temp: <span style="color:#2b6cb0;font-weight:700">cold</span> → <span style="color:#0a7d28;font-weight:700">ideal</span> → <span style="color:#df8a10;font-weight:700">warm</span> → <span style="color:#be1218;font-weight:700">hot</span></div>
-    <div class="monthslabel seaskey">Month labels: <span style="color:var(--green);font-weight:700">peak season</span> · <span style="color:var(--amber)">shoulder</span> · <span style="color:#aaa">off-season</span></div>` : ""}
     <div class="bars">${bars}</div>`;
   for (const b of document.querySelectorAll("#bestDetail .tempunit button"))
     b.addEventListener("click", () => setTempUnit(b.dataset.u));
@@ -3520,11 +3519,10 @@ function renderGuideAI(iso) {
     + (tripHas(iso) ? "🧳 On your trip — remove" : "🧳 Add " + esc(name) + " to my trip")
     + "</button>"
     + '<button id="guideAIBtn" type="button" class="aibtn"'
-    + ' title="Builds a ready-to-paste planning prompt for ' + esc(name) + '">'
+    + ' title="Writes the prompt for you — ' + esc(name)
+    + '\'s season, visa rules and local prices already filled in.'
+    + ' Copy it, or open it in ChatGPT, Claude, Grok or Perplexity.">'
     + '✨ Plan ' + esc(name) + ' with AI →</button>'
-    + '<span class="aihint">Writes the prompt for you — ' + esc(name)
-    + "'s season, visa rules and local prices already filled in. "
-    + 'Copy it, or open it in ChatGPT, Claude, Grok or Perplexity.</span>'
     + '<div id="guideAIPanel" class="aipanel" hidden></div>';
   $("guideAIBtn").onclick = () => openGuideAI(iso);
   $("guideTripBtn").onclick = () => {

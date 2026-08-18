@@ -592,6 +592,10 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .guidefx .fxhead { display: block; margin-bottom: 4px; }
 .guidefx .fxhead b { color: var(--ink); }
 .guidefx .fxinfo { margin-left: 5px; cursor: help; }
+/* One ⓘ on the section header instead of two legend lines of body copy —
+   per the house rule: explanations live in hovers. */
+.legendinfo { margin-left: 7px; font-size: 13px; color: var(--gray);
+  cursor: help; font-weight: 400; }
 .guidefx .fxspark { display: block; width: 240px; max-width: 100%; height: 46px; }
 .guidefx .fxavg { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
 
