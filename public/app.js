@@ -1275,6 +1275,7 @@ function renderGuide(iso) {
   renderActivity(iso);
   renderGuideStay(iso);
   renderGuideFares(iso);
+  renderGuideFx(iso);
   syncURL();
 }
 
@@ -1396,6 +1397,50 @@ async function renderGuideFares(iso) {
     + '<span class="advsrcnote">Cheapest cached round-trip Aviasales has seen for each month'
     + (cur2 !== "USD" ? " (≈" + esc(cur2) + " at today's rate)" : "")
     + " — indicative, not live.</span>";
+}
+
+// ---- FX trailing trend ------------------------------------------------------
+// A LINE, deliberately not bars: bars on this page mean "pick a month" (fares,
+// temperature). FX has no forecastable seasonality, so this chart answers only
+// "is your money going further than usual right now" — backward-looking
+// monthly averages, the same 1-yr-average anchor the affordability score's FX
+// component already uses. Never a month-picker.
+const _fxTrendCache = {};
+async function renderGuideFx(iso) {
+  const host = $("guideFx");
+  if (!host) return;
+  host.hidden = true;
+  host.innerHTML = "";
+  const dest = PPP_CUR[iso] || CUR_BY_ISO[iso];
+  const base = homeBase || "USD";
+  // Same currency both ends (an American in Ecuador) = no FX story to tell.
+  if (!dest || dest === base) return;
+  const key = base + ":" + dest;
+  let t;
+  try {
+    t = await (_fxTrendCache[key] ||
+      (_fxTrendCache[key] = getJSON("/api/fx-trend?cur=" + dest + "&base=" + base)));
+  } catch (e) { delete _fxTrendCache[key]; return; }
+  if (ccGuideIso !== iso || !t || !t.months || t.months.length < 6) return;
+  const pts = t.months.map((m) => m.v);
+  const lo = Math.min(...pts, t.avg), hi = Math.max(...pts, t.avg);
+  const W = 240, H = 46, P = 4;
+  const x = (i) => P + (i * (W - 2 * P)) / (pts.length - 1);
+  const y = (v) => (hi > lo ? P + (H - 2 * P) * (1 - (v - lo) / (hi - lo)) : H / 2);
+  const path = pts.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
+  // Same thresholds as the Currency tab's strong/typical/weak labels.
+  const col = t.pct >= 2 ? "#2f9e44" : t.pct <= -2 ? "#d9480f" : "#8891a0";
+  const verdict = t.pct >= 2 ? "further than usual" : t.pct <= -2 ? "less far than usual" : "about typical";
+  const mLabel = (m) => MON_ABBR[parseInt(m.slice(5), 10) - 1];
+  host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(countryName(iso))}</b> · past 12 months: `
+    + `<b style="color:${col}">${t.pct > 0 ? "+" : ""}${t.pct}%</b> vs its 1-yr average`
+    + ` <span class="muted">(goes ${verdict})</span>`
+    + `<span class="fxinfo" data-tip="Monthly averages of the daily ${esc(base)}→${esc(dest)} rate, ${esc(mLabel(t.months[0].m))} to ${esc(mLabel(t.months[t.months.length - 1].m))}. Higher = your money buys more ${esc(dest)}. Backward-looking on purpose: exchange rates aren't seasonal, so this says whether now is favourable — not which month to pick." title="">ⓘ</span></span>`
+    + `<svg class="fxspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
+    + `<line x1="${P}" y1="${y(t.avg).toFixed(1)}" x2="${W - P}" y2="${y(t.avg).toFixed(1)}" class="fxavg"/>`
+    + `<path d="${path}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`
+    + `<circle cx="${x(pts.length - 1).toFixed(1)}" cy="${y(pts[pts.length - 1]).toFixed(1)}" r="3" fill="${col}"/></svg>`;
+  host.hidden = false;
 }
 
 // ---- Travel Guide: "Where to stay" Stay22 map -------------------------------
@@ -1537,8 +1582,22 @@ function renderGuideSafety(iso) {
     // this site does not author safety claims.
     const why = it.summary
       ? ` <span class="advwhy">“${esc(it.summary)}”</span>` : "";
+    // The same moved-recently signal the Safety tab shows, on the one page
+    // where a single country's trajectory matters. Sources publish only the
+    // CURRENT advisory, so the latest move is all the history that exists.
+    let moved = "";
+    if (it.change && it.updated
+        && it.updated >= new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10)) {
+      const d = new Date(it.updated + "T12:00:00");
+      const when = isNaN(d) ? it.updated : MON_ABBR[d.getMonth()] + " " + d.getDate();
+      moved = ` <span class="advmoved ${it.change === "up" ? "chup" : "chdown"}" data-tip="${
+        esc(src + (it.change === "up" ? " raised" : " lowered")
+        + " this advisory to Level " + lvl + " on " + when
+        + " — recently " + (it.change === "up" ? "riskier" : "safer") + " in their judgement.")}" title="">${
+        it.change === "up" ? "▲ raised" : "▼ lowered"} ${esc(when)}</span>`;
+    }
     host.hidden = false;
-    host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>
+    host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>${moved}
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
       <span class="advlinks"><a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a> · <a href="#" class="advsrcjump">switch source (US · CA · DE) → Safety tab</a></span>
       <span id="guideWatchouts"></span></span>`;
@@ -2540,6 +2599,9 @@ function setHomeCur(code, manual) {
   // Guarded on lastRates, not a loaded.* flag: the rates table isn't lazy — it
   // loads at boot — so there is no flag for it, and there was never one to check.
   if (changed && lastRates) { loadRates(); loadIndex(activeDays); }
+  // The guide's FX trend is anchored to the home currency — an open guide
+  // must not keep charting the previous one.
+  if (changed && ccGuideIso) renderGuideFx(ccGuideIso);
 }
 
 function initHomeCur() {

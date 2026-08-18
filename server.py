@@ -704,6 +704,19 @@ class Handler(BaseHTTPRequestHandler):
                         return
             self._send_json(flights.get_monthly(origin, dest))
             return
+        if path == "/api/fx-trend":
+            from urllib.parse import parse_qs, urlparse
+            qs = parse_qs(urlparse(self.path).query)
+            cur = (qs.get("cur", [""])[0] or "").strip().upper()[:3]
+            base = (qs.get("base", ["USD"])[0] or "USD").strip().upper()[:3]
+            try:
+                t = rates.get_trend(cur, base)
+            except Exception:
+                t = None
+            # null is an answer (unknown currency / provider gap) — the guide
+            # simply doesn't render the sparkline.
+            self._send_json(t or {"code": cur, "base": base, "months": []})
+            return
         if path == "/api/geo":
             # Visitor's country from Cloudflare's CF-IPCountry header — pure
             # per-request geolocation, nothing stored, no third-party service.

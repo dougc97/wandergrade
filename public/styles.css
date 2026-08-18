@@ -300,6 +300,11 @@ small { color: var(--gray); font-weight: 400; }
 .mappicksrow strong { color: var(--ink); font-size: 12.5px; }
 .mappicksrow .chup { color: #e08585; }
 .mappicksrow .chdown { color: #7ec98f; }
+/* Guide safety line: the advisory's latest move, riding beside the level chip.
+   Same palette as the Safety tab's recently-changed list. */
+.advmoved { font-size: 11.5px; font-weight: 700; white-space: nowrap; cursor: help; }
+.advmoved.chup { color: #e08585; }
+.advmoved.chdown { color: #7ec98f; }
 
 /* zoom controls on the Wander List map */
 .mapzoom { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column;
@@ -569,6 +574,17 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .gradetable td.scell:hover { background: var(--soft); }
 .gr { display: inline-block; min-width: 26px; padding: 2px 7px; border-radius: 7px;
   font-weight: 800; font-size: 13px; color: #fff; text-align: center; }
+/* FX trailing trend on the guide: a line, deliberately not bars — bars on the
+   guide mean "pick a month"; this only says whether money goes further than
+   usual right now. Quiet inline block, no panel: it is a footnote to the fare
+   chart above it, not a peer instrument. */
+.guidefx { display: block; margin: 10px 0 4px; font-size: 12.5px; color: var(--gray); }
+.guidefx .fxhead { display: block; margin-bottom: 4px; }
+.guidefx .fxhead b { color: var(--ink); }
+.guidefx .fxinfo { margin-left: 5px; cursor: help; }
+.guidefx .fxspark { display: block; width: 240px; max-width: 100%; height: 46px; }
+.guidefx .fxavg { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
+
 /* The Overall grade is the verdict, not a fifth peer chip — a full step up in
    size, and the whole column sits on its own band so the eye lands there. */
 .gr.big { min-width: 42px; font-size: 18px; padding: 6px 11px; border-radius: 9px; }

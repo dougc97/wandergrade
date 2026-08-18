@@ -295,3 +295,52 @@ def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None,
         "index_change_pct": index_change,
         "index_count": len(rows),
     }
+
+
+# ---- trailing FX trend for one currency -------------------------------------
+# Monthly averages of the daily USD-based series, for the guide's "is your
+# money going further than usual" sparkline. One timeseries fetch covers every
+# currency, so the whole map is cached as a unit. Backward-looking on purpose:
+# FX has no forecastable seasonality, and this chart must never pretend to be
+# a month-picker — it answers "is now good vs the past year", nothing more.
+_trend_cache = {}  # base -> (fetched_at, {code: payload})
+TREND_TTL = 6 * 3600
+
+
+def get_trend(code, base="USD"):
+    import time as _time
+    code = (code or "").upper()[:3]
+    base = (base or "USD").upper()[:3]
+    now = _time.time()
+    hit = _trend_cache.get(base)
+    if not hit or now - hit[0] >= TREND_TTL:
+        today = datetime.date.today()
+        start = (today - datetime.timedelta(days=MAX_HISTORY_DAYS)).isoformat()
+        ts = get_timeseries(start, today.isoformat())
+        latest_date, latest = get_latest()
+        if base != "USD":
+            latest, ts = _rebase(latest, ts, base)
+            if latest is None:
+                return None
+        buckets = {}  # code -> {YYYY-MM: [rates]}
+        for d in sorted(ts):
+            ym = d[:7]
+            for c, r in ts[d].items():
+                buckets.setdefault(c, {}).setdefault(ym, []).append(r)
+        table = {}
+        for c, ms in buckets.items():
+            months = [{"m": ym, "v": round(sum(v) / len(v), 6)}
+                      for ym, v in sorted(ms.items())]
+            allv = [r for v in ms.values() for r in v]
+            avg = sum(allv) / len(allv)
+            rate_now = latest.get(c)
+            if rate_now is None or not avg:
+                continue
+            table[c] = {"months": months, "avg": round(avg, 6),
+                        "now": round(rate_now, 6),
+                        "pct": round((rate_now / avg - 1.0) * 100.0, 2),
+                        "as_of": latest_date}
+        _trend_cache[base] = (now, table)
+        hit = _trend_cache[base]
+    out = hit[1].get(code)
+    return dict(out, code=code, base=base) if out else None
