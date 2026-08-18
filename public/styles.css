@@ -305,6 +305,16 @@ small { color: var(--gray); font-weight: 400; }
 .advmoved { font-size: 11.5px; font-weight: 700; white-space: nowrap; cursor: help; }
 .advmoved.chup { color: #e08585; }
 .advmoved.chdown { color: #7ec98f; }
+/* Table-sized trend marks: rare pill-riders in the picks table — the FX %
+   only past ±5%, the advisory arrow only within 180 days of a move. */
+.fxmark { font-size: 10.5px; font-weight: 800; margin-left: 4px; cursor: help;
+  vertical-align: middle; }
+.fxmark.fxup { color: #7ec98f; }
+.fxmark.fxdn { color: #e08585; }
+.gradetable .advmv { font-size: 10px; margin-left: 3px; cursor: help;
+  vertical-align: middle; }
+.advmv.chup { color: #e08585; }
+.advmv.chdown { color: #7ec98f; }
 
 /* zoom controls on the Wander List map */
 .mapzoom { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column;

@@ -4045,6 +4045,43 @@ function fillRowFareStrips(hostSel, month) {
   });
 }
 
+// Table-sized versions of the guide's two trend signals, compressed to the
+// table's own grammar: pill + rare marker, never a chart. The full sparkline
+// and dated move live on the guide, where there is room to be honest about
+// what they mean.
+// FX: gated at ±5% — rarer than the Currency tab's ±2% "strong" label on
+// purpose. A scan table earns a mark only when it might change a decision;
+// the ⚠️ drift warning already covers the extreme (±15%) case.
+const FX_MARK_PCT = 5;
+function fxMark(iso) {
+  const code = PPP_CUR[iso] || CUR_BY_ISO[iso];
+  const rows = homeRates && homeRates.rows;
+  if (!code || !rows || code === homeBase) return "";
+  const row = rows.find((r) => r.code === code);
+  const pct = row && row.strength_pct;
+  if (typeof pct !== "number" || Math.abs(pct) < FX_MARK_PCT) return "";
+  const up = pct > 0;
+  return `<span class="fxmark ${up ? "fxup" : "fxdn"}" data-tip="${esc("Your " + homeBase
+    + " is " + Math.abs(Math.round(pct)) + "% " + (up ? "stronger" : "weaker")
+    + " against the " + code + " than its 1-yr average — your money goes "
+    + (up ? "further" : "less far") + " there than usual right now.")}" title="">${
+    up ? "+" : "−"}${Math.abs(Math.round(pct))}%</span>`;
+}
+// Safety: the advisory's latest move (180-day window) — an event mark, only a
+// handful of countries carry one at a time.
+function advMovedMark(iso) {
+  const it = advisoryMetaByIso()[iso];
+  if (!it || !it.change || !it.updated) return "";
+  if (it.updated < new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10)) return "";
+  const d = new Date(it.updated + "T12:00:00");
+  const when = isNaN(d) ? it.updated : MON_ABBR[d.getMonth()] + " " + d.getDate();
+  const up = it.change === "up";
+  return `<span class="advmv ${up ? "chup" : "chdown"}" data-tip="${esc("Advisory "
+    + (up ? "raised" : "lowered") + " to Level " + it.level + " on " + when
+    + " — recently " + (up ? "riskier" : "safer") + " in the source's judgement.")}" title="">${
+    up ? "▲" : "▼"}</span>`;
+}
+
 function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   if (!host) return;
   if (!list.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
@@ -4064,8 +4101,8 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     return `<tr data-iso="${iso}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">#${i + 1}</td>
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}${seasonalTags(s.iso, month)}</td>
-      <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}</span></td>
-      <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl, iso)}</td>
+      <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}</span>${fxMark(s.iso)}</td>
+      <td class="scell" data-go="advisory" data-iso="${iso}">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</td>
       <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
       <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
