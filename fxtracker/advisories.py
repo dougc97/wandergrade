@@ -315,6 +315,11 @@ def _summary(desc):
         if LEAD.match(p):
             keep = keep[i:]
             break
+    # Some items open with the bare level phrase as a heading fragment
+    # ("Exercise increased caution") glued to the real sentence that repeats
+    # it — drop the fragment when the next sentence starts the same way.
+    if len(keep) >= 2 and LEAD.match(keep[1]) and len(keep[0]) < 40:
+        keep = keep[1:]
     # A "normal precautions" advisory has said everything in sentence one —
     # every sentence after it is program plugs and generic tips, and padding a
     # Level 1 country's summary with them made safe places read scary.
