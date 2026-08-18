@@ -1233,9 +1233,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .farestrip { display: inline-flex; gap: 2px; }
 .farestrip .fcell { width: 13px; height: 15px; border-radius: 2px; cursor: help; }
 .farestrip.big .fcell { width: 22px; height: 18px; border-radius: 3px; }
-/* Months with no cached fare: a short dim stub, clearly a gap on purpose —
-   full-height grey cells read as cells that failed to paint. */
-.farestrip .fcell.na { background: var(--soft); opacity: .35; height: 5px; align-self: center; }
+/* Months with no cached fare keep a visible full-height slot, exactly like
+   the weather strip's na cells — a 12-slot bar must READ as 12 slots. Dimmer
+   than data, but never invisible against the page background. */
+.farestrip .fcell.na { background: var(--line); opacity: .6; }
 .farestrip .fcell.now { outline: 2px solid var(--ink); outline-offset: 1px; }
 .tbfare { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; }
 .tbfarenote { font-size: 11px; white-space: nowrap; }
