@@ -128,9 +128,14 @@ def get_flights(origin_iso, currency="usd"):
             continue   # skip stale fares — don't average months-old prices in
         a = agg.setdefault(dest_iso, {"sum": 0.0, "n": 0, "min": price,
                                       "dur": None, "stops": None,
-                                      "dest": r.get("destination"), "seen": None})
+                                      "dest": r.get("destination"), "seen": None,
+                                      "cities": {}})
         a["sum"] += price
         a["n"] += 1
+        # Every destination city with cached fares, by how often it appears.
+        # The monthly curve merges across the top few — one secondary city
+        # rarely has a full year of cached months, but two or three do.
+        a["cities"][r.get("destination")] = a["cities"].get(r.get("destination"), 0) + 1
         if price <= a["min"]:
             # Travel time + layovers belong to the cheapest itinerary — the one
             # someone would actually book. The v3 latest-prices feed names the
@@ -148,9 +153,15 @@ def get_flights(origin_iso, currency="usd"):
             # found_at is the observation time, distinct from the travel date).
             a["seen"] = r.get("found_at")
 
+    def _top_cities(a):
+        top = sorted(a["cities"], key=lambda c: -a["cities"][c])[:3]
+        if a["dest"] and a["dest"] not in top:
+            top = [a["dest"]] + top[:2]
+        return top
+
     countries = [{"iso": iso, "avg": round(a["sum"] / a["n"]), "min": round(a["min"]),
                   "n": a["n"], "dur": a["dur"], "stops": a["stops"], "dest": a["dest"],
-                  "seen": a["seen"]}
+                  "seen": a["seen"], "cities": _top_cities(a)}
                  for iso, a in agg.items()]
     countries.sort(key=lambda c: c["avg"])
 
@@ -200,3 +211,33 @@ def get_monthly(origin_iso, dest_city, currency="usd"):
         pass
     _monthly_cache[key] = (now, out)
     return out
+
+
+def get_monthly_multi(origin_iso, dest_cities, currency="usd"):
+    """Monthly curve for a COUNTRY: cheapest cached fare per month across its
+    top cached destination cities. One secondary city rarely carries a full
+    year of cached months (US->Bucharest: 2), but the country's two or three
+    busiest cached cities together usually do. Cheapest per month wins, which
+    matches what the number means everywhere else on the site. Stops after the
+    first city if it already covers the year, so hub routes cost one call."""
+    merged = None
+    for city in (dest_cities or [])[:3]:
+        m = get_monthly(origin_iso, city, currency)
+        if not m.get("months"):
+            continue
+        if merged is None:
+            merged = dict(m)
+            merged["months"] = dict(m["months"])
+            merged["dests"] = [city]
+        else:
+            merged["dests"].append(city)
+            for k, v in m["months"].items():
+                cur = merged["months"].get(k)
+                if cur is None or v["price"] < cur["price"]:
+                    merged["months"][k] = v
+        if len(merged["months"]) >= 10:
+            break
+    if merged is not None:
+        return merged
+    first = (dest_cities or [""])[0]
+    return get_monthly(origin_iso, first, currency)

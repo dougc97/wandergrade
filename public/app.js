@@ -1314,8 +1314,12 @@ function fareStripHTML(months, opts) {
     const y = m > now.getMonth() ? now.getFullYear() : now.getFullYear() + 1;
     keys.push({ key: y + "-" + String(m).padStart(2, "0"), mon: m });
   }
+  // Below minMonths the strip doesn't render at all: a 12-cell strip with
+  // three filled cells reads as broken UI, not as sparse data. The compact
+  // table/trip strips demand half a year of real months; the guide chart,
+  // which labels and explains itself, tolerates fewer.
   const present = keys.filter((k) => months[k.key]);
-  if (present.length < 3) return null;
+  if (present.length < (opts.minMonths || 3)) return null;
   const vals = present.map((k) => months[k.key].price);
   const lo = Math.min(...vals), hi = Math.max(...vals);
   const conv = opts.conv || 1, cur = opts.cur || "USD";
@@ -1536,8 +1540,7 @@ function renderGuideSafety(iso) {
     host.hidden = false;
     host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
-      <a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a>
-      <span class="advsrcnote"><a href="#" class="advsrcjump">Switch the advisory source (US · CA · DE) in the Safety tab</a>.</span>
+      <span class="advlinks"><a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a> · <a href="#" class="advsrcjump">switch source (US · CA · DE) → Safety tab</a></span>
       <span id="guideWatchouts"></span></span>`;
     const jump = host.querySelector(".advsrcjump");
     if (jump) jump.onclick = async (e) => {
@@ -1596,13 +1599,14 @@ function renderWatchouts(iso) {
     const srcNote = '<span class="muted">(per ' + esc(w.source)
       + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "") + ")</span>";
     const tabLink = ' <a href="#" class="wotab">full picture → Safety tab</a>';
+    // chips already arrives wrapped in .wochips — wrapping again indented the
+    // chip row differently from every other line in the block.
     host.innerHTML = calm
       ? reg + '<details class="wofold"><summary>🧭 Safety notes ('
-        + w.watchouts.length + ") " + srcNote + "</summary>"
-        + '<span class="wochips">' + chips + "</span></details>"
-        + '<span class="advsrcnote">Nothing unusual for a Level ' + lvl + " country." + tabLink + "</span>"
+        + w.watchouts.length + ") — nothing unusual for a Level " + lvl
+        + " country " + srcNote + "</summary>" + chips + "</details>"
       : '<span class="wohead">Safety notes ' + srcNote + "</span>"
-        + '<span class="wochips">' + chips + "</span>" + reg
+        + chips + reg
         + '<span class="advsrcnote">' + tabLink.trim() + "</span>";
     const wt = host.querySelector(".wotab");
     if (wt) wt.onclick = async (e) => {
@@ -3107,7 +3111,7 @@ function renderTripBook(isos) {
     const fm = await ensureFareMonths(iso2);
     const slot = host.querySelector('.tbfare[data-iso="' + iso2 + '"]');
     if (!fm || !fm.months || !slot) return;
-    const strip = fareStripHTML(fm.months, { highlightMonth: tripM });
+    const strip = fareStripHTML(fm.months, { highlightMonth: tripM, minMonths: 6 });
     if (!strip) return;
     slot.innerHTML = '<span class="farestrip">' + strip.cells + "</span>"
       + '<span class="muted tbfarenote">' + esc(strip.note) + "</span>";
@@ -3974,7 +3978,7 @@ function fillRowFareStrips(hostSel, month) {
     const iso = slot.dataset.iso;
     const fm = await ensureFareMonths(iso);
     if (!fm || !fm.months || !slot.isConnected) return;
-    const strip = fareStripHTML(fm.months, { highlightMonth: month });
+    const strip = fareStripHTML(fm.months, { highlightMonth: month, minMonths: 6 });
     if (strip) slot.innerHTML = '<span class="farestrip">' + strip.cells + "</span>";
   });
 }
@@ -4013,7 +4017,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <th class="${sc.trim()}"${sa("safety")} title="US State Dept advisory level">🛡️ <span class="thword">Safety</span></th>
       <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month">🌤️ <span class="thword">Weather</span></th>
       <th class="${sc.trim()}"${sa("flights")} title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ <span class="thword">Flights</span></th>
-      <th class="${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
+      <th class="ovh ${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
   fillRowFareStrips("#" + host.id, month);

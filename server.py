@@ -696,8 +696,12 @@ class Handler(BaseHTTPRequestHandler):
                         payload = None
                 if payload:
                     row = next((r for r in payload.get("countries", []) if r.get("iso") == iso), None)
-                    if row and row.get("dest"):
-                        dest = row["dest"]
+                    if row:
+                        # Merge across the country's top cached cities — one
+                        # secondary city rarely has a full year of months.
+                        cities = row.get("cities") or ([row["dest"]] if row.get("dest") else [])
+                        self._send_json(flights.get_monthly_multi(origin, cities))
+                        return
             self._send_json(flights.get_monthly(origin, dest))
             return
         if path == "/api/geo":
