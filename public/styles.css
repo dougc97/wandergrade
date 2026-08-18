@@ -1199,8 +1199,15 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    same calendar axis, same size, same "now" outline. */
 .rowfares { display: block; margin-top: 4px; text-align: center; }
 .rowfares .farestrip .fcell { width: 5px; height: 9px; border-radius: 1px; }
-/* Guide fare bars: shorter cousin of the temperature chart above them. */
-.farebars { height: 96px; margin-top: 8px; }
+/* Guide fare bars: same colour law as everything (green = go), but visibly a
+   DIFFERENT INSTRUMENT than the temperature chart above — its own inset panel
+   and slimmer bars. Differentiation by module and silhouette, not by palette:
+   outlines already mean best/selected month here, and a second colour language
+   would break the site's only colour rule. */
+.farebars { height: 96px; margin-top: 8px; background: var(--card2);
+  border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 6px;
+  box-sizing: content-box; }
+.farebars .fill { width: 42%; }
 .farebars .fill.na { background: var(--soft); opacity: .4; }
 
 /* Fare-by-month strip (guide + trip). Same visual grammar as the season
