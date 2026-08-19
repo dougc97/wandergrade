@@ -45,7 +45,11 @@ if PUBLIC_MODE:
 
 PUBLIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
 CACHE_TTL = 600  # seconds; FX reference rates update at most daily.
-_cache = {"key": None, "at": 0, "data": None}
+# Rates cache is keyed per (settings, base), NOT a single slot: the site
+# localizes base to each visitor's home currency, so one-slot caching made
+# ordinary mixed-country traffic evict the entry on every alternation and
+# everyone paid the full three-fetch recompute. Expired keys prune on write.
+_rates_cache = {}  # (baseline_days, threshold_pct, watch, base) -> (ts, payload)
 _index_cache = {}  # days -> (timestamp, payload)
 _adv_cache = {}     # source -> (timestamp, payload)
 ADV_TTL = 6 * 3600  # advisories change rarely; refresh a few times a day
@@ -69,6 +73,7 @@ CONTENT_TYPES = {
     ".txt": "text/plain; charset=utf-8",
     ".xml": "application/xml; charset=utf-8",
     ".mp3": "audio/mpeg",
+    ".woff2": "font/woff2",
 }
 
 # Sent on every response. The CSP allows our own assets plus the few external
@@ -88,9 +93,9 @@ SECURITY_HEADERS = {
         # valid, and nothing reports. That is exactly what happened: Search
         # Console showed real clicks while the Cloudflare dashboard sat at 0.
         "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data: blob: https:; "
-        "font-src 'self' data: https://fonts.gstatic.com; "
+        "font-src 'self' data:; "
         "connect-src 'self' https:; "
         "frame-src https://www.stay22.com https://stay22.com; "
         "frame-ancestors 'self'; "
@@ -281,14 +286,18 @@ def _sitemap():
     # every CSS/markup tweak, which would bump all 177 lastmods for edits that
     # don't touch what a guide page actually says. A lastmod that moves
     # constantly is one Google stops believing.
-    mtimes = []
-    for name in ("slugs.json", "climate.json", "activities.json",
-                 "country-names.json", "visa.json"):
-        try:
-            mtimes.append(os.path.getmtime(os.path.join(PUBLIC, name)))
-        except OSError:
-            pass
-    stamp = time.strftime("%Y-%m-%d", time.gmtime(max(mtimes) if mtimes else time.time()))
+    # NOT file mtimes: Render's deploy is a fresh checkout, so every mtime is
+    # the deploy time and all 178 lastmods moved on every template tweak —
+    # exactly the fabricated freshness this block documents avoiding. The
+    # stamp is a committed file, bumped only when the content JSONs
+    # (slugs/climate/activities/country-names/visa) actually change.
+    try:
+        with open(os.path.join(PUBLIC, "content-stamp.txt"), encoding="utf-8") as f:
+            stamp = f.read().strip()[:10]
+    except OSError:
+        stamp = ""
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", stamp or ""):
+        stamp = time.strftime("%Y-%m-%d", time.gmtime())
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
            '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
@@ -411,15 +420,18 @@ def _render_index(gc_iso=None):
 def _rates_payload(cfg, base="USD"):
     key = (cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]), base)
     now = time.time()
-    if _cache["key"] == key and (now - _cache["at"]) < CACHE_TTL:
-        return _cache["data"]
+    hit = _rates_cache.get(key)
+    if hit and (now - hit[0]) < CACHE_TTL:
+        return hit[1]
     data = rates.compute_favorability(
         baseline_days=cfg["baseline_days"],
         threshold_pct=cfg["threshold_pct"],
         watch=cfg["watch"],
         base=base,
     )
-    _cache.update(key=key, at=now, data=data)
+    for k in [k for k, (at, _) in _rates_cache.items() if now - at >= CACHE_TTL]:
+        del _rates_cache[k]
+    _rates_cache[key] = (now, data)
     return data
 
 
@@ -666,7 +678,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 self._send_json(_rates_payload(store.load_config(), base))
             except Exception as e:  # network/provider hiccup or unknown base
-                self._send_json({"error": str(e)}, 502)
+                self._send_json({"error": str(e)}, 500)
             return
         if path == "/api/index":
             self._handle_index()
@@ -690,7 +702,7 @@ class Handler(BaseHTTPRequestHandler):
                 if payload is None:
                     try:
                         payload = flights.get_flights(origin)
-                        if payload.get("configured"):
+                        if payload.get("configured") and not payload.get("error"):
                             _flights_cache[origin] = (now, payload)
                     except Exception:
                         payload = None
@@ -839,16 +851,26 @@ class Handler(BaseHTTPRequestHandler):
         except ValueError:
             days = 365
         days = max(30, min(3650, days))
+        # compute_index caps the real window at MAX_HISTORY_DAYS, so cap the
+        # cache key identically — otherwise days=365..3650 are thousands of
+        # distinct keys computing byte-identical results, each new one costing
+        # a full-year upstream fetch and a payload retained forever.
+        days = min(days, rates.MAX_HISTORY_DAYS)
         base = _base_param(qs)
         now = time.time()
         hit = _index_cache.get((days, base))
         if hit and (now - hit[0]) < CACHE_TTL:
-            self._send_json(hit[1])
+            payload = hit[1]
+            self._send_json(payload, 500 if "error" in payload else 200)
             return
         try:
             payload = rates.compute_index(days, base)
         except Exception as e:
-            self._send_json({"error": str(e)}, 502)
+            # Cache the failure too — an unknown base must not buy a fresh
+            # upstream fetch per request. 500, not 502: Cloudflare swallows
+            # origin 502s and serves its own text page instead of this JSON.
+            _index_cache[(days, base)] = (now, {"error": str(e)})
+            self._send_json({"error": str(e)}, 500)
             return
         _index_cache[(days, base)] = (now, payload)
         self._send_json(payload)
@@ -866,9 +888,12 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = flights.get_flights(origin)
         except Exception as e:
-            self._send_json({"error": str(e)}, 502)
+            self._send_json({"error": str(e)}, 500)
             return
-        if data.get("configured"):
+        # Never cache error payloads: get_flights marks unsupported origins
+        # configured=True, so gating on that flag alone let arbitrary 2-char
+        # strings each pin a permanent cache entry.
+        if data.get("configured") and not data.get("error"):
             _flights_cache[origin] = (now, data)
         self._send_json(data)
 
@@ -886,7 +911,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = advisories.get_advisories(source)
         except Exception as e:
-            self._send_json({"error": str(e)}, 502)
+            self._send_json({"error": str(e)}, 500)
             return
         _adv_cache[source] = (now, data)
         self._send_json(data)
@@ -899,7 +924,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = {"arrivals": popularity.get_arrivals()}
         except Exception as e:
-            self._send_json({"error": str(e), "arrivals": {}}, 502)
+            self._send_json({"error": str(e), "arrivals": {}}, 500)
             return
         _pop_cache.update(at=now, data=data)
         self._send_json(data)
@@ -934,7 +959,7 @@ class Handler(BaseHTTPRequestHandler):
                 sent.pop("password", None)
             cfg["email"].update(sent)
         store.save_config(cfg)
-        _cache["key"] = None  # force recompute next fetch
+        _rates_cache.clear()  # settings changed; recompute on next fetch
         out = store.load_config()
         out["email"] = _redact_email(out["email"])
         self._send_json({"ok": True, "config": out})
@@ -944,7 +969,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             data = _rates_payload(cfg)
         except Exception as e:
-            self._send_json({"error": str(e)}, 502)
+            self._send_json({"error": str(e)}, 500)
             return
         favorable = [r for r in data["rows"] if r["favorable"] and r["watched"]]
         sent = False

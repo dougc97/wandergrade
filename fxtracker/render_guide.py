@@ -107,13 +107,17 @@ def _insurance_link(slug):
             "at no extra cost to you.</span></p>" % html.escape(_EKTA % slug, quote=True))
 
 
-def _faq_jsonld(name, best_txt, acts, seasonal, summary):
+def _faq_jsonld(name, best_txt, acts, seasonal, summary, curated=False):
     """FAQPage schema for the questions people actually search — 'best time to
     visit X', 'things to do in X', 'what's in season' — so the page can win
-    Google rich results. Data-backed answers only (no invented facts)."""
+    Google rich results. Data-backed answers only (no invented facts) — which
+    includes the curated distinction: the "best months to visit" claim only
+    where months were hand-curated, a weather statement everywhere else."""
     qas = []
     if best_txt:
-        a = "The best months to visit %s are %s, based on weather and seasonality." % (name, best_txt)
+        a = ("The best months to visit %s are %s, based on weather and seasonality."
+             if curated else
+             "%s has its best weather in %s.") % (name, best_txt)
         if summary:
             a += " " + summary
         qas.append(("When is the best time to visit %s?" % name, a))
@@ -154,7 +158,13 @@ def render(iso):
     v = d["visa"].get(iso, {}) or {}
 
     best = c.get("best") or []
-    best_txt = ", ".join(MON[m - 1] for m in best if 1 <= m <= 12)
+    # Curated mirrors the hydrated page's claim exactly: only 35 countries have
+    # hand-curated best months; the rest have a weather score, and saying
+    # "best months to visit" about those asserts a judgement nobody made.
+    curated = bool(c.get("curated"))
+    # Full month names everywhere the snippet appears — people type
+    # "December", not "Dec" (same reasoning as the body copy switch).
+    best_txt = _join_and(MON_FULL[m - 1] for m in best if 1 <= m <= 12)
     summary = (a.get("summary") or "").strip()
     acts = a.get("activities") or []
     seasonal = a.get("seasonal") or []
@@ -163,7 +173,8 @@ def render(iso):
     desc = summary or ("What to do in %s, when to go, and what's in season — "
                        "graded on prices, weather, safety and flights." % name)
     if best_txt:
-        desc = "Best time to visit %s: %s. %s" % (name, best_txt, desc)
+        desc = ("Best time to visit %s: %s. %s" if curated
+                else "Best weather in %s: %s. %s") % (name, best_txt, desc)
     desc = _clip(desc)
 
     title = "%s Travel Guide — Best Time to Visit & What to Do | WanderGrade" % name
@@ -181,8 +192,13 @@ def render(iso):
         # thing people actually typed.
         best_full = _join_and(MON_FULL[m - 1] for m in best if 1 <= m <= 12)
         p.append("<h2>Best time to visit %s</h2>" % html.escape(name))
-        p.append("<p>The best months to visit %s are <strong>%s</strong>, "
-                 "judged on weather and seasonality.</p>"
+        # Same sentence the hydrated page shows: the strong "best months to
+        # visit" claim only where months are hand-curated; a weather statement
+        # everywhere else. SSR asserting more than the live page is a lie
+        # Google eventually reads side by side.
+        p.append(("<p>The best months to visit %s are <strong>%s</strong>, "
+                  "judged on weather and seasonality.</p>" if curated else
+                  "<p>The best weather in %s is in <strong>%s</strong>.</p>")
                  % (html.escape(name), html.escape(best_full)))
     if acts:
         p.append("<h2>Top things to do in %s</h2><ul>" % html.escape(name))
@@ -216,8 +232,12 @@ def render(iso):
         "og_title": og_title,
         "url": url,
         "body": "\n".join(p),
-        "jsonld": _faq_jsonld(name, best_txt, acts, seasonal, summary),
-        "ogimage": d["og"].get(iso, ""),
+        "jsonld": _faq_jsonld(name, best_txt, acts, seasonal, summary, curated),
+        # og:image is the site's own card, NOT the Wikimedia hero: Wikimedia
+        # returns 403 to Meta's crawlers, so a hotlinked og:image meant every
+        # Facebook/Messenger share of every guide rendered imageless. The
+        # photo still shows on the page itself.
+        "ogimage": SITE + "/og.png",
     }
 
 

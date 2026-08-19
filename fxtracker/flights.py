@@ -9,6 +9,7 @@ read from the TRAVELPAYOUTS_TOKEN env var.
 
 import datetime
 import os
+import re
 import urllib.parse
 
 from . import rates  # reuse fetch_json (verifying SSL + retries)
@@ -189,8 +190,15 @@ def get_monthly(origin_iso, dest_city, currency="usd"):
     import time as _time
     origin_iso = (origin_iso or "US").strip().upper()[:2]
     dest_city = (dest_city or "").strip().upper()[:3]
-    if not is_configured() or origin_iso not in ORIGIN_HUBS or len(dest_city) != 3:
+    if not is_configured() or origin_iso not in ORIGIN_HUBS \
+            or not re.fullmatch(r"[A-Z]{3}", dest_city):
         return {"configured": is_configured(), "months": {}}
+    # Only real Travelpayouts city codes get a token-authenticated call —
+    # otherwise any client-supplied 3-char string spends one upstream call
+    # and a permanent cache entry.
+    cities = _load_cities()
+    if cities and dest_city not in cities:
+        return {"configured": True, "months": {}}
     hub = ORIGIN_HUBS[origin_iso][0]
     key = (hub, dest_city, currency)
     now = _time.time()
@@ -209,6 +217,10 @@ def get_monthly(origin_iso, dest_city, currency="usd"):
                                         "stops": v.get("transfers")}
     except Exception:
         pass
+    # Prune expired entries on write so the cache can't grow for the life of
+    # the process (one entry per route ever asked about).
+    for k in [k for k, (at, _) in _monthly_cache.items() if now - at >= MONTHLY_TTL]:
+        del _monthly_cache[k]
     _monthly_cache[key] = (now, out)
     return out
 

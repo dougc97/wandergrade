@@ -9,7 +9,9 @@
 //  - Cross-origin (fonts, Wikimedia photos, flag CDN): untouched; the browser
 //    HTTP cache handles those.
 // Bump CACHE on breaking changes to wipe old entries.
-const CACHE = "wg-v1";
+// v2: /api/ excluded from SW caching — old caches may hold personal
+// responses (auth/me, geo), so the bump wipes them on activate.
+const CACHE = "wg-v2";
 
 self.addEventListener("install", (e) => {
   e.waitUntil(
@@ -28,6 +30,12 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
+
+  // /api/ responses are never SW-cached. Two are personal and marked no-store
+  // by the server (/api/auth/me — serving it stale meant "still signed in"
+  // after sign-out — and /api/geo), and the rest carry their own freshness
+  // rules; a cache layer that ignores Cache-Control has no business here.
+  if (url.pathname.startsWith("/api/")) return;
 
   if (e.request.mode === "navigate") {
     e.respondWith(

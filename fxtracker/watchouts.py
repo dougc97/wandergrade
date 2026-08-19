@@ -127,12 +127,19 @@ def get_watchouts(iso):
                 continue
             body = hm.group(2)
             lead = _first_sentence(body)
+            # GAC ships template/test records for placeholder countries —
+            # "[info alert heading]" / "[description of event]" — which must
+            # never be served as if they were real advice.
+            if re.fullmatch(r"\[.*\]", t) or re.fullmatch(r"\[.*\]", lead or ""):
+                continue
             entry = {"t": t[:120], "lead": lead[:200],
                      "regions": _top_level_items(body)}
             if entry not in out["regional"]:
                 out["regional"].append(entry)
         out["regional"] = out["regional"][:4]
         secs = _sections(eng.get("security", "")) + _sections(eng.get("disasters-climate", ""))
+        secs = [s for s in secs if not re.fullmatch(r"\[.*\]", s.get("t", ""))
+                and not re.fullmatch(r"\[.*\]", s.get("d", "") or "")]
         out["watchouts"] = secs[:8]
     except Exception:
         pass   # a country the feed lacks simply shows no watchouts

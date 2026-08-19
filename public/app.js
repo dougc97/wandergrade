@@ -292,13 +292,32 @@ function markSort(theadSel, state) {
   });
 }
 function wireSort(theadSel, state, firstAsc, rerender) {
-  document.addEventListener("click", (e) => {
-    const th = e.target.closest(theadSel + " th.sortable");
-    if (!th) return;
+  const act = (th) => {
     if (state.key === th.dataset.sk) state.asc = !state.asc;
     else { state.key = th.dataset.sk; state.asc = firstAsc[th.dataset.sk] !== false; }
+    // Static theads never re-render, so aria-sort is synced here.
+    document.querySelectorAll(theadSel + " th.sortable").forEach((t) =>
+      t.setAttribute("aria-sort", t === th ? (state.asc ? "ascending" : "descending") : "none"));
     rerender();
+  };
+  document.addEventListener("click", (e) => {
+    const th = e.target.closest(theadSel + " th.sortable");
+    if (th) act(th);
   });
+  // Keyboard path: sortable headers were click-only. Enter/Space sorts, like
+  // the button these headers behave as. (tabindex arrives with the markup.)
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const th = e.target.closest && e.target.closest(theadSel + " th.sortable");
+    if (th) { e.preventDefault(); act(th); }
+  });
+}
+// aria-sort for the current column, tabindex + role for keyboard reach — one
+// attribute string every sortable-header emitter shares so they can't drift.
+function sortableThAttrs(state, sk) {
+  const cur = state.key === sk;
+  return ' tabindex="0" role="button" aria-sort="' +
+    (cur ? (state.asc ? "ascending" : "descending") : "none") + '"';
 }
 
 // Cost of living: cheapest-first by default; "$100 buys" is the inverse of the
@@ -1247,7 +1266,10 @@ function renderGuideInsurance(iso) {
   host.innerHTML = '<div class="staybtns"><a class="staybtn" target="_blank" '
     + 'rel="sponsored nofollow noopener" href="' + insuranceHref(iso) + '">'
     + '🛡️ Travel insurance (EKTA) <span class="ext">↗</span></a></div>'
-    + '<p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p>';
+    // Worded to cover the whole booking section above it (stays + insurance),
+    // not just this one link — the FTC wants the disclosure next to the links
+    // it discloses, and the footer alone is too far away.
+    + '<p class="affnote">Some links in this section are affiliate links — we may earn a commission, at no extra cost to you.</p>';
 }
 
 // -- Tab: country guide (best time + things to do, one picker) ---------------
@@ -1293,9 +1315,12 @@ async function ensureFareMonths(iso) {
   const origin = (flightsData && flightsData.origin) || travelOrigin() || "US";
   const key = origin + ":" + iso;
   if (!_fareMonthsCache[key]) {
+    // A FAILED fetch must not cache as permanent "no data" — one cold-start
+    // 5xx would hide fare strips everywhere for the whole session. Evict on
+    // failure so the next render retries; only genuine empties stay cached.
     _fareMonthsCache[key] = getJSON("/api/flight-months?origin=" + encodeURIComponent(origin)
       + "&iso=" + encodeURIComponent(iso)).then((r) => (r && r.months && Object.keys(r.months).length ? r : null))
-      .catch(() => null);
+      .catch(() => { delete _fareMonthsCache[key]; return null; });
   }
   return _fareMonthsCache[key];
 }
@@ -1421,7 +1446,11 @@ async function renderGuideFx(iso) {
     t = await (_fxTrendCache[key] ||
       (_fxTrendCache[key] = getJSON("/api/fx-trend?cur=" + dest + "&base=" + base)));
   } catch (e) { delete _fxTrendCache[key]; return; }
-  if (ccGuideIso !== iso || !t || !t.months || t.months.length < 6) return;
+  // Guard BOTH coordinates that can shift during the await: the open guide
+  // (ccGuideIso) and the home currency — a stale in-flight fetch for the
+  // previous base must not paint over the fresh chart.
+  if (ccGuideIso !== iso || homeBase !== base
+      || !t || !t.months || t.months.length < 6) return;
   const pts = t.months.map((m) => m.v);
   const lo = Math.min(...pts, t.avg), hi = Math.max(...pts, t.avg);
   const W = 240, H = 46, P = 4;
@@ -1463,7 +1492,12 @@ function stayDates() {
   const now = new Date();
   let y = now.getFullYear();
   if (month < now.getMonth() + 1) y++;
-  const ci = new Date(y, month - 1, 15);
+  let ci = new Date(y, month - 1, 15);
+  // The current month's 15th may already be behind us (mid-month, this built
+  // Booking/Stay22 deep links with a check-in in the past — a dead search).
+  // Floor at three days out; the soonest realistic booking.
+  const floor = new Date(now); floor.setDate(floor.getDate() + 3);
+  if (ci < floor) ci = floor;
   const co = new Date(ci); co.setDate(co.getDate() + 3);
   const f = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
                    "-" + String(d.getDate()).padStart(2, "0");
@@ -1599,7 +1633,7 @@ function renderGuideSafety(iso) {
     host.hidden = false;
     host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>${moved}
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
-      <span class="advlinks"><a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a> · <a href="#" class="advsrcjump">switch source (US · CA · DE) → Safety tab</a></span>
+      <span class="advlinks"><a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a> · <button type="button" class="linkbtn advsrcjump">switch source (US · CA · DE) → Safety tab</button></span>
       <span id="guideWatchouts"></span></span>`;
     const jump = host.querySelector(".advsrcjump");
     if (jump) jump.onclick = async (e) => {
@@ -1657,7 +1691,9 @@ function renderWatchouts(iso) {
     const reg = built.reg;
     const srcNote = '<span class="muted">(per ' + esc(w.source)
       + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "") + ")</span>";
-    const tabLink = ' <a href="#" class="wotab">full picture → Safety tab</a>';
+    // A button, not <a href="#">: it performs a tab switch (button semantics),
+    // and a dead-hash link scrolls to top if the handler ever fails to bind.
+    const tabLink = ' <button type="button" class="linkbtn wotab">full picture → Safety tab</button>';
     // chips already arrives wrapped in .wochips — wrapping again indented the
     // chip row differently from every other line in the block.
     host.innerHTML = calm
@@ -1799,7 +1835,14 @@ function loadHeroPhotos(iso) {
       (multi ? '<button class="heronav prev" type="button" aria-label="previous photo">‹</button>' +
                '<button class="heronav next" type="button" aria-label="next photo">›</button>' +
                '<div class="herocount"></div>' : "");
-    host.querySelector(".heroimg").addEventListener("click", openLightbox);
+    const hero = host.querySelector(".heroimg");
+    hero.addEventListener("click", openLightbox);
+    // The hero is an interactive control (opens the photo viewer), so it
+    // needs a keyboard path too — click-only left it mouse-exclusive.
+    hero.tabIndex = 0; hero.setAttribute("role", "button");
+    hero.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openLightbox(); }
+    });
     if (multi) {
       host.querySelector(".heronav.prev").addEventListener("click", () => heroStep(-1));
       host.querySelector(".heronav.next").addEventListener("click", () => heroStep(1));
@@ -1828,6 +1871,9 @@ function ensureLightbox() {
   if (lb) return lb;
   lb = document.createElement("div");
   lb.id = "lightbox"; lb.className = "lightbox"; lb.hidden = true;
+  lb.setAttribute("role", "dialog");
+  lb.setAttribute("aria-modal", "true");
+  lb.setAttribute("aria-label", "Photo viewer");
   lb.innerHTML =
     '<button class="lbclose" type="button" aria-label="close">✕</button>' +
     '<button class="lbnav prev" type="button" aria-label="previous">‹</button>' +
@@ -1848,6 +1894,7 @@ function openLightbox() {
   lb.hidden = false;
   document.body.style.overflow = "hidden";
   document.addEventListener("keydown", lbKey);
+  lb.querySelector(".lbclose").focus();   // dialog gets focus; Escape/✕ leave it
   syncLightbox();
   // Preload every full-res image now (intent signalled), so clicking through
   // the carousel is instant instead of waiting on each load.
@@ -2238,7 +2285,7 @@ function renderAdvisories() {
     return `
     <tr data-lvl="${lvl}"${guideAttr}><td>${esc(it.country)}</td>
       <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
-      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}">▸ safety notes</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details ↗</a>` : ""}</td>
+      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ safety notes</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details ↗</a>` : ""}</td>
     </tr>`;
   }).join("");
   applyAdvFilter();
@@ -2263,9 +2310,11 @@ function wireWatchoutRows() {
     if (next && next.classList.contains("wodetail")) {
       next.remove();
       btn.textContent = "▸ safety notes";
+      btn.setAttribute("aria-expanded", "false");
       return;
     }
     btn.textContent = "▾ safety notes";
+    btn.setAttribute("aria-expanded", "true");
     const det = document.createElement("tr");
     det.className = "wodetail";
     det.innerHTML = '<td colspan="3">Loading…</td>';
@@ -2414,6 +2463,7 @@ function buildFactorChips() {
   const on = new Set(factors);
   host.innerHTML = '<span class="picklabel">Count</span>' + WEIGHT_DEFS.map((w) =>
     `<button type="button" class="factorchip ${on.has(w.key) ? "on" : ""}" data-f="${w.key}"
+       aria-pressed="${on.has(w.key)}"
        title="${w.label} ${on.has(w.key) ? "counts toward" : "is excluded from"} the grade">${FACTOR_ICON[w.key]} ${w.label}</button>`).join("");
   host.onclick = (e) => {
     const btn = e.target.closest(".factorchip");
@@ -2598,9 +2648,11 @@ function setHomeCur(code, manual) {
   // Guarded on lastRates, not a loaded.* flag: the rates table isn't lazy — it
   // loads at boot — so there is no flag for it, and there was never one to check.
   if (changed && lastRates) { loadRates(); loadIndex(activeDays); }
-  // The guide's FX trend is anchored to the home currency — an open guide
-  // must not keep charting the previous one.
-  if (changed && ccGuideIso) renderGuideFx(ccGuideIso);
+  // The guide's FX trend AND fare chart are anchored to the home currency —
+  // an open guide must not keep showing the previous one (the fare chart's
+  // display currency falls back to homeBase when unpinned; its fetch is
+  // cached, so this only re-runs the conversion).
+  if (changed && ccGuideIso) { renderGuideFx(ccGuideIso); renderGuideFares(ccGuideIso); }
 }
 
 function initHomeCur() {
@@ -2865,6 +2917,12 @@ function enhanceSelect(sel) {
   input.type = "text"; input.className = "combo-input"; input.autocomplete = "off";
   input.setAttribute("role", "combobox"); input.placeholder = "Type to search…";
   input.setAttribute("aria-expanded", "false");
+  // Accessible name: without one, every enhanced control announced only the
+  // shared placeholder — nine identical "Type to search…" comboboxes. The
+  // group's own label text (or the select's title/id) names each.
+  const pickLbl = sel.closest(".pickgroup") && sel.closest(".pickgroup").querySelector(".picklabel");
+  input.setAttribute("aria-label",
+    (pickLbl && pickLbl.textContent.trim()) || sel.title || sel.getAttribute("aria-label") || sel.id || "search");
   const list = document.createElement("ul");
   list.className = "combo-list"; list.hidden = true;
   const setOpen = (open) => { list.hidden = !open; input.setAttribute("aria-expanded", String(open)); };
@@ -3133,7 +3191,10 @@ function tripStayDates() {
   const now = new Date();
   let y = now.getFullYear();
   if (month < now.getMonth() + 1) y++;
-  const ci = new Date(y, month - 1, 15);
+  let ci = new Date(y, month - 1, 15);
+  // Same floor as stayDates: mid-month, the 15th is already in the past.
+  const floor = new Date(now); floor.setDate(floor.getDate() + 3);
+  if (ci < floor) ci = floor;
   const co = new Date(ci); co.setDate(co.getDate() + 3);
   const f = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") +
                    "-" + String(d.getDate()).padStart(2, "0");
@@ -3174,7 +3235,7 @@ function renderTripBook(isos) {
     if (!fm || !fm.months || !slot) return;
     const strip = fareStripHTML(fm.months, { highlightMonth: tripM, minMonths: 6 });
     if (!strip) return;
-    slot.innerHTML = '<span class="farestrip">' + strip.cells + "</span>"
+    slot.innerHTML = '<span class="farestrip" aria-hidden="true">' + strip.cells + "</span>"
       + '<span class="muted tbfarenote">' + esc(strip.note) + "</span>";
   });
   ensureStayCoords().then((cc) => {
@@ -3983,7 +4044,9 @@ function seasonStrip(iso, month) {
   const tip = (good ? "Best: " + peakMonths.join(", ") + ". " : "")
     + (scarce ? "Only " + good + (good === 1 ? " month" : " months") + " at its best — a narrow window. " : "")
     + "Each block is a month, January to December; brighter is more comfortable.";
-  return `<span class="seasonstrip${scarce ? " scarce" : ""}" data-tip="${esc(tip)}" title="">${cells}</span>`;
+  // role=img + aria-label: the cells are color-only; the tip text is the
+  // strip's meaning, so screen readers get the same sentence hover gets.
+  return `<span class="seasonstrip${scarce ? " scarce" : ""}" role="img" aria-label="${esc(tip)}" data-tip="${esc(tip)}" title="">${cells}</span>`;
 }
 
 function seasonalTags(iso, month, max) {
@@ -4039,7 +4102,8 @@ function fillRowFareStrips(hostSel, month) {
     const fm = await ensureFareMonths(iso);
     if (!fm || !fm.months || !slot.isConnected) return;
     const strip = fareStripHTML(fm.months, { highlightMonth: month, minMonths: 6 });
-    if (strip) slot.innerHTML = '<span class="farestrip">' + strip.cells + "</span>";
+    if (strip) slot.innerHTML = '<span class="farestrip" role="img" aria-label="'
+      + esc("Fares by month — " + strip.note) + '">' + strip.cells + "</span>";
   });
 }
 
@@ -4087,7 +4151,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   // renumbers to match. Each table gets its own sort state (picks vs gems).
   if (sortable) list = sortRows(list, state, PICK_GET);
   const sa = (sk) => sortable
-    ? ` data-sk="${sk}" data-sortdir="${state.key === sk ? (state.asc ? "asc" : "desc") : ""}"` : "";
+    ? ` data-sk="${sk}" data-sortdir="${state.key === sk ? (state.asc ? "asc" : "desc") : ""}"${sortableThAttrs(state, sk)}` : "";
   const sc = sortable ? " sortable" : "";
   const rows = list.map((s, i) => {
     const hz = hazardsFor(s.iso, month);
@@ -4549,7 +4613,7 @@ function renderFlights() {
     cheapest.map((d) => d.iso));
 
   $("flightSub").innerHTML =
-    `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · map colours show the fare vs the typical fare for that distance — <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above, so a long-haul can still be a bargain · <b>click a fare ↗</b> to search that route live on Aviasales.`
+    `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · map colours show the fare vs the typical fare for that distance — <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above, so a long-haul can still be a bargain · <b>click a fare ↗</b> to search that route live on Aviasales (affiliate links — booking through them may earn us a commission at no extra cost to you).`
     + (cur !== feedCur ? ` <span class="muted">Fares cached in ${esc(feedCur)}; shown ≈${esc(cur)} at today's rate.</span>` : "");
   // Legend names the comparison, not just the direction — the colours are
   // relative to the distance-fit typical fare, not to the cheapest fare shown.
@@ -4891,14 +4955,20 @@ function renderActivity(iso) {
     </div>`;
   }).join("");
   const vis = isVisited(iso) ? '<span class="visited-tag">✓ visited</span>' : "";
-  // Summary line dropped — it just restated the "things to do" bullets below.
+  // The one-line summary is BACK (it was dropped as restating the bullets):
+  // the SSR body and the meta description are built from it, and hydration
+  // deleting it meant the rendered DOM Google indexes no longer contained the
+  // sentence the snippet promises. One muted line is the honest price.
+  const summary = (a.summary || "").trim();
   $("actDetail").innerHTML = `
     <div class="besthead"><h3>${esc(name)} ${vis} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span></h3></div>
+    ${summary ? `<p class="actsummary muted">${esc(summary)}</p>` : ""}
     <div class="chips">${tags}</div>
     <h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
     <ul class="actlist">${acts}</ul>
     <a class="viatorbtn" href="${viatorURL(name)}" target="_blank" rel="sponsored nofollow noopener"
        title="Browse bookable tours & experiences in ${esc(name)} on Viator">🎟️ Book tours &amp; activities in ${esc(name)} <span class="muted">on Viator</span> <span class="ext">↗</span></a>
+    <p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p>
     ${seas ? `<h4 style="margin:.6em 0 .2em">🗓️ What's in season <span class="muted">(now: ${MONTHS[m - 1]})</span></h4>${seas}` : ""}`;
   loadActivityThumbs(iso);
 }
@@ -4937,11 +5007,18 @@ function loadActivityThumbs(iso) {
     // size-in-path); fall back to the big one if that variant doesn't exist.
     const small = p.thumb.replace(/\/(\d+)px-/, "/320px-");
     const img = document.createElement("img");
-    img.className = "actthumb"; img.loading = "lazy"; img.alt = "";
+    // An interactive control, so it is neither alt="" (invisible to SRs) nor
+    // mouse-only: named, focusable, Enter/Space opens the same viewer.
+    img.className = "actthumb"; img.loading = "lazy";
+    img.alt = "Photo — open viewer";
     img.title = "view photo";
+    img.tabIndex = 0; img.setAttribute("role", "button");
     img.onerror = () => { img.onerror = null; img.src = p.thumb; };
     img.src = small;
     img.addEventListener("click", () => openLightboxSingle(p));
+    img.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openLightboxSingle(p); }
+    });
     slot.appendChild(img);
   });
 }
@@ -5153,6 +5230,7 @@ function openBulkAdd() {
     if (!chip) return;
     toggleMark(chip.dataset.iso);
     chip.classList.toggle("on", on.has(chip.dataset.iso));
+    chip.setAttribute("aria-pressed", String(on.has(chip.dataset.iso)));
     m.querySelector(".bulkcount").textContent = on.size + " selected";
   });
   const search = m.querySelector(".bulksearch");
@@ -5390,8 +5468,12 @@ async function activateTab(name, push) {
     const iso = ($("bestCountry") || {}).value;
     if (iso) setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
   }
-  for (const b of document.querySelectorAll("#tabs button"))
-    b.classList.toggle("active", b.dataset.tab === name);
+  for (const b of document.querySelectorAll("#tabs button")) {
+    const on = b.dataset.tab === name;
+    b.classList.toggle("active", on);
+    if (on) b.setAttribute("aria-current", "true");
+    else b.removeAttribute("aria-current");
+  }
   for (const s of document.querySelectorAll(".tab"))
     s.hidden = s.id !== "tab-" + name;
 
@@ -5641,13 +5723,18 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
     if (!/^[A-Z]{2}$/.test(iso) || iso === "US") return;
     const list = await ensureOrigins();
     if (!list.some((o) => o.iso === iso)) return;       // not a supported origin
-    setTravelOrigin(iso);
-    if (!homeManual && CUR_BY_ISO[iso]) setHomeCur(CUR_BY_ISO[iso], false);
+    // ONE path, not two: the select's own change listener calls
+    // setTravelOrigin, so calling it directly AND dispatching change ran the
+    // whole fares/advisories/render pipeline twice on every seeded first
+    // visit. Dispatch when the select is ready; call directly only when not.
     const vo = $("valueOrigin");
     if (vo && [...vo.options].some((o) => o.value === iso)) {
       vo.value = iso;
-      vo.dispatchEvent(new Event("change"));   // re-run fares/visas for the seeded origin
+      vo.dispatchEvent(new Event("change"));
+    } else {
+      setTravelOrigin(iso);
     }
+    if (!homeManual && CUR_BY_ISO[iso]) setHomeCur(CUR_BY_ISO[iso], false);
   } catch (e) { /* geo is a nicety; silence is the right failure mode */ }
 })();
 
@@ -7215,12 +7302,53 @@ document.addEventListener("mousemove", (e) => {
 // never reaches navigation. Interactive tips (continent chips) aren't matched, so
 // they still filter on click.
 document.addEventListener("click", (e) => {
-  const info = e.target.closest && e.target.closest(".hzmark, .muted[data-tip]");
-  if (info) { _showTipFor(info); e.stopPropagation(); return; }
+  // Every info-only mark that lives inside a clickable row/cell belongs on
+  // this list — anything missing navigates on tap and its tip is unreachable
+  // on touch: the trend marks (±%, ▲/▼), the ⓘ hints, and the per-month
+  // strip cells (the row still opens from anywhere else in it).
+  const info = e.target.closest && e.target.closest(
+    ".hzmark, .muted[data-tip], .fxmark, .advmv, .advmoved, .legendinfo, .fxinfo, "
+    + ".farestrip .fcell, .seasonstrip[data-tip], .wochip");
+  if (info) { _showTipFor(info.dataset && info.dataset.tip ? info : e.target.closest("[data-tip]")); e.stopPropagation(); return; }
   // Touch screens have no hover: a tap on any other tipped element shows it, a
   // tap elsewhere dismisses. (closest() miss hides.)
   _tipShowFor(e);
 }, true);
+
+// Keyboard path (WCAG 1.4.13): tips show on focus, hide on blur or Escape.
+// The engine was mouse/touch-only — content that exists ONLY in tips was
+// unreachable for keyboard and screen-reader users.
+document.addEventListener("focusin", _tipShowFor);
+document.addEventListener("focusout", () => _hideTip());
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") _hideTip(); });
+
+// Every modal is a .submodal div appended to body and removed on close, so ONE
+// observer gives all of them dialog semantics and focus management — focus
+// moves into the dialog on open and returns to the opener on close. Without
+// this, a keyboard/SR user who opened "Save map" or "Subscribe" stayed in the
+// background page under an invisible overlay.
+new MutationObserver((muts) => {
+  for (const mu of muts) {
+    for (const n of mu.addedNodes) {
+      if (!(n instanceof HTMLElement) || !n.classList || !n.classList.contains("submodal")) continue;
+      const card = n.querySelector(".submodal-card") || n;
+      card.setAttribute("role", "dialog");
+      card.setAttribute("aria-modal", "true");
+      if (!card.hasAttribute("aria-label")) {
+        const lbl = card.querySelector("h2, h3, .sublabel");
+        card.setAttribute("aria-label", (lbl && lbl.textContent.trim().slice(0, 80)) || "Dialog");
+      }
+      n._opener = document.activeElement;
+      const f = card.querySelector("input, select, textarea, button:not(.submodal-x)")
+        || card.querySelector("button");
+      if (f) f.focus();
+    }
+    for (const n of mu.removedNodes) {
+      if (n instanceof HTMLElement && n.classList && n.classList.contains("submodal")
+          && n._opener && document.contains(n._opener)) n._opener.focus();
+    }
+  }
+}).observe(document.body, { childList: true });
 
 document.addEventListener("scroll", _hideTip, true);
 

@@ -321,6 +321,10 @@ def get_trend(code, base="USD"):
         if base != "USD":
             latest, ts = _rebase(latest, ts, base)
             if latest is None:
+                # Unknown base: cache the rejection. Without this, every repeat
+                # of a fuzzed ?base= repeats the full-year upstream fetch —
+                # an unauthenticated way to burn the FX provider's quota.
+                _trend_cache[base] = (now, {})
                 return None
         buckets = {}  # code -> {YYYY-MM: [rates]}
         for d in sorted(ts):

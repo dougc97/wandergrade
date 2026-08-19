@@ -303,23 +303,27 @@ small { color: var(--gray); font-weight: 400; }
 .mappicksrow { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline;
   margin-top: 8px; font-size: 12.5px; color: var(--gray); }
 .mappicksrow strong { color: var(--ink); font-size: 12.5px; }
-.mappicksrow .chup { color: #e08585; }
-.mappicksrow .chdown { color: #7ec98f; }
+.mappicksrow .chup { color: #b3261e; }
+.mappicksrow .chdown { color: #1e7c3a; }
 /* Guide safety line: the advisory's latest move, riding beside the level chip.
    Same palette as the Safety tab's recently-changed list. */
 .advmoved { font-size: 11.5px; font-weight: 700; white-space: nowrap; cursor: help; }
-.advmoved.chup { color: #e08585; }
-.advmoved.chdown { color: #7ec98f; }
+.advmoved.chup { color: #b3261e; }
+.advmoved.chdown { color: #1e7c3a; }
 /* Table-sized trend marks: rare pill-riders in the picks table — the FX %
    only past ±5%, the advisory arrow only within 180 days of a move. */
 .fxmark { font-size: 10.5px; font-weight: 800; margin-left: 4px; cursor: help;
   vertical-align: middle; }
-.fxmark.fxup { color: #7ec98f; }
-.fxmark.fxdn { color: #e08585; }
+.fxmark.fxup { color: #1e7c3a; }
+.fxmark.fxdn { color: #b3261e; }
 .gradetable .advmv { font-size: 10px; margin-left: 3px; cursor: help;
   vertical-align: middle; }
-.advmv.chup { color: #e08585; }
-.advmv.chdown { color: #7ec98f; }
+.advmv.chup { color: #b3261e; }
+.advmv.chdown { color: #1e7c3a; }
+/* Dark theme wants the pale tints — the saturated light-theme reds/greens
+   vanish into the dark rows. One override pair covers every mark. */
+html[data-theme="dark"] .chup, html[data-theme="dark"] .fxmark.fxdn { color: #e08585; }
+html[data-theme="dark"] .chdown, html[data-theme="dark"] .fxmark.fxup { color: #7ec98f; }
 
 /* zoom controls on the Wander List map */
 .mapzoom { position: absolute; top: 10px; right: 10px; display: flex; flex-direction: column;
@@ -593,6 +597,9 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
    guide mean "pick a month"; this only says whether money goes further than
    usual right now. Quiet inline block, no panel: it is a footnote to the fare
    chart above it, not a peer instrument. */
+/* The guide's one-line curated summary — the sentence the meta description
+   and SSR body are built from, kept in the hydrated DOM for that reason. */
+.actsummary { margin: 2px 0 6px; font-size: 13px; }
 .guidefx { display: block; margin: 10px 0 4px; font-size: 12.5px; color: var(--gray); }
 .guidefx .fxhead { display: block; margin-bottom: 4px; }
 .guidefx .fxhead b { color: var(--ink); }
@@ -609,6 +616,7 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .gr.big { min-width: 42px; font-size: 18px; padding: 6px 11px; border-radius: 9px; }
 .gradetable th.ovh, .gradetable td.overall {
   background: var(--card2); border-left: 1px solid var(--line); }
+.gradetable tbody tr:hover td.overall { background: var(--soft); }
 .grAp { background: #067a23; }
 .grA  { background: #2f9e44; }
 .grBp { background: #74b816; }
@@ -623,6 +631,10 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 /* One links row, not a stack of single-link lines — the guide safety block
    reads as: source line, quote, one row of ways out, one fold. */
 .advlinks { display: block; margin-top: 3px; font-size: 12px; }
+/* Buttons that read as links: tab-switch actions living in running prose.
+   LinkText keeps them the same color as the real links beside them. */
+.linkbtn { background: none; border: 0; padding: 0; margin: 0; font: inherit;
+  color: LinkText; text-decoration: underline; cursor: pointer; }
 .advsrcnote { display: block; margin-top: 3px; font-size: 11.5px; color: var(--gray); }
 /* Watchout chips: topic headings from the official page; the sentence lives in
    the hover tip, per the "explanations in hovers, not body copy" house style. */
@@ -1208,6 +1220,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
     position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
   }
+  /* The row fare strip is 82px of non-wrapping min-content — it re-broke this
+     block's measured 345px fit and pushed Overall back off-screen. At this
+     width the strip is unreadable anyway; the fare story lives on the guide. */
+  .rowfares { display: none; }
 }
 
 /* The Filters summary is one long line at any phone width — including below 375,
@@ -1245,6 +1261,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   /* The verdict badge steps down with the viewport so the Overall column
      never forces the table wider than the phone. */
   .gr.big { min-width: 36px; font-size: 16px; padding: 4px 8px; }
+  /* 561-640 band: the desktop min-width pinned the table to 620px here, so
+     the Overall column — the verdict — started off the right edge. Let it
+     compress; the ≤560 block already does this further down. */
+  .gradewrap .gradetable { min-width: 0; }
   /* Fare-panel columns are ~27px here — "$1,167" cannot fit and a clipped
      price is worse than none. The header names cheapest and priciest, and
      each bar's tooltip keeps its exact price. */
@@ -1465,7 +1485,7 @@ tr:hover .seasonstrip, .seasonstrip:hover { opacity: 1; }
 .seasonstrip .sc.na { background: var(--line); opacity: .4; }
 /* The current month gets a tick beneath, so "where am I in this window" is
    readable without counting blocks. */
-.seasonstrip .sc.now { box-shadow: 0 3px 0 -1px var(--fg, #f2f5f7); }
+.seasonstrip .sc.now { box-shadow: 0 3px 0 -1px var(--ink); }
 /* A narrow window is the signal worth surfacing — three good months in a year
    is a different proposition from twelve, and the ranking cannot say so.
    Uses outline, NOT box-shadow: .sc.now already owns box-shadow for the
@@ -1515,10 +1535,8 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
    so what you see is what you share. Sits bottom-left over the South Pacific,
    the emptiest part of an Equal Earth projection. Does not pan with the map:
    it is an annotation, not geography. */
-.map .mappicks { position: absolute; left: 12px; bottom: 12px; z-index: 2;
-  background: rgba(16,19,22,.84); border: 1px solid var(--line); border-radius: 8px;
-  padding: 8px 11px; font-size: 11px; line-height: 1.45; pointer-events: none;
-  max-width: 180px; }
-.map .mappicks strong { display: block; font-size: 11px; margin-bottom: 3px; }
-.map .mappicks span { display: block; color: var(--gray); }
-@media (max-width: 640px) { .map .mappicks { display: none; } }
+
+/* The generic tooltip hit-area (inset -9px) overlaps neighbours when the
+   tipped element is a 5px strip cell — hovering Jan showed Feb's price.
+   Strip cells get vertical grace only; horizontal stays exact. */
+.farestrip .fcell::after { inset: -4px 0 !important; }
