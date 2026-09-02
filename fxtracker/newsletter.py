@@ -42,8 +42,18 @@ def send(subject, body_markdown, draft=False):
         "Content-Type": "application/json",
         "User-Agent": "fx-tracker/1.0",
     })
-    with urllib.request.urlopen(req, timeout=30, context=rates._SSL) as resp:
-        return resp.status in (200, 201)
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=rates._SSL) as resp:
+            return resp.status in (200, 201)
+    except urllib.error.HTTPError as e:
+        # Buttondown puts the actual reason (a code like email_duplicate or a
+        # field error) in the response body; without surfacing it, three
+        # scheduled runs failed as a bare "HTTP Error 400" nobody could act on.
+        try:
+            detail = e.read().decode("utf-8", "replace")[:600]
+        except Exception:
+            detail = ""
+        raise RuntimeError("Buttondown %s: %s" % (e.code, detail or e.reason)) from e
 
 
 def _span_words(days):
