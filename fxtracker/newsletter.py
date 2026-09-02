@@ -28,23 +28,17 @@ def is_configured():
     return bool(api_key())
 
 
-def send(subject, body_markdown, draft=False):
-    """Create an email. draft=True saves it as a Buttondown draft (preview /
-    send-test from the UI); otherwise it sends to the whole list. Raises on
-    failure."""
-    payload = json.dumps({
-        "subject": subject,
-        "body": body_markdown,
-        "status": "draft" if draft else "about_to_send",
-    }).encode("utf-8")
-    req = urllib.request.Request(API, data=payload, method="POST", headers={
+def _post(url, payload):
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
+                                 method="POST", headers={
         "Authorization": "Token " + api_key(),
         "Content-Type": "application/json",
         "User-Agent": "fx-tracker/1.0",
     })
     try:
         with urllib.request.urlopen(req, timeout=30, context=rates._SSL) as resp:
-            return resp.status in (200, 201)
+            raw = resp.read().decode("utf-8", "replace")
+            return resp.status, (json.loads(raw) if raw.strip().startswith("{") else {})
     except urllib.error.HTTPError as e:
         # Buttondown puts the actual reason (a code like email_duplicate or a
         # field error) in the response body; without surfacing it, three
@@ -54,6 +48,29 @@ def send(subject, body_markdown, draft=False):
         except Exception:
             detail = ""
         raise RuntimeError("Buttondown %s: %s" % (e.code, detail or e.reason)) from e
+
+
+def send(subject, body_markdown, draft=False):
+    """Create an email. draft=True saves it as a Buttondown draft (preview /
+    send-test from the UI); otherwise it sends to the whole list. Raises on
+    failure.
+
+    Two steps, per Buttondown's documented flow: create the email as a draft,
+    then POST /emails/{id}/publish. Creating with status "about_to_send" in
+    one shot used to work (the Jun 18 test) but has returned 400 on every
+    scheduled run since Jul 1, while draft creation kept succeeding — so the
+    send path now uses the route the docs actually describe."""
+    status, created = _post(API, {"subject": subject, "body": body_markdown,
+                                  "status": "draft"})
+    if status not in (200, 201):
+        return False
+    if draft:
+        return True
+    email_id = created.get("id")
+    if not email_id:
+        raise RuntimeError("Buttondown created the draft but returned no id: %r" % created)
+    status, _ = _post(API.rstrip("/") + "/" + email_id + "/publish", {})
+    return status in (200, 201)
 
 
 def _span_words(days):
