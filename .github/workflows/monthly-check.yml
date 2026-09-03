@@ -22,10 +22,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Owner-only currency alert — only on the real monthly schedule, so a
+      # Owner-only currency alert - only on the real monthly schedule, so a
       # manual draft run doesn't spam your inbox.
       - name: Personal currency-favorability alert (owner only)
         if: github.event_name == 'schedule'
+        # The subscriber digest below must never depend on this personal
+        # alert: on 2026-08-01 this step failed and the job stopped here, so
+        # no digest went out that month. A failure still shows as a warning.
+        continue-on-error: true
         env:
           # Set these in: repo Settings -> Secrets and variables -> Actions
           FX_SMTP_PASSWORD: ${{ secrets.FX_SMTP_PASSWORD }}       # personal email
