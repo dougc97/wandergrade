@@ -347,7 +347,7 @@ wireSort("#flightTable", flightSort, { n: false }, () => { if (flightsData) rend
 // columns open best-first; Safety opens safest-first (advisory level 1);
 // Destination A→Z. Flights with no fare sort last.
 const PICK_GET = { dest: (s) => s.name, afford: (s) => s.afford, safety: (s) => s.advLvl,
-                   weather: (s) => s.wx, flights: (s) => (s.fly == null ? null : s.fly),
+                   weather: (s) => (s.wx == null ? null : s.wx), flights: (s) => (s.fly == null ? null : s.fly),
                    overall: (s) => s.value };
 const pickSort = { key: "overall", asc: false };
 wireSort("#topCards", pickSort, { afford: false, weather: false, flights: false, overall: false },
@@ -362,15 +362,19 @@ wireSort("#gemRows", gemSort, { afford: false, weather: false, flights: false, o
 // Sorted over the WHOLE ranked list before the top-40 slice, so sorting by
 // e.g. affordability shows the 40 most affordable, not a reshuffled top 40.
 const FULL_GET = { country: (s) => s.name, value: (s) => s.value, afford: (s) => s.afford,
-                   safety: (s) => s.safe, weather: (s) => s.wx,
+                   safety: (s) => s.safe, weather: (s) => (s.wx == null ? null : s.wx),
                    flight: (s) => (s.fly == null ? null : s.fly) };
 const fullSort = { key: "value", asc: false };
 wireSort("#valueTable", fullSort, { value: false, afford: false, safety: false, weather: false, flight: false },
          () => renderValue());
 
 function renderRates(data) {
-  dataRates = data;
   const base = data.base || "USD";
+  // The USD feed lists USD itself (1 USD = 1, +0.0%): a duplicate in both
+  // currency pickers, a self-row in the table, and "USD +0%" on dollarised
+  // countries' cards. Other bases already come without their own row.
+  if (data.rows) data.rows = data.rows.filter((r) => r.code !== base);
+  dataRates = data;
   if (base === "USD") lastRates = data;   // scoring only ever uses USD data
   renderMapSafe();
   buildBaseSelect();
@@ -384,8 +388,10 @@ function renderRates(data) {
   // re-grade the site, and a one-month average is noise anyway.
   $("vsAvgHead").title =
     `vs its own 1-year average — positive = ${w} is stronger than usual. `
+    + `Nominal exchange rate: in high-inflation countries local prices can rise faster `
+    + `than the currency falls, so the Affordability grade uses this net of inflation. `
     + `Fixed at a year (the chart's window above doesn't change it): a shorter `
-    + `average is mostly noise, and this figure feeds the Affordability grade.`;
+    + `average is mostly noise.`;
   $("asof").textContent = "As of " + data.as_of;
   const fav = data.rows.filter((r) => r.favorable && r.watched);
   // "364-day avg" was the history cap leaking into the copy; the column header one
@@ -451,7 +457,7 @@ function curLabel(code) {
 function buildBaseSelect() {
   const sel = $("dataBase");
   if (!sel || sel.options.length > 1 || !lastRates) return;
-  const codes = ["USD", ...lastRates.rows.map((r) => r.code).sort()];
+  const codes = ["USD", ...lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort()];
   sel.innerHTML = codes.map((c) =>
     `<option value="${esc(c)}"${c === homeBase ? " selected" : ""}>${esc(curLabel(c))}</option>`).join("");
   // Writes through the same setter as Top Picks' "In" picker, so the two can't
@@ -571,10 +577,11 @@ for (const b of document.querySelectorAll("#windowtoggle button")) {
 // ---- world heatmap ---------------------------------------------------------
 // Country (ISO-3166 alpha-2) -> currency code. Provider covers ~180 currencies,
 // so nearly every country gets real data. Unmapped/absent -> "no data" (gray).
+// Bulgaria joined 2026-01-01; the provider's BGN quote has been frozen since.
 const EUROZONE = ["AT","BE","CY","EE","FI","FR","DE","GR","IE","IT","LV","LT",
-  "LU","MT","NL","PT","SK","SI","ES","HR","AD","MC","SM","VA","ME","XK"];
+  "LU","MT","NL","PT","SK","SI","ES","HR","AD","MC","SM","VA","ME","XK","BG"];
 // Countries that use the US dollar itself (shown as flat for a US traveler).
-const USD_USING = ["US","EC","SV","PA","TL","ZW","MH","FM","PW","TC","VG","BQ"];
+const USD_USING = ["US","EC","SV","PA","TL","ZW","MH","FM","PW","TC","VG","BQ","PR"];
 const CUR_BY_ISO = (() => {
   const m = {
     // Americas
@@ -585,7 +592,7 @@ const CUR_BY_ISO = (() => {
     // Europe (non-euro)
     GB:"GBP", IM:"GBP", JE:"GBP", GG:"GBP", CH:"CHF", LI:"CHF", NO:"NOK",
     SJ:"NOK", SE:"SEK", DK:"DKK", GL:"DKK", FO:"DKK", IS:"ISK", CZ:"CZK",
-    PL:"PLN", HU:"HUF", RO:"RON", BG:"BGN", RS:"RSD", BA:"BAM", MK:"MKD",
+    PL:"PLN", HU:"HUF", RO:"RON", RS:"RSD", BA:"BAM", MK:"MKD",
     AL:"ALL", MD:"MDL", UA:"UAH", BY:"BYN", RU:"RUB", TR:"TRY",
     // Middle East
     IL:"ILS", PS:"ILS", SA:"SAR", AE:"AED", QA:"QAR", KW:"KWD", BH:"BHD",
@@ -604,6 +611,8 @@ const CUR_BY_ISO = (() => {
     SD:"SDG", SO:"SOS", DJ:"DJF", AO:"AOA", MZ:"MZN", ZM:"ZMW", BW:"BWP",
     NA:"NAD", SZ:"SZL", LS:"LSL", MW:"MWK", MG:"MGA", MU:"MUR", GM:"GMD",
     GN:"GNF", LR:"LRD", CD:"CDF", CV:"CVE", KM:"KMF", MR:"MRU", SC:"SCR", ER:"ERN",
+    // The provider only quotes the old leone (SLL = SLE × 1000); see PPP_UNIT.
+    SL:"SLL",
     // CFA franc zones (real data via XOF / XAF)
     SN:"XOF", CI:"XOF", ML:"XOF", BF:"XOF", NE:"XOF", BJ:"XOF", TG:"XOF", GW:"XOF",
     CM:"XAF", TD:"XAF", CF:"XAF", CG:"XAF", GA:"XAF", GQ:"XAF",
@@ -612,6 +621,12 @@ const CUR_BY_ISO = (() => {
   for (const iso of USD_USING) m[iso] = "USD";
   return m;
 })();
+// A home currency seeded from Bulgaria before the switch would keep measuring
+// everything against the dead lev series.
+if (homeBase === "BGN") {
+  homeBase = "EUR";
+  try { localStorage.setItem("fx_homecur", "EUR"); } catch (e) {}
+}
 const USDLINK = "#bcd0e6"; // pale blue: uses the US dollar (flat for your dollar)
 
 let worldGeo = null;
@@ -935,15 +950,25 @@ function renderCountryCard() {
   }
   const name = countryName(iso);
   const cur = CUR_BY_ISO[iso];
-  const row = cur && lastRates ? lastRates.rows.find((r) => r.code === cur) : null;
+  // Same frame as the maps that open this card: FX in the home currency, price
+  // level vs the From country (it used to read USD / US to every visitor).
+  const fx = fxInfo(iso);
   const pl = priceLevel(iso);
+  const anchor = plAnchor(guidePassport());
   const advLvl = advisoryByIso()[iso];
   const cl = climate && climate[iso];
   const act = activities && activities[iso];
 
   const facts = [];
-  if (cur) facts.push(`💱 ${esc(cur)}${row ? ` ${row.strength_pct >= 0 ? "+" : ""}${row.strength_pct}% vs avg` : (cur === "USD" ? " (US dollar)" : "")}`);
-  if (pl != null) facts.push(`💰 price level ${pl.toFixed(2)} (${plWord(pl)})`);
+  const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
+  if (cur) facts.push(`💱 ${esc(cur)}` + (cur === homeBase ? " (your home currency)"
+    : fx ? `: your ${esc(homeBase)} ${sgn(fx.nom)} vs 1-yr avg`
+      + (fx.real == null ? " (nominal)" : Math.abs(fx.real - fx.nom) >= 1 ? ` (${sgn(fx.real)} after inflation)` : "")
+    : ""));
+  if (pl != null) {
+    const rel = pl / anchor.pl;
+    facts.push(`💰 price level ${rel.toFixed(2)} (${plWord(rel)} vs ${esc(anchor.name)})`);
+  }
   if (advLvl) facts.push(`⚠️ advisory Level ${advLvl}${advLvl === 4 ? " — Do Not Travel" : ""}`);
   if (cl && cl.best && cl.best.length) facts.push(`📅 best months: ${cl.best.map((m) => MON_ABBR[m - 1]).join(", ")}`);
   if (act && act.days) facts.push(`🧳 worth ${act.days[0]}–${act.days[1]} days`);
@@ -1004,8 +1029,9 @@ function renderMap(rows, base) {
   renderDimPicks("map", "Biggest currency wins vs " + base,
     winners.map((r) => r.code + " " + sgn(r.strength_pct)));
 
-  $("mapsub").textContent =
-    `Greener = ${baseWord(base)} stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`;
+  $("mapsub").innerHTML = esc(
+    `Greener = ${baseWord(base)} stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`)
+    + ` <span class="muted" data-tip="Nominal exchange rate — in high-inflation countries local prices can rise faster than the currency falls, so a stronger rate isn't always more buying power. Top Picks and the guides net out inflation." title="">ⓘ</span>`;
   renderLegend(base);
 }
 
@@ -1038,14 +1064,91 @@ function rateForCurrency(code) {
   return r ? r.rate_now : null;
 }
 // price level vs US for a country: PPP factor / market rate. <1 = cheaper than US.
-// Countries whose World Bank PPP factor is denominated in a DIFFERENT currency
-// from the one circulating locally. Bulgaria's 2025 factor was restated in euros
-// (it dropped by ~1.94, the BGN/EUR peg, within the same data year), so dividing
-// it by the lev rate reported Bulgaria at half its real price level — $100 would
-// have "bought" $410 instead of $216. Dividing by the euro rate reproduces the
-// previous year's value to within 2%, which is what confirmed the restatement.
-// Expect this to recur whenever a country redenominates or joins the euro.
-const PPP_CUR = { BG: "EUR" };
+// Countries whose World Bank PPP factor is quoted in a DIFFERENT unit from the
+// currency travellers use: [unit it is quoted in, units of that code per unit].
+// West Bank & Gaza and Liberia report GDP — and so PPP — in US dollars (the WB's
+// NY.GDP.MKTP.CN equals .CD for both), so dividing by ILS/LRD put Palestine at a
+// third of its real price level and pushed Liberia under the floor. Sierra
+// Leone's factor is in new leones; the rates feed only carries the old leone.
+// (Bulgaria's euro-restated factor needed this until BG moved into EUROZONE.)
+// Only the price level reads this — FX views keep the circulating currency.
+// Expect it to recur whenever a country redenominates or dollarises.
+const PPP_UNIT = { PS: ["USD", 1], LR: ["USD", 1], SL: ["SLL", 1000] };
+
+// ---- inflation (World Bank CPI: ppp.json infl / infl_year) -------------------
+// A PPP factor is one year's prices and the FX baseline is last year's rate, so
+// both drift with inflation. A steadily depreciating currency always sits
+// "above its 1-yr average" — Turkey read +9%, "goes further than usual", while
+// local prices rose ~35% and buying power actually fell. Both are carried
+// forward by the inflation gap. Same formulas as pricelevel.py / picks.py;
+// entries without the fields behave exactly as before (no adjustment).
+function nowYearFrac() {
+  const d = new Date(), y = d.getUTCFullYear();
+  const doy = Math.round((Date.UTC(y, d.getUTCMonth(), d.getUTCDate()) - Date.UTC(y, 0, 1)) / 864e5) + 1;
+  return y + (doy - 1) / 365.25;
+}
+function inflRate(iso) {
+  const e = ppp && ppp[iso];
+  if (!e || typeof e.infl !== "number") return null;
+  // A stale high-inflation reading (Argentina's 2024 = 220%) would overcorrect.
+  if (e.infl_year < e.year && e.infl >= 10) return null;
+  return Math.max(-0.05, Math.min(3, e.infl / 100));
+}
+function inflUS() { return inflRate("US") ?? 0.03; }
+// High inflation with no current figure: no direction can be claimed.
+function highInflUnknown(iso) {
+  return inflRate(iso) == null && !!(ppp && ppp[iso] && ppp[iso].infl >= 10);
+}
+// Carry the PPP year's prices (measured mid-year) forward to today, ≤3 years.
+function pplCarry(iso) {
+  const e = ppp && ppp[iso], rL = inflRate(iso);
+  if (!e || rL == null || !e.year) return 1;
+  const t = Math.max(0, Math.min(3, nowYearFrac() - (e.year + 0.5)));
+  return Math.pow((1 + rL) / (1 + inflUS()), t);
+}
+// Home side of the FX comparison: the From country when it uses the home
+// currency, else that currency's own country (a pinned USD -> US, EUR -> DE).
+function fxHomeIso() {
+  const o = guidePassport();
+  return CUR_BY_ISO[o] === homeBase ? o : (currencyCountry(homeBase) || o);
+}
+// Nominal strength_pct (now vs the 1-yr average) -> real: minus half a year of
+// the inflation gap (0.5 = mean age of the samples in a 364-day average).
+// Null = high local inflation with no current figure.
+function realFxPct(iso, nomPct, homeIso) {
+  if (typeof nomPct !== "number") return null;
+  const rB = inflRate(homeIso || fxHomeIso()) ?? inflUS();
+  let rL = inflRate(iso);
+  if (rL == null) {
+    if (highInflUnknown(iso)) return null;
+    rL = rB;                                  // low / unknown: nominal ~ real
+  }
+  return Math.round(((1 + nomPct / 100) * Math.pow((1 + rB) / (1 + rL), 0.5) - 1) * 10000) / 100;
+}
+// FX facts for a destination in the home-currency dataset, or null when there
+// is no FX story (same currency, or not loaded yet).
+function homeRatesNow() {
+  return homeRates || (dataRates && (dataRates.base || "USD") === homeBase ? dataRates : null)
+    || (homeBase === "USD" ? lastRates : null);
+}
+function fxInfo(iso) {
+  const code = CUR_BY_ISO[iso];
+  const hr = homeRatesNow(), rows = hr && hr.rows;
+  if (!code || !rows || code === homeBase) return null;
+  const row = rows.find((r) => r.code === code);
+  if (!row || typeof row.strength_pct !== "number") return null;
+  const homeIso = fxHomeIso();
+  return { code, nom: row.strength_pct, real: realFxPct(iso, row.strength_pct, homeIso), homeIso };
+}
+// "Türkiye ~35%/yr vs the US ~3%/yr" for the ⓘ copy ("" if unknown).
+function inflGapText(iso, homeIso) {
+  const rL = inflRate(iso);
+  if (rL == null) return "";
+  const rB = inflRate(homeIso) ?? inflUS();
+  const nm = (i) => (i === "US" ? "the US" : countryName(i));
+  const pc = (r) => "~" + Math.round(r * 100) + "%/yr";
+  return nm(iso) + " " + pc(rL) + " vs " + nm(homeIso) + " " + pc(rB);
+}
 
 // Price level = a PPP factor measured in year Y, divided by TODAY's exchange
 // rate. When a currency has collapsed since year Y, that arithmetic reports a
@@ -1055,34 +1158,47 @@ const PPP_CUR = { BG: "EUR" };
 // caveat never travelled with the number into the rankings, the guide pages or
 // the budget filter.
 // Threshold from the live distribution rather than taste: median one-year drift
-// is 1.0% and the 90th percentile 4.4%, so 15% flags only genuine outliers —
-// currently Iran (84%, already excluded as Do Not Travel) and Bolivia (66%,
-// sitting at #1 in Top Picks). strength_pct is the dollar's move against that
-// currency, so a positive number is exactly the case we care about.
+// is 1.0% and the 90th percentile 4.4%, so 15% flags only genuine outliers.
+// strength_pct is the dollar's move against that currency, so a positive number
+// is exactly the case we care about. The price level is now carried forward by
+// inflation where we know it, so only a fall FASTER than inflation — or one we
+// can't adjust — still earns the caveat.
 const PPP_DRIFT_WARN = 15;
 function pppDrift(iso) {
-  const code = PPP_CUR[iso] || CUR_BY_ISO[iso];
-  if (!code || !lastRates || !lastRates.rows) return null;
+  const code = CUR_BY_ISO[iso];
+  if (!code || code === "USD" || !lastRates || !lastRates.rows) return null;
   const row = lastRates.rows.find((r) => r.code === code);
-  const pct = row && row.strength_pct;
-  if (typeof pct !== "number" || pct < PPP_DRIFT_WARN) return null;
+  const nom = row && row.strength_pct;
+  if (typeof nom !== "number") return null;
+  const real = realFxPct(iso, nom, "US");
+  const pct = real == null ? nom : real;
+  if (pct < PPP_DRIFT_WARN) return null;
   const year = ppp && ppp[iso] && ppp[iso].year;
-  return { pct, year, code };
+  return { pct, year, code, real: real != null };
 }
 function pppDriftNote(iso) {
   const d = pppDrift(iso);
-  if (!d) return "";
-  return `⚠️ The ${d.code} has fallen ${Math.round(d.pct)}% against the dollar in the past year`
+  if (d) return `⚠️ The ${d.code} has fallen ${Math.round(d.pct)}% against the dollar in the past year`
+       + (d.real ? " even after inflation" : "")
        + (d.year ? `, but the price level uses World Bank data from ${d.year}` : "")
        + ". Local prices may not have caught up yet, so this reads cheaper than it currently feels.";
+  // No current inflation figure: the price level couldn't be carried forward.
+  if (highInflUnknown(iso)) {
+    const e = ppp[iso];
+    return `⚠️ ${countryName(iso)}'s latest inflation figure (${Math.round(e.infl)}% in ${e.infl_year}) `
+      + `is older than its ${e.year} price data, so we can't bring prices up to date — `
+      + "this likely reads cheaper than it currently feels.";
+  }
+  return "";
 }
 function priceLevelRaw(iso) {
   if (!ppp || !ppp[iso]) return null;
-  const cur = PPP_CUR[iso] || CUR_BY_ISO[iso];
+  const u = PPP_UNIT[iso];
+  const cur = u ? u[0] : CUR_BY_ISO[iso];
   if (!cur) return null;
   const rate = rateForCurrency(cur);
   if (!rate) return null;
-  const pl = ppp[iso].ppp / rate;
+  const pl = ppp[iso].ppp * (u ? u[1] : 1) * pplCarry(iso) / rate;
   // Guard against broken World Bank values / unit mismatches (e.g. stale PPP for
   // a redenominated currency). Real price levels sit roughly in [0.1, 4].
   if (pl < 0.08 || pl > 6) return null;
@@ -1164,6 +1280,17 @@ function priceLevelForCurrency(code) {
   return iso ? priceLevel(iso) : null;
 }
 function plWord(pl) { return pl < 0.55 ? "very cheap" : pl < 0.85 ? "cheap" : pl <= 1.15 ? "about the same" : "pricey"; }
+// The From country's price level — the yardstick "cheap" is measured against.
+// Taiwan is a flight origin with no World Bank PPP row; it used to fall back to
+// the US silently while every label said "vs Taiwan", so the fallback now says
+// whose prices it really is.
+function plAnchor(iso) {
+  const pl = iso ? priceLevel(iso) : null;
+  if (pl) return { iso, pl, name: iso === "US" ? "the US" : countryName(iso), cur: CUR_BY_ISO[iso] || "USD", home: true };
+  return { iso: "US", pl: 1, name: "the US", cur: "USD", home: iso === "US" };
+}
+// "home" in the copy, unless the comparison had to fall back to the US.
+function plHomeWord() { return plAnchor(guidePassport()).home ? "home" : "the US"; }
 function plTag(pl) {
   const w = plWord(pl);
   const cls = pl <= 0.85 ? "pos" : pl > 1.15 ? "neg" : "";
@@ -1429,14 +1556,16 @@ async function renderGuideFares(iso) {
 // temperature). FX has no forecastable seasonality, so this chart answers only
 // "is your money going further than usual right now" — backward-looking
 // monthly averages, the same 1-yr-average anchor the affordability score's FX
-// component already uses. Never a month-picker.
+// component already uses. Never a month-picker. Plotted in today's prices
+// (inflation gap removed, see realFxPct), so the headline matches the table's
+// FX mark and a steady depreciation no longer reads as a bargain.
 const _fxTrendCache = {};
 async function renderGuideFx(iso) {
   const host = $("guideFx");
   if (!host) return;
   host.hidden = true;
   host.innerHTML = "";
-  const dest = PPP_CUR[iso] || CUR_BY_ISO[iso];
+  const dest = CUR_BY_ISO[iso];
   const base = homeBase || "USD";
   // Same currency both ends (an American in Ecuador) = no FX story to tell.
   if (!dest || dest === base) return;
@@ -1446,27 +1575,59 @@ async function renderGuideFx(iso) {
     t = await (_fxTrendCache[key] ||
       (_fxTrendCache[key] = getJSON("/api/fx-trend?cur=" + dest + "&base=" + base)));
   } catch (e) { delete _fxTrendCache[key]; return; }
+  // The inflation figures ride in ppp.json (cached; usually already loaded).
+  await ensurePPP().catch(() => {});
   // Guard BOTH coordinates that can shift during the await: the open guide
   // (ccGuideIso) and the home currency — a stale in-flight fetch for the
   // previous base must not paint over the fresh chart.
   if (ccGuideIso !== iso || homeBase !== base
       || !t || !t.months || t.months.length < 6) return;
-  const pts = t.months.map((m) => m.v);
-  const lo = Math.min(...pts, t.avg), hi = Math.max(...pts, t.avg);
+  // The 364-day window starts mid-month, so its first calendar bucket can be a
+  // few days wide — it was plotted as a full month ("Sep to Sep", 13 points).
+  let months = t.months;
+  const asOf = Date.parse((t.as_of || "") + "T12:00:00Z") || Date.now();
+  if (months.length > 12) {
+    const start = new Date(asOf - 364 * 864e5);
+    const dim = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0)).getUTCDate();
+    if (months[0].m === start.toISOString().slice(0, 7) && dim - start.getUTCDate() + 1 < 15)
+      months = months.slice(1);
+  }
+  const homeIso = fxHomeIso();
+  const real = ppp ? realFxPct(iso, t.pct, homeIso) : null;
+  const nominal = real == null;              // high inflation, no current figure
+  const rB = inflRate(homeIso) ?? inflUS(), rL0 = inflRate(iso);
+  const g = rL0 == null || nominal ? 1 : (1 + rL0) / (1 + rB);
+  // Each month in today's prices: v * g^(age in years of the month's midpoint).
+  const age = (m) => Math.max(0, (asOf - Date.UTC(+m.slice(0, 4), +m.slice(5, 7) - 1, 15)) / (365.25 * 864e5));
+  const pts = months.map((m) => m.v * Math.pow(g, age(m.m)));
+  const avg = t.avg * Math.pow(g, 0.5);      // same 0.5-year mean age realFxPct uses
+  const pct = Math.round((nominal ? t.pct : real) * 10) / 10;
+  const lo = Math.min(...pts, avg), hi = Math.max(...pts, avg);
   const W = 240, H = 46, P = 4;
   const x = (i) => P + (i * (W - 2 * P)) / (pts.length - 1);
   const y = (v) => (hi > lo ? P + (H - 2 * P) * (1 - (v - lo) / (hi - lo)) : H / 2);
   const path = pts.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
   // Same thresholds as the Currency tab's strong/typical/weak labels.
-  const col = t.pct >= 2 ? "#2f9e44" : t.pct <= -2 ? "#d9480f" : "#8891a0";
-  const verdict = t.pct >= 2 ? "further than usual" : t.pct <= -2 ? "less far than usual" : "about typical";
-  const mLabel = (m) => MON_ABBR[parseInt(m.slice(5), 10) - 1];
-  host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(countryName(iso))}</b> · past 12 months: `
-    + `<b style="color:${col}">${t.pct > 0 ? "+" : ""}${t.pct}%</b> vs its 1-yr average`
-    + ` <span class="muted">(goes ${verdict})</span>`
-    + `<span class="fxinfo" data-tip="Monthly averages of the daily ${esc(base)}→${esc(dest)} rate, ${esc(mLabel(t.months[0].m))} to ${esc(mLabel(t.months[t.months.length - 1].m))}. Higher = your money buys more ${esc(dest)}. Backward-looking on purpose: exchange rates aren't seasonal, so this says whether now is favourable — not which month to pick." title="">ⓘ</span></span>`
+  const col = nominal ? "#8891a0" : pct >= 2 ? "#2f9e44" : pct <= -2 ? "#d9480f" : "#8891a0";
+  const verdict = pct >= 2 ? "further than usual" : pct <= -2 ? "less far than usual" : "about typical";
+  const mLabel = (m) => MON_ABBR[parseInt(m.slice(5), 10) - 1] + " '" + m.slice(2, 4);
+  const cn = countryName(iso);
+  const gap = inflGapText(iso, homeIso);
+  const tip = (nominal
+      ? `Nominal — ${cn}'s inflation data isn't current, so we can't say whether your money goes further. `
+      : gap ? `After inflation: the exchange-rate move minus the inflation gap (${gap}, World Bank)`
+          + (Math.abs(t.pct - pct) >= 0.1 ? `; the plain rate moved ${t.pct > 0 ? "+" : ""}${t.pct}%` : "") + ". "
+        : `No current inflation figure for ${cn}, so this is the plain exchange-rate move. `)
+    + `Monthly averages of the daily ${base}→${dest} rate, ${mLabel(months[0].m)} to ${mLabel(months[months.length - 1].m)}`
+    + (nominal || !gap ? "" : ", in today's prices")
+    + ". Higher = your money buys more. Backward-looking on purpose: exchange rates aren't seasonal, "
+    + "so this says whether now is favourable — not which month to pick.";
+  host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b> · past 12 months: `
+    + `<b style="color:${col}">${pct > 0 ? "+" : ""}${pct}%</b> vs its 1-yr average`
+    + ` <span class="muted">(${nominal ? "nominal — inflation data isn't current" : "goes " + verdict})</span>`
+    + `<span class="fxinfo" data-tip="${esc(tip)}" title="">ⓘ</span></span>`
     + `<svg class="fxspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
-    + `<line x1="${P}" y1="${y(t.avg).toFixed(1)}" x2="${W - P}" y2="${y(t.avg).toFixed(1)}" class="fxavg"/>`
+    + `<line x1="${P}" y1="${y(avg).toFixed(1)}" x2="${W - P}" y2="${y(avg).toFixed(1)}" class="fxavg"/>`
     + `<path d="${path}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`
     + `<circle cx="${x(pts.length - 1).toFixed(1)}" cy="${y(pts[pts.length - 1]).toFixed(1)}" r="3" fill="${col}"/></svg>`;
   host.hidden = false;
@@ -1503,6 +1664,58 @@ function stayDates() {
                    "-" + String(d.getDate()).padStart(2, "0");
   return { checkin: f(ci), checkout: f(co) };
 }
+// Hostelworld country listings, /hostels/<continent>/<slug>/. Their search route
+// (/search?search_keywords=) 404s for every query, and the stay spots are
+// landmarks ("Mount Fuji"), not Hostelworld cities, so link the country. Slugs
+// from Hostelworld's sitemap, sample-checked 200 in 2026-09 (England stands in
+// for the UK; DR Congo, Congo, Falklands and South Sudan have no page).
+// Anything unlisted gets the homepage rather than a guessed URL.
+const HW_COUNTRY = (() => {
+  const m = {};
+  const add = (cont, list) => list.split(" ").forEach((p) => {
+    const [iso, slug] = p.split(":");
+    m[iso] = cont + "/" + slug;
+  });
+  add("europe", "AD:andorra AL:albania AM:armenia AT:austria BA:bosnia-and-herzegovina BE:belgium " +
+    "BG:bulgaria BY:belarus CH:switzerland CY:cyprus CZ:czech-republic DE:germany " +
+    "DK:denmark EE:estonia ES:spain FI:finland FR:france GB:england GE:georgia " +
+    "GI:gibraltar GL:greenland GR:greece HR:croatia HU:hungary IE:ireland IS:iceland " +
+    "IT:italy LI:liechtenstein LT:lithuania LU:luxembourg LV:latvia MD:moldova " +
+    "ME:montenegro MK:north-macedonia MT:malta NL:netherlands NO:norway PL:poland " +
+    "PT:portugal RO:romania RS:serbia RU:russia SE:sweden SI:slovenia SK:slovakia " +
+    "TR:turkey UA:ukraine XK:kosovo");
+  add("asia", "AE:united-arab-emirates AF:afghanistan AZ:azerbaijan BD:bangladesh BN:brunei " +
+    "BT:bhutan CN:china HK:hong-kong-china ID:indonesia IL:israel IN:india IQ:iraq " +
+    "IR:iran JO:jordan JP:japan KG:kyrgyzstan KH:cambodia KP:north-korea KR:south-korea " +
+    "KW:kuwait KZ:kazakhstan LA:laos LB:lebanon LK:sri-lanka MM:myanmar MN:mongolia " +
+    "MV:maldives MY:malaysia NP:nepal OM:oman PH:philippines PK:pakistan PS:palestine " +
+    "QA:qatar SA:saudi-arabia SG:singapore SY:syria TH:thailand TJ:tajikistan " +
+    "TM:turkmenistan TW:taiwan-china UZ:uzbekistan VN:vietnam YE:yemen");
+  add("africa", "AO:angola BF:burkina-faso BI:burundi BJ:benin BW:botswana " +
+    "CF:central-african-republic CI:cote-d-ivoire CM:cameroon CV:cape-verde DJ:djibouti " +
+    "DZ:algeria EG:egypt EH:western-sahara ER:eritrea ET:ethiopia GA:gabon GH:ghana " +
+    "GM:gambia GN:guinea GQ:equatorial-guinea GW:guinea-bissau KE:kenya LR:liberia " +
+    "LS:lesotho LY:libyan-arab-jamahiriya MA:morocco MG:madagascar ML:mali MR:mauritania " +
+    "MU:mauritius MW:malawi MZ:mozambique NA:namibia NE:niger NG:nigeria RE:reunion " +
+    "RW:rwanda SD:sudan SL:sierra-leone SN:senegal SO:somalia ST:sao-tome-and-principe " +
+    "SZ:swaziland TD:chad TG:togo TN:tunisia TZ:tanzania UG:uganda ZA:south-africa " +
+    "ZM:zambia ZW:zimbabwe");
+  add("north-america", "BB:barbados BS:bahamas BZ:belize CA:canada CR:costa-rica CU:cuba " +
+    "DO:dominican-republic GP:guadeloupe GT:guatemala HN:honduras HT:haiti JM:jamaica " +
+    "MX:mexico NI:nicaragua PA:panama SV:el-salvador TT:trinidad-and-tobago US:usa " +
+    "VI:us-virgin-islands");
+  add("south-america", "AR:argentina AW:aruba BO:bolivia BR:brazil CL:chile CO:colombia " +
+    "EC:ecuador GY:guyana MQ:martinique PE:peru PR:puerto-rico PY:paraguay SR:suriname " +
+    "UY:uruguay VE:venezuela");
+  add("oceania", "AU:australia CK:cook-islands FJ:fiji NC:new-caledonia NZ:new-zealand " +
+    "PF:french-polynesia PG:papua-new-guinea SB:solomon-islands TL:east-timor VU:vanuatu " +
+    "WS:samoa");
+  return m;
+})();
+function hostelworldURL(iso) {
+  return HW_COUNTRY[iso] ? "https://www.hostelworld.com/hostels/" + HW_COUNTRY[iso] + "/"
+                         : "https://www.hostelworld.com/";
+}
 let _staySpotIdx = 0, _staySpotIso = null;   // chip selection, reset per country
 function renderGuideStay(iso) {
   const host = $("guideStay");
@@ -1527,8 +1740,7 @@ function renderGuideStay(iso) {
     // the affiliate relationship.
     const q = "aid=" + STAY22_AID + "&lat=" + sp.ll[0] + "&lng=" + sp.ll[1] +
               "&checkin=" + checkin + "&checkout=" + checkout;
-    const hw = "https://www.hostelworld.com/search?search_keywords=" +
-               encodeURIComponent(sp.n + ", " + countryName(iso));
+    const hw = hostelworldURL(iso);
     const btn = (href, label, sponsored) =>
       '<a class="staybtn" target="_blank" rel="' + (sponsored ? "sponsored nofollow noopener" : "nofollow noopener") +
       '" href="' + href + '">' + label + ' <span class="ext">↗</span></a>';
@@ -2371,9 +2583,7 @@ function renderAfford() {
   // all stored vs the US, so dividing by the anchor's own level rebases them.
   initAffAnchor();
   const anchorIso = ($("valueOrigin") || {}).value || "US";
-  const anchorPl = priceLevel(anchorIso) || 1;
-  const anchorCur = CUR_BY_ISO[anchorIso] || "USD";
-  const anchorName = anchorIso === "US" ? "the US" : countryName(anchorIso);
+  const { pl: anchorPl, cur: anchorCur, name: anchorName } = plAnchor(anchorIso);
   const sym = anchorCur === "USD" ? "$" : anchorCur + " ";
   drawMap("affMap", (f) => {
     const pl = priceLevel(f.properties.iso);
@@ -2385,16 +2595,19 @@ function renderAfford() {
       title: `${f.properties.name} — price level ${rel.toFixed(2)} (${plWord(rel)} vs ${anchorName})`
              + (drift ? " · " + drift : "") };
   }, "Cost of living (price level vs " + anchorName + ")");
+  // Mirrors the table under it, including its Level 3–4 filter.
+  const adv = advisoryByIso();
   const cheap = Object.keys(CUR_BY_ISO)
     .map((iso) => ({ iso, pl: priceLevel(iso) }))
-    .filter((x) => x.pl != null && countryName(x.iso) !== x.iso)
+    .filter((x) => x.pl != null && countryName(x.iso) !== x.iso
+      && (showRisky || (adv[x.iso] || 0) < 3))
     .sort((a, b) => a.pl - b.pl).slice(0, 8);
   renderDimPicks("affMap", "Where " + sym + "100 goes furthest",
     cheap.map((x) => countryName(x.iso) + " · " + sym + "100≈" + sym + Math.round(100 * anchorPl / x.pl)),
     cheap.map((x) => x.iso));
 
   $("affSub").textContent =
-    `Below 1.00 = cheaper than ${anchorName} (your money buys more — follows the “From” selector). World Bank PPP ÷ live rate · ${n} countries. `
+    `Below 1.00 = cheaper than ${anchorName} (your money buys more — follows the “From” selector). World Bank PPP, brought up to date by inflation, ÷ live rate · ${n} countries. `
     + `These are national averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.`;
   $("affLegend2").innerHTML =
     '<span>Pricey</span><span class="bar"></span><span>Cheap</span>' +
@@ -2605,6 +2818,7 @@ function setTravelOrigin(iso) {
   if (!homeManual) setHomeCur(homeCurAuto(), false);   // currency follows unless pinned
   loadValueFlights(false);                             // Top Picks fares (re-renders)
   renderValue();                                       // immediate: new affordability anchor
+  if (ccCurrent) renderCountryCard();                  // its price level is vs From
   if (loaded.flights) loadFlights();                   // Explore-the-Data fares
   // The advisory source is an explicit dropdown (no longer tied to the home
   // country); this is a consistency re-check and normally a no-op.
@@ -2643,7 +2857,10 @@ function setHomeCur(code, manual) {
     if ([...sel.options].some((o) => o.value === code) && sel.value !== code) sel.value = code;
     if (sel._sync) sel._sync();
   }
-  loadHomeRates().catch(() => {}).then(() => { if (loaded.value) renderValue(); });
+  loadHomeRates().catch(() => {}).then(() => {
+    if (loaded.value) renderValue();
+    if (ccCurrent) renderCountryCard();      // an open card reasons in this currency
+  });
   // The Data tab reasons in this currency too, so refetch it in the new base.
   // Guarded on lastRates, not a loaded.* flag: the rates table isn't lazy — it
   // loads at boot — so there is no flag for it, and there was never one to check.
@@ -2658,7 +2875,7 @@ function setHomeCur(code, manual) {
 function initHomeCur() {
   const sel = $("homeCur");
   if (!sel || sel.options.length > 1 || !lastRates) return;
-  const codes = ["USD", ...lastRates.rows.map((r) => r.code).sort()];
+  const codes = ["USD", ...lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort()];
   sel.innerHTML = codes.map((c) => `<option value="${esc(c)}">${esc(curLabel(c))}</option>`).join("");
   const stored = localStorage.getItem("fx_homecur");
   const start = homeManual && codes.includes(stored) ? stored : homeCurAuto();
@@ -2684,52 +2901,62 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   // Costs Puerto Rico and a few uninhabited territories from the picks; that is
   // the price of not making safety claims we can't source.
   if (!advLvl) return null;
-  const cur = CUR_BY_ISO[iso];
-  // FX strength is judged from the chosen home currency's dataset. While a
-  // non-USD dataset is still loading, FX reads neutral rather than wrong.
-  const row = cur && cur !== homeBase && homeRates
-    ? homeRates.rows.find((r) => r.code === cur) : null;
+  // FX timing, judged in the chosen home currency's dataset and net of the
+  // inflation gap (realFxPct). Neutral while that dataset loads, and when a
+  // high-inflation country has no current figure to net it against.
+  const fxi = fxInfo(iso);
+  const fxReal = fxi ? fxi.real : null;
   const cl = climate && climate[iso];
+  const wxKnown = !!(cl && cl.scores && cl.scores[month - 1] != null);
 
   const w = loadWeights();
   // Sub-scores (kept for tooltips/detail): cheapness maxes once prices are ~1/3
   // of home prices; FX maxes at +8% vs the 1-year average.
   const aff = clamp100(((1.3 - pl) / 0.95) * 100);
-  const fx = row ? clamp100(50 + row.strength_pct * 6.25) : 50;
+  const fx = fxReal != null ? clamp100(50 + fxReal * 6.25) : 50;
   const comps = {
     // Affordability = mostly structural cost of living, nudged by FX timing.
     afford: clamp100(aff * 0.7 + fx * 0.3),
     safe: advLvl ? { 1: 100, 2: 70, 3: 35 }[advLvl] : 70,
-    wx: cl && cl.scores[month - 1] != null ? cl.scores[month - 1] : 50,
   };
-  let fare = null, fareEst = false, fareBase = null;
+  // No climate entry = no weather measure. It used to be a made-up 50 (a D pill)
+  // averaged in, while the 3/4 mark said weather was left out.
+  if (wxKnown) comps.wx = cl.scores[month - 1];
+  // s.fare is the fare the traveller would pay — the cached average, or the
+  // distance estimate (fareEst). The deal grade alone uses the version shrunk
+  // toward the distance fit (dealPrices), so a one-route sample can't swing it.
+  let fare = null, fareEst = false, fareBase = null, fareMin = null, dealRatio = null;
   if (fares && fares.prices[iso] != null) {
     fare = fares.prices[iso];
-    fareEst = fares.est && fares.est.has(iso);
+    fareEst = !!(fares.est && fares.est.has(iso));
+    fareMin = fareEst ? null : (fares.mins && fares.mins[iso]) || null;
     fareBase = fares.expected ? fares.expected(iso) : null;
+    const deal = fares.dealPrices ? fares.dealPrices[iso] : fare;
+    if (fareBase) dealRatio = deal / fareBase;
     // Deal vs the typical fare for that distance: at baseline = 70 (B),
     // ~20% below = A, ~30% below = A+, ~20% above = D, ~40%+ above = F.
-    // Falls back to min-max cheapness when there's no fitted baseline.
-    comps.fly = fareBase ? clamp100(70 + (1 - fare / fareBase) * 100)
+    // An estimate IS the baseline, so it scores a neutral 70 (flagged in the
+    // coverage mark). Falls back to min-max cheapness with no fitted baseline.
+    comps.fly = fareBase ? clamp100(70 + (1 - dealRatio) * 100)
       : fares.max > fares.min
-        ? clamp100(((fares.max - fare) / (fares.max - fares.min)) * 100) : 50;
+        ? clamp100(((fares.max - deal) / (fares.max - fares.min)) * 100) : 50;
   }
   // Weighted mean over the components this country actually has.
   let num = 0, den = 0;
   for (const k in comps) { num += (w[k] || 0) * comps[k]; den += (w[k] || 0); }
   const value = den ? clamp100(num / den) : 0;
   return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
-           afford: comps.afford, safe: comps.safe, wx: comps.wx,
-           fly: comps.fly, fare, fareEst, fareBase, advLvl, value,
+           afford: comps.afford, safe: comps.safe, wx: wxKnown ? comps.wx : null,
+           fly: comps.fly, fare, fareEst, fareMin, fareBase, dealRatio, advLvl, value,
            // Which dimensions this score is actually built on. A country with
-           // no fare data is averaged over three, so its remaining three carry
+           // no measure for something is averaged over the rest, so those carry
            // full weight and it can float above a country measured on four —
            // which is how three microstates outranked a country with a JFK
            // nonstop. The average was right; the row just never said it was
            // standing on less.
-           wxMissing: !(cl && cl.scores && cl.scores[month - 1] != null),
+           wxMissing: !wxKnown,
            flyMissing: comps.fly == null,
-           pl, fx: row ? row.strength_pct : null };
+           pl, fx: fxReal };
 }
 
 let valueMapMode = "score";
@@ -2834,13 +3061,20 @@ function distKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
-// Returns { prices, est:Set, min, max, expected } — known fares plus
-// distance-based estimates for every mappable country, or null when no fare
-// data is loaded. expected(iso) is the fitted "typical fare for that distance"
-// — the baseline a real fare is judged against (deal vs ripoff).
+// Returns { prices, dealPrices, mins, est:Set, min, max, expected } — known
+// fares plus distance-based estimates for every mappable country, or null when
+// no fare data is loaded. `prices` is what a traveller would pay (the cached
+// average, or the estimate) — the budget, prompts and share cards read it.
+// `dealPrices` is shrunk toward the fit and feeds only the deal grade. `mins`
+// holds the cheapest cached fare per country. expected(iso) is the fitted
+// "typical fare for that distance" — the baseline a real fare is judged
+// against (deal vs ripoff).
 function buildFareContext() {
   if (!(flightsData && flightsData.configured && flightsData.by_country)) return null;
   const prices = { ...flightsData.by_country };
+  const dealPrices = { ...prices };
+  const mins = {};
+  for (const r of flightsData.countries || []) if (Number(r.min) > 0) mins[r.iso] = Number(r.min);
   const est = new Set();
   let expected = null;
   const C = countryCentroids();
@@ -2859,31 +3093,33 @@ function buildFareContext() {
     expected = (iso) => (C[iso] ? Math.max(50, a + b * distKm(o, C[iso])) : null);
     const known = Object.values(prices);
     const lo = Math.min(...known), hi = Math.max(...known) * 1.4;
-    // Shrink thin evidence toward the distance baseline. Half the covered
-    // countries stand on fewer than 5 sampled routes, and an "average" of one
-    // route is just that itinerary — Croatia's only sample is a 4-stop fare.
-    // Weight n/(n+3): one route keeps a quarter of its own price, ten routes
-    // keep ~77%, a well-sampled country is untouched in practice. The fit
-    // itself is over all ~114 points, so one outlier barely bends the line it
-    // is being pulled toward.
+    // Shrink thin evidence toward the distance baseline — for the DEAL grade
+    // only. Half the covered countries stand on fewer than 5 sampled routes,
+    // and an "average" of one route is just that itinerary — Croatia's only
+    // sample is a 4-stop fare. Weight n/(n+3): one route keeps a quarter of its
+    // own price, ten routes keep ~77%, a well-sampled country is untouched in
+    // practice. The fit itself is over all ~114 points, so one outlier barely
+    // bends the line it is being pulled toward. It never touches `prices`: a
+    // shrunk $904 for a route cached at $542 once put Cameroon "out of reach"
+    // of an $800 budget.
     const nBy = {};
     for (const r of flightsData.countries || []) nBy[r.iso] = r.n;
-    for (const iso in prices) {
+    for (const iso in dealPrices) {
       const e = C[iso] ? a + b * distKm(o, C[iso]) : null;
       if (e == null) continue;
       const wN = (nBy[iso] || 1) / ((nBy[iso] || 1) + 3);
-      prices[iso] = Math.round(wN * prices[iso] + (1 - wN) * Math.max(50, e));
+      dealPrices[iso] = Math.round(wN * dealPrices[iso] + (1 - wN) * Math.max(50, e));
     }
     for (const iso in CUR_BY_ISO) {
       if (prices[iso] != null || !C[iso] || iso === flightsData.origin) continue;
       const e = a + b * distKm(o, C[iso]);
-      prices[iso] = Math.round(Math.max(lo, Math.min(hi, e)));
+      prices[iso] = dealPrices[iso] = Math.round(Math.max(lo, Math.min(hi, e)));
       est.add(iso);
     }
   }
-  const vals = Object.values(prices);
+  const vals = Object.values(dealPrices);
   if (!vals.length) return null;
-  return { prices, est, min: Math.min(...vals), max: Math.max(...vals), expected };
+  return { prices, dealPrices, mins, est, min: Math.min(...vals), max: Math.max(...vals), expected };
 }
 
 async function loadValueFlights(silent) {
@@ -3407,13 +3643,15 @@ function buildAIPrompt() {
     let aff = "";
     if (s.pl != null) {
       const ratio = 1 / s.pl;
-      aff = ratio >= 1.12 ? `your money goes ~${ratio >= 1.75 ? (Math.round(ratio * 10) / 10) + "×" : Math.round((ratio - 1) * 100) + "%"} further than home`
-          : s.pl <= 1.1 ? "prices about the same as home" : "pricier than home";
+      const home = plHomeWord();
+      aff = ratio >= 1.12 ? `your money goes ~${ratio >= 1.75 ? (Math.round(ratio * 10) / 10) + "×" : Math.round((ratio - 1) * 100) + "%"} further than ${home === "home" ? "at home" : "in " + home}`
+          : s.pl <= 1.1 ? `prices about the same as ${home}` : `pricier than ${home}`;
     }
-    if (s.fx != null && Math.abs(s.fx) >= 2) aff += ` (${homeBase} ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr avg)`;
-    const fl = (s.fare != null && !s.fareEst && s.fareBase != null)
-      ? (s.fare / s.fareBase <= 0.95 ? "cheaper than usual for the distance"
-         : s.fare / s.fareBase >= 1.05 ? "pricier than usual for the distance" : "about average for the distance")
+    if (s.fx != null && Math.abs(s.fx) >= 2) aff += ` (${homeBase} ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr avg, after inflation)`;
+    // Same shrunk ratio as the Flights pill, so the words can't disagree with it.
+    const fl = (s.dealRatio != null && !s.fareEst)
+      ? (s.dealRatio <= 0.95 ? "cheaper than usual for the distance"
+         : s.dealRatio >= 1.05 ? "pricier than usual for the distance" : "about average for the distance")
       : null;
     lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)}`);
     if (aff) lines.push(`   - Affordability ${grade(s.afford)}: ${aff}`);
@@ -3524,13 +3762,13 @@ function buildCountryAIPrompt(iso) {
   // Expressed against the traveller's own home prices, not the US, so it means
   // something to a reader who isn't American.
   const origIso = ($("valueOrigin") || {}).value || "US";
-  const anchorPl = priceLevel(origIso) || 1;
+  const anchor = plAnchor(origIso);
   const pl = priceLevel(iso);
   if (pl) {
-    const rel = pl / anchorPl;
+    const rel = pl / anchor.pl;
     // Phrased as a concrete comparison rather than "% of <origin> prices",
     // which reads badly for every origin name ("the US prices").
-    lines.push("LOCAL PRICES: what costs 100 in " + originName + " costs about "
+    lines.push("LOCAL PRICES: what costs 100 in " + (anchor.home ? originName : anchor.name) + " costs about "
       + Math.round(100 * rel) + " here. National averages for residents; "
       + "tourist areas and foreigner rent run well above this.");
   }
@@ -3538,7 +3776,7 @@ function buildCountryAIPrompt(iso) {
     const fc = buildFareContext();
     const f = fc && fc.prices && fc.prices[iso];
     if (f != null) {
-      lines.push("TYPICAL ROUND-TRIP FLIGHT: about $" + Math.round(f) + " from " + originName
+      lines.push("TYPICAL ROUND-TRIP FLIGHT: about US$" + Math.round(f).toLocaleString("en-US") + " from " + originName
         + (fc.est && fc.est.has && fc.est.has(iso) ? " (distance-based estimate)" : " (recently seen fares)"));
     }
   } catch (e) { /* fares are a bonus; never block the prompt on them */ }
@@ -3771,8 +4009,10 @@ function safetyFloor() {
 //
 // So this doesn't invent the anchor, it removes the need for one. Two answers,
 // both from data we actually hold:
-//   1. The flight is real money (cached Travelpayouts fares). If it alone exceeds
-//      the budget, the trip is impossible — no assumptions required.
+//   1. The flight is real money (cached Travelpayouts fares). If even the
+//      cheapest cached fare exceeds the budget, the trip is impossible — no
+//      assumptions required. Where nothing is cached the fare is a distance
+//      estimate: those drops are counted separately and say so.
 //   2. What's left, per day, converted into home-money terms by the price level.
 //      "$110/day, which buys what $260/day buys at home." The traveler knows
 //      whether that's comfortable; we don't.
@@ -3834,22 +4074,27 @@ function budgetOf() {
 }
 
 // Null when there's no budget set or no fare to reason from — callers treat that
-// as "no opinion", never as "affordable".
+// as "no opinion", never as "affordable". Plans on the average cached fare;
+// when that alone eats the budget but a cheaper fare has been seen, plans on
+// the cheapest (fareIsMin). Only real fares make a country `impossible`; an
+// estimate over budget is `estOut` — dropped too, but counted and said apart.
 function budgetFit(s) {
   const { total, days } = budgetOf();
   if (!total || s.fare == null) return null;
-  const left = total - s.fare;
+  const cheapest = !s.fareEst && s.fareMin > 0 ? Math.min(s.fareMin, s.fare) : s.fare;
+  const fare = s.fare < total ? s.fare : cheapest;
+  const left = total - fare;
   const perDay = left / days;
   // s.pl is already relative to the traveler's home country, so dividing by it
   // converts local spending power back into home money.
   const homeEquiv = s.pl > 0 ? perDay / s.pl : null;
-  return { total, days, fare: s.fare, fareEst: s.fareEst, left,
-           perDay, homeEquiv, impossible: left <= 0 };
+  return { total, days, fare, fareEst: s.fareEst, fareIsMin: fare !== s.fare, left,
+           perDay, homeEquiv, impossible: !s.fareEst && left <= 0, estOut: !!s.fareEst && left <= 0 };
 }
 
 function passesBudget(s) {
   const f = budgetFit(s);
-  return !f || !f.impossible;
+  return !f || !(f.impossible || f.estOut);
 }
 
 function passesFloor(s, floor) {
@@ -3859,30 +4104,33 @@ function passesFloor(s, floor) {
 // Compose a human sentence from the score ingredients — answers, not numbers.
 function whyLine(s, month) {
   const money = homeBase === "USD" ? "your dollar" : "your " + homeBase;
+  const home = plHomeWord();                   // "the US" when From has no price level
+  const atHome = home === "home" ? "at home" : "in " + home;
   const bits = [];
   if (s.pl != null) {
     const ratio = 1 / s.pl;
-    if (ratio >= 1.75) bits.push(`${money} goes ~${(Math.round(ratio * 10) / 10).toFixed(1).replace(/\.0$/, "")}× further than at home`);
-    else if (ratio >= 1.12) bits.push(`${money} goes ~${Math.round((ratio - 1) * 100)}% further than at home`);
-    else if (s.pl <= 1.1) bits.push("prices about the same as home");
-    else bits.push("pricier than home");
+    if (ratio >= 1.75) bits.push(`${money} goes ~${(Math.round(ratio * 10) / 10).toFixed(1).replace(/\.0$/, "")}× further than ${atHome}`);
+    else if (ratio >= 1.12) bits.push(`${money} goes ~${Math.round((ratio - 1) * 100)}% further than ${atHome}`);
+    else if (s.pl <= 1.1) bits.push(`prices about the same as ${home}`);
+    else bits.push(`pricier than ${home}`);
   }
   if (s.fx != null && s.fx >= 2) bits.push(`${money} is unusually strong there right now`);
   // Only when a budget is set. Says what the flight leaves and what it's worth
   // there, and admits when the fare is a distance estimate rather than a seen one.
   const bf = budgetFit(s);
-  if (bf && !bf.impossible) {
-    bits.push(`${fmtBC(bf.fare)} flight${bf.fareEst ? " (est.)" : ""} leaves `
+  if (bf && !bf.impossible && !bf.estOut) {
+    bits.push(`${fmtBC(bf.fare)} ${bf.fareIsMin ? "cheapest " : ""}flight${bf.fareEst ? " (est.)" : ""} leaves `
       + `${fmtBC(bf.perDay)}/day`
       + (bf.homeEquiv && s.pl < 0.95
-          ? ` — like ${fmtBC(bf.homeEquiv)}/day at home` : ""));
+          ? ` — like ${fmtBC(bf.homeEquiv)}/day ${atHome}` : ""));
   }
   if (s.wx >= 75) bits.push(`great weather in ${MONTHS[month - 1]}`);
   else if (s.wx >= 55) bits.push(`decent weather in ${MONTHS[month - 1]}`);
   if (s.advLvl === 1) bits.push("safest travel rating");
   else if (s.advLvl === 3) bits.push("⚠️ has a reconsider-travel advisory");
-  if (s.fare != null && !s.fareEst && s.fareBase != null) {
-    const r = s.fare / s.fareBase;
+  // The deal grade's own (shrunk) ratio, so this never contradicts the pill.
+  if (s.dealRatio != null && !s.fareEst) {
+    const r = s.dealRatio;
     bits.push(r <= 0.95 ? "flights cheaper than usual"
             : r >= 1.05 ? "flights pricier than usual" : "flights about average");
   }
@@ -3938,7 +4186,15 @@ function notScoredReason(iso) {
          + "so any figure here would be fictional";
   }
   if (!hasPl && !hasAdv) return "no price or safety data";
-  if (!hasPl) return "no price data — no World Bank PPP figure for this country";
+  if (!hasPl) {
+    // Most gaps are not a missing PPP figure — say which link actually broke.
+    const u = PPP_UNIT[iso], cur = u ? u[0] : CUR_BY_ISO[iso];
+    if (!ppp || !ppp[iso]) return "no price data — no World Bank PPP figure for this country";
+    if (!cur) return "no price data — we can't match its currency to an exchange rate";
+    if (!rateForCurrency(cur)) return "no price data — no live exchange rate for the " + cur;
+    return "no reliable price data — the World Bank figure and today's exchange rate "
+         + "are in different currency units (redenominated or dollarised)";
+  }
   if (!hasAdv) return "no safety rating — neither government we follow publishes one";
   return "not scored this month";
 }
@@ -3998,23 +4254,31 @@ function renderMapPicksOverlay(picks, month, hostId) {
 }
 
 // ---- coverage: what the overall score is actually standing on ---------------
-// The weighted mean already excludes dimensions we have no data for — a missing
-// fare never enters the numerator or the denominator. That is the correct
-// arithmetic, and it produces a wrong-looking table: a country scored on three
-// dimensions has those three carrying full weight, so Malta, Andorra and San
-// Marino floated above Serbia, which has a JFK nonstop and a real fare.
+// The weighted mean excludes dimensions we have no data for — no climate entry
+// means no weather term in the numerator or the denominator. That is the
+// correct arithmetic, and it produces a wrong-looking table: a country scored
+// on three dimensions has those three carrying full weight, so it can float
+// above a country measured on four.
+//
+// Flights are different: every country with map geometry gets a fare — the
+// cached one, or a distance estimate scored as a neutral 70 (a typical fare for
+// the distance). Only the origin itself has none. So an estimate is flagged as
+// "estimated" rather than "missing", and the maths is unchanged.
 //
 // The fix is not to change the average. It is to stop the row implying it knows
-// four things when it knows three.
+// four things when it knows fewer.
 function coverageMark(s) {
   const missing = [];
   if (s.flyMissing) missing.push("flight prices");
   if (s.wxMissing) missing.push("weather");
-  if (!missing.length) return "";
-  const n = 4 - missing.length;
-  return `<span class="covmark" data-tip="${esc("Graded on " + n + " of 4 measures — no "
-    + missing.join(" or ") + " data for this country. The score is the average of what we "
-    + "do know, so it is not directly comparable with a fully-measured country.")}" title="">${n}/4</span>`;
+  const est = !s.flyMissing && s.fareEst;
+  if (!missing.length && !est) return "";
+  const n = 4 - missing.length - (est ? 1 : 0);
+  const tip = "Graded on " + n + " of 4 measures"
+    + (missing.length ? " — no " + missing.join(" or ") + " data for this country" : "")
+    + (est ? (missing.length ? ", and" : " —") + " no cached fare, so flights count as a typical fare for the distance (an estimate)" : "")
+    + ". The score is the average of what we do know, so it is not directly comparable with a fully-measured country.";
+  return `<span class="covmark" data-tip="${esc(tip)}" title="">${n}/4</span>`;
 }
 
 // ---- 12-month season strip --------------------------------------------------
@@ -4111,22 +4375,23 @@ function fillRowFareStrips(hostSel, month) {
 // table's own grammar: pill + rare marker, never a chart. The full sparkline
 // and dated move live on the guide, where there is room to be honest about
 // what they mean.
-// FX: gated at ±5% — rarer than the Currency tab's ±2% "strong" label on
-// purpose. A scan table earns a mark only when it might change a decision;
-// the ⚠️ drift warning already covers the extreme (±15%) case.
+// FX: gated at ±5% of REAL movement (after the inflation gap, realFxPct) —
+// rarer than the Currency tab's ±2% "strong" label on purpose. A scan table
+// earns a mark only when it might change a decision; the ⚠️ drift warning
+// already covers the extreme (±15%) case. The nominal move marked every
+// steadily depreciating high-inflation currency as a bargain.
 const FX_MARK_PCT = 5;
 function fxMark(iso) {
-  const code = PPP_CUR[iso] || CUR_BY_ISO[iso];
-  const rows = homeRates && homeRates.rows;
-  if (!code || !rows || code === homeBase) return "";
-  const row = rows.find((r) => r.code === code);
-  const pct = row && row.strength_pct;
+  const f = fxInfo(iso);
+  const pct = f && f.real;
   if (typeof pct !== "number" || Math.abs(pct) < FX_MARK_PCT) return "";
   const up = pct > 0;
-  return `<span class="fxmark ${up ? "fxup" : "fxdn"}" data-tip="${esc("Your " + homeBase
-    + " is " + Math.abs(Math.round(pct)) + "% " + (up ? "stronger" : "weaker")
-    + " against the " + code + " than its 1-yr average — your money goes "
-    + (up ? "further" : "less far") + " there than usual right now.")}" title="">${
+  const gap = inflGapText(iso, f.homeIso);
+  return `<span class="fxmark ${up ? "fxup" : "fxdn"}" data-tip="${esc("After inflation, your " + homeBase
+    + " buys " + Math.abs(Math.round(pct)) + "% " + (up ? "more" : "less")
+    + " in " + countryName(iso) + " than its 1-yr average — your money goes "
+    + (up ? "further" : "less far") + " there than usual right now."
+    + (gap ? " Exchange-rate move " + (f.nom >= 0 ? "+" : "") + f.nom + "%; inflation " + gap + " (World Bank)." : ""))}" title="">${
     up ? "+" : "−"}${Math.abs(Math.round(pct))}%</span>`;
 }
 // Safety: the advisory's latest move (180-day window) — an event mark, only a
@@ -4155,7 +4420,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   const sc = sortable ? " sortable" : "";
   const rows = list.map((s, i) => {
     const hz = hazardsFor(s.iso, month);
-    const wxTitle = `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}` +
+    const wxTitle = (s.wx == null ? "no weather data" : `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}`) +
       (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
     const iso = esc(s.iso);
     // Same ⚠️ affordance the weather column uses for seasonal hazards.
@@ -4165,7 +4430,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}${seasonalTags(s.iso, month)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}${fxMark(s.iso)}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}"><span class="pillwrap">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</span></td>
-      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
+      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="muted" title="${esc(wxTitle)}">—</span>` : gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
       <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
             : gradePill(s.fly, "Flight deal vs the typical fare for this distance · click for exact prices")}</span><span class="rowfares" data-iso="${iso}"></span></td>
@@ -4187,13 +4452,14 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
 // the FX timing, both measured against the traveler's home country/currency.
 function affordTitle(s) {
   const parts = [];
+  const home = plHomeWord();
   if (s.pl != null) {
     const ratio = 1 / s.pl;
-    parts.push(ratio >= 1.1 ? `daily prices ~${Math.round((ratio - 1) * 100)}% cheaper than home`
-             : s.pl <= 1.1 ? "daily prices about the same as home" : `pricier than home`);
+    parts.push(ratio >= 1.1 ? `daily prices ~${Math.round((ratio - 1) * 100)}% cheaper than ${home}`
+             : s.pl <= 1.1 ? `daily prices about the same as ${home}` : `pricier than ${home}`);
   }
   if (s.fx != null && Math.abs(s.fx) >= 1)
-    parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average`);
+    parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average, after inflation`);
   // Repeatedly the sharpest critique this gets: PPP is a national consumption
   // basket, so it under-weights the one cost a visitor most feels — rent in the
   // few neighbourhoods foreigners actually stay in. Say so where the number is
@@ -4243,14 +4509,17 @@ async function goToDetail(go, iso) {
   // at one country, not a standing preference. Applies to every risk-filtered
   // sub-tab now, not just currency.
   if ((advisoryByIso()[iso] || 0) >= 3 && !showRisky) setShowRisky(true, false);
+  // Pin the jump to the iso (see jumpActive) — the name alone matched "Romania"
+  // for Oman and "Nigeria" for Niger.
+  const jump = (box, name) => { $(box).value = name; _jump = { box, q: name.trim().toLowerCase(), iso }; };
   if (go === "currency") {
     $("curFilter").value = code || countryName(iso); applyCurrencyFilter(); scrollTo("#dataSubCurrency .tablewrap");
   } else if (go === "afford") {
-    $("affFilter").value = rowName("affRows"); applyAffordFilter(); scrollTo("#affTable");
+    jump("affFilter", rowName("affRows")); applyAffordFilter(); scrollTo("#affTable");
   } else if (go === "advisory") {
-    $("advFilter").value = rowName("advRows"); $("advLevel").value = "all"; applyAdvFilter(); scrollTo("#advTable");
+    jump("advFilter", rowName("advRows")); $("advLevel").value = "all"; applyAdvFilter(); scrollTo("#advTable");
   } else if (go === "flights") {
-    $("flightFilter").value = rowName("flightRows"); applyFlightFilter(); scrollTo("#flightTable");
+    jump("flightFilter", rowName("flightRows")); applyFlightFilter(); scrollTo("#flightTable");
   }
 }
 
@@ -4329,7 +4598,7 @@ function renderValue() {
     drawMap("valueMap", (f) => {
       const s = scored[f.properties.iso];
       if (s) return { fill: comfortColor(s.value),
-        title: `${s.name}: value ${s.value}/100 (afford ${s.afford}, safe ${s.safe}, wx ${s.wx}${s.fly != null ? ", fly " + s.fly : ""})` };
+        title: `${s.name}: value ${s.value}/100 (afford ${s.afford}, safe ${s.safe}${s.wx != null ? ", wx " + s.wx : ""}${s.fly != null ? ", fly " + s.fly + (s.fareEst ? " est." : "") : ""})` };
       if (advMap[f.properties.iso] === 4)
         return { fill: DNT_FILL, title: f.properties.name + " — Level 4: Do Not Travel (excluded)" };
       return { fill: NODATA, title: f.properties.name + " — " + notScoredReason(f.properties.iso) };
@@ -4343,7 +4612,7 @@ function renderValue() {
   // Filled in below, once the filters have run and we know what they removed.
   const note = $("rankNote");
   const rankedAll = Object.values(scored)
-    .sort(weatherMode ? ((a, b) => (b.wx - a.wx) || (b.value - a.value))
+    .sort(weatherMode ? ((a, b) => ((b.wx ?? -1) - (a.wx ?? -1)) || (b.value - a.value))
                       : ((a, b) => b.value - a.value));
   // Above the fold = recognizable destinations; Hidden Gems = high-value but
   // off-the-beaten-path. Both come from the safety-filtered, unvisited pool.
@@ -4356,7 +4625,17 @@ function renderValue() {
   const eligible = preBudget.filter(passesBudget);
   // Counted so the note can say the filter did something. At a roomy budget it
   // drops nothing, and a control that silently changes nothing reads as broken.
-  const outOfReach = preBudget.length - eligible.length;
+  // Drops on a real cached fare and on a distance estimate are told apart, and
+  // nothing is called "reachable" that had no fare to judge.
+  let outOfReach = 0, outOfReachEst = 0, judged = 0, unjudged = 0;
+  const fromIso = flightsData && flightsData.origin;   // home needs no flight
+  for (const s of preBudget) {
+    const f = budgetFit(s);
+    if (!f) { if (s.iso !== fromIso) unjudged++; continue; }
+    judged++;
+    if (f.impossible) outOfReach++;
+    else if (f.estOut) outOfReachEst++;
+  }
   // The "Somewhere new" filter is on by default and works, but it lives inside
   // a collapsed Filters fold — so a reader with 34 countries marked sees them
   // silently missing from the ranking and has no idea why. Say it out loud.
@@ -4378,10 +4657,16 @@ function renderValue() {
   const picksNote = $("picksNote");
   initBudgetCur();
   const bud = budgetOf();
+  const nOut = outOfReach + outOfReachEst;
   const budNote = bud.total
-    ? ` 💵 <b>${bud.cur === "USD" ? fmtMoney(bud.entered) : bud.cur + " " + Math.round(bud.entered).toLocaleString()} for ${bud.days} days</b>`
-      + (outOfReach ? ` — ${outOfReach} ${outOfReach === 1 ? "country is" : "countries are"} out of reach on the flight alone.` : " — every pick below is reachable.")
-      + ` <span class="muted" data-tip="Flights are real cached fares. What's left is your budget minus the fare, spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
+    ? ` 💵 <b>${bud.cur === "USD" ? fmtMoney(bud.entered) : bud.cur + " " + Math.round(bud.entered).toLocaleString()} for ${bud.days} ${bud.days === 1 ? "day" : "days"}</b>`
+      + (!judged ? " — no fare data yet, so nothing was filtered."
+         : nOut ? ` — ${nOut} ${nOut === 1 ? "country is" : "countries are"} out of reach on the flight alone`
+           + (outOfReachEst ? ` (${outOfReachEst === nOut ? "all" : outOfReachEst} on estimated fares)` : "") + "."
+         : unjudged ? " — every pick with a fare is reachable."
+         : " — every pick below is reachable.")
+      + (judged && unjudged ? ` ${unjudged} had no fare to judge.` : "")
+      + ` <span class="muted" data-tip="Flights are the cached fares Aviasales has seen (the cheapest one decides what's out of reach); where none is cached, a distance-based estimate, marked est. What's left is your budget minus the fare, spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
     : "";
   if (picksNote) picksNote.innerHTML = (popular.length
     ? `🌍 Popular destinations, ranked by value${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
@@ -4427,10 +4712,14 @@ function renderValue() {
               : s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
               : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
     // "The math" table mirrors the other columns with the numeric flight deal
-    // score (0-100); exact fares live in the Flights data tab.
-    const flight = s.fly != null ? s.fly : "—";
+    // score (0-100); exact fares live in the Flights data tab. An estimated
+    // fare is the distance baseline, so its 70 is labelled rather than passed
+    // off as a measured deal.
+    const flight = s.fly == null ? "—" : s.fareEst
+      ? `<span class="muted" title="estimated — no cached fare, scored as a typical fare for the distance">~${s.fly}</span>` : s.fly;
     const valCell = weatherMode ? `${s.value}` : `<b>${s.value}</b>`;
-    const wxCell = weatherMode ? `<b>${s.wx}</b>` : `${s.wx}`;
+    const wxVal = s.wx == null ? '<span class="muted" title="no weather data">—</span>' : s.wx;
+    const wxCell = weatherMode ? `<b>${wxVal}</b>` : `${wxVal}`;
     return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
       <td class="num">${valCell}</td>
       <td class="num">${s.afford}</td>
@@ -4605,8 +4894,10 @@ function renderFlights() {
   // fare, so map text and table disagreed. The deal story stays in the map
   // colours and each row's arrow; the LIST mirrors the table, like every
   // other Data tab.
+  const adv = advisoryByIso();
   const cheapest = countries
-    .filter((r) => r.n >= 2 && countryName(r.iso) !== r.iso)
+    .filter((r) => r.n >= 2 && countryName(r.iso) !== r.iso
+      && (showRisky || (adv[r.iso] || 0) < 3))
     .sort((a, b) => a.avg - b.avg).slice(0, 8);
   renderDimPicks("flightMap", "Cheapest round-trips right now",
     cheapest.map((d) => countryName(d.iso) + " · " + approx + cur + " " + F(d.avg).toLocaleString()),
@@ -4696,6 +4987,18 @@ function filterRows(tbodyId, predicate) {
   }
 }
 const _q = (id) => (($(id) && $(id).value) || "").trim().toLowerCase();
+// One-shot "exactly this country" from a Top Picks jump: matches on the row's
+// iso while the filter box still holds the name the jump put there, and lapses
+// the moment the visitor edits it.
+let _jump = null;   // { box, q, iso }
+function jumpActive(box) {
+  return _jump && _jump.box === box && _q(box) === _jump.q ? _jump.iso : null;
+}
+function rowMatches(tr, box, q) {
+  const iso = jumpActive(box);
+  if (iso) return tr.dataset.iso === iso;
+  return !q || tr.textContent.toLowerCase().includes(q);
+}
 
 // "Include higher-risk (L3–4)" is one answer for the Data tab, not one per table.
 // Currency hid Level 3–4 by default; Cost of living and Flights had no such filter
@@ -4722,6 +5025,9 @@ function setShowRisky(on, persist) {
     if (el && el.checked !== showRisky) el.checked = showRisky;
   }
   applyCurrencyFilter(); applyAffordFilter(); applyFlightFilter();
+  // The "cheapest" lists under the maps mirror their tables' risk filter.
+  if (loaded.afford && ppp) renderAfford();
+  if (loaded.flights && flightsData && flightsData.configured) renderFlights();
 }
 
 function applyCurrencyFilter() {
@@ -4735,22 +5041,33 @@ function applyAffordFilter() {
   const q = _q("affFilter");
   filterRows("affRows", (tr) => {
     if (!showRisky && riskyOf(tr)) return false;
-    return !q || tr.textContent.toLowerCase().includes(q);
+    return rowMatches(tr, "affFilter", q);
   });
 }
 function applyAdvFilter() {
   const q = _q("advFilter");
   const lvl = ($("advLevel") && $("advLevel").value) || "all";
   filterRows("advRows", (tr) =>
-    (lvl === "all" || tr.dataset.lvl === lvl) &&
-    (!q || tr.textContent.toLowerCase().includes(q)));
+    (lvl === "all" || tr.dataset.lvl === lvl) && rowMatches(tr, "advFilter", q));
 }
 function applyFlightFilter() {
   const q = _q("flightFilter");
   filterRows("flightRows", (tr) => {
     if (!showRisky && riskyOf(tr)) return false;
-    return !q || tr.textContent.toLowerCase().includes(q);
+    return rowMatches(tr, "flightFilter", q);
   });
+  // The "~" on Top Picks promises the Flights tab; a country with no cached
+  // fare used to land on an empty table with no word of why. One-cell row, so
+  // filterRows leaves it alone; rebuilt on every filter pass.
+  const tb = $("flightRows");
+  if (!tb) return;
+  tb.querySelectorAll("tr.jumpempty").forEach((r) => r.remove());
+  const iso = jumpActive("flightFilter");
+  if (iso && flightsData && tb.querySelector("tr[data-iso]") && !tb.querySelector(`tr[data-iso="${iso}"]`)) {
+    tb.insertAdjacentHTML("afterbegin", `<tr class="jumpempty"><td colspan="6">No cached fares from `
+      + `${esc(flightsData.origin_name || countryName(flightsData.origin))} to ${esc(countryName(iso))} yet — `
+      + "the “~” on Top Picks is a distance-based estimate.</td></tr>");
+  }
 }
 // Wire filter controls once (elements are static in the markup).
 // The Safety sub-tab is deliberately absent: listing advisories is its whole job,
@@ -6015,7 +6332,7 @@ async function postApplyShared() {
   if (db && /^[A-Z]{3}$/.test(db) && db !== homeBase) setHomeCur(db, true);
   if (sharedQ.get("v") && tab === "visited") {
     renderVisited();
-    status(`Viewing a shared map of ${visited.size} countries — editing it will overwrite your own saved list.`, "ok", true);
+    status(`Viewing a shared map of ${visited.size} ${visited.size === 1 ? "country" : "countries"} — editing it will overwrite your own saved list.`, "ok", true);
   }
   if (sharedQ.get("tp") && tab === "trip") {
     renderTripBar();
