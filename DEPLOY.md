@@ -32,6 +32,10 @@ emails you a digest of favorable currencies.
    - Name: `FX_SMTP_PASSWORD`
    - Value: your Gmail **App Password** (16 chars)
    - This is encrypted by GitHub and never visible in logs.
+   - Also add `FX_SMTP_USER` (the sending address) and `FX_ALERT_TO` (where the
+     owner alert goes). CI reads SMTP settings from these env vars because the
+     committed `config.json` is blank on purpose; without them the owner-alert
+     step skips cleanly and the subscriber digest is unaffected.
 
 3. **Turn email on** in `config.json` (kept blank in the repo — fill in locally,
    never commit a real address):

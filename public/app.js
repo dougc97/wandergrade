@@ -617,12 +617,15 @@ for (const b of document.querySelectorAll("#windowtoggle button")) {
 const EUROZONE = ["AT","BE","CY","EE","FI","FR","DE","GR","IE","IT","LV","LT",
   "LU","MT","NL","PT","SK","SI","ES","HR","AD","MC","SM","VA","ME","XK","BG"];
 // Countries that use the US dollar itself (shown as flat for a US traveler).
-const USD_USING = ["US","EC","SV","PA","TL","ZW","MH","FM","PW","TC","VG","BQ","PR"];
+const USD_USING = ["US","EC","SV","PA","TL","ZW","MH","FM","PW","TC","VG","BQ","PR","GU"];
 const CUR_BY_ISO = (() => {
   const m = {
     // Americas
     CA:"CAD", MX:"MXN", GT:"GTQ", BZ:"BZD", HN:"HNL", NI:"NIO", CR:"CRC",
     CU:"CUP", DO:"DOP", HT:"HTG", JM:"JMD", TT:"TTD", BS:"BSD", BB:"BBD",
+    // Curaçao's Caribbean guilder (XCG) replaced the ANG 1:1 on the same USD
+    // peg in 2025; the FX feed still quotes ANG, which prices identically.
+    AW:"AWG", CW:"ANG",
     CO:"COP", VE:"VES", GY:"GYD", SR:"SRD", PE:"PEN", BR:"BRL", BO:"BOB",
     PY:"PYG", CL:"CLP", AR:"ARS", UY:"UYU",
     // Europe (non-euro)
@@ -1418,12 +1421,12 @@ const REGIONS = {
 };
 const ISO_REGION = (() => {
   const g = {
-    AMER: "US CA MX GT BZ HN NI CR PA CU DO HT JM TT BS BB CO VE GY SR EC PE BR BO PY CL AR UY".split(" "),
-    EUR: "GB IM JE GG CH LI NO SJ SE DK GL FO IS CZ PL HU RO BG RS BA MK AL MD UA BY RU TR AT BE CY EE FI FR DE GR IE IT LV LT LU MT NL PT SK SI ES HR AD MC SM VA ME XK".split(" "),
+    AMER: "US CA MX GT BZ HN NI CR PA CU DO HT JM TT BS BB AW CW CO VE GY SR EC PE BR BO PY CL AR UY".split(" "),
+    EUR: "GB GB-ENG GB-SCT GB-WLS IM JE GG CH LI NO SJ SE DK GL FO IS CZ PL HU RO BG RS BA MK AL MD UA BY RU TR AT BE CY EE FI FR DE GR IE IT LV LT LU MT NL PT SK SI ES HR AD MC SM VA ME XK".split(" "),
     MENA: "IL PS SA AE QA KW BH OM JO LB SY IQ IR YE EG MA DZ TN LY".split(" "),
     ASIA: "CN JP KR IN PK BD LK NP AF MM TH VN KH LA MY SG ID PH BN HK MO TW MN KZ UZ TM KG TJ AZ AM GE BT".split(" "),
     AFRICA: "ZA NG KE GH ET TZ UG RW BI SD SS ER SO DJ AO MZ ZM BW NA SZ LS MW MG MU GM GN LR CD CV KM MR SC SN CI ML BF NE BJ TG GW CM TD CF CG GA GQ".split(" "),
-    OCEANIA: "AU NZ FJ PG SB VU WS TO".split(" "),
+    OCEANIA: "AU NZ FJ PG SB VU WS TO GU".split(" "),
   };
   const m = {};
   for (const r in g) for (const iso of g[r]) m[iso] = r;
@@ -1896,16 +1899,22 @@ function renderGuideVisa(iso) {
 // so readers know whose guidance it is — advisories are politically colored.
 const ADV_LABEL = { 1: "Level 1 · Normal precautions", 2: "Level 2 · Increased caution",
                     3: "Level 3 · Reconsider travel", 4: "Level 4 · Avoid travel" };
+// England, Scotland and Wales have guides of their own, but every government
+// we follow rates the United Kingdom as a whole. The guide shows the UK level
+// and says so; scoring never sees these ISOs, so nothing is ranked on it.
+const ADV_PARENT = { "GB-ENG": "GB", "GB-SCT": "GB", "GB-WLS": "GB" };
 function renderGuideSafety(iso) {
   const host = $("guideSafety");
   if (!host) return;
   host.hidden = true;
   ensureAdvisories().then(() => {
     if (ccGuideIso !== iso) return;
-    const it = advisoryMetaByIso()[iso];
+    const meta = advisoryMetaByIso();
+    const parent = !meta[iso] && ADV_PARENT[iso] && meta[ADV_PARENT[iso]] ? ADV_PARENT[iso] : null;
+    const it = meta[iso] || (parent && meta[parent]);
     if (!it) return;
     const lvl = it.level;
-    const src = it.via_name || advSrcName();
+    const src = (it.via_name || advSrcName()) + (parent ? " (" + countryName(parent) + " advisory)" : "");
     const url = it.link || advisories.source_url || "#";
     // The government's own sentences on WHY, when the feed carries them — a
     // level number is black and white; "some areas have increased risk" is the
@@ -3701,7 +3710,7 @@ function buildTripAIPrompt() {
   const originName = originLabel();
   const passport = guidePassport();
   const cen = countryCentroids();
-  const anchorPl = priceLevel(originIso()) || 1;
+  const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
 
   const lines = [];
   lines.push("I have " + days + " days"
@@ -3740,7 +3749,7 @@ function buildTripAIPrompt() {
     }
     const pl = priceLevel(iso);
     // Same direction as every other surface: purchasing power, bigger = cheaper.
-    if (pl) bits.push("your 100 ≈ " + Math.round(100 * (anchorPl / pl)) + " there");
+    if (pl) bits.push((A.home ? "your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / pl)) + " there");
     const vi = visaInfo(iso, passport);
     if (vi && vi.meta) bits.push("visa: " + vi.meta.long);
     // Curated first-visit range. This is what lets the model refuse a cramped
@@ -4037,8 +4046,8 @@ async function openGuideAI(iso) {
 // ---- markable places beyond ISO countries ------------------------------------
 // House rule (traveler feedback): if it has a flag emoji, it gets its own mark.
 // Kosovo, Antarctica, the Caribbean territories, and the UK home nations are
-// all markable on the Wander List. They don't participate in scoring/guides —
-// no currency/climate data — just the map, chips, counts and share card.
+// all markable on the Wander List. Most don't participate in scoring (no
+// price data); the ones with climate data also have a full guide page.
 const EXTRA_PLACES = {
   "XK": "Kosovo", "AQ": "Antarctica", "PR": "Puerto Rico", "GU": "Guam",
   "VI": "U.S. Virgin Islands", "AW": "Aruba", "CW": "Curaçao",
@@ -4656,9 +4665,11 @@ function affordTitle(s) {
   const parts = [];
   const home = plHomeWord();
   if (s.pl != null) {
-    const ratio = 1 / s.pl;
-    parts.push(ratio >= 1.1 ? `daily prices ~${Math.round((ratio - 1) * 100)}% cheaper than ${home}`
-             : s.pl <= 1.1 ? `daily prices about the same as ${home}` : `pricier than ${home}`);
+    // 1 − pl is how much cheaper prices are; 1/pl − 1 (how much further money
+    // goes) overstated it — pl 0.58 read "73% cheaper" for prices 42% lower.
+    parts.push(s.pl <= 0.9 ? `daily prices ~${Math.round((1 - s.pl) * 100)}% cheaper than ${home}`
+             : s.pl <= 1.1 ? `daily prices about the same as ${home}`
+             : `daily prices ~${Math.round((s.pl - 1) * 100)}% pricier than ${home}`);
   }
   if (s.fx != null && Math.abs(s.fx) >= 1)
     parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average, after inflation`);
@@ -4761,7 +4772,7 @@ function renderValue() {
   // Fare context: known fares per country + distance-based estimates for the rest.
   const fares = buildFareContext();
   // "Cheap" is relative to the From country's own price level (US anchor = 1).
-  const anchorPl = priceLevel(originIso()) || 1;
+  const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
 
   const scored = {};
   for (const iso in CUR_BY_ISO) {
@@ -6995,6 +7006,8 @@ async function downloadMapImage(hostId, o) {
 // fillText, the same split buildVisitedShareSVG settled on.
 const RANK_GRADE_FILL = { "A+": "#067a23", "A": "#2f9e44", "B+": "#74b816",
                           "B": "#c9a200", "C": "#e8590c", "D": "#d9480f", "F": "#b00020" };
+// White on the mid-tone fills failed contrast (B 2.4:1); mirrors styles.css .gr*.
+const RANK_GRADE_INK = (g) => (g === "A+" || g === "F" || !RANK_GRADE_FILL[g]) ? "#fff" : "#000";
 // Money on an exported image, which travels without the page around it: a bare
 // "$" reads as local money to an Australian or a Canadian. Converted from the
 // USD cache into the "In" currency at today's rate; USD is spelled US$.
@@ -7009,7 +7022,7 @@ function buildRankShareSVG() {
   const picks = lastPicks.slice(0, 10);
   const month = MONTHS[(lastPicksMonth || curMonth()) - 1];
   const originName = originLabel();
-  const anchorPl = priceLevel(originIso()) || 1;
+  const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
   const W = 640, HEAD = 118, ROWH = 62, FOOT = 54;
   const H = HEAD + picks.length * ROWH + FOOT;
   const BG = "#101316", FG = "#f2f5f7", MUTE = "#9aa4ad", DIM = "#7d868f", LINE = "#242a30";
@@ -7034,13 +7047,13 @@ function buildRankShareSVG() {
     // a minimum — so not "from". The 100 line is a price-level ratio: the same
     // in any currency, so it carries none (as on the guide card).
     if (s.fare != null) bits.push("avg flight ~" + shareMoney(s.fare) + (s.fareEst ? " (est.)" : ""));
-    if (s.pl) bits.push("your 100 ≈ " + Math.round(100 * (anchorPl / s.pl)) + " there");
+    if (s.pl) bits.push((A.home ? "your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / s.pl)) + " there");
     body += '<text x="102" y="' + (y + 48) + '" font-family="' + F
       + '" font-size="11" fill="' + MUTE + '">' + esc2(bits.join("  ·  ")) + "</text>";
     body += '<rect x="' + (W - 30 - gw) + '" y="' + (y + 17) + '" width="' + gw
       + '" height="28" rx="8" fill="' + (RANK_GRADE_FILL[g] || "#55606b") + '"/>'
       + '<text x="' + (W - 30 - gw / 2) + '" y="' + (y + 37) + '" text-anchor="middle" font-family="' + F
-      + '" font-size="16" font-weight="800" fill="#fff">' + g + "</text>";
+      + '" font-size="16" font-weight="800" fill="' + RANK_GRADE_INK(g) + '">' + g + "</text>";
   });
 
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H
@@ -7104,7 +7117,7 @@ function buildGuideCardSVG(iso) {
   const F = "Helvetica Neue, Helvetica, Arial, sans-serif";
   const esc2 = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const month = (parseInt(($("valueMonth") || {}).value, 10)) || curMonth();
-  const anchorPl = priceLevel(originIso()) || 1;
+  const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
 
   let s = null;
   try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), anchorPl); } catch (e) {}
@@ -7118,7 +7131,7 @@ function buildGuideCardSVG(iso) {
     facts.push((cl.curated ? "📅  Best months: " : "📅  Best weather: ")
       + cl.best.map((m) => MON_ABBR[m - 1]).join(", "));
   const pl = priceLevel(iso);
-  if (pl) facts.push("💰  Your 100 ≈ " + Math.round(100 * (anchorPl / pl)) + " there");
+  if (pl) facts.push("💰  " + (A.home ? "Your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / pl)) + " there");
   const adv = advisoryMetaByIso()[iso];
   if (adv) facts.push("🛡️  Level " + adv.level + " · " + (ADV_LABEL[adv.level] || "").split("· ")[1]
     + "  (per " + (advViaShort(adv) || advSrcName(true)) + ")");
@@ -7134,7 +7147,7 @@ function buildGuideCardSVG(iso) {
     + (g ? '<rect x="' + (W - 36 - gw) + '" y="34" width="' + gw + '" height="46" rx="10" fill="'
         + (RANK_GRADE_FILL[g] || "#55606b") + '"/>'
         + '<text x="' + (W - 36 - gw / 2) + '" y="66" text-anchor="middle" font-family="' + F
-        + '" font-size="26" font-weight="800" fill="#fff">' + g + "</text>" : "")
+        + '" font-size="26" font-weight="800" fill="' + RANK_GRADE_INK(g) + '">' + g + "</text>" : "")
     + '<line x1="36" x2="' + (W - 36) + '" y1="122" y2="122" stroke="' + LINE + '"/>'
     + facts.map((t, i) => '<text x="36" y="' + (162 + i * 38) + '" font-family="' + F
         + '" font-size="16.5" fill="' + FG + '">' + esc2(t) + "</text>").join("")
@@ -8110,7 +8123,7 @@ document.addEventListener("scroll", _hideTip, true);
   // straight away — no Top Picks flash. Email ?tab=guide&gc= links fall through
   // to postApplyShared as before.
   await ensureSlugs();
-  const bootIso = (window.__WGGC__ && /^[A-Z]{2}$/.test(window.__WGGC__))
+  const bootIso = (window.__WGGC__ && /^[A-Z]{2}(-[A-Z]{3})?$/.test(window.__WGGC__))
     ? window.__WGGC__ : pathGuideIso();
   if (bootIso) await openGuideFor(bootIso);
   else await activateTab("value");

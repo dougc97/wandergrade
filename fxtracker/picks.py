@@ -144,6 +144,49 @@ def flag(iso):
 
 
 def cover_photo(query, width=1024, height=420):
+    """URL only; see cover() for the credit that must travel with it."""
+    return (cover(query, width, height) or {}).get("url")
+
+
+def _strip_html(v):
+    import re as _re
+    return _re.sub(r"\s+", " ", _re.sub(r"<[^>]+>", "", v or "")).strip()
+
+
+def photo_credit(orig_url):
+    """Author + licence for a Wikimedia Commons file, from its extmetadata.
+
+    Most Commons photos are CC BY or CC BY-SA, which require naming the author
+    and the licence wherever the image appears — a footer "Photos via Wikimedia
+    Commons" doesn't satisfy that. Returns None when it can't be resolved.
+    """
+    try:
+        path = urllib.parse.urlsplit(orig_url).path
+        if "/wikipedia/commons/" not in path:
+            return None
+        parts = path.split("/")
+        name = parts[-2] if "/thumb/" in path else parts[-1]
+        name = urllib.parse.unquote(name)
+        url = ("https://commons.wikimedia.org/w/api.php?action=query&format=json"
+               "&prop=imageinfo&iiprop=extmetadata&titles="
+               + urllib.parse.quote("File:" + name))
+        req = urllib.request.Request(url, headers={"User-Agent": _UA})
+        with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
+            pages = (json.load(r).get("query") or {}).get("pages") or {}
+        for pg in pages.values():
+            md = ((pg.get("imageinfo") or [{}])[0].get("extmetadata")) or {}
+            val = lambda k: _strip_html((md.get(k) or {}).get("value"))
+            return {"artist": val("Artist")[:80] or "Unknown author",
+                    "license": val("LicenseShortName") or "see file page",
+                    "license_url": (md.get("LicenseUrl") or {}).get("value") or "",
+                    "page": "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(
+                        "File:" + name.replace(" ", "_"))}
+    except Exception:
+        return None
+    return None
+
+
+def cover(query, width=1024, height=420):
     """Resolve a landmark query (from activities.json `photo`) to an email-ready
     cover image URL. Returns None on any failure so a missing photo never breaks
     the email.
@@ -167,13 +210,17 @@ def cover_photo(query, width=1024, height=420):
         with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
             d = json.load(r)
         orig = (d.get("originalimage") or {}).get("source")
-        if orig and "//" in orig:
-            bare = orig.split("//", 1)[1]   # strip scheme; weserv wants ssl:host/path
-            return ("https://images.weserv.nl/?url="
-                    + urllib.parse.quote("ssl:" + bare, safe="")
-                    + "&w={0}&h={1}&fit=cover&a=attention&output=jpg&q=80".format(width, height))
-        # Fall back to the ready-made (small but valid) thumbnail if no original.
-        return (d.get("thumbnail") or {}).get("source")
+        # Only freely licensed Commons files: an en.wikipedia-hosted image is
+        # usually fair-use, which doesn't extend to a newsletter.
+        credit = photo_credit(orig) if orig else None
+        if not credit:
+            return None
+        # strip scheme (weserv wants ssl:host/path) and Wikipedia's utm_* query
+        bare = orig.split("//", 1)[1].split("?", 1)[0]
+        return {"url": ("https://images.weserv.nl/?url="
+                        + urllib.parse.quote("ssl:" + bare, safe="")
+                        + "&w={0}&h={1}&fit=cover&a=attention&output=jpg&q=80".format(width, height)),
+                "credit": credit}
     except Exception:
         return None
 
@@ -347,7 +394,9 @@ def _enrich(s, acts, with_photo):
     a = acts.get(s["iso"], {})
     s["flag"] = flag(s["iso"])
     s["activities"] = a.get("activities", [])[:2]
-    s["photo"] = cover_photo(a.get("photo")) if with_photo else None
+    c = cover(a.get("photo")) if with_photo else None
+    s["photo"] = c and c["url"]
+    s["photo_credit"] = c and c["credit"]
     return s
 
 

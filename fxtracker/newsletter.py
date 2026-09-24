@@ -193,16 +193,18 @@ def _acts(s):
 
 
 def _fx_line(s, compact=False):
-    """The WanderGrade hook: the dollar is unusually strong here right now."""
+    """The WanderGrade hook: after inflation, the dollar goes unusually far here.
+    s["fx"] is the inflation-adjusted move (picks.py); nominal strength in a
+    high-inflation country is a crawl, not a deal."""
     fx = s.get("fx")
     if fx is None or fx < 3:
         return ""
     pct = int(round(fx))
     if compact:
-        return ("<div style='font-size:13px;color:%s;margin:4px 0 0'>\U0001f4b5 Dollar ~%d%% "
-                "above its 1-yr average here</div>" % (GREEN, pct))
+        return ("<div style='font-size:13px;color:%s;margin:4px 0 0'>\U0001f4b5 Dollar goes ~%d%% "
+                "further than its 1-yr average here, after inflation</div>" % (GREEN, pct))
     return ("<div style='font-size:14px;color:%s;font-weight:600;margin:8px 0 0'>\U0001f4b5 "
-            "Your dollar is about %d%% stronger here than its 1-year average — rarely this good."
+            "After inflation, your dollar goes about %d%% further here than its 1-year average."
             "</div>" % (GREEN, pct))
 
 
@@ -236,6 +238,22 @@ def _dont_miss(s):
             % _esc(", ".join(labels)))
 
 
+def _credit(s):
+    """CC BY / BY-SA require the author and licence next to the image."""
+    c = s.get("photo_credit")
+    if not c:
+        return ""
+    lic = ("<a href='%s' style='color:#888'>%s</a>" % (_esc(c["license_url"]), _esc(c["license"]))
+           if c.get("license_url") else _esc(c["license"]))
+    return ("<div style='font-size:11px;color:#888;margin:4px 0 0'>Photo: <a href='%s' "
+            "style='color:#888'>%s</a> &middot; %s</div>" % (_esc(c["page"]), _esc(c["artist"]), lic))
+
+
+def _fly(s):
+    return (" &nbsp;&middot;&nbsp; ✈️ Flights <b>%s</b>" % _grade(s["fly"])
+            if s.get("fly") is not None else "")
+
+
 def _hero_card(s, month):
     g = _guide_url(s["iso"], month)
     photo = ("<a href='%s'><img src='%s' width='560' alt='%s' style='width:100%%;max-width:560px;"
@@ -246,13 +264,13 @@ def _hero_card(s, month):
       %s
       <div style="padding:15px">
         <div style="font-size:20px;font-weight:800;color:#111">%s<a href="%s" style="color:%s;text-decoration:none">%s</a> <span style="color:#666">— Overall %s</span></div>
-        <div style="font-size:14px;color:#444;margin:5px 0 0">\U0001f4b0 Affordability <b>%s</b> &nbsp;&middot;&nbsp; \U0001f6e1️ Safety <b>%s</b> &nbsp;&middot;&nbsp; \U0001f324️ Weather <b>%s</b></div>
-        %s%s%s
+        <div style="font-size:14px;color:#444;margin:5px 0 0">\U0001f4b0 Affordability <b>%s</b> &nbsp;&middot;&nbsp; \U0001f6e1️ Safety <b>%s</b> &nbsp;&middot;&nbsp; \U0001f324️ Weather <b>%s</b>%s</div>
+        %s%s%s%s
         <div style="margin:14px 0 0"><a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 18px;border-radius:9px">See %s’s guide →</a></div>
       </div>
     </div>""" % (photo, _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
-                 _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]),
-                 _fx_line(s), _cost_line(s), _dont_miss(s), g, GREEN, _esc(s["name"]))
+                 _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]), _fly(s),
+                 _fx_line(s), _cost_line(s), _dont_miss(s), _credit(s), g, GREEN, _esc(s["name"]))
 
 
 def _compact_card(s, month):
@@ -265,14 +283,15 @@ def _compact_card(s, month):
       <tr>%s
         <td valign="top" style="padding:11px 14px">
           <div style="font-size:16px;font-weight:800;color:#111">%s<a href="%s" style="color:%s;text-decoration:none">%s</a> <span style="color:#666">— %s</span></div>
-          <div style="font-size:13px;color:#555;margin:3px 0 0">\U0001f4b0 %s &middot; \U0001f6e1️ %s &middot; \U0001f324️ %s</div>
-          %s
+          <div style="font-size:13px;color:#555;margin:3px 0 0">\U0001f4b0 %s &middot; \U0001f6e1️ %s &middot; \U0001f324️ %s%s</div>
+          %s%s
           <div style="font-size:13px;margin:6px 0 0"><a href="%s" style="color:%s;text-decoration:none;font-weight:600">See the guide →</a></div>
         </td>
       </tr>
     </table>""" % (thumb, _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
                    _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]),
-                   _value_line(s, compact=True), g, GREEN)
+                   (" &middot; ✈️ %s" % _grade(s["fly"])) if s.get("fly") is not None else "",
+                   _value_line(s, compact=True), _credit(s), g, GREEN)
 
 
 def _gem_line(s, month):
@@ -332,10 +351,11 @@ def render_digest(data):
 
     subject = "\U0001f9ed Where your dollar goes furthest this %s" % mn
     if nstrong:
-        preheader = ("Your dollar is unusually strong vs its 1-year average in %d of this "
+        preheader = ("After inflation, your dollar goes further than usual in %d of this "
                      "month’s picks — here’s where it’s worth going." % nstrong)
     else:
-        preheader = "%d destinations graded A+ to F on value, safety and weather this %s." % (len(picks), mn)
+        preheader = ("%d destinations graded A+ to F on value, safety, weather and flights this %s."
+                     % (len(picks), mn))
 
     hero = _hero_card(picks[0], m) if picks else ""
     rest = "".join(_compact_card(s, m) for s in picks[1:])

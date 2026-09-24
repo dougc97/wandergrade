@@ -343,8 +343,9 @@ def _data_page_body():
         '<a href="/data/price-levels.json"><strong>Download JSON</strong></a></p>'
         "<h2>What's in it</h2>"
         "<ul>"
-        "<li><strong>price_level</strong> — World Bank PPP conversion factor divided by "
-        "the market exchange rate. 1.00 means prices match the US, 0.50 means half.</li>"
+        "<li><strong>price_level</strong> — World Bank PPP conversion factor, carried "
+        "forward for inflation since its year, divided by the market exchange rate. "
+        "1.00 means prices match the US, 0.50 means half.</li>"
         "<li><strong>usd100_buys</strong> — the local purchasing power of US$100, in US "
         "dollars. Vietnam sits near $370.</li>"
         "<li>Plus the inputs, so you can check the arithmetic: PPP factor and its year, "
