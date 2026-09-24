@@ -251,7 +251,7 @@ const CUR_SORT_GET = {
   range: (r) => { const s = r.high - r.low; return s > 0 ? (r.rate_now - r.low) / s : 0.5; },
 };
 const CUR_SORT_DEFAULT_ASC = { code: true, rate: false, vsavg: false, price: true, range: false };
-let curSort = { key: "vsavg", asc: false };
+const curSort = { key: "vsavg", asc: false };
 
 function sortedRates(rows) {
   const get = CUR_SORT_GET[curSort.key] || CUR_SORT_GET.vsavg;
@@ -266,29 +266,17 @@ function sortedRates(rows) {
   });
 }
 
-// Show a ▲/▼ marker on the active sort header.
-function updateCurSortIndicators() {
-  document.querySelectorAll('#rates th.sortable').forEach((th) => {
-    const active = th.dataset.sk === curSort.key;
-    th.dataset.sortdir = active ? (curSort.asc ? "asc" : "desc") : "";
-  });
-}
+// Show a ▲/▼ marker (and aria-sort) on the active sort header.
+function updateCurSortIndicators() { markSort("#rates", curSort); }
 // Clicking a header sorts by that column (each column has a sensible first
-// direction); clicking the active column again reverses it.
-document.addEventListener("click", (e) => {
-  const th = e.target.closest("#rates th.sortable");
-  if (!th) return;
-  const k = th.dataset.sk;
-  curSort = (curSort.key === k)
-    ? { key: k, asc: !curSort.asc }
-    : { key: k, asc: CUR_SORT_DEFAULT_ASC[k] };
-  if (dataRates) renderRates(dataRates);
-});
+// direction); clicking the active column again reverses it. Same wiring as
+// every other table, so the keyboard path and aria-sort come with it.
+wireSort("#rates", curSort, CUR_SORT_DEFAULT_ASC, () => { if (dataRates) renderRates(dataRates); });
 
 // ---- generic click-to-sort for the other data tables (same UX as currency) --
-// Headers carry class="sortable" data-sk="col"; each table has a getters map, a
-// sort-state object, a first-click direction map (default asc unless false),
-// and a re-render callback.
+// Headers carry class="sortable" data-sk="col" (label in a button.sortbtn);
+// each table has a getters map, a sort-state object, a first-click direction
+// map (default asc unless false), and a re-render callback.
 function sortRows(rows, state, getters) {
   const get = getters[state.key];
   if (!get) return rows.slice();
@@ -302,38 +290,50 @@ function sortRows(rows, state, getters) {
     return dir * (va - vb);
   });
 }
+// WAI-ARIA APG sortable table: the th keeps its columnheader role (a role on
+// the th itself would hide aria-sort and break header/cell association) and
+// a real <button> inside it is the control, so Enter/Space and focus come
+// free. Labels live in the markup's .sortbtn; any header whose text was
+// rewritten without one gets it back here, so it can't silently drop out of
+// the tab order.
 function markSort(theadSel, state) {
   document.querySelectorAll(theadSel + " th.sortable").forEach((th) => {
-    th.dataset.sortdir = th.dataset.sk === state.key ? (state.asc ? "asc" : "desc") : "";
+    if (!th.querySelector(".sortbtn")) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "sortbtn";
+      while (th.firstChild) b.appendChild(th.firstChild);
+      th.appendChild(b);
+    }
+    const cur = th.dataset.sk === state.key;
+    th.dataset.sortdir = cur ? (state.asc ? "asc" : "desc") : "";
+    th.setAttribute("aria-sort", cur ? (state.asc ? "ascending" : "descending") : "none");
   });
 }
 function wireSort(theadSel, state, firstAsc, rerender) {
   const act = (th) => {
-    if (state.key === th.dataset.sk) state.asc = !state.asc;
-    else { state.key = th.dataset.sk; state.asc = firstAsc[th.dataset.sk] !== false; }
-    // Static theads never re-render, so aria-sort is synced here.
-    document.querySelectorAll(theadSel + " th.sortable").forEach((t) =>
-      t.setAttribute("aria-sort", t === th ? (state.asc ? "ascending" : "descending") : "none"));
+    const sk = th.dataset.sk;
+    if (state.key === sk) state.asc = !state.asc;
+    else { state.key = sk; state.asc = firstAsc[sk] !== false; }
+    const hadFocus = th.contains(document.activeElement);
+    markSort(theadSel, state);   // static theads never re-render
     rerender();
+    // The grade tables rebuild their thead, taking the focused button with
+    // it; put focus back on the same column's new button.
+    const nb = hadFocus && document.querySelector(theadSel + ' th.sortable[data-sk="' + sk + '"] .sortbtn');
+    if (nb && nb !== document.activeElement) nb.focus();
   };
+  // A native button fires click for Enter and Space too, so this one listener
+  // is the mouse, touch and keyboard path.
   document.addEventListener("click", (e) => {
     const th = e.target.closest(theadSel + " th.sortable");
     if (th) act(th);
   });
-  // Keyboard path: sortable headers were click-only. Enter/Space sorts, like
-  // the button these headers behave as. (tabindex arrives with the markup.)
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    const th = e.target.closest && e.target.closest(theadSel + " th.sortable");
-    if (th) { e.preventDefault(); act(th); }
-  });
 }
-// aria-sort for the current column, tabindex + role for keyboard reach — one
-// attribute string every sortable-header emitter shares so they can't drift.
+// aria-sort for a header the grade tables emit as a string; markSort adds
+// the button after the table lands.
 function sortableThAttrs(state, sk) {
   const cur = state.key === sk;
-  return ' tabindex="0" role="button" aria-sort="' +
-    (cur ? (state.asc ? "ascending" : "descending") : "none") + '"';
+  return ' aria-sort="' + (cur ? (state.asc ? "ascending" : "descending") : "none") + '"';
 }
 
 // Cost of living: cheapest-first by default; "$100 buys" is the inverse of the
@@ -352,7 +352,7 @@ const ADV_GET = { country: (it) => advName(it), level: (it) => parseInt(it.level
 const advSort = { key: "level", asc: true };
 wireSort("#advTable", advSort, {}, () => { if (advisories) renderAdvisories(); });
 
-// Flights: cheapest average first; "routes sampled" opens descending.
+// Flights: cheapest average first; "fares sampled" opens descending.
 const FLIGHT_GET = { dest: (c) => countryName(c.iso), avg: (c) => c.avg, min: (c) => c.min,
                      dur: (c) => c.dur, stops: (c) => c.stops, n: (c) => c.n };
 const flightSort = { key: "avg", asc: true };
@@ -397,7 +397,9 @@ function renderRates(data) {
   const w = baseWord(base);
   $("mapH2").innerHTML = `Where ${esc(w)} is strong <span class="muted">vs each currency's 1-year average</span>`;
   $("chartH2").innerHTML = `Overall ${esc(w === "the dollar" ? "dollar" : w)} strength <span class="muted">vs rest of world</span>`;
-  $("rateColHead").textContent = `1 ${base} =`;
+  // Into the sort button, not the th: textContent on the th would wipe it.
+  const rch = $("rateColHead");
+  (rch.querySelector(".sortbtn") || rch).textContent = `1 ${base} =`;
   // Says "fixed at a year" on purpose: the chart's window toggle sits directly
   // above this column and looks like it drives it. It must not — this figure is
   // 30% of every Affordability grade, so a zoom control cannot be allowed to
@@ -815,9 +817,31 @@ function drawMap(hostId, colorFn, ariaLabel) {
   attachMapZoom(host, W, H);
 }
 
+// "Ctrl/⌘ + scroll to zoom" over a map, shown briefly when a plain wheel
+// scrolls past it — at most every few seconds, so scrolling isn't nagged.
+let _mapHintAt = 0;
+function mapWheelHint(host) {
+  const now = Date.now();
+  if (now - _mapHintAt < 4000) return;
+  _mapHintAt = now;
+  let h = host.querySelector(".maphint");
+  if (!h) {
+    h = document.createElement("div");
+    h.className = "maphint";
+    h.setAttribute("aria-hidden", "true");
+    h.textContent = (/Mac|iP(hone|ad|od)/.test(navigator.platform || navigator.userAgent) ? "⌘" : "Ctrl")
+      + " + scroll to zoom";
+    host.appendChild(h);
+  }
+  h.classList.add("show");
+  clearTimeout(h._t);
+  h._t = setTimeout(() => h.classList.remove("show"), 1400);
+}
+
 // ---- map zoom / pan (Wander List map) ---------------------------------------
-// Tiny countries are impossible to tap at world scale: wheel (or pinch) zooms
-// toward the cursor, dragging pans once zoomed, and +/−/⌂ buttons cover touch.
+// Tiny countries are impossible to tap at world scale: ctrl/⌘+wheel (or pinch)
+// zooms toward the cursor, dragging pans once zoomed, and +/−/⌂ buttons cover
+// touch and plain mice.
 // Zoom state lives on the host element so it survives the re-render that every
 // country toggle triggers. Event handlers are property-assigned (idempotent).
 function attachMapZoom(host, W, H) {
@@ -890,13 +914,44 @@ function attachMapZoom(host, W, H) {
     host.appendChild(ctr);
   }
 
+  // Plain wheel scrolls the PAGE: every map is full-width, the landing one
+  // included, so zooming on it trapped anyone scrolling past. Ctrl/⌘+wheel
+  // zooms — Chrome, Edge and Firefox also report a trackpad pinch that way —
+  // and a plain wheel just flashes the hint once in a while.
   host.onwheel = (e) => {
+    if (!(e.ctrlKey || e.metaKey)) {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) mapWheelHint(host);
+      return;
+    }
     e.preventDefault();
     const r = svg.getBoundingClientRect();
     // instant — wheel is already continuous; tweening each notch would lag
     zoomAt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height,
            e.deltaY < 0 ? 1.25 : 0.8, false);
   };
+  // Safari reports a trackpad pinch as gesture events, not a ctrl wheel.
+  // Desktop only: on touch screens the pointer pinch below owns two fingers.
+  // Listeners are added once and call through host._gesture, which each
+  // render refreshes (the handlers close over this render's svg).
+  if (!navigator.maxTouchPoints) {
+    let g0 = null;
+    host._gesture = {
+      start: (e) => { e.preventDefault(); g0 = { w: st.w }; },
+      change: (e) => {
+        if (!g0 || !e.scale) return;
+        e.preventDefault();
+        const r = svg.getBoundingClientRect();
+        zoomAt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height,
+               st.w / (g0.w / e.scale), false);
+      },
+      end: (e) => { e.preventDefault(); g0 = null; },
+    };
+    if (!host._gestureWired) {
+      host._gestureWired = true;
+      ["start", "change", "end"].forEach((t) =>
+        host.addEventListener("gesture" + t, (e) => host._gesture[t](e)));
+    }
+  }
 
   // drag to pan (once zoomed) + two-finger pinch; a real drag suppresses the
   // click so it doesn't also toggle the country under the finger
@@ -2003,7 +2058,7 @@ async function wikiIconic(subject, minW, minH) {
   if (minH === undefined) minH = 1000;
   try {
     const api = "https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*" +
-      "&prop=pageimages&piprop=thumbnail|original&pithumbsize=1600&redirects=1&titles=" +
+      "&prop=pageimages&piprop=thumbnail|original|name&pithumbsize=1600&redirects=1&titles=" +
       encodeURIComponent(subject);
     const r = await fetch(api);
     if (!r.ok) return null;
@@ -2016,13 +2071,67 @@ async function wikiIconic(subject, minW, minH) {
     // 1600px). Reject unless at least one dimension clears its bar.
     if ((t.width || 0) < minW && (t.height || 0) < minH) return null;
     const orig = page.original && page.original.source;
-    return { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb };
+    // file = the File: page name, for the author/licence credit.
+    return { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb, file: page.pageimage || "" };
   } catch (e) { return null; }
+}
+
+// ---- photo credits -----------------------------------------------------------
+// Most of these files are CC BY / BY-SA, which require the author, the licence
+// and a link to the source beside the photo; a footer naming the host doesn't
+// do it. One imageinfo call per batch (en.wikipedia's API also resolves Commons
+// files). _photoCredit[file]: undefined = never asked, null = asking,
+// object = known. A failed call forgets its files so the next view retries.
+const _photoCredit = {};
+function _plainText(html) {
+  const d = new DOMParser().parseFromString(String(html || ""), "text/html");
+  const t = (d.body.textContent || "").replace(/\s+/g, " ").trim();
+  return t.length > 60 ? t.slice(0, 58).trim() + "…" : t;
+}
+async function loadPhotoCredits(photos) {
+  const want = [...new Set(photos.map((p) => p && p.file).filter((f) => f && _photoCredit[f] === undefined))];
+  if (!want.length) return;
+  want.forEach((f) => { _photoCredit[f] = null; });
+  try {
+    const titles = want.map((f) => "File:" + f.replace(/_/g, " "));
+    const r = await fetch("https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*"
+      + "&prop=imageinfo&iiprop=extmetadata|url&iiextmetadatafilter=Artist|LicenseShortName|LicenseUrl"
+      + "&titles=" + encodeURIComponent(titles.join("|")));
+    if (!r.ok) throw new Error("credits " + r.status);
+    const q = (await r.json()).query || {};
+    const back = {};
+    titles.forEach((t, i) => { back[t] = want[i]; });
+    for (const n of q.normalized || []) if (back[n.from]) back[n.to] = back[n.from];
+    for (const pg of Object.values(q.pages || {})) {
+      const f = back[pg.title], ii = (pg.imageinfo || [])[0];
+      if (!f || !ii) continue;
+      const md = ii.extmetadata || {}, val = (k) => (md[k] && md[k].value) || "";
+      _photoCredit[f] = { artist: _plainText(val("Artist")), lic: _plainText(val("LicenseShortName")),
+                          licUrl: val("LicenseUrl"), page: ii.descriptionurl || "" };
+    }
+  } catch (e) {
+    want.forEach((f) => { if (_photoCredit[f] === null) delete _photoCredit[f]; });
+  }
+}
+// "📷 Author · CC BY-SA 4.0": author links to the file page, licence to its
+// deed. Before (or without) metadata it still links the file page.
+function photoCreditHTML(p) {
+  if (!p || !p.file) return "";
+  const c = _photoCredit[p.file] || {};
+  const safe = (u) => (/^https?:\/\//i.test(u || "") ? u : "");
+  const page = safe(c.page) || "https://en.wikipedia.org/wiki/File:" + encodeURIComponent(p.file.replace(/ /g, "_"));
+  const lic = c.lic ? (safe(c.licUrl)
+    ? ' · <a href="' + esc(c.licUrl) + '" target="_blank" rel="noopener license">' + esc(c.lic) + "</a>"
+    : " · " + esc(c.lic)) : "";
+  return '📷 <a href="' + esc(page) + '" target="_blank" rel="noopener">'
+    + esc(c.artist || "Wikimedia Commons") + "</a>" + lic;
 }
 const _heroCache = {};
 async function iconicPhotos(iso) {
   if (iso in _heroCache) return _heroCache[iso];
-  const settled = await Promise.all(photoSubjects(iso).map(wikiIconic));
+  // Arrow, not .map(wikiIconic): map's (index, array) args landed in minW/minH
+  // and switched the size gate off.
+  const settled = await Promise.all(photoSubjects(iso).map((s) => wikiIconic(s)));
   const out = [], seen = new Set();
   for (const p of settled) if (p && !seen.has(p.full)) { seen.add(p.full); out.push(p); }
   if (out.length) _heroCache[iso] = out;
@@ -2076,7 +2185,8 @@ function loadHeroPhotos(iso) {
       `<img class="heroimg" alt="${esc(countryName(iso))}" title="click to enlarge">` +
       (multi ? '<button class="heronav prev" type="button" aria-label="previous photo">‹</button>' +
                '<button class="heronav next" type="button" aria-label="next photo">›</button>' +
-               '<div class="herocount"></div>' : "");
+               '<div class="herocount"></div>' : "") +
+      '<div class="herocredit"></div>';
     const hero = host.querySelector(".heroimg");
     hero.addEventListener("click", openLightbox);
     // The hero is an interactive control (opens the photo viewer), so it
@@ -2090,6 +2200,8 @@ function loadHeroPhotos(iso) {
       host.querySelector(".heronav.next").addEventListener("click", () => heroStep(1));
     }
     showHero();
+    const shown = heroUrls;
+    loadPhotoCredits(shown).then(() => { if (heroUrls === shown) { showHero(); syncLightboxCredit(); } });
   }).catch(() => {});
 }
 function heroStep(d) {
@@ -2105,6 +2217,8 @@ function showHero() {
   img.src = heroUrls[heroIdx].thumb;
   const c = host.querySelector(".herocount");
   if (c) c.textContent = (heroIdx + 1) + " / " + heroUrls.length;
+  const cr = host.querySelector(".herocredit");
+  if (cr) cr.innerHTML = photoCreditHTML(heroUrls[heroIdx]);
 }
 
 // ---- lightbox: click a guide photo to view it full-screen ------------------
@@ -2121,7 +2235,7 @@ function ensureLightbox() {
     '<button class="lbnav prev" type="button" aria-label="previous">‹</button>' +
     '<img class="lbimg" alt="">' +
     '<button class="lbnav next" type="button" aria-label="next">›</button>' +
-    '<div class="lbcount"></div>';
+    '<div class="lbcount"></div><div class="lbcredit"></div>';
   document.body.appendChild(lb);
   lb.addEventListener("click", (e) => {
     if (e.target === lb || e.target.classList.contains("lbclose")) closeLightbox();
@@ -2130,13 +2244,27 @@ function ensureLightbox() {
   lb.querySelector(".lbnav.next").addEventListener("click", (e) => { e.stopPropagation(); heroStep(1); });
   return lb;
 }
+// The control that opened the viewer, so closing it puts keyboard users back
+// where they were instead of at the top of the page.
+let lbOpener = null;
+function lbTakeFocus(lb) {
+  const a = document.activeElement;
+  if (a && a !== document.body && !lb.contains(a)) lbOpener = a;
+  lb.querySelector(".lbclose").focus();   // dialog gets focus; Escape/✕ leave it
+}
+// The credit for whatever the viewer shows (a single photo or the carousel's).
+function syncLightboxCredit() {
+  const lb = $("lightbox");
+  const cr = lb && !lb.hidden && lb.querySelector(".lbcredit");
+  if (cr) cr.innerHTML = photoCreditHTML(lbSingle || heroUrls[heroIdx]);
+}
 function openLightbox() {
   if (!heroUrls.length) return;
   const lb = ensureLightbox();
   lb.hidden = false;
   document.body.style.overflow = "hidden";
   document.addEventListener("keydown", lbKey);
-  lb.querySelector(".lbclose").focus();   // dialog gets focus; Escape/✕ leave it
+  lbTakeFocus(lb);
   syncLightbox();
   // Preload every full-res image now (intent signalled), so clicking through
   // the carousel is instant instead of waiting on each load.
@@ -2160,13 +2288,19 @@ function openLightboxSingle(photo) {
   }
   lb.querySelector(".lbcount").textContent = "";
   lb.querySelectorAll(".lbnav").forEach((b) => { b.style.display = "none"; });
+  lbTakeFocus(lb);
+  syncLightboxCredit();
+  loadPhotoCredits([photo]).then(() => { if (lbSingle === photo) syncLightboxCredit(); });
 }
 function closeLightbox() {
   const lb = $("lightbox");
+  const wasOpen = lb && !lb.hidden;
   if (lb) lb.hidden = true;
   lbSingle = null;
   document.body.style.overflow = "";
   document.removeEventListener("keydown", lbKey);
+  if (wasOpen && lbOpener && lbOpener.isConnected) lbOpener.focus();
+  lbOpener = null;
 }
 function syncLightbox() {
   const lb = $("lightbox");
@@ -2182,6 +2316,7 @@ function syncLightbox() {
   lb.querySelector(".lbcount").textContent = (idx + 1) + " / " + heroUrls.length;
   const multi = heroUrls.length > 1;
   lb.querySelectorAll(".lbnav").forEach((b) => { b.style.display = multi ? "" : "none"; });
+  syncLightboxCredit();
 }
 function lbKey(e) {
   if (e.key === "Escape") closeLightbox();
@@ -2198,67 +2333,6 @@ const fileKey = (u) => {
 };
 // Reject non-scenic files (flags, coats of arms, maps, diagrams) by filename.
 const PHOTO_BAD = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram|\.svg|location|adm[_ ]|administrative|emblem|wikidata|collage|montage/i;
-// Derive the original (full-resolution) file URL from a Commons thumb URL —
-// strip "/thumb/" and the trailing "/NNNpx-Name" segment. Widened thumbs 400 on
-// many files, but the original always exists.
-const origFromThumb = (u) =>
-  (u && u.indexOf("/thumb/") !== -1) ? u.replace("/thumb/", "/").replace(/\/[^/]+$/, "") : u;
-
-// Several scenic photos for a country via Commons search of its curated query.
-// Filters to landscape JPEG photos with a high-resolution ORIGINAL (so they
-// stay crisp full-screen), dropping maps/flags/coats/diagrams/small/old scans.
-// Returns [{thumb, full}] — carousel size + a larger size for the lightbox.
-// One Commons search -> filtered [{thumb, full}]. Returns null on a failed/
-// errored fetch (vs [] for "searched, nothing qualified") so callers can retry.
-async function commonsSearch(query) {
-  try {
-    const api = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*" +
-      "&generator=search&gsrnamespace=6&gsrlimit=24&gsrsearch=" + encodeURIComponent(query) +
-      "&prop=imageinfo&iiprop=url|size|mime&iiurlwidth=1280";
-    const r = await fetch(api);
-    if (!r.ok) return null;
-    const j = await r.json();
-    const pages = Object.values((j.query || {}).pages || {}).sort((a, b) => (a.index || 0) - (b.index || 0));
-    const out = [];
-    for (const p of pages) {
-      const ii = (p.imageinfo || [])[0];
-      if (!ii || !ii.thumburl) continue;
-      const ow = ii.width || 0, oh = ii.height || 0, ar = ow / (oh || 1);
-      if (ii.mime === "image/jpeg" && !PHOTO_BAD.test(p.title) &&
-          ow >= 1600 && oh >= 1000 && ar >= 1.2 && ar <= 2.4) {
-        out.push({ thumb: ii.thumburl, full: ii.url });   // ii.url = full-res original
-        if (out.length >= 8) break;
-      }
-    }
-    return out;
-  } catch (e) { return null; }
-}
-const _galleryCache = {};
-async function photoGallery(iso) {
-  if (iso in _galleryCache) return _galleryCache[iso];
-  const skey = "fxgal_" + iso;
-  try {
-    const c = sessionStorage.getItem(skey);
-    if (c) { const arr = JSON.parse(c); if (arr.length) return (_galleryCache[iso] = arr); }
-  } catch (e) {}
-  const q = (activities && activities[iso] && activities[iso].photo) || countryName(iso);
-  let out = await commonsSearch(q);
-  // Fall back to the country name if the landmark query came up short.
-  const name = countryName(iso);
-  if ((!out || out.length < 2) && name && name.toLowerCase() !== q.toLowerCase()) {
-    const alt = await commonsSearch(name);
-    if (alt && alt.length > (out ? out.length : 0)) out = alt;
-  }
-  out = out || [];
-  // Only persist real results — caching an empty/failed fetch would leave the
-  // country permanently photo-less for the session (the bug this fixes).
-  if (out.length) {
-    _galleryCache[iso] = out;
-    try { sessionStorage.setItem(skey, JSON.stringify(out)); } catch (e) {}
-  }
-  return out;
-}
-
 const INTERESTS = ["Beach & islands", "Nature", "City", "Culture", "Adventure", "Food", "Shopping"];
 function buildBestPickers(initialIso) {
   const ctry = $("bestCountry");
@@ -3269,9 +3343,13 @@ function enhanceSelect(sel) {
   // Accessible name: without one, every enhanced control announced only the
   // shared placeholder — nine identical "Type to search…" comboboxes. The
   // group's own label text (or the select's title/id) names each.
+  // Only the long label variant: textContent of both responsive spans ran
+  // together ("I'm going inWhen", "✈️ From✈️"), and emoji read as words.
   const pickLbl = sel.closest(".pickgroup") && sel.closest(".pickgroup").querySelector(".picklabel");
+  const lblSrc = pickLbl && (pickLbl.querySelector(".lbl-lg") || pickLbl);
+  const lblTxt = lblSrc ? lblSrc.textContent.replace(/[\p{Extended_Pictographic}\uFE0F]/gu, "").trim() : "";
   input.setAttribute("aria-label",
-    (pickLbl && pickLbl.textContent.trim()) || sel.title || sel.getAttribute("aria-label") || sel.id || "search");
+    lblTxt || sel.title || sel.getAttribute("aria-label") || sel.id || "search");
   const list = document.createElement("ul");
   list.className = "combo-list"; list.hidden = true;
   const setOpen = (open) => { list.hidden = !open; input.setAttribute("aria-expanded", String(open)); };
@@ -3820,7 +3898,7 @@ function renderAIPanel(host, prompt) {
   // pre-fill link is truncated by length limits.
   host.querySelectorAll("a.aiact").forEach((el) =>
     el.addEventListener("click", () => copyText(prompt, true)));
-  host.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  host.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "nearest" });
 }
 
 
@@ -4568,6 +4646,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <th class="${sc.trim()}"${sa("flights")} title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ <span class="thword">Flights</span></th>
       <th class="ovh ${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
+  if (sortable) markSort("#" + host.id, state);   // sort buttons + aria-sort
   if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
   fillRowFareStrips("#" + host.id, month);
 }
@@ -4620,7 +4699,7 @@ async function goToDetail(go, iso) {
   await activateTab("data", true);
   await setDataMode(go);
   const code = CUR_BY_ISO[iso];
-  const scrollTo = (sel) => { const el = document.querySelector(sel); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); };
+  const scrollTo = (sel) => { const el = document.querySelector(sel); if (el) el.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" }); };
   // Use the table's OWN displayed name for the country (data files disagree on
   // some names, e.g. Turkey vs Türkiye), so the text filter always matches.
   const rowName = (tbodyId) => {
@@ -5227,41 +5306,6 @@ async function ensureActivities() {
   return activities;
 }
 
-// ---- destination photos (Wikipedia REST, keyless) --------------------------
-// Each country has a curated landmark/city article in activities.json; we pull
-// that page's lead thumbnail. Cached in memory + sessionStorage so it's fetched
-// at most once per browser session (and never blocks the page).
-const _photoCache = {};
-// Pull a high-res lead image for the country's curated landmark via the
-// pageimages API, which renders a thumbnail at the requested width (no upscale,
-// never errors on size) — much sharper than the ~320px REST summary thumbnail.
-async function photoURL(iso, size) {
-  size = size || 1000;
-  const ckey = iso + "@" + size;
-  if (ckey in _photoCache) return _photoCache[ckey];
-  const skey = "fxphoto_" + ckey;
-  try {
-    const cached = sessionStorage.getItem(skey);
-    if (cached != null) return (_photoCache[ckey] = cached || null);
-  } catch (e) {}
-  const q = (activities && activities[iso] && activities[iso].photo) || countryName(iso);
-  let url = null;
-  try {
-    const api = "https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*" +
-      "&prop=pageimages&piprop=thumbnail&pithumbsize=" + size +
-      "&redirects=1&titles=" + encodeURIComponent(q);
-    const r = await fetch(api);
-    if (r.ok) {
-      const j = await r.json();
-      const pages = j.query && j.query.pages;
-      const page = pages && Object.values(pages)[0];
-      url = (page && page.thumbnail && page.thumbnail.source) || null;
-    }
-  } catch (e) {}
-  _photoCache[ckey] = url;
-  try { sessionStorage.setItem(skey, url || ""); } catch (e) {}
-  return url;
-}
 // ---- visa requirements ------------------------------------------------------
 // US passports use the curated visa.json (notes + official State Dept links).
 // Every other "From" country uses a passport×destination matrix derived from
@@ -5445,7 +5489,8 @@ async function actPhoto(subject, country) {
 function loadActivityThumbs(iso) {
   const country = countryName(iso);
   const used = new Set();   // two rows resolving to the same image: first one wins
-  document.querySelectorAll("#actDetail .actthumbslot[data-subj]").forEach(async (slot) => {
+  const shown = [];         // [img, photo] — credited in one batch once all land
+  Promise.all([...document.querySelectorAll("#actDetail .actthumbslot[data-subj]")].map(async (slot) => {
     const p = await actPhoto(slot.dataset.subj, country);
     if (!p || ccGuideIso !== iso || slot.childElementCount) return;
     const k = fileKey(p.full);
@@ -5468,7 +5513,14 @@ function loadActivityThumbs(iso) {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openLightboxSingle(p); }
     });
     slot.appendChild(img);
-  });
+    shown.push([img, p]);
+  })).then(() => loadPhotoCredits(shown.map((x) => x[1]))).then(() => {
+    // Too small for a caption: the credit rides the tooltip (and the viewer).
+    for (const [img, p] of shown) {
+      const c = _photoCredit[p.file];
+      if (c && (c.artist || c.lic)) img.title = "view photo · 📷 " + [c.artist, c.lic].filter(Boolean).join(" · ");
+    }
+  }).catch(() => {});
 }
 
 // ===========================================================================
@@ -5670,7 +5722,7 @@ function openBulkAdd() {
     + '<div class="bulkpaste-actions"><button type="button" class="bulkmatch">Match my list</button>'
     + '<span class="bulkmatch-out"></span></div></div>'
     + '<div class="bulkchips">' + all.map((c) =>
-        `<button type="button" class="bulkchip${on.has(c.iso) ? " on" : ""}" data-iso="${esc(c.iso)}">${flagEmoji(c.iso)} ${esc(c.name)}</button>`
+        `<button type="button" class="bulkchip${on.has(c.iso) ? " on" : ""}" aria-pressed="${on.has(c.iso)}" data-iso="${esc(c.iso)}">${flagEmoji(c.iso)} ${esc(c.name)}</button>`
       ).join("") + "</div>"
     + `<div class="bulkfoot"><span class="bulkcount">${on.size} selected</span>`
     + '<button type="button" class="bulkdone">Done</button></div></div>';
@@ -5711,7 +5763,7 @@ function openBulkAdd() {
     for (const iso of found) {
       if (!on.has(iso)) toggleMark(iso);
       const chip = m.querySelector(`.bulkchip[data-iso="${iso}"]`);
-      if (chip) chip.classList.add("on");
+      if (chip) { chip.classList.add("on"); chip.setAttribute("aria-pressed", "true"); }
     }
     m.querySelector(".bulkcount").textContent = on.size + " selected";
     m.querySelector(".bulkmatch-out").textContent = found.length
@@ -6068,7 +6120,7 @@ document.querySelector(".guidejump").addEventListener("click", (e) => {
   if (!b) return;
   let el = $(b.dataset.go);
   if (el && el.hidden) el = $("subscribe") || el;   // stay map can be hidden
-  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (el) el.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
 });
 
 // "Show more" under the Top Picks table: 5 -> 10 -> 20 without a pre-decision
@@ -6212,6 +6264,7 @@ function openSubscribeModal(opts) {
   if (document.querySelector(".submodal")) return;
   const m = document.createElement("div");
   m.className = "submodal";
+  if (opts.auto) m.dataset.nofocus = "1";   // see the modal observer
   m.innerHTML = '<div class="submodal-card"><button class="submodal-x" aria-label="Close">✕</button>'
     + subscribeFormHTML() + "</div>";
   document.body.appendChild(m);
@@ -6281,17 +6334,20 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
     if ((parseInt(localStorage.getItem("wg_visits") || "0", 10) || 0) < 2) return;
   } catch (e) {}
   if (!shouldAutoPrompt()) return;
-  let done = false;
+  let done = false, retry = null;
   function cleanup() {
     clearTimeout(timer);
+    clearTimeout(retry);
     window.removeEventListener("scroll", onScroll);
   }
   function fire() {
     if (done || !shouldAutoPrompt()) { cleanup(); return; }
     // Don't stack on top of a guide lightbox, the spin-globe, or an open modal —
-    // wait until the visitor's attention is free, then try again.
-    if (document.querySelector(".submodal, .lightbox, .spinover")) {
-      setTimeout(fire, 3000);
+    // wait until the visitor's attention is free, then try again. The lightbox
+    // stays in the DOM once opened (hidden), so only a VISIBLE one counts; one
+    // pending retry at a time, however many scroll events land meanwhile.
+    if (document.querySelector(".submodal, .lightbox:not([hidden]), .spinover")) {
+      if (!retry) retry = setTimeout(() => { retry = null; fire(); }, 3000);
       return;
     }
     done = true;
@@ -6321,15 +6377,22 @@ function currentTab() {
 // The server renders each country at /guide/<slug>; the SPA mirrors that in the
 // address bar and can open a country from such a URL. slugs.json is the shared
 // slug<->ISO map (also used server-side).
-let SLUG2ISO = null, ISO2SLUG = null;
+// A failed load leaves empty maps (callers fall back to the query form, which
+// always opens) and lets the next call try again.
+let SLUG2ISO = null, ISO2SLUG = null, _slugsOk = false;
 function ensureSlugs() {
-  if (SLUG2ISO) return Promise.resolve();
-  return fetch("/slugs.json").then((r) => r.json()).then((m) => {
+  if (_slugsOk) return Promise.resolve();
+  return fetch("/slugs.json").then((r) => {
+    if (!r.ok) throw new Error("slugs " + r.status);
+    return r.json();
+  }).then((m) => {
     SLUG2ISO = m; ISO2SLUG = {};
     for (const s in m) ISO2SLUG[m[s]] = s;
-  }).catch(() => { SLUG2ISO = {}; ISO2SLUG = {}; });
+    _slugsOk = true;
+  }).catch(() => { if (!_slugsOk) { SLUG2ISO = SLUG2ISO || {}; ISO2SLUG = ISO2SLUG || {}; } });
 }
-// iso -> "/guide/japan"; falls back to the query form until slugs load.
+// iso -> "/guide/japan". A country without a slug (or before slugs load) gets
+// the query form, which the SPA always opens — never a guessed /guide/ path.
 function guidePath(iso) {
   const slug = ISO2SLUG && ISO2SLUG[iso];
   return slug ? "/guide/" + slug : "/?tab=guide&gc=" + encodeURIComponent(iso);
@@ -6886,7 +6949,10 @@ function buildMapShareSVG(hostId, o) {
     + '<text x="16" y="27" font-family="' + F + '" font-size="19" font-weight="700" fill="' + FG + '">' + esc2(o.title) + "</text>"
     + '<text x="16" y="45" font-family="' + F + '" font-size="9.5" fill="' + MUTE + '">' + esc2(o.sub) + "</text>"
     + leg
-    + '<g transform="translate(0,' + HEAD + ')">' + src.innerHTML + "</g>"
+    // The HTML serializer writes U+00A0 as &nbsp;, which XML doesn't define —
+    // one locale-formatted fare ("1 234" in sv/ru/pl…) in a <title> made the
+    // whole image fail to load. Every other entity it emits is XML-safe.
+    + '<g transform="translate(0,' + HEAD + ')">' + src.innerHTML.replace(/&nbsp;/g, "&#160;") + "</g>"
     + picksOverlay
     + '<text x="16" y="' + (HEAD + MAPH + 15) + '" font-family="' + F + '" font-size="8" fill="' + DIM + '">' + esc2(o.footer) + "</text>"
     + "</svg>";
@@ -6917,7 +6983,8 @@ async function downloadMapImage(hostId, o) {
     a.click();
     status("Map image downloaded — post it anywhere 🌍", "ok");
   } catch (e) {
-    status("Could not build map image: " + e.message, "err");
+    // img.onerror rejects with an Event, which has no .message.
+    status("Could not build map image: " + ((e && e.message) || "the image failed to render"), "err");
   }
 }
 
@@ -7072,7 +7139,9 @@ function buildGuideCardSVG(iso) {
     + facts.map((t, i) => '<text x="36" y="' + (162 + i * 38) + '" font-family="' + F
         + '" font-size="16.5" fill="' + FG + '">' + esc2(t) + "</text>").join("")
     + '<text x="36" y="' + (H - 24) + '" font-family="' + F + '" font-size="11" fill="' + DIM
-    + '">' + esc2("wandergrade.com/guide/" + ((typeof ISO2SLUG !== "undefined" && ISO2SLUG && ISO2SLUG[iso]) || iso.toLowerCase())
+    // Only a real /guide/<slug> is printed: an ISO fallback (/guide/hk) 404s,
+    // and the image outlives any fix. No slug = the bare domain.
+    + '">' + esc2("wandergrade.com" + (ISO2SLUG && ISO2SLUG[iso] ? "/guide/" + ISO2SLUG[iso] : "")
     + " — sourced data, graded A+ to F, free") + "</text>"
     + "</svg>";
   return { svg, W, H, flags: [{ iso, x: 36, y: 76 }] };
@@ -7080,7 +7149,7 @@ function buildGuideCardSVG(iso) {
 
 async function downloadGuideCard(iso) {
   try {
-    await ensureAdvisories().catch(() => {});
+    await Promise.all([ensureAdvisories().catch(() => {}), ensureSlugs()]);
     const { svg, W, H, flags } = buildGuideCardSVG(iso);
     const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
     const img = new Image();
@@ -7107,7 +7176,7 @@ async function downloadGuideCard(iso) {
     a.click();
     status("Country card downloaded — post it anywhere 🌍", "ok");
   } catch (e) {
-    status("Could not build the card: " + e.message, "err");
+    status("Could not build the card: " + ((e && e.message) || "the image failed to render"), "err");
   }
 }
 
@@ -7579,16 +7648,45 @@ const MUSIC_VOL_INTRO = 0.29;     // first ~15s / loop seam: keeps the quiet int
 const MUSIC_INTRO_END = 15;       // seconds; the song reaches cruise loudness ~20s
 let _music = null;                // HTMLAudioElement, created on first start
 let _musicFade = null;
+// iOS ignores .volume (it always reads 1), so every fade and the intro/cruise
+// levels did nothing there. Where the element's volume won't stick, the audio
+// runs through a Web Audio gain node instead; with neither, it plays at the
+// device volume and the fades are skipped rather than spun forever.
+let _musicAC = null, _musicGain = null, _musicVolOK = true;
+function _musicVol() { return _musicGain ? _musicGain.gain.value : _music.volume; }
+function _setMusicVol(v) {
+  if (_musicGain) _musicGain.gain.value = v; else _music.volume = v;
+}
+function _musicRouteVolume() {
+  _music.volume = 0.5;
+  if (Math.abs(_music.volume - 0.5) < 0.01) return;
+  _music.volume = 1;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) throw new Error("no Web Audio");
+    _musicAC = new AC();
+    _musicGain = _musicAC.createGain();
+    _musicGain.gain.value = 0;
+    _musicAC.createMediaElementSource(_music).connect(_musicGain);
+    _musicGain.connect(_musicAC.destination);
+    // Web Audio defaults to iOS's ambient session, which the mute switch
+    // silences; this was an explicit tap on 🎵, so play like media does.
+    try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}
+  } catch (e) {
+    _musicAC = null; _musicGain = null; _musicVolOK = false;
+  }
+}
 
 // Linear volume fade so starts/stops are a door opening, not a light switch.
 function _fadeMusic(to, ms, done) {
   if (_musicFade) clearInterval(_musicFade);
-  const el = _music;
-  if (!el) return;
-  const from = el.volume, t0 = Date.now();
+  _musicFade = null;
+  if (!_music) return;
+  if (!_musicVolOK) { if (done) done(); return; }
+  const from = _musicVol(), t0 = Date.now();
   _musicFade = setInterval(() => {
     const k = Math.min(1, (Date.now() - t0) / ms);
-    el.volume = from + (to - from) * k;
+    _setMusicVol(from + (to - from) * k);
     if (k === 1) {
       clearInterval(_musicFade);
       _musicFade = null;
@@ -7619,18 +7717,29 @@ function startMusic() {
     // level stays steady. Never fights an explicit start/stop fade (those own
     // _musicFade while active, and a paused element fires no timeupdate).
     _music.addEventListener("timeupdate", () => {
-      if (_musicFade || !musicOn()) return;
+      if (_musicFade || !musicOn() || !_musicVolOK) return;
       const want = _musicWantVol();
-      if (Math.abs(_music.volume - want) > 0.01) _fadeMusic(want, 6000);
+      if (Math.abs(_musicVol() - want) > 0.01) _fadeMusic(want, 6000);
     });
+    // A file that can't load or decode can't play: say so on the button
+    // instead of showing "on" over silence.
+    _music.addEventListener("error", () => {
+      if (_musicFade) { clearInterval(_musicFade); _musicFade = null; }
+      setMusicBtn(false);
+    });
+    _musicRouteVolume();
   }
   if (musicOn()) return;
-  _music.volume = 0;
+  if (_musicAC && _musicAC.state !== "running") _musicAC.resume().catch(() => {});
+  _setMusicVol(0);
   const p = _music.play();
-  // An autoplay block (no user gesture yet) lands here: fine — the
-  // first-interaction arm at the bottom retries. Nothing else (404, decode
-  // error) should wedge the button either.
-  if (p && p.catch) p.catch(() => {});
+  // An autoplay block (no user gesture yet) lands here and stays armed — the
+  // first-interaction arm at the bottom retries. A real failure turns the
+  // button off; AbortError is just a pause() racing this play().
+  if (p && p.catch) p.catch((err) => {
+    const n = err && err.name;
+    if (n !== "NotAllowedError" && n !== "AbortError" && !musicOn()) setMusicBtn(false);
+  });
   _fadeMusic(_musicWantVol(), 900);
 }
 
@@ -7668,12 +7777,19 @@ if ($("musicBtn")) {
     // Skip when the gesture is the music button itself — its click handler
     // owns the decision; resuming here made that first click toggle straight
     // back off (pointerdown fires before click).
+    // pointerup too: a touch pointerdown doesn't count as a gesture for audio
+    // (iOS refused the play and the one-shot arm was spent). Stays armed until
+    // the music is actually playing or the button takes over.
+    const ARM = ["pointerdown", "pointerup", "keydown"];
+    const disarm = () => ARM.forEach((t) => document.removeEventListener(t, arm));
     const arm = (e) => {
-      if (e.target && e.target.closest && e.target.closest("#musicBtn")) return;
-      if (!musicOn() && localStorage.getItem(MUSIC_KEY) === "1") startMusic();
+      if (e.target && e.target.closest && e.target.closest("#musicBtn")) { disarm(); return; }
+      let want = false;
+      try { want = localStorage.getItem(MUSIC_KEY) === "1"; } catch (err) {}
+      if (musicOn() || !want) { disarm(); return; }
+      startMusic();
     };
-    document.addEventListener("pointerdown", arm, { once: true });
-    document.addEventListener("keydown", arm, { once: true });
+    ARM.forEach((t) => document.addEventListener(t, arm));
   }
   // First-visit nudge: visitors who have never touched the toggle get a soft
   // ring that breathes a few times on the 🎵 button — deliberate discovery,
@@ -7897,14 +8013,22 @@ document.addEventListener("mousemove", (e) => {
 // before any bubble-phase handler: show the tip, and stop the click there so it
 // never reaches navigation. Interactive tips (continent chips) aren't matched, so
 // they still filter on click.
+// The pointer behind the next click: click events don't carry pointerType in
+// every browser (older Safari), so remember it from pointerdown.
+let _lastPtrType = "";
+document.addEventListener("pointerdown", (e) => { _lastPtrType = e.pointerType || ""; }, true);
 document.addEventListener("click", (e) => {
   // Every info-only mark that lives inside a clickable row/cell belongs on
   // this list — anything missing navigates on tap and its tip is unreachable
   // on touch: the trend marks (±%, ▲/▼), the ⓘ hints, and the per-month
   // strip cells (the row still opens from anywhere else in it).
-  const info = e.target.closest && e.target.closest(
-    ".hzmark, .muted[data-tip], .fxmark, .advmv, .advmoved, .legendinfo, .fxinfo, "
-    + ".farestrip .fcell, .seasonstrip[data-tip], .wochip");
+  // The ⓘ/⚠️ glyphs are info for every pointer. The rest are wide (a strip
+  // spans its whole cell, trend-mark halos overlap the pills), so a mouse —
+  // which already got the tip on hover — clicks through them to the row.
+  const t = e.target.closest ? e.target : null;
+  const mouse = (e.pointerType || _lastPtrType) === "mouse";
+  const info = t && (t.closest(".hzmark, .muted[data-tip], .legendinfo, .fxinfo")
+    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip")));
   if (info) { _showTipFor(info.dataset && info.dataset.tip ? info : e.target.closest("[data-tip]")); e.stopPropagation(); return; }
   // Touch screens have no hover: a tap on any other tipped element shows it, a
   // tap elsewhere dismisses. (closest() miss hides.)
@@ -7923,6 +8047,16 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") _hideTip()
 // moves into the dialog on open and returns to the opener on close. Without
 // this, a keyboard/SR user who opened "Save map" or "Subscribe" stayed in the
 // background page under an invisible overlay.
+//
+// The opener is the last element focused OUTSIDE any overlay, tracked here:
+// this observer runs after the opener's own code, and modals that focus their
+// own field (Subscribe, Bulk add) had already moved activeElement inside, so
+// focus came back to nothing. Focus that falls to the page itself clears it.
+let _focusOutside = null;
+document.addEventListener("focusin", (e) => {
+  if (!(e.target.closest && e.target.closest(".submodal, .lightbox"))) _focusOutside = e.target;
+});
+document.addEventListener("focusout", (e) => { if (!e.relatedTarget) _focusOutside = null; });
 new MutationObserver((muts) => {
   for (const mu of muts) {
     for (const n of mu.addedNodes) {
@@ -7934,14 +8068,22 @@ new MutationObserver((muts) => {
         const lbl = card.querySelector("h2, h3, .sublabel");
         card.setAttribute("aria-label", (lbl && lbl.textContent.trim().slice(0, 80)) || "Dialog");
       }
-      n._opener = document.activeElement;
+      n._opener = _focusOutside;
+      // An unrequested modal (the timed newsletter invite) never takes focus:
+      // it would catch whatever the visitor was typing, and on phones pop the
+      // keyboard; Escape still dismisses it from anywhere. Modals that focused
+      // their own field already did the job.
+      if (n.dataset.nofocus || card.contains(document.activeElement)) continue;
       const f = card.querySelector("input, select, textarea, button:not(.submodal-x)")
         || card.querySelector("button");
       if (f) f.focus();
     }
     for (const n of mu.removedNodes) {
-      if (n instanceof HTMLElement && n.classList && n.classList.contains("submodal")
-          && n._opener && document.contains(n._opener)) n._opener.focus();
+      if (!(n instanceof HTMLElement) || !n.classList || !n.classList.contains("submodal")) continue;
+      // Only when focus went down with the modal — never yank it from
+      // somewhere the visitor has since moved to.
+      const a = document.activeElement;
+      if (n._opener && n._opener.isConnected && (!a || a === document.body || n.contains(a))) n._opener.focus();
     }
   }
 }).observe(document.body, { childList: true });
