@@ -2,6 +2,22 @@
 
 const $ = (id) => document.getElementById(id);
 
+// Blocked site data (a browser setting, some in-app webviews) makes merely
+// touching window.localStorage throw — at the first top-level read below, that
+// aborted this whole script and the page never hydrated. This binding shadows
+// the global for every read and write in the file: the real store when it
+// works, else a per-page memory map (the app runs; nothing persists, as asked).
+const localStorage = (() => {
+  try { const s = window.localStorage; s.getItem("wg"); return s; } catch (e) {}
+  const m = new Map();
+  return {
+    getItem: (k) => (m.has(String(k)) ? m.get(String(k)) : null),
+    setItem: (k, v) => { m.set(String(k), String(v)); },
+    removeItem: (k) => { m.delete(String(k)); },
+    clear: () => m.clear(),
+  };
+})();
+
 // This script's own deploy stamp (server.py rewrites /app.js to /app.js?v=<mtime>).
 // Must be read at top level: document.currentScript is only set while the script
 // is first executing, not later inside a function.
@@ -424,16 +440,27 @@ function renderRates(data) {
   applyCurrencyFilter();
 }
 
+// Newest request wins: a first fetch for a base is uncached server-side and
+// slow, so after a quick currency switch an earlier response could land last
+// and repaint the table in the old currency under the new picker.
+let _ratesSeq = 0;
 async function loadRates() {
   status("Fetching rates…");
+  const base = homeBase, seq = ++_ratesSeq;
   try {
     // Top Picks scoring always needs the USD dataset, even when the data tab
     // is viewing the world through another home currency.
-    if (homeBase !== "USD" && !lastRates) lastRates = await getJSON("/api/rates");
-    renderRates(await getJSON("/api/rates" + (homeBase !== "USD" ? "?base=" + homeBase : "")));
+    if (base !== "USD" && !lastRates) lastRates = await getJSON("/api/rates");
+    const data = await getJSON("/api/rates" + (base !== "USD" ? "?base=" + base : ""));
+    if (base === "USD") lastRates = data;   // scoring needs it even if stale here
+    if (seq !== _ratesSeq) return;
+    // The currency moved without a newer request (setHomeCur skips its refetch
+    // until the first rates land): fetch again for the current one.
+    if (base !== homeBase) return loadRates();
+    renderRates(data);
     status("");
   } catch (e) {
-    status("Could not load rates: " + e.message, "err");
+    if (seq === _ratesSeq) status("Could not load rates: " + e.message, "err");
   }
 }
 
@@ -549,18 +576,25 @@ async function checkNow() {
 // ---- index chart window toggle --------------------------------------------
 let activeDays = 365;
 
+let _indexSeq = 0;
 async function loadIndex(days) {
   activeDays = days;
   for (const b of document.querySelectorAll("#windowtoggle button")) {
     b.classList.toggle("active", parseInt(b.dataset.days, 10) === days);
   }
+  const base = homeBase, seq = ++_indexSeq;
   try {
-    lastIndexData = await getJSON("/api/index?days=" + days +
-      (homeBase !== "USD" ? "&base=" + homeBase : ""));
+    const data = await getJSON("/api/index?days=" + days +
+      (base !== "USD" ? "&base=" + base : ""));
+    // Same newest-wins rule as loadRates: a slow earlier window or currency
+    // must not repaint the chart under the button now active.
+    if (seq !== _indexSeq) return;
+    if (base !== homeBase) return loadIndex(activeDays);
+    lastIndexData = data;
     renderIndex(lastIndexData);
     syncURL();
   } catch (e) {
-    $("chartsub").textContent = "Could not load chart: " + e.message;
+    if (seq === _indexSeq) $("chartsub").textContent = "Could not load chart: " + e.message;
   }
 }
 
@@ -1312,7 +1346,9 @@ async function ensureFareMonths(iso) {
   // iso resolves to a destination city on the SERVER against its cached fares,
   // so this works on a direct guide load with no client fares bootstrap — the
   // first production version raced that bootstrap and stayed hidden forever.
-  const origin = (flightsData && flightsData.origin) || travelOrigin() || "US";
+  // The traveller's origin, not flightsData.origin: a stale or guide-first
+  // fares payload (fetched for the US before the geo seed) must not win.
+  const origin = originIso();
   const key = origin + ":" + iso;
   if (!_fareMonthsCache[key]) {
     // A FAILED fetch must not cache as permanent "no data" — one cold-start
@@ -1552,14 +1588,8 @@ function renderGuideStay(iso) {
   }).catch(() => {});
 }
 
-// Passport used for visa info = the "From" country chosen on Top Picks
-// (your home country), defaulting to US.
-function guidePassport() {
-  const sel = $("valueOrigin");
-  // Fall back to the persisted origin (not "US") so visa info follows the home
-  // country even on a direct /guide/<slug> load, before Top Picks builds.
-  return (sel && /^[A-Z]{2}$/.test(sel.value)) ? sel.value : travelOrigin();
-}
+// Passport used for visa info = the traveller's home ("From") country.
+function guidePassport() { return originIso(); }
 
 // Visa FYI for this country — informational only, not part of any score.
 // US passports link to the official State Dept page; other passports use the
@@ -2018,32 +2048,37 @@ async function photoGallery(iso) {
 }
 
 const INTERESTS = ["Beach & islands", "Nature", "City", "Culture", "Adventure", "Food", "Shopping"];
-function buildBestPickers() {
+function buildBestPickers(initialIso) {
   const ctry = $("bestCountry");
   // Every country, always: the region/interest narrowing that used to live here
   // duplicated Top Picks' filters with its own state, and this list is a
   // type-to-search combo — the filters were saving a keystroke at the cost of two
   // controls that could disagree with the ones on the main tab.
-  const fill = () => {
-    const list = Object.keys(climate)
-      .map((iso) => ({ iso, name: climate[iso].name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-    ctry.innerHTML = list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
-    renderGuide(ctry.value);
-  };
+  const list = Object.keys(climate)
+    .map((iso) => ({ iso, name: climate[iso].name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  ctry.innerHTML = list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
+  const has = (iso) => !!iso && [...ctry.options].some((o) => o.value === iso);
+  // Render ONE country: the one being opened, else Japan. Drawing Afghanistan
+  // (first option) and Japan first fired their fare, FX and photo requests on
+  // every guide landing, and each render's syncURL rewrote the history entry.
+  ctry.value = has(initialIso) ? initialIso : has("JP") ? "JP" : ((ctry.options[0] || {}).value || "");
   ctry.onchange = () => renderGuide(ctry.value);
-  fill();
-  if ([...ctry.options].some((o) => o.value === "JP")) { ctry.value = "JP"; renderGuide("JP"); }
   enhanceSelect(ctry);
+  if (ctry.value) renderGuide(ctry.value);
 }
 
 // Open the guide tab focused on a specific country (used by the map detail card).
+let _guideTarget = null;   // the country an in-flight openGuideFor is opening
 async function openGuideFor(iso, push) {
-  await activateTab("guide", push);
+  const fresh = !loaded.guide;
+  _guideTarget = iso;       // the first build renders it, and a push names it
+  try { await activateTab("guide", push); }
+  finally { if (_guideTarget === iso) _guideTarget = null; }
   const ctry = $("bestCountry");
   if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
   if (ctry._sync) ctry._sync();
-  renderGuide(iso);
+  if (!(fresh && ccGuideIso === iso)) renderGuide(iso);   // the build just drew it
   setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
 }
 
@@ -2198,7 +2233,9 @@ function advisorySource() {
 async function ensureAdvisories() {
   const src = advisorySource();
   if (!_advBySource[src]) _advBySource[src] = await getJSON("/api/advisories?source=" + src);
-  advisories = _advBySource[src];
+  // A slow fetch for a source the user has since switched away from must not
+  // land last and flip every level back to it.
+  if (advisorySource() === src || !advisories) advisories = _advBySource[src];
   return advisories;
 }
 // Re-fetch if the active advisory source changed since last load. The source
@@ -2268,6 +2305,12 @@ function renderAdvisories() {
       await ensureAdvisories();
       renderAdvisories();
       if (loaded.value) renderValue();   // safety grades follow the chosen source
+      // …and so does everything else already painted with a level: an open
+      // guide's safety block, and the Data tables' hide-higher-risk filters
+      // (currency rows stamp their level when rendered, so re-render them).
+      if (ccGuideIso) renderGuideSafety(ccGuideIso);
+      if (dataRates) renderRates(dataRates);
+      applyAffordFilter(); applyFlightFilter();
     };
   }
   $("advSub").innerHTML =
@@ -2345,22 +2388,28 @@ function wireWatchoutRows() {
 // and changeable wherever the comparison is read. Changing it here changes it
 // everywhere, fares and visas included.
 function initAffAnchor() {
-  const sel = $("affAnchor"), vo = $("valueOrigin");
+  const sel = $("affAnchor");
   if (!sel) return;
-  sel.onchange = () => {
-    if (vo) { vo.value = sel.value; vo.dispatchEvent(new Event("change")); }
-    renderAfford();
+  // Straight into the shared origin (which repaints this map): mirroring into
+  // #valueOrigin did nothing on a session that never built Top Picks.
+  sel.onchange = () => setTravelOrigin(sel.value);
+  const match = () => {
+    const o = originIso();
+    if (sel.value !== o && [...sel.options].some((x) => x.value === o)) {
+      sel.value = o;
+      if (sel._sync) sel._sync();
+    }
   };
   if (sel.options.length <= 1) {
     // Fill from the same source as the From selector rather than cloning it:
     // on a direct Data-tab load, valueOrigin may not be populated yet.
     fillOriginSelect(sel).then(() => {
-      if (vo && vo.options.length && sel.value !== vo.value) sel.value = vo.value;
+      match();
       renderAfford();          // repaint with the anchor the select now shows
     }).catch(() => {});
     return;
   }
-  if (vo && vo.options.length && sel.value !== vo.value) sel.value = vo.value;
+  match();
 }
 
 function renderAfford() {
@@ -2370,7 +2419,7 @@ function renderAfford() {
   // German comparing prices wants "vs Germany, in euros"; price levels are
   // all stored vs the US, so dividing by the anchor's own level rebases them.
   initAffAnchor();
-  const anchorIso = ($("valueOrigin") || {}).value || "US";
+  const anchorIso = originIso();
   const anchorPl = priceLevel(anchorIso) || 1;
   const anchorCur = CUR_BY_ISO[anchorIso] || "USD";
   const anchorName = anchorIso === "US" ? "the US" : countryName(anchorIso);
@@ -2582,7 +2631,7 @@ let homeRates = null;        // /api/rates dataset for that base (= lastRates fo
 let homeManual = localStorage.getItem("fx_homecur_manual") === "1";
 const _baseRatesCache = {};
 
-function homeCurAuto() { return CUR_BY_ISO[$("valueOrigin").value || "US"] || "USD"; }
+function homeCurAuto() { return CUR_BY_ISO[originIso()] || "USD"; }
 
 // ---- single "traveling from" origin, shared across the whole site ----------
 // One source of truth: Top Picks "From", Explore-the-Data flights "From", the
@@ -2590,12 +2639,22 @@ function homeCurAuto() { return CUR_BY_ISO[$("valueOrigin").value || "US"] || "U
 // in any tab carries everywhere. Persisted so it sticks across tabs and reloads.
 function travelOrigin() { return localStorage.getItem("fx_origin") || "US"; }
 
+// The home country every "from" question reads (fares, price anchor, currency,
+// passport, AI prompts): the Top Picks select once built, else the persisted
+// origin. That select is empty on a guide-first session, and reading it there
+// with a "US" fallback quietly answered the US for a German visitor.
+function originIso() {
+  const sel = $("valueOrigin");
+  return (sel && /^[A-Z]{2}$/.test(sel.value)) ? sel.value : travelOrigin();
+}
+function originLabel() { const o = originIso(); return o === "US" ? "the US" : countryName(o); }
+
 function setTravelOrigin(iso) {
   if (!iso || !/^[A-Z]{2}$/.test(iso)) return;
   localStorage.setItem("fx_origin", iso);
   // Mirror into both origin selects (each only if it carries that option) and
   // refresh their comboboxes — programmatic, so this doesn't re-fire change.
-  for (const id of ["valueOrigin", "flightOrigin"]) {
+  for (const id of ["valueOrigin", "flightOrigin", "affAnchor"]) {
     const sel = $(id);
     if (sel && [...sel.options].some((o) => o.value === iso)) {
       if (sel.value !== iso) sel.value = iso;
@@ -2604,7 +2663,8 @@ function setTravelOrigin(iso) {
   }
   if (!homeManual) setHomeCur(homeCurAuto(), false);   // currency follows unless pinned
   loadValueFlights(false);                             // Top Picks fares (re-renders)
-  renderValue();                                       // immediate: new affordability anchor
+  if (loaded.value) renderValue();                     // immediate: new affordability anchor
+  if (loaded.afford) renderAfford();                   // cost-of-living anchor
   if (loaded.flights) loadFlights();                   // Explore-the-Data fares
   // The advisory source is an explicit dropdown (no longer tied to the home
   // country); this is a consistency re-check and normally a no-op.
@@ -2620,12 +2680,15 @@ function setTravelOrigin(iso) {
 }
 
 async function loadHomeRates() {
-  if (homeBase === "USD") { homeRates = lastRates; return; }
-  if (_baseRatesCache[homeBase]) { homeRates = _baseRatesCache[homeBase]; return; }
+  const base = homeBase;   // homeBase can change during the await
+  if (base === "USD") { homeRates = lastRates; return; }
+  if (_baseRatesCache[base]) { homeRates = _baseRatesCache[base]; return; }
   homeRates = null;   // FX column shows neutral until the dataset lands
-  const data = await getJSON("/api/rates?base=" + homeBase);
-  _baseRatesCache[homeBase] = data;
-  if (data.base === homeBase) homeRates = data;   // ignore stale responses
+  const data = await getJSON("/api/rates?base=" + base);
+  // Cache under the base REQUESTED — keyed by homeBase after the await, a
+  // late response filed one currency's rates under another's name.
+  if (data && data.base === base) _baseRatesCache[base] = data;
+  if (homeBase === base && data && data.base === base) homeRates = data;   // ignore stale responses
 }
 
 function setHomeCur(code, manual) {
@@ -2886,23 +2949,31 @@ function buildFareContext() {
   return { prices, est, min: Math.min(...vals), max: Math.max(...vals), expected };
 }
 
+let _vfSeq = 0;
 async function loadValueFlights(silent) {
-  const origin = $("valueOrigin").value || "US";
+  const origin = originIso();
+  const seq = ++_vfSeq;
+  // The toasts talk about the Top Picks score — noise on a guide-first session.
+  const say = !silent && loaded.value;
   try {
     const data = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
+    // A slower response for an earlier origin (cold origins take longer) must
+    // not land last and overwrite the current origin's fares.
+    if (seq !== _vfSeq) return;
     if (!data.configured) {
-      if (!silent) status("Flight prices need TRAVELPAYOUTS_TOKEN on the server — see the Flights tab.", "err");
+      if (say) status("Flight prices need TRAVELPAYOUTS_TOKEN on the server — see the Flights tab.", "err");
     } else {
       flightsData = data;
-      if (!silent) status(`Average fares from ${data.origin_name || origin} folded into the score.`, "ok");
+      if (say) status(`Average fares from ${data.origin_name || origin} folded into the score.`, "ok");
       // A guide opened before fares arrived rendered its fare strip against
       // nothing and stayed hidden — give it its data now.
       if (ccGuideIso) renderGuideFares(ccGuideIso);
     }
   } catch (e) {
-    if (!silent) status("Could not load flights: " + e.message, "err");
+    if (seq !== _vfSeq) return;
+    if (say) status("Could not load flights: " + e.message, "err");
   }
-  renderValue();
+  if (loaded.value) renderValue();
 }
 
 // ---- searchable dropdowns (custom combobox over a native <select>) ---------
@@ -2963,6 +3034,9 @@ function enhanceSelect(sel) {
     if (li) { e.preventDefault(); choose(li.dataset.val); }
   });
   new MutationObserver(sync).observe(sel, { childList: true });  // options rebuilt -> resync label
+  // Programmatic picks that announce themselves (the guided picker's month)
+  // left the box showing the old value while the page ranked for the new one.
+  sel.addEventListener("change", sync);
   sync();
 }
 function resyncCombos() {
@@ -2970,11 +3044,9 @@ function resyncCombos() {
 }
 
 function buildValueTab() {
-  const reg = $("valueRegion"), mon = $("valueMonth");
+  const reg = $("valueRegion"), mon = ensureMonthOptions();
   reg.innerHTML = '<option value="all">All regions</option>' +
     Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
-  mon.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
-  mon.value = String(curMonth());   // "I'm going in" defaults to the month it is now
   reg.onchange = renderValue;
   mon.onchange = renderValue;
   enhanceSelect(mon);
@@ -3143,7 +3215,7 @@ function renderTripBar() {
     host.innerHTML = '<div class="triphead"><strong>🧳 Your trip</strong> '
       + '<span class="muted">' + t.size + " " + (t.size === 1 ? "country" : "countries") + "</span>"
       + '<label class="tripdays">for <input id="tripDays" type="number" min="1" max="180" '
-      + 'value="' + ((sharedTripView && sharedTripView.td) || localStorage.getItem("fx_tripdays") || 14) + '" inputmode="numeric"> days</label>'
+      + 'value="' + esc((sharedTripView && sharedTripView.td) || localStorage.getItem("fx_tripdays") || 14) + '" inputmode="numeric"> days</label>'
       + '<label class="tripmonth">in <select id="tripMonth">'
       + '<option value="0"' + (savedM === "0" ? " selected" : "") + ">I'm flexible — suggest when</option>"
       + MONTHS.map((m, i) => '<option value="' + (i + 1) + '"'
@@ -3270,11 +3342,10 @@ function buildTripAIPrompt() {
   const month = tm.month || lastPicksMonth || curMonth();
   const monthName = MONTHS[month - 1];
   const days = tripDays() || 14;
-  const origin = $("valueOrigin");
-  const originName = origin && origin.selectedOptions[0] ? origin.selectedOptions[0].textContent : "the US";
+  const originName = originLabel();
   const passport = guidePassport();
   const cen = countryCentroids();
-  const anchorPl = priceLevel(($("valueOrigin") || {}).value || "US") || 1;
+  const anchorPl = priceLevel(originIso()) || 1;
 
   const lines = [];
   lines.push("I have " + days + " days"
@@ -3327,10 +3398,11 @@ function buildTripAIPrompt() {
     if (hz.length) bits.push("heads-up: " + hz.join("; "));
     lines.push("- " + countryName(iso) + " — " + bits.join(" · "));
   });
-  if (visited && visited.size) {
+  const beenOwn = ownVisited();   // not a shared map that happens to be open
+  if (beenOwn.size) {
     lines.push("");
     lines.push("ALREADY BEEN (fine to route through, don't build days around): "
-      + [...visited].map(countryName).join(", "));
+      + [...beenOwn].map(countryName).join(", "));
   }
   lines.push("");
   lines.push("PLEASE:");
@@ -3373,8 +3445,7 @@ function buildTripAIPrompt() {
 // idea ever comes back with its own name; delete it freely if it never does.
 function buildAIPrompt() {
   const month = lastPicksMonth || curMonth();
-  const origin = $("valueOrigin");
-  const originName = origin && origin.selectedOptions[0] ? origin.selectedOptions[0].textContent : "the US";
+  const originName = originLabel();
   const region = $("valueRegion").value;
   // What they care about = the counted factors weighted High.
   const p = loadPriorities();
@@ -3393,7 +3464,8 @@ function buildAIPrompt() {
   if (cares.length) lines.push("I CARE MOST ABOUT: " + cares.join(", "));
   loadWishlist();
   if (wishlist.size) lines.push("ON MY WISHLIST: " + [...wishlist].map(countryName).join(", "));
-  if (visited && visited.size) lines.push("ALREADY BEEN (skip): " + [...visited].map(countryName).join(", "));
+  const beenOwn = ownVisited();
+  if (beenOwn.size) lines.push("ALREADY BEEN (skip): " + [...beenOwn].map(countryName).join(", "));
   lines.push("");
   lines.push("SHORTLIST (best value first; grades are A+ to F):");
   lastPicks.forEach((s, i) => {
@@ -3505,8 +3577,7 @@ function buildCountryAIPrompt(iso) {
   const acts = (a && a.activities) || [];
   const prof = (a && a.profile) || [];
   const vi = visaInfo(iso, passport);
-  const origin = $("valueOrigin");
-  const originName = origin && origin.selectedOptions[0] ? origin.selectedOptions[0].textContent : "the US";
+  const originName = originLabel();
 
   const lines = [];
   lines.push("I'm planning a trip to " + name + " and used a travel-value tool (WanderGrade) for the basics. Use the info below (don't re-derive it) to help me build a plan.");
@@ -3523,8 +3594,7 @@ function buildCountryAIPrompt(iso) {
   // is the one number here the model cannot look up and would otherwise guess.
   // Expressed against the traveller's own home prices, not the US, so it means
   // something to a reader who isn't American.
-  const origIso = ($("valueOrigin") || {}).value || "US";
-  const anchorPl = priceLevel(origIso) || 1;
+  const anchorPl = priceLevel(originIso()) || 1;
   const pl = priceLevel(iso);
   if (pl) {
     const rel = pl / anchorPl;
@@ -4289,7 +4359,7 @@ function renderValue() {
   // Fare context: known fares per country + distance-based estimates for the rest.
   const fares = buildFareContext();
   // "Cheap" is relative to the From country's own price level (US anchor = 1).
-  const anchorPl = priceLevel($("valueOrigin").value || "US") || 1;
+  const anchorPl = priceLevel(originIso()) || 1;
 
   const scored = {};
   for (const iso in CUR_BY_ISO) {
@@ -4336,7 +4406,9 @@ function renderValue() {
     }, "Best value destinations");
   }
 
-  loadVisited();
+  // The viewer's OWN been-list: while a shared map is open, `visited` holds the
+  // sharer's countries, and Top Picks was hiding those as "you've been".
+  const been = ownVisited();
   // In weather mode the TABLE follows the map: ranked by weather comfort for the
   // chosen month (value as tiebreak), with a note explaining the sort.
   const weatherMode = valueMapMode === "weather";
@@ -4352,7 +4424,7 @@ function renderValue() {
   // interests narrow to countries matching any selected tag.
   const showVisited = localStorage.getItem("wg_showvisited") === "1";
   const preBudget = rankedAll.filter((s) =>
-    (showVisited || !visited.has(s.iso)) && passesFloor(s, floor) && matchesInterests(s.iso));
+    (showVisited || !been.has(s.iso)) && passesFloor(s, floor) && matchesInterests(s.iso));
   const eligible = preBudget.filter(passesBudget);
   // Counted so the note can say the filter did something. At a roomy budget it
   // drops nothing, and a control that silently changes nothing reads as broken.
@@ -4360,7 +4432,7 @@ function renderValue() {
   // The "Somewhere new" filter is on by default and works, but it lives inside
   // a collapsed Filters fold — so a reader with 34 countries marked sees them
   // silently missing from the ranking and has no idea why. Say it out loud.
-  const hiddenVisited = showVisited ? 0 : rankedAll.filter((s) => visited.has(s.iso)).length;
+  const hiddenVisited = showVisited ? 0 : rankedAll.filter((s) => been.has(s.iso)).length;
   if (note) {
     const bits = [];
     if (weatherMode) bits.push(`Ranked by weather comfort in ${MONTHS[month - 1]} — `
@@ -4422,7 +4494,7 @@ function renderValue() {
   const ranked = sortRows(rankedAll, fullSort, FULL_GET).slice(0, 40);
   markSort("#valueTable", fullSort);
   $("valueRows").innerHTML = ranked.map((s) => {
-    const vis = visited.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
+    const vis = been.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
     const adv = s.advLvl === 1 ? ' <span class="advtag a1" title="Level 1: Exercise Normal Precautions">L1</span>'
               : s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
               : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
@@ -4431,7 +4503,7 @@ function renderValue() {
     const flight = s.fly != null ? s.fly : "—";
     const valCell = weatherMode ? `${s.value}` : `<b>${s.value}</b>`;
     const wxCell = weatherMode ? `<b>${s.wx}</b>` : `${s.wx}`;
-    return `<tr${visited.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
+    return `<tr${been.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
       <td class="num">${valCell}</td>
       <td class="num">${s.afford}</td>
       <td class="num">${s.safe}</td><td class="num">${wxCell}</td>
@@ -4497,6 +4569,7 @@ function syncFlightOrigin() {
   });
 }
 
+let _flSeq = 0;
 async function loadFlights() {
   syncFlightOrigin();
   const vo = $("valueOrigin");
@@ -4505,15 +4578,19 @@ async function loadFlights() {
     $("flightOrigin").value = vo.value;
     resyncCombos();
   }
-  const origin = $("flightOrigin").value || "US";
+  const origin = $("flightOrigin").value || originIso();
+  const seq = ++_flSeq;
   $("flightSub").textContent = "Averaging international fares from " +
     ($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin) + "…";
+  let data;
   try {
-    flightsData = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
+    data = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
   } catch (e) {
-    $("flightSub").textContent = "Could not load flights: " + e.message;
+    if (seq === _flSeq) $("flightSub").textContent = "Could not load flights: " + e.message;
     return;
   }
+  if (seq !== _flSeq) return;   // an earlier origin's slow reply must not win
+  flightsData = data;
   if (!flightsData.configured) {
     $("flightSub").innerHTML = "Flight prices need a free Travelpayouts token. Set <code>TRAVELPAYOUTS_TOKEN</code> on the server (Render → Environment), then redeploy.";
     $("flightMap").textContent = "Not configured.";
@@ -5028,6 +5105,10 @@ function loadActivityThumbs(iso) {
 // ===========================================================================
 let visited = null, wishlist = null;
 let visitMode = "visited";   // which list the map/dropdown edits
+// True while a shared ?v= map is on screen: `visited` then holds the SHARER's
+// countries, in memory only. Storage and the account keep the viewer's own list
+// until they edit — which adopts the shared map, as the on-screen warning says.
+let sharedVisitedView = false;
 function loadVisited() {
   if (visited) return visited;
   try { visited = new Set(JSON.parse(localStorage.getItem("fx_visited") || "[]")); }
@@ -5040,9 +5121,16 @@ function loadWishlist() {
   catch (e) { wishlist = new Set(); }
   return wishlist;
 }
+// The viewer's own been-list, whatever map is on screen.
+function ownVisited() {
+  if (!sharedVisitedView) return loadVisited();
+  try { return new Set(JSON.parse(localStorage.getItem("fx_visited") || "[]")); }
+  catch (e) { return new Set(); }
+}
 // localStorage stays the source of truth for everyone (accounts are optional);
 // when signed in, every change also pushes to the cloud copy.
 function saveVisited() {
+  sharedVisitedView = false;   // an edit adopts the shared map (see above)
   localStorage.setItem("fx_visited", JSON.stringify([...visited]));
   acctQueueSync();
 }
@@ -5059,7 +5147,9 @@ function toggleMark(iso) {
   loadVisited(); loadWishlist();
   const on = visitMode === "visited" ? visited : wishlist;
   if (on.has(iso)) on.delete(iso); else on.add(iso);
-  saveVisited(); saveWishlist();
+  // Save only the list that changed: saving both made a want-to-go tap adopt
+  // a shared been-map the viewer never touched.
+  if (on === visited) saveVisited(); else saveWishlist();
 }
 
 let _displayNames = null;
@@ -5273,12 +5363,7 @@ function buildVisited() {
   enhanceSelect(pick);
   pick.onchange = () => { if (pick.value) { toggleMark(pick.value); pick.value = ""; if (pick._sync) pick._sync(); renderVisited(); } };
   if ($("visitedBulk")) $("visitedBulk").onclick = openBulkAdd;
-  $("visitedClear").onclick = () => {
-    const label = visitMode === "visited" ? "been-to" : "wishlist";
-    (visitMode === "visited" ? visited : wishlist).clear();
-    saveVisited(); saveWishlist(); renderVisited();
-    status("Cleared your " + label + " list.", "ok");
-  };
+  $("visitedClear").onclick = clearActiveList;
   for (const b of document.querySelectorAll("#visitedMode button")) {
     b.addEventListener("click", () => {
       visitMode = b.dataset.vm;
@@ -5298,11 +5383,47 @@ function buildVisited() {
     const chip = e.target.closest(".rm");
     if (chip) {   // remove from whichever list it's in
       loadVisited(); loadWishlist();
-      visited.delete(chip.dataset.iso); wishlist.delete(chip.dataset.iso);
-      saveVisited(); saveWishlist(); renderVisited();
+      const dv = visited.delete(chip.dataset.iso), dw = wishlist.delete(chip.dataset.iso);
+      if (dv) saveVisited();
+      if (dw) saveWishlist();
+      renderVisited();
     }
   });
   renderVisited();
+}
+
+// "Clear all" sat one mis-tap from Share image and wiped the list — and, when
+// signed in, the account copy — with no way back. Confirm with the count, then
+// offer Undo; the account push waits out the undo window.
+const CLEAR_UNDO_MS = 8000;
+function clearActiveList() {
+  const isV = visitMode === "visited";
+  const set = isV ? loadVisited() : loadWishlist();
+  const label = isV ? "been-to" : "want-to-go";
+  const n = set.size;
+  if (!n) { status("Your " + label + " list is already empty.", "ok"); return; }
+  const ask = isV && sharedVisitedView
+    ? `Clear this shared map of ${n} ${n === 1 ? "country" : "countries"}? It replaces your own saved ${label} list.`
+    : `Clear all ${n} ${n === 1 ? "country" : "countries"} from your ${label} list?`;
+  if (!window.confirm(ask)) return;
+  const prev = [...set];
+  const save = () => (isV ? saveVisited() : saveWishlist());
+  acctHoldSync(CLEAR_UNDO_MS);
+  set.clear();
+  save();
+  renderVisited();
+  status(`Cleared ${n} ${n === 1 ? "country" : "countries"} from your ${label} list.`, "ok");
+  const undo = document.createElement("button");
+  undo.type = "button"; undo.className = "linkbtn"; undo.textContent = "Undo";
+  undo.onclick = () => {
+    prev.forEach((iso) => set.add(iso));
+    save();
+    renderVisited();
+    status("Restored your " + label + " list.", "ok");
+  };
+  $("status").append(" ", undo);
+  clearTimeout(_statusTimer);   // the Undo stays exactly as long as the hold
+  _statusTimer = setTimeout(() => { $("status").hidden = true; }, CLEAR_UNDO_MS);
 }
 
 const VISITED_COLOR = "#0a7d28", WISH_COLOR = "#2b6cb0";
@@ -5454,6 +5575,17 @@ function renderVisitedStats() {
 //  Tab switching (lazy-load each tab's data on first open)
 // ===========================================================================
 const loaded = {};
+// First builds in flight, per tab. A second activateTab for a tab still
+// awaiting its data used to run the builder twice, doubling every
+// addEventListener — two Wander List map listeners toggled each click twice,
+// so marking a country did nothing. Later calls now await the same build.
+const _building = {};
+function buildTabOnce(name, build) {
+  if (!_building[name]) {
+    _building[name] = build().catch((e) => { delete _building[name]; throw e; });
+  }
+  return _building[name];
+}
 async function activateTab(name, push) {
   clearTransientStatus();   // a note about the old tab shouldn't outlive it
   document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
@@ -5465,7 +5597,7 @@ async function activateTab(name, push) {
   if (name !== "guide") {
     setDocMeta(_DEFAULT_TITLE, _DEFAULT_URL);
   } else {
-    const iso = ($("bestCountry") || {}).value;
+    const iso = _guideTarget || ($("bestCountry") || {}).value;
     if (iso) setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
   }
   for (const b of document.querySelectorAll("#tabs button")) {
@@ -5476,30 +5608,40 @@ async function activateTab(name, push) {
   }
   for (const s of document.querySelectorAll(".tab"))
     s.hidden = s.id !== "tab-" + name;
+  // Push the new history entry BEFORE anything renders. Every render ends in
+  // a replacing syncURL(); run first, they overwrote the entry of the page
+  // being left, so Back skipped it (or opened a guide nobody chose).
+  if (push) syncURL(true);
 
   // Refresh visited marks when returning to the recommendation tab.
   if (name === "value" && loaded.value) renderValue();
 
   try {
     if (name === "value" && !loaded.value) {
-      await Promise.all([ensureWorld(), ensurePPP(), ensureClimate(), ensureAdvisories(),
-                         ensureActivities().catch(() => {}),     // hazards + photos
-                         ensureVisa().catch(() => {})]);         // visa column
-      buildValueTab(); loaded.value = true;
+      await buildTabOnce("value", async () => {
+        await Promise.all([ensureWorld(), ensurePPP(), ensureClimate(), ensureAdvisories(),
+                           ensureActivities().catch(() => {}),     // hazards + photos
+                           ensureVisa().catch(() => {})]);         // visa column
+        buildValueTab(); loaded.value = true;
+      });
     } else if (name === "guide" && !loaded.guide) {
-      await Promise.all([ensurePPP(), ensureClimate(), ensureActivities(),
-                         ensureVisa().catch(() => {})]);
-      buildBestPickers(); loaded.guide = true;
+      await buildTabOnce("guide", async () => {
+        await Promise.all([ensurePPP(), ensureClimate(), ensureActivities(),
+                           ensureVisa().catch(() => {})]);
+        buildBestPickers(_guideTarget); loaded.guide = true;
+      });
     } else if (name === "visited" && !loaded.visited) {
-      await Promise.all([ensureWorld(), ensurePPP(), ensureClimate()]);
-      buildVisited(); loaded.visited = true;
+      await buildTabOnce("visited", async () => {
+        await Promise.all([ensureWorld(), ensurePPP(), ensureClimate()]);
+        buildVisited(); loaded.visited = true;
+      });
     } else if (name === "data") {
       setDataMode(dataMode);   // initialize the active sub-view (incl. currency)
     }
   } catch (e) {
     status("Could not load " + name + ": " + e.message, "err");
   }
-  syncURL(push);
+  syncURL();
 }
 for (const b of document.querySelectorAll("#tabs button"))
   b.addEventListener("click", () => activateTab(b.dataset.tab, true));
@@ -5513,17 +5655,32 @@ document.querySelector(".homelink").addEventListener("click", (e) => {
   window.scrollTo(0, 0);
 });
 
+// #valueMonth is the one travel month every tab reads (guide bars, stay dates,
+// AI prompts, share links). Filled at boot, not only when Top Picks builds: a
+// /guide/<slug> landing never builds Top Picks, and a select with no options
+// silently ignored every month picked on the guide. Keeps a chosen value.
+function ensureMonthOptions() {
+  const sel = $("valueMonth");
+  if (sel && !sel.options.length) {
+    sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
+    sel.value = String(curMonth());   // "I'm going in" defaults to the month it is now
+  }
+  return sel;
+}
+
 // Clicking a month bar in the guide makes the chart the control: sets the one
 // global travel month (the same one Top Picks ranks by), re-prices the stay
 // map, and rebuilds the AI prompt for that month.
 function planForMonth(m) {
-  const sel = $("valueMonth");
+  const sel = ensureMonthOptions();
   if (!sel || !(m >= 1 && m <= 12)) return;
+  const changed = sel.value !== String(m);
   sel.value = String(m);
+  if (sel.value !== String(m)) return;   // never report a change that didn't happen
   if (sel._sync) sel._sync();
   if (loaded.value) renderValue();
   if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); }
-  status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
+  if (changed) status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
   syncURL();
 }
 $("bestDetail").addEventListener("click", (e) => {
@@ -5831,13 +5988,16 @@ function buildShareURL(forShare) {
   const tab = currentTab();
   q.set("tab", tab);
   if (tab === "value") {
-    if ($("valueRegion").value !== "all") q.set("vr", $("valueRegion").value);
-    q.set("vmn", $("valueMonth").value);
+    // Read before Top Picks builds too (activateTab pushes first): an empty
+    // region select is "all", not vr=.
+    const vr = $("valueRegion").value;
+    if (vr && vr !== "all") q.set("vr", vr);
+    if ($("valueMonth").value) q.set("vmn", $("valueMonth").value);
     if (pickCount() !== 5) q.set("pc", String(pickCount()));
     if (safetyFloor() !== "b") q.set("sf", safetyFloor());
     const fac = loadFactors();
     if (fac.length !== WEIGHT_DEFS.length) q.set("fac", fac.join("."));
-    if ($("valueOrigin").value && $("valueOrigin").value !== "US") q.set("vo", $("valueOrigin").value);
+    if (originIso() !== "US") q.set("vo", originIso());
     if (homeManual && homeBase !== homeCurAuto()) q.set("hc", homeBase);
     if (valueMapMode === "weather") q.set("vmm", "weather");
     const p = loadPriorities();
@@ -5851,7 +6011,7 @@ function buildShareURL(forShare) {
     // Clean, indexable URL: /guide/<slug> (no query string). Same-origin so
     // history.pushState in syncURL accepts it.
   } else if (tab === "guide") {
-    return location.origin + guidePath($("bestCountry").value || "JP");
+    return location.origin + guidePath(_guideTarget || $("bestCountry").value || "JP");
   } else if (tab === "visited") {
     loadVisited();
     // The visited list persists in localStorage already; only embed it for an
@@ -5888,7 +6048,9 @@ function syncURL(push) {
   if (!appReady || restoringHistory) return;
   try {
     const url = buildShareURL(false);
-    const cur = location.pathname + location.search;
+    // Absolute vs absolute: comparing with pathname+search never matched, so
+    // every push added an entry, even for a click on the tab already open.
+    const cur = location.origin + location.pathname + location.search;
     if (push && url !== cur) history.pushState(null, "", url);
     else history.replaceState(null, "", url);
   } catch (e) {}
@@ -5907,9 +6069,12 @@ window.addEventListener("popstate", async () => {
     const tab = q.get("tab") || "value";
     const vmn = q.get("vmn"), vmSel = $("valueMonth");
     if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) vmSel.value = vmn;
+    resyncCombos();   // restored values show in the search boxes too
     await activateTab(tab, false);
-    if (tab === "guide" && q.get("gc")) await openGuideFor(q.get("gc"), false);
-    else if (tab === "data" && q.get("dm")) await setDataMode(q.get("dm"));
+    if (tab === "guide" && GC_RE.test(q.get("gc") || "")) await openGuideFor(q.get("gc"), false);
+    // Currency is the default and writes no dm, so a missing dm means currency
+    // — not whichever sub-tab happened to be open last.
+    else if (tab === "data") await setDataMode(q.get("dm") || "currency");
   } catch (e) {
     /* best-effort restore */
   } finally {
@@ -5947,8 +6112,10 @@ function preApplyShared() {
   }
   const v = sharedQ.get("v");
   if (v) {
-    loadVisited();
+    // On screen only (sharedVisitedView): storage and the account keep the
+    // viewer's own list — a signed-in viewer's sync used to merge this one in.
     visited = new Set(v.split(",").map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z]{2}$/.test(s)));
+    sharedVisitedView = true;
   }
   // Shared trip: in-memory only, like the visited list above — nothing touches
   // the recipient's saved trip unless they edit, and the warning in
@@ -5960,13 +6127,21 @@ function preApplyShared() {
     // view only — renderTripBar reads this instead of localStorage until the
     // recipient edits either control, which dissolves the shared view into
     // their own (and only then persists).
-    sharedTripView = { td: sharedQ.get("td"), tm: sharedQ.get("tm") };
+    // Validated here AND escaped where drawn: td went into innerHTML raw, so a
+    // crafted link could run script on the site (reflected XSS).
+    const td = parseInt(sharedQ.get("td"), 10), tm = sharedQ.get("tm");
+    sharedTripView = {
+      td: td >= 1 && td <= 180 ? td : null,
+      tm: /^(0|[1-9]|1[0-2])$/.test(tm || "") ? tm : null,
+    };
   }
 }
 
+const GC_RE = /^[A-Z]{2}(-[A-Z]{3})?$/;   // guide codes: JP, and GB-SCT-style home nations
 async function postApplyShared() {
   if (![...sharedQ.keys()].length) return;
   let tab = sharedQ.get("tab");
+  if (tab && !/^[a-z]+$/.test(tab)) tab = null;   // goes into a CSS selector below
   let dm = sharedQ.get("dm");
   // Old share links used standalone money/advisory/flights tabs — map them
   // into the consolidated Explore-the-Data tab.
@@ -5975,7 +6150,12 @@ async function postApplyShared() {
     dm = dm || (sharedQ.get("mmode") === "afford" ? "afford" : legacyTabs[tab]);
     tab = "data";
   }
-  if (tab && tab !== "value" && document.querySelector(`#tabs button[data-tab="${tab}"]`)) {
+  const gc = sharedQ.get("gc");
+  const gcOk = !!gc && GC_RE.test(gc);   // a code, never markup: it reaches the guide's renderers
+  // A guide link opens its own country below (after the month is applied);
+  // opening the tab bare first drew a default country for nothing.
+  if (tab && tab !== "value" && !(tab === "guide" && gcOk)
+      && document.querySelector(`#tabs button[data-tab="${tab}"]`)) {
     await activateTab(tab);
   }
   if (tab === "data" && dm) await setDataMode(dm);
@@ -5983,7 +6163,8 @@ async function postApplyShared() {
   if (sharedQ.get("vr") && [...$("valueRegion").options].some((o) => o.value === sharedQ.get("vr"))) {
     $("valueRegion").value = sharedQ.get("vr"); rerender = true;
   }
-  if (sharedQ.get("vmn")) { $("valueMonth").value = sharedQ.get("vmn"); rerender = true; }
+  const vmn = sharedQ.get("vmn"), vmSel = ensureMonthOptions();
+  if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) { vmSel.value = vmn; rerender = true; }
   if (sharedQ.get("pc")) { $("pickCount").value = sharedQ.get("pc"); rerender = true; }
   if (["a", "b", "any"].includes(sharedQ.get("sf"))) { $("safeFloor").value = sharedQ.get("sf"); rerender = true; }
   if (sharedQ.get("fac")) {
@@ -6004,9 +6185,9 @@ async function postApplyShared() {
   const hc = sharedQ.get("hc");
   if (hc && /^[A-Z]{3}$/.test(hc)) setHomeCur(hc, true);
   if (rerender && loaded.value) renderValue();
-  if (sharedQ.get("gc")) {
-    await openGuideFor(sharedQ.get("gc"));
-    if (sharedQ.get("ai")) openGuideAI(sharedQ.get("gc"));   // email "Plan with AI" deep link
+  if (gcOk) {
+    await openGuideFor(gc);
+    if (sharedQ.get("ai")) openGuideAI(gc);   // email "Plan with AI" deep link
   }
   if (sharedQ.get("win")) loadIndex(parseInt(sharedQ.get("win"), 10) || 365);
   const db = sharedQ.get("db");
@@ -6380,10 +6561,8 @@ function buildRankShareSVG() {
   if (!lastPicks || !lastPicks.length) throw new Error("ranking not ready");
   const picks = lastPicks.slice(0, 10);
   const month = MONTHS[(lastPicksMonth || curMonth()) - 1];
-  const originSel = $("valueOrigin");
-  const originName = originSel && originSel.selectedOptions[0]
-    ? originSel.selectedOptions[0].textContent : "the US";
-  const anchorPl = priceLevel((originSel || {}).value || "US") || 1;
+  const originName = originLabel();
+  const anchorPl = priceLevel(originIso()) || 1;
   const W = 640, HEAD = 118, ROWH = 62, FOOT = 54;
   const H = HEAD + picks.length * ROWH + FOOT;
   const BG = "#101316", FG = "#f2f5f7", MUTE = "#9aa4ad", DIM = "#7d868f", LINE = "#242a30";
@@ -6474,8 +6653,7 @@ function buildGuideCardSVG(iso) {
   const F = "Helvetica Neue, Helvetica, Arial, sans-serif";
   const esc2 = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const month = (parseInt(($("valueMonth") || {}).value, 10)) || curMonth();
-  const anchorIso = ($("valueOrigin") || {}).value || "US";
-  const anchorPl = priceLevel(anchorIso) || 1;
+  const anchorPl = priceLevel(originIso()) || 1;
 
   let s = null;
   try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), anchorPl); } catch (e) {}
@@ -6621,11 +6799,19 @@ const GUIDE_PRIORITY_LABEL = [
   ["money", "💰", "My money going furthest"],
   ["warm",  "🌤️", "Great weather"],
   ["safe",  "🛡️", "Feeling safe"],
-  ["near",  "✈️", "A short, cheap flight"],
+  // The fly factor is fare vs the typical fare for the distance — a bargain
+  // long-haul scores high — so the label promises a deal, not a short hop.
+  ["near",  "✈️", "A good flight deal"],
 ];
 
 function openGuidedPicker() {
-  const monthSel = $("valueMonth");
+  const monthSel = ensureMonthOptions();
+  // No priority pre-picked ("Skip any of them" has to hold here too: a default
+  // overwrote custom weights on every submit). A preset the current weights
+  // already match shows as chosen, so the picker reflects state.
+  const curPri = loadPriorities();
+  let want = GUIDE_PRIORITY_LABEL.map(([k]) => k).find((k) =>
+    Object.entries(GUIDE_PRIORITY[k]).every(([f, v]) => curPri[f] === v)) || null;
   const months = monthSel ? [...monthSel.options].map((o) => `<option value="${esc(o.value)}">${esc(o.textContent)}</option>`).join("") : "";
   const m = acctModal(`
     <h3 class="gqh">Let's narrow it down</h3>
@@ -6645,8 +6831,8 @@ function openGuidedPicker() {
     </div>
     <div class="gqrow">
       <span class="gqlabel">What matters most?</span>
-      <div class="gqpick" id="gqPick">${GUIDE_PRIORITY_LABEL.map(([k, ic, lab], i) =>
-        `<button type="button" data-k="${k}" class="${i === 0 ? "active" : ""}">${ic} ${esc(lab)}</button>`).join("")}</div>
+      <div class="gqpick" id="gqPick">${GUIDE_PRIORITY_LABEL.map(([k, ic, lab]) =>
+        `<button type="button" data-k="${k}" class="${k === want ? "active" : ""}" aria-pressed="${k === want}">${ic} ${esc(lab)}</button>`).join("")}</div>
     </div>
     <button id="gqGo" class="gqgo" type="button">Show me where to go →</button>
   `);
@@ -6657,12 +6843,14 @@ function openGuidedPicker() {
   if (bt && bt.value) m.querySelector("#gqBudget").value = bt.value;
   if (bd && bd.value) m.querySelector("#gqDays").value = bd.value;
 
-  let want = GUIDE_PRIORITY_LABEL[0][0];
   m.querySelector("#gqPick").addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
-    want = b.dataset.k;
-    m.querySelectorAll("#gqPick button").forEach((x) => x.classList.toggle("active", x === b));
+    want = want === b.dataset.k ? null : b.dataset.k;   // tap again to skip
+    m.querySelectorAll("#gqPick button").forEach((x) => {
+      x.classList.toggle("active", x.dataset.k === want);
+      x.setAttribute("aria-pressed", String(x.dataset.k === want));
+    });
   });
 
   m.querySelector("#gqGo").onclick = () => {
@@ -6670,14 +6858,21 @@ function openGuidedPicker() {
     if (monthSel && mo) { monthSel.value = mo; monthSel.dispatchEvent(new Event("change", { bubbles: true })); }
     const budget = m.querySelector("#gqBudget").value.trim();
     const days = m.querySelector("#gqDays").value.trim();
-    if (bt) bt.value = budget;
-    if (bd) bd.value = days;
-    loadPriorities();
-    Object.assign(priorities, GUIDE_PRIORITY[want] || {});
-    savePriorities();
-    if (typeof buildWeightSliders === "function") buildWeightSliders();
+    // Persisted under the budget inputs' own keys: setting .value fires no
+    // input event, so a picker budget was lost on reload (and a cleared one
+    // came back from the old saved value).
+    for (const [el, key, v] of [[bt, "wg_budget", budget], [bd, "wg_budgetdays", days]]) {
+      if (el) el.value = v;
+      localStorage.setItem(key, v);
+    }
+    if (want && GUIDE_PRIORITY[want]) {
+      loadPriorities();
+      Object.assign(priorities, GUIDE_PRIORITY[want]);
+      savePriorities();
+      if (typeof buildWeightSliders === "function") buildWeightSliders();
+    }
     m.close();
-    renderValue();
+    if (loaded.value) renderValue();
     // Land the user on the answer, not back at the top of the page.
     const rows = $("valueRows") || $("topCards");
     if (rows) rows.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
@@ -7354,6 +7549,7 @@ document.addEventListener("scroll", _hideTip, true);
 
 (async function init() {
   initTheme();
+  ensureMonthOptions();   // the travel month exists before any tab (guide-first too)
   renderSubscribe();
   renderFeedback();
   preApplyShared();
@@ -7392,10 +7588,16 @@ if ("serviceWorker" in navigator && location.hostname.endsWith("wandergrade.com"
 // whole credential. Everything here stays hidden unless the server reports
 // accounts are configured (window.__WGACCT__).
 const ACCT_ON = window.__WGACCT__ === true;
-const CADENCE_LABEL = { monthly: "Monthly", quarterly: "Every 3 months", off: "No emails" };
+// The newsletter is monthly or nothing: one list, one monthly send. "Every 3
+// months" was offered but never honoured, so it's gone; a stored "quarterly"
+// shows as monthly.
+const CADENCE_LABEL = { monthly: "Monthly", off: "No emails" };
 let acctState = null;              // { email, user } once signed in
 
 function acctSignedIn() { return !!(acctState && acctState.email); }
+// A 401 means the session is gone: show it, instead of silently dropping
+// every later sync.
+function acctSignedOut() { acctState = null; acctPaintButton(); }
 
 async function acctLoad() {
   if (!ACCT_ON) return;
@@ -7404,45 +7606,134 @@ async function acctLoad() {
     const d = await r.json();
     acctState = d && d.email ? d : null;
   } catch (e) { acctState = null; }
-  if (acctSignedIn() && acctState.user) acctMergeDown(acctState.user);
   acctPaintButton();
+  if (acctSignedIn() && acctState.user) await acctMergeDown(acctState.user);
 }
 
-// First sign-in on a device: union the cloud map with whatever is already
-// marked locally. Union (not replace) because silently dropping either side
-// would destroy real travel history.
-function acctMergeDown(user) {
-  loadVisited(); loadWishlist();
-  const before = visited.size + wishlist.size;
-  (user.visited || []).forEach((i) => visited.add(i));
-  (user.wishlist || []).forEach((i) => wishlist.add(i));
-  if (visited.size + wishlist.size !== before ||
-      (user.visited || []).length !== visited.size ||
-      (user.wishlist || []).length !== wishlist.size) {
-    localStorage.setItem("fx_visited", JSON.stringify([...visited]));
-    localStorage.setItem("fx_wishlist", JSON.stringify([...wishlist]));
-    acctQueueSync();               // push the merged union back up
+// ---- map sync: a three-way merge ---------------------------------------------
+// The server stores whatever list it is sent, so merging is the client's job.
+// A plain union on every load could not express a deletion: a country removed
+// on one device came back from any other. Each device keeps the last list it
+// and the cloud agreed on (the base); against that, a country missing from
+// either side was removed there and one new on either side was added. With no
+// base yet (first sign-in on this device) it is the old union.
+const SYNC_BASE_KEY = "wg_sync_base";
+// Which account a base belongs to, without keeping the address itself around.
+const acctTag = (email) => {
+  let h = 5381;
+  for (const ch of String(email)) h = ((h * 33) ^ ch.charCodeAt(0)) >>> 0;
+  return h.toString(36);
+};
+function acctBase() {
+  try {
+    const b = JSON.parse(localStorage.getItem(SYNC_BASE_KEY) || "null");
+    if (b && acctSignedIn() && b.acct === acctTag(acctState.email)) return b;
+  } catch (e) {}
+  return null;
+}
+function acctSetBase(u) {
+  if (!acctSignedIn()) return;
+  try {
+    localStorage.setItem(SYNC_BASE_KEY, JSON.stringify({
+      acct: acctTag(acctState.email), visited: u.visited || [], wishlist: u.wishlist || [] }));
+  } catch (e) {}
+}
+function merge3(base, local, cloud) {
+  const l = new Set(local), c = new Set(cloud || []);
+  const out = new Set([...l, ...c]);
+  for (const x of base || []) if (!l.has(x) || !c.has(x)) out.delete(x);
+  return out;
+}
+const sameSet = (a, b) => a.size === b.size && [...a].every((x) => b.has(x));
+
+// Reconcile this device with the cloud copy `user` (fresh from /api/auth/me)
+// and push the result if the cloud is behind. Runs on every load and before
+// every push, so a stale tab can't overwrite another device's edits. Works on
+// the viewer's OWN lists — never a shared map that happens to be on screen.
+async function acctMergeDown(user) {
+  const base = acctBase();
+  const lv = ownVisited(), lw = loadWishlist();
+  const mv = merge3(base && base.visited, lv, user.visited);
+  const mw = merge3(base && base.wishlist, lw, user.wishlist);
+  if (!sameSet(mv, lv) || !sameSet(mw, lw)) {
+    localStorage.setItem("fx_visited", JSON.stringify([...mv]));
+    localStorage.setItem("fx_wishlist", JSON.stringify([...mw]));
+    // In place: open views (the bulk-add modal) hold these very Sets.
+    if (!sharedVisitedView) { visited.clear(); mv.forEach((i) => visited.add(i)); }
+    wishlist.clear(); mw.forEach((i) => wishlist.add(i));
     if (loaded.visited) renderVisited();
+    if (loaded.value) renderValue();
   }
+  const lists = { visited: [...mv], wishlist: [...mw] };
+  if (sameSet(mv, new Set(user.visited || [])) && sameSet(mw, new Set(user.wishlist || []))) {
+    acctSetBase(lists);
+    return true;
+  }
+  return acctPost(lists);
 }
 
-let _syncTimer = null;
+async function acctPost(lists, keepalive) {
+  let r;
+  try {
+    r = await fetch("/api/auth/sync", {
+      method: "POST", credentials: "same-origin", keepalive: !!keepalive,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(lists),
+    });
+  } catch (e) { return false; }   // offline: localStorage holds it; the next merge pushes it
+  if (r.status === 401) { acctSignedOut(); return false; }
+  if (!r.ok) return false;
+  try {
+    const d = await r.json();
+    if (d.user) { if (acctState) acctState.user = d.user; acctSetBase(d.user); }
+  } catch (e) {}
+  return true;
+}
+
+let _syncTimer = null, _syncHoldUntil = 0, _syncRun = null, _syncAgain = false;
 function acctQueueSync() {
   if (!acctSignedIn()) return;
   clearTimeout(_syncTimer);        // coalesce bulk edits into one request
-  _syncTimer = setTimeout(acctSync, 800);
+  _syncTimer = setTimeout(acctSync, Math.max(800, _syncHoldUntil - Date.now()));
 }
+// Keep queued pushes back for an undo window (Clear all), so an undone
+// clear never reaches the account.
+function acctHoldSync(ms) { _syncHoldUntil = Date.now() + ms; }
 async function acctSync() {
+  clearTimeout(_syncTimer); _syncTimer = null;
   if (!acctSignedIn()) return;
-  try {
-    loadVisited(); loadWishlist();
-    await fetch("/api/auth/sync", {
-      method: "POST", credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ visited: [...visited], wishlist: [...wishlist] }),
-    });
-  } catch (e) { /* offline: localStorage still holds it; next change retries */ }
+  if (_syncRun) { _syncAgain = true; return _syncRun; }   // one at a time, then rerun
+  _syncRun = (async () => {
+    do {
+      _syncAgain = false;
+      try {
+        const r = await fetch("/api/auth/me", { credentials: "same-origin", cache: "no-store" });
+        if (!r.ok) break;
+        const d = await r.json();
+        if (!d || !d.email) { acctSignedOut(); break; }
+        acctState = d;
+        await acctMergeDown(d.user || {});
+      } catch (e) { break; }   // offline: the next change or load retries
+    } while (_syncAgain && acctSignedIn());
+  })().finally(() => { _syncRun = null; });
+  return _syncRun;
 }
+// A change made just before the tab closed used to die in the debounce, and
+// the next load's merge brought it back. Push it on the way out (keepalive
+// outlives the page), merged against the last cloud copy this tab saw.
+function acctFlush() {
+  if (!_syncTimer || !acctSignedIn()) return;
+  clearTimeout(_syncTimer); _syncTimer = null;
+  const base = acctBase(), u = acctState.user || {};
+  acctPost({
+    visited: [...merge3(base && base.visited, ownVisited(), u.visited)],
+    wishlist: [...merge3(base && base.wishlist, loadWishlist(), u.wishlist)],
+  }, true);
+}
+window.addEventListener("pagehide", acctFlush);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") acctFlush();
+});
 
 async function acctPrefs(prefs) {
   try {
@@ -7451,6 +7742,7 @@ async function acctPrefs(prefs) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(prefs),
     });
+    if (r.status === 401) { acctSignedOut(); return; }
     const d = await r.json();
     if (d.user && acctState) acctState.user = d.user;
   } catch (e) {}
@@ -7489,15 +7781,13 @@ function openSignIn() {
     + '<p class="hint">Private tabs wipe it. Sign in and it follows you — on every device.</p>'
     + '<form class="subform acctform"><input type="email" name="email" placeholder="you@email.com" required>'
     + '<button type="submit">Email me a link</button></form>'
-    // cadence sits inline so the row reads as one sentence — and so the label
-    // can't claim "monthly" while the picker says every 3 months
-    + '<label class="acctcheck"><input type="checkbox" id="acctSub" checked> Also send the newsletter'
-    + ' <select id="acctCad"><option value="monthly">monthly</option>'
-    + '<option value="quarterly">every 3 months</option></select></label>'
+    // Unticked by default: saving a map is not consent to a newsletter (a
+    // pre-ticked box isn't valid consent under GDPR). Monthly is the only
+    // cadence there is, so it's in the words rather than a one-option picker.
+    + '<label class="acctcheck"><input type="checkbox" id="acctSub"> Also send me the monthly newsletter</label>'
     + '<span class="hint">No password — just a one-time link.</span>');
   if (!m) return;
-  const sub = m.querySelector("#acctSub"), cad = m.querySelector("#acctCad");
-  sub.onchange = () => { cad.disabled = !sub.checked; cad.style.opacity = sub.checked ? "1" : ".45"; };
+  const sub = m.querySelector("#acctSub");
   m.querySelector("form").onsubmit = async (e) => {
     e.preventDefault();
     const email = m.querySelector('input[type="email"]').value.trim();
@@ -7507,7 +7797,7 @@ function openSignIn() {
     try {
       localStorage.setItem("wg_pending_prefs", JSON.stringify({
         subscribed: sub.checked,
-        cadence: sub.checked ? m.querySelector("#acctCad").value : "off",
+        cadence: sub.checked ? "monthly" : "off",
       }));
     } catch (err) {}
     const btn = m.querySelector('button[type="submit"]');
@@ -7530,13 +7820,14 @@ function openSignIn() {
 
 function openAccount() {
   const u = (acctState && acctState.user) || {};
-  const cad = u.cadence || "monthly";
+  // Any live cadence (incl. a legacy "quarterly") is monthly; unsubscribed is off.
+  const cad = u.subscribed && u.cadence !== "off" ? "monthly" : "off";
   const m = acctModal(
     '<span class="sublabel">👤 Your account</span>'
     + `<p class="hint"><b>${esc(acctState.email)}</b> — your map syncs automatically.</p>`
-    + '<label class="acctcheck"><input type="checkbox" id="acctSub2"' + (u.subscribed ? " checked" : "")
+    + '<label class="acctcheck"><input type="checkbox" id="acctSub2"' + (cad !== "off" ? " checked" : "")
     + '> Newsletter <select id="acctCad2">'
-    + ["monthly", "quarterly", "off"].map((c) =>
+    + ["monthly", "off"].map((c) =>
         `<option value="${c}"${c === cad ? " selected" : ""}>${CADENCE_LABEL[c]}</option>`).join("")
     + "</select></label>"
     + '<div class="bulkfoot"><button type="button" class="bulkdone" id="acctOut">Sign out</button></div>');
@@ -7550,9 +7841,9 @@ function openAccount() {
   };
   cadSel.onchange = () => { sub.checked = cadSel.value !== "off"; push(); };
   m.querySelector("#acctOut").onclick = async () => {
+    if (_syncTimer) await acctSync();   // a pending edit reaches the account first
     try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (e) {}
-    acctState = null;
-    acctPaintButton();
+    acctSignedOut();
     m.close();
     status("Signed out — your map stays in this browser.", "ok");
   };
