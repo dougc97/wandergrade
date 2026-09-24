@@ -692,6 +692,11 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .pillwrap .fxmark[data-tip] { margin-left: 5px; }
 .pillwrap .advmv[data-tip] { margin-left: 4px; }
 .gradetable td.overall { white-space: nowrap; }
+/* The last column's tap targets (the 3/4 coverage mark's -9px ::after hit
+   area) poked past the table's right edge and gave .gradewrap 5px of sideways
+   scroll on phones. Tooltips render in a fixed .wgtip, so clipping here only
+   trims the invisible hit area to the cell. */
+.gradetable td.overall { overflow: hidden; }
 /* Fare strip inside a picks-table row: mirrors the season strip beside it —
    same calendar axis, same size, same "now" outline. Up here, above the
    responsive overrides, on purpose: it used to sit below them and silently
