@@ -39,12 +39,19 @@ class H(BaseHTTPRequestHandler):
         with LOCK:
             if op == "SET":
                 ttl = None
-                if len(cmd) >= 5 and cmd[3].upper() == "EX":
-                    ttl = time.time() + int(cmd[4])
-                DB[cmd[1]] = (cmd[2], ttl)
-                res = "OK"
+                opts = [c.upper() for c in cmd[3:]]
+                if "EX" in opts:
+                    ttl = time.time() + int(cmd[3 + opts.index("EX") + 1])
+                if "NX" in opts and _alive(cmd[1]) is not None:
+                    res = None
+                else:
+                    DB[cmd[1]] = (cmd[2], ttl)
+                    res = "OK"
             elif op == "GET":
                 res = _alive(cmd[1])
+            elif op == "GETDEL":
+                res = _alive(cmd[1])
+                DB.pop(cmd[1], None)
             elif op == "GETEX":
                 res = _alive(cmd[1])
                 if res is not None and len(cmd) >= 4 and cmd[2].upper() == "EX":

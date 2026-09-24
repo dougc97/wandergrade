@@ -22,6 +22,8 @@ import re
 import sys
 import threading
 import time
+import unicodedata
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -50,7 +52,11 @@ CACHE_TTL = 600  # seconds; FX reference rates update at most daily.
 # ordinary mixed-country traffic evict the entry on every alternation and
 # everyone paid the full three-fetch recompute. Expired keys prune on write.
 _rates_cache = {}  # (baseline_days, threshold_pct, watch, base) -> (ts, payload)
-_index_cache = {}  # days -> (timestamp, payload)
+_index_cache = {}  # (days, base) -> (timestamp, payload)
+# Expired rates/index entries are kept this long as the fallback for a failed
+# refresh (see _cached), then pruned on write. Keys are bounded: bases are
+# validated against the provider's list and index days snap to 4 windows.
+STALE_MAX = 24 * 3600
 _adv_cache = {}     # source -> (timestamp, payload)
 ADV_TTL = 6 * 3600  # advisories change rarely; refresh a few times a day
 _flights_cache = {}  # origin -> (timestamp, payload)
@@ -81,6 +87,10 @@ CONTENT_TYPES = {
 # image+API fetches, and inline <style>/<script> the page relies on. form-action
 # is intentionally left unset so the newsletter form can POST to Buttondown.
 SECURITY_HEADERS = {
+    # Only the first plain-http visit could be downgraded (http 301s to https
+    # at the edge); this closes that too. No includeSubDomains until every
+    # subdomain is confirmed https-only.
+    "Strict-Transport-Security": "max-age=31536000",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
@@ -363,17 +373,13 @@ def _data_page_body():
     )
 
 
-def _render_data_page():
-    """A whole, self-contained HTML document for /data — no app.js."""
+def _shell_page(title, body, head="", analytics=True):
+    """A whole, self-contained HTML document in the site's header/footer —
+    no app.js. /data, the 404 page and the sign-in confirmation use it."""
     return (
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        "<title>%s</title>"
-        '<meta name="description" content="%s">'
-        '<link rel="canonical" href="%s/data">'
-        '<meta property="og:title" content="Cost of Living by Country — Free Dataset">'
-        '<meta property="og:description" content="%s">'
-        '<meta property="og:url" content="%s/data">'
+        "<title>%s</title>%s"
         '<link rel="stylesheet" href="/styles.css?v=%s">'
         "%s</head><body>"
         '<header><div class="headrow"><a class="homelink" href="/">'
@@ -385,10 +391,58 @@ def _render_data_page():
         'target="_blank">World Bank</a> &amp; '
         '<a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
         '&middot; <a href="/">Back to WanderGrade</a></footer></body></html>'
-        % (html.escape(_DATA_TITLE), html.escape(_DATA_DESC, quote=True), _SITE,
-           html.escape(_DATA_DESC, quote=True), _SITE,
-           _asset_version("styles.css"), _analytics_tag(), _data_page_body())
+        % (html.escape(title), head, _asset_version("styles.css"),
+           _analytics_tag() if analytics else "", body)
     ).encode("utf-8")
+
+
+def _render_data_page():
+    """A whole, self-contained HTML document for /data — no app.js.
+    Carries the same og:image/twitter card as every other page: this is the
+    page built to be shared, and it used to unfurl with no image."""
+    desc = html.escape(_DATA_DESC, quote=True)
+    head = (
+        '<meta name="description" content="%s">'
+        '<link rel="canonical" href="%s/data">'
+        '<meta property="og:type" content="website">'
+        '<meta property="og:title" content="Cost of Living by Country — Free Dataset">'
+        '<meta property="og:description" content="%s">'
+        '<meta property="og:url" content="%s/data">'
+        '<meta property="og:site_name" content="WanderGrade">'
+        '<meta property="og:image" content="%s/og.png">'
+        '<meta name="twitter:card" content="summary_large_image">'
+        % (desc, _SITE, desc, _SITE, _SITE))
+    return _shell_page(_DATA_TITLE, _data_page_body(), head)
+
+
+_NOINDEX = '<meta name="robots" content="noindex">'
+
+
+def _render_404_page(message):
+    """Human-facing 404: a way back in plus the guide index, not bare JSON."""
+    body = (
+        '<div class="ssrguide"><h1>%s</h1>'
+        '<p><a href="/"><strong>Back to WanderGrade →</strong></a></p></div>'
+        '<details class="guideindex"><summary>Browse all country guides</summary>'
+        '<nav class="guideindex-links">%s</nav></details>'
+        % (html.escape(message), _guide_links()))
+    return _shell_page("Not found | WanderGrade", body, _NOINDEX)
+
+
+def _render_verify_page(token):
+    """The page the emailed link opens. It spends nothing: mail scanners and
+    link previewers (Safe Links, Proofpoint, chat unfurlers) GET every link
+    before the human does, and a GET that redeemed the single-use token left
+    the real click with "link expired". Only the button's same-origin POST
+    signs in."""
+    body = (
+        '<div class="ssrguide"><h1>Finish signing in</h1>'
+        '<form class="subform" method="post" action="/auth/verify">'
+        '<input type="hidden" name="t" value="%s">'
+        '<button type="submit" autofocus>Sign in →</button></form></div>'
+        % html.escape(token, quote=True))
+    # No analytics beacon: it would report this URL, live token and all.
+    return _shell_page("Sign in | WanderGrade", body, _NOINDEX, analytics=False)
 
 
 def _render_index(gc_iso=None):
@@ -417,28 +471,123 @@ def _render_index(gc_iso=None):
     return out.encode("utf-8")
 
 
+# ---- upstream-backed caches ----------------------------------------------------
+# A refresh that fails must not turn a copy we already hold into an error: the
+# US advisory feed in particular is flaky, and one failed 6-hourly refresh made
+# /api/advisories 500 (blanking Top Picks) until the feed came back, each
+# request waiting on the upstream timeout first. So an expired entry is served
+# marked stale while the upstream is down, with the upstream retried at most
+# every STALE_RETRY seconds. A failure with nothing to fall back on is
+# remembered only FAIL_RETRY seconds — never pinned for a whole TTL, which is
+# what made one fxratesapi blip blank the Data-tab chart for 10 minutes.
+STALE_RETRY = 600
+FAIL_RETRY = 30
+_upstream_fail = {}   # (cache name, key) -> (retry_after_ts, error message)
+
+
+def _stale(hit, now):
+    return dict(hit[1], stale=True, stale_age=int(now - hit[0]))
+
+
+def _cached(name, cache, key, ttl, compute, stale_max=None):
+    now = time.time()
+    hit = cache.get(key)
+    if hit and now - hit[0] < ttl:
+        return hit[1]
+    usable = hit if hit and (stale_max is None or now - hit[0] < stale_max) else None
+    fk = (name, key)
+    fail = _upstream_fail.get(fk)
+    if fail and now < fail[0]:
+        if usable:
+            return _stale(usable, now)
+        raise RuntimeError(fail[1])
+    try:
+        data = compute()
+    except Exception as e:
+        _upstream_fail[fk] = (now + (STALE_RETRY if usable else FAIL_RETRY), str(e))
+        if usable:
+            print("[%s] refresh failed (%s); serving the copy from %ds ago"
+                  % (name, e, now - usable[0]), flush=True)
+            return _stale(usable, now)
+        raise
+    _upstream_fail.pop(fk, None)
+    if stale_max is not None:     # prune what is too old to ever be served
+        for k in [k for k, (at, _) in cache.items() if now - at >= stale_max]:
+            del cache[k]
+    cache[key] = (now, data)
+    return data
+
+
 def _rates_payload(cfg, base="USD"):
     key = (cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]), base)
-    now = time.time()
-    hit = _rates_cache.get(key)
-    if hit and (now - hit[0]) < CACHE_TTL:
-        return hit[1]
-    data = rates.compute_favorability(
+    return _cached("rates", _rates_cache, key, CACHE_TTL, lambda: rates.compute_favorability(
         baseline_days=cfg["baseline_days"],
         threshold_pct=cfg["threshold_pct"],
         watch=cfg["watch"],
         base=base,
-    )
-    for k in [k for k, (at, _) in _rates_cache.items() if now - at >= CACHE_TTL]:
-        del _rates_cache[k]
-    _rates_cache[key] = (now, data)
-    return data
+    ), stale_max=STALE_MAX)
 
 
 def _base_param(qs):
-    """Validated ?base= currency code; anything dodgy falls back to USD."""
+    """?base= as a currency the FX provider really quotes (blank = USD), or
+    None. Checked BEFORE any upstream call: a made-up code used to buy three
+    upstream fetches, a full year of history among them, on every request."""
     base = (qs.get("base", ["USD"])[0] or "USD").strip().upper()
-    return base if re.fullmatch(r"[A-Z]{3}", base) else "USD"
+    return base if rates.is_known_base(base) else None
+
+
+# The chart's own windows (1M/3M/6M/1Y; 1Y is capped at the provider's
+# history). Any other ?days= snaps to the next one up, so each base has at most
+# four cache keys instead of one per day count.
+INDEX_WINDOWS = (30, 90, 180, rates.MAX_HISTORY_DAYS)
+
+
+def _index_days(raw):
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        days = 365
+    return next((w for w in INDEX_WINDOWS if days <= w), INDEX_WINDOWS[-1])
+
+
+# Other names people type or link for a country -> its ISO code. Each 301s to
+# the canonical /guide/<slug>; a bare ISO code (/guide/jp, which the share card
+# prints before the slug table loads) resolves the same way.
+GUIDE_ALIASES = {
+    "usa": "US", "america": "US", "united-states-of-america": "US",
+    "uk": "GB", "great-britain": "GB", "britain": "GB", "england": "GB",
+    "scotland": "GB", "wales": "GB", "northern-ireland": "GB",
+    "uae": "AE", "emirates": "AE",
+    "czech-republic": "CZ", "turkiye": "TR", "ivory-coast": "CI",
+    "cote-divoire": "CI", "burma": "MM", "swaziland": "SZ", "macedonia": "MK",
+    "holland": "NL", "the-netherlands": "NL", "korea": "KR",
+    "republic-of-korea": "KR", "dprk": "KP", "east-timor": "TL",
+    "drc": "CD", "democratic-republic-of-the-congo": "CD",
+    "congo-kinshasa": "CD", "congo-brazzaville": "CG", "bosnia": "BA",
+    "the-bahamas": "BS", "the-gambia": "GM", "viet-nam": "VN", "lao-pdr": "LA",
+    "russian-federation": "RU", "brunei-darussalam": "BN",
+    "syrian-arab-republic": "SY", "kyrgyz-republic": "KG",
+    "slovak-republic": "SK", "falklands": "FK", "png": "PG",
+    "palestinian-territories": "PS", "hong-kong": "HK", "macau": "MO",
+    "macao": "MO",
+}
+
+
+def _slugish(raw):
+    """/guide/T%C3%BCrkiye, /guide/United_States -> turkiye, united-states."""
+    s = unicodedata.normalize("NFKD", urllib.parse.unquote(raw))
+    s = s.encode("ascii", "ignore").decode("ascii").replace("&", "and").lower()
+    return re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+
+
+def _guide_redirect(raw):
+    """Canonical slug for a non-canonical /guide/ path, or None."""
+    slug = _slugish(raw)
+    iso_to_slug = {iso: sl for sl, iso in render_guide.all_slugs()}
+    if render_guide.iso_for_slug(slug):
+        return slug
+    iso = GUIDE_ALIASES.get(slug) or (slug.upper() if len(slug) == 2 else None)
+    return iso_to_slug.get(iso)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -455,7 +604,10 @@ class Handler(BaseHTTPRequestHandler):
         world.geojson alone drops ~163KB -> ~50KB, which matters most on
         Render free-tier cold starts."""
         encoding = None
-        if len(body) > 1024 and self._gzip_ok() and not ctype.startswith("image/"):
+        # Already-compressed media is left alone — and audio MUST be: a gzipped
+        # mp3 has no byte ranges, which iOS Safari needs to play it at all.
+        if len(body) > 1024 and self._gzip_ok() \
+                and not ctype.startswith(("image/", "audio/", "video/", "font/woff2")):
             body = gzip.compress(body, 9)
             encoding = "gzip"
         self.send_response(status)
@@ -507,38 +659,107 @@ class Handler(BaseHTTPRequestHandler):
             return None
 
     def _set_session_cookie(self, sid, clear=False):
-        # HttpOnly so no script can read it; Lax survives the magic-link
-        # click (a top-level GET from the email) but blocks cross-site POSTs.
+        # HttpOnly so no script can read it; set on the confirm page's
+        # same-origin POST, and Lax keeps it off cross-site POSTs.
         bits = [f"{self.SESS_COOKIE}={'' if clear else sid}", "Path=/", "HttpOnly",
                 "SameSite=Lax", "Secure",
                 "Max-Age=0" if clear else f"Max-Age={accounts.SESSION_TTL}"]
         return ("Set-Cookie", "; ".join(bits))
 
-    def _handle_auth_verify(self):
-        """The link target from the email: redeem once, then land on the map."""
-        from urllib.parse import parse_qs, urlparse
-        token = parse_qs(urlparse(self.path).query).get("t", [""])[0]
-        try:
-            email, sid = accounts.consume_token(token)
-        except Exception:
-            email, sid = None, None
+    def _own_origins(self):
+        """Origins our own pages are served from: the public site, plus the
+        local dev server when that is what this request is talking to."""
+        own = {accounts.site_origin().lower()}
+        host = (self.headers.get("Host") or "").strip().lower()
+        if re.fullmatch(r"(localhost|127\.0\.0\.1)(:\d{1,5})?", host):
+            own.add("http://" + host)
+        return own
+
+    def _same_origin(self, allow_bare=False):
+        """True when the browser says this request came from one of our own
+        pages. Sec-Fetch-Site and Origin are set by the browser and can't be
+        forged by a cross-site page, which is what stops CSRF (a script
+        outside a browser can send anything, but rides no one's cookies or
+        IP reputation). Referer is the fallback for browsers that send
+        neither; allow_bare admits a request with none of the three."""
+        sfs = (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if sfs:
+            return sfs == "same-origin"
+        origin = (self.headers.get("Origin") or "").strip().lower().rstrip("/")
+        if origin:
+            return origin in self._own_origins()
+        ref = (self.headers.get("Referer") or "").strip().lower()
+        if ref:
+            return any(ref.startswith(o + "/") for o in self._own_origins())
+        return allow_bare
+
+    _TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{16,128}")
+
+    def _signin_redirect(self, ok, sid=None):
         # Never echo the token back; ?signin= is just a UI hint.
         self.send_response(303)
         for hk, hv in SECURITY_HEADERS.items():
             self.send_header(hk, hv)
-        if email:
+        if ok:
             self.send_header(*self._set_session_cookie(sid))
-        self.send_header("Location", "/?signin=" + ("ok" if email else "expired"))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Location", "/?signin=" + ("ok" if ok else "expired"))
         self.send_header("Content-Length", "0")
         self.end_headers()
+
+    def _handle_auth_verify(self):
+        """GET/HEAD of the emailed link: a confirm page that spends nothing
+        (see _render_verify_page). A malformed token can't be redeemed
+        anyway, so it goes straight to the "expired" hint."""
+        from urllib.parse import parse_qs, urlparse
+        token = parse_qs(urlparse(self.path).query).get("t", [""])[0]
+        if not self._TOKEN_RE.fullmatch(token):
+            self._signin_redirect(False)
+            return
+        self._send_body(_render_verify_page(token), "text/html; charset=utf-8",
+                        cache="no-store", extra=[("X-Robots-Tag", "noindex")])
+
+    def _handle_auth_verify_post(self):
+        """The confirm page's button: redeem once, then land on the map.
+        Same-origin only — a cross-site form posting an attacker's token would
+        otherwise sign the victim into the attacker's account (login CSRF),
+        and the app would then upload the victim's map into it. Bare requests
+        pass, so an old in-app browser that sends no Origin can still sign in."""
+        if not self._same_origin(allow_bare=True):
+            self._send_json({"error": "forbidden"}, 403)
+            return
+        raw = self._read_raw()
+        if raw is None:
+            return
+        from urllib.parse import parse_qs
+        try:
+            token = parse_qs(raw.decode("utf-8")).get("t", [""])[0]
+        except UnicodeDecodeError:
+            token = ""
+        email, sid = None, None
+        if self._TOKEN_RE.fullmatch(token):
+            try:
+                email, sid = accounts.consume_token(token)
+            except Exception:
+                email, sid = None, None
+        self._signin_redirect(bool(email), sid)
 
     def _handle_auth_post(self, path):
         if not accounts.enabled():
             self._send_json({"error": "accounts are not configured"}, 503)
             return
-        body = self._read_body()
         if path == "/api/auth/request":
-            origin = "https://" + (self.headers.get("Host") or "wandergrade.com")
+            # Only our own page may ask for a link. A cross-site fetch with a
+            # text/plain body is a CORS "simple request" (no preflight), so
+            # without this any web page could make its visitors' browsers mail
+            # links to any address, each from a fresh IP bucket.
+            ctype = (self.headers.get("Content-Type") or "").split(";")[0].strip().lower()
+            if ctype != "application/json" or not self._same_origin():
+                self._send_json({"error": "forbidden"}, 403)
+                return
+            body = self._read_body()
+            if body is None:
+                return
             ip = (self.headers.get("CF-Connecting-IP")
                   or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
                   or self.client_address[0])
@@ -546,35 +767,51 @@ class Handler(BaseHTTPRequestHandler):
             # exists (or is throttled) would let anyone probe the user list. So
             # the server log is the ONLY place a real failure is visible.
             try:
-                if not accounts.request_link(body.get("email", ""), origin, ip):
-                    print("[accounts] link NOT sent: invalid address or rate limited",
+                email = body.get("email", "")
+                if not accounts.request_link(email if isinstance(email, str) else "", ip):
+                    print("[accounts] link NOT sent: invalid address, rate limited or daily cap",
                           flush=True)
             except Exception as e:
                 print("[accounts] link send FAILED: %s" % e, flush=True)
             self._send_json({"sent": True})
             return
+        # Everything else needs a session, and is checked before any body is
+        # read: an anonymous request never gets as far as parsing JSON.
         email = self._session_email()
         if not email:
             self._send_json({"error": "not signed in"}, 401)
             return
-        if path == "/api/auth/sync":
-            user = accounts.sync_map(email, body.get("visited"), body.get("wishlist"))
-            self._send_json({"user": accounts.public_user(user)})
-        elif path == "/api/auth/prefs":
-            user = accounts.set_prefs(email, body.get("subscribed"), body.get("cadence"))
-            self._send_json({"user": accounts.public_user(user)})
-        elif path == "/api/auth/logout":
+        if path == "/api/auth/logout":
             accounts.end_session(self._cookie(self.SESS_COOKIE))
             self._send_json({"ok": True}, extra=[self._set_session_cookie("", clear=True)])
-        else:
+            return
+        if path not in ("/api/auth/sync", "/api/auth/prefs"):
             self._send_json({"error": "not found"}, 404)
+            return
+        body = self._read_body()
+        if body is None:
+            return
+        if path == "/api/auth/sync":
+            user = accounts.sync_map(email, body.get("visited"), body.get("wishlist"))
+        else:
+            user = accounts.set_prefs(email, body.get("subscribed"), body.get("cadence"))
+        self._send_json({"user": accounts.public_user(user)})
+
+    def _send_not_found(self, message="Page not found"):
+        """JSON for the API (and JSON files), a real page for everyone else."""
+        path = self.path.split("?", 1)[0]
+        if path.startswith("/api/") or path.endswith(".json"):
+            self._send_json({"error": "not found"}, 404)
+            return
+        self._send_body(_render_404_page(message), "text/html; charset=utf-8", 404,
+                        cache="no-store", extra=[("X-Robots-Tag", "noindex")])
 
     def _send_file(self, path, versioned=False):
-        try:
-            with open(path, "rb") as f:
-                body = f.read()
-        except FileNotFoundError:
-            self._send_json({"error": "not found"}, 404)
+        # Directories (/fonts) and anything else that isn't a plain file get
+        # a 404 — open() on a directory raised IsADirectoryError, which killed
+        # the handler and surfaced as a Cloudflare 502.
+        if not os.path.isfile(path):
+            self._send_not_found()
             return
         ext = os.path.splitext(path)[1]
         ctype = CONTENT_TYPES.get(ext, "application/octet-stream")
@@ -586,16 +823,85 @@ class Handler(BaseHTTPRequestHandler):
             else "public, max-age=86400" if ext in (".geojson", ".mp3") \
             else "public, max-age=600" if ext == ".json" \
             else "public, max-age=300"
+        if ctype.startswith(("audio/", "video/")):
+            self._send_media(path, ctype, cache)
+            return
+        try:
+            with open(path, "rb") as f:
+                body = f.read()
+        except OSError:
+            self._send_not_found()
+            return
         self._send_body(body, ctype, cache=cache)
 
+    def _send_media(self, path, ctype, cache):
+        """Media with byte-range support. iOS Safari won't play audio/video
+        from a server that answers a Range request with the whole file, so
+        honour a single `bytes=a-b` / `a-` / `-n` range with a 206."""
+        size = os.path.getsize(path)
+        extra = [("Accept-Ranges", "bytes")]
+        m = re.fullmatch(r"bytes=(\d*)-(\d*)", (self.headers.get("Range") or "").strip())
+        start, end = 0, size - 1
+        if m and m.group(1) and m.group(2) and int(m.group(2)) < int(m.group(1)):
+            m = None                           # invalid range: ignore it, send it all
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+                if m.group(2):
+                    end = min(int(m.group(2)), size - 1)
+            else:                              # suffix: the last n bytes
+                start = max(0, size - int(m.group(2)))
+            if start >= size or start > end:
+                self.send_response(416)
+                for hk, hv in SECURITY_HEADERS.items():
+                    self.send_header(hk, hv)
+                self.send_header("Content-Range", "bytes */%d" % size)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            extra.append(("Content-Range", "bytes %d-%d/%d" % (start, end, size)))
+            status = 206
+        else:
+            status = 200                       # no (or an unsupported) range
+        with open(path, "rb") as f:
+            f.seek(start)
+            body = f.read(end - start + 1)
+        self._send_body(body, ctype, status, cache=cache, extra=extra)
+
+    # Real bodies are tiny: sync sends at most 2x400 ISO codes, the rest a
+    # few fields. Anything bigger is refused unread — json.loads of a ~20MB
+    # body of empty lists peaked above the 512MB instance limit.
+    MAX_BODY = 16 * 1024
+
+    def _read_raw(self):
+        """The request body as bytes, or None after answering 400/413 itself."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:
+            self.close_connection = True
+            self._send_json({"error": "bad Content-Length"}, 400)
+            return None
+        if length > self.MAX_BODY:
+            self.close_connection = True   # the unread body can't be parsed as a request
+            self._send_json({"error": "request body too large"}, 413)
+            return None
+        return self.rfile.read(length) if length else b""
+
     def _read_body(self):
-        length = int(self.headers.get("Content-Length", 0))
-        if not length:
+        """The JSON body as a dict ({} for anything else), or None after
+        answering 400/413 itself."""
+        raw = self._read_raw()
+        if raw is None:
+            return None
+        if not raw:
             return {}
         try:
-            return json.loads(self.rfile.read(length).decode("utf-8"))
-        except ValueError:
+            data = json.loads(raw.decode("utf-8"))
+        except (ValueError, RecursionError):   # UnicodeDecodeError is a ValueError
             return {}
+        return data if isinstance(data, dict) else {}
 
     def log_message(self, fmt, *args):  # quieter console
         sys.stderr.write("  %s\n" % (fmt % args))
@@ -675,9 +981,12 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/rates":
             from urllib.parse import parse_qs, urlparse
             base = _base_param(parse_qs(urlparse(self.path).query))
+            if base is None:
+                self._send_json({"error": "unknown base currency"}, 400)
+                return
             try:
                 self._send_json(_rates_payload(store.load_config(), base))
-            except Exception as e:  # network/provider hiccup or unknown base
+            except Exception as e:  # provider down and no earlier copy to serve
                 self._send_json({"error": str(e)}, 500)
             return
         if path == "/api/index":
@@ -699,32 +1008,44 @@ class Handler(BaseHTTPRequestHandler):
                 now = time.time()
                 hit = _flights_cache.get(origin)
                 payload = hit[1] if hit and (now - hit[0]) < FLIGHTS_TTL else None
+                failed = False
                 if payload is None:
                     try:
                         payload = flights.get_flights(origin)
                         if payload.get("configured") and not payload.get("error"):
                             _flights_cache[origin] = (now, payload)
                     except Exception:
-                        payload = None
+                        payload, failed = None, True
+                if failed:
+                    # Couldn't resolve the country to a city: a failure, not
+                    # "no fares" — same rule as _send_fare_months.
+                    self._send_json({"configured": True, "months": {},
+                                     "error": "fare lookup failed"}, 500)
+                    return
                 if payload:
                     row = next((r for r in payload.get("countries", []) if r.get("iso") == iso), None)
                     if row:
                         # Merge across the country's top cached cities — one
                         # secondary city rarely has a full year of months.
                         cities = row.get("cities") or ([row["dest"]] if row.get("dest") else [])
-                        self._send_json(flights.get_monthly_multi(origin, cities))
+                        self._send_fare_months(flights.get_monthly_multi(origin, cities))
                         return
-            self._send_json(flights.get_monthly(origin, dest))
+            self._send_fare_months(flights.get_monthly(origin, dest))
             return
         if path == "/api/fx-trend":
             from urllib.parse import parse_qs, urlparse
             qs = parse_qs(urlparse(self.path).query)
             cur = (qs.get("cur", [""])[0] or "").strip().upper()[:3]
-            base = (qs.get("base", ["USD"])[0] or "USD").strip().upper()[:3]
-            try:
-                t = rates.get_trend(cur, base)
-            except Exception:
-                t = None
+            base = _base_param(qs)
+            t = None
+            # Unknown base: the same empty answer, but without buying a
+            # full-year upstream fetch per made-up code.
+            if base and re.fullmatch(r"[A-Z]{3}", cur):
+                try:
+                    t = rates.get_trend(cur, base)
+                except Exception:
+                    t = None
+            base = base or (qs.get("base", ["USD"])[0] or "USD").strip().upper()[:3]
             # null is an answer (unknown currency / provider gap) — the guide
             # simply doesn't render the sparkline.
             self._send_json(t or {"code": cur, "base": base, "months": []})
@@ -776,13 +1097,20 @@ class Handler(BaseHTTPRequestHandler):
                             cache="public, max-age=300")
             return
         if path.startswith("/guide/"):
-            slug = path[len("/guide/"):].strip("/").lower()
+            raw = path[len("/guide/"):].strip("/")
+            slug = raw.lower()
             iso = render_guide.iso_for_slug(slug)
             if iso:
                 self._send_body(_render_index(iso), "text/html; charset=utf-8",
                                 cache="public, max-age=300")
+                return
+            # Alternate names (turkiye, usa, czech-republic, an ISO code) 301
+            # to the one canonical page; a true miss gets a real 404 page.
+            target = _guide_redirect(raw) if "/" not in raw else None
+            if target:
+                self._redirect("/guide/" + target)
             else:
-                self._send_json({"error": "country not found"}, 404)
+                self._send_not_found("No guide for that country")
             return
         if path == "/sitemap.xml":
             self._send_body(_sitemap(), "application/xml; charset=utf-8",
@@ -814,10 +1142,14 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_json(data["payload"], extra=extra)
             return
+        # The raw template, {{TOKENS}} and all, is not a page.
+        if path == "/index.html":
+            self._redirect("/")
+            return
         # static files
         rel = path.lstrip("/")
         safe = os.path.normpath(os.path.join(PUBLIC, rel))
-        if not safe.startswith(PUBLIC):
+        if os.path.commonpath([PUBLIC, safe]) != PUBLIC:
             self._send_json({"error": "forbidden"}, 403)
             return
         versioned = "v=" in (self.path.split("?", 1)[1] if "?" in self.path else "") \
@@ -831,6 +1163,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/auth/"):
             self._handle_auth_post(path)
             return
+        if path == "/auth/verify":
+            self._handle_auth_verify_post()
+            return
         if not self._authed():
             return
         if PUBLIC_MODE:
@@ -843,36 +1178,40 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send_json({"error": "not found"}, 404)
 
+    def _redirect(self, location, status=301):
+        self.send_response(status)
+        for hk, hv in SECURITY_HEADERS.items():
+            self.send_header(hk, hv)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "public, max-age=3600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _send_fare_months(self, data):
+        # A failed upstream lookup is an error, not an empty year: a non-2xx
+        # makes the client drop it and retry on the next render, where a 200
+        # {months:{}} was cached as "no fares" for the whole session.
+        if data.get("error") and not data.get("months"):
+            self._send_json(data, 500)
+        else:
+            self._send_json(data)
+
     def _handle_index(self):
         from urllib.parse import parse_qs, urlparse
         qs = parse_qs(urlparse(self.path).query)
-        try:
-            days = int(qs.get("days", ["365"])[0])
-        except ValueError:
-            days = 365
-        days = max(30, min(3650, days))
-        # compute_index caps the real window at MAX_HISTORY_DAYS, so cap the
-        # cache key identically — otherwise days=365..3650 are thousands of
-        # distinct keys computing byte-identical results, each new one costing
-        # a full-year upstream fetch and a payload retained forever.
-        days = min(days, rates.MAX_HISTORY_DAYS)
+        days = _index_days(qs.get("days", ["365"])[0])
         base = _base_param(qs)
-        now = time.time()
-        hit = _index_cache.get((days, base))
-        if hit and (now - hit[0]) < CACHE_TTL:
-            payload = hit[1]
-            self._send_json(payload, 500 if "error" in payload else 200)
+        if base is None:
+            self._send_json({"error": "unknown base currency"}, 400)
             return
         try:
-            payload = rates.compute_index(days, base)
+            payload = _cached("index", _index_cache, (days, base), CACHE_TTL,
+                              lambda: rates.compute_index(days, base), stale_max=STALE_MAX)
         except Exception as e:
-            # Cache the failure too — an unknown base must not buy a fresh
-            # upstream fetch per request. 500, not 502: Cloudflare swallows
-            # origin 502s and serves its own text page instead of this JSON.
-            _index_cache[(days, base)] = (now, {"error": str(e)})
+            # 500, not 502: Cloudflare swallows origin 502s and serves its own
+            # text page instead of this JSON.
             self._send_json({"error": str(e)}, 500)
             return
-        _index_cache[(days, base)] = (now, payload)
         self._send_json(payload)
 
     def _handle_flights(self):
@@ -903,17 +1242,30 @@ class Handler(BaseHTTPRequestHandler):
         source = (qs.get("source", ["us"])[0] or "us").strip().lower()
         if source not in advisories.SOURCES:
             source = "us"
-        now = time.time()
-        hit = _adv_cache.get(source)
-        if hit and (now - hit[0]) < ADV_TTL:
-            self._send_json(hit[1])
-            return
         try:
-            data = advisories.get_advisories(source)
+            # No stale_max: a days-old advisory list beats a 500 that blanks
+            # Top Picks, and the payload says it is stale.
+            data = _cached("advisories", _adv_cache, source, ADV_TTL,
+                           lambda: advisories.get_advisories(source))
         except Exception as e:
-            self._send_json({"error": str(e)}, 500)
-            return
-        _adv_cache[source] = (now, data)
+            # Nothing cached yet and the chosen feed is down (cold start):
+            # another government's list, still labelled by its own
+            # source_name, beats a 500. Not stored under the requested source,
+            # so that feed is tried again once its short backoff ends.
+            data = None
+            for alt in advisories.FALLBACK_ORDER:
+                if alt == source:
+                    continue
+                try:
+                    data = dict(_cached("advisories", _adv_cache, alt, ADV_TTL,
+                                        lambda a=alt: advisories.get_advisories(a)),
+                                fallback_for=source)
+                    break
+                except Exception:
+                    continue
+            if data is None:
+                self._send_json({"error": str(e)}, 500)
+                return
         self._send_json(data)
 
     def _handle_popularity(self):
@@ -939,6 +1291,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_config_update(self):
         incoming = self._read_body()
+        if incoming is None:
+            return
         cfg = store.load_config()
         if isinstance(incoming.get("watch"), list):
             cfg["watch"] = [str(c).upper()[:3] for c in incoming["watch"]][:200]

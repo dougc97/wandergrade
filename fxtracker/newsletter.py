@@ -10,9 +10,12 @@ HTML body and wraps it with the unsubscribe/address footer). The {{ unsubscribe_
 token is filled by Buttondown on send; the sample-to-self flow substitutes it.
 """
 
+import datetime
 import html
 import json
 import os
+import urllib.error
+import urllib.parse
 import urllib.request
 
 from . import rates  # reuse verifying SSL context
@@ -28,13 +31,19 @@ def is_configured():
     return bool(api_key())
 
 
-def _post(url, payload):
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
-                                 method="POST", headers={
+def _post(url, payload, headers=None):
+    return _call("POST", url, payload, headers)
+
+
+def _call(method, url, payload=None, headers=None):
+    hdrs = {
         "Authorization": "Token " + api_key(),
         "Content-Type": "application/json",
         "User-Agent": "fx-tracker/1.0",
-    })
+    }
+    hdrs.update(headers or {})
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=30, context=rates._SSL) as resp:
             raw = resp.read().decode("utf-8", "replace")
@@ -50,27 +59,81 @@ def _post(url, payload):
         raise RuntimeError("Buttondown %s: %s" % (e.code, detail or e.reason)) from e
 
 
+# Every status that means "this issue has gone, or is going, to the list".
+# draft is deliberately absent (a preview run must not block the real send),
+# and so is errored (a failed publish should be retryable).
+_OUT_STATUSES = ("sent", "about_to_send", "scheduled", "in_flight",
+                 "throttled", "resending", "paused")
+DUPLICATE_WINDOW_DAYS = 25
+
+
+def already_sent(subject, days=DUPLICATE_WINDOW_DAYS):
+    """The id of an email with this exact subject that was sent (or queued)
+    in the last `days` days, else None. Raises if Buttondown can't be asked.
+
+    Why: nothing else stops a second copy. GitHub starts the monthly cron
+    3-7 hours late, so a manual 'send' dispatch while it's still queued, or a
+    re-run after an ambiguous publish timeout, mailed everyone twice —
+    Buttondown happily accepts two emails with the same subject. The subject
+    names the featured month and carries no year, so the date window is the
+    real key: next year's same-named issue is far outside it."""
+    since = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
+    # Filter on the plain-text part (the subject leads with an emoji, which a
+    # server-side contains-match may normalise differently); the exact
+    # comparison below does the real matching.
+    needle = subject.encode("ascii", "ignore").decode("ascii").strip() or subject
+    qs = urllib.parse.urlencode({"status": _OUT_STATUSES, "subject": needle,
+                                 "creation_date__start": since,
+                                 "excluded_fields": "body"}, doseq=True)
+    status, page = _call("GET", API + "?" + qs)
+    if status != 200:
+        raise RuntimeError("Buttondown email list returned HTTP %s" % status)
+    for e in (page or {}).get("results") or []:
+        # subject= is a contains-match server side; insist on the exact one.
+        if e.get("subject") == subject and e.get("status") in _OUT_STATUSES:
+            return e.get("id") or "?"
+    return None
+
+
 def send(subject, body_markdown, draft=False):
     """Create an email. draft=True saves it as a Buttondown draft (preview /
-    send-test from the UI); otherwise it sends to the whole list. Raises on
-    failure.
+    send-test from the UI); otherwise it sends to the whole list.
+
+    Returns "draft", "sent", or "already-sent" (this subject already went out
+    within DUPLICATE_WINDOW_DAYS, so nothing was created). Raises on any
+    failure, including a non-2xx that didn't raise an HTTPError, so a caller
+    can never report success for an email that didn't go.
 
     Two steps, per Buttondown's documented flow: create the email as a draft,
     then POST /emails/{id}/publish. Creating with status "about_to_send" in
     one shot used to work (the Jun 18 test) but has returned 400 on every
     scheduled run since Jul 1, while draft creation kept succeeding — so the
     send path now uses the route the docs actually describe."""
+    if not draft:
+        # Fails closed: if Buttondown can't say whether the issue already
+        # went, don't risk mailing the whole list twice — the run goes red
+        # and a re-run later is safe.
+        dup = already_sent(subject)
+        if dup:
+            print("Buttondown already has this issue (%s) sent or queued; not sending again."
+                  % dup)
+            return "already-sent"
     status, created = _post(API, {"subject": subject, "body": body_markdown,
                                   "status": "draft"})
     if status not in (200, 201):
-        return False
+        raise RuntimeError("Buttondown draft create returned HTTP %s" % status)
     if draft:
-        return True
+        return "draft"
     email_id = created.get("id")
     if not email_id:
         raise RuntimeError("Buttondown created the draft but returned no id: %r" % created)
-    status, _ = _post(API.rstrip("/") + "/" + email_id + "/publish", {})
-    return status in (200, 201)
+    # Keyed on the draft's id: a retried publish of the same draft replays
+    # the first answer instead of acting twice.
+    status, _ = _post(API.rstrip("/") + "/" + email_id + "/publish", {},
+                      {"X-Idempotency-Key": "wandergrade-publish-" + email_id})
+    if status not in (200, 201):
+        raise RuntimeError("Buttondown publish returned HTTP %s" % status)
+    return "sent"
 
 
 def _span_words(days):
