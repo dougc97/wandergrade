@@ -11,7 +11,13 @@ OVERRIDE={
  'US':'United States','EH':'Western Sahara','CG':'Republic of the Congo',
 }
 names={}
-for iso in acts:
+# Every country the Guide picker offers (it lists climate.json) needs a
+# /guide/ URL, not only the curated ones — 14 once had in-app guides whose
+# share card and canonical pointed at URLs that 404'd.
+thin=sorted(set(clim)-set(acts))
+if thin:
+    print('WARNING: guide pages without curated activities (thin):',thin)
+for iso in sorted(set(acts)|set(clim)):
     n=OVERRIDE.get(iso) or (clim.get(iso,{}) or {}).get('name') or (ppp.get(iso,{}) or {}).get('name')
     names[iso]=n
 def slugify(s):

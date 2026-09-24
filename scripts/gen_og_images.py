@@ -5,7 +5,10 @@ country's social-share preview (og:image on /guide/<slug> pages).
 Uses the first curated gallery subject that resolves to a real photo via the
 Wikipedia pageimages API (same source + PHOTO_BAD filter as the site's hero
 carousel). Run from the repo root with /usr/bin/python3; re-run whenever
-galleries change. Network: ~176 requests, a minute or two.
+galleries change. Network: ~190 requests, a minute or two.
+
+--missing keeps every existing entry and fetches only countries absent from
+og-images.json (e.g. newly added guides) — a few requests instead of ~190.
 """
 
 import json
@@ -33,7 +36,8 @@ def thumb(subject):
         j = json.load(urllib.request.urlopen(req, timeout=20))
         page = next(iter(j.get("query", {}).get("pages", {}).values()))
         th = page.get("thumbnail", {})
-        t = th.get("source")
+        # The API now tacks utm_* tracking params onto thumb URLs; store it clean.
+        t = (th.get("source") or "").split("?")[0] or None
         # size gate: a small delivered thumb means a tiny source file
         if t and not PHOTO_BAD.search(t) and (th.get("width", 0) >= 700 or th.get("height", 0) >= 500):
             return t
@@ -45,7 +49,15 @@ def thumb(subject):
 def main():
     acts = json.load(open(os.path.join(PUBLIC, "activities.json"), encoding="utf-8"))
     out, misses = {}, []
+    if "--missing" in sys.argv[1:]:
+        try:
+            with open(os.path.join(PUBLIC, "og-images.json"), encoding="utf-8") as f:
+                out = json.load(f)
+        except OSError:
+            out = {}
     for iso in sorted(acts):
+        if iso in out:
+            continue
         url = None
         for subject in (acts[iso].get("gallery") or [])[:3]:
             url = thumb(subject)
