@@ -331,7 +331,7 @@ wireSort("#affTable", affSort, { buys: false }, () => { if (typeof ppp !== "unde
 
 // Safety: safest (Level 1) first by default. The advisory text tracks the
 // level, so that column sorts by severity too.
-const ADV_GET = { country: (it) => it.country, level: (it) => parseInt(it.level, 10) || 0,
+const ADV_GET = { country: (it) => advName(it), level: (it) => parseInt(it.level, 10) || 0,
                   text: (it) => parseInt(it.level, 10) || 0 };
 const advSort = { key: "level", asc: true };
 wireSort("#advTable", advSort, {}, () => { if (advisories) renderAdvisories(); });
@@ -1608,7 +1608,7 @@ function renderGuideSafety(iso) {
     const it = advisoryMetaByIso()[iso];
     if (!it) return;
     const lvl = it.level;
-    const src = it.via_name || advisories.source_name || "US State Dept";
+    const src = it.via_name || advSrcName();
     const url = it.link || advisories.source_url || "#";
     // The government's own sentences on WHY, when the feed carries them — a
     // level number is black and white; "some areas have increased risk" is the
@@ -2047,9 +2047,9 @@ async function openGuideFor(iso, push) {
   setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
 }
 
-// Classify each month into peak / shoulder / off season by weather, relative to
-// the country's own range. Peak = best weather (busiest, priciest); off = worst
-// (cheapest, fewest crowds).
+// Classify each month into peak / shoulder / off by weather comfort alone,
+// relative to the country's own range. No price or crowd data goes in, so no
+// label may claim either: Swiss ski season and Brazil's Carnival land in "off".
 function seasons(scores) {
   const valid = scores.filter((s) => s != null);
   if (!valid.length) return scores.map(() => "na");
@@ -2061,6 +2061,11 @@ function seasons(scores) {
   });
 }
 const fmtMonths = (arr) => (arr.length ? arr.map((m) => MON_ABBR[m - 1]).join(", ") : "—");
+// What each class may say: weather, relative to the country's own year, nothing
+// more. Relative matters — Fiji's "least comfy" months still score 80+, and a
+// curated best month (Brazil's April) can sit there for non-weather reasons.
+const SEASON_WX = { peak: "one of its comfiest months", shoulder: "a middling month",
+                    off: "one of its least comfy months", na: "no data" };
 
 // ---- Temperature units ------------------------------------------------------
 // Default to °C (what most of the world uses); only US-style home countries
@@ -2139,7 +2144,7 @@ function renderCountryClimate(iso) {
     // weather comfort (score lives in the tooltip). Bars double as the month
     // picker — clicking one plans the trip for that month (planForMonth).
     const head = t != null ? fmtTemp(t) : (s == null ? "" : s);
-    return `<div class="${col}" data-mn="${i + 1}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seas[i]} season${hz ? " · ⚠️ " + esc(hz) : ""} · click to plan for ${MONTHS[i]}">
+    return `<div class="${col}" data-mn="${i + 1}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${SEASON_WX[seas[i]]}${hz ? " · ⚠️ " + esc(hz) : ""} · click to plan for ${MONTHS[i]}">
       <div class="mscore">${head}</div>
       <div class="fill" style="height:${h}%;background:${t != null ? tempColor(t) : comfortColor(s)}"></div>
       <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? `<span class="hzmark" data-tip="⚠️ ${esc(hz)}" title="">⚠️</span>` : ""}</div></div>`;
@@ -2157,13 +2162,13 @@ function renderCountryClimate(iso) {
   $("bestDetail").innerHTML = `
     <div class="besthead">
       <h2>Best time to visit ${esc(c.name)} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span>${
-        hasTemps ? `<span class="legendinfo" data-tip="Each bar is a month — the number is its average temperature, taller = comfier weather, and color = heat: blue cold, green ideal, amber warm, red hot. Month labels underneath: green = peak season, amber = shoulder, grey = off-season." title="">ⓘ</span>` : ""}</h2>
+        hasTemps ? `<span class="legendinfo" data-tip="Each bar is a month — the number is its average temperature, taller = comfier weather, and color = heat: blue cold, green ideal, amber warm, red hot. Month labels underneath: green = its comfiest months, amber = in between, grey = its least comfy — weather only, relative to its own year, not prices or crowds." title="">ⓘ</span>` : ""}</h2>
       ${unitToggle}
     </div>
     <div class="monthslabel">${bestLine}</div>
     <div class="seasons">
-      <span><b class="peak">☀️ Peak</b> (best weather, busiest &amp; priciest): ${fmtMonths(peakM)}</span>
-      <span><b class="off">💸 Off-peak</b> (cheapest, fewest crowds): ${fmtMonths(offM)}</span>
+      <span><b class="peak">☀️ Comfiest weather:</b> ${fmtMonths(peakM)}</span>
+      <span><b class="off">🌧️ Least comfy:</b> ${fmtMonths(offM)}</span>
     </div>
     ${hazardLines}
     <div class="bars">${bars}</div>`;
@@ -2176,10 +2181,9 @@ function renderCountryClimate(iso) {
 // ===========================================================================
 //  Travel advisories
 // ===========================================================================
-// Which government's advisories to use, driven by the home country (German
-// travelers get the Auswärtiges Amt; everyone else the US State Dept for now).
-// Government advisories reflect that country's foreign policy, so following the
-// traveler's own government is more relevant + less US-skewed.
+// Which government's advisories to use: US, Canada or Germany, picked on the
+// Data → Safety tab (see advisorySource). Government advisories reflect that
+// country's foreign policy, so whose read it is gets named wherever it shows.
 let advisories = null;
 const _advBySource = {};
 // Your own government first; the others fill its gaps (server-side, stamped `via`).
@@ -2194,6 +2198,37 @@ function advisorySource() {
     if (o === "us" || o === "ca" || o === "de") return o;
   } catch (e) {}
   return "us";
+}
+// Whose levels are in use, for every label that credits the safety data — a
+// hard-coded "US State Dept" went stale once the source became a pick. The
+// short form (the picker's own wording) is for image footers and headers,
+// where "German Federal Foreign Office (Auswärtiges Amt)" would overflow.
+const ADV_SRC_SHORT = { us: "US State Dept", ca: "Global Affairs Canada", de: "German Foreign Office" };
+function advSrcName(short) {
+  const src = (advisories && advisories.source) || advisorySource();
+  if (short) return ADV_SRC_SHORT[src] || "US State Dept";
+  return (advisories && advisories.source_name) || ADV_SRC_SHORT[src] || "U.S. State Department";
+}
+// A gap the chosen government leaves is filled by another (server stamps `via`).
+function advViaShort(it) {
+  return it && it.via ? ADV_SRC_SHORT[it.via] || it.via_name || "" : "";
+}
+// The site's own English name, not the feed's: the German feed says
+// "Frankreich", and the Safety filter box matches row text.
+function advName(it) {
+  const n = it.iso ? countryName(it.iso) : "";
+  return n && n !== it.iso ? n : it.country;
+}
+function advSafetyTitle() {
+  return "travel-advisory level per " + advSrcName() + " — other governments fill its gaps";
+}
+// The key and the full-ranking Safety header are static HTML; name the
+// current source on them whenever the ranking re-renders.
+function labelSafetySource() {
+  const k = $("safeKeySrc");
+  if (k) k.textContent = advSrcName();
+  const th = document.querySelector('#valueTable th[data-sk="safety"]');
+  if (th) th.title = advSafetyTitle();
 }
 async function ensureAdvisories() {
   const src = advisorySource();
@@ -2232,7 +2267,8 @@ function renderAdvisories() {
   drawMap("advMap", (f) => {
     const it = byIso[f.properties.iso];
     return it
-      ? { fill: LVL_MAP_COLOR[it.level], title: `${it.country} — Level ${it.level}: ${it.level_text}` }
+      ? { fill: LVL_MAP_COLOR[it.level], title: `${advName(it)} — Level ${it.level}: ${it.level_text}`
+            + (it.via ? ` (per ${advViaShort(it)})` : "") }
       : { fill: NODATA, title: f.properties.name + " — no advisory data" };
   }, (advisories.source_name || "Travel") + " advisory levels");
   // No "top" list — a hundred Level-1 ties can't be ranked. What CAN be said
@@ -2245,7 +2281,7 @@ function renderAdvisories() {
   const chLine = (it) => {
     const d = new Date(it.updated + "T12:00:00");
     const when = isNaN(d) ? it.updated : MON_ABBR[d.getMonth()] + " " + d.getDate();
-    return it.country + " " + (it.change === "up" ? "▲ raised" : "▼ lowered")
+    return advName(it) + " " + (it.change === "up" ? "▲ raised" : "▼ lowered")
       + " to L" + it.level + " (" + when + ")";
   };
   renderDimPicks("advMap", "Recently changed", changed.map(chLine), changed.map((it) => it.iso));
@@ -2270,8 +2306,12 @@ function renderAdvisories() {
       if (loaded.value) renderValue();   // safety grades follow the chosen source
     };
   }
+  // Gap-fills are counted apart: they are another government's call, and the
+  // rows carrying one say whose.
+  const filled = advisories.filled || 0;
   $("advSub").innerHTML =
-    `${advisories.count} advisories from the <b>${esc(advisories.source_name || "US State Dept")}</b>. ` +
+    `${advisories.count - filled} advisories from the <b>${esc(advSrcName())}</b>` +
+    (filled ? `, plus ${filled} gaps filled by other governments (each row says whose)` : "") + ". " +
     `Green = safest (Level 1), red = avoid travel (Level 4). ` +
     `<span class="muted">Government advisories reflect each country's own foreign policy.</span>`;
   $("advLegend").innerHTML = [1, 2, 3, 4]
@@ -2281,11 +2321,13 @@ function renderAdvisories() {
   $("advRows").innerHTML = sortRows(advisories.items, advSort, ADV_GET).map((it) => {
     const lvl = parseInt(it.level, 10) || 0;
     const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
-    const guideAttr = it.iso ? ` data-iso="${esc(it.iso)}" title="See the ${esc(it.country)} travel guide →"` : "";
+    const nm = advName(it);
+    const guideAttr = it.iso ? ` data-iso="${esc(it.iso)}" title="See the ${esc(nm)} travel guide →"` : "";
+    const via = it.via ? `<span class="muted"> · per ${esc(advViaShort(it))}</span>` : "";
     return `
-    <tr data-lvl="${lvl}"${guideAttr}><td>${esc(it.country)}</td>
+    <tr data-lvl="${lvl}"${guideAttr}><td>${esc(nm)}</td>
       <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
-      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ safety notes</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details ↗</a>` : ""}</td>
+      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${via}${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ safety notes</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details ↗</a>` : ""}</td>
     </tr>`;
   }).join("");
   applyAdvFilter();
@@ -3288,8 +3330,12 @@ function buildTripAIPrompt() {
   t.forEach((iso) => {
     const bits = [];
     const c = cen[iso];
-    if (c) bits.push("approx " + c[1].toFixed(0) + "°" + (c[1] >= 0 ? "N" : "S")
-      + ", " + Math.abs(c[0]).toFixed(0) + "°" + (c[0] >= 0 ? "E" : "W"));
+    // Round first, then pick the hemisphere: -0.3 is 0°N, not "-0°S".
+    if (c) {
+      const lat = Math.round(c[1]), lon = Math.round(c[0]);
+      bits.push("approx " + Math.abs(lat) + "°" + (lat >= 0 ? "N" : "S")
+        + ", " + Math.abs(lon) + "°" + (lon >= 0 ? "E" : "W"));
+    }
     const reg = REGIONS[ISO_REGION[iso]];
     if (reg) bits.push(reg);
     const cl = climate && climate[iso];
@@ -3299,11 +3345,11 @@ function buildTripAIPrompt() {
       // one — worst months matter as much as best when it has to find overlap.
       if (!flexible) {
         const s = seasons(cl.scores)[month - 1];
-        bits.push(monthName + " is " + (s === "peak" ? "peak season" : s === "off" ? "off-season" : "shoulder season"));
+        bits.push(monthName + ": " + SEASON_WX[s] + " for weather");
       } else {
         const ss = seasons(cl.scores);
         const off = ss.map((s, i) => (s === "off" ? i + 1 : 0)).filter(Boolean);
-        if (off.length) bits.push("avoid " + monthSpan(off));
+        if (off.length) bits.push("least comfy weather " + monthSpan(off));
       }
       if (cl.best && cl.best.length) bits.push("best months " + cl.best.map((m) => MON_ABBR[m - 1]).join("/"));
     }
@@ -3351,11 +3397,11 @@ function buildTripAIPrompt() {
     // The whole point of the flexible mode: make the model commit to a window
     // rather than hedge across the year. It has best months, off months and
     // dated hazards for every country above, so it can.
-    lines.push("- TELL ME WHEN TO GO. For each trip you propose, name the specific month — or a two-week window — that works best across the countries in it, and say why using the best-months and avoid-months above. Give a second-choice window too.");
+    lines.push("- TELL ME WHEN TO GO. For each trip you propose, name the specific month — or a two-week window — that works best across the countries in it, and say why using the best months and least-comfy months above. Give a second-choice window too.");
     lines.push("- If no single month suits the whole group, say so and split it: which countries belong in a trip at one time of year and which in another. Don't average the year into a compromise month that is mediocre everywhere.");
-    lines.push("- Flag anything where timing is the deciding factor — a hazard season, a short peak window, or prices that swing hard between seasons.");
+    lines.push("- Flag anything where timing is the deciding factor — a hazard season, a short comfy-weather window, or prices that swing hard between seasons.");
   } else {
-    lines.push("- Use the " + monthName + " season notes: if a country is off-season or has a heads-up, say whether to reorder, swap it out, or accept the trade.");
+    lines.push("- Use the " + monthName + " season notes: if it's one of a country's least comfy months or has a heads-up, say whether to reorder, swap it out, or accept the trade.");
   }
   lines.push("");
   lines.push("Then end with the 2-3 questions that would most change this plan, so I can refine it with you.");
@@ -3419,7 +3465,7 @@ function buildAIPrompt() {
     if (aff) lines.push(`   - Affordability ${grade(s.afford)}: ${aff}`);
     lines.push(`   - Safety: ${ADV_TEXT[s.advLvl] || "no current advisory"}`);
     if (vi) lines.push(`   - Visa (${passport === "US" ? "US" : countryName(passport)} passport): ${vi.meta.long}${vi.note ? " — " + vi.note : ""}`);
-    if (best) lines.push(`   - Best months: ${best}; ${monthName} is ${seas === "peak" ? "peak season" : seas === "off" ? "off-season" : "shoulder season"}`);
+    if (best) lines.push(`   - Best months: ${best}; ${monthName}: ${SEASON_WX[seas] || "no data"} for weather`);
     if (hz.length) lines.push(`   - ${monthName} heads-up: ${hz.join("; ")}`);
     if (acts.length) lines.push(`   - Known for: ${acts.map(actLabel).filter(Boolean).join("; ")}`);
     if (fl) lines.push(`   - Flights: ${fl}`);
@@ -3516,7 +3562,7 @@ function buildCountryAIPrompt(iso) {
   lines.push("FROM: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
   if (prof.length) lines.push("KNOWN FOR: " + prof.join(", "));
   if (vi) lines.push("VISA (" + (passport === "US" ? "US" : countryName(passport)) + " passport): " + vi.meta.long + (vi.note ? " — " + vi.note : ""));
-  if (best) lines.push("BEST MONTHS: " + best + "; " + monthName + " is " + (seas === "peak" ? "peak season" : seas === "off" ? "off-season" : "shoulder season"));
+  if (best) lines.push("BEST MONTHS: " + best + "; " + monthName + ": " + (SEASON_WX[seas] || "no data") + " for weather");
   if (hz.length) lines.push(monthName + " HEADS-UP: " + hz.join("; "));
   if (acts.length) lines.push("HIGHLIGHTS: " + acts.map(actLabel).filter(Boolean).join("; "));
   // The cost line is the whole reason this prompt beats asking an AI cold: it
@@ -3549,7 +3595,7 @@ function buildCountryAIPrompt(iso) {
   lines.push("- Draft a day-by-day itinerary. Assume about 7 days unless I say otherwise — and tell me if this country really wants more or less");
   lines.push("- Base the budget on the LOCAL PRICES figure above rather than generic assumptions, and give me a daily range for budget / mid-range / comfortable");
   lines.push("- Tell me when to book flights and which neighbourhoods to stay in, and why those ones");
-  lines.push("- Work the " + monthName + " season notes above (peak/off, crowds, any heads-up) into the timing and pacing");
+  lines.push("- Work the " + monthName + " season notes above (weather, any heads-up) into the timing and pacing");
   lines.push("- Flag anything that needs booking well ahead, or any permit/reservation I could miss");
   // A confident plan built on guessed preferences is worth less than a decent
   // plan plus the questions that would fix it. This is a starting point.
@@ -3673,18 +3719,21 @@ function gradePill(score, title, extra) {
 // for its pill — but leaving the hole meant safetyPill(4) crashed on an undefined
 // grade. F, so the map is total and the next caller can't fall through it.
 const SAFE_GRADE = { 1: "A", 2: "B", 3: "D", 4: "F" };
-const ADV_TEXT = { 1: "Level 1: Exercise Normal Precautions", 2: "Level 2: Exercise Increased Caution",
-                   3: "Level 3: Reconsider Travel", 4: "Level 4: Do Not Travel" };
+// Generic level names, not one government's phrasing: the level may be
+// Canada's or Germany's, and the pill names whose it is.
+const ADV_TEXT = { 1: "Level 1: normal precautions", 2: "Level 2: increased caution",
+                   3: "Level 3: reconsider travel", 4: "Level 4: do not travel" };
 // iso is optional: with it, a level filled in by the other government says so.
 function safetyPill(advLvl, iso) {
   // Unrated is its own answer, not a quiet B. Saying "treated as Level 2" in a
   // tooltip while showing a B is still showing a B — and B is recommendable.
   if (!advLvl) {
-    return `<span class="gr grx" title="${esc("Not rated — neither government we follow publishes an advisory for this destination, so it isn't graded or ranked.")}">—</span>`;
+    return `<span class="gr grx" title="${esc("Not rated — none of the three governments we follow (US, Canada, Germany) publishes an advisory for this destination, so it isn't graded or ranked.")}">—</span>`;
   }
   const meta = iso ? advisoryMetaByIso()[iso] : null;
-  const via = meta && meta.via_name
-    ? ` — no advisory from your home government; level per ${meta.via_name}` : "";
+  const via = !meta ? ""
+    : meta.via ? ` — ${advSrcName(true)} publishes no advisory here; level per ${advViaShort(meta)}`
+    : ` — per ${advSrcName(true)}`;
   return `<span class="gr ${gradeCls(SAFE_GRADE[advLvl])}" title="${esc(ADV_TEXT[advLvl] + via)}">${SAFE_GRADE[advLvl]}</span>`;
 }
 
@@ -3939,7 +3988,7 @@ function notScoredReason(iso) {
   }
   if (!hasPl && !hasAdv) return "no price or safety data";
   if (!hasPl) return "no price data — no World Bank PPP figure for this country";
-  if (!hasAdv) return "no safety rating — neither government we follow publishes one";
+  if (!hasAdv) return "no safety rating — none of the three governments we follow publishes one";
   return "not scored this month";
 }
 
@@ -4040,10 +4089,14 @@ function seasonStrip(iso, month) {
   // Scarcity is the point: a country good three months a year, in one of them,
   // is a different proposition from one that is pleasant all year.
   const scarce = good > 0 && good <= 4;
-  const peakMonths = seas.map((s, i) => (s === "peak" ? MON_ABBR[i] : null)).filter(Boolean);
-  const tip = (good ? "Best: " + peakMonths.join(", ") + ". " : "")
-    + (scarce ? "Only " + good + (good === 1 ? " month" : " months") + " at its best — a narrow window. " : "")
-    + "Each block is a month, January to December; brighter is more comfortable.";
+  // Names the months the guide sentence and the "🗓️ Best in" tag name
+  // (climate.best: hand-curated for 35 countries, top weather months for the
+  // rest). The bright cells are weather alone; a "Best: May–Aug" beside a
+  // curated "Best in Apr, May, Sep, Oct" read as the site contradicting itself.
+  const best = (cl.best || []).filter((m) => m >= 1 && m <= 12).map((m) => MON_ABBR[m - 1]);
+  const tip = (best.length ? (cl.curated ? "Best months: " : "Best weather: ") + best.join(", ") + ". " : "")
+    + (scarce ? "Only " + good + (good === 1 ? " comfy month" : " comfy months") + " a year — a narrow window. " : "")
+    + "Each block is a month, January to December; brighter is more comfortable weather.";
   // role=img + aria-label: the cells are color-only; the tip text is the
   // strip's meaning, so screen readers get the same sentence hover gets.
   return `<span class="seasonstrip${scarce ? " scarce" : ""}" role="img" aria-label="${esc(tip)}" data-tip="${esc(tip)}" title="">${cells}</span>`;
@@ -4175,7 +4228,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   host.innerHTML = `<table class="gradetable">
     <thead><tr><th></th><th class="dest${sc}"${sa("dest")}>Destination</th>
       <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now">💰 <span class="thword">Affordability</span></th>
-      <th class="${sc.trim()}"${sa("safety")} title="US State Dept advisory level">🛡️ <span class="thword">Safety</span></th>
+      <th class="${sc.trim()}"${sa("safety")} title="${esc(advSafetyTitle())}">🛡️ <span class="thword">Safety</span></th>
       <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month">🌤️ <span class="thword">Weather</span></th>
       <th class="${sc.trim()}"${sa("flights")} title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ <span class="thword">Flights</span></th>
       <th class="ovh ${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
@@ -4285,6 +4338,7 @@ function renderValue() {
   setSeason(month);
   renderTripBar();
   const advMap = advisoryByIso();
+  labelSafetySource();
 
   // Fare context: known fares per country + distance-based estimates for the rest.
   const fares = buildFareContext();
@@ -6376,6 +6430,15 @@ async function downloadMapImage(hostId, o) {
 // fillText, the same split buildVisitedShareSVG settled on.
 const RANK_GRADE_FILL = { "A+": "#067a23", "A": "#2f9e44", "B+": "#74b816",
                           "B": "#c9a200", "C": "#e8590c", "D": "#d9480f", "F": "#b00020" };
+// Money on an exported image, which travels without the page around it: a bare
+// "$" reads as local money to an Australian or a Canadian. Converted from the
+// USD cache into the "In" currency at today's rate; USD is spelled US$.
+function shareMoney(usd) {
+  const cur = /^[A-Z]{3}$/.test(homeBase || "") ? homeBase : "USD";
+  const r = cur === "USD" ? 1 : rateForCurrency(cur);
+  if (!r) return "US$" + Math.round(usd).toLocaleString("en");
+  return (cur === "USD" ? "US$" : cur + " ") + Math.round(usd * r).toLocaleString("en");
+}
 function buildRankShareSVG() {
   if (!lastPicks || !lastPicks.length) throw new Error("ranking not ready");
   const picks = lastPicks.slice(0, 10);
@@ -6404,8 +6467,11 @@ function buildRankShareSVG() {
     body += '<text x="102" y="' + (y + 30) + '" font-family="' + F
       + '" font-size="17" font-weight="700" fill="' + FG + '">' + esc2(s.name) + "</text>";
     const bits = [];
-    if (s.fare != null) bits.push("flights from $" + Math.round(s.fare) + (s.fareEst ? " (est.)" : ""));
-    if (s.pl) bits.push("your $100 feels like $" + Math.round(100 * (anchorPl / s.pl)));
+    // s.fare is the cached AVERAGE round trip (or a distance estimate), never
+    // a minimum — so not "from". The 100 line is a price-level ratio: the same
+    // in any currency, so it carries none (as on the guide card).
+    if (s.fare != null) bits.push("avg flight ~" + shareMoney(s.fare) + (s.fareEst ? " (est.)" : ""));
+    if (s.pl) bits.push("your 100 ≈ " + Math.round(100 * (anchorPl / s.pl)) + " there");
     body += '<text x="102" y="' + (y + 48) + '" font-family="' + F
       + '" font-size="11" fill="' + MUTE + '">' + esc2(bits.join("  ·  ")) + "</text>";
     body += '<rect x="' + (W - 30 - gw) + '" y="' + (y + 17) + '" width="' + gw
@@ -6426,7 +6492,8 @@ function buildRankShareSVG() {
     + '" stroke="' + LINE + '" stroke-width="1"/>'
     + body
     + '<text x="24" y="' + (H - 22) + '" font-family="' + F + '" font-size="10.5" fill="' + DIM
-    + '">' + esc2("wandergrade.com — free, no sign-up. World Bank PPP + live FX; safety per your own government; cached fares.") + "</text>"
+    + '">' + esc2("wandergrade.com — free, no sign-up. World Bank PPP + live FX; safety per "
+      + advSrcName(true) + "; cached fares.") + "</text>"
     + "</svg>";
   return { svg, W, H, flags };
 }
@@ -6483,13 +6550,16 @@ function buildGuideCardSVG(iso) {
 
   const facts = [];
   const cl = climate && climate[iso];
+  // Only 35 countries have hand-curated best months; the rest are the top
+  // weather months, and the card says so, as the guide page does.
   if (cl && cl.best && cl.best.length)
-    facts.push("📅  Best months: " + cl.best.map((m) => MON_ABBR[m - 1]).join(", "));
+    facts.push((cl.curated ? "📅  Best months: " : "📅  Best weather: ")
+      + cl.best.map((m) => MON_ABBR[m - 1]).join(", "));
   const pl = priceLevel(iso);
   if (pl) facts.push("💰  Your 100 ≈ " + Math.round(100 * (anchorPl / pl)) + " there");
   const adv = advisoryMetaByIso()[iso];
   if (adv) facts.push("🛡️  Level " + adv.level + " · " + (ADV_LABEL[adv.level] || "").split("· ")[1]
-    + "  (per " + (adv.via_name || advisories.source_name || "U.S. State Department") + ")");
+    + "  (per " + (advViaShort(adv) || advSrcName(true)) + ")");
   const act = activities && activities[iso];
   if (act && act.days) facts.push("🧳  Worth " + act.days[0] + "–" + act.days[1] + " days on a first visit");
 
@@ -7192,20 +7262,34 @@ if ($("fxShare")) $("fxShare").addEventListener("click", () => {
     filename: "wandergrade-currency-strength.png",
   });
 });
-if ($("affShare")) $("affShare").addEventListener("click", () => downloadMapImage("affMap", {
-  picks: dimPicksFromDom("affMap").picks, picksTitle: dimPicksFromDom("affMap").title,
-  title: "What US$100 actually buys around the world",
-  sub: "Local purchasing power of US$100, in US dollars. World Bank PPP divided by today's market exchange rate.",
-  gradient: ["#b00020", "#eef0f1", "#0a7d28"],
-  leftLabel: "Pricey", rightLabel: "Cheap",
-  swatches: [{ c: NODATA, label: "no data" }],
-  footer: "National averages for residents — tourist areas and rent paid by foreigners run well above these. wandergrade.com",
-  filename: "wandergrade-cost-of-living.png",
-}));
+// The cost map is coloured against the From country and its picks are in that
+// country's money, so the headline is too — built at click time, from the same
+// origin (and the same no-price-level fallback to the US) the map is drawn with.
+if ($("affShare")) $("affShare").addEventListener("click", () => {
+  const vo = $("valueOrigin");
+  let iso = vo && /^[A-Z]{2}$/.test(vo.value) ? vo.value : travelOrigin();
+  if (!priceLevel(iso)) iso = "US";
+  const cur = CUR_BY_ISO[iso] || "USD";
+  const sym = cur === "USD" ? "US$" : cur + " ";
+  const where = iso === "US" ? "the US" : countryName(iso);
+  downloadMapImage("affMap", {
+    picks: dimPicksFromDom("affMap").picks, picksTitle: dimPicksFromDom("affMap").title,
+    title: "What " + sym + "100 actually buys around the world",
+    sub: "Local prices vs " + where + " — greener = your " + sym
+       + "100 goes further. World Bank PPP divided by today's market exchange rate.",
+    gradient: ["#b00020", "#eef0f1", "#0a7d28"],
+    leftLabel: "Pricey", rightLabel: "Cheap",
+    swatches: [{ c: NODATA, label: "no data" }],
+    footer: "National averages for residents — tourist areas and rent paid by foreigners run well above these. wandergrade.com",
+    filename: "wandergrade-cost-of-living.png",
+  });
+});
 if ($("advShare")) $("advShare").addEventListener("click", () => downloadMapImage("advMap", {
   picks: dimPicksFromDom("advMap").picks, picksTitle: dimPicksFromDom("advMap").title,
   title: "Where governments say it's safe to travel",
-  sub: "US State Department advisory levels, 1 (normal precautions) to 4 (do not travel).",
+  // Read at click time: the map shows whichever government the picker holds.
+  sub: advSrcName() + " advisory levels, 1 (normal precautions) to 4 (do not travel)"
+     + (advisories && advisories.filled ? "; gaps filled by other governments." : "."),
   swatches: [{ c: LVL_MAP_COLOR[1], label: "Level 1" }, { c: LVL_MAP_COLOR[2], label: "Level 2" },
              { c: LVL_MAP_COLOR[3], label: "Level 3" }, { c: LVL_MAP_COLOR[4], label: "Level 4" },
              { c: NODATA, label: "no data" }],
