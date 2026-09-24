@@ -3,28 +3,35 @@
 Generates the monthly newsletter's graded destination picks using the same
 data and formulas the website uses, so the email matches what users see:
 
-  Affordability = cheapness (PPP price level vs home) nudged by FX timing
-  Safety        = US State Dept advisory level (1-4)
+  Affordability = cheapness (PPP price level, carried forward for inflation)
+                  nudged by the REAL FX move vs the 1-yr average
+  Safety        = advisory level (1-3); unrated countries are not graded
   Weather       = Open-Meteo climate comfort score for the chosen month
-  Overall value = weighted mean (Affordability x3, Safety x2, Weather x2)
+  Flights       = the US fare vs the typical fare for that distance
+  Overall value = weighted mean (Affordability x3, Safety x2, Weather x2,
+                  Flights x2) — the site's default priorities
 
-Flights (the 4th on-site factor) are NOT scored here: the site's flight grade
-needs live Travelpayouts fares fitted against a distance baseline, which isn't
-reproducible in a batch job. The composite above is exactly the site's formula
-for any destination lacking a cached fare (~half the world), so the ranking is
-faithful; the email points readers to the site for live flight deals.
+Flights come from the same cached-fare data the site uses (Travelpayouts
+directly when a token is configured, otherwise the live site's /api/flights),
+fitted against distance exactly as app.js buildFareContext() does; countries
+with no cached fare get the site's distance estimate. If no fare data can be
+had at all, Flights drops out — which is also what the site does then.
 
-Assumes a US traveler (home = USD, anchor price level = 1), matching the site's
-default before any personalization.
+Every sub-score is rounded at the same steps as app.js (its clamp100 rounds),
+so the letters in the email are the letters on the page it links to.
+
+Assumes a US traveler (home = USD, anchor price level = the US's), matching the
+site's default before any personalization.
 """
 
 import datetime
 import json
+import math
 import os
 import urllib.parse
 import urllib.request
 
-from . import advisories, popularity, pricelevel, rates
+from . import advisories, geo, popularity, pricelevel, rates
 
 # Wikimedia blocks the default urllib UA; identify ourselves.
 _UA = "Wandergrade/1.0 (https://wandergrade.com; hello@newsletter.wandergrade.com)"
@@ -43,7 +50,7 @@ _CUR = {
     # Europe (non-euro)
     "GB": "GBP", "IM": "GBP", "JE": "GBP", "GG": "GBP", "CH": "CHF", "LI": "CHF",
     "NO": "NOK", "SJ": "NOK", "SE": "SEK", "DK": "DKK", "GL": "DKK", "FO": "DKK",
-    "IS": "ISK", "CZ": "CZK", "PL": "PLN", "HU": "HUF", "RO": "RON", "BG": "BGN",
+    "IS": "ISK", "CZ": "CZK", "PL": "PLN", "HU": "HUF", "RO": "RON",
     "RS": "RSD", "BA": "BAM", "MK": "MKD", "AL": "ALL", "MD": "MDL", "UA": "UAH",
     "BY": "BYN", "RU": "RUB", "TR": "TRY",
     # Middle East
@@ -73,8 +80,9 @@ _CUR = {
 }
 _EUROZONE = ["AT", "BE", "CY", "EE", "FI", "FR", "DE", "GR", "IE", "IT", "LV",
              "LT", "LU", "MT", "NL", "PT", "SK", "SI", "ES", "HR", "AD", "MC",
-             "SM", "VA", "ME", "XK"]
-_USD_USING = ["US", "EC", "SV", "PA", "TL", "ZW", "MH", "FM", "PW", "TC", "VG", "BQ"]
+             "SM", "VA", "ME", "XK", "BG"]   # Bulgaria: euro since 2026-01-01
+_USD_USING = ["US", "EC", "SV", "PA", "TL", "ZW", "MH", "FM", "PW", "TC", "VG", "BQ",
+              "PR"]
 for _iso in _EUROZONE:
     _CUR[_iso] = "EUR"
 for _iso in _USD_USING:
@@ -94,8 +102,15 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December"]
 
 
+def js_round(x):
+    """JavaScript Math.round: halves round up (Python's round() goes to even)."""
+    return int(math.floor(x + 0.5))
+
+
 def clamp100(x):
-    return max(0, min(100, x))
+    """app.js clamp100 — which ROUNDS. Grading the same rounded sub-scores the
+    site grades is what keeps a 92.5 from reading A+ here and A there."""
+    return max(0, min(100, js_round(x)))
 
 
 def grade(score):
@@ -107,8 +122,13 @@ def grade(score):
 
 
 # Safety grade comes straight from the advisory tier (app.js SAFE_GRADE), so the
-# letter matches the State Dept level exactly. No advisory => treated as Level 2.
+# letter matches the advisory level exactly. No advisory => not graded at all.
 SAFE_GRADE = {1: "A", 2: "B", 3: "D"}
+
+# The site's default priorities (app.js WEIGHT_DEFS/PRI_W: high 3, med 2).
+WEIGHTS = {"afford": 3, "safe": 2, "wx": 2, "fly": 2}
+HOME_ISO = "US"
+SITE = "https://wandergrade.com"
 
 
 def _load(name):
@@ -163,39 +183,149 @@ def _price_level(iso, ppp, rate_by_code, fit=None):
 
     This used to be its own copy of the arithmetic, which is how it silently
     fell behind when the income plausibility guard was added to the browser
-    only. Pass `fit` to apply that guard here too.
+    only. build() always passes `fit`, so the guard applies here too.
     """
     return pricelevel.price_level(iso, ppp, rate_by_code, CUR_BY_ISO, fit)
 
 
-def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso):
-    """One destination's scores for `month` (1-12). Returns None if unscorable
-    or excluded (Level 4 / Do Not Travel). Mirrors app.js valueScores."""
-    pl = _price_level(iso, ppp, rate_by_code)
-    if pl is None:
+def _us_fares():
+    """US-origin fare data, exactly what the site's Top Picks load. The digest
+    job has no Travelpayouts token, so it reads the live site's cached copy."""
+    try:
+        from . import flights
+        if flights.is_configured():
+            return flights.get_flights(HOME_ISO)
+    except Exception:
+        pass
+    try:
+        return rates.fetch_json(SITE + "/api/flights?origin=" + HOME_ISO)
+    except Exception as e:
+        print("WARNING: no fare data ({0}); Flights left out of the grade.".format(e))
         return None
+
+
+def fare_context(data, centroids=None):
+    """Port of app.js buildFareContext(): known fares shrunk toward a fare ~
+    distance fit, plus distance estimates for every mappable country. None when
+    there is no fare data (the site then grades without Flights)."""
+    if not (data and data.get("configured") and data.get("by_country")):
+        return None
+    c = centroids if centroids is not None else geo.country_centroids()
+    prices = dict(data["by_country"])
+    est = set()
+    expected = None
+    origin = data.get("origin")
+    o = c.get(origin)
+    pts = [(geo.dist_km(o, c[iso]), p) for iso, p in prices.items() if o and iso in c]
+    if o and len(pts) >= 8:
+        n = len(pts)
+        mx = sum(x for x, _ in pts) / n
+        my = sum(y for _, y in pts) / n
+        num = sum((x - mx) * (y - my) for x, y in pts)
+        den = sum((x - mx) ** 2 for x, _ in pts)
+        b = num / den if den else 0
+        a = my - b * mx
+
+        def expected(iso):
+            return max(50, a + b * geo.dist_km(o, c[iso])) if iso in c else None
+
+        known = list(prices.values())
+        lo, hi = min(known), max(known) * 1.4
+        n_by = {r.get("iso"): r.get("n") for r in data.get("countries") or []}
+        for iso in list(prices):
+            if iso not in c:
+                continue
+            e = a + b * geo.dist_km(o, c[iso])
+            w = (n_by.get(iso) or 1) / ((n_by.get(iso) or 1) + 3)
+            prices[iso] = js_round(w * prices[iso] + (1 - w) * max(50, e))
+        for iso in CUR_BY_ISO:
+            if prices.get(iso) is not None or iso not in c or iso == origin:
+                continue
+            e = a + b * geo.dist_km(o, c[iso])
+            prices[iso] = js_round(max(lo, min(hi, e)))
+            est.add(iso)
+    vals = list(prices.values())
+    if not vals:
+        return None
+    return {"prices": prices, "est": est, "min": min(vals), "max": max(vals),
+            "expected": expected}
+
+
+def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
+           fit=None, fares=None, anchor_pl=1.0):
+    """One destination's scores for `month` (1-12). Returns None if unscorable,
+    unrated, or excluded (Level 4 / Do Not Travel). Mirrors app.js valueScores."""
+    pl_us = _price_level(iso, ppp, rate_by_code, fit)
+    if pl_us is None:
+        return None
+    pl = pl_us / (anchor_pl or 1)
     adv = adv_by_iso.get(iso)
     if adv == 4:
         return None                  # Do Not Travel: excluded outright
+    # Unrated means unrated: the site declines to recommend a place no
+    # government rates rather than invent a level (it used to read as Level 2).
+    if not adv:
+        return None
     cur = CUR_BY_ISO.get(iso)
     cl = climate.get(iso)
 
     aff = clamp100(((1.3 - pl) / 0.95) * 100)
-    strength = strength_by_code.get(cur)
-    fx = clamp100(50 + strength * 6.25) if strength is not None else 50
-    afford = clamp100(aff * 0.7 + fx * 0.3)
-    safe = {1: 100, 2: 70, 3: 35}.get(adv, 70)
-    wx = cl["scores"][month - 1] if cl and cl["scores"][month - 1] is not None else 50
-
-    # Weighted mean (Affordability 3, Safety 2, Weather 2) — the site's default
-    # weights with Flights omitted (see module docstring).
-    value = clamp100((3 * afford + 2 * safe + 2 * wx) / 7.0)
+    # The dollar's move vs its 1-yr average, net of the inflation gap: a steadily
+    # depreciating high-inflation currency always sits above its own average.
+    nominal = strength_by_code.get(cur) if cur and cur != "USD" else None
+    real = pricelevel.real_fx_pct(nominal, iso, HOME_ISO, ppp)
+    fx = clamp100(50 + real * 6.25) if real is not None else 50
+    comps = {
+        "afford": clamp100(aff * 0.7 + fx * 0.3),
+        "safe": {1: 100, 2: 70, 3: 35}.get(adv, 70),
+        "wx": cl["scores"][month - 1] if cl and cl["scores"][month - 1] is not None else 50,
+    }
+    fare = None
+    if fares and fares["prices"].get(iso) is not None:
+        fare = fares["prices"][iso]
+        base = fares["expected"](iso) if fares["expected"] else None
+        comps["fly"] = (clamp100(70 + (1 - fare / base) * 100) if base
+                        else clamp100((fares["max"] - fare) / (fares["max"] - fares["min"]) * 100)
+                        if fares["max"] > fares["min"] else 50)
+    num = sum(WEIGHTS[k] * v for k, v in comps.items())
+    den = sum(WEIGHTS[k] for k in comps)
+    value = clamp100(num / den) if den else 0
     name = (cl and cl.get("name")) or (ppp.get(iso) and ppp[iso].get("name")) or iso
     return {
-        "iso": iso, "name": name, "afford": round(afford), "safe": round(safe),
-        "wx": round(wx), "value": round(value), "advLvl": adv, "pl": pl,
-        "fx": round(strength, 1) if strength is not None else None,
+        "iso": iso, "name": name, "afford": comps["afford"], "safe": comps["safe"],
+        "wx": comps["wx"], "fly": comps.get("fly"), "value": value, "advLvl": adv,
+        "pl": pl, "fare": fare, "fareEst": bool(fares and iso in fares["est"]),
+        # REAL move, which is what "your dollar goes further" claims are about.
+        "fx": round(real, 1) if real is not None else None,
+        "fx_nominal": nominal,
     }
+
+
+def _advisory_items():
+    """US advisories for the digest. The feed fetch retries, but one bad morning
+    at travel.state.gov used to abort the whole month's issue, so fall back to
+    the live site's cached copy (which is also exactly what readers will see),
+    then to Canada's feed, before giving up."""
+    try:
+        return advisories.get_advisories()["items"]
+    except Exception as e:
+        print("WARNING: US advisory feed failed ({0}); using the site's copy.".format(e))
+    try:
+        return rates.fetch_json(SITE + "/api/advisories")["items"]
+    except Exception as e:
+        print("WARNING: site advisories unavailable ({0}); using Canada's.".format(e))
+    return advisories.get_advisories("ca")["items"]
+
+
+def advisory_levels(items):
+    """{iso: level}, keeping the MOST cautious row when a country appears twice
+    (e.g. the US feed's separate Gaza and West Bank rows)."""
+    out = {}
+    for it in items:
+        iso, lvl = it.get("iso"), it.get("level")
+        if iso and lvl and lvl > out.get(iso, 0):
+            out[iso] = lvl
+    return out
 
 
 def _popular_set():
@@ -243,12 +373,16 @@ def build(month=None, n_picks=5, n_gems=3):
     fav = rates.compute_favorability()
     rate_by_code = {r["code"]: r["rate_now"] for r in fav["rows"]}
     strength_by_code = {r["code"]: r["strength_pct"] for r in fav["rows"]}
-    adv_by_iso = {it["iso"]: it["level"] for it in advisories.get_advisories()["items"] if it.get("iso")}
+    adv_by_iso = advisory_levels(_advisory_items())
     popular = _popular_set()
+    fit = pricelevel.plausibility_fit(ppp, rate_by_code, CUR_BY_ISO)
+    anchor = _price_level(HOME_ISO, ppp, rate_by_code, fit) or 1
+    fares = fare_context(_us_fares())
 
     scored = []
     for iso in CUR_BY_ISO:
-        s = _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso)
+        s = _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
+                   fit, fares, anchor)
         if s and s["advLvl"] != 3:   # default "safe" floor: drop Level 3 (4 already gone)
             scored.append(s)
 

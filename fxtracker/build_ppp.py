@@ -35,6 +35,20 @@ URL = ("https://api.worldbank.org/v2/country/all/indicator/PA.NUS.PPP"
 # country on earth, ahead of Iceland and Switzerland.
 GDP_URL = ("https://api.worldbank.org/v2/country/all/indicator/NY.GDP.PCAP.CD"
            "?format=json&date=2017:%d&per_page=20000" % (_THIS_YEAR + 1))
+# Consumer-price inflation, annual %. The PPP factor is a year-old snapshot of
+# local prices; dividing it by TODAY's rate with no inflation carry-forward read
+# Turkey (CPI ~35%) as far cheaper than it is. pricelevel.py and app.js carry the
+# factor forward with this, and use it to turn nominal FX moves into real ones.
+# World Bank only: IMF DataMapper is bot-walled.
+CPI_URL = ("https://api.worldbank.org/v2/country/all/indicator/FP.CPI.TOTL.ZG"
+           "?format=json&date=2017:%d&per_page=20000" % (_THIS_YEAR + 1))
+# GDP in local currency and in US$. Where the two are identical the World Bank's
+# "local currency" is the US dollar, so the PPP factor is USD per international
+# $ (West Bank & Gaza, Liberia) — build-time check only, see _warn_usd_units().
+GDP_LCU_URL = ("https://api.worldbank.org/v2/country/all/indicator/NY.GDP.MKTP.CN"
+               "?format=json&date=2017:%d&per_page=20000" % (_THIS_YEAR + 1))
+GDP_USD_URL = ("https://api.worldbank.org/v2/country/all/indicator/NY.GDP.MKTP.CD"
+               "?format=json&date=2017:%d&per_page=20000" % (_THIS_YEAR + 1))
 
 
 def _fetch(url):
@@ -60,7 +74,8 @@ def _latest_by_iso(rows, valid):
 
 
 def build():
-    """Fetch and shape the PPP table: {iso: {ppp, year, name}}.
+    """Fetch and shape the PPP table: {iso: {ppp, year, name, gdppc, gdppc_year,
+    infl, infl_year}} (the last four only when the World Bank has them).
 
     Shared by main() (writes the committed file) and the server's live refresh,
     so both paths can never disagree about how the data is derived. Keeps the
@@ -88,7 +103,46 @@ def build():
         print("WARNING: GDP per capita fetch failed ({0}). "
               "Price-level plausibility check will fall back to absolute bounds.".format(e))
 
+    # Same rule for inflation: without it the price level simply isn't carried
+    # forward (factor 1), which is what the site did before this existed.
+    try:
+        for iso, (y, v, _nm) in _latest_by_iso(_fetch(CPI_URL), valid).items():
+            if iso in out:
+                out[iso]["infl"] = round(v, 2)
+                out[iso]["infl_year"] = y
+    except Exception as e:
+        print("WARNING: inflation fetch failed ({0}). "
+              "Price levels will not be carried forward for inflation.".format(e))
+
     return out
+
+
+def _warn_usd_units(out):
+    """Flag countries whose World Bank local currency is the US dollar but which
+    pricelevel.PPP_UNIT doesn't know about — their PPP factor would otherwise be
+    divided by a local rate it isn't quoted in (Palestine published 3x too cheap,
+    Liberia dropped). Warn only: it runs at commit time, never in the live refresh."""
+    from .pricelevel import PPP_UNIT
+    from .picks import CUR_BY_ISO
+    def same_year(rows):   # the value for the PPP factor's own data year
+        return {r["country"]["id"]: r["value"] for r in rows if r["value"] is not None
+                and r["date"] == str(out.get(r["country"]["id"], {}).get("year"))}
+    try:
+        lcu, usd = same_year(_fetch(GDP_LCU_URL)), same_year(_fetch(GDP_USD_URL))
+    except Exception as e:
+        print("WARNING: PPP unit check skipped ({0}).".format(e))
+        return
+    for iso in sorted(out):
+        a, b = lcu.get(iso), usd.get(iso)
+        if not a or not b or abs(a / b - 1) > 1e-6:
+            continue
+        unit = PPP_UNIT.get(iso) or CUR_BY_ISO.get(iso)
+        # Ungraded (no currency mapping) or pegged 1:1 to the dollar: harmless.
+        if unit in (None, "USD", "BSD", "BMD", "PAB"):
+            continue
+        print("WARNING: {0}'s PPP factor is quoted in US dollars (GDP in local currency == "
+                  "GDP in US$) but it is divided by {1}; add it to pricelevel.PPP_UNIT and "
+                  "app.js PPP_UNIT.".format(iso, unit))
 
 
 def committed():
@@ -99,6 +153,7 @@ def committed():
 
 def main():
     out = build()
+    _warn_usd_units(out)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"), sort_keys=True)
     print("wrote {0} countries -> {1}".format(len(out), OUT))
