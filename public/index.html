@@ -168,7 +168,7 @@
             <span class="picklabel">💱 In</span>
             <select id="homeCur"></select>
           </span>
-          <span class="pickgroup" data-tip="hide countries below this safety grade (they move to Hidden Gems)" title="">
+          <span class="pickgroup" data-tip="hide countries below this safety grade from both Top Picks and Hidden Gems" title="">
             <span class="picklabel">🛡️ Safety at least</span>
             <select id="safeFloor">
               <option value="a">A — Level 1 only</option>
@@ -281,13 +281,14 @@
       </details>
 
       <details class="foldable" id="tableBox">
-        <summary>📋 Full ranking &amp; the math <span class="muted">— every score, every country</span></summary>
+        <summary>📋 Full ranking &amp; the math <span class="muted">— every score, top 40 by any column</span></summary>
         <p class="tablekey" id="rankNote" hidden></p>
-        <p class="tablekey">Safety grades map 1-to-1 to US State Dept advisories:
+        <p class="tablekey">Safety grades map 1-to-1 to <span id="safeKeySrc">U.S. State Department</span> advisories<span class="muted" data-tip="Choose US, Canadian or German advice under 📊 Data → ⚠️ Safety. Where that government publishes nothing, one of the other two fills the gap, and the Safety grade's hover names which." title=""> ⓘ</span>:
           A = <span class="advtag a1">L1</span> normal precautions ·
-          B = <span class="advtag a2">L2</span> increased caution (or none published) ·
+          B = <span class="advtag a2">L2</span> increased caution ·
           D = <span class="advtag a3">L3</span> reconsider travel ·
-          <span class="advtag a4">L4</span> do not travel is excluded entirely</p>
+          <span class="advtag a4">L4</span> do not travel is excluded entirely ·
+          places none of the three rate aren't graded or ranked</p>
         <section class="tablewrap">
           <table id="valueTable">
             <thead><tr>
@@ -321,7 +322,7 @@
                rendered page with no h1 at all, because the SSR h1 it replaces is
                deleted a moment earlier. -->
           <h1 class="cardtitle" id="guideH1" hidden>Travel Guide<span id="guideH2Country"></span></h1>
-          <p class="chartsub">Best months, peak vs off-season, and what's in season right now.</p>
+          <p class="chartsub">Best months, month-by-month weather, and what's in season right now.</p>
         </div>
         <!-- Region and interest pickers used to live here too, duplicating Top
              Picks' Region select and Into chips with their own unsynced state (and
