@@ -11,7 +11,32 @@ def _password(email_cfg):
     return os.environ.get("FX_SMTP_PASSWORD") or email_cfg.get("password", "")
 
 
+# SMTP settings can come entirely from the environment (CI secrets), because
+# the committed config.json must stay blank: it is public, and the owner's
+# address may never appear in the repo. Before this, the monthly workflow
+# passed only the password, so the alert step was a silent no-op every run.
+_ENV_KEYS = {"username": "FX_SMTP_USER", "to_addr": "FX_ALERT_TO",
+             "from_addr": "FX_ALERT_FROM", "smtp_host": "FX_SMTP_HOST",
+             "smtp_port": "FX_SMTP_PORT"}
+
+
+def effective(email_cfg):
+    """email_cfg with any FX_* environment overrides applied. Setting
+    FX_SMTP_USER + FX_ALERT_TO + FX_SMTP_PASSWORD is enough to switch the
+    alert on without touching config.json."""
+    cfg = dict(email_cfg or {})
+    for field, var in _ENV_KEYS.items():
+        val = os.environ.get(var, "").strip()
+        if val:
+            cfg[field] = val
+    if os.environ.get("FX_SMTP_USER", "").strip() and os.environ.get("FX_ALERT_TO", "").strip() \
+            and os.environ.get("FX_SMTP_PASSWORD"):
+        cfg["enabled"] = True
+    return cfg
+
+
 def is_configured(email_cfg):
+    email_cfg = effective(email_cfg)
     return bool(
         email_cfg.get("enabled")
         and email_cfg.get("smtp_host")
@@ -24,6 +49,7 @@ def is_configured(email_cfg):
 
 def send_email(email_cfg, subject, body_text, body_html=None):
     """Send one message. Raises on failure so callers can report it."""
+    email_cfg = effective(email_cfg)
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = email_cfg.get("from_addr") or email_cfg["username"]

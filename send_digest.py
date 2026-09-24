@@ -2,7 +2,8 @@
 """Monthly travel digest: score destinations the way the site does and email
 the graded picks to the Buttondown newsletter list.
 
-  python3 send_digest.py            # build + send to subscribers (needs BUTTONDOWN_API_KEY)
+  python3 send_digest.py            # build + send to subscribers (needs BUTTONDOWN_API_KEY);
+                                    # skips if this subject already went out in the last 25 days
   python3 send_digest.py --draft    # build + save as a Buttondown DRAFT (preview / test)
   python3 send_digest.py --dry-run  # build + print the email, send nothing
   python3 send_digest.py --month 8  # feature a specific month (1-12)
@@ -34,15 +35,19 @@ def run(dry_run=False, month=None, draft=False):
         print("BUTTONDOWN_API_KEY not set — cannot send. Use --dry-run to preview.")
         return 1
     try:
-        newsletter.send(subject, body, draft=draft)
-        if draft:
-            print("Created Buttondown draft. Open it in Buttondown to preview or send a test.")
-        else:
-            print("Sent digest to Buttondown subscribers.")
-        return 0
+        outcome = newsletter.send(subject, body, draft=draft)
     except Exception as e:
         print("Buttondown send failed:", e)
         return 1
+    if outcome == "draft":
+        print("Created Buttondown draft. Open it in Buttondown to preview or send a test.")
+    elif outcome == "already-sent":
+        # A late cron after a manual send, or a re-run: the issue is out, so
+        # this run has nothing to do and is not a failure.
+        print("This month's digest already went out; nothing sent.")
+    else:
+        print("Sent digest to Buttondown subscribers.")
+    return 0
 
 
 def _parse_args(argv):

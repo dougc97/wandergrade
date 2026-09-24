@@ -184,6 +184,10 @@ def get_flights(origin_iso, currency="usd"):
 # nobody searched simply don't appear, and that absence must render as absence.
 _monthly_cache = {}
 MONTHLY_TTL = 12 * 3600
+# A failed upstream call is not "no fares": it is remembered only this long
+# (so a burst of visitors doesn't hammer a struggling API), and an older good
+# curve for the route is served instead when there is one.
+MONTHLY_FAIL_TTL = 5 * 60
 
 
 def get_monthly(origin_iso, dest_city, currency="usd"):
@@ -203,7 +207,7 @@ def get_monthly(origin_iso, dest_city, currency="usd"):
     key = (hub, dest_city, currency)
     now = _time.time()
     hit = _monthly_cache.get(key)
-    if hit and now - hit[0] < MONTHLY_TTL:
+    if hit and now - hit[0] < (MONTHLY_FAIL_TTL if hit[1].get("error") else MONTHLY_TTL):
         return hit[1]
     out = {"configured": True, "origin": origin_iso, "hub": hub,
            "dest": dest_city, "currency": currency, "months": {}}
@@ -216,7 +220,14 @@ def get_monthly(origin_iso, dest_city, currency="usd"):
                 out["months"][k[:7]] = {"price": round(v["price"]),
                                         "stops": v.get("transfers")}
     except Exception:
-        pass
+        # Not cached as an authoritative empty curve for 12h (one 429 used to
+        # hide that route's fare strip and chart for everyone). The "error"
+        # flag lets the client tell a failure from genuine absence.
+        if hit and not hit[1].get("error"):
+            # Keep serving the last good curve; retry upstream in 5 minutes.
+            _monthly_cache[key] = (now - MONTHLY_TTL + MONTHLY_FAIL_TTL, hit[1])
+            return dict(hit[1], stale=True)
+        out["error"] = "fare lookup failed"
     # Prune expired entries on write so the cache can't grow for the life of
     # the process (one entry per route ever asked about).
     for k in [k for k, (at, _) in _monthly_cache.items() if now - at >= MONTHLY_TTL]:

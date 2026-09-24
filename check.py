@@ -74,13 +74,15 @@ def run(dry_run=False):
     if mailer.is_configured(cfg["email"]):
         try:
             mailer.send_email(cfg["email"], subject, text, html)
-            print("Sent alert to {0}.".format(cfg["email"]["to_addr"]))
+            # No address in the output: Actions logs on this public repo are public.
+            print("Sent alert to the owner's inbox.")
             sent_any = True
         except Exception as e:
             print("WARNING: personal alert failed to send ({0}). Continuing — "
                   "this must not block the newsletter.".format(e))
     else:
-        print("Personal email not configured (FX_SMTP_PASSWORD). Skipping.")
+        print("Personal email not configured (needs FX_SMTP_USER, FX_ALERT_TO and "
+              "FX_SMTP_PASSWORD, or config.json). Skipping.")
 
     if not sent_any:
         # Nothing was delivered, but there is nothing to retry and nothing

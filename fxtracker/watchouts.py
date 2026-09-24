@@ -23,6 +23,7 @@ from . import rates
 
 API = "https://data.international.gc.ca/travel-voyage/cta-cap-{iso}.json"
 TTL = 6 * 3600
+FAIL_TTL = 10 * 60   # a network blip is retried soon, not trusted for 6h
 _cache = {}   # iso -> (fetched_at, payload)
 
 # Section titles that describe the page, not the country.
@@ -100,8 +101,8 @@ def get_watchouts(iso):
         return {"iso": iso.upper(), "watchouts": [], "regional": []}
     now = time.time()
     hit = _cache.get(iso)
-    if hit and now - hit[0] < TTL:
-        return hit[1]
+    if hit and now - hit[0] < (FAIL_TTL if hit[1].get("_failed") else TTL):
+        return {k: v for k, v in hit[1].items() if k != "_failed"}
     out = {"iso": iso.upper(), "source": "Global Affairs Canada",
            "link": "", "watchouts": [], "regional": []}
     try:
@@ -141,7 +142,16 @@ def get_watchouts(iso):
         secs = [s for s in secs if not re.fullmatch(r"\[.*\]", s.get("t", ""))
                 and not re.fullmatch(r"\[.*\]", s.get("d", "") or "")]
         out["watchouts"] = secs[:8]
-    except Exception:
-        pass   # a country the feed lacks simply shows no watchouts
+    except Exception as e:
+        # A country the feed lacks (a 4xx) simply shows no watchouts, for the
+        # full TTL. Anything else is a failure, not an answer: keep the last
+        # good copy, or remember the empty one only briefly — caching it for
+        # 6h hid a country's safety notes from everyone after one timeout.
+        if not (400 <= (getattr(e, "code", None) or 0) < 500):
+            if hit and not hit[1].get("_failed"):
+                _cache[iso] = (now - TTL + FAIL_TTL, hit[1])
+                return hit[1]
+            _cache[iso] = (now, dict(out, _failed=True))
+            return out
     _cache[iso] = (now, out)
     return out

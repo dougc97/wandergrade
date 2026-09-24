@@ -197,6 +197,43 @@ def _rate_label(strength_pct, percentile):
     return "weak"
 
 
+# ---- which ?base= codes are real -------------------------------------------
+# Every home-currency endpoint takes a client-supplied base. Checking it only
+# AFTER the three upstream fetches let anyone iterate made-up codes and buy a
+# full-year timeseries per request from the keyless provider every page
+# depends on. The provider's own code list, refreshed daily, answers it with
+# at most one upstream call a day.
+_known = {"at": 0.0, "codes": frozenset()}
+KNOWN_TTL = 24 * 3600
+
+
+def known_currencies():
+    """Codes the provider quotes (plus USD), or None if it can't be asked yet."""
+    now = time.time()
+    if not _known["codes"] or now - _known["at"] >= KNOWN_TTL:
+        try:
+            _, latest = get_latest()
+            _known.update(at=now, codes=frozenset(latest) | {"USD"})
+        except Exception:
+            if not _known["codes"]:
+                return None
+            _known["at"] = now - KNOWN_TTL + 600   # keep the old list; retry in 10 min
+    return _known["codes"]
+
+
+def is_known_base(code):
+    """True for a fiat code the provider quotes. When the list can't be
+    fetched at all this says yes, so an outage degrades to the old behaviour
+    instead of rejecting every real currency."""
+    if code == "USD":
+        return True
+    if not code or len(code) != 3 or not code.isalpha() or not code.isupper() \
+            or code in NON_FIAT:
+        return False
+    codes = known_currencies()
+    return codes is None or code in codes
+
+
 def compute_index(days=365, base="USD"):
     """The overall strength index for any home currency (default USD) over an
     arbitrary window. Used by the chart's window toggle."""
@@ -232,6 +269,8 @@ def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None,
     Each row: code, name, rate_now, baseline_avg, low, high, strength_pct,
     percentile, favorable, label.
     """
+    if not is_known_base(base):          # before any upstream fetch
+        raise ValueError("unknown base currency: " + str(base))
     names = get_currencies()
     latest_date, latest = get_latest()
 
@@ -311,9 +350,15 @@ def get_trend(code, base="USD"):
     import time as _time
     code = (code or "").upper()[:3]
     base = (base or "USD").upper()[:3]
+    if not is_known_base(base):          # no upstream fetch for a made-up base
+        return None
     now = _time.time()
     hit = _trend_cache.get(base)
     if not hit or now - hit[0] >= TREND_TTL:
+        # Expired bases drop out here, so the cache can't grow for the life
+        # of the process one base at a time.
+        for k in [k for k, (at, _) in _trend_cache.items() if now - at >= TREND_TTL]:
+            del _trend_cache[k]
         today = datetime.date.today()
         start = (today - datetime.timedelta(days=MAX_HISTORY_DAYS)).isoformat()
         ts = get_timeseries(start, today.isoformat())

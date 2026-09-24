@@ -19,6 +19,7 @@ Storage: Upstash Redis (REST). Keys, all short-lived except the user record:
     user:<email>  -> JSON blob      no TTL: {visited, wishlist, cadence,
                                              subscribed, created, updated}
     rl:<bucket>   -> counter        TTL 1 h, throttles link requests
+    rl:day:<date> -> counter        TTL 2 days, caps links mailed per UTC day
 Mail: Resend (REST).
 
 Env:
@@ -26,7 +27,9 @@ Env:
     RESEND_API_KEY                                     -> sending
     MAIL_FROM        (default "WanderGrade <signin@wandergrade.com>")
     MAIL_REPLY_TO    (default "hello@wandergrade.com")
-    SITE_ORIGIN      (default "https://wandergrade.com") — magic-link base
+    SITE_ORIGIN      (default "https://wandergrade.com") — magic-link base, and
+                     the only Origin allowed to request or redeem a link
+    MAIL_DAILY_CAP   (default 80) — sign-in mails per UTC day, all addresses
 
 Mail setup (since 2026-07-22): the ROOT domain wandergrade.com is the one
 verified Resend domain (the free plan allows exactly one; it used to be the
@@ -43,6 +46,7 @@ if the verified domain ever changes again, the production key dies with it
 and a new one must be minted and set on Render (learned the hard way).
 """
 
+import ipaddress
 import json
 import os
 import re
@@ -58,7 +62,14 @@ MAGIC_TTL = 15 * 60          # a link is good for 15 minutes
 SESSION_TTL = 90 * 24 * 3600  # then you sign in again
 RATE_MAX = 5                  # link requests per bucket per hour
 RATE_TTL = 3600
-CADENCES = ("monthly", "quarterly", "off")
+# Resend's free plan stops at 100 mails/day (3,000/month) for the whole
+# account, and hello@'s Gmail send-as rides the same quota. Past this many
+# sign-in links in a UTC day, further requests are dropped so a flood can't
+# silently take real sign-ins (and the owner's own mail) down with it.
+DAILY_MAIL_CAP = 80
+# The digest is monthly only. "quarterly" is a retired choice that older
+# records and cached pages may still send; it reads as monthly.
+CADENCES = ("monthly", "off")
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s.]+\.[^@\s]{2,}$")
 
@@ -84,6 +95,38 @@ def valid_email(email):
 
 def norm_email(email):
     return (email or "").strip().lower()
+
+
+def site_origin():
+    """The public origin: magic links point here, and only pages served from
+    here may request or redeem one. Never derived from the request's Host."""
+    return _env("SITE_ORIGIN", "https://wandergrade.com").rstrip("/")
+
+
+def _mailbox(email):
+    """One throttle bucket per real inbox: a+1@x and a+2@x (and, on Gmail,
+    a.b@ vs ab@) are different strings that land in the same mailbox, so
+    keying the limit on the raw address let one inbox be flooded anyway."""
+    local, _, domain = email.partition("@")
+    local = local.split("+", 1)[0]
+    if domain in ("gmail.com", "googlemail.com"):
+        local, domain = local.replace(".", ""), "gmail.com"
+    return local + "@" + domain
+
+
+def _ip_bucket(ip):
+    """IPv6 clients get a whole /64 each, so per-address limits would be
+    free to dodge; bucket them by /64. IPv4 stays per address."""
+    ip = (ip or "").strip()
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip[:64]
+    if addr.version == 4:
+        return str(addr)
+    if addr.ipv4_mapped:
+        return str(addr.ipv4_mapped)
+    return str(ipaddress.ip_network(str(addr) + "/64", strict=False).network_address) + "/64"
 
 
 # ---- Upstash Redis over REST ------------------------------------------------
@@ -118,16 +161,41 @@ def _kv_del(key):
     return _redis("DEL", key)
 
 
+def _count(key, ttl):
+    """Increment a counter that is guaranteed to expire. The key is created
+    WITH its TTL (SET NX EX) before the INCR, so a failed follow-up call can
+    no longer leave a TTL-less counter that locks a bucket out for good."""
+    _redis("SET", key, 0, "EX", ttl, "NX")
+    n = int(_redis("INCR", key))
+    if n == 1:                     # expired in between: INCR made a bare key
+        _redis("EXPIRE", key, ttl)
+    return n
+
+
 def _rate_ok(bucket):
     """Allow at most RATE_MAX magic-link requests per bucket per hour."""
-    key = "rl:" + bucket
     try:
-        n = _redis("INCR", key)
-        if n == 1:
-            _redis("EXPIRE", key, RATE_TTL)
-        return int(n) <= RATE_MAX
+        return _count("rl:" + bucket, RATE_TTL) <= RATE_MAX
     except Exception:
         return True          # never lock people out because the limiter broke
+
+
+def _daily_cap_ok():
+    try:
+        cap = int(_env("MAIL_DAILY_CAP") or DAILY_MAIL_CAP)
+    except ValueError:
+        cap = DAILY_MAIL_CAP
+    day = time.strftime("%Y%m%d", time.gmtime())
+    try:
+        n = _count("rl:day:" + day, 2 * 86400)
+    except Exception:
+        return True          # same fail-open rule as the per-bucket limiter
+    if n > cap:
+        if n == cap + 1:      # say it once, not on every dropped request
+            print("[accounts] DAILY MAIL CAP HIT (%d); dropping sign-in mail until 00:00 UTC"
+                  % cap, flush=True)
+        return False
+    return True
 
 
 # ---- mail (Resend over REST) ------------------------------------------------
@@ -209,21 +277,27 @@ def _blank_user():
 
 # ---- the flow ---------------------------------------------------------------
 
-def request_link(email, origin, ip=""):
+def request_link(email, ip=""):
     """Mail a one-time sign-in link. Returns True when accepted.
 
     Callers should report success even on failure: telling a stranger whether
     an address is registered (or rate-limited) is an enumeration leak.
+
+    The link is always built on site_origin(), never the request's Host: a
+    proxy that forwarded a forged Host would otherwise mail a victim a link to
+    the attacker's server, which is an account takeover.
     """
     email = norm_email(email)
     if not valid_email(email):
         return False
-    if not _rate_ok("e:" + email) or (ip and not _rate_ok("i:" + ip)):
+    if not _rate_ok("e:" + _mailbox(email)) or (ip and not _rate_ok("i:" + _ip_bucket(ip))):
+        return False
+    # Last, so throttled requests don't eat the day's allowance.
+    if not _daily_cap_ok():
         return False
     token = secrets.token_urlsafe(32)
     _kv_set("magic:" + token, email, MAGIC_TTL)
-    base = (origin or _env("SITE_ORIGIN", "https://wandergrade.com")).rstrip("/")
-    link = base + "/auth/verify?t=" + urllib.parse.quote(token)
+    link = site_origin() + "/auth/verify?t=" + urllib.parse.quote(token)
     return _send_mail(email, "Sign in to WanderGrade", _magic_email_html(link))
 
 
@@ -231,10 +305,10 @@ def consume_token(token):
     """Redeem a magic token exactly once -> (email, session_id) or (None, None)."""
     if not token:
         return None, None
-    email = _kv_get("magic:" + token)
+    # GETDEL, not GET then DEL: two racing redemptions must not both win.
+    email = _redis("GETDEL", "magic:" + token)
     if not email:
         return None, None
-    _kv_del("magic:" + token)                 # single use
     if not get_user(email):
         save_user(email, _blank_user())       # first sign-in creates the account
     sid = secrets.token_urlsafe(32)
@@ -262,7 +336,7 @@ def end_session(sid):
 def _clean_isos(seq):
     """Keep only plausible place codes, capped — never trust the client."""
     out = []
-    for x in (seq or [])[:400]:
+    for x in (seq if isinstance(seq, list) else [])[:400]:
         if isinstance(x, str) and re.fullmatch(r"[A-Z]{2}(-[A-Z]{3})?", x):
             out.append(x)
     return sorted(set(out))
@@ -275,14 +349,25 @@ def sync_map(email, visited, wishlist):
     return save_user(email, user)
 
 
+def _cadence(value):
+    """Stored/requested cadence -> "monthly" or "off" (legacy "quarterly" and
+    anything unknown read as monthly)."""
+    return "off" if value == "off" else "monthly"
+
+
+def _wants_mail(user):
+    return bool(user.get("subscribed")) and _cadence(user.get("cadence")) != "off"
+
+
 def set_prefs(email, subscribed=None, cadence=None):
     user = get_user(email) or _blank_user()
+    was = _wants_mail(user)
     if subscribed is not None:
         user["subscribed"] = bool(subscribed)
-    if cadence in CADENCES:
-        user["cadence"] = cadence
+    if cadence in CADENCES or cadence == "quarterly":
+        user["cadence"] = _cadence(cadence)
     save_user(email, user)
-    _sync_newsletter(email, user)
+    _sync_newsletter(email, user, was)
     return user
 
 
@@ -291,34 +376,64 @@ def public_user(user):
     return {
         "visited": user.get("visited", []),
         "wishlist": user.get("wishlist", []),
-        "cadence": user.get("cadence", "monthly"),
+        "cadence": _cadence(user.get("cadence", "monthly")),
         "subscribed": bool(user.get("subscribed")),
     }
 
 
 # ---- newsletter (Buttondown) ------------------------------------------------
 
-def _sync_newsletter(email, user):
-    """Mirror the subscribe choice + cadence into Buttondown as a tag.
+_BD_API = "https://api.buttondown.email/v1/subscribers"
 
-    Cadence is per-subscriber here, so send_digest can pick recipients by tag
-    (monthly every month; quarterly only in Jan/Apr/Jul/Oct). Best-effort: a
-    newsletter hiccup must never break sign-in.
+
+def _buttondown(method, url, key, payload=None, extra=None):
+    """One Buttondown call -> HTTP status. Never raises for HTTP errors; the
+    body of a non-2xx is logged, since that is the only place it shows."""
+    hdrs = {"Authorization": "Token " + key, "Content-Type": "application/json",
+            "User-Agent": _UA}
+    hdrs.update(extra or {})
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=rates._SSL) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        try:
+            detail = e.read().decode("utf-8", "replace")[:300]
+        except Exception:
+            detail = ""
+        if e.code != 404:
+            print("[accounts] buttondown %s -> HTTP %s: %s" % (method, e.code, detail),
+                  flush=True)
+        return e.code
+
+
+def _sync_newsletter(email, user, was_subscribed=False):
+    """Mirror the account's newsletter choice into Buttondown.
+
+    The digest goes to the whole Buttondown list every month, so the list IS
+    the preference: subscribing adds (or re-activates) the address; opting
+    out marks it unsubscribed there, or the next issue would still arrive.
+    Only a change away from subscribed unsubscribes — an account that never
+    opted in here may still be on the list through the site's public form,
+    and not ticking a box at sign-in is not an opt-out of that.
+
+    Best-effort: a newsletter hiccup must never break sign-in or the prefs
+    save, so failures are logged, not raised.
     """
     key = _env("BUTTONDOWN_API_KEY")
     if not key:
         return
-    hdrs = {"Authorization": "Token " + key, "Content-Type": "application/json",
-            "User-Agent": _UA}
     try:
-        if user.get("subscribed") and user.get("cadence") != "off":
-            body = json.dumps({"email_address": email,
-                               "tags": ["cadence-" + user.get("cadence", "monthly")]}).encode()
-            req = urllib.request.Request("https://api.buttondown.email/v1/subscribers",
-                                         data=body, headers=hdrs, method="POST")
-            urllib.request.urlopen(req, timeout=10, context=rates._SSL)
-    except urllib.error.HTTPError as e:
-        if e.code != 400:                      # 400 = already subscribed; fine
-            pass
-    except Exception:
-        pass
+        if _wants_mail(user):
+            # "add" upserts: creates a new subscriber, merges the tag into an
+            # existing one, and re-activates an address that unsubscribed
+            # earlier — this is that person explicitly opting back in.
+            _buttondown("POST", _BD_API, key,
+                        {"email_address": email, "tags": ["cadence-monthly"]},
+                        {"X-Buttondown-Collision-Behavior": "add"})
+        elif was_subscribed:
+            _buttondown("PATCH", _BD_API + "/" + urllib.parse.quote(email, safe="@"), key,
+                        {"type": "unsubscribed"})
+    except Exception as e:
+        print("[accounts] buttondown sync failed: %s" % e, flush=True)
