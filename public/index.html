@@ -283,12 +283,12 @@
         <section class="tablewrap">
           <table id="valueTable">
             <thead><tr>
-              <th class="sortable" tabindex="0" role="button" aria-sort="none" data-sk="country">Country</th>
-              <th class="num sortable" data-sk="value" title="overall 0-100 score blending everything below">Value</th>
-              <th class="num sortable" data-sk="afford" title="cost of living vs home + how strong your currency is now">Affordability</th>
-              <th class="num sortable" data-sk="safety" title="US State Dept advisory level">Safety</th>
-              <th class="num sortable" data-sk="weather" title="weather comfort for your chosen month">Weather</th>
-              <th class="num sortable" data-sk="flight" title="flight deal score 0-100 (fare vs typical for the distance); exact prices in the Flights tab">Flight</th>
+              <th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th>
+              <th class="num sortable" aria-sort="none" data-sk="value" title="overall 0-100 score blending everything below"><button type="button" class="sortbtn">Value</button></th>
+              <th class="num sortable" aria-sort="none" data-sk="afford" title="cost of living vs home + how strong your currency is now"><button type="button" class="sortbtn">Affordability</button></th>
+              <th class="num sortable" aria-sort="none" data-sk="safety" title="US State Dept advisory level"><button type="button" class="sortbtn">Safety</button></th>
+              <th class="num sortable" aria-sort="none" data-sk="weather" title="weather comfort for your chosen month"><button type="button" class="sortbtn">Weather</button></th>
+              <th class="num sortable" aria-sort="none" data-sk="flight" title="flight deal score 0-100 (fare vs typical for the distance); exact prices in the Flights tab"><button type="button" class="sortbtn">Flight</button></th>
             </tr></thead>
             <tbody id="valueRows"><tr><td colspan="6">Loading…</td></tr></tbody>
           </table>
@@ -518,14 +518,14 @@
         <table id="rates">
           <thead>
             <tr>
-              <th class="sortable" tabindex="0" role="button" aria-sort="none" data-sk="code">Currency</th><th class="num sortable" data-sk="rate" id="rateColHead">1 USD =</th>
+              <th class="sortable" aria-sort="none" data-sk="code"><button type="button" class="sortbtn">Currency</button></th><th class="num sortable" aria-sort="none" data-sk="rate" id="rateColHead"><button type="button" class="sortbtn">1 USD =</button></th>
               <!-- Name the baseline: this column sits under the chart's 1M/3M/6M/1Y
                    toggle and reads as though that toggle drives it. It doesn't, and
                    must not — strength_pct is 30% of every Affordability grade, so a
                    view control cannot own it. The window is always a year. -->
-              <th class="num sortable" data-sk="vsavg" id="vsAvgHead" title="vs its own 1-year average — positive = the dollar is stronger than usual. Fixed at a year: a month's average is mostly noise, and this figure feeds the Affordability grade.">vs <span class="lbl-lg">1-yr </span>avg</th>
-              <th class="num sortable" data-sk="price" title="local prices vs the US; below 1.00 = cheaper than the US">Price level</th>
-              <th class="num sortable" data-sk="range" title="where today's rate sits in its 1-year range — further right (greener) = your money is near its strongest, so it goes further">Range position</th>
+              <th class="num sortable" aria-sort="none" data-sk="vsavg" id="vsAvgHead" title="vs its own 1-year average — positive = the dollar is stronger than usual. Fixed at a year: a month's average is mostly noise, and this figure feeds the Affordability grade."><button type="button" class="sortbtn">vs <span class="lbl-lg">1-yr </span>avg</button></th>
+              <th class="num sortable" aria-sort="none" data-sk="price" title="local prices vs the US; below 1.00 = cheaper than the US"><button type="button" class="sortbtn">Price level</button></th>
+              <th class="num sortable" aria-sort="none" data-sk="range" title="where today's rate sits in its 1-year range — further right (greener) = your money is near its strongest, so it goes further"><button type="button" class="sortbtn">Range position</button></th>
             </tr>
           </thead>
           <tbody id="rows"><tr><td colspan="5">Loading…</td></tr></tbody>
@@ -559,14 +559,14 @@
       <section class="tablewrap">
         <table id="affTable">
           <thead><tr>
-            <th class="sortable" tabindex="0" role="button" aria-sort="none" data-sk="name">Country</th><th class="sortable" tabindex="0" role="button" aria-sort="none" data-sk="cur">Currency</th>
-            <th class="num sortable" data-sk="pl" title="local prices vs the US; below 1.00 = cheaper than home">Price level</th>
+            <th class="sortable" aria-sort="none" data-sk="name"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="cur"><button type="button" class="sortbtn">Currency</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="pl" title="local prices vs your home country (the Vs home picker); below 1.00 = cheaper than home"><button type="button" class="sortbtn">Price level</button></th>
             <!-- "How it feels" was plWord(pl) printed next to pl: the same fact the
                  number, its colour, and the map legend above already give. It was
                  also the widest column here ("about the same"), squeezing the
                  country names. The word still rides the price level in the
                  Currency sub-tab, where it isn't sat beside its own source. -->
-            <th class="num sortable" data-sk="buys">$100 buys ~</th>
+            <th class="num sortable" aria-sort="none" data-sk="buys" title="what 100 in your home currency buys there, in at-home goods"><button type="button" class="sortbtn">100 buys ~</button></th>
           </tr></thead>
           <tbody id="affRows"><tr><td colspan="4">Loading…</td></tr></tbody>
         </table>
@@ -612,7 +612,7 @@
              decreased" statements, dated. Filled by renderAdvisories. -->
         <div id="advRecent" class="mappicksrow" hidden></div>
         <table id="advTable">
-          <thead><tr><th class="sortable" tabindex="0" role="button" aria-sort="none" data-sk="country">Country</th><th class="sortable" tabindex="0" role="button" aria-sort="none" data-sk="level">Level</th><th class="sortable" tabindex="0" role="button" aria-sort="none" data-sk="text">Advisory</th></tr></thead>
+          <thead><tr><th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="level"><button type="button" class="sortbtn">Level</button></th><th class="sortable" aria-sort="none" data-sk="text"><button type="button" class="sortbtn">Advisory</button></th></tr></thead>
           <tbody id="advRows"><tr><td colspan="3">Loading…</td></tr></tbody>
         </table>
       </section>
@@ -651,11 +651,11 @@
       <section class="tablewrap">
         <table id="flightTable">
           <thead><tr>
-            <th class="sortable" tabindex="0" role="button" aria-sort="none" data-sk="dest">Destination country</th><th class="num sortable" data-sk="avg">Avg round-trip</th>
-            <th class="num sortable" data-sk="min">Cheapest</th>
-            <th class="num sortable" data-sk="dur" title="travel time on the cheapest itinerary">Flight time</th>
-            <th class="num sortable" data-sk="stops" title="layovers on the cheapest itinerary">Stops</th>
-            <th class="num sortable" data-sk="n">Routes sampled</th>
+            <th class="sortable" aria-sort="none" data-sk="dest"><button type="button" class="sortbtn">Destination country</button></th><th class="num sortable" aria-sort="none" data-sk="avg"><button type="button" class="sortbtn">Avg round-trip</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="min"><button type="button" class="sortbtn">Cheapest</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="dur" title="travel time on the cheapest itinerary"><button type="button" class="sortbtn">Flight time</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="stops" title="layovers on the cheapest itinerary"><button type="button" class="sortbtn">Stops</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="n" title="cached fares behind the average — one per destination city and departure date"><button type="button" class="sortbtn">Fares sampled</button></th>
           </tr></thead>
           <tbody id="flightRows"><tr><td colspan="6">Loading…</td></tr></tbody>
         </table>
@@ -684,7 +684,7 @@
     Advisories: <a href="https://travel.state.gov" target="_blank" rel="noopener">U.S. State Dept</a>, <a href="https://travel.gc.ca/travelling/advisories" target="_blank" rel="noopener">Global Affairs Canada</a> &amp; <a href="https://www.auswaertiges-amt.de/de/ReiseUndSicherheit/reise-und-sicherheitshinweise" target="_blank" rel="noopener">German Foreign Office</a> ·
     Safety notes: Global Affairs Canada ·
     Flights: <a href="https://www.aviasales.com" target="_blank" rel="noopener" title="Cheapest round-trip fares Aviasales has seen from real searches in roughly the last 90 days, aggregated by destination country — cached, not live prices. Accessed via the Travelpayouts API.">Aviasales</a> (cached fares) ·
-    Photos: <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia</a> ·
+    Photos: <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia Commons</a> (credited per photo) ·
     Visas: <a href="https://github.com/ilyankou/passport-index-dataset" target="_blank" rel="noopener">Passport Index</a> &amp; <a href="https://travel.state.gov" target="_blank" rel="noopener">US State Dept</a> ·
     Popularity: <a href="https://data.worldbank.org/indicator/ST.INT.RCPT.CD" target="_blank" rel="noopener">UN Tourism / World Bank</a>.
     <br><a href="/data"><strong>Free dataset:</strong> cost of living by country (CSV &amp; JSON)</a>
