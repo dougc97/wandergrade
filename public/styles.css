@@ -11,6 +11,10 @@
   --chartgrid: #ececec;
   --border-input: #cccccc;
   --green: #0a7d28;
+  /* Background behind white text (filled buttons, badges). --green is tuned
+     as a TEXT colour and goes bright in dark mode, where white on it is 2.5:1;
+     the fill stays dark enough for white in both themes (5.28 / 5.25:1). */
+  --green-fill: #0a7d28;
   --green-bg: #e7f6ec;
   --amber: #8a6d00;
   --amber-bg: #fdf3d6;
@@ -146,7 +150,7 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .seasrow:last-child { border-bottom: none; }
 .seasrow .what { flex: 1; min-width: 160px; display: flex; align-items: baseline; gap: 9px; }
 .seasrow .months { color: var(--gray); font-size: 12px; }
-.inseason { background: var(--green); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
+.inseason { background: var(--green-fill); color: #fff; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
 .offseason { background: var(--softer); color: var(--gray); border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; }
 .visited-tag { background: #2a2a2a; color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; margin-left: 6px; }
 
@@ -224,6 +228,10 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
    break it across two lines inside the pill and stand the whole row up. */
 .lvl { display: inline-block; white-space: nowrap; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }
 .lvl1 { background: #0a7d28; } .lvl2 { background: #c9a200; } .lvl3 { background: #d4730a; } .lvl4 { background: #b00020; }
+/* Level 2/3 fills are too light for white (2.4 / 3.4:1); black is 8.7 / 6.3.
+   Covers the three badge families that share this palette — two classes
+   each, because .advbadge sets its white further down the file. */
+.lvl.lvl2, .lvl.lvl3, .advtag.a2, .advtag.a3, .advbadge.advlvl2, .advbadge.advlvl3 { color: #000; }
 
 header { padding-top: 28px; }
 /* whole masthead is one home link — text keeps its own colors */
@@ -257,7 +265,7 @@ button {
 }
 button:hover { border-color: #999; }
 #check { background: var(--ink); color: #fff; border-color: var(--ink); }
-#save { background: var(--green); color: #fff; border-color: var(--green); }
+#save { background: var(--green-fill); color: #fff; border-color: var(--green-fill); }
 
 .status {
   max-width: 1200px; margin: 14px auto 0;
@@ -408,7 +416,7 @@ tr.favorable { background: var(--green-bg); }
 .pos { color: var(--green); font-weight: 700; }
 .neg { color: var(--red); }
 .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-.pill.great { background: var(--green); color: #fff; }
+.pill.great { background: var(--green-fill); color: #fff; }
 .pill.good { background: var(--green-bg); color: var(--green); }
 .pill.average { background: var(--softer); color: var(--gray); }
 .pill.weak { background: #fdecef; color: var(--red); }
@@ -425,12 +433,17 @@ tr.favorable { background: var(--green-bg); }
   gap: 12px; flex-wrap: wrap; justify-content: center; }
 .subscribe .sublabel { font-size: 14px; font-weight: 600; }
 /* Newsletter modal opened by the small header "📬 Subscribe" button. */
-.submodal { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: center; justify-content: center;
+/* The overlay scrolls: a fixed box can't be scrolled by the page, so on a
+   landscape phone the guided picker's ✕ and submit button sat off-screen for
+   good. align-items:flex-start + the card's margin:auto centres it while it
+   fits and pins it to the top (not above it) once it doesn't. */
+.submodal { position: fixed; inset: 0; z-index: 9998; display: flex; align-items: flex-start; justify-content: center;
+  overflow-y: auto; overscroll-behavior: contain; padding: 16px 0;
   background: rgba(6,10,16,.7); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
   opacity: 0; transition: opacity .2s; }
 .submodal.show { opacity: 1; }
 .submodal-card { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-  padding: 24px; max-width: 440px; width: calc(100% - 40px); text-align: center;
+  padding: 24px; max-width: 440px; width: calc(100% - 40px); text-align: center; margin: auto;
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   box-shadow: 0 12px 44px rgba(0,0,0,.45); transform: translateY(8px) scale(.98); transition: transform .2s; }
 .submodal.show .submodal-card { transform: none; }
@@ -440,21 +453,26 @@ tr.favorable { background: var(--green-bg); }
   color: var(--gray); font-size: 17px; line-height: 1; cursor: pointer; padding: 4px; }
 .submodal-x:hover { color: var(--ink); }
 /* bulk-add modal: every country as a tap-to-toggle chip */
-.bulkcard { max-width: 660px; max-height: 82vh; }
+/* No max-height: the card had no overflow rule, so a cap only let its content
+   spill past the rounded edge. The chip list scrolls itself (46vh) and the
+   overlay scrolls the rest. */
+.bulkcard { max-width: 660px; }
 .bulksearch { width: 100%; max-width: 300px; padding: 7px 12px; border-radius: 8px;
   border: 1px solid var(--line); background: var(--soft); color: var(--ink); font: inherit;
   font-size: 13px; }
 .bulkchips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
   overflow-y: auto; max-height: 46vh; padding: 4px 2px; }
-.bulkchip { font-size: 12.5px; padding: 5px 10px; border-radius: 999px;
+/* `font: inherit` FIRST in these three: the shorthand resets every font
+   longhand, so written last it silently undid the size and weight above it. */
+.bulkchip { font: inherit; font-size: 12.5px; padding: 5px 10px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--soft); color: var(--ink);
-  cursor: pointer; font: inherit; line-height: 1.3; }
+  cursor: pointer; line-height: 1.3; }
 .bulkchip:hover { border-color: var(--green); }
-.bulkchip.on { background: var(--green); border-color: var(--green); color: #fff; font-weight: 700; }
+.bulkchip.on { background: var(--green-fill); border-color: var(--green-fill); color: #fff; font-weight: 700; }
 .bulkfoot { display: flex; align-items: center; justify-content: center; gap: 14px; width: 100%; }
 .bulkcount { font-size: 13px; color: var(--gray); }
-.bulkdone { padding: 7px 18px; border-radius: 8px; border: 1px solid var(--green);
-  background: var(--green); color: #fff; font-weight: 700; cursor: pointer; font: inherit; }
+.bulkdone { font: inherit; padding: 7px 18px; border-radius: 8px; border: 1px solid var(--green-fill);
+  background: var(--green-fill); color: #fff; font-weight: 700; cursor: pointer; }
 /* account modals: newsletter opt-in + cadence */
 .acctform { width: 100%; justify-content: center; flex-wrap: wrap; }
 /* flex-direction must be explicit: the global `label` rule stacks fields in a
@@ -476,10 +494,10 @@ tr.favorable { background: var(--green-bg); }
   border: 1px solid var(--line); background: var(--soft); color: var(--ink); font: inherit;
   font-size: 13px; }
 .bulkpaste-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.bulkmatch { padding: 5px 14px; border-radius: 8px; border: 1px solid var(--green);
-  background: none; color: var(--green); font-weight: 700; cursor: pointer; font: inherit;
+.bulkmatch { font: inherit; padding: 5px 14px; border-radius: 8px; border: 1px solid var(--green);
+  background: none; color: var(--green); font-weight: 700; cursor: pointer;
   font-size: 13px; }
-.bulkmatch:hover { background: var(--green); color: #fff; }
+.bulkmatch:hover { background: var(--green-fill); color: #fff; }
 .bulkmatch-out { font-size: 12.5px; color: var(--gray); }
 
 /* "Surprise me" spin-the-globe roulette overlay */
@@ -501,7 +519,7 @@ tr.favorable { background: var(--green-bg); }
 
 .subform { display: flex; gap: 8px; }
 .subform input { padding: 8px 10px; border: 1px solid var(--border-input); border-radius: 7px; font-size: 14px; min-width: 200px; }
-.subform button { background: var(--green); color: #fff; border: none; border-radius: 7px; padding: 8px 16px; font-size: 14px; cursor: pointer; }
+.subform button { background: var(--green-fill); color: #fff; border: none; border-radius: 7px; padding: 8px 16px; font-size: 14px; cursor: pointer; }
 
 footer { color: var(--gray); font-size: 12px; padding: 20px; text-align: center; }
 footer a { color: var(--gray); }
@@ -558,7 +576,6 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 
 /* ---- report-card grade table (Top Picks) ---- */
 .gradewrap { overflow-x: auto; margin: 14px 0 16px; }
-.gradewrap .gradetable { min-width: 620px; }
 .gradetable { width: 100%; border-collapse: collapse; }
 .gradetable th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em;
   color: var(--gray); text-align: center; padding: 6px 4px; white-space: nowrap; }
@@ -624,6 +641,13 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .grC  { background: #e8590c; }
 .grD  { background: #d9480f; }
 .grF  { background: #b00020; }
+/* Letter colour follows the fill's lightness, not the grade: white only
+   clears 4.5:1 on the darkest two (A+ 5.5, F 7.3). On the mid-tone fills it
+   was 2.4-4.3:1, so those take black (A 6.1, B+ 8.6, B 8.7, C 5.9, D 4.9 —
+   D is the tight one; nothing lighter than #000 passes on it). The fills stay
+   put, so the maps, legend and share image keep matching the pills. Same in
+   both themes: the pills carry their own background. */
+.grA, .grBp, .grB, .grC, .grD { color: #000; }
 .grx  { background: var(--soft); color: var(--gray); }
 /* The advisory's own words on the guide safety line. Quoted styling on
    purpose — it is the government speaking, not us. */
@@ -642,7 +666,7 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .wochips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
 .wochip { font-size: 11.5px; padding: 3px 9px; border: 1px solid var(--line);
   border-radius: 999px; color: var(--ink); cursor: help; position: relative; }
-.woreg { display: block; margin-top: 6px; font-size: 12px; color: #e0ab72; line-height: 1.45; }
+.woreg { display: block; margin-top: 6px; font-size: 12px; color: var(--amber); line-height: 1.45; }
 .hzmark { font-size: 12px; margin-left: 3px; cursor: help; }
 /* The hazard mark rides the pill's corner instead of sitting after it: inline, a
    narrow weather column breaks the line and that row alone grows a second line.
@@ -659,6 +683,12 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .pillwrap .fxmark[data-tip] { margin-left: 5px; }
 .pillwrap .advmv[data-tip] { margin-left: 4px; }
 .gradetable td.overall { white-space: nowrap; }
+/* Fare strip inside a picks-table row: mirrors the season strip beside it —
+   same calendar axis, same size, same "now" outline. Up here, above the
+   responsive overrides, on purpose: it used to sit below them and silently
+   beat the narrow-screen hide (same specificity, later in the file). */
+.rowfares { display: block; margin-top: 4px; text-align: center; }
+.rowfares .farestrip .fcell { width: 5px; height: 9px; border-radius: 1px; }
 
 /* visa pill (an <a> when an official link exists) */
 .visa { display: inline-block; border-radius: 7px; padding: 2px 8px; font-size: 12px;
@@ -718,18 +748,25 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .combo { position: relative; display: inline-block; }
 .combo-input { padding: 6px 10px; border: 1px solid var(--border-input); border-radius: 8px;
   background: var(--card); color: var(--ink); font-size: 14px; min-width: 130px; max-width: 220px; }
+/* The list is as wide as the combo (min-width:100%) and its options WRAP:
+   nowrap (set here, and inherited from .pickgroup) made it as wide as the
+   longest label ("BAM (Bosnia-Herzegovina Convertible Mark)", ~320px), which
+   from a right-hand combo ran off the screen — ~200px on a phone, 88px even
+   at 1280. Wrapping bounds it by the combo it hangs from, so it stays on the
+   screen the combo is on. */
 .combo-list { position: absolute; z-index: 60; top: 100%; left: 0; min-width: 100%;
   max-height: 280px; overflow-y: auto; margin: 3px 0 0; padding: 4px; list-style: none;
   background: var(--card); border: 1px solid var(--border-input); border-radius: 8px;
   box-shadow: 0 6px 18px rgba(0,0,0,.16); }
 .combo-list[hidden] { display: none; }
-.combo-opt { padding: 7px 10px; border-radius: 6px; font-size: 14px; white-space: nowrap; cursor: pointer; }
+.combo-opt { padding: 7px 10px; border-radius: 6px; font-size: 14px; cursor: pointer;
+  white-space: normal; overflow-wrap: break-word; }
 .combo-opt:hover, .combo-opt.active { background: var(--soft); }
 .combo-opt.muted { cursor: default; color: var(--gray); }
 
 /* "Plan with AI" export bar */
 .aibar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 4px; }
-.aibtn { background: var(--green); color: #fff; border: none; border-radius: 10px;
+.aibtn { background: var(--green-fill); color: #fff; border: none; border-radius: 10px;
   padding: 10px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
 .aibtn:hover { filter: brightness(1.06); }
 /* Sits beside the button and explains it. Capped so it wraps into a readable
@@ -890,13 +927,13 @@ html[data-tab="guide"] #tab-guide .cardwide { min-height: 100vh; }
 .besthead { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tempunit { display: inline-flex; border: 1px solid var(--border-input); border-radius: 8px; overflow: hidden; }
 .tempunit button { background: var(--card); border: none; padding: 5px 12px; font-size: 13px; font-weight: 600; color: var(--gray); cursor: pointer; }
-.tempunit button.active { background: var(--green); color: #fff; }
+.tempunit button.active { background: var(--green-fill); color: #fff; }
 /* Safety advisory badge in the guide (colored by level, like the advisory map). */
 .advbadge { display: inline-block; border-radius: 999px; padding: 3px 11px; font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; }
 .advlvl1 { background: #0a7d28; } .advlvl2 { background: #c9a200; }
 .advlvl3 { background: #d4730a; } .advlvl4 { background: #b00020; }
 /* "Surprise me" discovery button in the Top Picks header. */
-.surprisebtn { background: var(--green); color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; align-self: flex-start; }
+.surprisebtn { background: var(--green-fill); color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; align-self: flex-start; }
 .surprisebtn:hover { filter: brightness(1.08); }
 .hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
 
@@ -911,6 +948,10 @@ html[data-tab="guide"] #tab-guide .cardwide { min-height: 100vh; }
   border: 1px solid var(--line); background: var(--soft); color: var(--gray); }
 .factorchip.on { background: var(--green-bg); color: var(--green);
   border-color: var(--green); font-weight: 700; }
+/* The two chip groups wrap between chips. A .pickgroup is a no-wrap row, and
+   "Into" is ~680px of chips: from 561 to ~760 (the phone rule wraps below)
+   the open Filters fold pushed the whole page up to 117px sideways. */
+#interestChips, #factorChips { flex-wrap: wrap; }
 
 /* ---- dark theme ---- */
 html[data-theme="dark"] {
@@ -929,12 +970,43 @@ html[data-theme="dark"] {
   --ink: #e7eaed;
   --gray: #9aa4ad;
   --green: #3fb95f;
+  --green-fill: #1e7c3a;
   --green-bg: #14301d;
   --amber: #d4b94e;
   --amber-bg: #33290f;
   --red: #ff7a8a;
 }
 html[data-theme="dark"] { --doodle: 0.10; }
+/* No-JS fallback. The <head> script sets data-theme before first paint (stored
+   choice, else the OS), so with scripts on this never matches; it covers a
+   page whose scripts don't run, which otherwise ignored a dark OS entirely.
+   Tokens only — every per-element dark rule below targets JS-built UI.
+   Keep in step with the block above. */
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme]) {
+    color-scheme: dark;
+    --bg: #101316;
+    --card: #1a1f24;
+    --card2: #181d21;
+    --soft: #262c31;
+    --softer: #2c3338;
+    --tablehead: #21262b;
+    --mapbg: #161a1e;
+    --zebra: #1d2227;
+    --chartgrid: #2a3036;
+    --border-input: #3a4147;
+    --line: #2c3237;
+    --ink: #e7eaed;
+    --gray: #9aa4ad;
+    --green: #3fb95f;
+    --green-fill: #1e7c3a;
+    --green-bg: #14301d;
+    --amber: #d4b94e;
+    --amber-bg: #33290f;
+    --red: #ff7a8a;
+    --doodle: 0.10;
+  }
+}
 html[data-theme="dark"] .countrycard .ccfacts { color: var(--ink); }
 html[data-theme="dark"] .status.err { background: #3a151c; }
 html[data-theme="dark"] .chip2.rm:hover { background: #3a151c; }
@@ -962,17 +1034,17 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   background: var(--green-bg); color: var(--green); border: 1px solid var(--green); font-size: 13px; font-weight: 700; cursor: help; }
 .awardtag.locked { background: transparent; color: var(--gray); border-color: var(--line); }
 /* all 7 continents — gold, because Antarctica */
-.awardtag.seven { background: rgba(212,175,55,.12); color: #e8c34f; border-color: #b9962e; }
+.awardtag.seven { background: rgba(212,175,55,.12); color: var(--amber); border-color: #b9962e; }
 .vflags { margin-top: 9px; font-size: 22px; line-height: 1.5; letter-spacing: 2px; }
 /* per-continent progress chips; gold when a continent is 100% done */
 .contbar { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 6px; }
 .contchip { font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
   border: 1px solid var(--line); color: var(--gray); background: var(--soft); }
 .contchip:hover { border-color: var(--green); }
-.contchip.done { color: #e8c34f; border-color: #b9962e; background: rgba(212,175,55,.12); font-weight: 700; }
+.contchip.done { color: var(--amber); border-color: #b9962e; background: rgba(212,175,55,.12); font-weight: 700; }
 /* active continent filter */
 .contchip.active { color: var(--green); border-color: var(--green); background: var(--green-bg); font-weight: 700; }
-.contchip.done.active { color: #e8c34f; border-color: #e8c34f; }
+.contchip.done.active { color: var(--amber); border-color: var(--amber); }
 .contchip.clear { border-style: dashed; }
 
 /* ===========================================================================
@@ -1133,9 +1205,11 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   #tab-data .windowtoggle button { white-space: nowrap; font-size: 12px; padding: 5px 6px; }
   /* Refresh sat alone on a 34px row (its two neighbours are owner-only and hidden
      in public mode). With "Cost of living" short and Refresh down to its glyph,
-     the sub-tabs and Refresh share one row: 102px -> 55px. */
-  #tab-data > .bar { flex-wrap: nowrap; }
-  #tab-data > .bar .windowtoggle { min-width: 0; }
+     the sub-tabs and Refresh share one row: 102px -> 55px.
+     The bar keeps its base wrap: it used to be forced nowrap, and wherever the
+     row did not fit (below 375, where the short labels were off) Refresh
+     painted over Safety and Flights and took their taps. Now it drops to its
+     own row instead; the max-width:374 block below makes it fit at 360. */
   #tab-data > .bar .actions { flex-shrink: 0; }
   /* "As of…" and the currency picker each took a row for one line of text and one
      field. Side by side: 108px -> 76px. */
@@ -1144,6 +1218,11 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 140px; }
   #dataSubCurrency > .bar .pickgroup .combo { min-width: 0; flex: 1; }
   #dataSubCurrency > .bar .pickgroup .combo-input { width: 100%; min-width: 0; }
+  /* That picker is pinned to the right edge here, and ~100px wide: hang its
+     list from the right and let it be as wide as the screen allows, so the
+     long currency names read on one or two lines instead of five. */
+  #dataSubCurrency > .bar .combo-list { left: auto; right: 0; width: max-content;
+    max-width: calc(100vw - 40px); }
   /* Every filter bar goes to one row: the search field gives up its 220px floor
      and its partner (checkbox, level select) keeps its size.
      Qualified with #tab-data because the base `.filterbar { flex-wrap: wrap }`
@@ -1177,6 +1256,28 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   #affTable th, #affTable td { padding: 8px 6px; }
   #affTable td:first-child { max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #affTable td:nth-child(4) { white-space: nowrap; }
+  /* Flights had the same 560px pin and was the one table left pinned: Stops and
+     half of Cheapest sat past a 390px screen, so the max-width:640 diet (which
+     drops Flight time and Routes sampled for exactly this) bought nothing. */
+  #flightTable { min-width: 0; }
+  #flightTable th, #flightTable td { padding: 8px 6px; }
+}
+
+@media (max-width: 374px) {
+  /* The Data tab gets the short labels below 375 too ("Cost", "↻", no "My
+     currency", "Higher-risk (L3–4)"). The .lbl pair is otherwise 375-600 only,
+     because on Top Picks it is tied to the pickers going side by side — none of
+     that applies here, and the long labels are what shoved Safety and Flights
+     under Refresh at 360. With the tighter tabs the row fits 360 again. */
+  #tab-data .lbl-lg { display: none; }
+  #tab-data .lbl-sm { display: inline; }
+  #tab-data .windowtoggle { gap: 2px; }
+  #tab-data .windowtoggle button { padding: 5px 4px; }
+  /* Same story for the Top Picks budget row, which stays on one line below
+     640: with "💵 Budget" spelled out it was 348px in a 330px card at 360 and
+     pushed the page 3px sideways. The emoji alone is what 375+ already shows. */
+  .budgethero .lbl-lg { display: none; }
+  .budgethero .lbl-sm { display: inline; }
 }
 
 @media (prefers-reduced-motion: reduce) { .globe { animation: none; } }
@@ -1194,36 +1295,11 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   .pickersmain select, .pickersfilters select { max-width: 100%; }
   .gradetable td { padding: 8px 4px; }
   .gradetable td.dest { font-size: 14px; }
-  /* The destination cell is nowrap with no max-width, so a long country name
-     forces the whole table wider than its container and pushes Overall — the
-     verdict the table exists to deliver — off the right edge. Hidden Gems lost
-     55px to "North Macedonia"; Top Picks only escaped because the countries
-     ranking that day happened to be short, and North Macedonia was #1 in the full
-     ranking the same evening. Ellipsis makes it independent of who ranks. */
-  .gradetable td.dest { max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
-  /* Gems sits inside a .foldable, whose 14px side padding costs it 30px against
-     Top Picks — enough on its own to clip a column. */
+  /* Folds keep a little side padding on phones (Hidden gems drops even that —
+     see the ranking-table fit section at the end of the file). */
   .foldable { padding-left: 8px; padding-right: 8px; }
-  .gr { min-width: 22px; padding: 2px 5px; font-size: 12px; }
+  .gr { min-width: 22px; padding: 2px 4px; font-size: 12px; }
   .visa { padding: 2px 6px; font-size: 11px; }
-  /* The 600px pin put Weather, Flights and — worst — Overall past the right edge
-     of a 345px phone: 255px hidden, including the column the table is sorted by
-     and the verdict the whole product exists to give. Dropping the header words
-     to their emoji brings the table to 345 exactly, so every grade is on screen
-     with no sideways scroll. Full words need 511; "Afford/Safe/Wx/Fly" still
-     needs 390 — the emoji is the only thing that actually fits.
-     The words stay in the DOM, clipped, so screen readers still announce the
-     column rather than reading an emoji name. Overall keeps its word: it fits,
-     and it is the one users look for. */
-  .gradewrap .gradetable { min-width: 0; }
-  .gradetable th .thword {
-    position: absolute; width: 1px; height: 1px; overflow: hidden;
-    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
-  }
-  /* The row fare strip is 82px of non-wrapping min-content — it re-broke this
-     block's measured 345px fit and pushed Overall back off-screen. At this
-     width the strip is unreadable anyway; the fare story lives on the guide. */
-  .rowfares { display: none; }
 }
 
 /* The Filters summary is one long line at any phone width — including below 375,
@@ -1261,10 +1337,6 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   /* The verdict badge steps down with the viewport so the Overall column
      never forces the table wider than the phone. */
   .gr.big { min-width: 36px; font-size: 16px; padding: 4px 8px; }
-  /* 561-640 band: the desktop min-width pinned the table to 620px here, so
-     the Overall column — the verdict — started off the right edge. Let it
-     compress; the ≤560 block already does this further down. */
-  .gradewrap .gradetable { min-width: 0; }
   /* Fare-panel columns are ~27px here — "$1,167" cannot fit and a clipped
      price is worse than none. The header names cheapest and priciest, and
      each bar's tooltip keeps its exact price. */
@@ -1282,10 +1354,6 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .worow:hover { border-color: var(--green); color: var(--green); }
 .wodetail td { background: var(--card2); padding: 10px 14px 12px; }
 .wodetail .wochips { margin-top: 6px; }
-/* Fare strip inside a picks-table row: mirrors the season strip beside it —
-   same calendar axis, same size, same "now" outline. */
-.rowfares { display: block; margin-top: 4px; text-align: center; }
-.rowfares .farestrip .fcell { width: 5px; height: 9px; border-radius: 1px; }
 /* Guide fare bars: same colour law as everything (green = go), but visibly a
    DIFFERENT INSTRUMENT than the temperature chart above — its own inset panel
    and slimmer bars. Differentiation by module and silhouette, not by palette:
@@ -1341,7 +1409,7 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .gqpick button.active { border-color: var(--green); background: var(--green-bg);
   color: var(--green); font-weight: 700; }
 .gqgo { width: 100%; margin-top: 6px; font: inherit; font-weight: 800; font-size: 15px;
-  padding: 12px; border: 0; border-radius: 10px; background: var(--green); color: #fff;
+  padding: 12px; border: 0; border-radius: 10px; background: var(--green-fill); color: #fff;
   cursor: pointer; }
 
 /* Phones: the heading plus two buttons can't share a row at 390px, so the pair
@@ -1450,7 +1518,7 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line);
   border-radius: 10px; background: var(--soft); }
 .vsave button { font: inherit; font-weight: 700; font-size: 14px; padding: 8px 14px;
-  border: 0; border-radius: 8px; background: var(--green); color: #fff;
+  border: 0; border-radius: 8px; background: var(--green-fill); color: #fff;
   cursor: pointer; min-height: 24px; }
 .vsavenote { font-size: 13px; color: var(--gray); }
 
@@ -1515,7 +1583,7 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
 .trippeek button:hover { background: rgba(10,125,40,.12); }
 /* Count badge on the Trip tab, so the cart reads as filled from anywhere. */
 #tabs .tripcount { display: inline-block; min-width: 17px; padding: 0 5px; margin-left: 4px;
-  border-radius: 999px; background: var(--green); color: #fff; font-size: 11px;
+  border-radius: 999px; background: var(--green-fill); color: #fff; font-size: 11px;
   font-weight: 700; line-height: 17px; text-align: center; }
 /* Skeleton spacers for the two things added after it was last measured: the
    season strip and the coverage marker. Without these the reservation was
@@ -1540,3 +1608,91 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
    tipped element is a 5px strip cell — hovering Jan showed Feb's price.
    Strip cells get vertical grace only; horizontal stays exact. */
 .farestrip .fcell::after { inset: -4px 0 !important; }
+
+/* ---- ranking-table fit (Top Picks + Hidden gems) ----
+   Every grade column — Overall above all — on screen with no sideways scroll,
+   360px and up. The six non-destination columns have a content-fixed width
+   (pills, 12-cell strips, "#20", "A+ 100", a sort arrow), so the destination
+   cell is the one that gives: one line, capped at what the viewport leaves,
+   ellipsis. Each chip keeps its full text in data-tip.
+   Each cap is 100vw minus the card chrome, a desktop scrollbar and those six
+   columns at their widest — measured in Chrome and WebKit, with Jakarta and
+   the system-font fallback, against all 176 countries' cells. Gems sit in a
+   .foldable, 30px narrower. From 1180 the widest row fits as it is. */
+@media (max-width: 1179px) {
+  .gradetable td.dest { overflow: hidden; text-overflow: ellipsis;
+    max-width: calc(100vw - 580px); }
+  .foldable .gradetable td.dest { max-width: calc(100vw - 610px); }
+}
+@media (min-width: 601px) and (max-width: 1179px) {
+  /* Chips go inline (not inline-flex) here: an atomic chip that doesn't fit
+     is dropped whole by the ellipsis, which left "Argentina…" with no reason
+     at all. Inline, the cell's ellipsis cuts INTO the chip text instead, so the
+     first reason always shows as far as it fits. (From 601: at 600 and below
+     the chips are hidden outright.) */
+  .gradetable td.dest .seastag { display: inline;
+    /* See-through tint: the cell's "…" paints UNDER an opaque chip background,
+       which hid it and left the chip cut flat. At 7% the ellipsis shows and
+       the text stays >= 4.6:1 at rest in both themes. */
+    background: color-mix(in srgb, var(--green) 7%, transparent); }
+  .gradetable td.dest .seastag.seasmore { background: color-mix(in srgb, var(--gray) 10%, transparent); }
+}
+@media (max-width: 760px) {
+  /* Header words to their emoji: "💰 AFFORDABILITY" alone is 115px, and the
+     four words together cost the destination ~100px it can't spare below here.
+     The words stay in the DOM, clipped, so screen readers still announce the
+     column rather than an emoji name. Overall keeps its word — it fits, and
+     it is the one people look for. */
+  .gradetable th .thword {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .gradetable td.dest { max-width: calc(100vw - 460px); }
+  .foldable .gradetable td.dest { max-width: calc(100vw - 490px); }
+}
+@media (max-width: 640px) {
+  /* The row fare strip is 82px of non-wrapping min-content in a column whose
+     pill needs ~30 — the single widest thing in the row. Below 640 it can't be
+     afforded; the fare story lives on the guide. */
+  .rowfares { display: none; }
+  .gradetable td.dest { max-width: calc(100vw - 400px); }
+  .foldable .gradetable td.dest { max-width: calc(100vw - 430px); }
+}
+@media (max-width: 560px) {
+  /* Phones: 345px (330 at 360) for seven columns. The season strip (71px)
+     arrived after the old 345px fit was measured and broke it; at 3px cells it
+     is 47. The rest is trim: 3px cell padding, a smaller rank and verdict
+     badge, "OVERALL" at 10px. The destination keeps ~95px at 360-375 (140 at
+     414) — what the old 100px clamp promised, except now the row fits. */
+  .gradetable th, .gradetable td { padding-left: 3px; padding-right: 3px; }
+  .gradetable td.rank { width: auto; font-size: 11px; }
+  .gr.big { min-width: 0; font-size: 15px; padding: 4px 6px; }
+  .grnum { margin-left: 3px; font-size: 11px; }
+  .gradetable th.ovh { font-size: 10px; letter-spacing: 0; }
+  .seasonstrip .sc { width: 3px; }
+  .gradetable td.dest,
+  .foldable .gradetable td.dest { max-width: max(80px, calc(100vw - 278px)); }
+  /* Hidden gems gives up its side border and padding so its table gets the
+     same width as Top Picks — 18px it otherwise loses to the fold's box. */
+  #gemsBox { padding-left: 0; padding-right: 0; border-left: 0; border-right: 0;
+    border-radius: 0; }
+}
+@media (max-width: 374px) {
+  .gradetable th, .gradetable td { padding-left: 2px; padding-right: 2px; }
+  .gradetable td.dest { font-size: 13px; }
+  .gradetable td.dest,
+  .foldable .gradetable td.dest { max-width: max(80px, calc(100vw - 266px)); }
+}
+
+/* iOS Safari zooms the page when a focused field's text is under 16px, and
+   doesn't zoom back out — every picker here was 13-15px. Touch screens get
+   16px in every text field, select and combobox. :root + :is() lifts this to
+   (0,2,1) so it outranks the (0,1,1) rules that set the smaller sizes
+   (.pickersmain select, input[type=text], .acctcheck select, .tripdays input). */
+@media (pointer: coarse) {
+  :root :is(input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit]),
+    select, textarea) { font-size: 16px; }
+  /* The When/From pair was measured at 14px (97px and 120px boxes at 375);
+     at 16px "September" needs the 8px this padding gives back. */
+  .pickersmain .combo-input { padding-left: 6px; padding-right: 6px; }
+}

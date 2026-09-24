@@ -54,7 +54,14 @@
     // it here (CSS keys off data-trip) means renderTripBadge fills a box that
     // already exists instead of pushing the whole tab down after JS loads.
     try{if(JSON.parse(localStorage.getItem("fx_trip")||"[]").length)
-      document.documentElement.setAttribute("data-trip","1");}catch(e){}})();</script>
+      document.documentElement.setAttribute("data-trip","1");}catch(e){}
+    // Theme too, same rule as initTheme (stored toggle, else the OS). Left to
+    // app.js at the end of <body>, a dark-OS visitor saw the light page until
+    // it arrived (a second or more on a first visit). Storage can throw; the
+    // OS still decides then.
+    var th;try{th=localStorage.getItem("fx_theme");}catch(e){}
+    if(th!=="dark"&&th!=="light")th=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";
+    document.documentElement.setAttribute("data-theme",th);})();</script>
   {{JSONLD}}
   {{GC_JS}}
   {{ANALYTICS}}
