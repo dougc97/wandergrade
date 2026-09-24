@@ -69,6 +69,12 @@ ALIASES = {
     "laos": "LA", "syria": "SY", "vietnam": "VN", "brunei": "BN",
     "moldova": "MD", "tanzania": "TZ", "venezuela": "VE", "bolivia": "BO",
     "iran": "IR", "palestinian territories": "PS", "west bank": "PS",
+    # The feed publishes Gaza (Level 4) as its own row; unmatched, Palestine was
+    # left on the West Bank's Level 3 and ranked when the floor was "Any".
+    "gaza": "PS", "gaza strip": "PS",
+    # "Mainland China, Hong Kong & Macau - See Summaries" rows are matched by the
+    # slug of their link (china-travel-advisory.html) — see _us_advisories.
+    "mainland china": "CN",
     "micronesia": "FM", "trinidad and tobago": "TT", "saint lucia": "LC",
     "bahrain": "BH", "comoros": "KM", "solomon islands": "SB", "hong kong": "HK",
     "macau": "MO", "sao tome and principe": "ST", "maldives": "MV",
@@ -156,10 +162,12 @@ def get_advisories(source="us"):
 
     Where the home government publishes nothing, the other government fills in and
     the item is stamped with `via` so the UI can say whose call it is. This is not
-    tidiness: the US feed silently omits Israel, the West Bank and Gaza, and Brazil
-    (verified — 219 entries, A-Z, no Israel between Ireland and Italy), and an
+    tidiness: the US feed is unstable (it has dropped Israel, the West Bank, Gaza
+    and Brazil between fetches, and 213/209 items on consecutive days), and an
     unrated country used to be read as Level 2, so Palestine came out graded B and
-    recommendable. Germany rates it Level 4.
+    recommendable. Germany rates it Level 4. When the feed does publish Gaza
+    (Level 4) and the West Bank (Level 3) as separate rows, both map to PS and
+    the most cautious one is kept.
 
     Nothing is invented. A country neither government rates stays unrated, and
     valueScores() drops it from the picks rather than guess a level for it.
@@ -237,8 +245,7 @@ def _us_advisories():
     raw = _fetch_text(FEED)
     name_iso = _name_to_iso()
 
-    items = []
-    seen = set()
+    rows = []
     for block in re.findall(r"<item>(.*?)</item>", raw, re.S):
         title = _tag(block, "title")
         link = _tag(block, "link")
@@ -249,13 +256,33 @@ def _us_advisories():
             continue
         country = re.sub(r"\s*travel advisory\s*$", "", m.group(1).strip(), flags=re.I)
         key = _norm(country)
-        # Skip composite/placeholder rows and duplicate countries (the feed repeats some).
-        if not key or "see summaries" in key or key in seen:
+        if not key:
+            continue
+        # Composite rows ("Mainland China, Hong Kong & Macau - See Summaries -
+        # Level 2") are the ONLY China advisory the feed carries, so skipping them
+        # credited China's level to Canada. Their link slug says which place each
+        # one is (china-travel-advisory.html); they only fill places no
+        # single-country row covers.
+        composite = "see summaries" in _norm(title)
+        if composite:
+            slug = re.search(r"/([a-z-]+?)(?:-travel-advisory)?\d*\.html?$", link or "", re.I)
+            key = _norm(slug.group(1).replace("-", " ")) if slug else ""
+            if not key:
+                continue
+            country = key.title()
+        rows.append((composite, key, country, int(m.group(2)), link, block))
+
+    items = []
+    seen = set()
+    by_iso = {}
+    # Single-country rows first, so a composite never shadows one.
+    for composite, key, country, level, link, block in sorted(rows, key=lambda r: r[0]):
+        if key in seen:              # the feed repeats some countries
             continue
         seen.add(key)
-        level = int(m.group(2))
         iso = name_iso.get(key)
-        items.append({
+        desc = _tag(block, "description")
+        item = {
             "iso": iso,
             "country": country,
             "level": level,
@@ -265,13 +292,22 @@ def _us_advisories():
             # 1-4 is black and white; "conditions vary widely from state to
             # state" is the nuance a traveler actually needs, and quoting the
             # feed keeps us out of the business of authoring safety claims.
-            "summary": _summary(_tag(block, "description")),
+            "summary": _summary(desc, level, iso, name_iso),
             # The bookkeeping sentences _summary discards ("The advisory level
             # was decreased to 1") are exactly the change signal — captured
             # here with the item's publish date so the UI can show what moved.
-            "change": _change(_tag(block, "description")),
+            "change": _change(desc),
             "updated": _pubdate(_tag(block, "pubDate")),
-        })
+        }
+        if not iso:
+            items.append(item)
+            continue
+        # One row per country, most cautious wins (Gaza L4 over West Bank L3).
+        # Clients keep the last row per ISO, so a duplicate would silently let
+        # whichever sorted later decide.
+        if iso not in by_iso or level > by_iso[iso]["level"]:
+            by_iso[iso] = item
+    items.extend(by_iso.values())
 
     items.sort(key=lambda r: (-r["level"], r["country"]))
     return {"items": items, "count": len(items),
@@ -279,13 +315,44 @@ def _us_advisories():
             "source": "us", "source_name": SOURCES["us"], "source_url": US_URL}
 
 
-def _summary(desc):
+# The lead phrase each level opens with. A summary whose lead doesn't match the
+# row's own level is quoting a different advisory: Macau's item (Level 3) opens
+# with the shared China/Hong Kong text, so its tooltip read "Exercise increased
+# caution in Hong Kong..." — a lower level for a different place.
+LEVEL_LEAD = {1: r"exercise normal precaution", 2: r"exercise (increased|a high degree of) caution",
+              3: r"reconsider travel", 4: r"do not travel"}
+
+
+def _fold(text):
+    """Lower-case ASCII for loose name matching (Côte -> cote)."""
+    import unicodedata
+    t = unicodedata.normalize("NFKD", text or "").encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z]+", " ", t.lower()).strip()
+
+
+def _names(sentence, iso, name_iso):
+    """(names this row's place, names some OTHER mapped place) for the "where"
+    part of a lead sentence — the words before "due to"."""
+    where = " " + _fold(re.split(r"\bdue to\b", sentence, 1, flags=re.I)[0]) + " "
+    hits = [(nm, i) for nm, i in name_iso.items() if len(nm) >= 4 and " " + nm + " " in where]
+    # "guinea" inside "papua new guinea" is not a second place.
+    hits = [(nm, i) for nm, i in hits if not any(nm != o and nm in o for o, _ in hits)]
+    return any(i == iso for _, i in hits), any(i != iso for _, i in hits)
+
+
+def _summary(desc, level=None, iso=None, name_iso=None):
     """First two meaningful sentences of the advisory description, plain text.
     The description opens by restating the level ("Exercise increased caution
     in Mexico due to...") — that first sentence carries the WHY (due to
     terrorism, crime, and kidnapping), the next carries the flavor. Capped so
     a chatty advisory can't flood a guide page; the full text is one click
-    away on the linked page."""
+    away on the linked page.
+
+    With `level`/`iso`/`name_iso`, the lead must be this row's own: in order of
+    preference, this level's phrase naming this place; this level's phrase
+    naming no other place; any level's phrase naming only this place. Failing
+    all three, lead sentences are dropped and the plain sentences quoted, so a
+    summary never opens with another place's (or another level's) advisory."""
     if not desc:
         return ""
     text = re.sub(r"<!\[CDATA\[|\]\]>", "", desc)
@@ -308,13 +375,35 @@ def _summary(desc):
                         r"|always exercise caution when traveling"
                         r"|smart traveler enrollment|general tips to stay safe", re.I)
     keep = [p.strip() for p in parts if p.strip() and not BOILER.search(p)]
-    # Anchor on the canonical lead ("Exercise increased caution in X due to...",
-    # "Reconsider travel to X...") when present — everything before it is noise.
     LEAD = re.compile(r"^(exercise|reconsider|do not travel)", re.I)
+    # Headings glued onto the sentence that repeats them: "Level 3: Reconsider
+    # Travel to Macau SAR Reconsider travel to Macau SAR due to..." / "Summary: ..."
     for i, p in enumerate(keep):
-        if LEAD.match(p):
-            keep = keep[i:]
-            break
+        p = re.sub(r"^(level \d:\s*|(advisory )?su+m+ary:?\s*)", "", p, flags=re.I)
+        hits = list(re.finditer(r"\b(exercise|reconsider|do not travel)\b", p, re.I))
+        if len(hits) >= 2 and hits[0].start() == 0 and "due to" not in p[:hits[1].start()].lower():
+            p = p[hits[1].start():]
+        keep[i] = p
+    if level in LEVEL_LEAD and name_iso is not None:
+        own_lvl = re.compile("^" + LEVEL_LEAD[level], re.I)
+        tags = [(bool(LEAD.match(p)), bool(own_lvl.match(p))) + _names(p, iso, name_iso)
+                for p in keep]
+        pick = next((i for i, t in enumerate(tags) if t[1] and t[2] and not t[3]), None)
+        if pick is None:
+            pick = next((i for i, t in enumerate(tags) if t[1] and not t[3]), None)
+        if pick is None:
+            pick = next((i for i, t in enumerate(tags) if t[0] and t[2] and not t[3]), None)
+        if pick is not None:
+            keep = keep[pick:]
+        else:
+            keep = [p for p, t in zip(keep, tags) if not t[0]]
+    else:
+        # Anchor on the canonical lead ("Exercise increased caution in X due
+        # to...", "Reconsider travel to X...") — everything before it is noise.
+        for i, p in enumerate(keep):
+            if LEAD.match(p):
+                keep = keep[i:]
+                break
     # Some items open with the bare level phrase as a heading fragment
     # ("Exercise increased caution") glued to the real sentence that repeats
     # it — drop the fragment when the next sentence starts the same way.
@@ -365,8 +454,24 @@ def _tag(block, tag):
     return (cdata.group(1) if cdata else val).strip()
 
 
-def _fetch_text(url):
+def _fetch_text(url, retries=3):
+    """GET text with the same retry/backoff as rates.fetch_json. This was the one
+    unretried fetch in the monthly digest, so a single travel.state.gov blip
+    lost the month's issue."""
+    import time
+    import urllib.error
     import urllib.request
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 fx-tracker/1.0"})
-    with urllib.request.urlopen(req, timeout=rates.TIMEOUT, context=rates._SSL) as resp:
-        return resp.read().decode("utf-8", "replace")
+    last = None
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=rates.TIMEOUT, context=rates._SSL) as resp:
+                return resp.read().decode("utf-8", "replace")
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+            last = e
+            code = getattr(e, "code", None)
+            if code is not None and 400 <= code < 500:
+                raise
+            if attempt < retries - 1:
+                time.sleep(1.5 * (attempt + 1))
+    raise last
