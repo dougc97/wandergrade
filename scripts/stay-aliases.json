@@ -10,6 +10,27 @@
    "title": "Tara (Drina)"
   }
  },
+ "BD": {
+  "Sundarbans": {
+   "label": "Sundarbans",
+   "ll": [
+    22.47,
+    89.6
+   ]
+  }
+ },
+ "BI": {
+  "Kibira": {
+   "title": "Kibira National Park"
+  },
+  "Tanganyika": {
+   "label": "Lake Tanganyika",
+   "ll": [
+    -3.4,
+    29.35
+   ]
+  }
+ },
  "BN": {
   "Royal Regalia museum": {
    "title": "Royal Regalia Museum"
@@ -41,7 +62,15 @@
    "title": "Odzala-Kokoua National Park"
   }
  },
+ "CL": {
+  "Casablanca": {
+   "title": "Casablanca, Chile"
+  }
+ },
  "CO": {
+  "Salento": {
+   "title": "Salento, Quindío"
+  },
   "Tayrona": {
    "label": "Tayrona",
    "title": "Tayrona National Natural Park"
@@ -58,10 +87,26 @@
    "title": "Ibiza (city)"
   }
  },
+ "GT": {
+  "Antigua": {
+   "label": "Antigua",
+   "title": "Antigua Guatemala"
+  },
+  "Atitlán": {
+   "label": "Lake Atitlán",
+   "title": "Lake Atitlán"
+  }
+ },
  "GY": {
   "Rupununi": {
    "label": "Rupununi",
    "title": "Rupununi savannah"
+  }
+ },
+ "HT": {
+  "Northern Beaches": {
+   "label": "Cap-Haïtien",
+   "title": "Cap-Haïtien"
   }
  },
  "IL": {
@@ -117,6 +162,19 @@
    "title": "Curonian Spit"
   }
  },
+ "LU": {
+  "Moselle": {
+   "label": "Moselle",
+   "title": "Remich"
+  },
+  "Mullerthal": {
+   "label": "Mullerthal",
+   "ll": [
+    49.79,
+    6.3
+   ]
+  }
+ },
  "LY": {
   "Acacus": {
    "title": "Acacus Mountains"
@@ -138,6 +196,12 @@
    "title": "Mavrovo National Park"
   }
  },
+ "ML": {
+  "Niger River": {
+   "label": "Mopti",
+   "title": "Mopti"
+  }
+ },
  "MM": {
   "Inle": {
    "title": "Inle Lake"
@@ -155,9 +219,25 @@
    "title": "Pamplemousses District"
   }
  },
+ "MY": {
+  "Borneo": {
+   "label": "Borneo",
+   "title": "Kota Kinabalu"
+  }
+ },
+ "NI": {
+  "Granada": {
+   "title": "Granada, Nicaragua"
+  }
+ },
  "OM": {
   "Ras al Jinz": {
    "title": "Ras al-Jinz"
+  }
+ },
+ "PA": {
+  "Casco Viejo": {
+   "title": "Casco Viejo, Panama"
   }
  },
  "PG": {
@@ -186,9 +266,24 @@
    "title": "Tara (mountain)"
   }
  },
+ "RW": {
+  "Lake Kivu": {
+   "label": "Lake Kivu",
+   "title": "Gisenyi"
+  }
+ },
  "SE": {
   "Archipelago islands": {
    "title": "Stockholm Archipelago"
+  }
+ },
+ "SL": {
+  "Tokeh": {
+   "label": "Tokeh",
+   "ll": [
+    8.355,
+    -13.205
+   ]
   }
  },
  "SS": {
@@ -212,6 +307,13 @@
  "TJ": {
   "Pamir Highway road trip": {
    "title": "Pamir Highway"
+  },
+  "Wakhan": {
+   "label": "Wakhan",
+   "ll": [
+    36.727,
+    71.612
+   ]
   }
  },
  "TM": {
@@ -241,6 +343,10 @@
   "Canaima": {
    "label": "Canaima",
    "title": "Canaima National Park"
+  },
+  "Roraima": {
+   "label": "Roraima",
+   "title": "Mount Roraima"
   }
  },
  "XK": {
@@ -249,6 +355,13 @@
   }
  },
  "ZM": {
+  "Devil's Pool": {
+   "label": "Devil's Pool",
+   "ll": [
+    -17.924,
+    25.855
+   ]
+  },
   "Lower Zambezi": {
    "title": "Lower Zambezi National Park"
   }
