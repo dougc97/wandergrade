@@ -20,6 +20,7 @@ Storage: Upstash Redis (REST). Keys, all short-lived except the user record:
                                              subscribed, created, updated}
     rl:<bucket>   -> counter        TTL 1 h, throttles link requests
     rl:day:<date> -> counter        TTL 2 days, caps links mailed per UTC day
+    migr:bd-optouts:{done,lock}     one-off Buttondown reconciliation (below)
 Mail: Resend (REST).
 
 Env:
@@ -416,7 +417,11 @@ def _sync_newsletter(email, user, was_subscribed=False):
     out marks it unsubscribed there, or the next issue would still arrive.
     Only a change away from subscribed unsubscribes — an account that never
     opted in here may still be on the list through the site's public form,
-    and not ticking a box at sign-in is not an opt-out of that.
+    and not ticking a box at sign-in is not an opt-out of that. Nothing but
+    set_prefs (the /api/auth/prefs call) reaches this: signing in, the map
+    sync and signing out never touch the list, and the sign-in form sends
+    prefs only when its box is ticked, so the account panel is the one place
+    an opt-out comes from.
 
     Best-effort: a newsletter hiccup must never break sign-in or the prefs
     save, so failures are logged, not raised.
@@ -437,3 +442,118 @@ def _sync_newsletter(email, user, was_subscribed=False):
                         {"type": "unsubscribed"})
     except Exception as e:
         print("[accounts] buttondown sync failed: %s" % e, flush=True)
+
+
+# ---- one-off: opt-outs from before they reached Buttondown -------------------
+# Until 2026-09 an account's "No emails" only flipped the stored flag, so an
+# account that opted out stayed on the Buttondown list and still got every
+# issue. reconcile_optouts() walks the stored accounts once after deploy and
+# unsubscribes those addresses — but only subscribers the account flow itself
+# created, which carry its cadence-* tag. The public form adds no tags, and the
+# old account code never tagged an address that was already on the list, so an
+# address that joined through the form is never touched: the account never had
+# a say over it. Safe to re-run: an address already unsubscribed is skipped.
+RECONCILE_DONE = "migr:bd-optouts:done"   # set after a clean pass; never expires
+RECONCILE_LOCK = "migr:bd-optouts:lock"
+RECONCILE_LOCK_TTL = 3600
+RECONCILE_PAUSE = 1.0    # seconds after each Buttondown call: far under its rate limit
+RECONCILE_SCAN = 200     # keys per SCAN page
+
+
+def _mask(email):
+    """a***@example.com: enough to follow a log line, not to harvest one."""
+    local, _, domain = email.partition("@")
+    return local[:1] + "***@" + domain
+
+
+def _bd_subscriber(email, key):
+    """(HTTP status, subscriber dict or None) for one address in Buttondown."""
+    req = urllib.request.Request(
+        _BD_API + "/" + urllib.parse.quote(email, safe="@"),
+        headers={"Authorization": "Token " + key, "User-Agent": _UA})
+    try:
+        with urllib.request.urlopen(req, timeout=10, context=rates._SSL) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        return e.code, None
+
+
+def reconcile_optouts(delay=60, pause=RECONCILE_PAUSE, backoff=60):
+    """Unsubscribe, in Buttondown, accounts that opted out before opt-outs
+    reached it. Runs on a background thread at server start; a no-op without
+    the Buttondown and Upstash keys, once a clean pass has set RECONCILE_DONE,
+    or while another instance (a deploy overlap) holds the lock. A pass with
+    any error sets no marker, so a later start tries again once the lock
+    expires. Returns the pass's stats, or None when it didn't run."""
+    key = _env("BUTTONDOWN_API_KEY")
+    if not key or not (_env("UPSTASH_REDIS_REST_URL") and _env("UPSTASH_REDIS_REST_TOKEN")):
+        return None
+    time.sleep(delay)        # let a cold start answer its first visitors first
+    try:
+        if _kv_get(RECONCILE_DONE):
+            return None
+        if not _redis("SET", RECONCILE_LOCK, int(time.time()), "EX", RECONCILE_LOCK_TTL, "NX"):
+            return None
+    except Exception as e:
+        print("[accounts] reconcile: storage unavailable (%s); skipped" % e, flush=True)
+        return None
+    stats = {"accounts": 0, "looked_up": 0, "unsubscribed": 0, "errors": 0}
+    print("[accounts] reconcile: checking opted-out accounts against Buttondown", flush=True)
+    try:
+        cursor = "0"
+        while True:
+            cursor, keys = _redis("SCAN", cursor, "MATCH", "user:*", "COUNT", RECONCILE_SCAN)
+            for k in keys or []:
+                stats["accounts"] += 1
+                email = k[len("user:"):]
+                user = get_user(email)
+                if not user or _wants_mail(user):
+                    continue
+                stats["looked_up"] += 1
+                status, sub = _bd_subscriber(email, key)
+                time.sleep(pause)
+                if status == 429:                    # one polite retry, then move on
+                    time.sleep(backoff)
+                    status, sub = _bd_subscriber(email, key)
+                    time.sleep(pause)
+                if status == 404:                    # not on the list: nothing to undo
+                    continue
+                if status != 200 or not isinstance(sub, dict):
+                    print("[accounts] reconcile: lookup of %s -> HTTP %s"
+                          % (_mask(email), status), flush=True)
+                    if status in (401, 403):         # bad key: every call would fail
+                        raise RuntimeError("Buttondown refused the API key")
+                    stats["errors"] += 1
+                    continue
+                tags = sub.get("tags") or []
+                if sub.get("type") != "regular" or not any(
+                        isinstance(t, str) and t.startswith("cadence-") for t in tags):
+                    continue
+                # Re-read: someone opting back in during the pass wins.
+                if _wants_mail(get_user(email) or {}):
+                    continue
+                code = _buttondown("PATCH", _BD_API + "/" + urllib.parse.quote(email, safe="@"),
+                                   key, {"type": "unsubscribed"})
+                time.sleep(pause)
+                if 200 <= code < 300:
+                    stats["unsubscribed"] += 1
+                    print("[accounts] reconcile: unsubscribed %s (account had opted out)"
+                          % _mask(email), flush=True)
+                else:
+                    stats["errors"] += 1
+            if str(cursor) == "0":
+                break
+    except Exception as e:
+        stats["errors"] += 1
+        print("[accounts] reconcile stopped: %s" % e, flush=True)
+    try:
+        if stats["errors"]:
+            print("[accounts] reconcile: %s; not marked done, a later start retries" % stats,
+                  flush=True)
+        else:
+            _kv_set(RECONCILE_DONE, json.dumps(dict(stats, at=int(time.time()))))
+            _kv_del(RECONCILE_LOCK)
+            print("[accounts] reconcile done: %s" % stats, flush=True)
+    except Exception as e:
+        print("[accounts] reconcile: couldn't record the result (%s)" % e, flush=True)
+    return stats
