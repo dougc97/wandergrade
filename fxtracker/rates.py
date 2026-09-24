@@ -32,6 +32,8 @@ NON_FIAT = {
     "XAU", "XAG", "XPT", "XPD", "XDR", "CLF",
     # defunct / redenominated / duplicate codes
     "BYR", "LTL", "LVL", "HRK", "ZMK", "MRO", "STD", "VEF", "SVC", "ZWL",
+    # Bulgaria joined the euro on 2026-01-01; the provider's lev quote froze at 1.665
+    "BGN",
 }
 
 # Stable, liquid basket for the headline "overall USD strength" index. Using all
@@ -109,7 +111,42 @@ def get_timeseries(start, end):
     url = "{0}/timeseries?start_date={1}&end_date={2}&base={3}".format(
         API, start, end, BASE)
     rates = fetch_json(url)["rates"]
-    return {_day(k): v for k, v in rates.items()}
+    return _undo_redenominations({_day(k): dict(v) for k, v in rates.items()})
+
+
+# A one-day move this large is a redenomination, not a market: the Syrian pound
+# dropped two zeros on 2026-01-07 (11059.6 -> 110.66 per USD), and averaging
+# both units into one year read as "-96.4%, weak" when the dollar had actually
+# strengthened ~10% in the new units.
+REDENOM_MIN_STEP = 20
+
+
+def _undo_redenominations(ts):
+    """Rescale history from before a redenomination into the current unit, in
+    place. Only a step that is (close to) a power of ten between two levels that
+    each hold for several days counts, so a one-day glitch or a real crash is
+    left alone."""
+    import math
+    series = {}  # code -> [day, ...] with a usable rate, chronological
+    for d in sorted(ts):
+        for c, r in ts[d].items():
+            if r:
+                series.setdefault(c, []).append(d)
+    for c, days in series.items():
+        for i in range(1, len(days)):
+            prev, cur = ts[days[i - 1]][c], ts[days[i]][c]
+            ratio = prev / cur
+            if 1.0 / REDENOM_MIN_STEP < ratio < REDENOM_MIN_STEP:
+                continue
+            k = 10.0 ** round(math.log10(ratio))
+            if abs(ratio / k - 1) > 0.35:
+                continue
+            if any(not 0.5 < ts[d][c] / cur < 2 for d in days[i + 1:i + 6]) or \
+                    any(not 0.5 < ts[d][c] / prev < 2 for d in days[max(0, i - 6):i - 1]):
+                continue
+            for d in days[:i]:
+                ts[d][c] = ts[d][c] / k
+    return ts
 
 
 def _series_by_currency(timeseries):

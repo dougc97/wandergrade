@@ -19,15 +19,22 @@ from . import rates
 from .picks import CUR_BY_ISO
 from . import pricelevel
 
+# New columns go on the END so existing CSV consumers keep their positions.
 FIELDS = [
     "iso", "country", "currency", "price_level", "usd100_buys",
     "ppp_factor", "ppp_year", "gdp_per_capita_usd", "gdp_per_capita_year",
+    "ppp_unit", "inflation_pct", "inflation_year", "inflation_factor",
 ]
 
 NOTES = (
-    "price_level is the World Bank PPP conversion factor divided by the market "
-    "exchange rate at rates_as_of: 1.00 means prices match the US, 0.50 means "
-    "half. usd100_buys is 100 / price_level, i.e. the local purchasing power of "
+    "price_level is the World Bank PPP conversion factor, carried forward from "
+    "mid-ppp_year to rates_as_of by the gap between local and US inflation "
+    "(inflation_factor, from World Bank consumer-price inflation; 1 when no "
+    "current figure exists), divided by the market exchange rate at rates_as_of: "
+    "1.00 means prices match the US, 0.50 means half. ppp_unit is the currency "
+    "the PPP factor is quoted in when it differs from the one in circulation "
+    "(e.g. US dollars for West Bank & Gaza and Liberia). usd100_buys is "
+    "100 / price_level, i.e. the local purchasing power of "
     "US$100 in US dollars. These are national averages for residents; tourist "
     "areas and rent paid by foreigners run well above them. Countries whose "
     "exchange rate is a managed peg, or otherwise so far out of line with income "
@@ -50,13 +57,17 @@ def build(ppp):
         rows.append({
             "iso": iso,
             "country": p.get("name") or iso,
-            "currency": pricelevel.PPP_CUR.get(iso) or CUR_BY_ISO[iso],
+            "currency": CUR_BY_ISO[iso],
             "price_level": round(pl, 4),
             "usd100_buys": round(100.0 / pl, 2),
             "ppp_factor": p.get("ppp"),
             "ppp_year": p.get("year"),
             "gdp_per_capita_usd": p.get("gdppc"),
             "gdp_per_capita_year": p.get("gdppc_year"),
+            "ppp_unit": pricelevel.PPP_UNIT.get(iso) or CUR_BY_ISO[iso],
+            "inflation_pct": p.get("infl"),
+            "inflation_year": p.get("infl_year"),
+            "inflation_factor": round(pricelevel.carry_factor(iso, ppp), 4),
         })
     rows.sort(key=lambda r: r["price_level"])
     return {
@@ -68,6 +79,7 @@ def build(ppp):
             "countries": len(rows),
             "ppp_source": "World Bank PA.NUS.PPP (PPP conversion factor, GDP)",
             "income_source": "World Bank NY.GDP.PCAP.CD (GDP per capita, current US$)",
+            "inflation_source": "World Bank FP.CPI.TOTL.ZG (inflation, consumer prices, annual %)",
             "licence": "World Bank data under CC BY 4.0; derived figures free to reuse with attribution.",
             "notes": NOTES,
         },
