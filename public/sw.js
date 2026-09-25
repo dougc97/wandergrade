@@ -12,10 +12,10 @@
 //    cache only as the offline fallback. The server gives data files a short
 //    max-age on purpose; fetch() here still goes through the HTTP cache, so that
 //    window is honoured instead of serving whatever the previous visit saw.
-//  - Cross-origin (fonts, Wikimedia photos, flag CDN), /api/, Range requests
-//    and audio: untouched; the browser handles those.
-//  - Only complete 200 responses are ever stored — never an error page or a
-//    partial (206) body.
+//  - Cross-origin (fonts, Wikimedia photos, flag CDN), /api/, /auth/, Range
+//    requests and audio: untouched; the browser handles those.
+//  - Only complete 200 responses are ever stored — never an error page, a
+//    partial (206) body, or anything the server marked no-store.
 // Bump VER on breaking changes to wipe old entries.
 // v2: /api/ excluded from SW caching — old caches may hold personal
 // responses (auth/me, geo), so the bump wipes them on activate.
@@ -37,12 +37,19 @@ self.addEventListener("activate", (e) => {
     caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== PAGES && k !== ASSETS)
                                       .map((k) => caches.delete(k))))
+      // Earlier workers stored the /auth/verify confirm page, sign-in token
+      // and all; drop those without wiping every cached page.
+      .then(() => caches.open(PAGES))
+      .then(async (c) => Promise.all((await c.keys())
+        .filter((k) => new URL(k.url).pathname.startsWith("/auth/")).map((k) => c.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
-// A response worth keeping: a whole, successful, same-origin body.
-const storable = (r) => r && r.status === 200 && r.type === "basic";
+// A response worth keeping: a whole, successful, same-origin body the server
+// didn't mark no-store (the sign-in confirm page carries a one-time token).
+const storable = (r) => r && r.status === 200 && r.type === "basic"
+  && !/no-store/i.test(r.headers.get("Cache-Control") || "");
 
 // Oldest-first trim of the page cache; "/" is the offline shell, never evicted.
 async function trimPages(c) {
@@ -60,6 +67,9 @@ self.addEventListener("fetch", (e) => {
   // after sign-out — and /api/geo), and the rest carry their own freshness
   // rules; a cache layer that ignores Cache-Control has no business here.
   if (url.pathname.startsWith("/api/")) return;
+  // /auth/ (the emailed sign-in link's confirm page) holds a one-time token:
+  // never stored, and offline there is no stale copy worth serving.
+  if (url.pathname.startsWith("/auth/")) return;
   // Media streams by byte range; a cache holding the whole 200 body would
   // answer every Range request with the full file (iOS then refuses to play).
   if (req.headers.has("range") || /\.(mp3|m4a|ogg|wav|mp4|webm)$/i.test(url.pathname)) return;
