@@ -138,11 +138,14 @@ function rangeMarker(r) {
   const span = r.high - r.low;
   const pct = span > 0 ? ((r.rate_now - r.low) / span) * 100 : 50;
   const clamped = Math.max(0, Math.min(100, pct));
-  const meaning = clamped >= 66 ? "near its 1-year high — your money buys more than most of the past year"
-                : clamped <= 34 ? "near its 1-year low — your money buys less than most of the past year"
+  // Nominal rate: says where the rate sits, not what money buys — in a
+  // high-inflation country prices can outrun a currency that looks strong.
+  const meaning = clamped >= 66 ? "near its 1-year high — a stronger rate than most of the past year"
+                : clamped <= 34 ? "near its 1-year low — a weaker rate than most of the past year"
                 : "mid-range for the past year";
   const tip = `Today sits ${Math.round(clamped)}% up its 1-year range `
-            + `(low ${fmt(r.low)} · high ${fmt(r.high)}) — ${meaning}. Further right = your money goes further.`;
+            + `(low ${fmt(r.low)} · high ${fmt(r.high)}) — ${meaning}. Further right = your currency is stronger`
+            + ` (nominal rate, before inflation).`;
   return `<div class="range" title="${esc(tip)}"><span style="left:${clamped}%"></span></div>`;
 }
 
@@ -1147,7 +1150,13 @@ async function ensurePPP() {
   // on — as it just did for the income cross-check — that skew leaves returning
   // visitors running new code against day-old data, with the guard silently inert.
   // The stamp makes the two bust together without giving up the day of caching.
-  if (!ppp) ppp = await (await fetch(stamped("/ppp.json"))).json();
+  // An error body ({"error": "not found"} mid-deploy) is not the data: kept,
+  // it read as "no figures for any country" all session and never retried.
+  if (!ppp) {
+    const r = await fetch(stamped("/ppp.json"));
+    if (!r.ok) throw new Error("ppp.json " + r.status);
+    ppp = await r.json();
+  }
   return ppp;
 }
 function rateForCurrency(code) {
@@ -1166,6 +1175,12 @@ function rateForCurrency(code) {
 // Only the price level reads this — FX views keep the circulating currency.
 // Expect it to recur whenever a country redenominates or dollarises.
 const PPP_UNIT = { PS: ["USD", 1], LR: ["USD", 1], SL: ["SLL", 1000] };
+// England, Scotland and Wales have guides of their own but share the UK's
+// economy and border: the guide borrows the UK's currency, price level and visa
+// rules, labelled UK-wide. Guide-only — kept out of CUR_BY_ISO so they never
+// enter scoring, the maps or allPlaces().
+const GUIDE_PARENT = { "GB-ENG": "GB", "GB-SCT": "GB", "GB-WLS": "GB" };
+const parentWide = (p) => (p === "GB" ? "UK" : countryName(p)) + "-wide";
 
 // ---- inflation (World Bank CPI: ppp.json infl / infl_year) -------------------
 // A PPP factor is one year's prices and the FX baseline is last year's rate, so
@@ -1204,18 +1219,28 @@ function fxHomeIso() {
   const o = guidePassport();
   return CUR_BY_ISO[o] === homeBase ? o : (currencyCountry(homeBase) || o);
 }
+// The two inflation rates a real FX move rests on, and how honest each is.
+// stale: an iso (either end) with high inflation and no current figure — no
+// direction can be claimed, so the caller shows nominal and scores neutral.
+// stand: the home has no figure, so the US rate stands in (and the copy says
+// so — an Argentine home once read "Argentina ~3%/yr"). adj: the destination's
+// own rate was used; without it real == nominal and "after inflation" is empty.
+function fxInflBasis(iso, homeIso) {
+  const hIso = homeIso || fxHomeIso();
+  if (highInflUnknown(hIso)) return { hIso, stale: hIso };
+  if (highInflUnknown(iso)) return { hIso, stale: iso };
+  const rH = inflRate(hIso), rL = inflRate(iso);
+  const rB = rH ?? inflUS();
+  return { hIso, rB, rL: rL ?? rB, adj: rL != null, stand: rH == null && hIso !== "US" };
+}
 // Nominal strength_pct (now vs the 1-yr average) -> real: minus half a year of
 // the inflation gap (0.5 = mean age of the samples in a 364-day average).
-// Null = high local inflation with no current figure.
+// Null = high inflation at either end with no current figure.
 function realFxPct(iso, nomPct, homeIso) {
   if (typeof nomPct !== "number") return null;
-  const rB = inflRate(homeIso || fxHomeIso()) ?? inflUS();
-  let rL = inflRate(iso);
-  if (rL == null) {
-    if (highInflUnknown(iso)) return null;
-    rL = rB;                                  // low / unknown: nominal ~ real
-  }
-  return Math.round(((1 + nomPct / 100) * Math.pow((1 + rB) / (1 + rL), 0.5) - 1) * 10000) / 100;
+  const b = fxInflBasis(iso, homeIso);
+  if (b.stale) return null;
+  return Math.round(((1 + nomPct / 100) * Math.pow((1 + b.rB) / (1 + b.rL), 0.5) - 1) * 10000) / 100;
 }
 // FX facts for a destination in the home-currency dataset, or null when there
 // is no FX story (same currency, or not loaded yet).
@@ -1230,16 +1255,21 @@ function fxInfo(iso) {
   const row = rows.find((r) => r.code === code);
   if (!row || typeof row.strength_pct !== "number") return null;
   const homeIso = fxHomeIso();
-  return { code, nom: row.strength_pct, real: realFxPct(iso, row.strength_pct, homeIso), homeIso };
+  const real = realFxPct(iso, row.strength_pct, homeIso);
+  return { code, nom: row.strength_pct, real, homeIso,
+           adj: real != null && !!fxInflBasis(iso, homeIso).adj };
 }
-// "Türkiye ~35%/yr vs the US ~3%/yr" for the ⓘ copy ("" if unknown).
+// "Türkiye ~35%/yr vs the US ~3%/yr" for the ⓘ copy ("" when the destination
+// has no figure, i.e. nothing was adjusted). A home without a figure is shown
+// as what was really used: the US rate, named as a stand-in.
 function inflGapText(iso, homeIso) {
-  const rL = inflRate(iso);
-  if (rL == null) return "";
-  const rB = inflRate(homeIso) ?? inflUS();
+  const b = fxInflBasis(iso, homeIso);
+  if (b.stale || !b.adj) return "";
   const nm = (i) => (i === "US" ? "the US" : countryName(i));
   const pc = (r) => "~" + Math.round(r * 100) + "%/yr";
-  return nm(iso) + " " + pc(rL) + " vs " + nm(homeIso) + " " + pc(rB);
+  return nm(iso) + " " + pc(b.rL) + " vs "
+    + (b.stand ? "the US " + pc(b.rB) + ", used as a stand-in for " + countryName(b.hIso)
+               : nm(b.hIso) + " " + pc(b.rB));
 }
 
 // Price level = a PPP factor measured in year Y, divided by TODAY's exchange
@@ -1266,7 +1296,9 @@ function pppDrift(iso) {
   const pct = real == null ? nom : real;
   if (pct < PPP_DRIFT_WARN) return null;
   const year = ppp && ppp[iso] && ppp[iso].year;
-  return { pct, year, code, real: real != null };
+  // "even after inflation" only when a local figure was netted out; without
+  // one, real is just the nominal move under another name.
+  return { pct, year, code, real: real != null && !!fxInflBasis(iso, "US").adj };
 }
 function pppDriftNote(iso) {
   const d = pppDrift(iso);
@@ -1659,7 +1691,9 @@ async function renderGuideFx(iso) {
   if (!host) return;
   host.hidden = true;
   host.innerHTML = "";
-  const dest = CUR_BY_ISO[iso];
+  // Home nations borrow the UK's pound and inflation figure (GUIDE_PARENT).
+  const fxIso = GUIDE_PARENT[iso] || iso;
+  const dest = CUR_BY_ISO[fxIso];
   const base = homeBase || "USD";
   // Same currency both ends (an American in Ecuador) = no FX story to tell.
   if (!dest || dest === base) return;
@@ -1687,10 +1721,13 @@ async function renderGuideFx(iso) {
       months = months.slice(1);
   }
   const homeIso = fxHomeIso();
-  const real = ppp ? realFxPct(iso, t.pct, homeIso) : null;
+  // ppp.json failed to load: no inflation figures for ANY country, which is not
+  // the same as this country's being out of date — plain move, no verdict.
+  const noInfl = !ppp;
+  const b = noInfl ? null : fxInflBasis(fxIso, homeIso);
+  const real = noInfl ? null : realFxPct(fxIso, t.pct, homeIso);
   const nominal = real == null;              // high inflation, no current figure
-  const rB = inflRate(homeIso) ?? inflUS(), rL0 = inflRate(iso);
-  const g = rL0 == null || nominal ? 1 : (1 + rL0) / (1 + rB);
+  const g = nominal ? 1 : (1 + b.rL) / (1 + b.rB);
   // Each month in today's prices: v * g^(age in years of the month's midpoint).
   const age = (m) => Math.max(0, (asOf - Date.UTC(+m.slice(0, 4), +m.slice(5, 7) - 1, 15)) / (365.25 * 864e5));
   const pts = months.map((m) => m.v * Math.pow(g, age(m.m)));
@@ -1706,19 +1743,22 @@ async function renderGuideFx(iso) {
   const verdict = pct >= 2 ? "further than usual" : pct <= -2 ? "less far than usual" : "about typical";
   const mLabel = (m) => MON_ABBR[parseInt(m.slice(5), 10) - 1] + " '" + m.slice(2, 4);
   const cn = countryName(iso);
-  const gap = inflGapText(iso, homeIso);
-  const tip = (nominal
-      ? `Nominal — ${cn}'s inflation data isn't current, so we can't say whether your money goes further. `
+  const gap = inflGapText(fxIso, homeIso);
+  const tip = (fxIso !== iso ? `${cn} uses ${dest}, so these are ${parentWide(fxIso)} figures. ` : "") + (noInfl
+      ? "Inflation figures didn't load, so this is the plain exchange-rate move — in high-inflation"
+        + " countries prices can rise faster than the currency falls. "
+      : nominal
+      ? `Nominal — ${countryName(b.stale)}'s inflation data isn't current, so we can't say whether your money goes further. `
       : gap ? `After inflation: the exchange-rate move minus the inflation gap (${gap}, World Bank)`
           + (Math.abs(t.pct - pct) >= 0.1 ? `; the plain rate moved ${t.pct > 0 ? "+" : ""}${t.pct}%` : "") + ". "
-        : `No current inflation figure for ${cn}, so this is the plain exchange-rate move. `)
+        : `No current inflation figure for ${countryName(fxIso)}, so this is the plain exchange-rate move. `)
     + `Monthly averages of the daily ${base}→${dest} rate, ${mLabel(months[0].m)} to ${mLabel(months[months.length - 1].m)}`
     + (nominal || !gap ? "" : ", in today's prices")
     + ". Higher = your money buys more. Backward-looking on purpose: exchange rates aren't seasonal, "
     + "so this says whether now is favourable — not which month to pick.";
   host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b> · past 12 months: `
     + `<b style="color:${col}">${pct > 0 ? "+" : ""}${pct}%</b> vs its 1-yr average`
-    + ` <span class="muted">(${nominal ? "nominal — inflation data isn't current" : "goes " + verdict})</span>`
+    + ` <span class="muted">(${noInfl ? "exchange rate only" : nominal ? "nominal — inflation data isn't current" : "goes " + verdict})</span>`
     + `<span class="fxinfo" data-tip="${esc(tip)}" title="">ⓘ</span></span>`
     + `<svg class="fxspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
     + `<line x1="${P}" y1="${y(avg).toFixed(1)}" x2="${W - P}" y2="${y(avg).toFixed(1)}" class="fxavg"/>`
@@ -1762,7 +1802,10 @@ function stayDates() {
 // (/search?search_keywords=) 404s for every query, and the stay spots are
 // landmarks ("Mount Fuji"), not Hostelworld cities, so link the country. Slugs
 // from Hostelworld's sitemap, sample-checked 200 in 2026-09 (England stands in
-// for the UK; DR Congo, Congo, Falklands and South Sudan have no page).
+// for the UK; DR Congo, Congo, Falklands and South Sudan have no page). The
+// newer guides' slugs were each checked 200 with a desktop UA: England,
+// Scotland and Wales have their own pages, and Hostelworld files Guernsey,
+// Jersey and the Isle of Man under England.
 // Anything unlisted gets the homepage rather than a guessed URL.
 const HW_COUNTRY = (() => {
   const m = {};
@@ -1777,14 +1820,15 @@ const HW_COUNTRY = (() => {
     "IT:italy LI:liechtenstein LT:lithuania LU:luxembourg LV:latvia MD:moldova " +
     "ME:montenegro MK:north-macedonia MT:malta NL:netherlands NO:norway PL:poland " +
     "PT:portugal RO:romania RS:serbia RU:russia SE:sweden SI:slovenia SK:slovakia " +
-    "TR:turkey UA:ukraine XK:kosovo");
+    "TR:turkey UA:ukraine XK:kosovo GB-ENG:england GB-SCT:scotland GB-WLS:wales " +
+    "FO:faroe-islands GG:england/guernsey JE:england/jersey IM:england/isle-of-man");
   add("asia", "AE:united-arab-emirates AF:afghanistan AZ:azerbaijan BD:bangladesh BN:brunei " +
     "BT:bhutan CN:china HK:hong-kong-china ID:indonesia IL:israel IN:india IQ:iraq " +
     "IR:iran JO:jordan JP:japan KG:kyrgyzstan KH:cambodia KP:north-korea KR:south-korea " +
     "KW:kuwait KZ:kazakhstan LA:laos LB:lebanon LK:sri-lanka MM:myanmar MN:mongolia " +
     "MV:maldives MY:malaysia NP:nepal OM:oman PH:philippines PK:pakistan PS:palestine " +
     "QA:qatar SA:saudi-arabia SG:singapore SY:syria TH:thailand TJ:tajikistan " +
-    "TM:turkmenistan TW:taiwan-china UZ:uzbekistan VN:vietnam YE:yemen");
+    "TM:turkmenistan TW:taiwan-china UZ:uzbekistan VN:vietnam YE:yemen BH:bahrain");
   add("africa", "AO:angola BF:burkina-faso BI:burundi BJ:benin BW:botswana " +
     "CF:central-african-republic CI:cote-d-ivoire CM:cameroon CV:cape-verde DJ:djibouti " +
     "DZ:algeria EG:egypt EH:western-sahara ER:eritrea ET:ethiopia GA:gabon GH:ghana " +
@@ -1800,10 +1844,10 @@ const HW_COUNTRY = (() => {
     "VI:us-virgin-islands");
   add("south-america", "AR:argentina AW:aruba BO:bolivia BR:brazil CL:chile CO:colombia " +
     "EC:ecuador GY:guyana MQ:martinique PE:peru PR:puerto-rico PY:paraguay SR:suriname " +
-    "UY:uruguay VE:venezuela");
+    "UY:uruguay VE:venezuela CW:netherlands-antilles/curacao");
   add("oceania", "AU:australia CK:cook-islands FJ:fiji NC:new-caledonia NZ:new-zealand " +
     "PF:french-polynesia PG:papua-new-guinea SB:solomon-islands TL:east-timor VU:vanuatu " +
-    "WS:samoa");
+    "WS:samoa GU:guam");
   return m;
 })();
 function hostelworldURL(iso) {
@@ -1899,10 +1943,11 @@ function renderGuideVisa(iso) {
 // so readers know whose guidance it is — advisories are politically colored.
 const ADV_LABEL = { 1: "Level 1 · Normal precautions", 2: "Level 2 · Increased caution",
                     3: "Level 3 · Reconsider travel", 4: "Level 4 · Avoid travel" };
-// England, Scotland and Wales have guides of their own, but every government
-// we follow rates the United Kingdom as a whole. The guide shows the UK level
-// and says so; scoring never sees these ISOs, so nothing is ranked on it.
-const ADV_PARENT = { "GB-ENG": "GB", "GB-SCT": "GB", "GB-WLS": "GB" };
+// England, Scotland, Wales and the Crown Dependencies have guides of their own,
+// but every government we follow rates the United Kingdom as a whole (and the
+// Faroes under Denmark). The guide shows the parent's level and says so;
+// scoring never sees these ISOs, so nothing is ranked on it.
+const ADV_PARENT = { ...GUIDE_PARENT, GG: "GB", IM: "GB", JE: "GB", FO: "DK" };
 function renderGuideSafety(iso) {
   const host = $("guideSafety");
   if (!host) return;
@@ -2097,10 +2142,23 @@ function _plainText(html) {
   const t = (d.body.textContent || "").replace(/\s+/g, " ").trim();
   return t.length > 60 ? t.slice(0, 58).trim() + "…" : t;
 }
-async function loadPhotoCredits(photos) {
-  const want = [...new Set(photos.map((p) => p && p.file).filter((f) => f && _photoCredit[f] === undefined))];
-  if (!want.length) return;
-  want.forEach((f) => { _photoCredit[f] = null; });
+// file -> the in-flight batch asking for it. A caller wanting a file another
+// call is already fetching waits on THAT batch: resolving at once left a
+// lightbox opened mid-flight on the bare fallback credit until reopened.
+const _photoCreditP = {};
+function loadPhotoCredits(photos) {
+  const files = [...new Set(photos.map((p) => p && p.file).filter(Boolean))];
+  const want = files.filter((f) => _photoCredit[f] === undefined);
+  const waits = files.filter((f) => _photoCredit[f] === null && _photoCreditP[f]).map((f) => _photoCreditP[f]);
+  if (want.length) {
+    want.forEach((f) => { _photoCredit[f] = null; });
+    const batch = _fetchPhotoCredits(want).finally(() => want.forEach((f) => { delete _photoCreditP[f]; }));
+    want.forEach((f) => { _photoCreditP[f] = batch; });
+    waits.push(batch);
+  }
+  return Promise.all(waits).then(() => {});
+}
+async function _fetchPhotoCredits(want) {
   try {
     const titles = want.map((f) => "File:" + f.replace(/_/g, " "));
     const r = await fetch("https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*"
@@ -2539,6 +2597,11 @@ function advSrcName(short) {
   if (short) return ADV_SRC_SHORT[src] || "US State Dept";
   return (advisories && advisories.source_name) || ADV_SRC_SHORT[src] || "U.S. State Department";
 }
+// "the U.S. State Department", "the German Federal Foreign Office", but
+// "Global Affairs Canada": a proper name that takes no article.
+function advSrcArticle() {
+  return ((advisories && advisories.source) || advisorySource()) === "ca" ? "" : "the ";
+}
 // A gap the chosen government leaves is filled by another (server stamps `via`).
 function advViaShort(it) {
   return it && it.via ? ADV_SRC_SHORT[it.via] || it.via_name || "" : "";
@@ -2648,7 +2711,7 @@ function renderAdvisories() {
   // rows carrying one say whose.
   const filled = advisories.filled || 0;
   $("advSub").innerHTML =
-    `${advisories.count - filled} advisories from the <b>${esc(advSrcName())}</b>` +
+    `${advisories.count - filled} advisories from ${advSrcArticle()}<b>${esc(advSrcName())}</b>` +
     (filled ? `, plus ${filled} gaps filled by other governments (each row says whose)` : "") + ". " +
     `Green = safest (Level 1), red = avoid travel (Level 4). ` +
     `<span class="muted">Government advisories reflect each country's own foreign policy.</span>`;
@@ -3144,7 +3207,7 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
            // standing on less.
            wxMissing: !wxKnown,
            flyMissing: comps.fly == null,
-           pl, fx: fxReal };
+           pl, fx: fxReal, fxAdj: !!(fxi && fxi.adj) };
 }
 
 let valueMapMode = "score";
@@ -3747,9 +3810,11 @@ function buildTripAIPrompt() {
       }
       if (cl.best && cl.best.length) bits.push("best months " + cl.best.map((m) => MON_ABBR[m - 1]).join("/"));
     }
-    const pl = priceLevel(iso);
+    const plIso = GUIDE_PARENT[iso] || iso;       // England etc: the UK's figure
+    const pl = priceLevel(plIso);
     // Same direction as every other surface: purchasing power, bigger = cheaper.
-    if (pl) bits.push((A.home ? "your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / pl)) + " there");
+    if (pl) bits.push((A.home ? "your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / pl)) + " there"
+      + (plIso !== iso ? " (" + parentWide(plIso) + ")" : ""));
     const vi = visaInfo(iso, passport);
     if (vi && vi.meta) bits.push("visa: " + vi.meta.long);
     // Curated first-visit range. This is what lets the model refuse a cramped
@@ -3852,7 +3917,8 @@ function buildAIPrompt() {
       aff = ratio >= 1.12 ? `your money goes ~${ratio >= 1.75 ? (Math.round(ratio * 10) / 10) + "×" : Math.round((ratio - 1) * 100) + "%"} further than ${home === "home" ? "at home" : "in " + home}`
           : s.pl <= 1.1 ? `prices about the same as ${home}` : `pricier than ${home}`;
     }
-    if (s.fx != null && Math.abs(s.fx) >= 2) aff += ` (${homeBase} ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr avg, after inflation)`;
+    if (s.fx != null && Math.abs(s.fx) >= 2)
+      aff += ` (${homeBase} ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr avg${s.fxAdj ? ", after inflation" : ""})`;
     // Same shrunk ratio as the Flights pill, so the words can't disagree with it.
     const fl = (s.dealRatio != null && !s.fareEst)
       ? (s.dealRatio <= 0.95 ? "cheaper than usual for the distance"
@@ -3966,14 +4032,15 @@ function buildCountryAIPrompt(iso) {
   // Expressed against the traveller's own home prices, not the US, so it means
   // something to a reader who isn't American.
   const anchor = plAnchor(originIso());
-  const pl = priceLevel(iso);
+  const plIso = GUIDE_PARENT[iso] || iso;       // England etc: the UK's figure
+  const pl = priceLevel(plIso);
   if (pl) {
     const rel = pl / anchor.pl;
     // Phrased as a concrete comparison rather than "% of <origin> prices",
     // which reads badly for every origin name ("the US prices").
     lines.push("LOCAL PRICES: what costs 100 in " + (anchor.home ? originName : anchor.name) + " costs about "
-      + Math.round(100 * rel) + " here. National averages for residents; "
-      + "tourist areas and foreigner rent run well above this.");
+      + Math.round(100 * rel) + " here" + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "")
+      + ". National averages for residents; tourist areas and foreigner rent run well above this.");
   }
   try {
     const fc = buildFareContext();
@@ -4118,6 +4185,13 @@ const SAFE_GRADE = { 1: "A", 2: "B", 3: "D", 4: "F" };
 // Canada's or Germany's, and the pill names whose it is.
 const ADV_TEXT = { 1: "Level 1: normal precautions", 2: "Level 2: increased caution",
                    3: "Level 3: reconsider travel", 4: "Level 4: do not travel" };
+// " — per <source>", or which government filled the gap ("" without an iso).
+function advVia(iso) {
+  const meta = iso ? advisoryMetaByIso()[iso] : null;
+  return !meta ? ""
+    : meta.via ? ` — ${advSrcName(true)} publishes no advisory here; level per ${advViaShort(meta)}`
+    : ` — per ${advSrcName(true)}`;
+}
 // iso is optional: with it, a level filled in by the other government says so.
 function safetyPill(advLvl, iso) {
   // Unrated is its own answer, not a quiet B. Saying "treated as Level 2" in a
@@ -4125,11 +4199,7 @@ function safetyPill(advLvl, iso) {
   if (!advLvl) {
     return `<span class="gr grx" title="${esc("Not rated — none of the three governments we follow (US, Canada, Germany) publishes an advisory for this destination, so it isn't graded or ranked.")}">—</span>`;
   }
-  const meta = iso ? advisoryMetaByIso()[iso] : null;
-  const via = !meta ? ""
-    : meta.via ? ` — ${advSrcName(true)} publishes no advisory here; level per ${advViaShort(meta)}`
-    : ` — per ${advSrcName(true)}`;
-  return `<span class="gr ${gradeCls(SAFE_GRADE[advLvl])}" title="${esc(ADV_TEXT[advLvl] + via)}">${SAFE_GRADE[advLvl]}</span>`;
+  return `<span class="gr ${gradeCls(SAFE_GRADE[advLvl])}" title="${esc(ADV_TEXT[advLvl] + advVia(iso))}">${SAFE_GRADE[advLvl]}</span>`;
 }
 
 // ---- month-level hazards (curated in activities.json) -----------------------
@@ -4469,7 +4539,8 @@ function renderMapPicksOverlay(picks, month, hostId) {
 // Flights are different: every country with map geometry gets a fare — the
 // cached one, or a distance estimate scored as a neutral 70 (a typical fare for
 // the distance). Only the origin itself has none. So an estimate is flagged as
-// "estimated" rather than "missing", and the maths is unchanged.
+// "estimated" rather than "missing" — it IS averaged in, so the mark reads
+// "3+1" (measured + estimated), not "3/4", which claimed it was left out.
 //
 // The fix is not to change the average. It is to stop the row implying it knows
 // four things when it knows fewer.
@@ -4479,12 +4550,15 @@ function coverageMark(s) {
   if (s.wxMissing) missing.push("weather");
   const est = !s.flyMissing && s.fareEst;
   if (!missing.length && !est) return "";
-  const n = 4 - missing.length - (est ? 1 : 0);
-  const tip = "Graded on " + n + " of 4 measures"
+  const n = 4 - missing.length - (est ? 1 : 0);          // measured
+  const tip = (est ? "Graded on " + n + " measured + 1 estimated measure" : "Graded on " + n + " of 4 measures")
     + (missing.length ? " — no " + missing.join(" or ") + " data for this country" : "")
-    + (est ? (missing.length ? ", and" : " —") + " no cached fare, so flights count as a typical fare for the distance (an estimate)" : "")
-    + ". The score is the average of what we do know, so it is not directly comparable with a fully-measured country.";
-  return `<span class="covmark" data-tip="${esc(tip)}" title="">${n}/4</span>`;
+    + (est ? (missing.length ? ", and" : " —") + " no cached fare, so flights count as a typical fare"
+      + " for the distance (an estimate), averaged in with the rest" : "")
+    + (missing.length
+      ? ". The score is the average of the " + (n + (est ? 1 : 0)) + " it has, so it is not directly comparable with a fully-measured country."
+      : ". The estimate makes it less certain than a country with a real fare.");
+  return `<span class="covmark" data-tip="${esc(tip)}" title="">${est ? n + "+1" : n + "/4"}</span>`;
 }
 
 // ---- 12-month season strip --------------------------------------------------
@@ -4514,9 +4588,18 @@ function seasonStrip(iso, month) {
   // (climate.best: hand-curated for 35 countries, top weather months for the
   // rest). The bright cells are weather alone; a "Best: May–Aug" beside a
   // curated "Best in Apr, May, Sep, Oct" read as the site contradicting itself.
-  const best = (cl.best || []).filter((m) => m >= 1 && m <= 12).map((m) => MON_ABBR[m - 1]);
+  const bestM = (cl.best || []).filter((m) => m >= 1 && m <= 12);
+  const best = bestM.map((m) => MON_ABBR[m - 1]);
+  // The scarcity count is the bright (peak) cells. When those aren't the best
+  // months just listed (Brazil: best Apr/May/Sep/Oct, comfiest May–Aug), name
+  // them, or the reader takes the listed months for the comfy ones.
+  const peakM = seas.map((x, i) => (x === "peak" ? i + 1 : 0)).filter(Boolean);
+  const same = peakM.length === bestM.length && peakM.every((m) => bestM.includes(m));
   const tip = (best.length ? (cl.curated ? "Best months: " : "Best weather: ") + best.join(", ") + ". " : "")
-    + (scarce ? "Only " + good + (good === 1 ? " comfy month" : " comfy months") + " a year — a narrow window. " : "")
+    + (!scarce ? ""
+      : best.length && same ? "Only " + good + (good === 1 ? " comfy month" : " comfy months") + " a year — a narrow window. "
+      : "Comfiest weather only " + monthSpan(peakM) + " (" + good + (good === 1 ? " month" : " months")
+        + " a year) — a narrow window. ")
     + "Each block is a month, January to December; brighter is more comfortable weather.";
   // role=img + aria-label: the cells are color-only; the tip text is the
   // strip's meaning, so screen readers get the same sentence hover gets.
@@ -4596,12 +4679,18 @@ function fxMark(iso) {
   const pct = f && f.real;
   if (typeof pct !== "number" || Math.abs(pct) < FX_MARK_PCT) return "";
   const up = pct > 0;
-  const gap = inflGapText(iso, f.homeIso);
-  return `<span class="fxmark ${up ? "fxup" : "fxdn"}" data-tip="${esc("After inflation, your " + homeBase
-    + " buys " + Math.abs(Math.round(pct)) + "% " + (up ? "more" : "less")
-    + " in " + countryName(iso) + " than its 1-yr average — your money goes "
-    + (up ? "further" : "less far") + " there than usual right now."
-    + (gap ? " Exchange-rate move " + (f.nom >= 0 ? "+" : "") + f.nom + "%; inflation " + gap + " (World Bank)." : ""))}" title="">${
+  const cn = countryName(iso);
+  // Without a destination inflation figure nothing was netted out: state the
+  // exchange-rate move and say so, never "after inflation" / "goes further".
+  const tip = f.adj
+    ? "After inflation, your " + homeBase + " buys " + Math.abs(Math.round(pct)) + "% " + (up ? "more" : "less")
+      + " in " + cn + " than its 1-yr average — your money goes " + (up ? "further" : "less far")
+      + " there than usual right now. Exchange-rate move " + (f.nom >= 0 ? "+" : "") + f.nom
+      + "%; inflation " + inflGapText(iso, f.homeIso) + " (World Bank)."
+    : "Your " + homeBase + " is " + Math.abs(Math.round(pct)) + "% " + (up ? "stronger" : "weaker")
+      + " in " + cn + " than its 1-yr average. Exchange rate only — no inflation figure for " + cn
+      + ", so rising local prices aren't netted out.";
+  return `<span class="fxmark ${up ? "fxup" : "fxdn"}" data-tip="${esc(tip)}" title="">${
     up ? "+" : "−"}${Math.abs(Math.round(pct))}%</span>`;
 }
 // Safety: the advisory's latest move (180-day window) — an event mark, only a
@@ -4671,8 +4760,9 @@ function affordTitle(s) {
              : s.pl <= 1.1 ? `daily prices about the same as ${home}`
              : `daily prices ~${Math.round((s.pl - 1) * 100)}% pricier than ${home}`);
   }
+  // "after inflation" only when a destination figure was actually netted out.
   if (s.fx != null && Math.abs(s.fx) >= 1)
-    parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average, after inflation`);
+    parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average${s.fxAdj ? ", after inflation" : ""}`);
   // Repeatedly the sharpest critique this gets: PPP is a national consumption
   // basket, so it under-weights the one cost a visitor most feels — rent in the
   // few neighbourhoods foreigners actually stay in. Say so where the number is
@@ -4924,9 +5014,10 @@ function renderValue() {
   markSort("#valueTable", fullSort);
   $("valueRows").innerHTML = ranked.map((s) => {
     const vis = been.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
-    const adv = s.advLvl === 1 ? ' <span class="advtag a1" title="Level 1: Exercise Normal Precautions">L1</span>'
-              : s.advLvl === 2 ? ' <span class="advtag a2" title="Level 2: Exercise Increased Caution">L2</span>'
-              : s.advLvl === 3 ? ' <span class="advtag a3" title="Level 3: Reconsider Travel">L3</span>' : "";
+    // Generic level names + whose level it is: the State Dept's own phrases
+    // ("Exercise Increased Caution") credited US wording to Canada's or Germany's.
+    const adv = s.advLvl >= 1 && s.advLvl <= 3
+      ? ` <span class="advtag a${s.advLvl}" title="${esc(ADV_TEXT[s.advLvl] + advVia(s.iso))}">L${s.advLvl}</span>` : "";
     // "The math" table mirrors the other columns with the numeric flight deal
     // score (0-100); exact fares live in the Flights data tab. An estimated
     // fare is the distance baseline, so its 70 is labelled rather than passed
@@ -5357,14 +5448,16 @@ function visaVerified(passport) {
 }
 function visaInfo(iso, passport) {
   passport = /^[A-Z]{2}$/.test(passport) ? passport : "US";
-  if (passport === iso) return { home: true, passport };   // their own country
+  // England etc. are entered on UK rules, and are home to a UK passport.
+  const viso = GUIDE_PARENT[iso] || iso;
+  if (passport === viso) return { home: true, passport };   // their own country
   if (passport === "US") {
-    const v = visa && visa[iso];
+    const v = visa && (visa[iso] || visa[viso]);
     if (!v || !v.status) return null;
     const meta = VISA_META[v.status] || VISA_META.check;
     return { status: v.status, note: v.note || "", meta, link: v.link || "", passport };
   }
-  const code = visaMatrix && visaMatrix[passport] && visaMatrix[passport][iso];
+  const code = visaMatrix && visaMatrix[passport] && visaMatrix[passport][viso];
   if (!code) return null;
   let status, note = "";
   if (/^\d+$/.test(code)) { status = "free"; note = code + " days"; }
@@ -5430,7 +5523,7 @@ function viatorURL(q) {
 
 function renderActivity(iso) {
   const a = activities[iso];
-  const name = (climate && climate[iso] && climate[iso].name) || (ppp[iso] && ppp[iso].name) || iso;
+  const name = (climate && climate[iso] && climate[iso].name) || (ppp && ppp[iso] && ppp[iso].name) || iso;
   if (!a) { $("actDetail").innerHTML = `<h3>${esc(name)}</h3><p class="hint">No curated activity profile yet.</p>`; return; }
   const m = curMonth();
   const tags = a.profile.map((p) =>
@@ -5841,6 +5934,12 @@ function clearActiveList() {
     : `Clear all ${n} ${n === 1 ? "country" : "countries"} from your ${label} list?`;
   if (!window.confirm(ask)) return;
   const prev = [...set];
+  // On a shared map `set` is the SHARER's list; the viewer's own saved list is
+  // what the clear overwrites. Snapshot it, so Undo returns exactly to before
+  // the click (own list intact, shared map on screen) instead of adopting the
+  // sharer's countries as the viewer's own.
+  const wasShared = isV && sharedVisitedView;
+  const prevOwn = wasShared ? [...ownVisited()] : null;
   const save = () => (isV ? saveVisited() : saveWishlist());
   acctHoldSync(CLEAR_UNDO_MS);
   set.clear();
@@ -5850,6 +5949,15 @@ function clearActiveList() {
   const undo = document.createElement("button");
   undo.type = "button"; undo.className = "linkbtn"; undo.textContent = "Undo";
   undo.onclick = () => {
+    if (wasShared) {
+      set.clear(); prev.forEach((iso) => set.add(iso));
+      sharedVisitedView = true;
+      try { localStorage.setItem("fx_visited", JSON.stringify(prevOwn)); } catch (e) {}
+      acctQueueSync();   // merges the restored own list: a no-op against the cloud
+      renderVisited();
+      status("Restored the shared map — your own " + label + " list is unchanged.", "ok");
+      return;
+    }
     prev.forEach((iso) => set.add(iso));
     save();
     renderVisited();
@@ -6060,7 +6168,9 @@ async function activateTab(name, push) {
       });
     } else if (name === "guide" && !loaded.guide) {
       await buildTabOnce("guide", async () => {
-        await Promise.all([ensurePPP(), ensureClimate(), ensureActivities(),
+        // Prices are one line of a guide: without ppp.json it still renders
+        // (its FX line says the inflation figures didn't load).
+        await Promise.all([ensurePPP().catch(() => {}), ensureClimate(), ensureActivities(),
                            ensureVisa().catch(() => {})]);
         buildBestPickers(_guideTarget); loaded.guide = true;
       });
@@ -6343,7 +6453,12 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
         String((parseInt(localStorage.getItem("wg_visits") || "0", 10) || 0) + 1));
     }
     if ((parseInt(localStorage.getItem("wg_visits") || "0", 10) || 0) < 2) return;
-  } catch (e) {}
+  } catch (e) {
+    // Site data blocked: visits can't be counted and a dismissal can't stick,
+    // so falling through armed the invite on the first visit and every page
+    // view after it. No auto-invite then; the Subscribe button still works.
+    return;
+  }
   if (!shouldAutoPrompt()) return;
   let done = false, retry = null;
   function cleanup() {
@@ -6544,6 +6659,7 @@ async function shareCurrent() {
 // Restore state from a shared URL. Pre-phase runs before the first tab builds
 // (priorities + visited list); post-phase sets controls after tabs exist.
 const sharedQ = new URLSearchParams(location.search);
+const GC_RE = /^[A-Z]{2}(-[A-Z]{3})?$/;   // guide codes: JP, and GB-SCT-style home nations
 
 function preApplyShared() {
   if (![...sharedQ.keys()].length) return;
@@ -6559,7 +6675,9 @@ function preApplyShared() {
   if (v) {
     // On screen only (sharedVisitedView): storage and the account keep the
     // viewer's own list — a signed-in viewer's sync used to merge this one in.
-    visited = new Set(v.split(",").map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z]{2}$/.test(s)));
+    // GC_RE, not two letters: England/Scotland/Wales (GB-ENG…) are markable and
+    // trip-able, and a two-letter filter dropped them from every shared link.
+    visited = new Set(v.split(",").map((s) => s.trim().toUpperCase()).filter((s) => GC_RE.test(s)));
     sharedVisitedView = true;
   }
   // Shared trip: in-memory only, like the visited list above — nothing touches
@@ -6567,7 +6685,7 @@ function preApplyShared() {
   // postApplyShared says so before they do.
   const tp = sharedQ.get("tp");
   if (tp) {
-    _trip = new Set(tp.split(",").map((s) => s.trim().toUpperCase()).filter((s) => /^[A-Z]{2}$/.test(s)));
+    _trip = new Set(tp.split(",").map((s) => s.trim().toUpperCase()).filter((s) => GC_RE.test(s)));
     // Days/month from the link override the recipient's saved ones for this
     // view only — renderTripBar reads this instead of localStorage until the
     // recipient edits either control, which dissolves the shared view into
@@ -6582,7 +6700,6 @@ function preApplyShared() {
   }
 }
 
-const GC_RE = /^[A-Z]{2}(-[A-Z]{3})?$/;   // guide codes: JP, and GB-SCT-style home nations
 async function postApplyShared() {
   if (![...sharedQ.keys()].length) return;
   let tab = sharedQ.get("tab");
@@ -7022,7 +7139,7 @@ function buildRankShareSVG() {
   const picks = lastPicks.slice(0, 10);
   const month = MONTHS[(lastPicksMonth || curMonth()) - 1];
   const originName = originLabel();
-  const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
+  const A = plAnchor(originIso());   // US fallback when home has no price level
   const W = 640, HEAD = 118, ROWH = 62, FOOT = 54;
   const H = HEAD + picks.length * ROWH + FOOT;
   const BG = "#101316", FG = "#f2f5f7", MUTE = "#9aa4ad", DIM = "#7d868f", LINE = "#242a30";
@@ -7047,7 +7164,9 @@ function buildRankShareSVG() {
     // a minimum — so not "from". The 100 line is a price-level ratio: the same
     // in any currency, so it carries none (as on the guide card).
     if (s.fare != null) bits.push("avg flight ~" + shareMoney(s.fare) + (s.fareEst ? " (est.)" : ""));
-    if (s.pl) bits.push((A.home ? "your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / s.pl)) + " there");
+    // s.pl comes from valueScores, already divided by the home anchor — dividing
+    // by it again squared the anchor (DE→BG read 136, the guide card said 170).
+    if (s.pl) bits.push((A.home ? "your 100" : "US$100") + " ≈ " + Math.round(100 / s.pl) + " there");
     body += '<text x="102" y="' + (y + 48) + '" font-family="' + F
       + '" font-size="11" fill="' + MUTE + '">' + esc2(bits.join("  ·  ")) + "</text>";
     body += '<rect x="' + (W - 30 - gw) + '" y="' + (y + 17) + '" width="' + gw
@@ -7130,11 +7249,19 @@ function buildGuideCardSVG(iso) {
   if (cl && cl.best && cl.best.length)
     facts.push((cl.curated ? "📅  Best months: " : "📅  Best weather: ")
       + cl.best.map((m) => MON_ABBR[m - 1]).join(", "));
-  const pl = priceLevel(iso);
-  if (pl) facts.push("💰  " + (A.home ? "Your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / pl)) + " there");
-  const adv = advisoryMetaByIso()[iso];
+  // Home nations carry the UK's price level, and they, the Crown Dependencies
+  // and the Faroes their parent's advisory, as the guide page does — each
+  // saying whose it is ("for Denmark" keeps the longest source on the card).
+  const plIso = GUIDE_PARENT[iso] || iso;
+  const pl = priceLevel(plIso);
+  if (pl) facts.push("💰  " + (A.home ? "Your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / pl)) + " there"
+    + (plIso !== iso ? " (" + parentWide(plIso) + ")" : ""));
+  const meta = advisoryMetaByIso();
+  const advPar = !meta[iso] && ADV_PARENT[iso] && meta[ADV_PARENT[iso]] ? ADV_PARENT[iso] : null;
+  const adv = meta[iso] || (advPar && meta[advPar]);
   if (adv) facts.push("🛡️  Level " + adv.level + " · " + (ADV_LABEL[adv.level] || "").split("· ")[1]
-    + "  (per " + (advViaShort(adv) || advSrcName(true)) + ")");
+    + "  (per " + (advViaShort(adv) || advSrcName(true))
+    + (advPar ? ", for " + (advPar === "GB" ? "the UK" : countryName(advPar)) : "") + ")");
   const act = activities && activities[iso];
   if (act && act.days) facts.push("🧳  Worth " + act.days[0] + "–" + act.days[1] + " days on a first visit");
 
@@ -7799,7 +7926,10 @@ if ($("musicBtn")) {
       if (e.target && e.target.closest && e.target.closest("#musicBtn")) { disarm(); return; }
       let want = false;
       try { want = localStorage.getItem(MUSIC_KEY) === "1"; } catch (err) {}
-      if (musicOn() || !want) { disarm(); return; }
+      // The button showing off means a load/decode error (or a real play()
+      // failure) turned it off: stop retrying play() on every click and key.
+      const shownOn = $("musicBtn").getAttribute("aria-pressed") === "true";
+      if (musicOn() || !want || !shownOn) { disarm(); return; }
       startMusic();
     };
     ARM.forEach((t) => document.addEventListener(t, arm));
@@ -7894,8 +8024,11 @@ if ($("fxShare")) $("fxShare").addEventListener("click", () => {
   downloadMapImage("map", {
     picks: dp.picks, picksTitle: dp.title,
     title: "Where the " + (base === "USD" ? "dollar" : base) + " is strong right now",
-    sub: "Each country's currency vs its own 1-year average against " + base
-       + ". Greener = your money goes further than usual there.",
+    // Nominal, like the map it prints: in a high-inflation country a stronger
+    // rate is not more buying power, so no "goes further" claim travels with it.
+    sub: "Each currency vs its own 1-year average against " + base + ". Greener = "
+       + (base === "USD" ? "dollar" : base) + " stronger than usual (nominal — in high-inflation"
+       + " countries prices can rise faster than the currency falls).",
     gradient: ["#b00020", "#eef0f1", "#0a7d28"],
     leftLabel: "Weaker", rightLabel: "Stronger",
     swatches: [{ c: "#bcd0e6", label: base + "-linked" }, { c: NODATA, label: "no data" }],
@@ -8066,8 +8199,15 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") _hideTip()
 // own field (Subscribe, Bulk add) had already moved activeElement inside, so
 // focus came back to nothing. Focus that falls to the page itself clears it.
 let _focusOutside = null;
+// Keyboard or pointer, last? Only a keyboard visit into the unrequested invite
+// earns a focus restore when it closes (see the removal branch below).
+let _kbdNav = false;
+document.addEventListener("keydown", () => { _kbdNav = true; }, true);
+document.addEventListener("pointerdown", () => { _kbdNav = false; }, true);
 document.addEventListener("focusin", (e) => {
-  if (!(e.target.closest && e.target.closest(".submodal, .lightbox"))) _focusOutside = e.target;
+  const ov = e.target.closest && e.target.closest(".submodal, .lightbox");
+  if (!ov) _focusOutside = e.target;
+  else if (_kbdNav && ov.classList.contains("submodal")) ov._kbdIn = true;
 });
 document.addEventListener("focusout", (e) => { if (!e.relatedTarget) _focusOutside = null; });
 new MutationObserver((muts) => {
@@ -8093,10 +8233,17 @@ new MutationObserver((muts) => {
     }
     for (const n of mu.removedNodes) {
       if (!(n instanceof HTMLElement) || !n.classList || !n.classList.contains("submodal")) continue;
+      // The unrequested invite never took focus, so unless the keyboard went
+      // into it there is nothing to give back: a mouse close (the X focuses,
+      // then vanishes) or Escape from a combobox (which blurs itself) left
+      // activeElement on body, and the restore re-opened that combobox's list
+      // and, for the scroll-triggered invite, jumped the page back up.
+      if (n.dataset.nofocus && !n._kbdIn) continue;
       // Only when focus went down with the modal — never yank it from
       // somewhere the visitor has since moved to.
       const a = document.activeElement;
-      if (n._opener && n._opener.isConnected && (!a || a === document.body || n.contains(a))) n._opener.focus();
+      if (n._opener && n._opener.isConnected && (!a || a === document.body || n.contains(a)))
+        n._opener.focus({ preventScroll: !!n.dataset.nofocus });
     }
   }
 }).observe(document.body, { childList: true });
@@ -8277,8 +8424,13 @@ async function acctSync() {
 // A change made just before the tab closed used to die in the debounce, and
 // the next load's merge brought it back. Push it on the way out (keepalive
 // outlives the page), merged against the last cloud copy this tab saw.
+// Never inside a Clear-all undo hold: the cloud keeps the pre-clear list, and
+// the queued push (or this device's next load, which merges the clear from
+// localStorage) sends it once Undo is no longer possible — nothing is lost.
+// A sync still in flight counts as pending: closing a tab fires the
+// visibilitychange below first, and its GET dies with the page.
 function acctFlush() {
-  if (!_syncTimer || !acctSignedIn()) return;
+  if ((!_syncTimer && !_syncRun) || !acctSignedIn() || Date.now() < _syncHoldUntil) return;
   clearTimeout(_syncTimer); _syncTimer = null;
   const base = acctBase(), u = acctState.user || {};
   acctPost({
@@ -8287,8 +8439,11 @@ function acctFlush() {
   }, true);
 }
 window.addEventListener("pagehide", acctFlush);
+// A tab switch isn't an unload: the page stays alive, so take the normal
+// GET-then-merge path. The blind keepalive POST merged against this tab's last
+// cloud copy and could resurrect a country another device had just removed.
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "hidden") acctFlush();
+  if (document.visibilityState === "hidden" && _syncTimer && Date.now() >= _syncHoldUntil) acctSync();
 });
 
 async function acctPrefs(prefs) {
@@ -8349,12 +8504,15 @@ function openSignIn() {
     const email = m.querySelector('input[type="email"]').value.trim();
     if (!email) return;
     // Remember the newsletter choice so it can be applied once the link is
-    // clicked (the click may land in a different tab).
+    // clicked (the click may land in a different tab). Opt-in only: an unticked
+    // box on a re-sign-in (new device, expired session) must not unsubscribe an
+    // existing subscriber — the account panel is the one place to opt out.
     try {
-      localStorage.setItem("wg_pending_prefs", JSON.stringify({
-        subscribed: sub.checked,
-        cadence: sub.checked ? "monthly" : "off",
-      }));
+      if (sub.checked) {
+        localStorage.setItem("wg_pending_prefs", JSON.stringify({ subscribed: true, cadence: "monthly" }));
+      } else {
+        localStorage.removeItem("wg_pending_prefs");
+      }
     } catch (err) {}
     const btn = m.querySelector('button[type="submit"]');
     btn.disabled = true; btn.textContent = "Sending…";
@@ -8436,7 +8594,9 @@ if (ACCT_ON) {
       try { pending = JSON.parse(localStorage.getItem("wg_pending_prefs") || "null"); } catch (e) {}
       if (pending) {
         localStorage.removeItem("wg_pending_prefs");
-        await acctPrefs(pending);
+        // Opt-in only (see openSignIn): a {subscribed:false} left by an older
+        // build must not unsubscribe anyone either.
+        if (pending.subscribed === true) await acctPrefs({ subscribed: true, cadence: "monthly" });
       }
       await acctSync();               // seed the account with this device's map
       acctNote("Signed in — your travel map is saved to " + acctState.email + " ✓", "ok");
