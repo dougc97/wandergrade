@@ -3,7 +3,12 @@ name: Monthly travel digest + favorability check
 # Runs the monthly jobs in the cloud so they fire even when your Mac is off.
 on:
   schedule:
-    # 13:00 UTC on the 1st of every month (~9am US Eastern). Cron is always UTC.
+    # 13:00 UTC on the 1st of every month. Cron is always UTC, and GitHub
+    # starts this one LATE: the Jul/Aug/Sep 2026 runs began 16:30-19:23 UTC,
+    # and a delayed run doesn't appear in the Actions list until it starts.
+    # So "nothing by 13:30" usually means still queued, not failed. A manual
+    # 'send' dispatch meanwhile is safe: send_digest.py skips an issue whose
+    # subject already went out (or is queued) in the last 25 days.
     - cron: "0 13 1 * *"
   workflow_dispatch:        # run manually from the Actions tab
     inputs:
@@ -16,6 +21,20 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    # One digest run at a time: a manual 'send' and the late cron (or a
+    # re-run) queue behind each other instead of racing, so the second finds
+    # the first one's email in Buttondown and skips instead of mailing a copy.
+    # Drafts get a queue of their own. GitHub keeps only ONE pending run per
+    # group and a newer arrival cancels it, so with a single group a manual
+    # draft could cancel a scheduled send that was waiting its turn, and that
+    # month's digest would never go out. Now only another send can displace a
+    # pending send, and it sends in its place. Set on this job, not the whole
+    # workflow, so the keepalive job below is never queued or cancelled.
+    concurrency:
+      group: monthly-digest-${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'draft') && 'draft' || 'send' }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -31,8 +50,13 @@ jobs:
         # no digest went out that month. A failure still shows as a warning.
         continue-on-error: true
         env:
-          # Set these in: repo Settings -> Secrets and variables -> Actions
-          FX_SMTP_PASSWORD: ${{ secrets.FX_SMTP_PASSWORD }}       # personal email
+          # Set these in: repo Settings -> Secrets and variables -> Actions.
+          # All three are needed (mailer.effective switches the alert on only
+          # when all three are set); config.json stays blank in this public
+          # repo. Without them check.py prints "not configured" and skips.
+          FX_SMTP_PASSWORD: ${{ secrets.FX_SMTP_PASSWORD }}   # Gmail app password
+          FX_SMTP_USER: ${{ secrets.FX_SMTP_USER }}           # Gmail login
+          FX_ALERT_TO: ${{ secrets.FX_ALERT_TO }}             # where the alert goes
         run: python3 check.py
 
       # Scheduled runs send to subscribers; manual runs default to a draft you
@@ -41,3 +65,59 @@ jobs:
         env:
           BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}   # newsletter list
         run: python3 send_digest.py ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'draft') && '--draft' || '' }}
+
+  # GitHub disables scheduled workflows in a public repo after 60 days with
+  # no repository activity (scheduled runs don't count), and a workflow
+  # disabled that way stays off until someone clicks Enable by hand - a later
+  # push does not bring it back. This job re-enables both schedules through
+  # the API on every run. Whether that call also resets the 60-day clock is
+  # not documented, hence the push-age warning below. It is its own job with
+  # no `needs`, so a failed or queued digest can't skip it.
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Keep both schedules enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          for wf in monthly-check.yml keep-awake.yml; do
+            # A workflow switched off by hand stays off: that is how to pause
+            # the digest from the Actions tab (say, a bad issue before the
+            # 1st). Only one that is on, or that GitHub switched off for
+            # inactivity, is (re-)enabled. Never fails the run.
+            state=$(gh api "repos/$REPO/actions/workflows/$wf" --jq .state) || state=unknown
+            case "$state" in
+              active|disabled_inactivity)
+                if gh api -X PUT "repos/$REPO/actions/workflows/$wf/enable" --silent; then
+                  echo "enabled: $wf (was $state)"
+                else
+                  echo "::warning::could not re-enable $wf"
+                fi
+                ;;
+              disabled_manually)
+                echo "$wf was disabled by hand; leaving it off"
+                ;;
+              *)
+                echo "::warning::$wf is in state '$state'; not touching it"
+                ;;
+            esac
+          done
+
+      # Belt and braces: if the API call above ever stops counting as
+      # activity, the last push date is what GitHub goes by. This run is
+      # monthly, so warn from day 30 - the next run could already be too late.
+      - name: Warn when the repo has been quiet for 30+ days
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          pushed=$(gh api "repos/$REPO" --jq .pushed_at) || {
+            echo "::warning::couldn't read the last push date"; exit 0; }
+          age=$(( ( $(date -u +%s) - $(date -u -d "$pushed" +%s) ) / 86400 ))
+          echo "last push: $pushed ($age days ago)"
+          if [ "$age" -ge 30 ]; then
+            echo "::warning::No push for $age days. GitHub disables scheduled workflows after 60 days without repo activity. Push a commit (or check Actions -> each workflow is still enabled) before day 60."
+          fi
