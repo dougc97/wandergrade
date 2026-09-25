@@ -1,6 +1,6 @@
 """Minimal in-memory stand-in for Upstash Redis's REST API, so the accounts
 flow can be exercised end-to-end without real credentials."""
-import json, threading, time
+import fnmatch, json, threading, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 DB = {}       # key -> (value, expires_at|None)
@@ -67,6 +67,18 @@ class H(BaseHTTPRequestHandler):
                 old = DB.get(cmd[1])
                 DB[cmd[1]] = (str(cur), old[1] if old else None)
                 res = cur
+            elif op == "SCAN":
+                # SCAN cursor [MATCH pat] [COUNT n] -> [next_cursor, keys], as
+                # Upstash returns it (cursor a string, "0" when done). The
+                # cursor here is just an offset into the sorted live keys.
+                opts = [c.upper() for c in cmd[2:]]
+                pat = cmd[2 + opts.index("MATCH") + 1] if "MATCH" in opts else "*"
+                n = int(cmd[2 + opts.index("COUNT") + 1]) if "COUNT" in opts else 10
+                keys = sorted(k for k in list(DB) if _alive(k) is not None
+                              and fnmatch.fnmatchcase(k, pat))
+                start = int(cmd[1])
+                nxt = start + n if start + n < len(keys) else 0
+                res = [str(nxt), keys[start:start + n]]
             elif op == "EXPIRE":
                 v = DB.get(cmd[1])
                 if v:
@@ -83,4 +95,7 @@ class H(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    HTTPServer(("127.0.0.1", 8899), H).serve_forever()
+    import sys
+    # Port as an optional argument (default 8899), so two checkouts can each
+    # run their own; test_accounts.py reads MOCK_UPSTASH_PORT to match.
+    HTTPServer(("127.0.0.1", int(sys.argv[1]) if len(sys.argv) > 1 else 8899), H).serve_forever()

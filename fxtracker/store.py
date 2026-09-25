@@ -21,7 +21,9 @@ DEFAULT_CONFIG = {
     # Don't re-alert the same currency more often than this. ~30 days = monthly,
     # so a currency that stays favorable won't re-alert until next month.
     "alert_cooldown_hours": 720,
-    # Email delivery. Password is read from the FX_SMTP_PASSWORD env var if blank here.
+    # Email delivery. The committed config.json stays blank (the repo is public):
+    # FX_SMTP_PASSWORD, FX_SMTP_USER and FX_ALERT_TO in the environment fill it
+    # in and switch it on (mailer.effective), which is how CI sends the alert.
     "email": {
         "enabled": False,
         "smtp_host": "smtp.gmail.com",

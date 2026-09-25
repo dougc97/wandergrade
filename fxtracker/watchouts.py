@@ -143,11 +143,14 @@ def get_watchouts(iso):
                 and not re.fullmatch(r"\[.*\]", s.get("d", "") or "")]
         out["watchouts"] = secs[:8]
     except Exception as e:
-        # A country the feed lacks (a 4xx) simply shows no watchouts, for the
-        # full TTL. Anything else is a failure, not an answer: keep the last
-        # good copy, or remember the empty one only briefly — caching it for
-        # 6h hid a country's safety notes from everyone after one timeout.
-        if not (400 <= (getattr(e, "code", None) or 0) < 500):
+        # A country the feed lacks (404/410 — what the feed answers for a
+        # missing file) simply shows no watchouts, for the full TTL. Anything
+        # else is a failure, not an answer: keep the last good copy, or
+        # remember the empty one only briefly — caching it for 6h hid a
+        # country's safety notes from everyone after one timeout. That covers
+        # 429/408 too: fetch_json re-raises every 4xx without retrying, and a
+        # rate limit says nothing about whether the country has notes.
+        if (getattr(e, "code", None) or 0) not in (404, 410):
             if hit and not hit[1].get("_failed"):
                 _cache[iso] = (now - TTL + FAIL_TTL, hit[1])
                 return hit[1]

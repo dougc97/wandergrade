@@ -65,6 +65,7 @@ _pop_cache = {"at": 0, "data": None}
 POP_TTL = 7 * 24 * 3600   # tourist arrivals are annual; refresh weekly
 _ppp_cache = {"at": 0, "data": None}
 PPP_TTL = 30 * 24 * 3600  # PPP is annual data; a monthly re-check is plenty
+PPP_RETRY = 24 * 3600     # after a refused or failed refresh, try again in a day
 
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -209,6 +210,45 @@ def _dataset():
     return _dataset_cache
 
 
+# Fields a live refresh may never silently drop, with the year that goes with
+# each. Without infl the site fell back to nominal FX and un-carried price
+# levels (Turkey back to 0.33 and "+9%") while the digest, which reads the
+# committed file, kept the real figures.
+_PPP_KEEP = {"infl": "infl_year", "gdppc": "gdppc_year"}
+
+
+def _ppp_keep_fields(base, live):
+    """Stop a live PPP table from dropping fields the current one has.
+
+    A few countries missing from one World Bank indicator get their current
+    figures carried over into `live` (a country the source stops reporting
+    shouldn't lose its carry-forward, nor block every later refresh). A loss
+    on more than a tenth of them means the fetch itself was bad, and comes
+    back as {field: [iso, ...]} for the caller to refuse the table. Returns
+    (carried, refused)."""
+    carried, refused = {}, {}
+    for f, fy in _PPP_KEEP.items():
+        have = [iso for iso, v in base.items() if v.get(f) is not None]
+        lost = sorted(iso for iso in have if iso in live and live[iso].get(f) is None)
+        if not lost:
+            continue
+        if len(lost) > len(have) * 0.1:
+            refused[f] = lost
+            continue
+        for iso in lost:
+            live[iso][f] = base[iso][f]
+            if base[iso].get(fy) is not None:
+                live[iso][fy] = base[iso][fy]
+        carried[f] = lost
+    return carried, refused
+
+
+def _ppp_isos(lost):
+    return "; ".join("%s on %d (%s%s)" % (f, len(isos), ",".join(isos[:8]),
+                                          ",..." if len(isos) > 8 else "")
+                     for f, isos in lost.items())
+
+
 def _ppp_data():
     """PPP table, refreshed from the World Bank monthly, falling back to the
     file committed in public/.
@@ -233,22 +273,35 @@ def _ppp_data():
         _ppp_cache["busy"] = True
 
         def refresh():
+            retry_at = time.time() - PPP_TTL + PPP_RETRY   # don't hammer a bad upstream
             try:
                 base = _ppp_cache["data"] or {}
-                live = build_ppp.build()
+                # previous=: a failed CPI/GDP call carries those fields over
+                # from the table we already serve instead of dropping them.
+                live = build_ppp.build(previous=base) or {}
                 # A truncated or partly-null API response must never quietly
-                # shrink the number of gradeable countries.
-                if live and len(live) >= max(1, int(len(base) * 0.9)):
-                    _ppp_cache["data"] = live
-                    _ppp_cache["at"] = time.time()
-                    print("[ppp] refreshed: %d countries" % len(live))
-                else:
-                    _ppp_cache["at"] = time.time()   # don't hammer a bad upstream
+                # shrink the number of gradeable countries, nor strip the
+                # inflation or income fields (_ppp_keep_fields).
+                if len(live) < max(1, int(len(base) * 0.9)):
+                    _ppp_cache["at"] = retry_at
                     print("[ppp] live fetch gave %d vs %d committed; keeping current"
-                          % (len(live or {}), len(base)))
-            except Exception as e:
+                          % (len(live), len(base)), flush=True)
+                    return
+                carried, refused = _ppp_keep_fields(base, live)
+                if refused:
+                    _ppp_cache["at"] = retry_at
+                    print("[ppp] live table lost %s; keeping current" % _ppp_isos(refused),
+                          flush=True)
+                    return
+                if carried:
+                    print("[ppp] live table lacked %s; kept the current figures"
+                          % _ppp_isos(carried), flush=True)
+                _ppp_cache["data"] = live
                 _ppp_cache["at"] = time.time()
-                print("[ppp] live fetch failed (%s); keeping current" % e)
+                print("[ppp] refreshed: %d countries" % len(live), flush=True)
+            except Exception as e:
+                _ppp_cache["at"] = retry_at
+                print("[ppp] live fetch failed (%s); keeping current" % e, flush=True)
             finally:
                 _ppp_cache["busy"] = False
 
@@ -321,7 +374,7 @@ def _sitemap():
 
 _DATA_TITLE = "Cost of Living by Country — Free CSV & JSON Dataset | WanderGrade"
 _DATA_DESC = ("Free dataset: what US$100 buys in 173 countries, from World Bank PPP "
-              "divided by today's market exchange rate. CSV and JSON, no sign-up.")
+              "carried forward for inflation, at today's exchange rate. CSV and JSON, no sign-up.")
 
 
 def _data_page_body():
@@ -344,18 +397,24 @@ def _data_page_body():
         "<h2>What's in it</h2>"
         "<ul>"
         "<li><strong>price_level</strong> — World Bank PPP conversion factor, carried "
-        "forward for inflation since its year, divided by the market exchange rate. "
-        "1.00 means prices match the US, 0.50 means half.</li>"
+        "forward from its year by the gap between local and US inflation, divided by "
+        "the market exchange rate. 1.00 means prices match the US, 0.50 means half.</li>"
         "<li><strong>usd100_buys</strong> — the local purchasing power of US$100, in US "
         "dollars. Vietnam sits near $370.</li>"
         "<li>Plus the inputs, so you can check the arithmetic: PPP factor and its year, "
-        "GDP per capita and its year, and the currency used.</li>"
+        "GDP per capita and its year, the currency used, the currency the PPP factor is "
+        "quoted in (<code>ppp_unit</code>), the inflation rate and its year "
+        "(<code>inflation_pct</code>, <code>inflation_year</code>), and the carry-forward "
+        "multiplier it produced (<code>inflation_factor</code>, 1 when there is no "
+        "current figure).</li>"
         "</ul>"
         "<h2>Why it differs from other PPP tables</h2>"
-        "<p>Most purchasing-power figures divide by an exchange rate fixed at the time "
-        "the PPP was published, so they drift as currencies move. This divides by "
-        "<em>today's</em> market rate, which is why a country whose currency has fallen "
-        "shows up as cheaper here than in a year-old table.</p>"
+        "<p>Most purchasing-power figures are a snapshot: prices and exchange rates from "
+        "the year the PPP was published, so they drift as both move. This carries the "
+        "PPP factor forward for inflation and divides by <em>today's</em> market rate. A "
+        "country shows up cheaper here than in a year-old table only when its currency "
+        "has fallen faster than its prices have risen (beyond US inflation); where prices "
+        "outran the currency, it shows up pricier.</p>"
         "<h2>What it is not</h2>"
         "<p>These are national averages for residents. Neighbourhoods popular with "
         "visitors, and rent paid by foreigners, run well above them — useful for "
@@ -364,7 +423,7 @@ def _data_page_body():
         "line with their income that the result would be fictional, are left out rather "
         "than guessed at. That is why the count is 173 and not every country on earth.</p>"
         "<h2>Sources and licence</h2>"
-        "<p>PPP conversion factors and GDP per capita from the World Bank "
+        "<p>PPP conversion factors, consumer-price inflation and GDP per capita from the World Bank "
         "(<a href=\"https://data.worldbank.org\" rel=\"noopener\" target=\"_blank\">data.worldbank.org</a>, "
         "CC BY 4.0); exchange rates from "
         "<a href=\"https://fxratesapi.com\" rel=\"noopener\" target=\"_blank\">fxratesapi.com</a>. "
@@ -556,8 +615,8 @@ def _index_days(raw):
 # prints before the slug table loads) resolves the same way.
 GUIDE_ALIASES = {
     "usa": "US", "america": "US", "united-states-of-america": "US",
-    "uk": "GB", "great-britain": "GB", "britain": "GB", "england": "GB",
-    "scotland": "GB", "wales": "GB", "northern-ireland": "GB",
+    # england/scotland/wales are guides of their own (GB-ENG/SCT/WLS).
+    "uk": "GB", "great-britain": "GB", "britain": "GB", "northern-ireland": "GB",
     "uae": "AE", "emirates": "AE",
     "czech-republic": "CZ", "turkiye": "TR", "ivory-coast": "CI",
     "cote-divoire": "CI", "burma": "MM", "swaziland": "SZ", "macedonia": "MK",
@@ -584,11 +643,12 @@ def _slugish(raw):
 def _guide_redirect(raw):
     """Canonical slug for a non-canonical /guide/ path, or None."""
     slug = _slugish(raw)
-    iso_to_slug = {iso: sl for sl, iso in render_guide.all_slugs()}
     if render_guide.iso_for_slug(slug):
         return slug
-    iso = GUIDE_ALIASES.get(slug) or (slug.upper() if len(slug) == 2 else None)
-    return iso_to_slug.get(iso)
+    iso_to_slug = {iso: sl for sl, iso in render_guide.all_slugs()}
+    # Any ISO-style code, not only two letters: the subdivision guides are
+    # keyed GB-ENG/GB-SCT/GB-WLS, and /guide/gb-eng 404'd.
+    return iso_to_slug.get(GUIDE_ALIASES.get(slug) or slug.upper())
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1098,18 +1158,23 @@ class Handler(BaseHTTPRequestHandler):
                             cache="public, max-age=300")
             return
         if path.startswith("/guide/"):
-            raw = path[len("/guide/"):].strip("/")
-            slug = raw.lower()
-            iso = render_guide.iso_for_slug(slug)
+            raw = path[len("/guide/"):]
+            iso = render_guide.iso_for_slug(raw)
             if iso:
                 self._send_body(_render_index(iso), "text/html; charset=utf-8",
                                 cache="public, max-age=300")
                 return
-            # Alternate names (turkiye, usa, czech-republic, an ISO code) 301
-            # to the one canonical page; a true miss gets a real 404 page.
-            target = _guide_redirect(raw) if "/" not in raw else None
+            # Only the exact lowercase slug is served. Everything else that
+            # names a guide — /guide/Japan, a trailing slash, an alternate
+            # name (turkiye, usa), an ISO code (tr, gb-eng) — 301s to it,
+            # query and all (UTM tags are how Reddit traffic is attributed).
+            # /guide/Japan used to answer 200: a duplicate page per spelling.
+            # A true miss gets a real 404 page.
+            name = raw.strip("/")
+            target = _guide_redirect(name) if name and "/" not in name else None
             if target:
-                self._redirect("/guide/" + target)
+                query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                self._redirect("/guide/" + target + ("?" + query if query else ""))
             else:
                 self._send_not_found("No guide for that country")
             return
@@ -1387,6 +1452,10 @@ def main():
     host = "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1"
     if os.environ.get("RENDER"):   # set by Render; never self-ping from a laptop
         _keep_warm()
+    # One-off after deploy: opt-outs from before they reached Buttondown (see
+    # accounts.reconcile_optouts). Background, and a no-op without the
+    # Buttondown/Upstash keys or once its done-marker is set.
+    threading.Thread(target=accounts.reconcile_optouts, daemon=True).start()
     httpd = ThreadingHTTPServer((host, port), Handler)
     print("fx-tracker dashboard on {0}:{1}".format(host, port))
     print("Press Ctrl+C to stop.")
