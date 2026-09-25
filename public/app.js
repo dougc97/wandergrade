@@ -1754,7 +1754,9 @@ async function renderGuideFx(iso) {
         : `No current inflation figure for ${countryName(fxIso)}, so this is the plain exchange-rate move. `)
     + `Monthly averages of the daily ${base}→${dest} rate, ${mLabel(months[0].m)} to ${mLabel(months[months.length - 1].m)}`
     + (nominal || !gap ? "" : ", in today's prices")
-    + ". Higher = your money buys more. Backward-looking on purpose: exchange rates aren't seasonal, "
+    // "buys more" is a claim about prices, so only the inflation-adjusted line makes it.
+    + (nominal || noInfl || !gap ? ". Higher = a stronger rate for you" : ". Higher = your money buys more")
+    + ". Backward-looking on purpose: exchange rates aren't seasonal, "
     + "so this says whether now is favourable — not which month to pick.";
   host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b> · past 12 months: `
     + `<b style="color:${col}">${pct > 0 ? "+" : ""}${pct}%</b> vs its 1-yr average`
@@ -5450,6 +5452,9 @@ function visaInfo(iso, passport) {
   passport = /^[A-Z]{2}$/.test(passport) ? passport : "US";
   // England etc. are entered on UK rules, and are home to a UK passport.
   const viso = GUIDE_PARENT[iso] || iso;
+  // Guernsey, Jersey and the Isle of Man admit visitors on UK rules (Common
+  // Travel Area). Not the Faroes: Denmark's Schengen rules don't reach them.
+  const cta = { GG: "GB", JE: "GB", IM: "GB" }[iso];
   if (passport === viso) return { home: true, passport };   // their own country
   if (passport === "US") {
     const v = visa && (visa[iso] || visa[viso]);
@@ -5457,7 +5462,8 @@ function visaInfo(iso, passport) {
     const meta = VISA_META[v.status] || VISA_META.check;
     return { status: v.status, note: v.note || "", meta, link: v.link || "", passport };
   }
-  const code = visaMatrix && visaMatrix[passport] && visaMatrix[passport][viso];
+  const code = visaMatrix && visaMatrix[passport]
+    && (visaMatrix[passport][viso] || (cta && visaMatrix[passport][cta]));
   if (!code) return null;
   let status, note = "";
   if (/^\d+$/.test(code)) { status = "free"; note = code + " days"; }
@@ -6176,7 +6182,8 @@ async function activateTab(name, push) {
       });
     } else if (name === "visited" && !loaded.visited) {
       await buildTabOnce("visited", async () => {
-        await Promise.all([ensureWorld(), ensurePPP(), ensureClimate()]);
+        // The Wander List never reads PPP; a ppp.json blip must not fail the tab.
+        await Promise.all([ensureWorld(), ensurePPP().catch(() => {}), ensureClimate()]);
         buildVisited(); loaded.visited = true;
       });
     } else if (name === "data") {
@@ -8372,7 +8379,9 @@ async function acctMergeDown(user) {
     acctSetBase(lists);
     return true;
   }
-  return acctPost(lists);
+  // Backgrounded (phones suspend page fetches soon after): keepalive lets the
+  // POST outlive that once the fresh GET has come back.
+  return acctPost(lists, document.visibilityState === "hidden");
 }
 
 async function acctPost(lists, keepalive) {

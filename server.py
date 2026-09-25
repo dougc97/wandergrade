@@ -373,11 +373,22 @@ def _sitemap():
 
 
 _DATA_TITLE = "Cost of Living by Country — Free CSV & JSON Dataset | WanderGrade"
-_DATA_DESC = ("Free dataset: what US$100 buys in 173 countries, from World Bank PPP "
-              "carried forward for inflation, at today's exchange rate. CSV and JSON, no sign-up.")
+def _dataset_count():
+    """Rows in the live dataset — the count the /data copy quotes. It was
+    hardcoded, and went stale the day Aruba, Curacao and Sierra Leone joined."""
+    try:
+        return len(_dataset()["payload"]["countries"])
+    except Exception:
+        return 176
 
 
-def _data_page_body():
+def _data_desc():
+    return ("Free dataset: what US$100 buys in %d countries, from World Bank PPP "
+            "carried forward for inflation, at today's exchange rate. CSV and JSON, no sign-up."
+            % _dataset_count())
+
+
+def _data_page_body_tpl():
     """The dataset's own page. A public data URL nothing links to is a dead
     letter — crawlers never reach it and nobody can tell what it means, so the
     file needs somewhere to explain its method and licence.
@@ -390,7 +401,7 @@ def _data_page_body():
     return (
         '<div class="ssrguide">'
         "<h1>Cost of living by country: the dataset</h1>"
-        "<p>What US$100 buys in <strong>173 countries</strong>, as a free CSV or JSON "
+        "<p>What US$100 buys in <strong>__N__ countries</strong>, as a free CSV or JSON "
         "download. No sign-up, no key, updated continuously.</p>"
         '<p><a href="/data/price-levels.csv"><strong>Download CSV</strong></a> &middot; '
         '<a href="/data/price-levels.json"><strong>Download JSON</strong></a></p>'
@@ -421,7 +432,7 @@ def _data_page_body():
         "comparing countries against each other, not as a travel budget.</p>"
         "<p>Countries whose exchange rate is a managed peg, or otherwise so far out of "
         "line with their income that the result would be fictional, are left out rather "
-        "than guessed at. That is why the count is 173 and not every country on earth.</p>"
+        "than guessed at. That is why the count is __N__ and not every country on earth.</p>"
         "<h2>Sources and licence</h2>"
         "<p>PPP conversion factors, consumer-price inflation and GDP per capita from the World Bank "
         "(<a href=\"https://data.worldbank.org\" rel=\"noopener\" target=\"_blank\">data.worldbank.org</a>, "
@@ -432,6 +443,12 @@ def _data_page_body():
         "</div>"
     )
 
+
+
+def _data_page_body():
+    # The count comes from the dataset; the copy has literal % signs, so it is
+    # swapped in rather than %-formatted.
+    return _data_page_body_tpl().replace("__N__", str(_dataset_count()))
 
 def _shell_page(title, body, head="", analytics=True):
     """A whole, self-contained HTML document in the site's header/footer —
@@ -460,7 +477,7 @@ def _render_data_page():
     """A whole, self-contained HTML document for /data — no app.js.
     Carries the same og:image/twitter card as every other page: this is the
     page built to be shared, and it used to unfurl with no image."""
-    desc = html.escape(_DATA_DESC, quote=True)
+    desc = html.escape(_data_desc(), quote=True)
     head = (
         '<meta name="description" content="%s">'
         '<link rel="canonical" href="%s/data">'
@@ -565,6 +582,10 @@ def _cached(name, cache, key, ttl, compute, stale_max=None):
         data = compute()
     except Exception as e:
         _upstream_fail[fk] = (now + (STALE_RETRY if usable else FAIL_RETRY), str(e))
+        # Keys are client-influenced (bases, origins): drop expired entries so
+        # a stream of distinct failures can't grow this without bound.
+        for k in [k for k, (until, _m) in _upstream_fail.items() if until < now]:
+            _upstream_fail.pop(k, None)
         if usable:
             print("[%s] refresh failed (%s); serving the copy from %ds ago"
                   % (name, e, now - usable[0]), flush=True)

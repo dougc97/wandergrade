@@ -365,8 +365,18 @@ def _summary(desc, level=None, iso=None, name_iso=None):
     #    read as "Crime Violent crime..." once tags were stripped. Dropped.
     text = re.sub(r"<p>\s*<b>\s*<i>(.*?)</i>\s*</b>\s*</p>", " \\1 \x01 ", text, flags=re.I | re.S)
     # (A bold "Do not travel to Belarus due to:" is the lead, not a heading.)
-    heading = (lambda m: m.group(0) if re.search(r"[.!?]\s*$", m.group(1)) or re.match(
-        r"\s*(exercise|reconsider|do not travel)\b", m.group(1), re.I) else " \x01 ")
+    def heading(m):
+        t = m.group(1).strip()
+        if re.search(r"[.!?]\s*$", t) or re.match(r"(exercise|reconsider|do not travel)\b", t, re.I):
+            return m.group(0)
+        # A bold line that reads as an instruction ("U.S. citizens in Russia
+        # should leave immediately") is the item's most actionable sentence,
+        # not a section title: keep it, as its own sentence. Titles are short
+        # noun phrases ("Crime", "U.S. embassy operations").
+        if len(t.split()) > 6 or re.search(
+                r"\b(should|must|leave|depart|avoid|do not|don't|are|is|will|cannot)\b", t, re.I):
+            return " " + t.rstrip(":;, ") + ". "
+        return " \x01 "
     text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>(?:\s|&nbsp;)*(?:</span>\s*)?</p>",
                   heading, text, flags=re.I)
     text = re.sub(r"<b>\s*([^<]{1,60}?)<br\s*/?>\s*</b>", heading, text, flags=re.I)

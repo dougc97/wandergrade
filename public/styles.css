@@ -1559,7 +1559,8 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .tripbtn:hover { border-color: var(--green); color: var(--green); }
 .tripbtn.on { border-color: var(--green); color: var(--green); }
 /* "Nothing in season" chip — muted, so it reads as context not as a highlight. */
-.seastag.seasoff { color: var(--gray); border-color: var(--line); opacity: .85; }
+/* Muted by colour alone: opacity .85 took the grey to 3.5-3.8:1. */
+.seastag.seasoff { color: var(--gray); border-color: var(--line); }
 
 /* 12-month season strip in the weather column. Twelve blocks, Jan-Dec, showing
    how wide a country's good window is — the thing a single month's grade can

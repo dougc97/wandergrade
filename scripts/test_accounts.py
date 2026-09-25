@@ -192,8 +192,24 @@ results.append(ok(st and st["errors"] == 1 and st["unsubscribed"] == 1
                   "an upstream error leaves it unmarked and unlocked, to be retried"))
 accounts._redis("SET", accounts.RECONCILE_LOCK, 1, "EX", 60)
 BD.clear(); LOOKUPS.clear()
-results.append(ok(accounts.reconcile_optouts(delay=0, pause=0) is None and BD == [] and LOOKUPS == [],
-                  "while another instance holds the lock this one does nothing"))
+st = accounts.reconcile_optouts(delay=0, pause=0, tries=1)
+results.append(ok(st and st.get("locked") and BD == [] and LOOKUPS == [],
+                  "while another instance holds the lock this one does nothing (and says it was locked)"))
+# A lock left by an instance killed mid-pass must not end reconciliation for
+# this process: the loop waits out the lock and tries again. The wait is
+# simulated by expiring the lock inside the sleep.
+_real_sleep = accounts.time.sleep
+def _expire_lock(_s):
+    accounts._redis("DEL", accounts.RECONCILE_LOCK)
+accounts.time.sleep = _expire_lock
+try:
+    BD.clear(); LOOKUPS.clear()
+    accounts._redis("SET", accounts.RECONCILE_LOCK, 1, "EX", 60)
+    st = accounts.reconcile_optouts(delay=0, pause=0, backoff=0, tries=2, retry_wait=1)
+    results.append(ok(st is not None and not st.get("locked") and LOOKUPS != [],
+                      "a stale lock from a dead instance is waited out, then the pass runs"))
+finally:
+    accounts.time.sleep = _real_sleep
 accounts._redis("DEL", accounts.RECONCILE_LOCK)
 # The thread retries a failed pass itself (an hour later in production) rather
 # than waiting for a redeploy, and the retry redoes nothing already done:

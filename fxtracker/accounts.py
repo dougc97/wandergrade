@@ -509,14 +509,18 @@ def reconcile_optouts(delay=60, pause=RECONCILE_PAUSE, backoff=60, tries=3,
 
 
 def _reconcile_pass(key, pause, backoff):
-    """One walk over the stored accounts -> stats, or None when skipped
-    (already done, or another instance holds the lock)."""
+    """One walk over the stored accounts -> stats, or None when already done.
+    A held lock returns stats with errors=1 and locked=True, so the caller
+    retries after the lock's TTL instead of giving up for the process's life."""
     stats = {"accounts": 0, "looked_up": 0, "unsubscribed": 0, "errors": 0}
     try:
         if _kv_get(RECONCILE_DONE):
             return None
         if not _redis("SET", RECONCILE_LOCK, int(time.time()), "EX", RECONCILE_LOCK_TTL, "NX"):
-            return None
+            # Held — by a live instance, or by one killed mid-pass (a deploy
+            # overlap) whose lock outlives it. Not "done": come back after the
+            # lock's TTL; the done-marker keeps a finished pass from repeating.
+            return dict(stats, errors=1, locked=True)
     except Exception as e:           # a storage blip is retried like any other error
         print("[accounts] reconcile: storage unavailable (%s); will retry" % e, flush=True)
         return dict(stats, errors=1)
