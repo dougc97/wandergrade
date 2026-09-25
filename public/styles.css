@@ -16,7 +16,10 @@
      the fill stays dark enough for white in both themes (5.28 / 5.25:1). */
   --green-fill: #0a7d28;
   --green-bg: #e7f6ec;
-  --amber: #8a6d00;
+  /* Amber text sits on white, the gold tint and, on a finished continent
+     picked as the filter, --green-bg. #8a6d00 was 4.40:1 on that last one;
+     this is 4.74, and >= 4.69 on every other background it meets. */
+  --amber: #846800;
   --amber-bg: #fdf3d6;
   --red: #b00020;
   --gray: #666;
@@ -1659,6 +1662,11 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
        the text stays >= 4.6:1 at rest in both themes. */
     background: color-mix(in srgb, var(--green) 7%, transparent); }
   .gradetable td.dest .seastag.seasmore { background: color-mix(in srgb, var(--gray) 10%, transparent); }
+  /* The tint also lets the hovered row's --soft through: in light mode that
+     took green to 4.26:1 and the grey "+N" to 4.48. One shade darker on
+     hover gives 4.92 and 5.22. Dark mode stays >= 4.69 as it is. */
+  html:not([data-theme="dark"]) .gradetable tbody tr:hover td.dest .seastag:not(.seasmore):not(.seasoff) { color: #087224; }
+  html:not([data-theme="dark"]) .gradetable tbody tr:hover td.dest .seastag.seasmore { color: #5c5c5c; }
 }
 @media (max-width: 760px) {
   /* Header words to their emoji: "💰 AFFORDABILITY" alone is 115px, and the
@@ -1711,11 +1719,18 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
    doesn't zoom back out — every picker here was 13-15px. Touch screens get
    16px in every text field, select and combobox. :root + :is() lifts this to
    (0,2,1) so it outranks the (0,1,1) rules that set the smaller sizes
-   (.pickersmain select, input[type=text], .acctcheck select, .tripdays input). */
+   (.pickersmain select, input[type=text], .acctcheck select, .tripdays input).
+   Read-only fields are left alone: iOS doesn't zoom for them, and the AI
+   prompt box (.aitext) is a 12px monospace preview meant to show whole lines. */
 @media (pointer: coarse) {
-  :root :is(input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit]),
-    select, textarea) { font-size: 16px; }
+  :root :is(input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit], [readonly]),
+    select, textarea:not([readonly])) { font-size: 16px; }
   /* The When/From pair was measured at 14px (97px and 120px boxes at 375);
      at 16px "September" needs the 8px this padding gives back. */
   .pickersmain .combo-input { padding-left: 6px; padding-right: 6px; }
+  /* Budget boxes keep their widths (the row was measured to fit at 360), so
+     16px digits get room from the padding instead: at <=640 the amount had
+     44px of text and "25000" needs ~48 in SF. Now 52px (66 above 640), and
+     days get 32px for "365". */
+  .budgethero .numin { padding-left: 5px; padding-right: 5px; }
 }
