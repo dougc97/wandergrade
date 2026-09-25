@@ -11,8 +11,10 @@ are capped at MAX_HISTORY_DAYS.
 
 import datetime
 import json
+import math
 import os
 import ssl
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -111,41 +113,66 @@ def get_timeseries(start, end):
     url = "{0}/timeseries?start_date={1}&end_date={2}&base={3}".format(
         API, start, end, BASE)
     rates = fetch_json(url)["rates"]
-    return _undo_redenominations({_day(k): dict(v) for k, v in rates.items()})
+    return _undo_breaks({_day(k): dict(v) for k, v in rates.items()})
 
 
-# A one-day move this large is a redenomination, not a market: the Syrian pound
-# dropped two zeros on 2026-01-07 (11059.6 -> 110.66 per USD), and averaging
-# both units into one year read as "-96.4%, weak" when the dollar had actually
-# strengthened ~10% in the new units.
+# Two kinds of one-day step are changes of unit, not markets, and averaging
+# across them makes the "vs its 1-yr average" figure fiction:
+#  * a redenomination: the Syrian pound dropped two zeros on 2026-01-07
+#    (11059.6 -> 110.66 per USD), which read "-96.4%, weak" when the dollar had
+#    actually strengthened ~10% in the new units. History is rescaled.
+#  * a regime switch: on 2026-01-06 the provider moved the rial from Iran's
+#    official rate to the market rate (42,003 -> 981,110, 23x), which read
+#    "+79%, great". No rescale can join two different rates, so history before
+#    the switch is dropped and the trend is computed from what follows it.
+# Real devaluations stay far below REGIME_MIN_STEP (Argentina Dec 2023 ~2.2x,
+# Egypt 2024 ~1.6x, Bolivia's 2026 step in this feed 1.43x) and are left alone.
 REDENOM_MIN_STEP = 20
+REGIME_MIN_STEP = 5
+# Days the new level must hold before a step counts. Without it a glitch on
+# the last day or two passed the persistence check vacuously and rescaled the
+# whole year to it; a real break is picked up this many days late.
+BREAK_MIN_AFTER = 3
+# Fewer samples than this (e.g. just after a regime switch) is no trend at all.
+MIN_TREND_DAYS = 30
 
 
-def _undo_redenominations(ts):
-    """Rescale history from before a redenomination into the current unit, in
-    place. Only a step that is (close to) a power of ten between two levels that
-    each hold for several days counts, so a one-day glitch or a real crash is
-    left alone."""
-    import math
+def _undo_breaks(ts):
+    """Undo redenominations and regime switches in {date: {code: rate}}, in place.
+
+    A step counts only when it is >= REGIME_MIN_STEP in one day, the new level
+    then holds (within 2x) on each of the next days checked — up to 5, and at
+    least BREAK_MIN_AFTER must exist — and the old level held (within 2x) for
+    the days before it. So a one-day glitch, a glitch in the final days, and an
+    ordinary devaluation are all left alone. A step of >= REDENOM_MIN_STEP within
+    35% of a power of ten is a redenomination (earlier history rescaled into the
+    new unit); any other qualifying step is a regime switch (earlier history
+    dropped for that currency, so its averages start at the switch)."""
     series = {}  # code -> [day, ...] with a usable rate, chronological
     for d in sorted(ts):
         for c, r in ts[d].items():
             if r:
                 series.setdefault(c, []).append(d)
     for c, days in series.items():
+        start = 0            # first day still in the series (after any switch)
         for i in range(1, len(days)):
             prev, cur = ts[days[i - 1]][c], ts[days[i]][c]
             ratio = prev / cur
-            if 1.0 / REDENOM_MIN_STEP < ratio < REDENOM_MIN_STEP:
+            if 1.0 / REGIME_MIN_STEP < ratio < REGIME_MIN_STEP:
+                continue
+            after = days[i + 1:i + 6]
+            if len(after) < BREAK_MIN_AFTER or \
+                    any(not 0.5 < ts[d][c] / cur < 2 for d in after) or \
+                    any(not 0.5 < ts[d][c] / prev < 2 for d in days[max(start, i - 6):i - 1]):
                 continue
             k = 10.0 ** round(math.log10(ratio))
-            if abs(ratio / k - 1) > 0.35:
-                continue
-            if any(not 0.5 < ts[d][c] / cur < 2 for d in days[i + 1:i + 6]) or \
-                    any(not 0.5 < ts[d][c] / prev < 2 for d in days[max(0, i - 6):i - 1]):
-                continue
-            for d in days[:i]:
-                ts[d][c] = ts[d][c] / k
+            if max(ratio, 1 / ratio) >= REDENOM_MIN_STEP and abs(ratio / k - 1) <= 0.35:
+                for d in days[start:i]:
+                    ts[d][c] = ts[d][c] / k
+            else:
+                for d in days[start:i]:
+                    del ts[d][c]
+                start = i
     return ts
 
 
@@ -240,22 +267,33 @@ def _rate_label(strength_pct, percentile):
 # full-year timeseries per request from the keyless provider every page
 # depends on. The provider's own code list, refreshed daily, answers it with
 # at most one upstream call a day.
-_known = {"at": 0.0, "codes": frozenset()}
+_known = {"at": 0.0, "codes": frozenset(), "retry_at": 0.0}
 KNOWN_TTL = 24 * 3600
+# With no list yet (cold start) and the provider down, every request used to
+# run its own retry chain (3 tries, 20s timeouts) before its real work began.
+# Now one request asks; the rest, and everyone for KNOWN_RETRY after a
+# failure, get "unknown" at once.
+KNOWN_RETRY = 30
+_known_lock = threading.Lock()
 
 
 def known_currencies():
     """Codes the provider quotes (plus USD), or None if it can't be asked yet."""
     now = time.time()
-    if not _known["codes"] or now - _known["at"] >= KNOWN_TTL:
-        try:
-            _, latest = get_latest()
-            _known.update(at=now, codes=frozenset(latest) | {"USD"})
-        except Exception:
-            if not _known["codes"]:
-                return None
-            _known["at"] = now - KNOWN_TTL + 600   # keep the old list; retry in 10 min
-    return _known["codes"]
+    fresh = _known["codes"] and now - _known["at"] < KNOWN_TTL
+    if fresh or now < _known["retry_at"]:
+        return _known["codes"] or None
+    if not _known_lock.acquire(blocking=False):   # another request is asking
+        return _known["codes"] or None
+    try:
+        _, latest = get_latest()
+        _known.update(at=time.time(), codes=frozenset(latest) | {"USD"}, retry_at=0.0)
+    except Exception:
+        # Keep any old list; either way don't ask again for a while.
+        _known["retry_at"] = time.time() + (600 if _known["codes"] else KNOWN_RETRY)
+    finally:
+        _known_lock.release()
+    return _known["codes"] or None
 
 
 def is_known_base(code):
@@ -340,7 +378,12 @@ def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None,
         # High percentile = dollar near the strong end of its recent range.
         below = sum(1 for v in hist if v <= rate_now)
         percentile = below / len(hist) * 100.0
-        favorable = strength_pct >= threshold_pct
+        # A few days since a regime switch is no baseline: the row stays (its
+        # rate_now still prices the country) but claims no move either way.
+        no_trend = len(hist) < min(MIN_TREND_DAYS, baseline_days // 2)
+        if no_trend:
+            strength_pct, percentile = 0.0, 50.0
+        favorable = strength_pct >= threshold_pct and not no_trend
 
         rows.append({
             "code": code,
@@ -355,6 +398,8 @@ def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None,
             "watched": (not watch_set) or (code in watch_set),
             "label": _rate_label(strength_pct, percentile),
         })
+        if no_trend:
+            rows[-1]["no_trend"] = True
 
     # Strongest dollar first.
     rows.sort(key=lambda r: r["strength_pct"], reverse=True)
@@ -418,6 +463,8 @@ def get_trend(code, base="USD"):
             months = [{"m": ym, "v": round(sum(v) / len(v), 6)}
                       for ym, v in sorted(ms.items())]
             allv = [r for v in ms.values() for r in v]
+            if len(allv) < MIN_TREND_DAYS:   # e.g. just after a regime switch
+                continue
             avg = sum(allv) / len(allv)
             rate_now = latest.get(c)
             if rate_now is None or not avg:

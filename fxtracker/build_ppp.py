@@ -73,7 +73,40 @@ def _latest_by_iso(rows, valid):
     return latest
 
 
-def build():
+def _carry_over(out, previous, fields):
+    """Copy `fields` for every country from the previous table (same shape as
+    ppp.json). Used when a secondary fetch fails outright."""
+    n = 0
+    for iso, e in out.items():
+        old = (previous or {}).get(iso) or {}
+        if all(old.get(f) is not None for f in fields):
+            e.update({f: old[f] for f in fields})
+            n += 1
+    return n
+
+
+def _secondary(url, what, out, valid, previous, fields, digits, fallback_msg):
+    """Merge one optional World Bank indicator into `out` as fields[0] (value)
+    and fields[1] (year). It must never fail the PPP build. When the fetch fails
+    (or comes back empty), the previous table's figures are kept per country:
+    dropping them silently switched the inflation carry-forward and real FX off
+    site-wide for the 30 days until the next refresh (Turkey back to pl 0.33)."""
+    try:
+        got = _latest_by_iso(_fetch(url), valid)
+        if not got:
+            raise ValueError("empty response")
+        for iso, (y, v, _nm) in got.items():
+            if iso in out:
+                out[iso][fields[0]] = round(v, digits)
+                out[iso][fields[1]] = y
+    except Exception as e:
+        kept = _carry_over(out, previous, fields)
+        print("WARNING: {0} fetch failed ({1}). {2}".format(
+            what, e, "Kept the previous figures for %d countries." % kept if kept
+            else fallback_msg))
+
+
+def build(previous=None):
     """Fetch and shape the PPP table: {iso: {ppp, year, name, gdppc, gdppc_year,
     infl, infl_year}} (the last four only when the World Bank has them).
 
@@ -81,6 +114,9 @@ def build():
     so both paths can never disagree about how the data is derived. Keeps the
     latest available year PER COUNTRY — the World Bank publishes with a lag and
     not every country lands in the same year.
+
+    `previous` (a table in the same shape, e.g. the one being replaced) backs
+    the income and inflation fields when their own fetch fails.
     """
     # Only keep real countries that exist on our map.
     with open(GEOJSON, encoding="utf-8") as f:
@@ -91,29 +127,15 @@ def build():
     out = {iso: {"ppp": round(v, 6), "year": y, "name": nm}
            for iso, (y, v, nm) in latest.items()}
 
-    # Income is a cross-check, not an input to the grade, so it must never be able
-    # to fail the PPP build. If it's unavailable the entries simply carry no
-    # gdppc and the client falls back to its absolute plausibility bounds.
-    try:
-        for iso, (y, v, _nm) in _latest_by_iso(_fetch(GDP_URL), valid).items():
-            if iso in out:
-                out[iso]["gdppc"] = round(v, 2)
-                out[iso]["gdppc_year"] = y
-    except Exception as e:
-        print("WARNING: GDP per capita fetch failed ({0}). "
-              "Price-level plausibility check will fall back to absolute bounds.".format(e))
-
+    # Income is a cross-check, not an input to the grade. With neither a fetch
+    # nor a previous figure, entries carry no gdppc and the client falls back
+    # to its absolute plausibility bounds.
+    _secondary(GDP_URL, "GDP per capita", out, valid, previous, ("gdppc", "gdppc_year"), 2,
+               "Price-level plausibility check will fall back to absolute bounds.")
     # Same rule for inflation: without it the price level simply isn't carried
     # forward (factor 1), which is what the site did before this existed.
-    try:
-        for iso, (y, v, _nm) in _latest_by_iso(_fetch(CPI_URL), valid).items():
-            if iso in out:
-                out[iso]["infl"] = round(v, 2)
-                out[iso]["infl_year"] = y
-    except Exception as e:
-        print("WARNING: inflation fetch failed ({0}). "
-              "Price levels will not be carried forward for inflation.".format(e))
-
+    _secondary(CPI_URL, "inflation", out, valid, previous, ("infl", "infl_year"), 2,
+               "Price levels will not be carried forward for inflation.")
     return out
 
 
@@ -152,7 +174,11 @@ def committed():
 
 
 def main():
-    out = build()
+    try:
+        prev = committed()
+    except Exception:
+        prev = None
+    out = build(previous=prev)
     _warn_usd_units(out)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"), sort_keys=True)

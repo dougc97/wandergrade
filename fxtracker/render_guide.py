@@ -65,6 +65,34 @@ def iso_for_slug(slug):
     return _load()["slugs"].get(slug)
 
 
+# app.js VISA_META `long` text, so the crawlable line reads like the hydrated
+# one ("Visa-free entry · 90 days"). Joining the raw status code printed "check
+# no visa; expedition operators arrange permits" on pages Google indexes.
+VISA_LONG = {
+    "free": "Visa-free entry",
+    "eta": "Electronic travel authorization (apply online)",
+    "voa": "Visa on arrival",
+    "evisa": "eVisa — apply online before you go",
+    "required": "Visa required in advance (embassy/consulate)",
+    "special": "Special restrictions apply",
+    "check": "Requirements vary — verify before booking",
+}
+
+
+def _visa_line(v, verified):
+    """The US-passport visa sentence, or "" where the guide shows no visa row."""
+    if not v.get("status"):          # app.js visaInfo: no status, no row
+        return ""
+    txt = VISA_LONG.get(v["status"], VISA_LONG["check"])
+    if v.get("note"):
+        txt += " · " + v["note"]
+    y, _, m = (verified or "").partition("-")
+    when = ("%s %s" % (MON_FULL[int(m) - 1], y)) if m.isdigit() and 1 <= int(m) <= 12 else y
+    tail = (" Checked %s; verify before booking — rules change." % when if when
+            else " Verify before booking — rules change.")
+    return "<p><strong>Visa (US passport):</strong> %s.%s</p>" % (html.escape(txt), html.escape(tail))
+
+
 def _label(x):
     """An activity is either a plain string or {'t': label, 'd': insight}."""
     return x.get("t") if isinstance(x, dict) else x
@@ -220,9 +248,9 @@ def render(iso):
                 li += " — %s" % html.escape(s["d"])
             p.append(li + "</li>")
         p.append("</ul>")
-    if v.get("note") or v.get("status"):
-        vtxt = " ".join(x for x in (v.get("status", ""), v.get("note", "")) if x)
-        p.append("<p><strong>Visa (US passport):</strong> %s</p>" % html.escape(vtxt))
+    vline = _visa_line(v, d["visa"].get("_verified"))
+    if vline:
+        p.append(vline)
     p.append(_insurance_link(slug))
 
     return {
