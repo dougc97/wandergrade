@@ -5,12 +5,15 @@ name: Keep Render awake
 # it warm, so the site loads instantly. /healthz is auth-exempt and skips the
 # redirect, returning 200 directly. (Public repo => unlimited Actions minutes;
 # one always-on service fits inside Render's 750 free instance-hours/month.)
+# The service also pings itself while awake (server.py _keep_warm); this cron
+# is the layer that can wake it.
 on:
   schedule:
     - cron: "*/10 * * * *"   # every 10 minutes (cron is UTC)
   workflow_dispatch: {}       # allow a manual ping from the Actions tab
 
-# Don't pile up overlapping runs if a tick is delayed.
+# Don't pile up overlapping runs if a tick is delayed. (Only this workflow's
+# own pings share the group; the digest has its own.)
 concurrency:
   group: keep-awake
   cancel-in-progress: true
@@ -18,9 +21,42 @@ concurrency:
 jobs:
   ping:
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     steps:
       - name: Ping the health check
         run: |
           code=$(curl -fsS --max-time 40 -o /dev/null -w "%{http_code}" https://wandergrade.com/healthz) \
             && echo "pinged wandergrade.com/healthz -> HTTP $code at $(date -u)" \
             || { echo "ping failed (service may be cold-starting)"; exit 0; }
+
+      # GitHub disables scheduled workflows in a public repo after 60 days
+      # without repository activity, and they then stay off until re-enabled
+      # by hand. This runs many times a day, so it is the main keepalive for
+      # both schedules (monthly-check.yml repeats it). A workflow switched off
+      # by hand stays off - that is how to pause the digest from the Actions
+      # tab - so only one that is on, or that GitHub switched off for
+      # inactivity, is (re-)enabled. Never fails the run.
+      - name: Keep both schedules enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          for wf in keep-awake.yml monthly-check.yml; do
+            state=$(gh api "repos/$REPO/actions/workflows/$wf" --jq .state) || state=unknown
+            case "$state" in
+              active|disabled_inactivity)
+                if gh api -X PUT "repos/$REPO/actions/workflows/$wf/enable" --silent; then
+                  echo "enabled: $wf (was $state)"
+                else
+                  echo "::warning::could not re-enable $wf"
+                fi
+                ;;
+              disabled_manually)
+                echo "$wf was disabled by hand; leaving it off"
+                ;;
+              *)
+                echo "::warning::$wf is in state '$state'; not touching it"
+                ;;
+            esac
+          done
