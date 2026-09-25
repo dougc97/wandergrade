@@ -210,19 +210,43 @@ def _dataset():
     return _dataset_cache
 
 
-_PPP_KEEP = ("infl", "gdppc")   # fields a live refresh may never silently drop
+# Fields a live refresh may never silently drop, with the year that goes with
+# each. Without infl the site fell back to nominal FX and un-carried price
+# levels (Turkey back to 0.33 and "+9%") while the digest, which reads the
+# committed file, kept the real figures.
+_PPP_KEEP = {"infl": "infl_year", "gdppc": "gdppc_year"}
 
 
-def _ppp_lost_fields(base, live):
-    """{field: [iso, ...]} for countries whose current entry has a _PPP_KEEP
-    field that the same country's live entry lacks. Empty when nothing is lost."""
-    lost = {}
-    for f in _PPP_KEEP:
-        isos = sorted(iso for iso, v in base.items()
-                      if f in v and iso in live and f not in live[iso])
-        if isos:
-            lost[f] = isos
-    return lost
+def _ppp_keep_fields(base, live):
+    """Stop a live PPP table from dropping fields the current one has.
+
+    A few countries missing from one World Bank indicator get their current
+    figures carried over into `live` (a country the source stops reporting
+    shouldn't lose its carry-forward, nor block every later refresh). A loss
+    on more than a tenth of them means the fetch itself was bad, and comes
+    back as {field: [iso, ...]} for the caller to refuse the table. Returns
+    (carried, refused)."""
+    carried, refused = {}, {}
+    for f, fy in _PPP_KEEP.items():
+        have = [iso for iso, v in base.items() if v.get(f) is not None]
+        lost = sorted(iso for iso in have if iso in live and live[iso].get(f) is None)
+        if not lost:
+            continue
+        if len(lost) > len(have) * 0.1:
+            refused[f] = lost
+            continue
+        for iso in lost:
+            live[iso][f] = base[iso][f]
+            if base[iso].get(fy) is not None:
+                live[iso][fy] = base[iso][fy]
+        carried[f] = lost
+    return carried, refused
+
+
+def _ppp_isos(lost):
+    return "; ".join("%s on %d (%s%s)" % (f, len(isos), ",".join(isos[:8]),
+                                          ",..." if len(isos) > 8 else "")
+                     for f, isos in lost.items())
 
 
 def _ppp_data():
@@ -255,26 +279,26 @@ def _ppp_data():
                 # previous=: a failed CPI/GDP call carries those fields over
                 # from the table we already serve instead of dropping them.
                 live = build_ppp.build(previous=base) or {}
-                lost = _ppp_lost_fields(base, live)
                 # A truncated or partly-null API response must never quietly
-                # shrink the number of gradeable countries — nor strip the
-                # inflation (or income) fields: without infl the site silently
-                # fell back to nominal FX and un-carried price levels for a
-                # month (Turkey back to 0.33 and "+9%"), while the digest,
-                # which reads the committed file, kept the real figures.
+                # shrink the number of gradeable countries, nor strip the
+                # inflation or income fields (_ppp_keep_fields).
                 if len(live) < max(1, int(len(base) * 0.9)):
                     _ppp_cache["at"] = retry_at
                     print("[ppp] live fetch gave %d vs %d committed; keeping current"
                           % (len(live), len(base)), flush=True)
-                elif lost:
+                    return
+                carried, refused = _ppp_keep_fields(base, live)
+                if refused:
                     _ppp_cache["at"] = retry_at
-                    print("[ppp] live table lost %s; keeping current" % "; ".join(
-                        "%s on %d countries (%s)" % (f, len(isos), ",".join(isos[:8]))
-                        for f, isos in lost.items()), flush=True)
-                else:
-                    _ppp_cache["data"] = live
-                    _ppp_cache["at"] = time.time()
-                    print("[ppp] refreshed: %d countries" % len(live), flush=True)
+                    print("[ppp] live table lost %s; keeping current" % _ppp_isos(refused),
+                          flush=True)
+                    return
+                if carried:
+                    print("[ppp] live table lacked %s; kept the current figures"
+                          % _ppp_isos(carried), flush=True)
+                _ppp_cache["data"] = live
+                _ppp_cache["at"] = time.time()
+                print("[ppp] refreshed: %d countries" % len(live), flush=True)
             except Exception as e:
                 _ppp_cache["at"] = retry_at
                 print("[ppp] live fetch failed (%s); keeping current" % e, flush=True)
@@ -389,8 +413,8 @@ def _data_page_body():
         "the year the PPP was published, so they drift as both move. This carries the "
         "PPP factor forward for inflation and divides by <em>today's</em> market rate. A "
         "country shows up cheaper here than in a year-old table only when its currency "
-        "has fallen faster than its prices have risen; where prices outran the currency, "
-        "it shows up pricier.</p>"
+        "has fallen faster than its prices have risen (beyond US inflation); where prices "
+        "outran the currency, it shows up pricier.</p>"
         "<h2>What it is not</h2>"
         "<p>These are national averages for residents. Neighbourhoods popular with "
         "visitors, and rent paid by foreigners, run well above them — useful for "

@@ -135,13 +135,15 @@ BDSUBS = {
     "r-gone@example.com": {"type": "unsubscribed", "tags": ["cadence-monthly"]},
     "r-race@example.com": {"type": "regular", "tags": ["cadence-monthly"]},
 }
-LOOKUPS, FAIL = [], {}
+LOOKUPS, FAIL, FAIL_ONCE = [], {}, {}
 
 
 def fake_lookup(addr, key):
     LOOKUPS.append(addr)
     if addr in FAIL:
         return FAIL[addr], None
+    if addr in FAIL_ONCE:                    # a blip: the next lookup works
+        return FAIL_ONCE.pop(addr), None
     if addr == "r-race@example.com":        # they tick the box again while we look
         seed(addr, subscribed=True, cadence="monthly")
     s = BDSUBS.get(addr)
@@ -177,27 +179,38 @@ results.append(ok(st and st["errors"] == 0 and accounts._kv_get(accounts.RECONCI
 BD.clear(); LOOKUPS.clear()
 results.append(ok(accounts.reconcile_optouts(delay=0, pause=0) is None and BD == [] and LOOKUPS == [],
                   "it runs once: with the marker set, a restart makes no calls"))
-# A pass with an error sets no marker (a later start retries); the lock keeps
-# a second instance out meanwhile; the retry changes nothing already done.
+# A pass with an error sets no marker and frees the lock, so it can be tried
+# again; another instance holding the lock keeps this one out meanwhile.
 accounts._redis("DEL", accounts.RECONCILE_DONE)
 seed("r-optout2@example.com", subscribed=False)
 BDSUBS["r-optout2@example.com"] = {"type": "regular", "tags": ["cadence-monthly"]}
 FAIL["r-public@example.com"] = 503
-st = accounts.reconcile_optouts(delay=0, pause=0, backoff=0)
+st = accounts.reconcile_optouts(delay=0, pause=0, backoff=0, tries=1)
 results.append(ok(st and st["errors"] == 1 and st["unsubscribed"] == 1
-                  and accounts._kv_get(accounts.RECONCILE_DONE) is None,
-                  "an upstream error leaves it unmarked so a later start retries"))
-results.append(ok(accounts.reconcile_optouts(delay=0, pause=0) is None,
-                  "while the lock is held a second instance does nothing"))
+                  and accounts._kv_get(accounts.RECONCILE_DONE) is None
+                  and accounts._kv_get(accounts.RECONCILE_LOCK) is None,
+                  "an upstream error leaves it unmarked and unlocked, to be retried"))
+accounts._redis("SET", accounts.RECONCILE_LOCK, 1, "EX", 60)
+BD.clear(); LOOKUPS.clear()
+results.append(ok(accounts.reconcile_optouts(delay=0, pause=0) is None and BD == [] and LOOKUPS == [],
+                  "while another instance holds the lock this one does nothing"))
 accounts._redis("DEL", accounts.RECONCILE_LOCK)
+# The thread retries a failed pass itself (an hour later in production) rather
+# than waiting for a redeploy, and the retry redoes nothing already done:
+# r-optout2 went in the failed pass above and must not be PATCHed again.
 FAIL.clear(); BD.clear()
-st = accounts.reconcile_optouts(delay=0, pause=0, backoff=0)
-results.append(ok(st and st["errors"] == 0 and st["unsubscribed"] == 0 and BD == []
-                  and accounts._kv_get(accounts.RECONCILE_DONE),
-                  "the retry is idempotent: already-unsubscribed addresses aren't touched again"))
+seed("r-optout3@example.com", subscribed=False)
+BDSUBS["r-optout3@example.com"] = {"type": "regular", "tags": ["cadence-monthly"]}
+FAIL_ONCE["r-public@example.com"] = 503
+st = accounts.reconcile_optouts(delay=0, pause=0, backoff=0, tries=2, retry_wait=0)
+patched = [urllib.parse.unquote(u.rsplit("/", 1)[1]) for m, u, p, _ in BD if m == "PATCH"]
+results.append(ok(st and st["errors"] == 0 and accounts._kv_get(accounts.RECONCILE_DONE)
+                  and patched == ["r-optout3@example.com"],
+                  "a failed pass is retried in-process and completes; nothing is PATCHed twice -> %s"
+                  % patched))
 FAIL["r-public@example.com"] = 401
 accounts._redis("DEL", accounts.RECONCILE_DONE)
-st = accounts.reconcile_optouts(delay=0, pause=0, backoff=0)
+st = accounts.reconcile_optouts(delay=0, pause=0, backoff=0, tries=1)
 results.append(ok(st and st["errors"] >= 1 and accounts._kv_get(accounts.RECONCILE_DONE) is None,
                   "a refused API key stops the pass without marking it done"))
 FAIL.clear()

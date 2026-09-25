@@ -478,26 +478,48 @@ def _bd_subscriber(email, key):
         return e.code, None
 
 
-def reconcile_optouts(delay=60, pause=RECONCILE_PAUSE, backoff=60):
+def reconcile_optouts(delay=60, pause=RECONCILE_PAUSE, backoff=60, tries=3,
+                      retry_wait=RECONCILE_LOCK_TTL):
     """Unsubscribe, in Buttondown, accounts that opted out before opt-outs
     reached it. Runs on a background thread at server start; a no-op without
     the Buttondown and Upstash keys, once a clean pass has set RECONCILE_DONE,
     or while another instance (a deploy overlap) holds the lock. A pass with
-    any error sets no marker, so a later start tries again once the lock
-    expires. Returns the pass's stats, or None when it didn't run."""
+    any error sets no marker and is tried again `retry_wait` seconds later, up
+    to `tries` passes, then at the next start: waiting for a redeploy could
+    let the next issue reach the very people this is for. Returns the last
+    pass's stats, or None when it didn't run."""
     key = _env("BUTTONDOWN_API_KEY")
-    if not key or not (_env("UPSTASH_REDIS_REST_URL") and _env("UPSTASH_REDIS_REST_TOKEN")):
+    if not (_env("UPSTASH_REDIS_REST_URL") and _env("UPSTASH_REDIS_REST_TOKEN")):
+        return None
+    if not key:
+        # Accounts are on but the list is out of reach: say so, since opt-outs
+        # (here and in the account panel) silently can't reach Buttondown.
+        print("[accounts] BUTTONDOWN_API_KEY not set: opt-outs can't reach the newsletter "
+              "list; reconciliation skipped", flush=True)
         return None
     time.sleep(delay)        # let a cold start answer its first visitors first
+    stats = None
+    for attempt in range(tries):
+        if attempt:
+            time.sleep(retry_wait)
+        stats = _reconcile_pass(key, pause, backoff)
+        if not stats or not stats["errors"]:
+            break
+    return stats
+
+
+def _reconcile_pass(key, pause, backoff):
+    """One walk over the stored accounts -> stats, or None when skipped
+    (already done, or another instance holds the lock)."""
+    stats = {"accounts": 0, "looked_up": 0, "unsubscribed": 0, "errors": 0}
     try:
         if _kv_get(RECONCILE_DONE):
             return None
         if not _redis("SET", RECONCILE_LOCK, int(time.time()), "EX", RECONCILE_LOCK_TTL, "NX"):
             return None
-    except Exception as e:
-        print("[accounts] reconcile: storage unavailable (%s); skipped" % e, flush=True)
-        return None
-    stats = {"accounts": 0, "looked_up": 0, "unsubscribed": 0, "errors": 0}
+    except Exception as e:           # a storage blip is retried like any other error
+        print("[accounts] reconcile: storage unavailable (%s); will retry" % e, flush=True)
+        return dict(stats, errors=1)
     print("[accounts] reconcile: checking opted-out accounts against Buttondown", flush=True)
     try:
         cursor = "0"
@@ -548,12 +570,11 @@ def reconcile_optouts(delay=60, pause=RECONCILE_PAUSE, backoff=60):
         print("[accounts] reconcile stopped: %s" % e, flush=True)
     try:
         if stats["errors"]:
-            print("[accounts] reconcile: %s; not marked done, a later start retries" % stats,
-                  flush=True)
+            print("[accounts] reconcile: %s; not marked done, will retry" % stats, flush=True)
         else:
             _kv_set(RECONCILE_DONE, json.dumps(dict(stats, at=int(time.time()))))
-            _kv_del(RECONCILE_LOCK)
             print("[accounts] reconcile done: %s" % stats, flush=True)
+        _kv_del(RECONCILE_LOCK)    # the pass is over either way; a retry may take it
     except Exception as e:
         print("[accounts] reconcile: couldn't record the result (%s)" % e, flush=True)
     return stats
