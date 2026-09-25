@@ -19,6 +19,7 @@ import urllib.parse
 import urllib.request
 
 from . import rates  # reuse verifying SSL context
+from .pricelevel import js_round
 
 API = "https://api.buttondown.email/v1/emails"
 
@@ -170,6 +171,9 @@ def _esc(x):
 
 
 def _grade(score):
+    # None = not measured (no climate data for weather): a dash, as on the site.
+    if score is None:
+        return "—"
     return ("A+" if score >= 93 else "A" if score >= 85 else "B+" if score >= 78
             else "B" if score >= 68 else "C" if score >= 55 else "D" if score >= 42
             else "F")
@@ -199,7 +203,7 @@ def _fx_line(s, compact=False):
     fx = s.get("fx")
     if fx is None or fx < 3:
         return ""
-    pct = int(round(fx))
+    pct = js_round(fx)   # Math.round, as the site prints it
     if compact:
         return ("<div style='font-size:13px;color:%s;margin:4px 0 0'>\U0001f4b5 Dollar goes ~%d%% "
                 "further than its 1-yr average here, after inflation</div>" % (GREEN, pct))
@@ -249,9 +253,13 @@ def _credit(s):
             "style='color:#888'>%s</a> &middot; %s</div>" % (_esc(c["page"]), _esc(c["artist"]), lic))
 
 
-def _fly(s):
-    return (" &nbsp;&middot;&nbsp; ✈️ Flights <b>%s</b>" % _grade(s["fly"])
-            if s.get("fly") is not None else "")
+def _fly(s, compact=False):
+    # Flights is in the Overall whenever there is fare data, so every line that
+    # shows the Overall shows it too (the gem lines used to leave it out).
+    if s.get("fly") is None:
+        return ""
+    return ((" &middot; ✈️ %s" if compact else " &nbsp;&middot;&nbsp; ✈️ Flights <b>%s</b>")
+            % _grade(s["fly"]))
 
 
 def _hero_card(s, month):
@@ -290,8 +298,7 @@ def _compact_card(s, month):
       </tr>
     </table>""" % (thumb, _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
                    _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]),
-                   (" &middot; ✈️ %s" % _grade(s["fly"])) if s.get("fly") is not None else "",
-                   _value_line(s, compact=True), _credit(s), g, GREEN)
+                   _fly(s, compact=True), _value_line(s, compact=True), _credit(s), g, GREEN)
 
 
 def _gem_line(s, month):
@@ -299,9 +306,9 @@ def _gem_line(s, month):
     return ("<div style='font-size:14px;margin:0 0 9px;color:#111'>%s<a href='%s' "
             "style='color:%s;text-decoration:none;font-weight:700'>%s</a> "
             "<span style='color:#666'>— %s &middot; \U0001f4b0 %s &middot; \U0001f6e1️ %s "
-            "&middot; \U0001f324️ %s</span></div>") % (
+            "&middot; \U0001f324️ %s%s</span></div>") % (
         _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
-        _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]))
+        _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]), _fly(s, compact=True))
 
 
 # One line of human at the end of a page of grades. Every author here died long
@@ -375,7 +382,7 @@ def render_digest(data):
     <div style="font-size:22px;font-weight:800;color:#111">\U0001f30d WanderGrade</div>
     <div style="font-size:14px;color:#555">Where Should I Travel Next?</div>
   </div>
-  <p style="font-size:15px;line-height:1.5;color:#111">Where’s worth it in <b>%s %s</b>? WanderGrade grades every country <b>A+ to F</b> on what your trip actually hinges on — how far your money goes, safety, and weather. The twist: we flag where <b>your dollar is unusually strong right now</b>. This month’s standouts \U0001f447</p>
+  <p style="font-size:15px;line-height:1.5;color:#111">Where’s worth it in <b>%s %s</b>? WanderGrade grades every country <b>A+ to F</b> on what your trip actually hinges on — how far your money goes, safety, weather and flights. The twist: we flag where <b>your dollar is unusually strong right now</b>. This month’s standouts \U0001f447</p>
   <p style="font-size:13px;color:#555;background:#eef7f0;border-radius:8px;padding:10px 12px">\U0001f4c5 Featured for <b>%s</b> — about two months out, the sweet spot for booking. Going a different time? <a href="%s" style="color:%s;font-weight:600;text-decoration:none">Pick your travel month →</a></p>
   <h2 style="font-size:18px;margin:22px 0 10px;color:#111">\U0001f31f Top picks</h2>
   %s

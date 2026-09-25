@@ -356,16 +356,35 @@ def _summary(desc, level=None, iso=None, name_iso=None):
     if not desc:
         return ""
     text = re.sub(r"<!\[CDATA\[|\]\]>", "", desc)
+    # Markup boundaries that are sentence breaks (\x01), handled before tags go:
+    #  * the bold-italic change note ("...Advisory summary was updated</i>") has
+    #    no full stop, so it ran into the next sentence and the bookkeeping
+    #    filter dropped both. Its text stays (Vietnam's lead is inside it);
+    #  * headings, as their own bold paragraph ("<p><b>Crime</b></p>", possibly
+    #    in a <span>) or run into the text ("<b>Crime<br></b>Violent crime..."),
+    #    read as "Crime Violent crime..." once tags were stripped. Dropped.
+    text = re.sub(r"<p>\s*<b>\s*<i>(.*?)</i>\s*</b>\s*</p>", " \\1 \x01 ", text, flags=re.I | re.S)
+    # (A bold "Do not travel to Belarus due to:" is the lead, not a heading.)
+    heading = (lambda m: m.group(0) if re.search(r"[.!?]\s*$", m.group(1)) or re.match(
+        r"\s*(exercise|reconsider|do not travel)\b", m.group(1), re.I) else " \x01 ")
+    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>(?:\s|&nbsp;)*(?:</span>\s*)?</p>",
+                  heading, text, flags=re.I)
+    text = re.sub(r"<b>\s*([^<]{1,60}?)<br\s*/?>\s*</b>", heading, text, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", text)
     text = html.unescape(re.sub(r"\s+", " ", text)).strip()
-    # "Read the entire Travel Advisory." is boilerplate in most items, and
-    # "Advisory summary" is a section heading that survives tag-stripping.
+    # "Read the entire Travel Advisory." is boilerplate in most items;
+    # "Advisory summary:" is a section heading that survives tag-stripping (its
+    # colon used to survive too: "...due to terrorism. : Terrorist groups...");
+    # "Summary not available" is the feed's placeholder, glued onto the lead
+    # ("Exercise normal precautionSummary not available").
     text = re.sub(r"\s*Read the entire Travel Advisory\.?", "", text, flags=re.I)
-    text = re.sub(r"\bAdvisory summary\b", "", text, flags=re.I)
+    text = re.sub(r"\bAdvisory summary\b\s*:?", "", text, flags=re.I)
+    text = re.sub(r"\s*Summary not available\.?", " \x01 ", text, flags=re.I)
     # Shield abbreviations the sentence splitter would break on ("...travel to
     # Japan, U.S. government employees...").
     text = text.replace("U.S.", "U\x00S\x00")
-    parts = [p.replace("U\x00S\x00", "U.S.") for p in re.split(r"(?<=[.!?])\s+", text)]
+    parts = [re.sub(r"^[\s:;,.]+", "", p.replace("U\x00S\x00", "U.S."))
+             for p in re.split(r"(?<=[.!?])\s+|\s*\x01\s*", text)]
     # Drop the bookkeeping sentences ("Reissued after periodic review...",
     # "An area of increased risk was added.") — they describe the document,
     # not the country — and the read-more boilerplate.
@@ -417,6 +436,9 @@ def _summary(desc, level=None, iso=None, name_iso=None):
     out = re.sub(r"\s+([.,;])", r"\1", out)   # feed HTML leaves "Thailand ." artifacts
     if out and not LEAD.match(out) and len(out) < 40:
         return ""          # nothing informative survived; better silent than junk
+    if re.fullmatch(r"(exercise normal precautions?|exercise increased caution|reconsider travel"
+                    r"|do not travel)\.?", out, re.I):
+        return ""          # a bare level phrase says no more than the level itself
     return (out[:277] + "...") if len(out) > 280 else out
 
 

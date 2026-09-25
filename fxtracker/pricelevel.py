@@ -52,9 +52,19 @@ US_INFL_FALLBACK = 0.03
 MAX_CARRY_YEARS = 3
 
 
+def js_round(x):
+    """JavaScript Math.round: the nearest integer, halves toward +infinity.
+    Python's round() sends halves to even, and floor(x + 0.5) rounds
+    0.49999999999999994 up — either is enough to flip a grade boundary."""
+    r = math.floor(x)
+    return int(r + 1 if x - r >= 0.5 else r)
+
+
 def now_year(today=None):
-    """Fractional current year: 2026-09-24 -> ~2026.73."""
-    d = today or datetime.date.today()
+    """Fractional current year: 2026-09-24 -> ~2026.73. UTC, as app.js
+    nowYearFrac() is, so a digest built late in the evening doesn't carry
+    prices a day further than the site."""
+    d = today or datetime.datetime.now(datetime.timezone.utc).date()
     return d.year + (d.timetuple().tm_yday - 1) / 365.25
 
 
@@ -98,7 +108,11 @@ def carry_factor(iso, ppp, now_y=None):
 def real_fx_pct(nominal_pct, iso, home_iso, ppp):
     """Nominal "vs the 1-yr average" move -> real (inflation-adjusted) move, in %.
     None when the destination's high inflation isn't current (no honest answer).
-    0.5 is the mean age in years of the samples in a 364-day average."""
+    0.5 is the mean age in years of the samples in a 364-day average.
+
+    Rounded to 2 decimals exactly as app.js realFxPct() rounds, BEFORE anyone
+    scores it: fx = 50 + real*6.25 then rounds again, so Hungary's -0.880365
+    gave fx 44 here and 45 (-0.88) on the site, and a 1-point affordability gap."""
     if nominal_pct is None:
         return None
     r_b = infl_rate(home_iso, ppp)
@@ -109,7 +123,7 @@ def real_fx_pct(nominal_pct, iso, home_iso, ppp):
         if (ppp.get(iso) or {}).get("infl") is not None and ppp[iso]["infl"] >= 10:
             return None
         r_l = r_b
-    return ((1 + nominal_pct / 100.0) * ((1 + r_b) / (1 + r_l)) ** 0.5 - 1) * 100.0
+    return js_round(((1 + nominal_pct / 100.0) * ((1 + r_b) / (1 + r_l)) ** 0.5 - 1) * 10000) / 100
 
 
 def rate_for(code, rate_by_code):

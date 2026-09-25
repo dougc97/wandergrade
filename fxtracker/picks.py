@@ -7,6 +7,7 @@ data and formulas the website uses, so the email matches what users see:
                   nudged by the REAL FX move vs the 1-yr average
   Safety        = advisory level (1-3); unrated countries are not graded
   Weather       = Open-Meteo climate comfort score for the chosen month
+                  (left out of the mean where a country has no climate data)
   Flights       = the US fare vs the typical fare for that distance
   Overall value = weighted mean (Affordability x3, Safety x2, Weather x2,
                   Flights x2) — the site's default priorities
@@ -26,7 +27,6 @@ site's default before any personalization.
 
 import datetime
 import json
-import math
 import os
 import urllib.parse
 import urllib.request
@@ -44,7 +44,10 @@ _CUR = {
     # Americas
     "CA": "CAD", "MX": "MXN", "GT": "GTQ", "BZ": "BZD", "HN": "HNL", "NI": "NIO",
     "CR": "CRC", "CU": "CUP", "DO": "DOP", "HT": "HTG", "JM": "JMD", "TT": "TTD",
-    "BS": "BSD", "BB": "BBD", "CO": "COP", "VE": "VES", "GY": "GYD", "SR": "SRD",
+    "BS": "BSD", "BB": "BBD",
+    # Curaçao's XCG replaced the ANG 1:1 on the same USD peg; the feed quotes ANG.
+    "AW": "AWG", "CW": "ANG",
+    "CO": "COP", "VE": "VES", "GY": "GYD", "SR": "SRD",
     "PE": "PEN", "BR": "BRL", "BO": "BOB", "PY": "PYG", "CL": "CLP", "AR": "ARS",
     "UY": "UYU",
     # Europe (non-euro)
@@ -73,6 +76,9 @@ _CUR = {
     "MZ": "MZN", "ZM": "ZMW", "BW": "BWP", "NA": "NAD", "SZ": "SZL", "LS": "LSL",
     "MW": "MWK", "MG": "MGA", "MU": "MUR", "GM": "GMD", "GN": "GNF", "LR": "LRD",
     "CD": "CDF", "CV": "CVE", "KM": "KMF", "MR": "MRU", "SC": "SCR", "ER": "ERN",
+    # The feed only quotes the old leone; the price level reads SLE via
+    # pricelevel.PPP_UNIT, FX moves keep SLL (as app.js does).
+    "SL": "SLL",
     # CFA franc zones
     "SN": "XOF", "CI": "XOF", "ML": "XOF", "BF": "XOF", "NE": "XOF", "BJ": "XOF",
     "TG": "XOF", "GW": "XOF", "CM": "XAF", "TD": "XAF", "CF": "XAF", "CG": "XAF",
@@ -82,7 +88,7 @@ _EUROZONE = ["AT", "BE", "CY", "EE", "FI", "FR", "DE", "GR", "IE", "IT", "LV",
              "LT", "LU", "MT", "NL", "PT", "SK", "SI", "ES", "HR", "AD", "MC",
              "SM", "VA", "ME", "XK", "BG"]   # Bulgaria: euro since 2026-01-01
 _USD_USING = ["US", "EC", "SV", "PA", "TL", "ZW", "MH", "FM", "PW", "TC", "VG", "BQ",
-              "PR"]
+              "PR", "GU"]
 for _iso in _EUROZONE:
     _CUR[_iso] = "EUR"
 for _iso in _USD_USING:
@@ -102,9 +108,7 @@ MONTHS = ["January", "February", "March", "April", "May", "June", "July",
           "August", "September", "October", "November", "December"]
 
 
-def js_round(x):
-    """JavaScript Math.round: halves round up (Python's round() goes to even)."""
-    return int(math.floor(x + 0.5))
+js_round = pricelevel.js_round   # JavaScript Math.round (halves toward +inf)
 
 
 def clamp100(x):
@@ -252,13 +256,16 @@ def _us_fares():
 
 
 def fare_context(data, centroids=None):
-    """Port of app.js buildFareContext(): known fares shrunk toward a fare ~
-    distance fit, plus distance estimates for every mappable country. None when
-    there is no fare data (the site then grades without Flights)."""
+    """Port of app.js buildFareContext(): `prices` is the fare a traveller pays
+    (cached average, or a distance estimate for every mappable country); `deal`
+    is the same shrunk toward a fare ~ distance fit, which only the Flights
+    grade reads. None when there is no fare data (the site then grades without
+    Flights)."""
     if not (data and data.get("configured") and data.get("by_country")):
         return None
     c = centroids if centroids is not None else geo.country_centroids()
     prices = dict(data["by_country"])
+    deal = dict(prices)
     est = set()
     expected = None
     origin = data.get("origin")
@@ -279,22 +286,22 @@ def fare_context(data, centroids=None):
         known = list(prices.values())
         lo, hi = min(known), max(known) * 1.4
         n_by = {r.get("iso"): r.get("n") for r in data.get("countries") or []}
-        for iso in list(prices):
+        for iso in list(deal):
             if iso not in c:
                 continue
             e = a + b * geo.dist_km(o, c[iso])
             w = (n_by.get(iso) or 1) / ((n_by.get(iso) or 1) + 3)
-            prices[iso] = js_round(w * prices[iso] + (1 - w) * max(50, e))
+            deal[iso] = js_round(w * deal[iso] + (1 - w) * max(50, e))
         for iso in CUR_BY_ISO:
             if prices.get(iso) is not None or iso not in c or iso == origin:
                 continue
             e = a + b * geo.dist_km(o, c[iso])
-            prices[iso] = js_round(max(lo, min(hi, e)))
+            prices[iso] = deal[iso] = js_round(max(lo, min(hi, e)))
             est.add(iso)
-    vals = list(prices.values())
+    vals = list(deal.values())
     if not vals:
         return None
-    return {"prices": prices, "est": est, "min": min(vals), "max": max(vals),
+    return {"prices": prices, "deal": deal, "est": est, "min": min(vals), "max": max(vals),
             "expected": expected}
 
 
@@ -325,14 +332,19 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     comps = {
         "afford": clamp100(aff * 0.7 + fx * 0.3),
         "safe": {1: 100, 2: 70, 3: 35}.get(adv, 70),
-        "wx": cl["scores"][month - 1] if cl and cl["scores"][month - 1] is not None else 50,
     }
+    # No climate entry = no weather measure, averaged over the rest (app.js
+    # wxKnown). A stand-in 50 put a D in the email that the site never shows.
+    scores = (cl or {}).get("scores") or []
+    if len(scores) >= month and scores[month - 1] is not None:
+        comps["wx"] = scores[month - 1]
     fare = None
     if fares and fares["prices"].get(iso) is not None:
         fare = fares["prices"][iso]
+        deal = fares.get("deal", fares["prices"]).get(iso, fare)
         base = fares["expected"](iso) if fares["expected"] else None
-        comps["fly"] = (clamp100(70 + (1 - fare / base) * 100) if base
-                        else clamp100((fares["max"] - fare) / (fares["max"] - fares["min"]) * 100)
+        comps["fly"] = (clamp100(70 + (1 - deal / base) * 100) if base
+                        else clamp100((fares["max"] - deal) / (fares["max"] - fares["min"]) * 100)
                         if fares["max"] > fares["min"] else 50)
     num = sum(WEIGHTS[k] * v for k, v in comps.items())
     den = sum(WEIGHTS[k] for k in comps)
@@ -340,10 +352,11 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     name = (cl and cl.get("name")) or (ppp.get(iso) and ppp[iso].get("name")) or iso
     return {
         "iso": iso, "name": name, "afford": comps["afford"], "safe": comps["safe"],
-        "wx": comps["wx"], "fly": comps.get("fly"), "value": value, "advLvl": adv,
+        "wx": comps.get("wx"), "fly": comps.get("fly"), "value": value, "advLvl": adv,
         "pl": pl, "fare": fare, "fareEst": bool(fares and iso in fares["est"]),
-        # REAL move, which is what "your dollar goes further" claims are about.
-        "fx": round(real, 1) if real is not None else None,
+        # REAL move, which is what "your dollar goes further" claims are about
+        # (2 decimals, the same figure as the site's s.fx).
+        "fx": real,
         "fx_nominal": nominal,
     }
 
