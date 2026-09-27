@@ -25,8 +25,8 @@ CURVES = {
            "2027-03": 732, "2027-04": 777, "2027-05": 879, "2027-06": 974, "2027-07": 973, "2027-08": 797},
     "IS": {"2026-09": 676, "2026-10": 505, "2026-12": 381, "2027-01": 414},
 }
-REC_DAY = datetime.date(2026, 9, 26)   # 5 days of September left: it leaves the stats
-MID_DAY = datetime.date(2026, 9, 10)   # same window, September still counted
+REC_DAY = datetime.date(2026, 9, 26)   # 5 days of September left: it may leave the stats
+MID_DAY = datetime.date(2026, 9, 10)   # same window, September always counted
 
 # --- percentiles --------------------------------------------------------------
 P = flightvalue.percentile
@@ -90,6 +90,17 @@ results.append(ok(PM(REC_DAY) == "2026-09" and PM(datetime.date(2026, 9, 21)) is
 results.append(ok(PM(datetime.date(2027, 2, 19)) is None and PM(datetime.date(2027, 2, 20)) == "2027-02"
                   and PM(datetime.date(2026, 12, 31)) == "2026-12",
                   "partial month follows the month's length (Feb 20 of 28; Dec 31)"))
+SP = flightvalue.stats_prices
+six = {"2026-%02d" % m: 100 + m for m in range(10, 13)}
+six.update({"2027-%02d" % m: 200 + m for m in range(1, 4)})
+results.append(ok(sorted(SP(dict(six, **{"2026-09": 999}), "2026-09")) == sorted(six.values()),
+                  "partial month + 6 others: it leaves the stats (the 6 others stand alone)"))
+five = dict(list(six.items())[:5])
+results.append(ok(sorted(SP(dict(five, **{"2026-09": 999}), "2026-09")) == sorted(list(five.values()) + [999]),
+                  "partial month + only 5 others: it stays in (a range, not 'too few')"))
+results.append(ok(sorted(SP(six, "2026-09")) == sorted(six.values()) and sorted(SP(dict(six, **{"2026-09": 999}), None))
+                  == sorted(list(six.values()) + [999]),
+                  "no fare in the partial month, or no partial month: every month counts"))
 
 # --- build(): curves from the cache alone ----------------------------------------
 def rows_for(curves, extra=None):
@@ -125,24 +136,29 @@ results.append(ok("2027-09" not in C["JP"]["curve"] and C["JP"]["n_months"] == 1
                   "Japan's 13th month (Sep 2027) is outside the window and out of the stats"))
 results.append(ok(C["MA"]["curve"]["2026-10"] == [498, "MAX"] and "2027-01" not in C["MA"]["curve"]
                   and C["MA"]["lo"] == 591, "Morocco: Oct fare + its city; January simply absent"))
-results.append(ok(C["NO"] == {"curve": {}, "n_months": 0}, "no months cached -> empty curve, no stats"))
-results.append(ok(C["IS"]["n_months"] == 4 and "median" not in C["IS"], "Iceland: curve kept, no stats"))
+results.append(ok(C["NO"] == {"curve": {}, "n_curve": 0, "n_months": 0}, "no months cached -> empty curve, no stats"))
+results.append(ok(C["IS"]["n_months"] == C["IS"]["n_curve"] == 4 and "median" not in C["IS"],
+                  "Iceland: curve kept, no stats"))
 
-# Sep 26: September stays in every curve (same number as the guide chart) but
-# is out of the typical range, and is banded against the other months'.
+# Sep 26: September stays in every curve (same number as the guide chart);
+# where 6+ other months remain it is out of the typical range, and is banded
+# against the other months'.
 pr = flightvalue.build("US", {"countries": rows}, today=REC_DAY,
                        lookup=fake_lookup(CURVES), needs_fetch=lambda o, c: False)
 jp = pr["countries"]["JP"]
 jp_rest = [v for k, v in CURVES["JP"].items() if k in set(W(REC_DAY)) and k != "2026-09"]
 results.append(ok(pr["partial"] == "2026-09" and jp["curve"]["2026-09"] == [1086, "JPX"]
-                  and jp["n_months"] == 9 and {k: jp[k] for k in ("median", "lo", "hi")}
+                  and jp["n_months"] == 9 and jp["n_curve"] == 10 and {k: jp[k] for k in ("median", "lo", "hi")}
                   == {k: S(jp_rest)[k] for k in ("median", "lo", "hi")},
-                  "Sep 26: Japan keeps its Sep fare in the curve; the range is the other 9 months"))
+                  "Sep 26: Japan keeps its Sep fare in the curve (n_curve 10); the range is the other 9 months"))
 results.append(ok(b(1086, jp) == "high" and C["JP"]["hi"] > jp["hi"],
                   "...and September is banded against them (High; its own fare no longer widens the range)"))
-results.append(ok(pr["countries"]["MA"]["curve"]["2026-09"] == [731, "MAX"]
-                  and pr["countries"]["MA"]["n_months"] == 5 and "median" not in pr["countries"]["MA"],
-                  "Sep 26: Morocco has 5 months left after September -> no range until October"))
+mar = pr["countries"]["MA"]
+results.append(ok(mar["curve"]["2026-09"] == [731, "MAX"] and mar["n_months"] == mar["n_curve"] == 6
+                  and {k: mar[k] for k in ("median", "lo", "hi")} == {k: ma[k] for k in ("median", "lo", "hi")},
+                  "Sep 26: Morocco has only 5 other months, so September stays in and it keeps its range"))
+results.append(ok(b(498, mar) == "low" and round(flightvalue.deviation(498, mar) * 100) == -22,
+                  "...and October still reads Low, -22%, in September's last days"))
 
 # unfetched city -> pending, and counted for the warmer
 p2 = flightvalue.build("US", {"countries": rows}, today=MID_DAY, lookup=fake_lookup(CURVES, missing={"GRX"}),
@@ -485,13 +501,81 @@ UP["monthly"].clear()
 aborted2 = flightvalue._warm_pass("US", srows)
 calls2 = UP["monthly"][:]
 sp = flightvalue.build("US", {"countries": srows})["countries"]
-results.append(ok(aborted1 and calls1 == [c for _, c in STALL[:10]] and aborted2,
-                  "pass 1: 5 good routes, then 5 failures in a row abort it"))
+results.append(ok(aborted1 and calls1 == [c for _, c in STALL[:10]],
+                  "pass 1: 5 good routes, then 5 fresh failures in a row abort it"))
 results.append(ok(calls2 == [c for _, c in STALL[10:]] + [c for _, c in STALL[5:10]],
                   "pass 2: the 10 never-reached routes go first, the failing ones last -> %s" % ",".join(calls2[:3])))
 results.append(ok(all("median" in sp[iso] for iso, _ in STALL[:5] + STALL[10:])
                   and all(sp[iso] == {"pending": True} for iso, _ in STALL[5:10]),
                   "every country but the 5 failing ones is banded; those 5 read pending"))
+results.append(ok(not aborted2, "pass 2 isn't 'aborted': its failures were all on routes already known to fail"))
+UP["fail_dest"] = set()
+
+# 6 routes that always fail (one more than MAX_FAILS) behind 6 good ones. Pass
+# 1 can't tell them from a storm and aborts; from then on they fail without
+# counting, so later passes finish and a city that churns into a country's
+# top three is fetched on the next request — no 10-minute cooldown.
+flights._monthly_cache.clear()
+flightvalue._warm_done.clear()
+UP["monthly"].clear()
+dead = [c for _, c in STALL[6:12]]
+UP["fail_dest"] = set(dead)
+drows = [{"iso": iso, "cities": [c], "n": 100 - i} for i, (iso, c) in enumerate(STALL[:12])]
+
+
+def due_retry(cities):
+    for c in cities:
+        e = flights._monthly_cache.get(KEY(c))
+        if e:
+            flights._monthly_cache[KEY(c)] = (e[0] - flights.MONTHLY_FAIL_TTL - 1,) + e[1:]
+
+
+def warm_now(rows):
+    flightvalue._warming["US"] = time.monotonic()
+    flightvalue._warm("US", rows)
+    return flightvalue._warm_done["US"][1]
+
+
+ab1 = warm_now(drows)
+calls1 = UP["monthly"][:]
+due_retry(dead)
+UP["monthly"].clear()
+ab2 = warm_now(drows)
+calls2 = UP["monthly"][:]
+results.append(ok(ab1 and calls1 == [c for _, c in STALL[:11]],
+                  "6 dead routes, pass 1: 6 good calls, then 5 fresh failures abort it"))
+results.append(ok(not ab2 and calls2 == [dead[-1]] + dead[:-1],
+                  "pass 2: the never-tried 6th dead route counts (1), the 5 known-dead don't -> finished, not aborted"))
+drows[0]["cities"] = [STALL[0][1], "FEZ"]      # a new city joins the busiest country
+UP["monthly"].clear()
+state = flightvalue.start_warm("US", drows)
+wait_warm()
+results.append(ok(state == "running" and UP["monthly"] == ["FEZ"],
+                  "...so a city that churns in after pass 2 is fetched on the next request -> %s %s"
+                  % (state, UP["monthly"])))
+# The same dead routes can't hide a real storm: with every route failing,
+# fresh routes (tried first) still abort the pass after MAX_FAILS of them.
+flightvalue._warm_done.clear()
+due_retry(dead)
+UP["monthly"].clear()
+UP["fail_monthly"] = True
+fresh = [{"iso": iso, "cities": [c], "n": 50 - i} for i, (iso, c) in enumerate(STALL[12:20])]
+ab3 = warm_now(drows[6:] + fresh)
+results.append(ok(ab3 and UP["monthly"] == [c for _, c in STALL[12:17]],
+                  "a storm on fresh routes still aborts after %d calls, before the known-dead tail -> %s"
+                  % (flightvalue.MAX_FAILS, ",".join(UP["monthly"]))))
+UP["fail_monthly"] = False
+# "In a row": a good answer resets the count, so scattered fresh failures
+# (every other route here, MAX_FAILS of them) never end a pass.
+flights._monthly_cache.clear()
+flightvalue._warm_done.clear()
+UP["monthly"].clear()
+UP["fail_dest"] = {c for _, c in STALL[1:11:2]}
+alt = [{"iso": iso, "cities": [c], "n": 100 - i} for i, (iso, c) in enumerate(STALL[:10])]
+ab4 = warm_now(alt)
+results.append(ok(not ab4 and UP["monthly"] == [c for _, c in STALL[:10]],
+                  "%d fresh failures, each after a good answer: not 'in a row', the pass finishes"
+                  % len(UP["fail_dest"])))
 UP["fail_dest"] = set()
 
 # --- the warmer: at most 2 origins at once, one slot kept for the default ---------

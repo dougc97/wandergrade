@@ -20,15 +20,21 @@ cry wolf there; so is this one.
 Why MIN_MONTHS = 6: the Top Picks fare strips already demand half a year of
 real months, and below that the "range" is two or three points — with four,
 linear quartiles always call exactly one month low and one high, whatever
-the prices. Same threshold both places, so a country either has a season
-story everywhere or nowhere.
+the prices. Same threshold and the same 12 months both places (the strips
+count the current month too), so a country either has a season story
+everywhere or nowhere.
 
-Why the current month leaves the range in its last days: what is left of
-it is last-minute fares (22 recorded US curves on Sep 26: 5 of the 10
+Why the current month can leave the range in its last days: what is left
+of it is last-minute fares (22 recorded US curves on Sep 26: 5 of the 10
 banded countries with a September fare read High, none Low). It stays in
 the curve — the guide chart's number — and is banded against the other
-months' range, but stops moving that range once fewer than PARTIAL_DAYS
-of it remain.
+months' range, but stops moving that range once fewer than PARTIAL_DAYS of
+it remain AND at least MIN_MONTHS other months are left to stand on.
+Without that second condition a country with exactly six months lost its
+range for the last 9 days of every month (Morocco and Costa Rica, both
+Low in October on the recorded curves), and the tab went dark where the
+strips still showed a season. n_curve (months in the curve) is sent beside
+n_months (months in the stats), so the client can say when they differ.
 
 Filling ~110 countries x up to 3 cities cold is ~175 upstream calls from the
 US. /v1/prices/monthly allows 60 requests/minute per token (Travelpayouts,
@@ -50,7 +56,7 @@ from . import flights
 MIN_MONTHS = 6
 TYPICAL_MIN_HALF = 0.05
 WINDOW = 12
-PARTIAL_DAYS = 10   # the current month leaves the stats with fewer days than this left
+PARTIAL_DAYS = 10   # the current month may leave the stats with fewer days than this left
 PACE = 3.0          # seconds between the warmers' upstream calls (20/min)
 MAX_FAILS = 5       # consecutive failures that end a warm pass (429 storm, bad token)
 WARM_COOLDOWN = 10 * 60   # an ABORTED pass isn't re-run sooner than this
@@ -75,10 +81,19 @@ def window_months(today=None):
 
 def partial_month(today=None):
     """The current month's key once fewer than PARTIAL_DAYS of it remain
-    (today counted), else None: shown and banded, but not in the stats."""
+    (today counted), else None. Shown and banded either way; it leaves a
+    country's stats only where stats_prices() says so."""
     today = today or datetime.date.today()
     left = calendar.monthrange(today.year, today.month)[1] - today.day + 1
     return "%04d-%02d" % (today.year, today.month) if left < PARTIAL_DAYS else None
+
+
+def stats_prices(curve, partial):
+    """The prices a country's typical range is built from: every month in
+    its curve ({month: price}), minus the partial month when MIN_MONTHS
+    others remain without it (see the module docstring)."""
+    others = [p for k, p in curve.items() if k != partial]
+    return others if partial in curve and len(others) >= MIN_MONTHS else list(curve.values())
 
 
 def percentile(sorted_vals, q):
@@ -164,8 +179,8 @@ def build(origin_iso, fares, today=None, lookup=None, needs_fetch=None):
         # the tab's fare link searches the route that has the price.
         curve = {k: [v["price"], v.get("dest") or row.get("dest")]
                  for k, v in sorted((m.get("months") or {}).items()) if k in inwin}
-        out[iso] = dict(curve=curve, **curve_stats([p for k, (p, _) in curve.items()
-                                                    if k != partial]))
+        prices = {k: p for k, (p, _) in curve.items()}
+        out[iso] = dict(curve=curve, n_curve=len(curve), **curve_stats(stats_prices(prices, partial)))
     return {
         "configured": True,
         "origin": origin_iso,
@@ -237,18 +252,27 @@ class _Abort(Exception):
 
 def _warm_pass(origin_iso, rows):
     """One pass over every destination; True when it gave up after MAX_FAILS
-    upstream failures in a row."""
+    upstream failures in a row on routes that hadn't already failed."""
     fails = [0]
     first = origin_iso == DEFAULT_ORIGIN
 
     def paced(o, c, cur="usd"):
         if not flights.monthly_needs_fetch(o, c, cur):
             return flights.get_monthly(o, c, cur)       # cache hit, no call
+        known_bad = flights.monthly_failed(o, c, cur)
         _pace(first)
         m = flights.get_monthly(o, c, cur)
-        fails[0] = fails[0] + 1 if (m.get("error") or m.get("stale")) else 0
-        if fails[0] >= MAX_FAILS:
-            raise _Abort()
+        if not (m.get("error") or m.get("stale")):
+            fails[0] = 0
+        elif not known_bad:
+            # A route that failed last time failing again says nothing about
+            # the API: counting those, 5+ dead routes at the tail ended every
+            # pass "aborted", and the cooldown then kept a churned-in city's
+            # country pending for 10 min. A storm still trips on fresh routes,
+            # which go first; known-bad retries are paced by MONTHLY_FAIL_TTL.
+            fails[0] += 1
+            if fails[0] >= MAX_FAILS:
+                raise _Abort()
         return m
 
     def failed_before(row):

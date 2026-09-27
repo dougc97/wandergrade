@@ -3500,8 +3500,12 @@ function enhanceSelect(sel) {
       : '<li class="combo-opt muted">No matches</li>';
     active = -1;
   };
+  // "change" only when the value moved (listeners re-render); "pick" on
+  // every choice, for controls where re-picking the shown value means
+  // something (the Flights month shows next month until one is chosen).
   const choose = (val) => {
     if (sel.value !== val) { sel.value = val; sel.dispatchEvent(new Event("change", { bubbles: true })); }
+    sel.dispatchEvent(new Event("pick"));
     input.value = labelFor(); setOpen(false);
   };
   input.addEventListener("focus", () => { input.value = ""; render(""); setOpen(true); });
@@ -5168,6 +5172,7 @@ async function loadFlights() {
   initFlightMonth();    // the picker shows the month while fares load
   clearTimeout(_fvTimer);
   flightValue = null;   // another origin's ranges must never band these fares
+  _fvFailed = false;
   $("flightSub").textContent = "Loading fares from " +
     ($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin) + "…";
   let data;
@@ -5200,14 +5205,17 @@ async function loadFlights() {
 let flightValue = null;
 let _fvTimer = null;
 let _fvPollEnd = 0;
+// Polling ended without one usable answer (every request failed): the cells
+// say so instead of "Loading…" forever.
+let _fvFailed = false;
 // A cold fill of the default origin is at most 174 routes x 3 s of pacing
-// ≈ 8.7 min, plus 20 s after a boot and the fares fetch. Asking at 15, 30,
-// 45 s, then every 60 s for up to 15 min covers it with room to spare; if
-// the server is still filling after that, the note says reload instead of
-// promising updates that won't come.
+// ≈ 8.7 min, plus 20 s after a boot and the fares fetch. Waiting 15, 30,
+// 45 s between asks, then 60 s, for up to 15 min covers it with room to
+// spare; if the server is still filling after that, the note says reload
+// instead of promising updates that won't come.
 const FV_POLL_MS = 15 * 60 * 1000;
 async function loadFlightValue(origin, seq, attempt) {
-  if (!attempt) _fvPollEnd = Date.now() + FV_POLL_MS;
+  if (!attempt) { _fvPollEnd = Date.now() + FV_POLL_MS; _fvFailed = false; }
   let data = null;
   try {
     data = await getJSON("/api/flight-value?origin=" + encodeURIComponent(origin));
@@ -5216,7 +5224,8 @@ async function loadFlightValue(origin, seq, attempt) {
   const more = (!data || !!data.filling) && Date.now() < _fvPollEnd;
   if (data && data.configured !== false && data.origin === origin) flightValue = data;
   if (flightValue) flightValue.gaveUp = !more && !!flightValue.filling;
-  if (flightValue && flightsData && flightsData.configured) renderFlights();
+  _fvFailed = !more && !flightValue;
+  if ((flightValue || _fvFailed) && flightsData && flightsData.configured) renderFlights();
   if (more)
     _fvTimer = setTimeout(() => loadFlightValue(origin, seq, attempt + 1),
                           Math.min(60, 15 * (attempt + 1)) * 1000);
@@ -5249,16 +5258,17 @@ function flightMonthKey(m) {
 
 // One country's standing for a departure month. state: ok (banded) | few
 // (under min_months of fares — a price, no range) | nomonth (a range, no fare
-// that month) | pending (no curve on the server yet) | none | loading.
+// that month) | pending (no curve on the server yet) | none | loading |
+// failed (polling ended without a single answer).
 function fareValue(iso, key) {
   const fv = flightValue;
-  if (!fv || !fv.countries) return { state: "loading" };
+  if (!fv || !fv.countries) return { state: _fvFailed ? "failed" : "loading" };
   const c = fv.countries[iso];
   if (!c) return { state: "none" };
   if (c.pending) return { state: "pending" };
   const rec = c.curve && c.curve[key];
   const price = rec ? rec[0] : null, city = rec ? rec[1] : null;
-  if (c.median == null) return { state: "few", n: c.n_months || 0, price, city };
+  if (c.median == null) return { state: "few", n: c.n_months || 0, c, price, city };
   if (price == null) return { state: "nomonth", c };
   return { state: "ok", price, city, c, dev: price / c.median - 1,
            band: price < c.lo ? "low" : price > c.hi ? "high" : "typical" };
@@ -5294,15 +5304,31 @@ function fareValueBar(v) {
 function fareValueWhy(v, monthName, money, range) {
   const fv = flightValue, min = (fv && fv.min_months) || 6;
   if (v.state === "loading") return "Loading typical fares…";
+  if (v.state === "failed") return "Couldn't load typical fares — reload to retry";
   if (v.state === "pending")
     return !fv.filling ? "This route's monthly fares aren't in yet — try again later"
       : fv.gaveUp ? "Still gathering this route's monthly fares — reload in a few minutes"
       : "Still gathering this route's monthly fares — they'll show here in a few minutes";
-  if (v.state === "none" || (v.state === "few" && !v.n)) return "No monthly fares cached for this route yet";
-  if (v.state === "few") return "Only " + v.n + " month" + (v.n === 1 ? "" : "s")
-    + " of cached fares on this route — too few for a typical range (needs " + min + ")";
+  // Counted from the curve, not n_months: a curve with fares is never "none".
+  const nc = v.c && v.c.curve ? Object.keys(v.c.curve).length : 0;
+  if (v.state === "none" || (v.state === "few" && !nc)) return "No monthly fares cached for this route yet";
+  if (v.state === "few") {
+    const n = v.n || nc;
+    return "Only " + n + " month" + (n === 1 ? "" : "s") + " of cached fares on this route"
+      + fvPartialNote(v.c) + " — too few for a typical range (needs " + min + ")";
+  }
   return "No cached " + monthName + " fare yet · typical is " + range(v.c.lo, v.c.hi)
-    + " across " + v.c.n_months + " months of cached fares";
+    + " across " + v.c.n_months + " months of cached fares" + fvPartialNote(v.c);
+}
+// Late in a month the server leaves this month's remaining (last-minute)
+// fares out of a country's range when 6+ other months remain
+// (flightvalue.stats_prices). The curve still shows that fare, so wherever a
+// month count is shown, say why it is one short. n_curve > n_months only then.
+function fvPartialNote(c, isThatMonth) {
+  const fv = flightValue;
+  if (!fv || !fv.partial || !c || !c.curve || !c.curve[fv.partial] || !(c.n_curve > c.n_months)) return "";
+  return " (the last days of " + MONTHS[+fv.partial.slice(5) - 1]
+    + (isThatMonth ? " are last-minute fares, so they don't count toward the range)" : " don't count toward the range)");
 }
 // Low-pill countries for a departure month, most below typical first: the
 // map's pick list. Same Level 3-4 filter as the rows.
@@ -5375,16 +5401,20 @@ function renderFlights() {
   // The list is the table's own ranking cut to the Low pills — a route 13%
   // under its median can still sit inside its own typical range (Mexico's
   // year swings wide), and a "below typical" list must not contradict the
-  // pill beside it. An empty list still says so (and where to look next),
-  // once any country has a range for the month to be below.
+  // pill beside it. An empty list still says so (and where to look next)
+  // once any country has a range for the month to be below, or once the fill
+  // is done — a far month or a thin origin can have none banded at all. Only
+  // while loading or filling with nothing banded does the row go.
   const fv = flightValue;
   const adv = advisoryByIso();
   const best = flightLows(countries, key, adv).slice(0, 8);
   let empty = null;
-  if (!best.length && countries.some((c) => c._fv.state === "ok")) {
-    const later = ((fv && fv.months) || []).filter((k) => k > key)
+  const anyBanded = countries.some((c) => c._fv.state === "ok");
+  if (!best.length && fv && (anyBanded || !fv.filling)) {
+    const later = (fv.months || []).filter((k) => k > key)
       .find((k) => flightLows(countries, k, adv).length);
-    empty = "Nothing below typical for " + monthName + (fv.filling ? " yet" : "")
+    empty = (anyBanded ? "Nothing below typical for " + monthName + (fv.filling ? " yet" : "")
+                       : "Not enough fares to judge " + monthName + " yet")
       + (later ? " — try " + MONTHS[+later.slice(5) - 1] : "");
   }
   renderDimPicks("flightMap", "Below typical for " + monthName,
@@ -5393,7 +5423,7 @@ function renderFlights() {
   const gathering = fv && fv.filling ? fv.total - fv.ready : 0;
   const tip = "Like Google Flights' price insight, but across departure months: a route's typical range is "
     + "the middle half of its cheapest cached fare for each of the next 12 months (never narrower than ±5% "
-    + "of the median; this month drops out of it in its last 9 days, which are last-minute fares). "
+    + "of the median; in this month's last 9 days its last-minute fares leave the range where 6 other months remain). "
     + "Low = under that range, High = over it; the % is vs the median. Needs "
     + ((fv && fv.min_months) || 6) + "+ months of fares — grey has fewer. Round-trips from "
     + (flightsData.hub || "the main hub") + " that Aviasales has seen in real searches: indicative, not live.";
@@ -5439,8 +5469,8 @@ function renderFlights() {
       : murl ? `<a class="farelink" href="${murl}" target="_blank" rel="sponsored nofollow noopener"
             title="Cheapest cached ${esc(monthName)} round-trip — click to search it live on Aviasales"><b>${esc(money(v.price))}</b> <span class="ext">↗</span></a>`
       : `<b>${esc(money(v.price))}</b>`;
-    // The current month late in the month is banded but not in its own range.
-    const partial = fv && key === fv.partial ? " — the rest of " + monthName + " is last-minute fares, so it isn't one of them" : "";
+    // Late in a month its own fare can be banded against the other months.
+    const partial = v.state === "ok" ? fvPartialNote(v.c, fv && key === fv.partial) : "";
     const vs = v.state === "ok"
       ? `<span class="fv" data-tip="${esc(money(v.price) + " in " + monthName + " vs a typical " + range(v.c.lo, v.c.hi)
           + " (median " + money(v.c.median) + ") across " + v.c.n_months + " months of cached fares" + partial)}" title="">`
@@ -5463,23 +5493,30 @@ function renderFlights() {
 // "Departing in" IS the travel month (#valueMonth), mirrored the way From is:
 // October here ranks Top Picks for October too, and the other way round. It
 // shows the month the tab bands (flightMonthNum), which late in a month is
-// next month until one is chosen.
+// next month until one is chosen — so re-picking the month on screen is
+// still a pick: "pick", not "change", which only fires when the value moves.
 function initFlightMonth() {
   const sel = $("flightMonth");
   if (!sel || !ensureMonthOptions()) return;
   if (!sel.options.length) {
     sel.innerHTML = MONTHS.map((mn, i) => `<option value="${i + 1}">${mn}</option>`).join("");
-    sel.addEventListener("change", () => planForMonth(parseInt(sel.value, 10), true));
+    sel.addEventListener("pick", () => planForMonth(parseInt(sel.value, 10), true));
     enhanceSelect(sel);
   }
   const want = String(flightMonthNum());
   if (sel.value !== want) { sel.value = want; if (sel._sync) sel._sync(); }
 }
-// Top Picks' own month picker (and the guided picker, which fires change on it).
-$("valueMonth").addEventListener("change", () => {
+// Top Picks' own month picker (and the guided picker, which fires change on
+// it only when the reader changed the month there). Re-picking the month
+// already shown is a choice too: "pick" fires on every combo choice.
+function markTravelMonthChosen() {
   travelMonthChosen = true;
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
-});
+}
+$("valueMonth").addEventListener("change", markTravelMonthChosen);
+// A changed pick already ran the above via "change"; an unchanged one only
+// changes whether the month counts, so the address bar gains its vmn too.
+$("valueMonth").addEventListener("pick", () => { if (!travelMonthChosen) { markTravelMonthChosen(); syncURL(); } });
 
 // Relative freshness of a cached fare from its found_at timestamp: "today",
 // "3 days ago", "2 weeks ago", "4 months ago". Empty string if unknown.
@@ -7679,6 +7716,10 @@ function openGuidedPicker() {
   if (!m) return;
   // Seed from whatever's already set, so this reflects rather than resets state.
   if (monthSel) m.querySelector("#gqMonth").value = monthSel.value;
+  // Only a month the reader set here counts as chosen: the prefilled one is
+  // the untouched default, and "Skip any of them" has to hold for it too.
+  let monthTouched = false;
+  m.querySelector("#gqMonth").addEventListener("change", () => { monthTouched = true; });
   const bt = $("budgetTotal"), bd = $("budgetDays");
   if (bt && bt.value) m.querySelector("#gqBudget").value = bt.value;
   if (bd && bd.value) m.querySelector("#gqDays").value = bd.value;
@@ -7695,7 +7736,7 @@ function openGuidedPicker() {
 
   m.querySelector("#gqGo").onclick = () => {
     const mo = m.querySelector("#gqMonth").value;
-    if (monthSel && mo) { monthSel.value = mo; monthSel.dispatchEvent(new Event("change", { bubbles: true })); }
+    if (monthSel && mo && monthTouched) { monthSel.value = mo; monthSel.dispatchEvent(new Event("change", { bubbles: true })); }
     const budget = m.querySelector("#gqBudget").value.trim();
     const days = m.querySelector("#gqDays").value.trim();
     // Persisted under the budget inputs' own keys: setting .value fires no
