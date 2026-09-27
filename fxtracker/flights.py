@@ -90,25 +90,30 @@ def _load_cities():
     return out
 
 
+BAD_TIME = -1
+
+
 def _one_way_minutes(r):
     """One-way travel time of a latest-prices row, layovers included. The
     feed's "duration" is the WHOLE round trip (US -> Italy nonstop: 17h), so
     a return fare is halved; "duration_to", when a feed has it, is already
-    one way. None when missing, or impossibly fast for the distance (a bad
-    row must not become a country's flight time) — 2000 km/h, so the check
-    holds whether "distance" means one leg or both."""
+    one way. None when missing; BAD_TIME when present but impossibly fast for
+    the distance (2000 km/h, so the check holds whether "distance" means one
+    leg or both) — a row that bad is no evidence of its stop count either."""
     mins = r.get("duration_to")
     if not mins:
         mins = r.get("duration")
         if mins and r.get("return_date"):
             mins = mins / 2
+    if mins is None:
+        return None
     try:
         mins = float(mins)
     except (TypeError, ValueError):
-        return None
+        return BAD_TIME
     km = r.get("distance")
-    if mins <= 0 or (isinstance(km, (int, float)) and km > 0 and mins < km / 2000 * 60):
-        return None
+    if not mins > 0 or (isinstance(km, (int, float)) and km > 0 and mins < km / 2000 * 60):
+        return BAD_TIME
     return int(round(mins))
 
 
@@ -153,7 +158,7 @@ def get_flights(origin_iso, currency="usd"):
         if not _fresh_enough(r.get("found_at"), cutoff):
             continue   # skip stale fares — don't average months-old prices in
         a = agg.setdefault(dest_iso, {"sum": 0.0, "n": 0, "min": price,
-                                      "dur": None, "stops": None,
+                                      "dur": None, "stops": None, "dur_dest": None,
                                       "dest": r.get("destination"), "seen": None,
                                       "cities": {}, "months": {}})
         a["sum"] += price
@@ -161,15 +166,17 @@ def get_flights(origin_iso, currency="usd"):
         # Flight time + stops describe the most DIRECT cached trip, not the
         # cheapest one: the cheapest is often a two-day layover routing (US ->
         # Jamaica, 1 stop, 32h), which says nothing about how far a place is.
-        # Fewest stops wins, then the shortest trip at that count.
+        # Fewest stops wins, then the shortest trip at that count; the city is
+        # kept so the table can say where that time is to (the nearest city is
+        # often not the cheapest one: Australia -> US is Honolulu's 10h).
         stops = r.get("number_of_changes")
         if stops is None:
             stops = r.get("transfers")
-        if stops is not None:
-            mins = _one_way_minutes(r)
+        mins = _one_way_minutes(r)
+        if isinstance(stops, int) and mins != BAD_TIME:
             best = (stops, mins if mins is not None else float("inf"))
             if a["stops"] is None or best < (a["stops"], a["dur"] or float("inf")):
-                a["stops"], a["dur"] = stops, mins
+                a["stops"], a["dur"], a["dur_dest"] = stops, mins, r.get("destination")
         # Cheapest fare per DEPARTURE month, across every city of the country.
         # These rows are already paid for, and they reach cities the per-route
         # monthly curve never asks about — they widen that curve for free (see
@@ -206,6 +213,7 @@ def get_flights(origin_iso, currency="usd"):
 
     countries = [{"iso": iso, "avg": round(a["sum"] / a["n"]), "min": round(a["min"]),
                   "n": a["n"], "dur": a["dur"], "stops": a["stops"], "dest": a["dest"],
+                  "dur_city": cities.get(a["dur_dest"], {}).get("name") or a["dur_dest"],
                   "seen": a["seen"], "cities": _top_cities(a), "months": a["months"]}
                  for iso, a in agg.items()]
     countries.sort(key=lambda c: c["avg"])

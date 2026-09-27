@@ -287,9 +287,22 @@ ROWS[:] = [
 ]
 es = next(r for r in flights.get_flights("US")["countries"] if r["iso"] == "ES")
 ROWS[:] = saved_rows
-results.append(ok(es["stops"] == 0 and es["dur"] == 430 and es["min"] == 290 and es["dest"] == "MAD",
-                  "flight time/stops = the most direct trip, one way (not the cheapest's) -> %s/%s"
-                  % (es["stops"], es["dur"])))
+results.append(ok(es["stops"] == 0 and es["dur"] == 430 and es["min"] == 290 and es["dest"] == "MAD"
+                  and es["dur_city"] == "MAD",
+                  "flight time/stops = the most direct trip, one way (not the cheapest's) -> %s/%s to %s"
+                  % (es["stops"], es["dur"], es["dur_city"])))
+# A row whose time is impossible says nothing about its stops either: it must
+# not claim "nonstop" and blank the real 1-stop time.
+ROWS[:] = [
+    {"destination": "AGP", "value": 700, "depart_date": d(33), "return_date": d(40), "found_at": d(-1) + "T10:00:00Z",
+     "number_of_changes": 0, "duration": 120, "distance": 6000},
+    {"destination": "BCN", "value": 610, "depart_date": d(31), "return_date": d(38), "found_at": d(-1) + "T10:00:00Z",
+     "number_of_changes": 1, "duration": 1400},
+]
+es = next(r for r in flights.get_flights("US")["countries"] if r["iso"] == "ES")
+ROWS[:] = saved_rows
+results.append(ok(es["stops"] == 1 and es["dur"] == 700 and es["dur_city"] == "BCN",
+                  "an impossibly fast row doesn't set the stops -> %s/%s" % (es["stops"], es["dur"])))
 results.append(ok(es1 == es2 == ["VLC", "AGP", "BCN"],
                   "tied cities break on the code, whatever the row order (cheapest city first) -> %s / %s" % (es1, es2)))
 
