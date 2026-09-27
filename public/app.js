@@ -250,7 +250,7 @@ const CUR_SORT_GET = {
   code:  (r) => r.code,
   rate:  (r) => r.rate_now,
   vsavg: (r) => r.strength_pct,
-  price: (r) => priceLevelForCurrency(r.code),   // may be null → sorts last
+  price: (r) => { const sp = currencySpread(r.code); return sp ? sp.mid : null; },   // null sorts last
   range: (r) => { const s = r.high - r.low; return s > 0 ? (r.rate_now - r.low) / s : 0.5; },
 };
 const CUR_SORT_DEFAULT_ASC = { code: true, rate: false, vsavg: false, price: true, range: false };
@@ -414,37 +414,59 @@ function renderRates(data) {
     + `Fixed at a year (the chart's window above doesn't change it): a shorter `
     + `average is mostly noise.`;
   $("asof").textContent = "As of " + data.as_of;
-  const fav = data.rows.filter((r) => r.favorable && r.watched);
+  // A pegged currency (XOF, BAM, GGP...) moves exactly with its anchor (the
+  // server derives it at the official rate), so it is listed inside the
+  // anchor's row, and counted once, rather than as a separate "deal".
+  const listed = new Set(data.rows.map((r) => r.code));
+  const folded = {};
+  const tableRows = data.rows.filter((r) => {
+    if (!r.pegged_to || !listed.has(r.pegged_to)) return true;
+    (folded[r.pegged_to] = folded[r.pegged_to] || []).push(r.code);
+    return false;
+  });
+  const fav = tableRows.filter((r) => r.favorable && r.watched);
   // "364-day avg" was the history cap leaking into the copy; the column header one
   // line over already calls the same number a 1-year average, so say that here too.
   // Hyphenate as a compound modifier: "1 year" -> "1-year avg", "6 months" -> "6-month".
   const avgSpan = dayLabel(data.baseline_days).replace(/^(\d+) (\w+?)s?$/, "$1-$2");
   $("summary").textContent =
-    `${data.rows.length} currencies · ${fav.length} favorable (≥ +${data.threshold_pct}% vs ${avgSpan} avg)`;
+    `${tableRows.length} currencies · ${fav.length} favorable (≥ +${data.threshold_pct}% vs ${avgSpan} avg)`;
 
   const adv = advisoryByIso();
   const tbody = $("rows");
   tbody.innerHTML = "";
   updateCurSortIndicators();
-  for (const r of sortedRates(data.rows)) {
+  for (const r of sortedRates(tableRows)) {
     const tr = document.createElement("tr");
     if (r.favorable && r.watched) tr.className = "favorable";
     const sign = r.strength_pct >= 0 ? "pos" : "neg";
     const star = r.watched ? "" : ' <span title="not on watchlist" style="opacity:.4">·</span>';
-    const pl = priceLevelForCurrency(r.code);
+    const sp = currencySpread(r.code);
     // Advisory level of the currency's representative country, for the
     // hide-higher-risk filter (so the Iranian rial isn't row one).
     const ctry = currencyCountry(r.code);
     tr.dataset.adv = String((ctry && adv[ctry]) || 0);
     // Row links to the representative country's Travel Guide (shared currencies
     // point at a primary country, e.g. EUR→Germany; XCD has none, so no link).
-    if (ctry) { tr.dataset.iso = ctry; tr.title = "See the " + countryName(ctry) + " travel guide →"; }
+    // Only where a guide exists: Tonga's row must not open a near-empty page.
+    if (ctry && (CUR_BY_ISO[ctry] || (ISO2SLUG && ISO2SLUG[ctry]))) {
+      tr.dataset.iso = ctry; tr.title = "See the " + countryName(ctry) + " travel guide →";
+    }
+    const peg = folded[r.code]
+      ? `<div class="pegnote" data-tip="${esc("Fixed to the " + r.code + " at official rates, so they move with it by exactly the same %: " + folded[r.code].join(", ") + ".")}" title="">+ ${esc(folded[r.code].join(" · "))} (pegged)</div>` : "";
+    const plCell = !sp ? `<span class="muted" data-tip="${esc(currencyCountries(r.code).length
+        ? "No World Bank price data for " + currencyCountries(r.code).map(countryName).join(", ") + "."
+        : "Not matched to a country.")}" title="">—</span>`
+      : sp.n === 1 ? sp.lo.pl.toFixed(2) + " " + plTag(sp.lo.pl)
+      : `<span data-tip="${esc(countryName(sp.lo.iso) + " " + sp.lo.pl.toFixed(2) + " to " + countryName(sp.hi.iso) + " "
+          + sp.hi.pl.toFixed(2) + " · " + sp.n + " places use the " + r.code + " (median " + sp.mid.toFixed(2) + ")")}" title="">`
+        + `${sp.lo.pl.toFixed(2)}–${sp.hi.pl.toFixed(2)}</span>`;
     const flag = currencyFlag(r.code, ctry);
     tr.innerHTML = `
-      <td><div class="curcell"><span class="curflag">${flag}</span><div><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div></div></div></td>
+      <td><div class="curcell"><span class="curflag">${flag}</span><div><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div>${peg}</div></div></td>
       <td class="num">${fmt(r.rate_now)}</td>
       <td class="num ${sign}">${r.strength_pct >= 0 ? "+" : ""}${r.strength_pct.toFixed(1)}%</td>
-      <td class="num">${pl == null ? "—" : pl.toFixed(2) + " " + plTag(pl)}</td>
+      <td class="num">${plCell}</td>
       <td class="num">${rangeMarker(r)}</td>`;
     tbody.appendChild(tr);
   }
@@ -1106,7 +1128,7 @@ function renderMap(rows, base) {
 
   let tracked = 0;
   drawMap("map", (f) => {
-    const iso = f.properties.iso, cur = CUR_BY_ISO[iso];
+    const iso = f.properties.iso, cur = CUR_BY_ISO[iso] || TABLE_CUR[iso];
     const row = cur && cur !== base ? byCode[cur] : null;
     if (cur === base) {
       return { fill: USDLINK,
@@ -1119,7 +1141,7 @@ function renderMap(rows, base) {
     }
     return { fill: NODATA, title: f.properties.name + " — not tracked" };
   }, base + " strength world heatmap");
-  const winners = rows.filter((r) => r.strength_pct > 0)
+  const winners = rows.filter((r) => r.strength_pct > 0 && !(r.pegged_to && byCode[r.pegged_to]))
     .sort((a, b) => b.strength_pct - a.strength_pct).slice(0, 8);
   renderDimPicks("map", "Biggest currency wins vs " + base,
     winners.map((r) => r.code + " " + sgn(r.strength_pct)));
@@ -1386,22 +1408,55 @@ function plImplausible(iso) {
 function priceLevel(iso) {
   return plImplausible(iso) ? null : priceLevelRaw(iso);
 }
-// Representative country for a currency (for the per-currency table column).
+// Places the currency table and map can price but that aren't scored: no
+// climate data or guide yet, so a ranked row would open a near-empty page.
+// Tonga's pa'anga used to show a globe and "—" although the World Bank prices
+// Tonga. Kept out of CUR_BY_ISO so they never reach the rankings, allPlaces()
+// or the income fit (which the newsletter mirrors).
+const TABLE_CUR = { TO: "TOP", WS: "WST", MV: "MVR", KY: "KYD", BM: "BMD",
+  AG: "XCD", DM: "XCD", GD: "XCD", KN: "XCD", LC: "XCD", VC: "XCD",
+  NC: "XPF", PF: "XPF", WF: "XPF" };
+// Representative country for a currency (row flag, guide link, safety filter).
 const PRIMARY_COUNTRY = { EUR: "DE", XOF: "SN", XAF: "CM", USD: "US", XCD: null };
+function currencyCountries(code) {
+  const out = [];
+  for (const iso in CUR_BY_ISO) if (CUR_BY_ISO[iso] === code) out.push(iso);
+  for (const iso in TABLE_CUR) if (TABLE_CUR[iso] === code && !out.includes(iso)) out.push(iso);
+  return out;
+}
 function currencyCountry(code) {
   if (code in PRIMARY_COUNTRY) return PRIMARY_COUNTRY[code];
-  for (const iso in CUR_BY_ISO) if (CUR_BY_ISO[iso] === code) return iso;
-  return null;
+  return currencyCountries(code)[0] || null;
+}
+// Same arithmetic and plausibility test as priceLevel(), for a table-only
+// place; it is tested against the fit but never feeds it.
+function tablePriceLevel(iso) {
+  if (CUR_BY_ISO[iso] || PPP_UNIT[iso]) return priceLevel(iso);
+  const cur = TABLE_CUR[iso], e = ppp && ppp[iso];
+  const rate = cur && e ? rateForCurrency(cur) : null;
+  if (!rate) return null;
+  const pl = e.ppp * pplCarry(iso) / rate;
+  if (pl < 0.08 || pl > 6) return null;
+  const f = plFit();
+  if (f && e.gdppc > 0
+      && Math.abs(Math.log(pl) - (f.a + f.b * Math.log(e.gdppc))) > PL_PLAUSIBLE_SD * f.sd) return null;
+  return pl;
+}
+// A shared currency has no single price level: the euro row showed Germany's
+// 0.80 while euro prices run from Kosovo (0.42) to Luxembourg (0.94). The table
+// shows the range; sorting uses the median.
+function currencySpread(code) {
+  const pts = currencyCountries(code).map((iso) => ({ iso, pl: tablePriceLevel(iso) }))
+    .filter((p) => p.pl != null).sort((a, b) => a.pl - b.pl);
+  if (!pts.length) return null;
+  const n = pts.length, mid = n % 2 ? pts[(n - 1) / 2].pl : (pts[n / 2 - 1].pl + pts[n / 2].pl) / 2;
+  return { lo: pts[0], hi: pts[n - 1], mid, n, of: currencyCountries(code).length };
 }
 // Flag for a currency row: the euro uses the EU flag, multi-country basket/
 // franc codes fall back to a globe, everything else uses its country flag.
 const CUR_SUPRA_FLAG = { EUR: "🇪🇺", XOF: "🌍", XAF: "🌍", XPF: "🌍", XCD: "🌍", XDR: "🌍" };
 function currencyFlag(code, iso) {
   return CUR_SUPRA_FLAG[code] || (iso ? flagEmoji(iso) : "🌍");
-}
-function priceLevelForCurrency(code) {
-  const iso = currencyCountry(code);
-  return iso ? priceLevel(iso) : null;
 }
 function plWord(pl) { return pl < 0.55 ? "very cheap" : pl < 0.85 ? "cheap" : pl <= 1.15 ? "about the same" : "pricey"; }
 // The From country's price level — the yardstick "cheap" is measured against.

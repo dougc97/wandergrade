@@ -38,6 +38,33 @@ NON_FIAT = {
     "BGN",
 }
 
+# Currencies fixed to another by treaty, currency board, or at par. The feed
+# quotes each one separately, and its quotes drift ~0.1% off the peg: on
+# 2026-09-25 the euro, BAM, XAF and XOF read +2.0% (favorable) while KMF, CVE
+# and XPF read +1.9% (not) — one currency move split across the 2% line, and
+# the favorable count took the euro four times. Deriving them from the anchor
+# at the official rate makes them move with it exactly, by construction.
+PEGS = {
+    "EUR": {"BAM": 1.95583, "XAF": 655.957, "XOF": 655.957, "KMF": 491.96775,
+            "CVE": 110.265, "XPF": 119.33174, "STN": 24.5},
+    "GBP": {"GGP": 1.0, "IMP": 1.0, "JEP": 1.0, "FKP": 1.0, "GIP": 1.0, "SHP": 1.0},
+}
+PEGGED_TO = {code: anchor for anchor, pegs in PEGS.items() for code in pegs}
+
+
+def _apply_pegs(rates):
+    """Set every pegged currency present in `rates` (one day's {code: rate},
+    USD-based) from its anchor. Mutates and returns `rates`."""
+    for anchor, pegs in PEGS.items():
+        a = rates.get(anchor)
+        if not a:
+            continue
+        for code, k in pegs.items():
+            if code in rates:
+                rates[code] = a * k
+    return rates
+
+
 # Stable, liquid basket for the headline "overall USD strength" index. Using all
 # ~180 currencies would let hyperinflation outliers (ARS, VES, etc.) distort it,
 # so the index stays on these majors while the map/table use full coverage.
@@ -104,7 +131,7 @@ def get_currencies():
 def get_latest():
     """Latest USD-based rates: returns (date_str, {code: rate})."""
     data = fetch_json("{0}/latest?base={1}".format(API, BASE))
-    return _day(data["date"]), data["rates"]
+    return _day(data["date"]), _apply_pegs(dict(data["rates"]))
 
 
 def get_timeseries(start, end):
@@ -113,7 +140,10 @@ def get_timeseries(start, end):
     url = "{0}/timeseries?start_date={1}&end_date={2}&base={3}".format(
         API, start, end, BASE)
     rates = fetch_json(url)["rates"]
-    return _undo_breaks({_day(k): dict(v) for k, v in rates.items()})
+    ts = _undo_breaks({_day(k): dict(v) for k, v in rates.items()})
+    for day in ts.values():
+        _apply_pegs(day)
+    return ts
 
 
 # Two kinds of one-day step are changes of unit, not markets, and averaging
@@ -400,6 +430,11 @@ def compute_favorability(baseline_days=365, threshold_pct=2.0, watch=None,
         })
         if no_trend:
             rows[-1]["no_trend"] = True
+        # Lets the table fold a pegged currency into its anchor's row instead
+        # of listing the same move again (only when the anchor is listed too).
+        anchor = PEGGED_TO.get(code)
+        if anchor and anchor != base and anchor in latest:
+            rows[-1]["pegged_to"] = anchor
 
     # Strongest dollar first.
     rows.sort(key=lambda r: r["strength_pct"], reverse=True)

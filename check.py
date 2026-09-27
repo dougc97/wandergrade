@@ -36,7 +36,9 @@ def run(dry_run=False):
     )
 
     # Favorable AND on the watch list (empty watch list = everything).
-    favorable = [r for r in result["rows"] if r["favorable"] and r["watched"]]
+    # A pegged currency (XOF, BAM...) moves exactly with its anchor: one alert line.
+    favorable = [r for r in result["rows"]
+                 if r["favorable"] and r["watched"] and not r.get("pegged_to")]
 
     # Suppress currencies alerted within the cooldown window.
     cooldown = cfg["alert_cooldown_hours"]

@@ -420,6 +420,8 @@ tr.favorable { background: var(--green-bg); }
 .code { font-weight: 700; }
 .name { color: var(--gray); font-size: 12px; }
 .curcell { display: flex; align-items: center; gap: 9px; }
+/* Pegged currencies folded into their anchor's row (see renderRates). */
+.pegnote { font-size: 11px; color: var(--gray); margin-top: 2px; white-space: normal; }
 .curflag { font-size: 20px; line-height: 1; flex: none; }
 .pos { color: var(--green); font-weight: 700; }
 .neg { color: var(--red); }
