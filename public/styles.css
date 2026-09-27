@@ -371,14 +371,19 @@ html.mapfs-open, html.mapfs-open body { overflow: hidden; }
 .mapfs-close:hover { border-color: var(--green); color: var(--green); }
 .mapfs-hint { display: none; margin: 0; color: var(--gray); font-size: 12px; }
 @media (orientation: portrait) and (pointer: coarse) { .mapfs-hint { display: block; } }
-.mapfs-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.mapfs-body { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.mapfs-stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.mapfs-head .windowtoggle { margin-top: 0; }
 .mapfs .map { flex: 1; min-height: 0; margin: 0; }
 .mapfs .map > svg { width: 100%; height: 100%; }
 .mapfs .mappicksrow { margin: 0; }
 /* An opened country floats over the map instead of shrinking it. */
 .mapfs .countrycard { position: absolute; left: 12px; bottom: 12px; margin: 0; z-index: 6;
   max-width: min(480px, calc(100% - 24px)); max-height: 60%; overflow: auto;
+  box-sizing: border-box;
   background: var(--card); box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+/* A short (landscape phone) screen: the card takes less of the map. */
+@media (max-height: 500px) { .mapfs .countrycard { max-height: 48%; max-width: min(420px, 55%); padding: 10px 34px 10px 12px; } }
 /* "Ctrl/⌘ + scroll to zoom": a plain wheel scrolls the page past the map. */
 .maphint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4;
   background: rgba(0,0,0,.66); color: #fff; font-size: 13px; font-weight: 600; padding: 6px 12px;
@@ -432,7 +437,7 @@ html[data-tab="guide"] header .sub { display: none; }
 .charthead .muted { color: var(--gray); font-weight: 400; font-size: 14px; }
 .chartsub { margin: 4px 0 0; color: var(--gray); font-size: 13px; }
 .bignum { text-align: left; line-height: 1.1; }
-.bignum #indexnow { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.bignum #indexnow, .bignum #colNow { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .bignum small { display: block; font-size: 14px; font-weight: 600; }
 .bignum small.pos { color: var(--green); }
 .bignum small.neg { color: var(--red); }
@@ -443,14 +448,22 @@ html[data-tab="guide"] header .sub { display: none; }
    (max-width: the 190px floor alone made the ratio 475px wide on a phone). */
 .chart:not(:has(svg)) { aspect-ratio: 5 / 2; min-height: 190px; max-height: 300px; max-width: 100%; }
 .chart svg { width: 100%; height: auto; display: block; }
-/* The strength chart scrubs under a finger sideways; vertical drags still
-   scroll the page. */
-#chart svg { touch-action: pan-y; cursor: crosshair; }
+/* The charts scrub under a finger sideways; vertical drags still scroll the
+   page. */
+.chart svg { touch-action: pan-y; cursor: crosshair; }
 /* Nine ranges, spread across the card like a stock chart's. */
 .rangetoggle { display: flex; width: 100%; box-sizing: border-box; }
 .rangetoggle button { flex: 1 1 0; min-width: 0; padding: 5px 0; white-space: nowrap; }
 .rangetoggle button:disabled { opacity: .35; cursor: default; }
 .chartnote { color: var(--gray); font-size: 12px; margin: 6px 0 0; }
+/* Cost over time: in the same 1200px column as the map and table around it
+   (.chartcard alone ran edge to edge on a wide screen). */
+#colCard { max-width: 1200px; margin-left: auto; margin-right: auto; }
+/* Nothing to draw: no reserved chart-sized void. */
+#colChart:has(.hint) { aspect-ratio: auto; min-height: 0; }
+/* Cost over time: country picker and range side by side, wrapping on phones. */
+.colbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+.colbar .windowtoggle { margin-top: 0; }
 
 .tablewrap { margin-top: 18px; padding-bottom: 24px; overflow-x: auto; }
 

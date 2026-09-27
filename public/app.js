@@ -55,7 +55,8 @@ function applyTheme(t) {
   localStorage.setItem("fx_theme", t);
   const btn = $("themeBtn");
   if (btn) btn.textContent = t === "dark" ? "☀️" : "🌙";
-  if (lastIndexData) renderIndex(lastIndexData);   // redraw chart in new palette
+  if (lastIndexData) renderIndex(lastIndexData);   // redraw charts in new palette
+  if (plHist) renderCol();
 }
 function initTheme() {
   // Default follows the browser/OS color scheme; a manual toggle overrides and
@@ -76,6 +77,7 @@ function initTheme() {
         document.documentElement.dataset.theme = sys();
         if (btn) btn.textContent = sys() === "dark" ? "☀️" : "🌙";
         if (lastIndexData) renderIndex(lastIndexData);
+        if (plHist) renderCol();
       }
     });
   }
@@ -251,11 +253,29 @@ function renderIndex(data) {
     + ` <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`;
 
   const host = $("chart");
-  if (pts.length < 2) { host.innerHTML = "<p class='hint'>Not enough data.</p>"; return; }
+  if (pts.length < 2) { host.innerHTML = "<p class='hint'>Not enough data.</p>"; host._redraw = null; return; }
+  stockChart(host, pts, {
+    color: up ? cssVar("--green", "#0a7d28") : cssVar("--red", "#b00020"),
+    aria: `${data.base || "USD"} strength index ${fmtIdx(pts[pts.length - 1].value)}, ${fmtPct(chg)} ${span}`,
+    // Scrub: that day in the headline — its level, date and change since the
+    // range began.
+    onScrub: (i) => {
+      const c = (pts[i].value / pts[0].value - 1) * 100;
+      showHead(fmtIdx(pts[i].value), fmtDay(pts[i].date) + " · " + (c >= 0 ? "▲ " : "▼ ") + fmtPct(c), c >= 0);
+    },
+    onLeave: restHead,
+  });
+}
 
-  // Drawn at the card's own pixel width (and redrawn when it changes), so the
-  // axis text is 12px on a phone too — a fixed 800-wide viewBox shrank it to
-  // ~6px there. Price axis on the right, as on a stock chart.
+// A stock-style line chart into `host`: drawn at the host's own pixel width
+// (and redrawn when that changes, so axis text is 12px on a phone too — a
+// fixed 800-wide viewBox shrank it to ~6px there), price axis on the right,
+// calendar ticks, gradient fill, a dotted line where the range started, and a
+// hover / finger scrub. pts: [{date: "YYYY-MM-DD", value}], at least two.
+// o: color, aria, onScrub(i), onLeave(), byDate (x by date, not by point —
+// for yearly points followed by a "today" one), ref: {value, label} (a
+// dotted reference level, drawn only inside the range), noStart (no start line).
+function stockChart(host, pts, o) {
   const W = Math.round(host.clientWidth) || 800;
   const H = Math.max(190, Math.min(300, Math.round(W * 0.4)));
   const vals = pts.map((p) => p.value);
@@ -275,10 +295,12 @@ function renderIndex(data) {
   const padL = 2, padT = 12, padB = 26;
   const padR = Math.max(46, Math.ceil(7 * Math.max(...levels.map((v) => v.toFixed(dec).length))) + 12);
   const plotW = W - padL - padR, plotH = H - padT - padB, right = W - padR;
-  const x = (i) => padL + (i / (pts.length - 1)) * plotW;
+  const t0 = Date.parse(pts[0].date), tN = Date.parse(pts[pts.length - 1].date);
+  const frac = o.byDate && tN > t0 ? pts.map((p) => (Date.parse(p.date) - t0) / (tN - t0))
+                                   : pts.map((p, i) => i / (pts.length - 1));
+  const x = (i) => padL + frac[i] * plotW;
   const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * plotH;
-
-  const color = up ? cssVar("--green", "#0a7d28") : cssVar("--red", "#b00020");
+  const color = o.color;
   const gridCol = cssVar("--chartgrid", "#eee");
   const labCol = cssVar("--gray", "#999");
 
@@ -310,55 +332,67 @@ function renderIndex(data) {
   }
   // Where the range started, dotted: above it = up over the range.
   const sy = y(pts[0].value).toFixed(1);
-  const startLine = `<line x1="${padL}" y1="${sy}" x2="${right}" y2="${sy}" stroke="${labCol}" stroke-width="1" stroke-dasharray="2 4" opacity=".7"/>`;
+  const startLine = o.noStart ? ""
+    : `<line x1="${padL}" y1="${sy}" x2="${right}" y2="${sy}" stroke="${labCol}" stroke-width="1" stroke-dasharray="2 4" opacity=".7"/>`;
+  let refLine = "";
+  if (o.ref && o.ref.value > lo && o.ref.value < hi) {
+    const ry = y(o.ref.value).toFixed(1);
+    refLine = `<line x1="${padL}" y1="${ry}" x2="${right}" y2="${ry}" stroke="${labCol}" stroke-width="1.2" stroke-dasharray="5 4"/>`
+      + (o.ref.label ? `<text x="${padL + 4}" y="${(+ry - 5).toFixed(1)}" font-size="11" fill="${labCol}">${esc(o.ref.label)}</text>` : "");
+  }
 
   const line = pts.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p.value).toFixed(1)).join(" ");
   const area = line + ` L${x(pts.length - 1).toFixed(1)} ${H - padB} L${x(0).toFixed(1)} ${H - padB} Z`;
   const lastX = x(pts.length - 1), lastY = y(pts[pts.length - 1].value);
+  const gid = "fill-" + host.id;
 
   host.innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${data.base || "USD"} strength index ${fmtIdx(vals[vals.length - 1])}, ${fmtPct(chg)} ${span}`)}">`
-    + `<defs><linearGradient id="idxfill" x1="0" y1="0" x2="0" y2="1">`
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.aria || "")}">`
+    + `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">`
     + `<stop offset="0" stop-color="${color}" stop-opacity=".32"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>`
-    + grid + xlab + startLine
-    + `<path d="${area}" fill="url(#idxfill)"/>`
+    + grid + xlab + startLine + refLine
+    + `<path d="${area}" fill="url(#${gid})"/>`
     + `<path d="${line}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round"/>`
     + `<circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="3.5" fill="${color}"/>`
     + `<g class="scrub" visibility="hidden"><line y1="${padT}" y2="${H - padB}" stroke="${labCol}" stroke-width="1"/>`
     + `<circle r="4.5" fill="${color}" stroke="${cssVar("--card", "#fff")}" stroke-width="2"/></g>`
     + `</svg>`;
 
-  // Scrub: hovering (or dragging a finger along) the chart shows that day in
-  // the headline — its level, date and change since the range began.
+  // Scrub: hovering (or dragging a finger along) the chart hands the nearest
+  // point to o.onScrub, and o.onLeave when it ends.
   const svg = host.querySelector("svg"), scrub = svg.querySelector(".scrub");
   const sl = scrub.querySelector("line"), sc = scrub.querySelector("circle");
   const at = (e) => {
     const r = svg.getBoundingClientRect();
     const vx = ((e.clientX - r.left) / r.width) * W;
-    const i = Math.max(0, Math.min(pts.length - 1, Math.round(((vx - padL) / plotW) * (pts.length - 1))));
+    let i = 0;
+    for (let j = 1; j < pts.length; j++) if (Math.abs(x(j) - vx) < Math.abs(x(i) - vx)) i = j;
     const px = x(i).toFixed(1), py = y(pts[i].value).toFixed(1);
     sl.setAttribute("x1", px); sl.setAttribute("x2", px);
     sc.setAttribute("cx", px); sc.setAttribute("cy", py);
     scrub.setAttribute("visibility", "visible");
-    const c = (pts[i].value / pts[0].value - 1) * 100;
-    showHead(fmtIdx(pts[i].value), fmtDay(pts[i].date) + " · " + (c >= 0 ? "▲ " : "▼ ") + fmtPct(c), c >= 0);
+    if (o.onScrub) o.onScrub(i);
   };
-  const off = () => { scrub.setAttribute("visibility", "hidden"); restHead(); };
+  const off = () => { scrub.setAttribute("visibility", "hidden"); if (o.onLeave) o.onLeave(); };
   svg.addEventListener("pointermove", at);
   svg.addEventListener("pointerdown", at);
   svg.addEventListener("pointerleave", off);
   svg.addEventListener("pointercancel", off);
   svg.addEventListener("pointerup", (e) => { if (e.pointerType !== "mouse") off(); });
-  // Redraw whenever the card's width differs from the width last DRAWN — a
-  // render while the tab was hidden drew at the 800 fallback, and comparing
+  // Redraw whenever the host's width differs from the width last DRAWN — a
+  // render while its tab was hidden drew at the 800 fallback, and comparing
   // with the previous observed width left it there (5px text on a phone).
-  // Next frame, not inside the callback: the redraw changes the card's height,
+  // Next frame, not inside the callback: the redraw changes the host's height,
   // which inside it is a "ResizeObserver loop" error in Firefox and Safari.
   host._w = W;
+  host._redraw = () => stockChart(host, pts, o);
   if (!host._ro && window.ResizeObserver) {
-    host._ro = new ResizeObserver(() => requestAnimationFrame(refitIndex));
+    host._ro = new ResizeObserver(() => requestAnimationFrame(() => refitChart(host)));
     host._ro.observe(host);
   }
+}
+function refitChart(host) {
+  if (host && host._redraw && host.clientWidth && Math.abs(host.clientWidth - (host._w || 0)) > 4) host._redraw();
 }
 
 // Client-side sort for the currency table. Default matches the server order
@@ -755,10 +789,7 @@ function markRange(active, data) {
 // A render while the chart was hidden (a home-currency change on another tab)
 // drew at the 800 fallback. The ResizeObserver catches the chart reappearing;
 // showing the Currency view checks too, for browsers that hold observers back.
-function refitIndex() {
-  const h = $("chart");
-  if (lastIndexData && h.clientWidth && Math.abs(h.clientWidth - (h._w || 0)) > 4) renderIndex(lastIndexData);
-}
+function refitIndex() { refitChart($("chart")); }
 
 let _indexSeq = 0;
 async function loadIndex(range) {
@@ -993,7 +1024,10 @@ function drawMap(hostId, colorFn, ariaLabel) {
       if (host._dragJustHappened) { host._dragJustHappened = false; return; }
       const p = e.target.closest("path");
       const iso = p && p.getAttribute("data-iso");
-      if (iso && iso !== "-99") showCountryCard(iso, host);
+      if (iso && iso !== "-99") {
+        showCountryCard(iso, host);
+        if (host._onPick) host._onPick(iso);
+      }
     };
   }
   // Every map gets zoom, not just the Wander List one. Tiny countries are
@@ -1090,7 +1124,11 @@ function attachMapZoom(host, W, H) {
   // same centre and zoom; null = the map's own shape.
   host._setAspect = (a) => {
     const cx = st.x + st.w / 2, cy = st.y + st.h / 2;
+    const out = st.w >= Math.max(W, H / asp()) - 0.5;   // was the whole world in view
     host._aspect = a || null;
+    // The whole world stays in view (a wide phone screen used to open on a
+    // cropped, already-"zoomed" map); otherwise keep the zoom and centre.
+    if (out) st.w = Math.max(W, H / asp());
     st.h = st.w * asp();
     st.x = cx - st.w / 2;
     st.y = cy - st.h / 2;
@@ -1162,7 +1200,11 @@ function attachMapZoom(host, W, H) {
   const ptrs = new Map();
   let pan = null, pinch = null, dragged = false;
   host.onpointerdown = (e) => {
-    if (e.target.closest(".mapzoom")) return;
+    // Each press starts afresh: a flag left by the last drag or pinch ate the
+    // next tap — on a zoom button (every control press ends in pointerup here
+    // too) or on a country.
+    host._dragJustHappened = false;
+    if (e.target.closest(".mapzoom")) { dragged = false; return; }
     ptrs.set(e.pointerId, e);
     if (ptrs.size === 1) {
       pan = { cx: e.clientX, cy: e.clientY, x: st.x, y: st.y };
@@ -1174,6 +1216,12 @@ function attachMapZoom(host, W, H) {
     }
   };
   host.onpointermove = (e) => {
+    // A mouse released outside the map never sent pointerup here: with no
+    // button down now, that drag is over (it used to follow the bare mouse).
+    if (e.pointerType === "mouse" && e.buttons === 0 && ptrs.size) {
+      ptrs.clear(); pan = null; pinch = null;
+      return;
+    }
     if (!ptrs.has(e.pointerId)) return;
     ptrs.set(e.pointerId, e);
     const r = svg.getBoundingClientRect();
@@ -1268,20 +1316,46 @@ function openMapFullscreen(host) {
   overlay.setAttribute("aria-label", (h2 ? h2.textContent.trim() : "Map") + " — full screen");
   overlay.innerHTML = '<div class="mapfs-head"><h2></h2><div class="legend"></div>'
     + '<button type="button" class="mapfs-close" title="exit full screen (Esc)" aria-label="exit full screen">✕</button></div>'
-    + '<p class="mapfs-hint">Turn your phone sideways for a bigger map.</p><div class="mapfs-body"></div>';
+    + '<p class="mapfs-hint">Turn your phone sideways for a bigger map.</p>'
+    + '<div class="mapfs-body"><div class="mapfs-stage"></div></div>';
   // Copies of the page's own markup (already escaped where it was built).
   if (h2) overlay.querySelector("h2").innerHTML = h2.innerHTML;
   if (legend) overlay.querySelector(".legend").innerHTML = legend.innerHTML;
-  const body = overlay.querySelector(".mapfs-body");
+  const body = overlay.querySelector(".mapfs-body"), stage = overlay.querySelector(".mapfs-stage");
   const parent = host.parentElement;
   const rows = [...parent.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
   const card = [...parent.children].find((c) => c.classList.contains("countrycard"));
-  const marker = document.createComment("map");
+  // A placeholder as tall as what leaves, so the page behind keeps its length
+  // (a map near the end of a page shrank it, and the scroll position with it).
+  const moved = [host, ...rows, ...(card ? [card] : [])];
+  const top = Math.min(...moved.map((el) => el.getBoundingClientRect().top));
+  const bottom = Math.max(...moved.map((el) => el.getBoundingClientRect().bottom));
+  const marker = document.createElement("div");
+  marker.className = "mapfs-ph";
+  marker.style.height = Math.max(0, bottom - top) + "px";
   host.before(marker);
-  body.append(host, ...rows, ...(card ? [card] : []));
+  // The map and its card share a stage (the card floats over the map, not the
+  // list); the ranked list sits below it.
+  stage.append(host, ...(card ? [card] : []));
+  body.append(...rows);
+  // The Wander List's Been / Want to go switch decides what a tap marks: it
+  // comes along, and goes back after.
+  let mode = null;
+  if (host.id === "visitedMap" && $("visitedMode")) {
+    const r = $("visitedMode").getBoundingClientRect();
+    mode = { el: $("visitedMode"), mark: document.createElement("span") };
+    mode.mark.style.cssText = `display:inline-block;width:${r.width}px;height:${r.height}px`;
+    mode.el.before(mode.mark);
+    overlay.querySelector(".mapfs-head h2").after(mode.el);
+  }
+  // Everything else on the page is inert while this is open: Tab can't wander
+  // behind the overlay (it used to scroll the page there).
+  const inerted = [...document.body.children].filter((el) => !el.inert);
+  inerted.forEach((el) => { el.inert = true; });
   document.body.appendChild(overlay);
   document.documentElement.classList.add("mapfs-open");
-  mapFs = { host, marker, overlay, prevFocus: document.activeElement, real: false };
+  mapFs = { host, marker, overlay, mode, inerted, prevFocus: document.activeElement, real: false,
+            scroll: [window.scrollX, window.scrollY] };
   overlay.querySelector(".mapfs-close").onclick = closeMapFullscreen;
   document.addEventListener("keydown", mapFsKey);
   document.addEventListener("focusin", mapFsFocus);
@@ -1298,14 +1372,18 @@ function openMapFullscreen(host) {
 }
 function closeMapFullscreen() {
   if (!mapFs) return;
-  const { host, marker, overlay, prevFocus, real } = mapFs;
+  const { host, marker, overlay, mode, inerted, prevFocus, real, scroll } = mapFs;
   mapFs = null;
   document.removeEventListener("keydown", mapFsKey);
   document.removeEventListener("focusin", mapFsFocus);
   window.removeEventListener("resize", mapFsFit);
+  inerted.forEach((el) => { el.inert = false; });
   const rows = [...overlay.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
   const card = overlay.querySelector(".countrycard");
-  marker.replaceWith(host, ...rows, ...(card ? [card] : []));
+  // The page's own order: the card right under the map (renderCountryCard
+  // puts it there), then the list.
+  marker.replaceWith(host, ...(card ? [card] : []), ...rows);
+  if (mode) mode.mark.replaceWith(mode.el);
   overlay.remove();
   document.documentElement.classList.remove("mapfs-open");
   if (real && document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -1316,6 +1394,7 @@ function closeMapFullscreen() {
   const fb = host.querySelector('.mapzoom [data-z="fs"]');
   const to = prevFocus && prevFocus.isConnected && prevFocus !== document.body ? prevFocus : fb;
   if (to) to.focus({ preventScroll: true });
+  window.scrollTo(scroll[0], scroll[1]);
 }
 // The view takes the shape of the space the map has on screen.
 function mapFsFit() {
@@ -1366,7 +1445,7 @@ function renderCountryCard() {
   const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
   if (cur) facts.push(`💱 ${esc(cur)}` + (cur === homeBase ? " (your home currency)"
     : fx ? `: your ${esc(homeBase)} ${sgn(fx.nom)} vs 1-yr avg`
-      + (fx.real == null ? " (nominal)" : Math.abs(fx.real - fx.nom) >= 1 ? ` (${sgn(fx.real)} after inflation)` : "")
+      + (fx.real == null ? " (nominal)" : fx.adj ? ` (${sgn(fx.real)} after inflation)` : "")
     : ""));
   if (pl != null) {
     const rel = pl / anchor.pl;
@@ -1437,7 +1516,7 @@ function renderMap(rows, base) {
       const iso = currencyCountry(r.code);
       return { r, iso, real: iso ? realFxPct(iso, r.strength_pct) : null };
     })
-    .filter((g) => g.real != null && g.real > 0)
+    .filter((g) => g.real != null && g.real > 0 && fxInflBasis(g.iso).adj)
     .sort((a, b) => b.real - a.real).slice(0, 8);
   renderDimPicks("map", (base === "USD" ? "Your dollar's" : "Your " + base + "'s") + " biggest gains, after inflation",
     gains.map((g) => (g.r.code in PRIMARY_COUNTRY ? g.r.name : countryName(g.iso)) + " " + sgn(g.real)),
@@ -3226,6 +3305,181 @@ function renderAfford() {
       <td class="num">${sym}${Math.round(100 * anchorPl / r.pl).toLocaleString()} <span class="lbl-lg">of at-home goods</span></td></tr>`;
   }).join("");
   applyAffordFilter();
+  // Clicking a country on this map also makes it the chart's line.
+  $("affMap")._onPick = (iso) => setColCountry(iso);
+  renderCol();
+}
+
+// ---- cost over time (Cost of living tab) -----------------------------------
+// The map's price level per year since 1990 (World Bank; build_pl_history.py),
+// then today's — the map's own number — as the last point. Against the Vs home
+// country, like the map. "A typical country" is the geometric mean across
+// every country with figures, chain-linked year to year so countries joining
+// the data (Kosovo, 2008) don't move it.
+let plHist = null, plHistP = null;
+function ensurePLHistory() {
+  if (!plHistP) {
+    plHistP = fetch(stamped("/pl_history.json"))
+      .then((r) => { if (!r.ok) throw new Error("pl_history.json " + r.status); return r.json(); })
+      .then((d) => { if (!d || !d.years || !d.pl) throw new Error("no price history"); plHist = d; return d; })
+      .catch((e) => { plHistP = null; throw e; });
+  }
+  return plHistP;
+}
+const COL_Q = new URLSearchParams(location.search);
+let colIso = /^[A-Z]{2}$/.test(COL_Q.get("cc") || "") ? COL_Q.get("cc") : "world";
+let colRange = ["10", "20"].includes(COL_Q.get("cr")) ? COL_Q.get("cr") : "all";
+
+// [{date, value, year}] for one country (or "world") vs the anchor, yearly
+// points dated mid-year (they are annual averages), then today's.
+function colSeries(iso, anchor) {
+  const Y = plHist.years, P = plHist.pl;
+  const home = anchor.iso === "US" ? null : P[anchor.iso];
+  const rel = (c, i) => {
+    const v = P[c] && P[c][i], h = home ? home[i] : 1;
+    return v && h ? v / h : null;
+  };
+  const out = [];
+  const asOf = ((dataRates || lastRates || {}).as_of) || new Date().toISOString().slice(0, 10);
+  if (iso !== "world") {
+    Y.forEach((y, i) => { const v = rel(iso, i); if (v != null) out.push({ date: y + "-07-01", value: v, year: y }); });
+    // Today's figure joins only a recent series (Eritrea's stops in 2011: a
+    // straight line to today would draw fifteen years nobody measured), on the
+    // same exchange-rate basis (colJoins).
+    const now = priceLevel(iso), lastY = out.length ? out[out.length - 1] : null;
+    if (now != null && lastY && lastY.year >= Number(asOf.slice(0, 4)) - 3
+        && colJoins(iso, lastY.value, now / anchor.pl))
+      out.push({ date: asOf, value: now / anchor.pl, year: null });
+    return out;
+  }
+  const isos = Object.keys(P);
+  let level = null;
+  Y.forEach((y, i) => {
+    const logs = [];
+    if (level == null) {
+      for (const c of isos) { const v = rel(c, i); if (v) logs.push(Math.log(v)); }
+      if (logs.length) level = Math.exp(logs.reduce((a, b) => a + b, 0) / logs.length);
+    } else {
+      for (const c of isos) { const a = rel(c, i - 1), b = rel(c, i); if (a && b) logs.push(Math.log(b / a)); }
+      if (!logs.length) return;
+      level *= Math.exp(logs.reduce((a, b) => a + b, 0) / logs.length);
+    }
+    if (level != null) out.push({ date: y + "-07-01", value: level, year: y });
+  });
+  // Today: the same countries' move from the line's last year to the map —
+  // that year, not the data's (a UAE home has no 2025, and the line ended
+  // there with "no figures since").
+  const lastPt = out[out.length - 1], logs = [];
+  const li = lastPt ? Y.indexOf(lastPt.year) : -1;
+  for (const c of isos) {
+    const a = li >= 0 ? rel(c, li) : null, now = priceLevel(c);
+    if (a && now != null && colJoins(c, a, now / anchor.pl)) logs.push(Math.log(now / anchor.pl / a));
+  }
+  if (lastPt && lastPt.year >= Number(asOf.slice(0, 4)) - 3 && logs.length)
+    out.push({ date: asOf, value: lastPt.value * Math.exp(logs.reduce((a, b) => a + b, 0) / logs.length), year: null });
+  return out;
+}
+
+// Whether today's map figure can follow a country's yearly ones. Not where the
+// World Bank converts that economy at another rate than the official one the
+// map uses (plHist.alt: Burundi's yearly 0.19 beside today's 0.46), nor across
+// a jump bigger than the data ever shows in a year and a bit (Turkmenistan).
+function colJoins(iso, last, now) {
+  if ((plHist.alt || []).includes(iso)) return false;
+  const r = now / last;
+  return r < 1.5 && r > 1 / 1.5;
+}
+
+function fillColPick() {
+  const sel = $("colPick");
+  if (!sel || sel.options.length) return;
+  const isos = Object.keys(plHist.pl).filter((c) => countryName(c) !== c)
+    .sort((a, b) => countryName(a).localeCompare(countryName(b)));
+  sel.innerHTML = '<option value="world">🌍 A typical country</option>'
+    + isos.map((c) => `<option value="${esc(c)}">${esc(countryName(c))}</option>`).join("");
+  sel.addEventListener("change", () => setColCountry(sel.value));
+  enhanceSelect(sel);
+}
+function setColCountry(iso) {
+  if (!plHist || (iso !== "world" && !plHist.pl[iso])) return;
+  colIso = iso;
+  renderCol();
+  syncURL();
+}
+for (const b of document.querySelectorAll("#colRange button")) {
+  b.addEventListener("click", () => { colRange = b.dataset.range; renderCol(); syncURL(); });
+}
+
+async function renderCol() {
+  const host = $("colChart");
+  if (!host) return;
+  try { await ensurePLHistory(); } catch (e) {
+    $("colSub").textContent = "Could not load the price history: " + e.message;
+    return;
+  }
+  fillColPick();
+  if (colIso !== "world" && !plHist.pl[colIso]) colIso = "world";
+  const sel = $("colPick");
+  if (sel.value !== colIso) { sel.value = colIso; if (sel._sync) sel._sync(); }
+  const anchor = plAnchor(originIso());
+  let pts = colSeries(colIso, anchor);
+  if (colRange !== "all") {
+    const from = new Date().getUTCFullYear() - Number(colRange);
+    const cut = pts.filter((p) => p.year == null || p.year >= from);
+    // A series that stopped before the window (Venezuela, 2011) shows all it
+    // has rather than an empty box — the strength chart's rule too.
+    if (cut.length >= 2 || pts.length < 2) pts = cut;
+    else colRange = "all";
+  }
+  for (const b of document.querySelectorAll("#colRange button")) {
+    const on = b.dataset.range === colRange;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  const name = colIso === "world" ? "A typical country" : countryName(colIso);
+  $("colH2").innerHTML = `Cost over time <span class="muted">${esc(name)} vs ${esc(anchor.name)}</span>`;
+  if (pts.length < 2) {
+    host.innerHTML = "<p class='hint'>No price history for " + esc(name) + ".</p>";
+    host._redraw = null;
+    $("colNow").textContent = ""; $("colChg").textContent = "";
+    $("colSub").textContent = ""; $("colNote").textContent = "";
+    return;
+  }
+  const first = pts[0], lastP = pts[pts.length - 1];
+  const when = (p) => (p.year == null ? "today" : String(p.year));
+  const chgText = (p) => {
+    const c = (p.value / first.value - 1) * 100;
+    return { text: `${c < 0 ? "▼" : "▲"} ${Math.abs(c).toFixed(Math.abs(c) < 10 ? 1 : 0)}% ${c < 0 ? "cheaper" : "pricier"} than ${first.year}`, cheaper: c < 0 };
+  };
+  const showHead = (p, prefix) => {
+    const c = chgText(p);
+    $("colNow").textContent = p.value.toFixed(2);
+    const el = $("colChg");
+    el.textContent = (prefix ? prefix + " · " : "") + c.text;
+    el.className = c.cheaper ? "pos" : "neg";   // cheaper is the good news here
+  };
+  // A country whose figures stop (Venezuela: 2011) says which year its
+  // headline is, rather than passing an old number off as today's.
+  const rest = () => showHead(lastP, lastP.year == null ? "" : "in " + lastP.year);
+  rest();
+  $("colSub").innerHTML = esc(`Price level vs ${anchor.name} · 1.00 = the same prices · `)
+    + `<span style="white-space:nowrap">${esc(first.year + "–" + when(lastP))}</span>`
+    + (lastP.year == null ? "" : " (no figures since)");
+  $("colNote").innerHTML = esc("Lower = your money buys more there. Yearly averages from the World Bank"
+    + (lastP.year == null ? ", then today's figure from the map." : "."))
+    + ` <span class="muted" data-tip="${esc("A year's price level is the World Bank's purchasing-power-parity factor over that year's exchange rate — the same measure as the map, which brings the latest year up to date with inflation and today's rate. National averages: the places visitors go run above them."
+      + (colIso === "world" ? " A typical country is the geometric mean across every country with figures, chained year to year so countries joining the data don't move it." : ""))}" title="">ⓘ</span>`;
+  const cheaper = lastP.value < first.value;
+  stockChart(host, pts, {
+    byDate: true,
+    color: cheaper ? cssVar("--green", "#0a7d28") : cssVar("--red", "#b00020"),
+    ref: { value: 1, label: anchor.name === "the US" ? "US prices" : anchor.name + " prices" },
+    aria: `${name}: price level ${lastP.value.toFixed(2)} vs ${anchor.name}, ${chgText(lastP).text}`,
+    onScrub: (i) => (i ? showHead(pts[i], when(pts[i]))
+      : ($("colNow").textContent = pts[0].value.toFixed(2),
+         $("colChg").textContent = when(pts[0]) + " · start", $("colChg").className = "")),
+    onLeave: rest,
+  });
 }
 
 // ===========================================================================
@@ -4837,7 +5091,8 @@ function notScoredReason(iso) {
 function renderDimPicks(hostId, title, items, isos, empty) {
   const host = $(hostId);
   if (!host) return;
-  let row = host.parentElement.querySelector('.mappicksrow[data-for="' + hostId + '"]');
+  // Anywhere in the page: in full screen the map and its list sit apart.
+  let row = document.querySelector('.mappicksrow[data-for="' + hostId + '"]');
   if ((!items || !items.length) && !empty) { if (row) row.remove(); return; }
   if (!row) {
     row = document.createElement("div");
@@ -6850,6 +7105,8 @@ async function setDataMode(mode) {
     } else if (mode === "afford" && !loaded.afford) {
       await Promise.all([ensureWorld(), ensurePPP()]);
       renderAfford(); loaded.afford = true;
+    } else if (mode === "afford") {
+      refitChart($("colChart"));   // drawn while hidden: at the 800 fallback
     } else if (mode === "advisory" && !loaded.advisory) {
       $("advSub").textContent = "Loading advisories…";
       await Promise.all([ensureWorld(), ensureAdvisories()]);
@@ -7140,6 +7397,8 @@ function buildShareURL(forShare) {
     if (dataMode === "currency" && activeRange !== "1y") q.set("win", activeRange);
     if (dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
     if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
+    if (dataMode === "afford" && colIso !== "world") q.set("cc", colIso);
+    if (dataMode === "afford" && colRange !== "all") q.set("cr", colRange);
     // Clean, indexable URL: /guide/<slug> (no query string). Same-origin so
     // history.pushState in syncURL accepts it.
   } else if (tab === "guide") {
