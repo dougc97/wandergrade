@@ -975,7 +975,12 @@ function drawMap(hostId, colorFn, ariaLabel) {
     if (!(placeSpans().BQ >= 0))                      // geometry-less places
       paths += dotFor({ properties: { iso: "BQ", name: "Caribbean Netherlands" } });
   }
-  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">${paths}</svg>`;
+  // Clipped to the map's own rectangle: full screen can show more than it
+  // (a tall phone's view reaches below -56°, where Antarctica's outline
+  // would draw as a grey band).
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ariaLabel}">`
+    + `<defs><clipPath id="mapclip-${hostId}"><rect width="${W}" height="${H}"/></clipPath></defs>`
+    + `<g clip-path="url(#mapclip-${hostId})">${paths}</g></svg>`;
 
   // Tap-for-detail on every map (the visited map keeps its toggle behavior).
   // Property assignment (not addEventListener) stays idempotent across re-renders,
@@ -1036,16 +1041,22 @@ function attachMapZoom(host, W, H) {
   // snaps (used for direct manipulation — wheel/drag/pinch — and re-render
   // restores, where a lag would feel wrong). The tween is clock-driven off a
   // setTimeout loop so it always completes (rAF is paused in background tabs).
+  // The view's shape (height/width). On the page it is the map's own; full
+  // screen sets the screen's (host._aspect), so zooming in on a tall phone
+  // fills the whole screen instead of a 140px strip. The fully-out view fits
+  // the world either way, and a side that is wider than the world stays
+  // centred rather than pannable.
+  const asp = () => host._aspect || H / W;
   const apply = (animate) => {
     if (animTimer) { clearTimeout(animTimer); animTimer = null; }
-    st.w = Math.max(W / 8, Math.min(W, st.w));
-    st.h = st.w * H / W;
-    st.x = Math.max(0, Math.min(W - st.w, st.x));
-    st.y = Math.max(0, Math.min(H - st.h, st.y));
-    const zoomed = st.w < W - 0.5;
+    st.w = Math.max(W / 8, Math.min(Math.max(W, H / asp()), st.w));
+    st.h = st.w * asp();
+    st.x = st.w >= W ? (W - st.w) / 2 : Math.max(0, Math.min(W - st.w, st.x));
+    st.y = st.h >= H ? (H - st.h) / 2 : Math.max(0, Math.min(H - st.h, st.y));
+    const zoomed = st.w < W - 0.5 || st.h < H - 0.5;
     // when zoomed, own the touch gestures (pan/pinch); at world view, let the
-    // page scroll normally
-    host.style.touchAction = zoomed ? "none" : "";
+    // page scroll normally (full screen has no page to scroll)
+    host.style.touchAction = zoomed || host._aspect ? "none" : "";
     host.classList.toggle("zoomed", zoomed);
     if (!animate || reducedMotion()) { setVB(st); return; }
     const cur = (svg.getAttribute("viewBox") || `0 0 ${W} ${H}`).split(" ").map(Number);
@@ -1064,7 +1075,7 @@ function attachMapZoom(host, W, H) {
   const zoomAt = (fx, fy, factor, animate) => {   // fx, fy = fractions of the view
     const px = st.x + fx * st.w, py = st.y + fy * st.h;
     st.w /= factor;
-    st.h = st.w * H / W;
+    st.h = st.w * asp();
     st.x = px - fx * st.w;
     st.y = py - fy * st.h;
     apply(animate);
@@ -1075,23 +1086,36 @@ function attachMapZoom(host, W, H) {
     st.x = t.x; st.y = t.y; st.w = t.w; st.h = t.h;
     apply(animate);
   };
+  // A new view shape (full screen in or out, a rotated phone), keeping the
+  // same centre and zoom; null = the map's own shape.
+  host._setAspect = (a) => {
+    const cx = st.x + st.w / 2, cy = st.y + st.h / 2;
+    host._aspect = a || null;
+    st.h = st.w * asp();
+    st.x = cx - st.w / 2;
+    st.y = cy - st.h / 2;
+    apply(false);
+  };
 
   // controls (re-created each render — innerHTML wiped the previous ones)
   if (!host.querySelector(".mapzoom")) {
     const ctr = document.createElement("div");
     ctr.className = "mapzoom";
-    ctr.innerHTML = '<button type="button" data-z="in" title="zoom in">＋</button>'
+    ctr.innerHTML = '<button type="button" data-z="fs"></button>'
+      + '<button type="button" data-z="in" title="zoom in">＋</button>'
       + '<button type="button" data-z="out" title="zoom out">－</button>'
       + '<button type="button" data-z="reset" title="reset view">⌂</button>';
     ctr.onclick = (e) => {
       const b = e.target.closest("button");
       if (!b) return;
       e.stopPropagation();                  // don't toggle a country underneath
-      if (b.dataset.z === "in") zoomAt(0.5, 0.5, 1.6, true);
+      if (b.dataset.z === "fs") { if (host.closest(".mapfs")) closeMapFullscreen(); else openMapFullscreen(host); }
+      else if (b.dataset.z === "in") zoomAt(0.5, 0.5, 1.6, true);
       else if (b.dataset.z === "out") zoomAt(0.5, 0.5, 1 / 1.6, true);
-      else { st.x = 0; st.y = 0; st.w = W; st.h = H; apply(true); }
+      else { st.x = 0; st.y = 0; st.w = Math.max(W, H / asp()); apply(true); }
     };
     host.appendChild(ctr);
+    syncFsButton(host);
   }
 
   // Plain wheel scrolls the PAGE: every map is full-width, the landing one
@@ -1163,7 +1187,7 @@ function attachMapZoom(host, W, H) {
         zoomAt(fx, fy, st.w / targetW, false);   // track the fingers directly
         dragged = true;
       }
-    } else if (pan && st.w < W - 0.5) {
+    } else if (pan && (st.w < W - 0.5 || st.h < H - 0.5)) {
       const dx = e.clientX - pan.cx, dy = e.clientY - pan.cy;
       if (Math.abs(dx) + Math.abs(dy) > 6) dragged = true;
       if (dragged) {
@@ -1194,6 +1218,116 @@ function attachMapZoom(host, W, H) {
 
   apply(false);                             // restore the pre-render zoom (snap)
 }
+
+// ---- full-screen map -------------------------------------------------------
+// Every map opens full screen from the top button of its zoom stack: at card
+// size the world is too small to steer (the owner's words). The map element
+// itself moves into an overlay, with its ranked list and any open country
+// card, so its handlers, zoom and by-id re-renders keep working; a comment
+// marks where it goes back. The browser's own full screen is asked for too
+// where the page may have it (not on iPhone: there the overlay fills the
+// window). Esc, the ✕, the same button, or leaving the tab closes it.
+const FS_ICON = {
+  on: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  off: '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+};
+let mapFs = null;   // { host, marker, overlay, prevFocus, real }
+function syncFsButton(host) {
+  const b = host.querySelector('.mapzoom [data-z="fs"]');
+  if (!b) return;
+  const on = !!host.closest(".mapfs");
+  b.innerHTML = on ? FS_ICON.off : FS_ICON.on;
+  b.title = on ? "exit full screen (Esc)" : "full screen";
+  b.setAttribute("aria-label", b.title);
+}
+// The title and legend drawn above a map: the nearest earlier sibling (walking
+// up the tree) that holds an h2.
+function mapFsHeader(host) {
+  for (let el = host; el && el !== document.body; el = el.parentElement) {
+    for (let s = el.previousElementSibling; s; s = s.previousElementSibling) {
+      const h = s.matches("h2") ? s : s.querySelector("h2");
+      if (h) return { h2: h, legend: s.querySelector(".legend") };
+    }
+  }
+  return { h2: null, legend: null };
+}
+function mapFsKey(e) {
+  if (e.key === "Escape" && mapFs) { e.preventDefault(); closeMapFullscreen(); }
+}
+// Keep keyboard focus inside the overlay while it is open.
+function mapFsFocus(e) {
+  if (mapFs && !mapFs.overlay.contains(e.target)) mapFs.overlay.querySelector(".mapfs-close").focus();
+}
+function openMapFullscreen(host) {
+  if (mapFs) return;
+  const { h2, legend } = mapFsHeader(host);
+  const overlay = document.createElement("div");
+  overlay.className = "mapfs";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", (h2 ? h2.textContent.trim() : "Map") + " — full screen");
+  overlay.innerHTML = '<div class="mapfs-head"><h2></h2><div class="legend"></div>'
+    + '<button type="button" class="mapfs-close" title="exit full screen (Esc)" aria-label="exit full screen">✕</button></div>'
+    + '<p class="mapfs-hint">Turn your phone sideways for a bigger map.</p><div class="mapfs-body"></div>';
+  // Copies of the page's own markup (already escaped where it was built).
+  if (h2) overlay.querySelector("h2").innerHTML = h2.innerHTML;
+  if (legend) overlay.querySelector(".legend").innerHTML = legend.innerHTML;
+  const body = overlay.querySelector(".mapfs-body");
+  const parent = host.parentElement;
+  const rows = [...parent.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
+  const card = [...parent.children].find((c) => c.classList.contains("countrycard"));
+  const marker = document.createComment("map");
+  host.before(marker);
+  body.append(host, ...rows, ...(card ? [card] : []));
+  document.body.appendChild(overlay);
+  document.documentElement.classList.add("mapfs-open");
+  mapFs = { host, marker, overlay, prevFocus: document.activeElement, real: false };
+  overlay.querySelector(".mapfs-close").onclick = closeMapFullscreen;
+  document.addEventListener("keydown", mapFsKey);
+  document.addEventListener("focusin", mapFsFocus);
+  window.addEventListener("resize", mapFsFit);
+  mapFsFit();
+  syncFsButton(host);
+  overlay.querySelector(".mapfs-close").focus();
+  const de = document.documentElement;
+  if (de.requestFullscreen && !document.fullscreenElement) {
+    de.requestFullscreen({ navigationUI: "hide" })
+      .then(() => { if (mapFs) mapFs.real = true; })
+      .catch(() => {});                     // refused: the overlay alone is fine
+  }
+}
+function closeMapFullscreen() {
+  if (!mapFs) return;
+  const { host, marker, overlay, prevFocus, real } = mapFs;
+  mapFs = null;
+  document.removeEventListener("keydown", mapFsKey);
+  document.removeEventListener("focusin", mapFsFocus);
+  window.removeEventListener("resize", mapFsFit);
+  const rows = [...overlay.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
+  const card = overlay.querySelector(".countrycard");
+  marker.replaceWith(host, ...rows, ...(card ? [card] : []));
+  overlay.remove();
+  document.documentElement.classList.remove("mapfs-open");
+  if (real && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  if (host._setAspect) host._setAspect(null);
+  syncFsButton(host);
+  // Back to the button that opened it (a mouse click in Safari never
+  // focused it, so the page's last focus is no guide).
+  const fb = host.querySelector('.mapzoom [data-z="fs"]');
+  const to = prevFocus && prevFocus.isConnected && prevFocus !== document.body ? prevFocus : fb;
+  if (to) to.focus({ preventScroll: true });
+}
+// The view takes the shape of the space the map has on screen.
+function mapFsFit() {
+  if (!mapFs || !mapFs.host._setAspect) return;
+  const r = mapFs.host.getBoundingClientRect();
+  if (r.width > 0 && r.height > 0) mapFs.host._setAspect(r.height / r.width);
+}
+// Esc inside the browser's full screen only leaves full screen (the page
+// never sees the key), so leaving it closes the overlay too.
+document.addEventListener("fullscreenchange", () => {
+  if (!document.fullscreenElement && mapFs && mapFs.real) closeMapFullscreen();
+});
 
 // ---- tap-for-detail country card -------------------------------------------
 let ccCurrent = null;   // { iso, host } of the open card
@@ -1293,10 +1427,21 @@ function renderMap(rows, base) {
     }
     return { fill: NODATA, title: f.properties.name + " — not tracked" };
   }, base + " strength world heatmap");
-  const winners = rows.filter((r) => r.strength_pct > 0 && !(r.pegged_to && byCode[r.pegged_to]))
-    .sort((a, b) => b.strength_pct - a.strength_pct).slice(0, 8);
-  renderDimPicks("map", "Biggest currency wins vs " + base,
-    winners.map((r) => r.code + " " + sgn(r.strength_pct)));
+  // Ranked AFTER inflation — the figure each country card shows. By the
+  // nominal rate alone the lira, the rial and the Syrian and Argentine pounds
+  // read as "wins" while prices there rose faster than the currency fell
+  // (Turkey: +9% nominal, -4% real). No inflation figure, no claimed gain.
+  // Named by country (a currency union by its own name): "BOB" meant little.
+  const gains = rows.filter((r) => !(r.pegged_to && byCode[r.pegged_to]))
+    .map((r) => {
+      const iso = currencyCountry(r.code);
+      return { r, iso, real: iso ? realFxPct(iso, r.strength_pct) : null };
+    })
+    .filter((g) => g.real != null && g.real > 0)
+    .sort((a, b) => b.real - a.real).slice(0, 8);
+  renderDimPicks("map", (base === "USD" ? "Your dollar's" : "Your " + base + "'s") + " biggest gains, after inflation",
+    gains.map((g) => (g.r.code in PRIMARY_COUNTRY ? g.r.name : countryName(g.iso)) + " " + sgn(g.real)),
+    gains.flatMap((g) => currencyCountries(g.r.code)));
 
   $("mapsub").innerHTML = esc(
     `Greener = ${baseWord(base)} stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`)
@@ -6546,6 +6691,7 @@ function buildTabOnce(name, build) {
 }
 async function activateTab(name, push) {
   clearTransientStatus();   // a note about the old tab shouldn't outlive it
+  closeMapFullscreen();     // "Country guide →" from a full-screen map
   document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
   if (name === "trip") renderTripBar();
   // Meta follows the tab in BOTH directions. Leaving the guide restores the
@@ -6679,6 +6825,7 @@ const DATA_SUBS = { currency: "dataSubCurrency", afford: "dataSubAfford",
 
 async function setDataMode(mode) {
   if (!DATA_SUBS[mode]) mode = "currency";
+  closeMapFullscreen();
   dataMode = mode;
   for (const x of document.querySelectorAll("#dataMode button"))
     x.classList.toggle("active", x.dataset.dm === mode);

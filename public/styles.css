@@ -59,7 +59,7 @@ body {
   pointer-events: none;
   z-index: 0;
 }
-body > *:not(.bgdoodle):not(.bgseason):not(.lightbox):not(.wgtip):not(.submodal):not(.spinover) { position: relative; z-index: 1; }
+body > *:not(.bgdoodle):not(.bgseason):not(.lightbox):not(.wgtip):not(.submodal):not(.spinover):not(.mapfs) { position: relative; z-index: 1; }
 
 header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide, .filterbar { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
 
@@ -343,6 +343,42 @@ html[data-theme="dark"] .chdown, html[data-theme="dark"] .fxmark.fxup { color: #
   background: var(--card); color: var(--ink); font-size: 16px; line-height: 1; cursor: pointer;
   padding: 0; }
 .mapzoom button:hover { border-color: var(--green); color: var(--green); }
+/* The icon is an svg inside .map, so the map's own svg rules (100% wide,
+   ocean fill, white country strokes) reach it too; these undo them. */
+.map .mapzoom button svg { display: block; margin: auto; width: 16px; height: 16px;
+  background: none; border-radius: 0; }
+.map .mapzoom button svg path, html[data-theme] .map .mapzoom button svg path,
+.map .mapzoom button svg path:hover { fill: none; stroke: currentColor; stroke-width: 2.2; cursor: pointer; }
+
+/* Full-screen map (openMapFullscreen): the map element moves into this
+   overlay. Above the page and its sticky bits, below tooltips (.wgtip 2000)
+   and the modals. The SVG fills the space left, and its viewBox takes that
+   space's shape (host._aspect), so the zoom and pan arithmetic, which
+   measures the SVG, stays exact. */
+html.mapfs-open, html.mapfs-open body { overflow: hidden; }
+.mapfs { position: fixed; inset: 0; z-index: 1500; background: var(--bg); box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+           max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+.mapfs-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
+  padding-right: 48px; min-height: 36px; }
+.mapfs-head h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.mapfs-head h2 .muted { color: var(--gray); font-weight: 400; font-size: 14px; }
+.mapfs-head .legend:empty { display: none; }
+.mapfs-close { position: absolute; top: 0; right: 0; width: 36px; height: 36px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 18px; line-height: 1;
+  cursor: pointer; padding: 0; }
+.mapfs-close:hover { border-color: var(--green); color: var(--green); }
+.mapfs-hint { display: none; margin: 0; color: var(--gray); font-size: 12px; }
+@media (orientation: portrait) and (pointer: coarse) { .mapfs-hint { display: block; } }
+.mapfs-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.mapfs .map { flex: 1; min-height: 0; margin: 0; }
+.mapfs .map > svg { width: 100%; height: 100%; }
+.mapfs .mappicksrow { margin: 0; }
+/* An opened country floats over the map instead of shrinking it. */
+.mapfs .countrycard { position: absolute; left: 12px; bottom: 12px; margin: 0; z-index: 6;
+  max-width: min(480px, calc(100% - 24px)); max-height: 60%; overflow: auto;
+  background: var(--card); box-shadow: 0 8px 28px rgba(0,0,0,.35); }
 /* "Ctrl/⌘ + scroll to zoom": a plain wheel scrolls the page past the map. */
 .maphint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4;
   background: rgba(0,0,0,.66); color: #fff; font-size: 13px; font-weight: 600; padding: 6px 12px;
