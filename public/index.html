@@ -566,6 +566,34 @@
         </div>
         <div id="affMap" class="map">Loading…</div>
       </div>
+      <!-- Cost over time: the map's price level, per year since 1990 and then
+           today (renderCol). Follows the Vs home picker; a country clicked on
+           the map above becomes the line. -->
+      <section class="chartcard" id="colCard">
+        <div class="charthead">
+          <div>
+            <h2 id="colH2">Cost over time</h2>
+            <p id="colSub" class="chartsub">Loading…</p>
+          </div>
+          <div class="bignum">
+            <span id="colNow">—</span>
+            <small id="colChg"></small>
+          </div>
+        </div>
+        <div class="colbar">
+          <span class="pickgroup">
+            <span class="picklabel">📍 Country</span>
+            <select id="colPick" aria-label="Country"></select>
+          </span>
+          <div class="windowtoggle" id="colRange" role="group" aria-label="Time range">
+            <button type="button" data-range="10" aria-pressed="false">10Y</button>
+            <button type="button" data-range="20" aria-pressed="false">20Y</button>
+            <button type="button" data-range="all" aria-pressed="true" class="active">All</button>
+          </div>
+        </div>
+        <div id="colChart" class="chart"></div>
+        <p class="chartnote" id="colNote"></p>
+      </section>
       <div class="filterbar">
         <input id="affFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
         <label class="chk"><input type="checkbox" id="affRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>

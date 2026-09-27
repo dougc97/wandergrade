@@ -28,7 +28,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
-    accounts, advisories, build_dataset, build_ppp, flights, flightvalue,
+    accounts, advisories, build_dataset, build_pl_history, build_ppp, flights, flightvalue,
     mailer, popularity, rates, render_guide, store, watchouts
 )
 
@@ -307,6 +307,47 @@ def _ppp_data():
 
         threading.Thread(target=refresh, daemon=True).start()
     return _ppp_cache["data"]
+
+
+_plh_cache = {"at": 0, "data": None}
+
+
+def _pl_history():
+    """Price level per country per year (the Cost of living chart), from the
+    committed file at once and refreshed from the World Bank monthly on a
+    background thread — the lesson of ppp.json, which drifted a year behind
+    while nothing re-ran its builder. A refresh that would lose countries or
+    years is refused."""
+    now = time.time()
+    if _plh_cache["data"] is None:
+        try:
+            _plh_cache["data"] = build_pl_history.committed()
+        except Exception:
+            _plh_cache["data"] = {"years": [], "pl": {}}
+    if (now - _plh_cache["at"]) >= PPP_TTL and not _plh_cache.get("busy"):
+        _plh_cache["busy"] = True
+
+        def refresh():
+            retry_at = time.time() - PPP_TTL + PPP_RETRY
+            try:
+                base = _plh_cache["data"] or {}
+                live = build_pl_history.build()
+                if len(live["pl"]) < int(len(base.get("pl") or {}) * 0.9) \
+                        or (base.get("years") and live["years"][-1] < base["years"][-1]):
+                    _plh_cache["at"] = retry_at
+                    print("[pl-history] live fetch gave %d countries to %s; keeping current"
+                          % (len(live["pl"]), live["years"][-1]), flush=True)
+                    return
+                _plh_cache["data"] = live
+                _plh_cache["at"] = time.time()
+            except Exception as e:
+                _plh_cache["at"] = retry_at
+                print("[pl-history] live fetch failed (%s); keeping current" % e, flush=True)
+            finally:
+                _plh_cache["busy"] = False
+
+        threading.Thread(target=refresh, daemon=True).start()
+    return _plh_cache["data"]
 
 
 _guide_links_html = None
@@ -1226,6 +1267,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/ppp.json":
             self._send_json(_ppp_data(), extra=[("Cache-Control", "public, max-age=86400")])
+            return
+        if path == "/pl_history.json":
+            self._send_json(_pl_history(), extra=[("Cache-Control", "public, max-age=86400")])
             return
         if path in ("/data/price-levels.json", "/data/price-levels.csv"):
             try:
