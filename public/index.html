@@ -631,13 +631,19 @@
       <div class="cardwide">
         <div class="charthead">
           <div>
-            <h2>Flight prices by country <span class="muted">average round-trip from your country</span></h2>
-            <p id="flightSub" class="chartsub">Pick where you're flying from. International routes only, averaged per destination country.</p>
+            <h2>Flight prices by country <span class="muted">low, typical or high for your month</span></h2>
+            <p id="flightSub" class="chartsub">Pick where you're flying from and when.</p>
           </div>
           <div class="pickers">
             <span class="pickgroup" data-tip="your home country — fares are averaged from its main hub" title="">
               <span class="picklabel">✈️ From</span>
               <select id="flightOrigin"></select>
+            </span>
+            <!-- The site's one travel month (#valueMonth), mirrored both ways
+                 like From: fares here are banded for this departure month. -->
+            <span class="pickgroup" data-tip="the departure month the fares are for — also your travel month on Top Picks" title="">
+              <span class="picklabel"><span class="lbl-lg">📅 Departing in</span><span class="lbl-sm">📅</span></span>
+              <select id="flightMonth" aria-label="Departing in"></select>
             </span>
             <!-- Display currency is its own choice, not the origin's: a German
                  flying home from the US wants EUR fares. Conversion is today's
@@ -660,13 +666,16 @@
       <section class="tablewrap">
         <table id="flightTable">
           <thead><tr>
-            <th class="sortable" aria-sort="none" data-sk="dest"><button type="button" class="sortbtn">Destination country</button></th><th class="num sortable" aria-sort="none" data-sk="avg"><button type="button" class="sortbtn">Avg round-trip</button></th>
+            <th class="sortable" aria-sort="none" data-sk="dest"><button type="button" class="sortbtn">Destination country</button></th>
+            <th class="sortable" aria-sort="none" data-sk="vs" title="the month's cheapest fare vs this route's typical range over the next 12 months: Low, Typical or High, and % vs its median"><button type="button" class="sortbtn">vs typical</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="mfare" title="cheapest cached round-trip departing in the chosen month"><button type="button" class="sortbtn">Month fare</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="avg" title="average of the cached fares, any month"><button type="button" class="sortbtn">Avg round-trip</button></th>
             <th class="num sortable" aria-sort="none" data-sk="min"><button type="button" class="sortbtn">Cheapest</button></th>
             <th class="num sortable" aria-sort="none" data-sk="dur" title="travel time on the cheapest itinerary"><button type="button" class="sortbtn">Flight time</button></th>
             <th class="num sortable" aria-sort="none" data-sk="stops" title="layovers on the cheapest itinerary"><button type="button" class="sortbtn">Stops</button></th>
             <th class="num sortable" aria-sort="none" data-sk="n" title="cached fares behind the average — one per destination city and departure date"><button type="button" class="sortbtn">Fares sampled</button></th>
           </tr></thead>
-          <tbody id="flightRows"><tr><td colspan="6">Loading…</td></tr></tbody>
+          <tbody id="flightRows"><tr><td colspan="8">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>

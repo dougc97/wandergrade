@@ -355,10 +355,13 @@ const ADV_GET = { country: (it) => advName(it), level: (it) => parseInt(it.level
 const advSort = { key: "level", asc: true };
 wireSort("#advTable", advSort, {}, () => { if (advisories) renderAdvisories(); });
 
-// Flights: cheapest average first; "fares sampled" opens descending.
-const FLIGHT_GET = { dest: (c) => countryName(c.iso), avg: (c) => c.avg, min: (c) => c.min,
+// Flights: ranked by the chosen month's fare vs the route's own typical year
+// (renderFlights stamps each row's _fv), most below typical first. Rows with
+// no range sort last. "Fares sampled" opens descending.
+const FLIGHT_GET = { dest: (c) => countryName(c.iso), vs: (c) => c._fv && c._fv.dev,
+                     mfare: (c) => c._fv && c._fv.price, avg: (c) => c.avg, min: (c) => c.min,
                      dur: (c) => c.dur, stops: (c) => c.stops, n: (c) => c.n };
-const flightSort = { key: "avg", asc: true };
+const flightSort = { key: "vs", asc: true };
 wireSort("#flightTable", flightSort, { n: false }, () => { if (flightsData) renderFlights(); });
 
 // Top Picks report card: default overall-value order. Sorting a column
@@ -4478,16 +4481,6 @@ function pickCount() {
   return [5, 10, 20].includes(v) ? v : 5;
 }
 
-// Color-differentiated arrow for a price vs a baseline: green ▼ below,
-// red ▲ above, gray ≈ about. Used in the Flights data table.
-function priceArrow(value, baseline, label) {
-  if (value == null || !baseline) return "";
-  const r = value / baseline;
-  if (r <= 0.95) return `<span class="farearrow dn" title="below ${esc(label)}">▼</span>`;
-  if (r >= 1.05) return `<span class="farearrow up" title="above ${esc(label)}">▲</span>`;
-  return `<span class="farearrow flat" title="about ${esc(label)}">≈</span>`;
-}
-
 // Render a ranked list as a compact report-card table. gem=true marks the
 // hidden-gems list, which ranks #1..#N just like the popular table (the 💎
 // lives in the section title). The why-sentence moves to the row tooltip so
@@ -5107,11 +5100,18 @@ const TP_MARKER = "738472";
 // Deep-link an Aviasales search from the current origin hub to a destination
 // city. Aviasales' search path is ORIGIN+DDMM (outbound) + DEST+DDMM (return) +
 // passengers; we default to ~2 months out for 10 nights, 1 traveler — a sane
-// starting point the user can adjust on Aviasales. Returns null if we lack the
-// hub or a destination city (older cached fares have no `dest`).
-function flightSearchURL(dest) {
+// starting point the user can adjust on Aviasales. With a departure month
+// ("2026-10") it searches the middle of that month instead (tomorrow, if the
+// 15th has passed), so a month's fare links to that month. Returns null if we
+// lack the hub or a destination city (older cached fares have no `dest`).
+function flightSearchURL(dest, monthKey) {
   if (!dest || !flightsData || !flightsData.hub) return null;
-  const dep = new Date(); dep.setDate(dep.getDate() + 60);
+  let dep = new Date(); dep.setDate(dep.getDate() + 60);
+  if (/^\d{4}-\d{2}$/.test(monthKey || "")) {
+    dep = new Date(+monthKey.slice(0, 4), +monthKey.slice(5) - 1, 15);
+    const soon = new Date(); soon.setDate(soon.getDate() + 1);
+    if (dep < soon) dep = soon;
+  }
   const ret = new Date(dep); ret.setDate(ret.getDate() + 10);
   const p = (n) => String(n).padStart(2, "0");
   const seg = (d) => p(d.getDate()) + p(d.getMonth() + 1);
@@ -5161,7 +5161,10 @@ async function loadFlights() {
   }
   const origin = $("flightOrigin").value || originIso();
   const seq = ++_flSeq;
-  $("flightSub").textContent = "Averaging international fares from " +
+  initFlightMonth();    // the picker shows the month while fares load
+  clearTimeout(_fvTimer);
+  flightValue = null;   // another origin's ranges must never band these fares
+  $("flightSub").textContent = "Loading fares from " +
     ($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin) + "…";
   let data;
   try {
@@ -5175,30 +5178,102 @@ async function loadFlights() {
   if (!flightsData.configured) {
     $("flightSub").innerHTML = "Flight prices need a free Travelpayouts token. Set <code>TRAVELPAYOUTS_TOKEN</code> on the server (Render → Environment), then redeploy.";
     $("flightMap").textContent = "Not configured.";
-    $("flightRows").innerHTML = '<tr><td colspan="6">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
+    $("flightRows").innerHTML = '<tr><td colspan="8">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
     syncURL();
     return;
   }
   renderFlights();
   syncURL();
+  loadFlightValue(origin, seq, 0);
 }
 
-// Colour by fare RELATIVE TO THE DISTANCE-FIT TYPICAL, not by absolute price.
-// Colouring by absolute fare scaled across min..max made the whole map green:
-// fare distributions are heavily right-skewed, so a handful of $3k long-hauls
-// stretched the top of the range and every ordinary $400-900 fare fell into the
-// bottom quarter. It was really drawing a distance map, and it contradicted the
-// caption, which already promises "below/above the typical fare for the
-// distance" — the measure the table's ▼/▲ arrows use.
-// Now the midpoint is a ratio of 1.0 (fare exactly as predicted for that
-// distance), so roughly half the map sits either side and red means genuinely
-// overpriced for how far you're going. ±35% spans the full ramp.
-function flightColor(price, expectedFare) {
-  if (price == null) return NODATA;
-  if (!expectedFare) return mix("#eef0f1", "#0a7d28", 0.15);   // no fit: neutral
-  const ratio = price / expectedFare;
-  const t = Math.max(-1, Math.min(1, (ratio - 1) / 0.35));     // -1 bargain, +1 pricey
-  return t <= 0 ? mix("#eef0f1", "#0a7d28", -t) : mix("#eef0f1", "#b00020", t);
+// ---- Flights: the month's fare vs the route's own typical year --------------
+// Google Flights' "prices are low / typical / high", across DEPARTURE MONTHS
+// rather than booking dates: /api/flight-value sends every destination's
+// monthly curve (the guide chart's, number for number) plus its typical range,
+// and the month picked here is banded on the spot. The server fills cold
+// curves in the background; while it does, re-ask a bounded few times.
+let flightValue = null;
+let _fvTimer = null;
+const FV_POLLS = 10;   // 15s, 30s, 45s, then every 60s: ~8 minutes, then stop
+async function loadFlightValue(origin, seq, attempt) {
+  let data = null;
+  try {
+    data = await getJSON("/api/flight-value?origin=" + encodeURIComponent(origin));
+  } catch (e) { /* keep what's shown; the next poll may do better */ }
+  if (seq !== _flSeq) return;   // origin changed while this was in flight
+  if (data && data.configured !== false && data.origin === origin) {
+    flightValue = data;
+    if (flightsData && flightsData.configured) renderFlights();
+  }
+  if ((!data || data.filling) && attempt < FV_POLLS)
+    _fvTimer = setTimeout(() => loadFlightValue(origin, seq, attempt + 1),
+                          Math.min(60, 15 * (attempt + 1)) * 1000);
+}
+
+// The travel month (#valueMonth, the one every tab reads) as a departure
+// month key: its NEXT occurrence, the guide chart's rule. The server's own
+// 12-month window wins when present, so a browser a timezone ahead can't ask
+// for a month the server hasn't reached.
+function flightMonthNum() { return parseInt((ensureMonthOptions() || {}).value, 10) || curMonth(); }
+function flightMonthKey(m) {
+  const mm = String(m).padStart(2, "0");
+  const hit = flightValue && (flightValue.months || []).find((k) => k.slice(5) === mm);
+  if (hit) return hit;
+  const now = new Date();
+  return (m > now.getMonth() ? now.getFullYear() : now.getFullYear() + 1) + "-" + mm;
+}
+
+// One country's standing for a departure month. state: ok (banded) | few
+// (under min_months of fares — a price, no range) | nomonth (a range, no fare
+// that month) | pending (server still fetching) | none | loading.
+function fareValue(iso, key) {
+  const fv = flightValue;
+  if (!fv || !fv.countries) return { state: "loading" };
+  const c = fv.countries[iso];
+  if (!c) return { state: "none" };
+  if (c.pending) return { state: "pending" };
+  const rec = c.curve && c.curve[key];
+  const price = rec ? rec[0] : null, city = rec ? rec[1] : null;
+  if (c.median == null) return { state: "few", n: c.n_months || 0, price, city };
+  if (price == null) return { state: "nomonth", c };
+  return { state: "ok", price, city, c, dev: price / c.median - 1,
+           band: price < c.lo ? "low" : price > c.hi ? "high" : "typical" };
+}
+const FV_WORD = { low: "Low", typical: "Typical", high: "High" };
+// Signed whole percent with a real minus sign: "−24%", "+8%", "0%".
+function fmtDevPct(d) {
+  const p = Math.round(d * 100);
+  return p === 0 ? "0%" : (p < 0 ? "−" : "+") + Math.abs(p) + "%";
+}
+// Map fill: pale neutral for typical (the site's mid-scale tone), green/red
+// deepening with the distance from the median, grey when there's no range.
+function fareValueFill(v) {
+  if (v.state !== "ok") return NODATA;
+  if (v.band === "typical") return "#eef0f1";
+  const t = 0.45 + 0.55 * Math.min(1, Math.abs(v.dev) / 0.3);
+  return mix("#eef0f1", v.band === "low" ? "#0a7d28" : "#b00020", t);
+}
+// Mini range bar: the route's cheapest..priciest month, the typical band
+// shaded, a dot for this month's fare. Decoration — the numbers are in the tip.
+function fareValueBar(v) {
+  const c = v.c, vals = Object.values(c.curve).map((x) => x[0]);
+  const lo = Math.min(c.lo, ...vals), hi = Math.max(c.hi, ...vals);
+  const at = (x) => (hi > lo ? ((x - lo) / (hi - lo)) * 100 : 50).toFixed(1);
+  return '<span class="fvbar" aria-hidden="true"><span class="fvtyp" style="left:' + at(c.lo)
+    + "%;width:" + (at(c.hi) - at(c.lo)).toFixed(1) + '%"></span><span class="fvdot ' + v.band
+    + '" style="left:' + at(v.price) + '%"></span></span>';
+}
+// Why a row has no pill — said in the tooltip, never guessed at.
+function fareValueWhy(v, monthName, money, range) {
+  const min = (flightValue && flightValue.min_months) || 6;
+  if (v.state === "loading") return "Loading typical fares…";
+  if (v.state === "pending") return "Still gathering this route's monthly fares — check back in a few minutes";
+  if (v.state === "none" || (v.state === "few" && !v.n)) return "No monthly fares cached for this route yet";
+  if (v.state === "few") return "Only " + v.n + " month" + (v.n === 1 ? "" : "s")
+    + " of cached fares on this route — too few for a typical range (needs " + min + ")";
+  return "No cached fare for a " + monthName + " departure yet · typical is " + range(v.c.lo, v.c.hi)
+    + " across " + v.c.n_months + " months of cached fares";
 }
 
 // The fare CACHE is USD; the fare DISPLAY is the reader's choice — a German
@@ -5231,13 +5306,8 @@ function initFlightCur() {
 
 function renderFlights() {
   const countries = flightsData.countries || [];
-  const byC = flightsData.by_country || {};
-  const prices = Object.values(byC);
-  // Scale colors across the actual fare range (anchoring min at 0 would wash
-  // out the green end — the cheapest real average should read as fully cheap).
-  const min = prices.length ? Math.min(...prices) : 0;
-  const max = prices.length ? Math.max(...prices) : 1;
   initFlightCur();
+  initFlightMonth();
   const dispCur = ($("flightCur") || {}).value || flightDisplayCur();
   const feedCur = (flightsData.currency || "usd").toUpperCase();
   const conv = dispCur === feedCur ? 1 : (rateForCurrency(dispCur) || null);
@@ -5246,48 +5316,64 @@ function renderFlights() {
   const cur = conv ? dispCur : feedCur;
   const F = (v) => (conv ? Math.round(v * conv) : Math.round(v));
   const approx = cur !== feedCur ? "≈" : "";
-  // Distance-fit baseline so the arrows flag a genuine deal (a long-haul fare
-  // can be "below typical" even though it's a bigger number than a short hop).
-  const fares = buildFareContext();
-  const expected = fares && fares.expected;
+  const money = (v) => approx + cur + " " + F(v).toLocaleString();
+  const range = (a, b) => approx + cur + " " + F(a).toLocaleString() + "–" + F(b).toLocaleString();
+  const m = flightMonthNum(), key = flightMonthKey(m), monthName = MONTHS[m - 1];
+  const byIso = {};
+  for (const c of countries) { c._fv = fareValue(c.iso, key); byIso[c.iso] = c; }
 
+  // One measure on this tab: the month's fare vs the route's typical. (The
+  // distance-fit "typical for the distance" lives on only inside the Top
+  // Picks Flights grade — two different typicals on one tab read as one.)
   drawMap("flightMap", (f) => {
-    const p = byC[f.properties.iso];
-    return p == null
-      ? { fill: NODATA, title: f.properties.name + " — no fares sampled" }
-      : { fill: flightColor(p, expected && expected(f.properties.iso)),
-          title: `${f.properties.name} — avg ${approx}${cur} ${F(p).toLocaleString()} round-trip` };
-  }, "Average flight prices by destination country");
-  // Same order as the table below it (cheapest average first) — the owner
-  // caught the list ranking by deal-vs-distance while the table ranked by
-  // fare, so map text and table disagreed. The deal story stays in the map
-  // colours and each row's arrow; the LIST mirrors the table, like every
-  // other Data tab.
+    const c = byIso[f.properties.iso], v = c ? c._fv : null;
+    if (!v) return { fill: NODATA, title: f.properties.name + " — no fares cached" };
+    if (v.state !== "ok")
+      return { fill: NODATA, title: f.properties.name + " — " + fareValueWhy(v, monthName, money, range) };
+    return { fill: fareValueFill(v),
+             title: `${f.properties.name} — ${monthName} ${money(v.price)}: ${FV_WORD[v.band]}, `
+               + `${fmtDevPct(v.dev)} vs typical ${range(v.c.lo, v.c.hi)}` };
+  }, monthName + " flight prices vs each route's typical fare");
+  // The list is the table's own ranking cut to the Low pills — a route 13%
+  // under its median can still sit inside its own typical range (Mexico's
+  // year swings wide), and a "below typical" list must not contradict the
+  // pill beside it. Most below first; same Level 3-4 filter as the rows.
   const adv = advisoryByIso();
-  const cheapest = countries
-    .filter((r) => r.n >= 2 && countryName(r.iso) !== r.iso
+  const best = countries
+    .filter((r) => r._fv.state === "ok" && r._fv.band === "low" && countryName(r.iso) !== r.iso
       && (showRisky || (adv[r.iso] || 0) < 3))
-    .sort((a, b) => a.avg - b.avg).slice(0, 8);
-  renderDimPicks("flightMap", "Cheapest round-trips right now",
-    cheapest.map((d) => countryName(d.iso) + " · " + approx + cur + " " + F(d.avg).toLocaleString()),
-    cheapest.map((d) => d.iso));
+    .sort((a, b) => a._fv.dev - b._fv.dev).slice(0, 8);
+  renderDimPicks("flightMap", "Below typical for " + monthName,
+    best.map((d) => countryName(d.iso) + " " + fmtDevPct(d._fv.dev)), best.map((d) => d.iso));
 
+  const fv = flightValue;
+  const gathering = fv && fv.filling ? fv.total - fv.ready : 0;
+  const tip = "Like Google Flights' price insight, but across departure months: a route's typical range is "
+    + "the middle half of its cheapest cached fare for each of the next 12 months (never narrower than ±5% "
+    + "of the median). Low = under that range, High = over it; the % is vs the median. Needs "
+    + ((fv && fv.min_months) || 6) + "+ months of fares — grey has fewer. Round-trips from "
+    + (flightsData.hub || "the main hub") + " that Aviasales has seen in real searches: indicative, not live.";
   $("flightSub").innerHTML =
-    `Cached lowest round-trip fares from ${esc(flightsData.origin_name || flightsData.origin)} (via ${esc(flightsData.hub)}), as seen by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a> in the last ~90 days — indicative, not live · ${countries.length} destination countries · map colours show the fare vs the typical fare for that distance — <span class="farearrow dn">▼</span> below / <span class="farearrow up">▲</span> above, so a long-haul can still be a bargain · <b>click a fare ↗</b> to search that route live on Aviasales (affiliate links — booking through them may earn us a commission at no extra cost to you).`
-    + (cur !== feedCur ? ` <span class="muted">Fares cached in ${esc(feedCur)}; shown ≈${esc(cur)} at today's rate.</span>` : "");
-  // Legend names the comparison, not just the direction — the colours are
-  // relative to the distance-fit typical fare, not to the cheapest fare shown.
+    `${esc(monthName)} fares from ${esc(flightsData.origin_name || flightsData.origin)} vs each route's typical`
+    + ` <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`
+    + ` · cached by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a>, not live`
+    + ` · <b>fares ↗</b> search live (affiliate links — booking through them may earn us a commission at no extra cost to you).`
+    + (cur !== feedCur ? ` <span class="muted">Fares cached in ${esc(feedCur)}; shown ≈${esc(cur)} at today's rate.</span>` : "")
+    + (gathering > 0 ? ` <span class="muted fvfill">Still gathering fares for ${gathering} ${gathering === 1 ? "country" : "countries"}…</span>` : "");
+  // Legend names the month and the comparison — green isn't "cheap", it's
+  // "cheaper than this route usually is".
   $("flightLegend").innerHTML =
-    '<span>Below typical</span><span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1,#b00020)"></span><span>Above typical</span>'
-    // This map has the most grey of any of them — Aviasales only knows routes
-    // somebody recently searched, so roughly a third of countries have no
-    // sampled fare at all. Unlabelled, that grey read as a colour on the scale.
-    + '<span style="margin-left:6px"><span class="swatch"></span>No fares sampled</span>';
+    `<span>${esc(MON_ABBR[m - 1])} vs typical:</span><span>Low</span>`
+    + '<span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1 35%,#eef0f1 65%,#b00020)"></span><span>High</span>'
+    // Grey is most of this map: a range needs half a year of cached months,
+    // and Aviasales only caches routes somebody searched.
+    + '<span style="margin-left:6px"><span class="swatch"></span>Not enough fare data</span>';
 
   markSort("#flightTable", flightSort);
+  const mth = document.querySelector('#flightTable th[data-sk="mfare"] .sortbtn');
+  if (mth) mth.textContent = MON_ABBR[m - 1] + " fare";
   $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET).map((c) => {
-    const exp = expected ? expected(c.iso) : null;
-    const arrow = priceArrow(Number(c.avg) || null, exp, "the typical fare for this distance");
+    const v = c._fv;
     const fare = Number(c.avg) ? `${approx}${esc(cur)} ${F(Number(c.avg)).toLocaleString()}` : `${esc(cur)} ?`;
     const url = flightSearchURL(c.dest);
     // revisit: Kiwi — decided Aviasales-only here (2026-07). A Kiwi booking CTA
@@ -5301,16 +5387,48 @@ function renderFlights() {
       ? `<a class="farelink" href="${url}" target="_blank" rel="sponsored nofollow noopener"
             title="Cached fare${seenTip} — click to search ${esc(countryName(c.iso))} live on Aviasales"><b>${fare}</b> <span class="ext">↗</span></a>`
       : `<b>${fare}</b>`;
+    // The month's own fare links to that month, on the city that has the
+    // price — on a phone it is the one fare link left standing.
+    const murl = v.price != null ? flightSearchURL(v.city || c.dest, key) : null;
+    const mfare = v.price == null ? '<span class="muted">—</span>'
+      : murl ? `<a class="farelink" href="${murl}" target="_blank" rel="sponsored nofollow noopener"
+            title="Cheapest cached ${esc(monthName)} round-trip — click to search it live on Aviasales"><b>${money(v.price)}</b> <span class="ext">↗</span></a>`
+      : `<b>${money(v.price)}</b>`;
+    const vs = v.state === "ok"
+      ? `<span class="fv" data-tip="${esc(money(v.price) + " in " + monthName + " vs a typical " + range(v.c.lo, v.c.hi)
+          + " (median " + money(v.c.median) + ") across " + v.c.n_months + " months of cached fares")}" title="">`
+        + `<span class="fvband ${v.band}">${FV_WORD[v.band]}</span><span class="fvpct ${v.band}">${fmtDevPct(v.dev)}</span>`
+        + fareValueBar(v) + "</span>"
+      : `<span class="fv na" data-tip="${esc(fareValueWhy(v, monthName, money, range))}" title="">${v.state === "loading" || v.state === "pending" ? "…" : "—"}</span>`;
     return `<tr data-iso="${esc(c.iso)}" title="See the ${esc(countryName(c.iso))} travel guide →"><td>${esc(countryName(c.iso))}</td>
-      <td class="num">${fareCell} ${arrow}</td>
+      <td>${vs}</td>
+      <td class="num">${mfare}</td>
+      <td class="num">${fareCell}</td>
       <td class="num">${Number(c.min) ? `${approx}${esc(cur)} ${F(Number(c.min)).toLocaleString()}` : `${esc(cur)} ?`}</td>
       <td class="num">${fmtDuration(c.dur)}</td>
       <td class="num">${fmtStops(c.stops)}</td>
       <td class="num">${Number(c.n) || 0}</td></tr>`;
   }).join("")
-    || '<tr><td colspan="6">No fares found from this country.</td></tr>';
+    || '<tr><td colspan="8">No fares found from this country.</td></tr>';
   applyFlightFilter();
 }
+
+// "Departing in" IS the travel month (#valueMonth), mirrored the way From is:
+// October here ranks Top Picks for October too, and the other way round.
+function initFlightMonth() {
+  const sel = $("flightMonth"), vm = ensureMonthOptions();
+  if (!sel || !vm) return;
+  if (!sel.options.length) {
+    sel.innerHTML = MONTHS.map((mn, i) => `<option value="${i + 1}">${mn}</option>`).join("");
+    sel.addEventListener("change", () => planForMonth(parseInt(sel.value, 10), true));
+    enhanceSelect(sel);
+  }
+  if (sel.value !== vm.value) { sel.value = vm.value; if (sel._sync) sel._sync(); }
+}
+// Top Picks' own month picker (and the guided picker, which fires change on it).
+$("valueMonth").addEventListener("change", () => {
+  if (loaded.flights && flightsData && flightsData.configured) renderFlights();
+});
 
 // Relative freshness of a cached fare from its found_at timestamp: "today",
 // "3 days ago", "2 weeks ago", "4 months ago". Empty string if unknown.
@@ -5433,7 +5551,7 @@ function applyFlightFilter() {
   tb.querySelectorAll("tr.jumpempty").forEach((r) => r.remove());
   const iso = jumpActive("flightFilter");
   if (iso && flightsData && tb.querySelector("tr[data-iso]") && !tb.querySelector(`tr[data-iso="${iso}"]`)) {
-    tb.insertAdjacentHTML("afterbegin", `<tr class="jumpempty"><td colspan="6">No cached fares from `
+    tb.insertAdjacentHTML("afterbegin", `<tr class="jumpempty"><td colspan="8">No cached fares from `
       + `${esc(flightsData.origin_name || countryName(flightsData.origin))} to ${esc(countryName(iso))} yet — `
       + "the “~” on Top Picks is a distance-based estimate.</td></tr>");
   }
@@ -6277,7 +6395,7 @@ function ensureMonthOptions() {
 // Clicking a month bar in the guide makes the chart the control: sets the one
 // global travel month (the same one Top Picks ranks by), re-prices the stay
 // map, and rebuilds the AI prompt for that month.
-function planForMonth(m) {
+function planForMonth(m, quiet) {
   const sel = ensureMonthOptions();
   if (!sel || !(m >= 1 && m <= 12)) return;
   const changed = sel.value !== String(m);
@@ -6286,7 +6404,8 @@ function planForMonth(m) {
   if (sel._sync) sel._sync();
   if (loaded.value) renderValue();
   if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); }
-  if (changed) status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
+  if (loaded.flights && flightsData && flightsData.configured) renderFlights();
+  if (changed && !quiet) status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
   syncURL();
 }
 $("bestDetail").addEventListener("click", (e) => {
@@ -6627,6 +6746,8 @@ function buildShareURL(forShare) {
     if (compact !== WEIGHT_DEFS.map((w) => w.def[0]).join(".")) q.set("pri", compact);
   } else if (tab === "data") {
     if (dataMode !== "currency") q.set("dm", dataMode);
+    // The Flights tab bands fares for the travel month, so its link keeps it.
+    if (dataMode === "flights" && $("valueMonth").value) q.set("vmn", $("valueMonth").value);
     if (dataMode === "currency" && activeDays !== 365) q.set("win", String(activeDays));
     if (dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
     if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
@@ -8132,16 +8253,23 @@ if ($("advShare")) $("advShare").addEventListener("click", () => downloadMapImag
   footer: "Advisories are one government's read and change often — check the current notice before booking. wandergrade.com",
   filename: "wandergrade-travel-advisories.png",
 }));
-if ($("flightShare")) $("flightShare").addEventListener("click", () => downloadMapImage("flightMap", {
-  picks: dimPicksFromDom("flightMap").picks, picksTitle: dimPicksFromDom("flightMap").title,
-  title: "What a round-trip flight costs, by country",
-  sub: "Cheapest recent round-trip fares seen by Aviasales, averaged per destination country.",
-  gradient: ["#b00020", "#eef0f1", "#0a7d28"],
-  leftLabel: "Pricier", rightLabel: "Cheaper",
-  swatches: [{ c: NODATA, label: "no fares sampled" }],
-  footer: "Cached fares from real searches, not live prices — and they move. wandergrade.com",
-  filename: "wandergrade-flight-prices.png",
-}));
+// Month and measure are both in the image: it travels without the tab, and
+// "green" means cheaper than that route usually is, not cheap.
+if ($("flightShare")) $("flightShare").addEventListener("click", () => {
+  const mn = MONTHS[flightMonthNum() - 1];
+  const from = (flightsData && (flightsData.origin_name || flightsData.origin)) || countryName(originIso());
+  downloadMapImage("flightMap", {
+    picks: dimPicksFromDom("flightMap").picks, picksTitle: dimPicksFromDom("flightMap").title,
+    title: mn + " flights: below or above the usual fare?",
+    sub: "Cheapest cached " + mn + " round-trip from " + from + " vs each route's typical range"
+       + " — the middle half of its monthly fares over the next 12 months.",
+    gradient: ["#b00020", "#eef0f1", "#0a7d28"],
+    leftLabel: "Above typical", rightLabel: "Below typical",
+    swatches: [{ c: NODATA, label: "not enough fare data" }],
+    footer: "Cached fares from real searches, not live prices — and they move. wandergrade.com",
+    filename: "wandergrade-flights-" + mn.toLowerCase() + ".png",
+  });
+});
 if ($("rankShare")) $("rankShare").addEventListener("click", downloadRankImage);
 if ($("guideShare")) $("guideShare").addEventListener("click", () =>
   downloadGuideCard(($("bestCountry") || {}).value || ccGuideIso || "JP"));
@@ -8228,15 +8356,16 @@ document.addEventListener("pointerdown", (e) => { _lastPtrType = e.pointerType |
 document.addEventListener("click", (e) => {
   // Every info-only mark that lives inside a clickable row/cell belongs on
   // this list — anything missing navigates on tap and its tip is unreachable
-  // on touch: the trend marks (±%, ▲/▼), the ⓘ hints, and the per-month
-  // strip cells (the row still opens from anywhere else in it).
+  // on touch: the trend marks (±%, ▲/▼), the ⓘ hints, the per-month strip
+  // cells and the Flights low/typical/high cell (the row still opens from
+  // anywhere else in it).
   // The ⓘ/⚠️ glyphs are info for every pointer. The rest are wide (a strip
   // spans its whole cell, trend-mark halos overlap the pills), so a mouse —
   // which already got the tip on hover — clicks through them to the row.
   const t = e.target.closest ? e.target : null;
   const mouse = (e.pointerType || _lastPtrType) === "mouse";
   const info = t && (t.closest(".hzmark, .muted[data-tip], .legendinfo, .fxinfo")
-    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip")));
+    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv")));
   if (info) { _showTipFor(info.dataset && info.dataset.tip ? info : e.target.closest("[data-tip]")); e.stopPropagation(); return; }
   // Touch screens have no hover: a tap on any other tipped element shows it, a
   // tap elsewhere dismisses. (closest() miss hides.)

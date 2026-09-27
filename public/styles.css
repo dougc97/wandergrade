@@ -871,10 +871,30 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   background: var(--card); color: var(--ink); }
 .filterbar .chk { font-size: 13px; color: var(--gray); display: inline-flex; gap: 6px; align-items: center; }
 
-.farearrow { font-size: 15px; font-weight: 700; cursor: help; }
-.farearrow.dn { color: var(--green); }
-.farearrow.up { color: var(--red); }
-.farearrow.flat { color: var(--gray); }
+/* Flights "vs typical": Low / Typical / High pill + % vs the route's median +
+   a mini range bar. The word carries the meaning; colour only repeats it.
+   Pill text on its fill, measured: light 4.73 / 4.95 / 6.43:1, dark 5.66 /
+   5.06 / 6.44:1 (low / typical / high). */
+.fv { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.fv.na { color: var(--gray); }
+.fvband { display: inline-block; min-width: 62px; text-align: center; padding: 2px 8px;
+  border-radius: 999px; font-size: 12px; font-weight: 700; }
+.fvband.low { background: var(--green-bg); color: var(--green); }
+.fvband.typical { background: var(--softer); color: var(--gray); }
+.fvband.high { background: #fdecef; color: var(--red); }
+html[data-theme="dark"] .fvband.high { background: #3a151c; }
+.fvpct { min-width: 38px; text-align: right; font-size: 13px; font-weight: 700;
+  font-variant-numeric: tabular-nums; }
+.fvpct.low { color: var(--green); }
+.fvpct.typical { color: var(--gray); }
+.fvpct.high { color: var(--red); }
+.fvbar { position: relative; display: inline-block; width: 46px; height: 6px; border-radius: 3px;
+  background: var(--softer); }
+.fvtyp { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--gray); opacity: .45; }
+.fvdot { position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%; border: 1.5px solid var(--card); background: var(--ink); }
+.fvdot.low { background: var(--green); }
+.fvdot.high { background: var(--red); }
 /* Affiliate flight-search link on a fare cell. */
 .farelink { color: inherit; text-decoration: none; border-bottom: 1px dashed transparent; }
 .farelink:hover { color: var(--green); border-bottom-color: var(--green); }
@@ -1350,10 +1370,13 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    into two-line rows). Drop the least load-bearing columns; every hidden fact
    is still one tap away on the country's guide or in the row tooltips. ---- */
 @media (max-width: 640px) {
-  /* Flights: hide Flight time (4) and Routes sampled (6) — keep destination,
-     both prices and stops, which is what a fare decision needs. */
-  #flightTable th:nth-child(4), #flightTable td:nth-child(4),
-  #flightTable th:nth-child(6), #flightTable td:nth-child(6) { display: none; }
+  /* Flights: hide Cheapest (5), Flight time (6) and Fares sampled (8) — keep
+     destination, vs typical, the month's fare, the average and stops. The
+     vs-typical range bar goes too: decoration, its numbers are in the tip. */
+  #flightTable th:nth-child(5), #flightTable td:nth-child(5),
+  #flightTable th:nth-child(6), #flightTable td:nth-child(6),
+  #flightTable th:nth-child(8), #flightTable td:nth-child(8),
+  #flightTable .fvbar { display: none; }
   /* Currency: hide Range position (5) — the widest column, and the one whose
      meaning needs the ⓘ anyway. */
   #rates th:nth-child(5), #rates td:nth-child(5) { display: none; }
@@ -1736,4 +1759,24 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
      44px of text and "25000" needs ~48 in SF. Now 52px (66 above 640), and
      days get 32px for "365". */
   .budgethero .numin { padding-left: 5px; padding-right: 5px; }
+}
+
+/* Flights at phone widths (after the base .fv rules, which it overrides).
+   Unpinned below 560 (see #flightTable above), the table has to fit 332px at
+   360 and 386 at 414. After the <=640 diet, Stops (7) goes; below 480 the
+   all-months average (4) too, leaving the decision: where, how it compares,
+   what that month costs (still an affiliate link). Destination ellipses
+   rather than wrapping. */
+@media (max-width: 560px) {
+  #flightTable th:nth-child(7), #flightTable td:nth-child(7) { display: none; }
+  #flightTable td:first-child { max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 480px) {
+  #flightTable th:nth-child(4), #flightTable td:nth-child(4) { display: none; }
+  #flightTable .fv { gap: 4px; }
+  #flightTable .fvband { min-width: 56px; padding: 2px 5px; }
+  #flightTable .fvpct { min-width: 34px; }
+  #flightTable td:first-child { max-width: 100px; }
+  #flightTable td { font-size: 13px; }
+  #flightTable th, #flightTable td { padding-left: 5px; padding-right: 5px; }
 }

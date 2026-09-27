@@ -28,7 +28,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
-    accounts, advisories, build_dataset, build_ppp, flights,
+    accounts, advisories, build_dataset, build_ppp, flights, flightvalue,
     mailer, popularity, rates, render_guide, store, watchouts
 )
 
@@ -609,6 +609,25 @@ def _rates_payload(cfg, base="USD"):
     ), stale_max=STALE_MAX)
 
 
+def _fares(origin):
+    """The cached fares payload /api/flights serves, for the server's own
+    fare features (guide chart, flight value). Stale-on-error like the rates:
+    a failed refresh serves the last good copy for up to a day. Callers check
+    configured + a supported origin first, so an error payload never lands
+    in the cache."""
+    return _cached("flights", _flights_cache, origin, FLIGHTS_TTL,
+                   lambda: flights.get_flights(origin), stale_max=STALE_MAX)
+
+
+def _public_fares(data):
+    # Per-country month curves ride along for the server's fare charts; the
+    # browser never reads them, so they don't ship (they'd double the payload).
+    if not data.get("countries"):
+        return data
+    return dict(data, countries=[{k: v for k, v in r.items() if k != "months"}
+                                 for r in data["countries"]])
+
+
 def _base_param(qs):
     """?base= as a currency the FX provider really quotes (blank = USD), or
     None. Checked BEFORE any upstream call: a made-up code used to buy three
@@ -1086,33 +1105,26 @@ class Handler(BaseHTTPRequestHandler):
             # iso -> destination city resolves HERE, against the same cached
             # fares payload the flights tab uses — so a guide page needs only
             # this one call, with no client-side fares bootstrap to race.
-            if not dest and iso:
-                now = time.time()
-                hit = _flights_cache.get(origin)
-                payload = hit[1] if hit and (now - hit[0]) < FLIGHTS_TTL else None
-                failed = False
-                if payload is None:
-                    try:
-                        payload = flights.get_flights(origin)
-                        if payload.get("configured") and not payload.get("error"):
-                            _flights_cache[origin] = (now, payload)
-                    except Exception:
-                        payload, failed = None, True
-                if failed:
+            if not dest and iso and flights.is_configured() and origin in flights.ORIGIN_HUBS:
+                try:
+                    payload = _fares(origin)
+                except Exception:
                     # Couldn't resolve the country to a city: a failure, not
                     # "no fares" — same rule as _send_fare_months.
                     self._send_json({"configured": True, "months": {},
                                      "error": "fare lookup failed"}, 500)
                     return
-                if payload:
-                    row = next((r for r in payload.get("countries", []) if r.get("iso") == iso), None)
-                    if row:
-                        # Merge across the country's top cached cities — one
-                        # secondary city rarely has a full year of months.
-                        cities = row.get("cities") or ([row["dest"]] if row.get("dest") else [])
-                        self._send_fare_months(flights.get_monthly_multi(origin, cities))
-                        return
+                row = next((r for r in payload.get("countries", []) if r.get("iso") == iso), None)
+                if row:
+                    # The country's ONE curve (its top cached cities + the
+                    # latest-prices rows) — the Flights tab bands this exact
+                    # curve, so the chart and the tab never disagree.
+                    self._send_fare_months(flights.get_country_monthly(origin, row))
+                    return
             self._send_fare_months(flights.get_monthly(origin, dest))
+            return
+        if path == "/api/flight-value":
+            self._handle_flight_value()
             return
         if path == "/api/fx-trend":
             from urllib.parse import parse_qs, urlparse
@@ -1309,7 +1321,7 @@ class Handler(BaseHTTPRequestHandler):
         now = time.time()
         hit = _flights_cache.get(origin)
         if hit and (now - hit[0]) < FLIGHTS_TTL:
-            self._send_json(hit[1])
+            self._send_json(_public_fares(hit[1]))
             return
         try:
             data = flights.get_flights(origin)
@@ -1321,7 +1333,35 @@ class Handler(BaseHTTPRequestHandler):
         # strings each pin a permanent cache entry.
         if data.get("configured") and not data.get("error"):
             _flights_cache[origin] = (now, data)
-        self._send_json(data)
+        self._send_json(_public_fares(data))
+
+    def _handle_flight_value(self):
+        # Low / typical / high per destination for the Flights tab: every
+        # country's monthly curve + its typical range, so the browser bands
+        # any departure month instantly. Answers from the cache alone; a
+        # background warmer fills the rest (see fxtracker/flightvalue.py).
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        origin = (qs.get("origin", ["US"])[0] or "US").strip().upper()
+        if origin not in flights.ORIGIN_HUBS:
+            self._send_json({"error": "unsupported origin"}, 400)
+            return
+        if not flights.is_configured():
+            self._send_json({"configured": False, "origin": origin, "countries": {},
+                             "months": flightvalue.window_months(),
+                             "min_months": flightvalue.MIN_MONTHS,
+                             "filling": False, "ready": 0, "total": 0})
+            return
+        try:
+            fares = _fares(origin)
+        except Exception:
+            self._send_json({"error": "fare lookup failed"}, 500)
+            return
+        payload = flightvalue.serve(origin, fares)
+        # Mid-fill it must not be cached — the tab re-polls for the rest. Once
+        # complete, the curves move at most twice a day (12h upstream cache).
+        self._send_json(payload, extra=[("Cache-Control", "no-store" if payload["filling"]
+                                         else "public, max-age=600")])
 
     def _handle_advisories(self):
         from urllib.parse import parse_qs, urlparse
@@ -1465,6 +1505,25 @@ def _keep_warm():
     threading.Thread(target=loop, daemon=True).start()
 
 
+def _warm_flight_value(origin="US", delay=20):
+    # The Flights tab's low/typical/high needs every destination's monthly
+    # curve; fill the default origin's in the background shortly after boot
+    # (after the first health checks) so the first visitor finds it ready.
+    # A no-op without a Travelpayouts token.
+    def run():
+        time.sleep(delay)
+        if not flights.is_configured():
+            return
+        try:
+            fares = _fares(origin)
+        except Exception as e:
+            print("[flight-value] warm-up skipped: %s" % e, flush=True)
+            return
+        flightvalue.start_warm(origin, fares.get("countries") or [])
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def main():
     # Port: CLI arg wins, else $PORT (hosting platforms set this), else 8000.
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 8000))
@@ -1473,6 +1532,7 @@ def main():
     host = "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1"
     if os.environ.get("RENDER"):   # set by Render; never self-ping from a laptop
         _keep_warm()
+    _warm_flight_value()
     # One-off after deploy: opt-outs from before they reached Buttondown (see
     # accounts.reconcile_optouts). Background, and a no-op without the
     # Buttondown/Upstash keys or once its done-marker is set.

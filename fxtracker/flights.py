@@ -118,6 +118,7 @@ def get_flights(origin_iso, currency="usd"):
             break
 
     cutoff = datetime.date.today() - datetime.timedelta(days=MAX_FARE_AGE_DAYS)
+    today_iso = datetime.date.today().isoformat()
     agg = {}  # dest country iso -> {"sum", "n", "min", "dur", "stops"}
     for r in rows:
         meta = cities.get(r.get("destination"), {})
@@ -130,9 +131,20 @@ def get_flights(origin_iso, currency="usd"):
         a = agg.setdefault(dest_iso, {"sum": 0.0, "n": 0, "min": price,
                                       "dur": None, "stops": None,
                                       "dest": r.get("destination"), "seen": None,
-                                      "cities": {}})
+                                      "cities": {}, "months": {}})
         a["sum"] += price
         a["n"] += 1
+        # Cheapest fare per DEPARTURE month, across every city of the country.
+        # These rows are already paid for, and they reach cities the per-route
+        # monthly curve never asks about — they widen that curve for free (see
+        # get_country_monthly). A departure already in the past is not a fare.
+        dep = str(r.get("depart_date") or "")[:10]
+        if len(dep) == 10 and dep >= today_iso:
+            mk, cur = dep[:7], a["months"].get(dep[:7])
+            if cur is None or price < cur["price"]:
+                stops = r.get("number_of_changes")
+                a["months"][mk] = {"price": round(price), "dest": r.get("destination"),
+                                   "stops": r.get("transfers") if stops is None else stops}
         # Every destination city with cached fares, by how often it appears.
         # The monthly curve merges across the top few — one secondary city
         # rarely has a full year of cached months, but two or three do.
@@ -162,7 +174,7 @@ def get_flights(origin_iso, currency="usd"):
 
     countries = [{"iso": iso, "avg": round(a["sum"] / a["n"]), "min": round(a["min"]),
                   "n": a["n"], "dur": a["dur"], "stops": a["stops"], "dest": a["dest"],
-                  "seen": a["seen"], "cities": _top_cities(a)}
+                  "seen": a["seen"], "cities": _top_cities(a), "months": a["months"]}
                  for iso, a in agg.items()]
     countries.sort(key=lambda c: c["avg"])
 
@@ -188,23 +200,58 @@ MONTHLY_TTL = 12 * 3600
 # (so a burst of visitors doesn't hammer a struggling API), and an older good
 # curve for the route is served instead when there is one.
 MONTHLY_FAIL_TTL = 5 * 60
+# Expired curves are kept this long as the stale-on-error fallback. Pruning at
+# the TTL itself meant the Flights tab's background refresh deleted every
+# other expired route the moment it wrote its first fresh one.
+MONTHLY_STALE_MAX = 36 * 3600
 
 
-def get_monthly(origin_iso, dest_city, currency="usd"):
-    import time as _time
+def _route_key(origin_iso, dest_city, currency="usd"):
+    """Cache key for a route worth a token-authenticated call, else None."""
     origin_iso = (origin_iso or "US").strip().upper()[:2]
     dest_city = (dest_city or "").strip().upper()[:3]
     if not is_configured() or origin_iso not in ORIGIN_HUBS \
             or not re.fullmatch(r"[A-Z]{3}", dest_city):
-        return {"configured": is_configured(), "months": {}}
+        return None
     # Only real Travelpayouts city codes get a token-authenticated call —
     # otherwise any client-supplied 3-char string spends one upstream call
     # and a permanent cache entry.
     cities = _load_cities()
     if cities and dest_city not in cities:
-        return {"configured": True, "months": {}}
-    hub = ORIGIN_HUBS[origin_iso][0]
-    key = (hub, dest_city, currency)
+        return None
+    return (ORIGIN_HUBS[origin_iso][0], dest_city, currency)
+
+
+def monthly_cached(origin_iso, dest_city, currency="usd"):
+    """get_monthly from the cache alone — never an upstream call. None means
+    this route has not been fetched yet; an invalid route answers empty, the
+    same as get_monthly, so it can't sit "pending" forever."""
+    key = _route_key(origin_iso, dest_city, currency)
+    if key is None:
+        return {"configured": is_configured(), "months": {}}
+    hit = _monthly_cache.get(key)
+    return hit[1] if hit else None
+
+
+def monthly_needs_fetch(origin_iso, dest_city, currency="usd"):
+    """True when get_monthly would call upstream for this route right now."""
+    key = _route_key(origin_iso, dest_city, currency)
+    if key is None:
+        return False
+    import time as _time
+    hit = _monthly_cache.get(key)
+    if not hit:
+        return True
+    return _time.time() - hit[0] >= (MONTHLY_FAIL_TTL if hit[1].get("error") else MONTHLY_TTL)
+
+
+def get_monthly(origin_iso, dest_city, currency="usd"):
+    import time as _time
+    key = _route_key(origin_iso, dest_city, currency)
+    if key is None:
+        return {"configured": is_configured(), "months": {}}
+    hub, dest_city, _cur = key
+    origin_iso = (origin_iso or "US").strip().upper()[:2]
     now = _time.time()
     hit = _monthly_cache.get(key)
     if hit and now - hit[0] < (MONTHLY_FAIL_TTL if hit[1].get("error") else MONTHLY_TTL):
@@ -228,33 +275,44 @@ def get_monthly(origin_iso, dest_city, currency="usd"):
             _monthly_cache[key] = (now - MONTHLY_TTL + MONTHLY_FAIL_TTL, hit[1])
             return dict(hit[1], stale=True)
         out["error"] = "fare lookup failed"
-    # Prune expired entries on write so the cache can't grow for the life of
-    # the process (one entry per route ever asked about).
-    for k in [k for k, (at, _) in _monthly_cache.items() if now - at >= MONTHLY_TTL]:
+    # Prune on write so the cache can't grow for the life of the process (one
+    # entry per route ever asked about) — at the stale limit, not the TTL.
+    # list() snapshots in one step: the Flights-tab warmer writes from its own thread.
+    for k in [k for k, (at, _) in list(_monthly_cache.items()) if now - at >= MONTHLY_STALE_MAX]:
         del _monthly_cache[k]
     _monthly_cache[key] = (now, out)
     return out
 
 
-def get_monthly_multi(origin_iso, dest_cities, currency="usd"):
+def get_monthly_multi(origin_iso, dest_cities, currency="usd", lookup=None):
     """Monthly curve for a COUNTRY: cheapest cached fare per month across its
     top cached destination cities. One secondary city rarely carries a full
     year of cached months (US->Bucharest: 2), but the country's two or three
     busiest cached cities together usually do. Cheapest per month wins, which
     matches what the number means everywhere else on the site. Stops after the
-    first city if it already covers the year, so hub routes cost one call."""
+    first city if it already covers the year, so hub routes cost one call.
+
+    `lookup` replaces get_monthly (the Flights tab reads the cache alone with
+    monthly_cached); a lookup answering None means "not fetched yet", and the
+    whole country answers None rather than a curve missing a city."""
+    lookup = lookup or get_monthly
     merged = None
     for city in (dest_cities or [])[:3]:
-        m = get_monthly(origin_iso, city, currency)
+        m = lookup(origin_iso, city, currency)
+        if m is None:
+            return None
         if not m.get("months"):
             continue
+        # Each month remembers which city its fare is for, so a fare link can
+        # search the route that actually has that price.
+        tagged = {k: dict(v, dest=city) for k, v in m["months"].items()}
         if merged is None:
             merged = dict(m)
-            merged["months"] = dict(m["months"])
+            merged["months"] = tagged
             merged["dests"] = [city]
         else:
             merged["dests"].append(city)
-            for k, v in m["months"].items():
+            for k, v in tagged.items():
                 cur = merged["months"].get(k)
                 if cur is None or v["price"] < cur["price"]:
                     merged["months"][k] = v
@@ -263,4 +321,32 @@ def get_monthly_multi(origin_iso, dest_cities, currency="usd"):
     if merged is not None:
         return merged
     first = (dest_cities or [""])[0]
-    return get_monthly(origin_iso, first, currency)
+    return lookup(origin_iso, first, currency)
+
+
+def country_cities(row):
+    """The destination cities a country's curve is built from (get_flights row)."""
+    return row.get("cities") or ([row["dest"]] if row.get("dest") else [])
+
+
+def get_country_monthly(origin_iso, row, currency="usd", lookup=None):
+    """The ONE monthly curve for a destination country — the guide's fare
+    chart, the Top Picks strips and the Flights tab's low/typical/high all
+    read this, so the same country and month is always the same number.
+    Per-route curves for its top cities, plus the cheapest fare per departure
+    month from the latest-prices rows get_flights already fetched (row
+    "months"); cheapest wins either way. None while a city is unfetched
+    (cache-only lookup)."""
+    m = get_monthly_multi(origin_iso, country_cities(row), currency, lookup=lookup)
+    if m is None:
+        return None
+    extra = row.get("months") or {}
+    if not extra:
+        return m
+    out = dict(m)
+    out["months"] = dict(m.get("months") or {})
+    for k, v in extra.items():
+        cur = out["months"].get(k)
+        if cur is None or v["price"] < cur["price"]:
+            out["months"][k] = v
+    return out
