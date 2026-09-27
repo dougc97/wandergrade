@@ -892,7 +892,6 @@ html[data-theme="dark"] .fvband.high { background: #3a151c; }
 .fvdot.high { background: var(--red); }
 /* Affiliate flight-search link on a fare cell. */
 .farelink { color: inherit; text-decoration: none; border-bottom: 1px dashed transparent; }
-#flightTable .farelink { white-space: nowrap; }   /* fare and its ↗ stay together */
 .farelink:hover { color: var(--green); border-bottom-color: var(--green); }
 .farelink .ext { font-size: 11px; opacity: .6; }
 .farelink:hover .ext { opacity: 1; }
@@ -1381,9 +1380,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
      name column gives up 40-55px, so 1-3 of the longest names wrap.
    - <=760: Cheapest goes too: 683, min-content 532. 641: 584-599 — ~5-7
      long names wrap (the column keeps ~118-133px); nothing overflows.
-   Fare links never wrap (#flightTable .farelink, by the .farelink rules):
-   with the full table back at 901, an "↗" alone on a second line was most
-   rows' fate up to ~1000.
+   Widths are for USD-sized amounts. The "↗" is glued to its amount with a
+   no-break space (in app.js), so it never sits alone on a line, but the
+   amount itself may break before the number: a 7-8 digit VND or IDR fare
+   made unbreakable overflowed the phone and tablet tables.
    (Stops and the average go at 560 and 480, below.) */
 @media (max-width: 1120px) {
   #flightTable th:nth-child(6), #flightTable td:nth-child(6),

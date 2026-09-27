@@ -564,6 +564,22 @@ ab3 = warm_now(drows[6:] + fresh)
 results.append(ok(ab3 and UP["monthly"] == [c for _, c in STALL[12:17]],
                   "a storm on fresh routes still aborts after %d calls, before the known-dead tail -> %s"
                   % (flightvalue.MAX_FAILS, ",".join(UP["monthly"]))))
+# ...and once EVERY route is known-bad (a revoked token, a dead endpoint), the
+# known-bad cap still ends each pass: bounded calls, recorded aborted, so the
+# cooldown applies instead of full passes against a dead API every few minutes.
+flights._monthly_cache.clear()
+flightvalue._warm_done.clear()
+allrows = [{"iso": iso, "cities": [c], "n": 100 - i} for i, (iso, c) in enumerate(STALL)]
+allc = [c for _, c in STALL]
+passes = []
+for _ in range(8):
+    due_retry(allc)
+    UP["monthly"].clear()
+    passes.append((warm_now(allrows), len(UP["monthly"])))
+results.append(ok(all(ab for ab, _ in passes) and max(n for _, n in passes) <= flightvalue.MAX_KNOWN_BAD
+                  and passes[-1][1] == flightvalue.MAX_KNOWN_BAD,
+                  "every route dead, 8 passes: each aborts, never more than %d calls -> %s"
+                  % (flightvalue.MAX_KNOWN_BAD, [n for _, n in passes])))
 UP["fail_monthly"] = False
 # "In a row": a good answer resets the count, so scattered fresh failures
 # (every other route here, MAX_FAILS of them) never end a pass.

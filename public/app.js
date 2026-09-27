@@ -5460,14 +5460,14 @@ function renderFlights() {
     const seenTip = seen ? ` · cheapest fare seen ${seen}` : "";
     const fareCell = url
       ? `<a class="farelink" href="${url}" target="_blank" rel="sponsored nofollow noopener"
-            title="Cached fare${seenTip} — click to search ${esc(countryName(c.iso))} live on Aviasales"><b>${fare}</b> <span class="ext">↗</span></a>`
+            title="Cached fare${seenTip} — click to search ${esc(countryName(c.iso))} live on Aviasales"><b>${fare}</b>&nbsp;<span class="ext">↗</span></a>`
       : `<b>${fare}</b>`;
     // The month's own fare links to that month, on the city that has the
     // price — on a phone it is the one fare link left standing.
     const murl = v.price != null ? flightSearchURL(v.city || c.dest, key) : null;
     const mfare = v.price == null ? '<span class="muted">—</span>'
       : murl ? `<a class="farelink" href="${murl}" target="_blank" rel="sponsored nofollow noopener"
-            title="Cheapest cached ${esc(monthName)} round-trip — click to search it live on Aviasales"><b>${esc(money(v.price))}</b> <span class="ext">↗</span></a>`
+            title="Cheapest cached ${esc(monthName)} round-trip — click to search it live on Aviasales"><b>${esc(money(v.price))}</b>&nbsp;<span class="ext">↗</span></a>`
       : `<b>${esc(money(v.price))}</b>`;
     // Late in a month its own fare can be banded against the other months.
     const partial = v.state === "ok" ? fvPartialNote(v.c, fv && key === fv.partial) : "";

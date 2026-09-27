@@ -58,7 +58,11 @@ TYPICAL_MIN_HALF = 0.05
 WINDOW = 12
 PARTIAL_DAYS = 10   # the current month may leave the stats with fewer days than this left
 PACE = 3.0          # seconds between the warmers' upstream calls (20/min)
-MAX_FAILS = 5       # consecutive failures that end a warm pass (429 storm, bad token)
+MAX_FAILS = 5       # consecutive failures on fresh routes that end a warm pass (429 storm)
+# Known-bad routes don't count toward MAX_FAILS (see _warm_pass), so once a bad
+# token or a dead endpoint has failed every route, only this cap still ends a
+# pass: without it the warmer re-ran full passes against a dead API forever.
+MAX_KNOWN_BAD = 3 * MAX_FAILS
 WARM_COOLDOWN = 10 * 60   # an ABORTED pass isn't re-run sooner than this
 MAX_WARMERS = 2     # origins filling at once; one slot is always kept for DEFAULT_ORIGIN
 DEFAULT_ORIGIN = "US"     # the site's default origin: boot-warmed, first at the pacer
@@ -252,8 +256,10 @@ class _Abort(Exception):
 
 def _warm_pass(origin_iso, rows):
     """One pass over every destination; True when it gave up after MAX_FAILS
-    upstream failures in a row on routes that hadn't already failed."""
+    upstream failures in a row on routes that hadn't already failed, or after
+    MAX_KNOWN_BAD in a row on routes that had (nothing works at all)."""
     fails = [0]
+    bad_run = [0]
     first = origin_iso == DEFAULT_ORIGIN
 
     def paced(o, c, cur="usd"):
@@ -263,8 +269,12 @@ def _warm_pass(origin_iso, rows):
         _pace(first)
         m = flights.get_monthly(o, c, cur)
         if not (m.get("error") or m.get("stale")):
-            fails[0] = 0
-        elif not known_bad:
+            fails[0] = bad_run[0] = 0
+        elif known_bad:
+            bad_run[0] += 1
+            if bad_run[0] >= MAX_KNOWN_BAD:
+                raise _Abort()
+        else:
             # A route that failed last time failing again says nothing about
             # the API: counting those, 5+ dead routes at the tail ended every
             # pass "aborted", and the cooldown then kept a churned-in city's
