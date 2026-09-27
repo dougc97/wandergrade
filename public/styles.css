@@ -1301,7 +1301,7 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   #affTable td:nth-child(4) { white-space: nowrap; }
   /* Flights had the same 560px pin and was the one table left pinned: Stops and
      half of Cheapest sat past a 390px screen, so the max-width:640 diet (which
-     drops Flight time and Routes sampled for exactly this) bought nothing. */
+     drops Flight time for exactly this) bought nothing. */
   #flightTable { min-width: 0; }
   #flightTable th, #flightTable td { padding: 8px 6px; }
 }
@@ -1371,10 +1371,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    font-display: optional can leave in place, in brackets), 24px padding:
    name "St. Vincent and the Grenadines" 227, vs pill + % + bar 182 (130
    without the bar), month fare "USD 2,567 ↗" 108, avg (its "AVG ROUND-TRIP"
-   header) 135, Cheapest 92, Flight time (header) 100, bold "nonstop" 81,
-   Fares sampled (header) 126.
-   - All 8: 1053 (1064). 1121: box 1064-1079, 1280: 1158 — one line.
-   - <=1120: bar, Flight time, Fares sampled go: 775 (776), min-content 622.
+   header) 135, Cheapest 92, Flight time (header) 100, bold "nonstop" 81.
+   ("Fares sampled", 126, was dropped 2026-09-27: not a traveller's fact.)
+   - All 7: 927 (938). 1121: box 1064-1079, 1280: 1158 — one line.
+   - <=1120: bar and Flight time go: 775 (776), min-content 622.
      1100: 1043-1058, 1024: 967-982 — one line. 820: 763-778 — one line
      without a scrollbar, else the longest name wraps. 768: 711-726 — the
      name column gives up 40-55px, so 1-3 of the longest names wrap.
@@ -1387,7 +1387,6 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    (Stops and the average go at 560 and 480, below.) */
 @media (max-width: 1120px) {
   #flightTable th:nth-child(6), #flightTable td:nth-child(6),
-  #flightTable th:nth-child(8), #flightTable td:nth-child(8),
   #flightTable .fvbar { display: none; }
 }
 @media (max-width: 760px) {

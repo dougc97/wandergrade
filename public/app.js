@@ -357,12 +357,12 @@ wireSort("#advTable", advSort, {}, () => { if (advisories) renderAdvisories(); }
 
 // Flights: ranked by the chosen month's fare vs the route's own typical year
 // (renderFlights stamps each row's _fv), most below typical first. Rows with
-// no range sort last. "Fares sampled" opens descending.
+// no range sort last.
 const FLIGHT_GET = { dest: (c) => countryName(c.iso), vs: (c) => c._fv && c._fv.dev,
                      mfare: (c) => c._fv && c._fv.price, avg: (c) => c.avg, min: (c) => c.min,
-                     dur: (c) => c.dur, stops: (c) => c.stops, n: (c) => c.n };
+                     dur: (c) => c.dur, stops: (c) => c.stops };
 const flightSort = { key: "vs", asc: true };
-wireSort("#flightTable", flightSort, { n: false }, () => { if (flightsData) renderFlights(); });
+wireSort("#flightTable", flightSort, {}, () => { if (flightsData) renderFlights(); });
 
 // Top Picks report card: default overall-value order. Sorting a column
 // reorders AND renumbers the same top-N set (rank = row position). Grade
@@ -5187,7 +5187,7 @@ async function loadFlights() {
   if (!flightsData.configured) {
     $("flightSub").innerHTML = "Flight prices need a free Travelpayouts token. Set <code>TRAVELPAYOUTS_TOKEN</code> on the server (Render → Environment), then redeploy.";
     $("flightMap").textContent = "Not configured.";
-    $("flightRows").innerHTML = '<tr><td colspan="8">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
+    $("flightRows").innerHTML = '<tr><td colspan="7">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
     syncURL();
     return;
   }
@@ -5483,10 +5483,9 @@ function renderFlights() {
       <td class="num">${fareCell}</td>
       <td class="num">${Number(c.min) ? `${approx}${esc(cur)} ${F(Number(c.min)).toLocaleString()}` : `${esc(cur)} ?`}</td>
       <td class="num">${fmtDuration(c.dur)}</td>
-      <td class="num">${fmtStops(c.stops)}</td>
-      <td class="num">${Number(c.n) || 0}</td></tr>`;
+      <td class="num">${fmtStops(c.stops)}</td></tr>`;
   }).join("")
-    || '<tr><td colspan="8">No fares found from this country.</td></tr>';
+    || '<tr><td colspan="7">No fares found from this country.</td></tr>';
   applyFlightFilter();
 }
 
@@ -5539,7 +5538,7 @@ function fmtDuration(mins) {
   const h = Math.floor(m / 60), r = m % 60;
   return (h ? h + "h" : "") + (r ? " " + r + "m" : (h ? "" : r + "m")) || "—";
 }
-// Outbound layovers on the cheapest itinerary.
+// Layovers each way (the server sends the most direct cached flight's).
 function fmtStops(stops) {
   if (stops == null) return "—";
   const n = Number(stops);
@@ -5639,7 +5638,7 @@ function applyFlightFilter() {
   tb.querySelectorAll("tr.jumpempty").forEach((r) => r.remove());
   const iso = jumpActive("flightFilter");
   if (iso && flightsData && tb.querySelector("tr[data-iso]") && !tb.querySelector(`tr[data-iso="${iso}"]`)) {
-    tb.insertAdjacentHTML("afterbegin", `<tr class="jumpempty"><td colspan="8">No cached fares from `
+    tb.insertAdjacentHTML("afterbegin", `<tr class="jumpempty"><td colspan="7">No cached fares from `
       + `${esc(flightsData.origin_name || countryName(flightsData.origin))} to ${esc(countryName(iso))} yet — `
       + "the “~” on Top Picks is a distance-based estimate.</td></tr>");
   }

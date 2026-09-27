@@ -90,10 +90,33 @@ def _load_cities():
     return out
 
 
+def _one_way_minutes(r):
+    """One-way travel time of a latest-prices row, layovers included. The
+    feed's "duration" is the WHOLE round trip (US -> Italy nonstop: 17h), so
+    a return fare is halved; "duration_to", when a feed has it, is already
+    one way. None when missing, or impossibly fast for the distance (a bad
+    row must not become a country's flight time) — 2000 km/h, so the check
+    holds whether "distance" means one leg or both."""
+    mins = r.get("duration_to")
+    if not mins:
+        mins = r.get("duration")
+        if mins and r.get("return_date"):
+            mins = mins / 2
+    try:
+        mins = float(mins)
+    except (TypeError, ValueError):
+        return None
+    km = r.get("distance")
+    if mins <= 0 or (isinstance(km, (int, float)) and km > 0 and mins < km / 2000 * 60):
+        return None
+    return int(round(mins))
+
+
 def get_flights(origin_iso, currency="usd"):
     """Aggregate cached cheapest fares from `origin_iso`'s hub by destination
-    country: average fare, cheapest fare, and how many routes were sampled.
-    Domestic destinations are excluded."""
+    country: average fare, cheapest fare, how many routes were sampled, and
+    the most direct cached trip (`stops`, one-way `dur`). Domestic
+    destinations are excluded."""
     origin_iso = (origin_iso or "US").strip().upper()[:2]
     if not is_configured():
         return {"configured": False, "countries": [], "by_country": {}}
@@ -120,7 +143,7 @@ def get_flights(origin_iso, currency="usd"):
 
     cutoff = datetime.date.today() - datetime.timedelta(days=MAX_FARE_AGE_DAYS)
     today_iso = datetime.date.today().isoformat()
-    agg = {}  # dest country iso -> {"sum", "n", "min", "dur", "stops"}
+    agg = {}  # dest country iso -> {"sum", "n", "min", "dur", "stops", ...}
     for r in rows:
         meta = cities.get(r.get("destination"), {})
         dest_iso = meta.get("country", "")
@@ -135,6 +158,18 @@ def get_flights(origin_iso, currency="usd"):
                                       "cities": {}, "months": {}})
         a["sum"] += price
         a["n"] += 1
+        # Flight time + stops describe the most DIRECT cached trip, not the
+        # cheapest one: the cheapest is often a two-day layover routing (US ->
+        # Jamaica, 1 stop, 32h), which says nothing about how far a place is.
+        # Fewest stops wins, then the shortest trip at that count.
+        stops = r.get("number_of_changes")
+        if stops is None:
+            stops = r.get("transfers")
+        if stops is not None:
+            mins = _one_way_minutes(r)
+            best = (stops, mins if mins is not None else float("inf"))
+            if a["stops"] is None or best < (a["stops"], a["dur"] or float("inf")):
+                a["stops"], a["dur"] = stops, mins
         # Cheapest fare per DEPARTURE month, across every city of the country.
         # These rows are already paid for, and they reach cities the per-route
         # monthly curve never asks about — they widen that curve for free (see
@@ -152,18 +187,10 @@ def get_flights(origin_iso, currency="usd"):
         # rarely has a full year of cached months, but two or three do.
         a["cities"][r.get("destination")] = a["cities"].get(r.get("destination"), 0) + 1
         if price <= a["min"]:
-            # Travel time + layovers belong to the cheapest itinerary — the one
-            # someone would actually book. The v3 latest-prices feed names the
-            # layover count "number_of_changes" (not "transfers"); duration is
-            # in minutes. We also keep that itinerary's destination city code so
-            # the frontend can deep-link an Aviasales search to the exact city.
+            # The cheapest itinerary's destination city code, so the frontend
+            # can deep-link an Aviasales search to the exact city.
             a["min"] = price
-            a["dur"] = r.get("duration_to") or r.get("duration")
             a["dest"] = r.get("destination")
-            stops = r.get("number_of_changes")
-            if stops is None:
-                stops = r.get("transfers")
-            a["stops"] = stops
             # When Aviasales last observed this cheapest fare (freshness signal;
             # found_at is the observation time, distinct from the travel date).
             a["seen"] = r.get("found_at")

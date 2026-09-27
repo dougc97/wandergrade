@@ -272,7 +272,24 @@ ROWS[:] = tie
 es1 = next(r for r in flights.get_flights("US")["countries"] if r["iso"] == "ES")["cities"]
 ROWS[:] = tie[::-1]
 es2 = next(r for r in flights.get_flights("US")["countries"] if r["iso"] == "ES")["cities"]
+# Flight time + stops: the most DIRECT cached trip, one way — not the cheapest
+# (a cheap 2-stop routing with a two-day layover). "duration" is the whole
+# round trip, so it is halved; an impossibly fast row is ignored.
+ROWS[:] = [
+    {"destination": "MAD", "value": 290, "depart_date": d(30), "return_date": d(37), "found_at": d(-1) + "T10:00:00Z",
+     "number_of_changes": 2, "duration": 2850},
+    {"destination": "BCN", "value": 610, "depart_date": d(31), "return_date": d(38), "found_at": d(-1) + "T10:00:00Z",
+     "number_of_changes": 0, "duration": 900},
+    {"destination": "MAD", "value": 650, "depart_date": d(32), "return_date": d(39), "found_at": d(-1) + "T10:00:00Z",
+     "number_of_changes": 0, "duration": 860},
+    {"destination": "AGP", "value": 700, "depart_date": d(33), "return_date": d(40), "found_at": d(-1) + "T10:00:00Z",
+     "number_of_changes": 0, "duration": 120, "distance": 6000},
+]
+es = next(r for r in flights.get_flights("US")["countries"] if r["iso"] == "ES")
 ROWS[:] = saved_rows
+results.append(ok(es["stops"] == 0 and es["dur"] == 430 and es["min"] == 290 and es["dest"] == "MAD",
+                  "flight time/stops = the most direct trip, one way (not the cheapest's) -> %s/%s"
+                  % (es["stops"], es["dur"])))
 results.append(ok(es1 == es2 == ["VLC", "AGP", "BCN"],
                   "tied cities break on the code, whatever the row order (cheapest city first) -> %s / %s" % (es1, es2)))
 
