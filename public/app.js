@@ -4535,17 +4535,21 @@ function notScoredReason(iso) {
 // The list also moved BELOW the map — as an overlay it covered a continent on
 // narrow layouts. Safety gets no list at all: ~100 countries tie at Level 1,
 // and ranking a tie is invention.
-function renderDimPicks(hostId, title, items, isos) {
+// `empty`: a line to show instead when there are no items (else the row goes).
+function renderDimPicks(hostId, title, items, isos, empty) {
   const host = $(hostId);
   if (!host) return;
   let row = host.parentElement.querySelector('.mappicksrow[data-for="' + hostId + '"]');
-  if (!items || !items.length) { if (row) row.remove(); return; }
+  if ((!items || !items.length) && !empty) { if (row) row.remove(); return; }
   if (!row) {
     row = document.createElement("div");
     row.className = "mappicksrow";
     row.dataset.for = hostId;
     host.insertAdjacentElement("afterend", row);
   }
+  // The note is a <strong>, not a <span>: dimPicksFromDom reads the spans as
+  // picks, and the share image must not list "Nothing below…" as #1.
+  if (!items || !items.length) { row.innerHTML = "<strong>" + esc(empty) + "</strong>"; return; }
   row.innerHTML = "<strong>" + esc(title) + "</strong>"
     + items.slice(0, 8).map((t, i) => "<span>" + (i + 1) + ". " + esc(t) + "</span>").join("");
   if (isos && isos.length && !reducedMotion()) {
@@ -5192,30 +5196,49 @@ async function loadFlights() {
 // rather than booking dates: /api/flight-value sends every destination's
 // monthly curve (the guide chart's, number for number) plus its typical range,
 // and the month picked here is banded on the spot. The server fills cold
-// curves in the background; while it does, re-ask a bounded few times.
+// curves in the background; while it does, re-ask for a bounded while.
 let flightValue = null;
 let _fvTimer = null;
-const FV_POLLS = 10;   // 15s, 30s, 45s, then every 60s: ~8 minutes, then stop
+let _fvPollEnd = 0;
+// A cold fill of the default origin is at most 174 routes x 3 s of pacing
+// ≈ 8.7 min, plus 20 s after a boot and the fares fetch. Asking at 15, 30,
+// 45 s, then every 60 s for up to 15 min covers it with room to spare; if
+// the server is still filling after that, the note says reload instead of
+// promising updates that won't come.
+const FV_POLL_MS = 15 * 60 * 1000;
 async function loadFlightValue(origin, seq, attempt) {
+  if (!attempt) _fvPollEnd = Date.now() + FV_POLL_MS;
   let data = null;
   try {
     data = await getJSON("/api/flight-value?origin=" + encodeURIComponent(origin));
   } catch (e) { /* keep what's shown; the next poll may do better */ }
   if (seq !== _flSeq) return;   // origin changed while this was in flight
-  if (data && data.configured !== false && data.origin === origin) {
-    flightValue = data;
-    if (flightsData && flightsData.configured) renderFlights();
-  }
-  if ((!data || data.filling) && attempt < FV_POLLS)
+  const more = (!data || !!data.filling) && Date.now() < _fvPollEnd;
+  if (data && data.configured !== false && data.origin === origin) flightValue = data;
+  if (flightValue) flightValue.gaveUp = !more && !!flightValue.filling;
+  if (flightValue && flightsData && flightsData.configured) renderFlights();
+  if (more)
     _fvTimer = setTimeout(() => loadFlightValue(origin, seq, attempt + 1),
                           Math.min(60, 15 * (attempt + 1)) * 1000);
 }
 
-// The travel month (#valueMonth, the one every tab reads) as a departure
-// month key: its NEXT occurrence, the guide chart's rule. The server's own
-// 12-month window wins when present, so a browser a timezone ahead can't ask
-// for a month the server hasn't reached.
-function flightMonthNum() { return parseInt((ensureMonthOptions() || {}).value, 10) || curMonth(); }
+// The travel month counts as CHOSEN once the reader picks one (Top Picks,
+// the guide's month bars, "Departing in") or a link carries ?vmn=. Until
+// then it is just "now" — and late in a month "now" is mostly last-minute
+// fares and dates already flown, so the Flights tab shows next month instead.
+let travelMonthChosen = false;
+// The departure month the Flights tab bands: the travel month (#valueMonth,
+// the one every tab reads), except an unchosen default after the 15th, which
+// shows next month. Display only — nothing is written back (Top Picks keeps
+// ranking the travel month) until the reader picks here.
+function flightMonthNum(now) {
+  const vm = parseInt((ensureMonthOptions() || {}).value, 10) || curMonth();
+  if (travelMonthChosen || (now || new Date()).getDate() <= 15) return vm;
+  return vm % 12 + 1;
+}
+// A month number as a departure month key: its NEXT occurrence, the guide
+// chart's rule. The server's own 12-month window wins when present, so a
+// browser a timezone ahead can't ask for a month the server hasn't reached.
 function flightMonthKey(m) {
   const mm = String(m).padStart(2, "0");
   const hit = flightValue && (flightValue.months || []).find((k) => k.slice(5) === mm);
@@ -5226,7 +5249,7 @@ function flightMonthKey(m) {
 
 // One country's standing for a departure month. state: ok (banded) | few
 // (under min_months of fares — a price, no range) | nomonth (a range, no fare
-// that month) | pending (server still fetching) | none | loading.
+// that month) | pending (no curve on the server yet) | none | loading.
 function fareValue(iso, key) {
   const fv = flightValue;
   if (!fv || !fv.countries) return { state: "loading" };
@@ -5264,16 +5287,31 @@ function fareValueBar(v) {
     + "%;width:" + (at(c.hi) - at(c.lo)).toFixed(1) + '%"></span><span class="fvdot ' + v.band
     + '" style="left:' + at(v.price) + '%"></span></span>';
 }
-// Why a row has no pill — said in the tooltip, never guessed at.
+// Why a row has no pill — said in the tooltip, never guessed at. "Pending"
+// only promises an update while one is coming: this page still polling, a
+// reload once it has stopped, "later" when the server isn't filling at all
+// (a failed lookup waiting out its retry).
 function fareValueWhy(v, monthName, money, range) {
-  const min = (flightValue && flightValue.min_months) || 6;
+  const fv = flightValue, min = (fv && fv.min_months) || 6;
   if (v.state === "loading") return "Loading typical fares…";
-  if (v.state === "pending") return "Still gathering this route's monthly fares — check back in a few minutes";
+  if (v.state === "pending")
+    return !fv.filling ? "This route's monthly fares aren't in yet — try again later"
+      : fv.gaveUp ? "Still gathering this route's monthly fares — reload in a few minutes"
+      : "Still gathering this route's monthly fares — they'll show here in a few minutes";
   if (v.state === "none" || (v.state === "few" && !v.n)) return "No monthly fares cached for this route yet";
   if (v.state === "few") return "Only " + v.n + " month" + (v.n === 1 ? "" : "s")
     + " of cached fares on this route — too few for a typical range (needs " + min + ")";
-  return "No cached fare for a " + monthName + " departure yet · typical is " + range(v.c.lo, v.c.hi)
+  return "No cached " + monthName + " fare yet · typical is " + range(v.c.lo, v.c.hi)
     + " across " + v.c.n_months + " months of cached fares";
+}
+// Low-pill countries for a departure month, most below typical first: the
+// map's pick list. Same Level 3-4 filter as the rows.
+function flightLows(countries, key, adv) {
+  return countries
+    .map((r) => ({ iso: r.iso, v: fareValue(r.iso, key) }))
+    .filter((x) => x.v.state === "ok" && x.v.band === "low" && countryName(x.iso) !== x.iso
+      && (showRisky || (adv[x.iso] || 0) < 3))
+    .sort((a, b) => a.v.dev - b.v.dev);
 }
 
 // The fare CACHE is USD; the fare DISPLAY is the reader's choice — a German
@@ -5316,7 +5354,7 @@ function renderFlights() {
   const cur = conv ? dispCur : feedCur;
   const F = (v) => (conv ? Math.round(v * conv) : Math.round(v));
   const approx = cur !== feedCur ? "≈" : "";
-  const money = (v) => approx + cur + " " + F(v).toLocaleString();
+  const money = (v) => approx + cur + " " + F(v).toLocaleString();   // plain text: esc() it into HTML
   const range = (a, b) => approx + cur + " " + F(a).toLocaleString() + "–" + F(b).toLocaleString();
   const m = flightMonthNum(), key = flightMonthKey(m), monthName = MONTHS[m - 1];
   const byIso = {};
@@ -5337,20 +5375,26 @@ function renderFlights() {
   // The list is the table's own ranking cut to the Low pills — a route 13%
   // under its median can still sit inside its own typical range (Mexico's
   // year swings wide), and a "below typical" list must not contradict the
-  // pill beside it. Most below first; same Level 3-4 filter as the rows.
-  const adv = advisoryByIso();
-  const best = countries
-    .filter((r) => r._fv.state === "ok" && r._fv.band === "low" && countryName(r.iso) !== r.iso
-      && (showRisky || (adv[r.iso] || 0) < 3))
-    .sort((a, b) => a._fv.dev - b._fv.dev).slice(0, 8);
-  renderDimPicks("flightMap", "Below typical for " + monthName,
-    best.map((d) => countryName(d.iso) + " " + fmtDevPct(d._fv.dev)), best.map((d) => d.iso));
-
+  // pill beside it. An empty list still says so (and where to look next),
+  // once any country has a range for the month to be below.
   const fv = flightValue;
+  const adv = advisoryByIso();
+  const best = flightLows(countries, key, adv).slice(0, 8);
+  let empty = null;
+  if (!best.length && countries.some((c) => c._fv.state === "ok")) {
+    const later = ((fv && fv.months) || []).filter((k) => k > key)
+      .find((k) => flightLows(countries, k, adv).length);
+    empty = "Nothing below typical for " + monthName + (fv.filling ? " yet" : "")
+      + (later ? " — try " + MONTHS[+later.slice(5) - 1] : "");
+  }
+  renderDimPicks("flightMap", "Below typical for " + monthName,
+    best.map((d) => countryName(d.iso) + " " + fmtDevPct(d.v.dev)), best.map((d) => d.iso), empty);
+
   const gathering = fv && fv.filling ? fv.total - fv.ready : 0;
   const tip = "Like Google Flights' price insight, but across departure months: a route's typical range is "
     + "the middle half of its cheapest cached fare for each of the next 12 months (never narrower than ±5% "
-    + "of the median). Low = under that range, High = over it; the % is vs the median. Needs "
+    + "of the median; this month drops out of it in its last 9 days, which are last-minute fares). "
+    + "Low = under that range, High = over it; the % is vs the median. Needs "
     + ((fv && fv.min_months) || 6) + "+ months of fares — grey has fewer. Round-trips from "
     + (flightsData.hub || "the main hub") + " that Aviasales has seen in real searches: indicative, not live.";
   $("flightSub").innerHTML =
@@ -5359,7 +5403,8 @@ function renderFlights() {
     + ` · cached by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a>, not live`
     + ` · <b>fares ↗</b> search live (affiliate links — booking through them may earn us a commission at no extra cost to you).`
     + (cur !== feedCur ? ` <span class="muted">Fares cached in ${esc(feedCur)}; shown ≈${esc(cur)} at today's rate.</span>` : "")
-    + (gathering > 0 ? ` <span class="muted fvfill">Still gathering fares for ${gathering} ${gathering === 1 ? "country" : "countries"}…</span>` : "");
+    + (gathering > 0 ? ` <span class="muted fvfill">Still gathering fares for ${gathering} ${gathering === 1 ? "country" : "countries"}`
+      + (fv.gaveUp ? " — reload in a few minutes to see them." : "…") + "</span>" : "");
   // Legend names the month and the comparison — green isn't "cheap", it's
   // "cheaper than this route usually is".
   $("flightLegend").innerHTML =
@@ -5392,14 +5437,16 @@ function renderFlights() {
     const murl = v.price != null ? flightSearchURL(v.city || c.dest, key) : null;
     const mfare = v.price == null ? '<span class="muted">—</span>'
       : murl ? `<a class="farelink" href="${murl}" target="_blank" rel="sponsored nofollow noopener"
-            title="Cheapest cached ${esc(monthName)} round-trip — click to search it live on Aviasales"><b>${money(v.price)}</b> <span class="ext">↗</span></a>`
-      : `<b>${money(v.price)}</b>`;
+            title="Cheapest cached ${esc(monthName)} round-trip — click to search it live on Aviasales"><b>${esc(money(v.price))}</b> <span class="ext">↗</span></a>`
+      : `<b>${esc(money(v.price))}</b>`;
+    // The current month late in the month is banded but not in its own range.
+    const partial = fv && key === fv.partial ? " — the rest of " + monthName + " is last-minute fares, so it isn't one of them" : "";
     const vs = v.state === "ok"
       ? `<span class="fv" data-tip="${esc(money(v.price) + " in " + monthName + " vs a typical " + range(v.c.lo, v.c.hi)
-          + " (median " + money(v.c.median) + ") across " + v.c.n_months + " months of cached fares")}" title="">`
+          + " (median " + money(v.c.median) + ") across " + v.c.n_months + " months of cached fares" + partial)}" title="">`
         + `<span class="fvband ${v.band}">${FV_WORD[v.band]}</span><span class="fvpct ${v.band}">${fmtDevPct(v.dev)}</span>`
         + fareValueBar(v) + "</span>"
-      : `<span class="fv na" data-tip="${esc(fareValueWhy(v, monthName, money, range))}" title="">${v.state === "loading" || v.state === "pending" ? "…" : "—"}</span>`;
+      : `<span class="fv na" data-tip="${esc(fareValueWhy(v, monthName, money, range))}" title="">${v.state === "loading" || (v.state === "pending" && fv.filling) ? "…" : "—"}</span>`;
     return `<tr data-iso="${esc(c.iso)}" title="See the ${esc(countryName(c.iso))} travel guide →"><td>${esc(countryName(c.iso))}</td>
       <td>${vs}</td>
       <td class="num">${mfare}</td>
@@ -5414,19 +5461,23 @@ function renderFlights() {
 }
 
 // "Departing in" IS the travel month (#valueMonth), mirrored the way From is:
-// October here ranks Top Picks for October too, and the other way round.
+// October here ranks Top Picks for October too, and the other way round. It
+// shows the month the tab bands (flightMonthNum), which late in a month is
+// next month until one is chosen.
 function initFlightMonth() {
-  const sel = $("flightMonth"), vm = ensureMonthOptions();
-  if (!sel || !vm) return;
+  const sel = $("flightMonth");
+  if (!sel || !ensureMonthOptions()) return;
   if (!sel.options.length) {
     sel.innerHTML = MONTHS.map((mn, i) => `<option value="${i + 1}">${mn}</option>`).join("");
     sel.addEventListener("change", () => planForMonth(parseInt(sel.value, 10), true));
     enhanceSelect(sel);
   }
-  if (sel.value !== vm.value) { sel.value = vm.value; if (sel._sync) sel._sync(); }
+  const want = String(flightMonthNum());
+  if (sel.value !== want) { sel.value = want; if (sel._sync) sel._sync(); }
 }
 // Top Picks' own month picker (and the guided picker, which fires change on it).
 $("valueMonth").addEventListener("change", () => {
+  travelMonthChosen = true;
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
 });
 
@@ -6398,6 +6449,7 @@ function ensureMonthOptions() {
 function planForMonth(m, quiet) {
   const sel = ensureMonthOptions();
   if (!sel || !(m >= 1 && m <= 12)) return;
+  travelMonthChosen = true;   // even an unchanged value: the Flights tab stops showing next month
   const changed = sel.value !== String(m);
   sel.value = String(m);
   if (sel.value !== String(m)) return;   // never report a change that didn't happen
@@ -6733,7 +6785,9 @@ function buildShareURL(forShare) {
     // region select is "all", not vr=.
     const vr = $("valueRegion").value;
     if (vr && vr !== "all") q.set("vr", vr);
-    if ($("valueMonth").value) q.set("vmn", $("valueMonth").value);
+    // A shared link pins the month; the address bar only once it's chosen, so
+    // a reload doesn't turn the untouched default into a pick (see flightMonthNum).
+    if ($("valueMonth").value && (forShare || travelMonthChosen)) q.set("vmn", $("valueMonth").value);
     if (pickCount() !== 5) q.set("pc", String(pickCount()));
     if (safetyFloor() !== "b") q.set("sf", safetyFloor());
     const fac = loadFactors();
@@ -6746,8 +6800,9 @@ function buildShareURL(forShare) {
     if (compact !== WEIGHT_DEFS.map((w) => w.def[0]).join(".")) q.set("pri", compact);
   } else if (tab === "data") {
     if (dataMode !== "currency") q.set("dm", dataMode);
-    // The Flights tab bands fares for the travel month, so its link keeps it.
-    if (dataMode === "flights" && $("valueMonth").value) q.set("vmn", $("valueMonth").value);
+    // The Flights tab bands fares for a month, so its link keeps the one on
+    // screen — same rule as Top Picks for the address bar.
+    if (dataMode === "flights" && (forShare || travelMonthChosen)) q.set("vmn", String(flightMonthNum()));
     if (dataMode === "currency" && activeDays !== 365) q.set("win", String(activeDays));
     if (dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
     if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
@@ -6811,7 +6866,10 @@ window.addEventListener("popstate", async () => {
     const q = new URLSearchParams(location.search);
     const tab = q.get("tab") || "value";
     const vmn = q.get("vmn"), vmSel = $("valueMonth");
-    if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) vmSel.value = vmn;
+    if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) { vmSel.value = vmn; travelMonthChosen = true; }
+    // setDataMode only loads Flights the first time, so without this Back
+    // left the table on the month it was leaving while the URL said another.
+    if (loaded.flights && flightsData && flightsData.configured) renderFlights();
     resyncCombos();   // restored values show in the search boxes too
     await activateTab(tab, false);
     if (tab === "guide" && GC_RE.test(q.get("gc") || "")) await openGuideFor(q.get("gc"), false);
@@ -6909,7 +6967,10 @@ async function postApplyShared() {
     $("valueRegion").value = sharedQ.get("vr"); rerender = true;
   }
   const vmn = sharedQ.get("vmn"), vmSel = ensureMonthOptions();
-  if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) { vmSel.value = vmn; rerender = true; }
+  if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) {
+    vmSel.value = vmn; travelMonthChosen = true; rerender = true;
+    if (loaded.flights && flightsData && flightsData.configured) renderFlights();
+  }
   if (sharedQ.get("pc")) { $("pickCount").value = sharedQ.get("pc"); rerender = true; }
   if (["a", "b", "any"].includes(sharedQ.get("sf"))) { $("safeFloor").value = sharedQ.get("sf"); rerender = true; }
   if (sharedQ.get("fac")) {
@@ -8254,22 +8315,26 @@ if ($("advShare")) $("advShare").addEventListener("click", () => downloadMapImag
   filename: "wandergrade-travel-advisories.png",
 }));
 // Month and measure are both in the image: it travels without the tab, and
-// "green" means cheaper than that route usually is, not cheap.
-if ($("flightShare")) $("flightShare").addEventListener("click", () => {
+// "green" means cheaper than that route usually is, not cheap. The legend
+// runs the way the page's does (Low, green, on the left) and states the range
+// the way the ⓘ does, ±5% floor included.
+function flightShareOpts() {
   const mn = MONTHS[flightMonthNum() - 1];
   const from = (flightsData && (flightsData.origin_name || flightsData.origin)) || countryName(originIso());
-  downloadMapImage("flightMap", {
-    picks: dimPicksFromDom("flightMap").picks, picksTitle: dimPicksFromDom("flightMap").title,
+  const dp = dimPicksFromDom("flightMap");
+  return {
+    picks: dp.picks, picksTitle: dp.title,
     title: mn + " flights: below or above the usual fare?",
     sub: "Cheapest cached " + mn + " round-trip from " + from + " vs each route's typical range"
-       + " — the middle half of its monthly fares over the next 12 months.",
-    gradient: ["#b00020", "#eef0f1", "#0a7d28"],
-    leftLabel: "Above typical", rightLabel: "Below typical",
+       + " — the middle half of its monthly fares over the next 12 months, at least ±5%.",
+    gradient: ["#0a7d28", "#eef0f1", "#b00020"],
+    leftLabel: "Low", rightLabel: "High",
     swatches: [{ c: NODATA, label: "not enough fare data" }],
     footer: "Cached fares from real searches, not live prices — and they move. wandergrade.com",
     filename: "wandergrade-flights-" + mn.toLowerCase() + ".png",
-  });
-});
+  };
+}
+if ($("flightShare")) $("flightShare").addEventListener("click", () => downloadMapImage("flightMap", flightShareOpts()));
 if ($("rankShare")) $("rankShare").addEventListener("click", downloadRankImage);
 if ($("guideShare")) $("guideShare").addEventListener("click", () =>
   downloadGuideCard(($("bestCountry") || {}).value || ccGuideIso || "JP"));

@@ -425,11 +425,6 @@ tr.favorable { background: var(--green-bg); }
 .curflag { font-size: 20px; line-height: 1; flex: none; }
 .pos { color: var(--green); font-weight: 700; }
 .neg { color: var(--red); }
-.pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-.pill.great { background: var(--green-fill); color: #fff; }
-.pill.good { background: var(--green-bg); color: var(--green); }
-.pill.average { background: var(--softer); color: var(--gray); }
-.pill.weak { background: #fdecef; color: var(--red); }
 
 /* Track reads left→right = weak→strong: grey low end, green (favourable) high
    end, so "further right = your money goes further" is visible without a label. */
@@ -1369,14 +1364,26 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 /* ---- narrow-screen table diet (owner's mobile screenshots: columns crushed
    into two-line rows). Drop the least load-bearing columns; every hidden fact
    is still one tap away on the country's guide or in the row tooltips. ---- */
-@media (max-width: 640px) {
-  /* Flights: hide Cheapest (5), Flight time (6) and Fares sampled (8) — keep
-     destination, vs typical, the month's fare, the average and stops. The
-     vs-typical range bar goes too: decoration, its numbers are in the tip. */
-  #flightTable th:nth-child(5), #flightTable td:nth-child(5),
+/* Flights at tablet widths. All 8 columns need ~755px (measured at 768: 755
+   in a 713px box, every row wrapped); the phone diet started at 640, so
+   641-900 got none of it. Box = viewport - 40px gutters (- 15px of scrollbar
+   on desktop). From the base 14px cells + 24px padding — a fare "USD 1,234 ↗"
+   ~106, the "vs typical" pill + % ~130-149, stops ~74, a long name ~149:
+   - <=900: bar (52), Flight time (~72) and Fares sampled (~80) go: ~551 at
+     min-content, ~660-680 with every cell on one line. 768: 713-728 box,
+     820: 765-780 — fits unwrapped.
+   - <=760: Cheapest (~93) goes too: ~460 min, ~565-585 on one line.
+     660: 605-620 box, 641: 586-601 — fits. (Stops and the average go at
+     560 and 480, below.) */
+@media (max-width: 900px) {
   #flightTable th:nth-child(6), #flightTable td:nth-child(6),
   #flightTable th:nth-child(8), #flightTable td:nth-child(8),
   #flightTable .fvbar { display: none; }
+}
+@media (max-width: 760px) {
+  #flightTable th:nth-child(5), #flightTable td:nth-child(5) { display: none; }
+}
+@media (max-width: 640px) {
   /* Currency: hide Range position (5) — the widest column, and the one whose
      meaning needs the ⓘ anyway. */
   #rates th:nth-child(5), #rates td:nth-child(5) { display: none; }
@@ -1763,20 +1770,22 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
 
 /* Flights at phone widths (after the base .fv rules, which it overrides).
    Unpinned below 560 (see #flightTable above), the table has to fit 332px at
-   360 and 386 at 414. After the <=640 diet, Stops (7) goes; below 480 the
+   360 and 386 at 414. After the tablet diet, Stops (7) goes; below 480 the
    all-months average (4) too, leaving the decision: where, how it compares,
    what that month costs (still an affiliate link). Destination ellipses
    rather than wrapping. */
 @media (max-width: 560px) {
   #flightTable th:nth-child(7), #flightTable td:nth-child(7) { display: none; }
-  #flightTable td:first-child { max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* Data rows only: a single-cell message row (the Top Picks "~" jump note)
+     must wrap, not ellipse to one line. */
+  #flightTable tr[data-iso] td:first-child { max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
 @media (max-width: 480px) {
   #flightTable th:nth-child(4), #flightTable td:nth-child(4) { display: none; }
   #flightTable .fv { gap: 4px; }
   #flightTable .fvband { min-width: 56px; padding: 2px 5px; }
   #flightTable .fvpct { min-width: 34px; }
-  #flightTable td:first-child { max-width: 100px; }
+  #flightTable tr[data-iso] td:first-child { max-width: 100px; }
   #flightTable td { font-size: 13px; }
   #flightTable th, #flightTable td { padding-left: 5px; padding-right: 5px; }
 }

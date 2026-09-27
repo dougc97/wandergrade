@@ -584,8 +584,10 @@ def _cached(name, cache, key, ttl, compute, stale_max=None):
         _upstream_fail[fk] = (now + (STALE_RETRY if usable else FAIL_RETRY), str(e))
         # Keys are client-influenced (bases, origins): drop expired entries so
         # a stream of distinct failures can't grow this without bound.
-        for k in [k for k, (until, _m) in _upstream_fail.items() if until < now]:
-            _upstream_fail.pop(k, None)
+        # Snapshot first: request threads and the boot-warm thread share it.
+        for k, (until, _m) in list(_upstream_fail.items()):
+            if until < now:
+                _upstream_fail.pop(k, None)
         if usable:
             print("[%s] refresh failed (%s); serving the copy from %ds ago"
                   % (name, e, now - usable[0]), flush=True)
@@ -593,8 +595,11 @@ def _cached(name, cache, key, ttl, compute, stale_max=None):
         raise
     _upstream_fail.pop(fk, None)
     if stale_max is not None:     # prune what is too old to ever be served
-        for k in [k for k, (at, _) in cache.items() if now - at >= stale_max]:
-            del cache[k]
+        # Snapshot + pop: two threads can prune the same key at once (the
+        # flight-value warm-up runs off-request), and a second `del` raised.
+        for k, (at, _) in list(cache.items()):
+            if now - at >= stale_max:
+                cache.pop(k, None)
     cache[key] = (now, data)
     return data
 
@@ -1318,21 +1323,21 @@ class Handler(BaseHTTPRequestHandler):
         qs = parse_qs(urlparse(self.path).query)
         # origin is an ISO-2 country code (aggregated to that country's hub)
         origin = (qs.get("origin", ["US"])[0] or "US").strip().upper()[:2]
-        now = time.time()
-        hit = _flights_cache.get(origin)
-        if hit and (now - hit[0]) < FLIGHTS_TTL:
-            self._send_json(_public_fares(hit[1]))
+        # Never cache error payloads: get_flights marks unsupported origins
+        # configured=True, so gating on that flag alone let arbitrary 2-char
+        # strings each pin a permanent cache entry. Those (and no token) get
+        # get_flights' own answer, uncached.
+        if not flights.is_configured() or origin not in flights.ORIGIN_HUBS:
+            self._send_json(flights.get_flights(origin))
             return
+        # The same stale-on-error copy the guide chart and /api/flight-value
+        # read: a failed hourly refresh no longer blanks the Flights table
+        # while the value column beside it still has its fares.
         try:
-            data = flights.get_flights(origin)
+            data = _fares(origin)
         except Exception as e:
             self._send_json({"error": str(e)}, 500)
             return
-        # Never cache error payloads: get_flights marks unsupported origins
-        # configured=True, so gating on that flag alone let arbitrary 2-char
-        # strings each pin a permanent cache entry.
-        if data.get("configured") and not data.get("error"):
-            _flights_cache[origin] = (now, data)
         self._send_json(_public_fares(data))
 
     def _handle_flight_value(self):
@@ -1349,6 +1354,7 @@ class Handler(BaseHTTPRequestHandler):
         if not flights.is_configured():
             self._send_json({"configured": False, "origin": origin, "countries": {},
                              "months": flightvalue.window_months(),
+                             "partial": flightvalue.partial_month(),
                              "min_months": flightvalue.MIN_MONTHS,
                              "filling": False, "ready": 0, "total": 0})
             return
@@ -1358,10 +1364,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "fare lookup failed"}, 500)
             return
         payload = flightvalue.serve(origin, fares)
-        # Mid-fill it must not be cached — the tab re-polls for the rest. Once
+        # Incomplete must not be cached — mid-fill the tab re-polls for the
+        # rest, and after an aborted pass a reload should see the retry. Once
         # complete, the curves move at most twice a day (12h upstream cache).
-        self._send_json(payload, extra=[("Cache-Control", "no-store" if payload["filling"]
-                                         else "public, max-age=600")])
+        done = not payload["filling"] and payload["ready"] >= payload["total"]
+        self._send_json(payload, extra=[("Cache-Control", "public, max-age=600" if done
+                                         else "no-store")])
 
     def _handle_advisories(self):
         from urllib.parse import parse_qs, urlparse
@@ -1505,7 +1513,7 @@ def _keep_warm():
     threading.Thread(target=loop, daemon=True).start()
 
 
-def _warm_flight_value(origin="US", delay=20):
+def _warm_flight_value(origin=flightvalue.DEFAULT_ORIGIN, delay=20):
     # The Flights tab's low/typical/high needs every destination's monthly
     # curve; fill the default origin's in the background shortly after boot
     # (after the first health checks) so the first visitor finds it ready.

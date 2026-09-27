@@ -10,6 +10,7 @@ read from the TRAVELPAYOUTS_TOKEN env var.
 import datetime
 import os
 import re
+import time
 import urllib.parse
 
 from . import rates  # reuse fetch_json (verifying SSL + retries)
@@ -144,7 +145,8 @@ def get_flights(origin_iso, currency="usd"):
             if cur is None or price < cur["price"]:
                 stops = r.get("number_of_changes")
                 a["months"][mk] = {"price": round(price), "dest": r.get("destination"),
-                                   "stops": r.get("transfers") if stops is None else stops}
+                                   "stops": r.get("transfers") if stops is None else stops,
+                                   "departure_at": dep}
         # Every destination city with cached fares, by how often it appears.
         # The monthly curve merges across the top few — one secondary city
         # rarely has a full year of cached months, but two or three do.
@@ -167,7 +169,10 @@ def get_flights(origin_iso, currency="usd"):
             a["seen"] = r.get("found_at")
 
     def _top_cities(a):
-        top = sorted(a["cities"], key=lambda c: -a["cities"][c])[:3]
+        # Ties break on the code, not on price order: this list is re-derived
+        # every hour, and a city swapping in on a tie made its country pending
+        # on the Flights tab until the new city was fetched.
+        top = sorted(a["cities"], key=lambda c: (-a["cities"][c], c))[:3]
         if a["dest"] and a["dest"] not in top:
             top = [a["dest"]] + top[:2]
         return top
@@ -194,16 +199,57 @@ def get_flights(origin_iso, currency="usd"):
 # forward — forward-looking booking data, which is exactly the "when should I
 # fly" question. Same cached-search caveat as everything else here: months
 # nobody searched simply don't appear, and that absence must render as absence.
-_monthly_cache = {}
+_monthly_cache = {}   # route key -> (checked_at, fetched_at, data, failed)
 MONTHLY_TTL = 12 * 3600
 # A failed upstream call is not "no fares": it is remembered only this long
 # (so a burst of visitors doesn't hammer a struggling API), and an older good
 # curve for the route is served instead when there is one.
 MONTHLY_FAIL_TTL = 5 * 60
-# Expired curves are kept this long as the stale-on-error fallback. Pruning at
-# the TTL itself meant the Flights tab's background refresh deleted every
-# other expired route the moment it wrote its first fresh one.
+# An expired curve stays the stale-on-error fallback this long after its last
+# REAL fetch — a failed refresh used to reset the age, so a dead route served
+# its old curve forever. Also the prune age: pruning at the TTL itself meant
+# the Flights tab's background refresh deleted every other expired route the
+# moment it wrote its first fresh one.
 MONTHLY_STALE_MAX = 36 * 3600
+
+
+def _departed(v, today_iso):
+    dep = str(v.get("departure_at") or "")[:10]
+    return len(dep) == 10 and dep < today_iso
+
+
+def _upcoming(months, today=None):
+    """Months whose fare departs today or later. A cached curve can hold a
+    fare for a date already flown (it is up to 12h old, and the current
+    month's cheapest is often in its first days) — nobody can book that.
+    A month without a departure date is kept (don't over-prune)."""
+    today_iso = (today or datetime.date.today()).isoformat()
+    return {k: v for k, v in (months or {}).items() if not _departed(v, today_iso)}
+
+
+def _entry(key, now):
+    """The route's cache entry, or None once its last real fetch is
+    MONTHLY_STALE_MAX old — gone whether or not the prune has reached it."""
+    hit = _monthly_cache.get(key)
+    return None if hit is None or now - hit[1] >= MONTHLY_STALE_MAX else hit
+
+
+def _due(hit, now):
+    return now - hit[0] >= (MONTHLY_FAIL_TTL if hit[3] else MONTHLY_TTL)
+
+
+def _served(hit):
+    """A cache entry as get_monthly answers it: departures already flown
+    dropped, and a curve whose last refresh failed marked stale."""
+    data = hit[2]
+    months = _upcoming(data.get("months"))
+    stale = hit[3] and not data.get("error")
+    if not stale and len(months) == len(data.get("months") or {}):
+        return data
+    out = dict(data, months=months)
+    if stale:
+        out["stale"] = True
+    return out
 
 
 def _route_key(origin_iso, dest_city, currency="usd"):
@@ -224,13 +270,17 @@ def _route_key(origin_iso, dest_city, currency="usd"):
 
 def monthly_cached(origin_iso, dest_city, currency="usd"):
     """get_monthly from the cache alone — never an upstream call. None means
-    this route has not been fetched yet; an invalid route answers empty, the
-    same as get_monthly, so it can't sit "pending" forever."""
+    this route has no curve yet: never fetched, or its lookup failed (so the
+    Flights tab shows that country pending and the warmer retries it, rather
+    than a failure reading "no fares cached"). An invalid route answers
+    empty, the same as get_monthly, so it can't sit pending forever."""
     key = _route_key(origin_iso, dest_city, currency)
     if key is None:
         return {"configured": is_configured(), "months": {}}
-    hit = _monthly_cache.get(key)
-    return hit[1] if hit else None
+    hit = _entry(key, time.time())
+    if hit is None or hit[2].get("error"):
+        return None
+    return _served(hit)
 
 
 def monthly_needs_fetch(origin_iso, dest_city, currency="usd"):
@@ -238,50 +288,64 @@ def monthly_needs_fetch(origin_iso, dest_city, currency="usd"):
     key = _route_key(origin_iso, dest_city, currency)
     if key is None:
         return False
-    import time as _time
-    hit = _monthly_cache.get(key)
-    if not hit:
-        return True
-    return _time.time() - hit[0] >= (MONTHLY_FAIL_TTL if hit[1].get("error") else MONTHLY_TTL)
+    now = time.time()
+    hit = _entry(key, now)
+    return hit is None or _due(hit, now)
+
+
+def monthly_failed(origin_iso, dest_city, currency="usd"):
+    """True when this route's last upstream lookup failed."""
+    key = _route_key(origin_iso, dest_city, currency)
+    hit = _monthly_cache.get(key) if key else None
+    return bool(hit and hit[3])
 
 
 def get_monthly(origin_iso, dest_city, currency="usd"):
-    import time as _time
     key = _route_key(origin_iso, dest_city, currency)
     if key is None:
         return {"configured": is_configured(), "months": {}}
     hub, dest_city, _cur = key
     origin_iso = (origin_iso or "US").strip().upper()[:2]
-    now = _time.time()
-    hit = _monthly_cache.get(key)
-    if hit and now - hit[0] < (MONTHLY_FAIL_TTL if hit[1].get("error") else MONTHLY_TTL):
-        return hit[1]
+    now = time.time()
+    hit = _entry(key, now)
+    if hit and not _due(hit, now):
+        return _served(hit)
     out = {"configured": True, "origin": origin_iso, "hub": hub,
            "dest": dest_city, "currency": currency, "months": {}}
+    failed = False
     try:
         qs = urllib.parse.urlencode({"origin": hub, "destination": dest_city,
                                      "currency": currency, "token": token()})
         data = rates.fetch_json("{0}/v1/prices/monthly?{1}".format(API, qs))
         for k, v in ((data or {}).get("data") or {}).items():
             if isinstance(v, dict) and v.get("price") is not None:
+                # departure_at is kept so a fare for a date already flown can
+                # be dropped on every read (_upcoming), not only at fetch time.
                 out["months"][k[:7]] = {"price": round(v["price"]),
-                                        "stops": v.get("transfers")}
+                                        "stops": v.get("transfers"),
+                                        "departure_at": v.get("departure_at")}
     except Exception:
         # Not cached as an authoritative empty curve for 12h (one 429 used to
         # hide that route's fare strip and chart for everyone). The "error"
         # flag lets the client tell a failure from genuine absence.
-        if hit and not hit[1].get("error"):
-            # Keep serving the last good curve; retry upstream in 5 minutes.
-            _monthly_cache[key] = (now - MONTHLY_TTL + MONTHLY_FAIL_TTL, hit[1])
-            return dict(hit[1], stale=True)
+        if hit and not hit[2].get("error"):
+            # Keep serving the last good curve — never past MONTHLY_STALE_MAX
+            # from its real fetch (_entry) — and retry upstream in 5 minutes.
+            entry = (now, hit[1], hit[2], True)
+            _monthly_cache[key] = entry
+            return _served(entry)
         out["error"] = "fare lookup failed"
+        failed = True
     # Prune on write so the cache can't grow for the life of the process (one
     # entry per route ever asked about) — at the stale limit, not the TTL.
-    # list() snapshots in one step: the Flights-tab warmer writes from its own thread.
-    for k in [k for k, (at, _) in list(_monthly_cache.items()) if now - at >= MONTHLY_STALE_MAX]:
-        del _monthly_cache[k]
-    _monthly_cache[key] = (now, out)
-    return out
+    # The warmer thread writes too: snapshot, and pop what another thread may
+    # already have pruned (a second `del` raised KeyError and lost this curve).
+    for k, e in list(_monthly_cache.items()):
+        if now - e[1] >= MONTHLY_STALE_MAX:
+            _monthly_cache.pop(k, None)
+    entry = (now, now, out, failed)
+    _monthly_cache[key] = entry
+    return _served(entry)
 
 
 def get_monthly_multi(origin_iso, dest_cities, currency="usd", lookup=None):
@@ -333,20 +397,21 @@ def get_country_monthly(origin_iso, row, currency="usd", lookup=None):
     """The ONE monthly curve for a destination country — the guide's fare
     chart, the Top Picks strips and the Flights tab's low/typical/high all
     read this, so the same country and month is always the same number.
-    Per-route curves for its top cities, plus the cheapest fare per departure
-    month from the latest-prices rows get_flights already fetched (row
-    "months"); cheapest wins either way. None while a city is unfetched
-    (cache-only lookup)."""
+    Per-route curves for its top cities, with the months they lack filled
+    from the latest-prices rows get_flights already fetched (row "months").
+    None while a city is unfetched (cache-only lookup)."""
     m = get_monthly_multi(origin_iso, country_cities(row), currency, lookup=lookup)
     if m is None:
         return None
-    extra = row.get("months") or {}
+    extra = _upcoming(row.get("months"))
     if not extra:
         return m
     out = dict(m)
     out["months"] = dict(m.get("months") or {})
+    # Fill only, never replace: rows are any city and the last 90 days, the
+    # route curves the top cities at any age, so a cheaper row fare swapped
+    # into a curve month could move it across a band edge. Until that is
+    # measured with a real token, rows only widen the curve.
     for k, v in extra.items():
-        cur = out["months"].get(k)
-        if cur is None or v["price"] < cur["price"]:
-            out["months"][k] = v
+        out["months"].setdefault(k, v)
     return out

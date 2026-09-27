@@ -1,7 +1,8 @@
 """The Flights tab's low / typical / high: stats and banding on recorded
-production curves, then /api/flight-value end to end — with no real
-Travelpayouts key. The token below is a dummy and rates.fetch_json is
-replaced by a fake upstream, so nothing leaves this machine.
+production curves, the monthly-curve cache, /api/flight-value end to end and
+the background warmer — with no real Travelpayouts key. The token below is a
+dummy and rates.fetch_json is replaced by a fake upstream, so nothing leaves
+this machine.
 
     /usr/bin/python3 scripts/test_flight_value.py
 """
@@ -24,7 +25,8 @@ CURVES = {
            "2027-03": 732, "2027-04": 777, "2027-05": 879, "2027-06": 974, "2027-07": 973, "2027-08": 797},
     "IS": {"2026-09": 676, "2026-10": 505, "2026-12": 381, "2027-01": 414},
 }
-REC_DAY = datetime.date(2026, 9, 26)
+REC_DAY = datetime.date(2026, 9, 26)   # 5 days of September left: it leaves the stats
+MID_DAY = datetime.date(2026, 9, 10)   # same window, September still counted
 
 # --- percentiles --------------------------------------------------------------
 P = flightvalue.percentile
@@ -80,6 +82,15 @@ results.append(ok(W(datetime.date(2026, 12, 31))[:3] == ["2026-12", "2027-01", "
                   and W(datetime.date(2026, 12, 31))[-1] == "2027-11" and len(W(datetime.date(2027, 1, 1))) == 12,
                   "December start wraps into the next year; always 12 months"))
 
+# --- the current month leaves the stats in its last days ---------------------
+PM = flightvalue.partial_month
+results.append(ok(PM(REC_DAY) == "2026-09" and PM(datetime.date(2026, 9, 21)) is None
+                  and PM(datetime.date(2026, 9, 22)) == "2026-09" and PM(MID_DAY) is None,
+                  "partial month: Sep 21 has 10 days left (counted), Sep 22 has 9 (not)"))
+results.append(ok(PM(datetime.date(2027, 2, 19)) is None and PM(datetime.date(2027, 2, 20)) == "2027-02"
+                  and PM(datetime.date(2026, 12, 31)) == "2026-12",
+                  "partial month follows the month's length (Feb 20 of 28; Dec 31)"))
+
 # --- build(): curves from the cache alone ----------------------------------------
 def rows_for(curves, extra=None):
     out = []
@@ -104,11 +115,12 @@ def fake_lookup(curves, missing=()):
 
 
 rows = rows_for(CURVES)
-p = flightvalue.build("US", {"countries": rows, "origin_name": "United States"}, today=REC_DAY,
+p = flightvalue.build("US", {"countries": rows, "origin_name": "United States"}, today=MID_DAY,
                       lookup=fake_lookup(CURVES), needs_fetch=lambda o, c: False)
 C = p["countries"]
-results.append(ok(p["ready"] == 6 and p["total"] == 6 and p["refresh"] == 0 and p["months"][0] == "2026-09",
-                  "every country resolved from cache: ready 6/6, nothing to refresh"))
+results.append(ok(p["ready"] == 6 and p["total"] == 6 and p["refresh"] == 0 and p["months"][0] == "2026-09"
+                  and p["partial"] is None,
+                  "every country resolved from cache: ready 6/6, nothing to refresh, no partial month"))
 results.append(ok("2027-09" not in C["JP"]["curve"] and C["JP"]["n_months"] == 10,
                   "Japan's 13th month (Sep 2027) is outside the window and out of the stats"))
 results.append(ok(C["MA"]["curve"]["2026-10"] == [498, "MAX"] and "2027-01" not in C["MA"]["curve"]
@@ -116,34 +128,61 @@ results.append(ok(C["MA"]["curve"]["2026-10"] == [498, "MAX"] and "2027-01" not 
 results.append(ok(C["NO"] == {"curve": {}, "n_months": 0}, "no months cached -> empty curve, no stats"))
 results.append(ok(C["IS"]["n_months"] == 4 and "median" not in C["IS"], "Iceland: curve kept, no stats"))
 
+# Sep 26: September stays in every curve (same number as the guide chart) but
+# is out of the typical range, and is banded against the other months'.
+pr = flightvalue.build("US", {"countries": rows}, today=REC_DAY,
+                       lookup=fake_lookup(CURVES), needs_fetch=lambda o, c: False)
+jp = pr["countries"]["JP"]
+jp_rest = [v for k, v in CURVES["JP"].items() if k in set(W(REC_DAY)) and k != "2026-09"]
+results.append(ok(pr["partial"] == "2026-09" and jp["curve"]["2026-09"] == [1086, "JPX"]
+                  and jp["n_months"] == 9 and {k: jp[k] for k in ("median", "lo", "hi")}
+                  == {k: S(jp_rest)[k] for k in ("median", "lo", "hi")},
+                  "Sep 26: Japan keeps its Sep fare in the curve; the range is the other 9 months"))
+results.append(ok(b(1086, jp) == "high" and C["JP"]["hi"] > jp["hi"],
+                  "...and September is banded against them (High; its own fare no longer widens the range)"))
+results.append(ok(pr["countries"]["MA"]["curve"]["2026-09"] == [731, "MAX"]
+                  and pr["countries"]["MA"]["n_months"] == 5 and "median" not in pr["countries"]["MA"],
+                  "Sep 26: Morocco has 5 months left after September -> no range until October"))
+
 # unfetched city -> pending, and counted for the warmer
-p2 = flightvalue.build("US", {"countries": rows}, today=REC_DAY, lookup=fake_lookup(CURVES, missing={"GRX"}),
+p2 = flightvalue.build("US", {"countries": rows}, today=MID_DAY, lookup=fake_lookup(CURVES, missing={"GRX"}),
                        needs_fetch=lambda o, c: c == "GRX")
 results.append(ok(p2["countries"]["GR"] == {"pending": True} and p2["ready"] == 5 and p2["refresh"] == 1,
                   "a never-fetched city makes its country pending (ready 5/6, refresh 1)"))
+p2b = flightvalue.build("US", {"countries": rows}, today=MID_DAY, lookup=fake_lookup(CURVES, missing={"GRX"}),
+                        needs_fetch=lambda o, c: False)
+results.append(ok(p2b["countries"]["GR"] == {"pending": True} and p2b["refresh"] == 0,
+                  "a failed city inside its retry wait: pending, but no pass started for nothing"))
 # a city skipped by the >=10-month early stop is never needed
-p3 = flightvalue.build("US", {"countries": rows}, today=REC_DAY, lookup=fake_lookup(CURVES, missing={"TRY"}),
+p3 = flightvalue.build("US", {"countries": rows}, today=MID_DAY, lookup=fake_lookup(CURVES, missing={"TRY"}),
                        needs_fetch=lambda o, c: c == "TRY")
 results.append(ok(p3["countries"]["TR"].get("n_months") == 12 and p3["refresh"] == 0,
                   "Turkey's first city covers the year, so its unfetched second city isn't waited on"))
 
-# latest-prices row months widen the curve; cheapest per month wins
+# latest-prices row months FILL the curve's gaps; a route-curve month is never replaced
 extra = {"IS": {"months": {"2026-11": {"price": 450, "dest": "ISZ"}, "2027-02": {"price": 470, "dest": "ISZ"},
-                           "2026-10": {"price": 520, "dest": "ISZ"}}}}
-p4 = flightvalue.build("US", {"countries": rows_for(CURVES, extra)}, today=REC_DAY,
+                           "2026-10": {"price": 520, "dest": "ISZ"}, "2026-12": {"price": 300, "dest": "ISZ"}}}}
+p4 = flightvalue.build("US", {"countries": rows_for(CURVES, extra)}, today=MID_DAY,
                        lookup=fake_lookup(CURVES), needs_fetch=lambda o, c: False)
 isc = p4["countries"]["IS"]
 results.append(ok(isc["n_months"] == 6 and isc["curve"]["2026-11"] == [450, "ISZ"]
-                  and isc["curve"]["2026-10"] == [505, "ISX"] and "median" in isc,
-                  "Iceland + row months: 6 months (new Nov/Feb), Oct keeps the cheaper route fare"))
+                  and isc["curve"]["2027-02"] == [470, "ISZ"] and "median" in isc,
+                  "Iceland + row months: the two missing months (Nov, Feb) filled -> 6 months, banded"))
+results.append(ok(isc["curve"]["2026-10"] == [505, "ISX"] and isc["curve"]["2026-12"] == [381, "ISX"],
+                  "a route-curve month keeps its fare, even against a cheaper row fare (Dec 381, not 300)"))
 
-# --- get_flights: the per-country month curve from latest-prices rows ----------
-UP = {"monthly": [], "latest": 0, "fail_monthly": False, "fail_latest": False}
+# --- fake upstream --------------------------------------------------------------
+UP = {"monthly": [], "latest": 0, "fail_monthly": False, "fail_latest": False, "fail_dest": set()}
 TODAY = datetime.date.today()
 WIN = flightvalue.window_months()
 d = lambda days: (TODAY + datetime.timedelta(days=days)).isoformat()
 CITY_META = [{"code": c, "name": c, "country_code": iso} for iso, cs in
-             {"MA": ["CMN", "RAK"], "GR": ["ATH"], "TR": ["IST"], "NO": ["OSL"], "US": ["NYC"]}.items() for c in cs]
+             {"MA": ["CMN", "RAK", "FEZ"], "GR": ["ATH"], "TR": ["IST"], "NO": ["OSL"], "US": ["NYC"],
+              "ES": ["AGP", "BCN", "MAD", "VLC"], "PS": ["PST"], "SX": ["STL"],
+              "RR": ["RCA", "RCB", "RCC", "RCD"]}.items() for c in cs]
+# 20 one-city countries for the warmer's stall test (XA..XT, cities CAZ..CTZ)
+STALL = [("X" + chr(65 + i), "C" + chr(65 + i) + "Z") for i in range(20)]
+CITY_META += [{"code": c, "name": c, "country_code": iso} for iso, c in STALL]
 ROWS = [
     {"destination": "CMN", "value": 700, "depart_date": d(20), "found_at": d(-3) + "T10:00:00Z", "number_of_changes": 1},
     {"destination": "RAK", "value": 640, "depart_date": d(21), "found_at": d(-2) + "T10:00:00Z", "number_of_changes": 1},
@@ -153,14 +192,20 @@ ROWS = [
     {"destination": "IST", "value": 690, "depart_date": d(40), "found_at": d(-1) + "T10:00:00Z", "number_of_changes": 1},
     {"destination": "OSL", "value": 437, "depart_date": d(130), "found_at": d(-1) + "T10:00:00Z", "number_of_changes": 0},
 ]
-# Upstream monthly curves, shifted onto the live window so this half of the
-# test doesn't rot as the calendar moves: CURVES[iso] month i -> WIN[i].
+# Upstream monthly curves, shifted onto the live window so the test doesn't
+# rot as the calendar moves: CURVES[iso] month i -> WIN[i + 1]. The current
+# month is left empty, so whether it's in the stats (late in a month or not)
+# never changes these assertions.
 def shifted(iso):
     ks = sorted(CURVES[iso])
-    return {WIN[i]: CURVES[iso][k] for i, k in enumerate(ks) if i < 12}
+    return {WIN[i + 1]: CURVES[iso][k] for i, k in enumerate(ks) if i < 11}
 
 
-MONTHLY = {"CMN": shifted("MA"), "ATH": shifted("GR"), "IST": shifted("TR"), "OSL": {WIN[4]: 437}, "RAK": {}}
+MONTHLY = {"CMN": shifted("MA"), "ATH": shifted("GR"), "IST": shifted("TR"), "OSL": {WIN[4]: 437}, "RAK": {},
+           "FEZ": {WIN[11]: 777}, "STL": {WIN[1]: 500},
+           "PST": {WIN[0]: 300, WIN[1]: 410, WIN[2]: 420}}
+MONTHLY.update({c: {WIN[i + 1]: 400 + 10 * i for i in range(6)} for _, c in STALL})
+DEPART = {("PST", WIN[0]): d(-1) + "T08:00:00+03:00", ("PST", WIN[1]): d(0) + "T23:00:00Z"}
 
 
 def fake_fetch(url, retries=3):
@@ -173,16 +218,19 @@ def fake_fetch(url, retries=3):
             raise urllib.error.URLError("fake outage")
         return {"data": ROWS if q.get("page") == "1" else []}
     if "/v1/prices/monthly" in url:
-        UP["monthly"].append(q["destination"])
-        if UP["fail_monthly"]:
+        dest = q["destination"]
+        UP["monthly"].append(dest)
+        if UP["fail_monthly"] or dest in UP["fail_dest"]:
             raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
-        return {"data": {k + "-11": {"price": v, "transfers": 1}
-                         for k, v in MONTHLY.get(q["destination"], {}).items()}}
+        return {"data": {k: {"price": v, "transfers": 1, "departure_at": DEPART.get((dest, k))}
+                         for k, v in MONTHLY.get(dest, {}).items()}}
     raise AssertionError("unexpected upstream call " + url)
 
 
 rates.fetch_json = fake_fetch
 flights._cities = None
+
+# --- get_flights: the per-country month curve from latest-prices rows ----------
 fl = flights.get_flights("US")
 ma_row = next(r for r in fl["countries"] if r["iso"] == "MA")
 exp = {}
@@ -192,13 +240,118 @@ for city, price, days in (("CMN", 700, 20), ("RAK", 640, 21)):   # the two live,
         exp[k] = (price, city)
 got = {k: (v["price"], v["dest"]) for k, v in ma_row["months"].items()}
 results.append(ok(got == exp, "row months: cheapest per departure month + its city -> %s" % got))
+results.append(ok(all(v["departure_at"] in (d(20), d(21)) for v in ma_row["months"].values()),
+                  "row months keep their departure date (dropped on read once it has passed)"))
 results.append(ok(not any(v["price"] in (300, 350) for v in ma_row["months"].values()),
                   "row months skip a departure already flown and a fare older than 90 days"))
 results.append(ok(fl["by_country"]["MA"] == 547 and ma_row["min"] == 300,
                   "the average and cheapest (Top Picks inputs) are computed exactly as before"))
 
-# --- HTTP: /api/flight-value and the guide's /api/flight-months ---------------
+# A country's top cities: count, then city code — never price order, which
+# reshuffled ties on every hourly refresh.
+tie = [{"destination": c, "value": v, "depart_date": d(30), "found_at": d(-1) + "T10:00:00Z"}
+       for c, v in (("MAD", 500), ("BCN", 480), ("AGP", 470), ("VLC", 300))]
+saved_rows = ROWS[:]
+ROWS[:] = tie
+es1 = next(r for r in flights.get_flights("US")["countries"] if r["iso"] == "ES")["cities"]
+ROWS[:] = tie[::-1]
+es2 = next(r for r in flights.get_flights("US")["countries"] if r["iso"] == "ES")["cities"]
+ROWS[:] = saved_rows
+results.append(ok(es1 == es2 == ["VLC", "AGP", "BCN"],
+                  "tied cities break on the code, whatever the row order (cheapest city first) -> %s / %s" % (es1, es2)))
+
+# --- the monthly-curve cache ------------------------------------------------------
+KEY = lambda c: flights._route_key("US", c)
+pst = flights.get_monthly("US", "PST")
+results.append(ok(set(pst["months"]) == {WIN[1], WIN[2]} and pst["months"][WIN[1]]["price"] == 410,
+                  "a fare departing yesterday is dropped; today's and an undated one stay"))
+results.append(ok(flights.get_monthly("US", "PST")["months"] == pst["months"]
+                  and flights.monthly_cached("US", "PST")["months"] == pst["months"]
+                  and WIN[0] in flights._monthly_cache[KEY("PST")][2]["months"],
+                  "...on every read (cache hit, cache-only lookup), from a cache that keeps the raw curve"))
+prow = {"iso": "PS", "cities": ["PST"],
+        "months": {WIN[1]: {"price": 50, "dest": "PST", "departure_at": d(40)},
+                   WIN[3]: {"price": 100, "dest": "PST", "departure_at": d(-2)},
+                   WIN[4]: {"price": 200, "dest": "PST", "departure_at": d(100)}}}
+pc = flights.get_country_monthly("US", prow)
+results.append(ok(pc["months"][WIN[1]]["price"] == 410 and WIN[3] not in pc["months"]
+                  and pc["months"][WIN[4]]["price"] == 200,
+                  "country curve: row months fill gaps only, and a past row departure doesn't fill"))
+
+# 36h stale cap, on the real fetch time
+stl = flights.get_monthly("US", "STL")
+k = KEY("STL")
+now = time.time()
+flights._monthly_cache[k] = (now - 20 * 3600, now - 20 * 3600) + flights._monthly_cache[k][2:]
+UP["fail_monthly"] = True
+st1 = flights.get_monthly("US", "STL")
+results.append(ok(st1.get("stale") and st1["months"] == stl["months"]
+                  and abs(flights._monthly_cache[k][1] - (now - 20 * 3600)) < 1,
+                  "refresh fails at 20h: the old curve is served stale, its fetch time untouched"))
+flights._monthly_cache[k] = (now - 6 * 60, now - 37 * 3600) + flights._monthly_cache[k][2:]
+results.append(ok(flights.monthly_cached("US", "STL") is None and flights.monthly_needs_fetch("US", "STL"),
+                  "37h after its real fetch the curve is gone, pruned or not"))
+st2 = flights.get_monthly("US", "STL")
+results.append(ok(st2.get("error") and st2["months"] == {} and not st2.get("stale"),
+                  "...and a failing refresh then answers an error, not a 37-hour-old curve"))
+UP["fail_monthly"] = False
+
+# A failed lookup is "not fetched" for the Flights tab, never "no fares"
+results.append(ok(flights.monthly_cached("US", "STL") is None and not flights.monthly_needs_fetch("US", "STL")
+                  and flights.monthly_failed("US", "STL"),
+                  "a failed route: no curve (pending), not due a retry for 5 min, marked failed"))
+srow = [{"iso": "SX", "cities": ["STL"], "n": 1}]
+pf = flightvalue.build("US", {"countries": srow})
+results.append(ok(pf["countries"]["SX"] == {"pending": True} and pf["ready"] == 0 and pf["refresh"] == 0,
+                  "build(): its country is pending, not {'curve': {}, 'n_months': 0}"))
+e = flights._monthly_cache[k]
+flights._monthly_cache[k] = (e[0] - flights.MONTHLY_FAIL_TTL - 1,) + e[1:]
+results.append(ok(flightvalue.build("US", {"countries": srow})["refresh"] == 1,
+                  "...and counts for the warmer once its retry is due"))
+
+# Prune race: two threads pruning the same expired keys used to KeyError on
+# the second `del`, losing the fresh curve (or dropping a request).
+def race(n_threads, target):
+    errs, gate = [], threading.Barrier(n_threads)
+
+    def run(i):
+        gate.wait()
+        try:
+            target(i)
+        except Exception as ex:
+            errs.append(repr(ex))
+    ts = [threading.Thread(target=run, args=(i,)) for i in range(n_threads)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    return errs
+
+
+errs = []
+for _ in range(3):
+    old = time.time() - 40 * 3600
+    flights._monthly_cache.update({("NYC", "Z%06d" % i, "usd"): (old, old, {"months": {}}, False)
+                                   for i in range(150000)})
+    for c in ("RCA", "RCB", "RCC", "RCD"):
+        flights._monthly_cache.pop(KEY(c), None)
+    errs += race(4, lambda i: flights.get_monthly("US", "RC" + "ABCD"[i]))
+results.append(ok(not errs and all(KEY(c) in flights._monthly_cache for c in ("RCA", "RCB", "RCC", "RCD"))
+                  and not any(k[1].startswith("Z") for k in flights._monthly_cache),
+                  "concurrent prunes of 150k expired curves: no KeyError, every fresh curve kept %s" % errs[:2]))
+
 import server
+cache, errs = {}, []
+for _ in range(3):
+    old = time.time() - 1000
+    cache.update({("z", i): (old, None) for i in range(150000)})
+    for i in range(4):
+        cache.pop(i, None)
+    errs += race(4, lambda i: server._cached("t", cache, i, 10, lambda: i, stale_max=100))
+results.append(ok(not errs and all(cache.get(i, (0, None))[1] == i for i in range(4)) and len(cache) == 4,
+                  "server._cached: the same concurrent prune, no KeyError %s" % errs[:2]))
+
+# --- HTTP: /api/flight-value and the guide's /api/flight-months ---------------
 from http.server import ThreadingHTTPServer
 flightvalue.PACE = 0.2
 httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
@@ -212,6 +365,12 @@ def get(path):
             return r.status, dict(r.headers), json.loads(r.read())
     except urllib.error.HTTPError as e:
         return e.code, dict(e.headers), json.loads(e.read() or b"{}")
+
+
+def wait_warm(origin="US", secs=15):
+    deadline = time.time() + secs
+    while flightvalue.is_warming(origin) and time.time() < deadline:
+        time.sleep(0.05)
 
 
 st, _, bd = get("/api/flight-value?origin=ZZ")
@@ -232,9 +391,7 @@ results.append(ok(all(v == {"pending": True} for v in first["countries"].values(
 st, _, again = get("/api/flight-value?origin=US")
 results.append(ok(st == 200 and flightvalue.is_warming("US") and len(flightvalue._warming) == 1,
                   "a second request doesn't start a second warmer"))
-deadline = time.time() + 15
-while flightvalue.is_warming("US") and time.time() < deadline:
-    time.sleep(0.05)
+wait_warm()
 st, hd, done = get("/api/flight-value?origin=US")
 results.append(ok(st == 200 and not done["filling"] and done["ready"] == done["total"] == 4
                   and hd.get("Cache-Control") == "public, max-age=600",
@@ -254,14 +411,36 @@ results.append(ok(st == 200 and same and set(mac["curve"]) == {k for k in guide[
 st, _, fl_pub = get("/api/flights?origin=US")
 results.append(ok(st == 200 and all("months" not in r for r in fl_pub["countries"]),
                   "/api/flights doesn't ship the server-side month curves"))
+st, _, zz = get("/api/flights?origin=ZZ")
+results.append(ok(st == 200 and zz.get("error") and "ZZ" not in server._flights_cache,
+                  "/api/flights for an unsupported origin: its error answer, never cached"))
 
-# Stale-on-error: fares expired + upstream down -> last good copy, still 200.
+# City churn: the hourly fares refresh brings a new city into Morocco's top
+# three after a finished pass. It is fetched on the next request — no cooldown.
+UP["monthly"].clear()
+for r in server._flights_cache["US"][1]["countries"]:
+    if r["iso"] == "MA":
+        r["cities"] = r["cities"][:2] + ["FEZ"]
+st, hd, ch = get("/api/flight-value?origin=US")
+results.append(ok(ch["countries"]["MA"] == {"pending": True} and ch["filling"] and hd.get("Cache-Control") == "no-store",
+                  "new city after a finished pass: Morocco pending, filling=true, no-store"))
+wait_warm()
+st, _, ch2 = get("/api/flight-value?origin=US")
+results.append(ok(UP["monthly"] == ["FEZ"] and ch2["ready"] == 4 and ch2["countries"]["MA"]["curve"].get(WIN[11]) == [777, "FEZ"],
+                  "...fetched at once (only FEZ called), Morocco back with FEZ's month"))
+
+# Stale-on-error: fares expired + upstream down -> last good copy, still 200,
+# for the value endpoint AND the Flights table's own /api/flights.
 ts, payload = server._flights_cache["US"]
 server._flights_cache["US"] = (ts - server.FLIGHTS_TTL - 5, payload)
 server._upstream_fail.clear()
 UP["fail_latest"] = True
 st, _, stale = get("/api/flight-value?origin=US")
-results.append(ok(st == 200 and stale["ready"] == 4, "fares refresh fails -> served from the stale copy"))
+results.append(ok(st == 200 and stale["ready"] == 4, "fares refresh fails -> flight-value served from the stale copy"))
+st, _, fstale = get("/api/flights?origin=US")
+results.append(ok(st == 200 and fstale.get("stale") and len(fstale["countries"]) == 4
+                  and all("months" not in r for r in fstale["countries"]),
+                  "fares refresh fails -> /api/flights serves the same stale copy (was a 500)"))
 UP["fail_latest"] = False
 
 # Circuit breaker: a failing monthly API ends the pass after MAX_FAILS calls,
@@ -277,23 +456,117 @@ ROWS.extend({"destination": c, "value": 900 + i, "depart_date": d(30), "found_at
 CITY_META.extend({"code": c, "name": c, "country_code": "Q" + c[0]} for c in ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF"])
 flights._cities = None
 st, _, bd = get("/api/flight-value?origin=US")
-deadline = time.time() + 15
-while flightvalue.is_warming("US") and time.time() < deadline:
-    time.sleep(0.05)
+wait_warm()
 results.append(ok(len(UP["monthly"]) == flightvalue.MAX_FAILS,
                   "429s: the pass stops after %d failed calls (made %d)" % (flightvalue.MAX_FAILS, len(UP["monthly"]))))
-st, _, bd = get("/api/flight-value?origin=US")
+st, hd, bd = get("/api/flight-value?origin=US")
 results.append(ok(not bd["filling"] and len(UP["monthly"]) == flightvalue.MAX_FAILS,
-                  "within the cooldown a request doesn't restart it (filling=false)"))
+                  "within the cooldown after an ABORTED pass a request doesn't restart it (filling=false)"))
+results.append(ok(bd["ready"] < bd["total"] and hd.get("Cache-Control") == "no-store",
+                  "incomplete but not filling (ready %d/%d): still no-store" % (bd["ready"], bd["total"])))
+results.append(ok(all(v == {"pending": True} for v in bd["countries"].values()),
+                  "failed lookups read pending, not 'no fares cached'"))
 UP["fail_monthly"] = False
+
+# --- the warmer: failures in a row can't stall the rest --------------------------
+# 20 one-city countries, busiest first; the 6th-10th busiest always fail.
+flightvalue.PACE = 0.01
+flights._monthly_cache.clear()
+flightvalue._warm_done.clear()
+UP["monthly"].clear()
+UP["fail_dest"] = {c for _, c in STALL[5:10]}
+srows = [{"iso": iso, "cities": [c], "n": 100 - i} for i, (iso, c) in enumerate(STALL)]
+aborted1 = flightvalue._warm_pass("US", srows)
+calls1 = UP["monthly"][:]
+for c in UP["fail_dest"]:     # the cooldown has passed; each failure is due a retry
+    e = flights._monthly_cache[KEY(c)]
+    flights._monthly_cache[KEY(c)] = (e[0] - flights.MONTHLY_FAIL_TTL - 1,) + e[1:]
+UP["monthly"].clear()
+aborted2 = flightvalue._warm_pass("US", srows)
+calls2 = UP["monthly"][:]
+sp = flightvalue.build("US", {"countries": srows})["countries"]
+results.append(ok(aborted1 and calls1 == [c for _, c in STALL[:10]] and aborted2,
+                  "pass 1: 5 good routes, then 5 failures in a row abort it"))
+results.append(ok(calls2 == [c for _, c in STALL[10:]] + [c for _, c in STALL[5:10]],
+                  "pass 2: the 10 never-reached routes go first, the failing ones last -> %s" % ",".join(calls2[:3])))
+results.append(ok(all("median" in sp[iso] for iso, _ in STALL[:5] + STALL[10:])
+                  and all(sp[iso] == {"pending": True} for iso, _ in STALL[5:10]),
+                  "every country but the 5 failing ones is banded; those 5 read pending"))
+UP["fail_dest"] = set()
+
+# --- the warmer: at most 2 origins at once, one slot kept for the default ---------
+release = threading.Event()
+real_pass = flightvalue._warm_pass
+flightvalue._warm_pass = lambda o, rows: release.wait(10) and False
+flightvalue._warm_done.clear()
+s_de = flightvalue.start_warm("DE", [])
+s_fr = flightvalue.start_warm("FR", [])
+s_us = flightvalue.start_warm("US", [])
+s_gb = flightvalue.start_warm("GB", [])
+results.append(ok((s_de, s_fr, s_us, s_gb) == ("running", "queued", "running", "queued")
+                  and sorted(flightvalue._warming) == ["DE", "US"],
+                  "DE runs, FR queues (slot kept for US), US runs, GB queues -> %s" % [s_de, s_fr, s_us, s_gb]))
+st, hd, fr = get("/api/flight-value?origin=FR")
+results.append(ok(st == 200 and fr["filling"] and fr["ready"] == 0 and hd.get("Cache-Control") == "no-store"
+                  and "FR" not in flightvalue._warming,
+                  "a queued origin answers filling=true (its next poll starts it), no-store"))
+release.set()
+for o in ("DE", "US"):
+    wait_warm(o)
+results.append(ok(flightvalue.start_warm("FR", []) == "running", "a freed slot goes to the next origin that asks"))
+wait_warm("FR")
+flightvalue._warm_pass = real_pass
+
+# --- the pacer: the default origin first; monotonic -------------------------------
+flightvalue.PACE = 0.3
+flightvalue._pace()                      # a slot just went: the next is 0.3s away
+order = []
+t_other = threading.Thread(target=lambda: (flightvalue._pace(False), order.append(("other", time.monotonic()))))
+t_first = threading.Thread(target=lambda: (flightvalue._pace(True), order.append(("default", time.monotonic()))))
+t_other.start()
+time.sleep(0.05)
+t_first.start()
+t_other.join(3)
+t_first.join(3)
+results.append(ok([o for o, _ in order] == ["default", "other"] and order[1][1] - order[0][1] >= 0.25,
+                  "the default origin, arriving second, takes the next slot; the other waits one PACE"))
+# The same rule without the wake-up race: an open slot is not taken by
+# another origin while a default-origin warmer is waiting for it.
+with flightvalue._pace_cv:
+    flightvalue._pace_next[0] = 0.0
+    flightvalue._pace_first[0] += 1          # a default-origin warmer is at the gate
+t_other = threading.Thread(target=flightvalue._pace)
+t_other.start()
+t_other.join(0.4)
+held = t_other.is_alive()
+with flightvalue._pace_cv:
+    flightvalue._pace_first[0] -= 1
+    flightvalue._pace_cv.notify_all()
+t_other.join(2)
+results.append(ok(held and not t_other.is_alive(),
+                  "an open slot waits for the default origin's warmer; the other takes it once none waits"))
+flightvalue.PACE = 0.05
+flightvalue._pace()
+real_time = time.time
+time.time = lambda: real_time() - 3600  # the wall clock steps back an hour
+t = threading.Thread(target=flightvalue._pace)
+t.start()
+t.join(2)
+time.time = real_time
+results.append(ok(not t.is_alive(), "pacing is monotonic: a wall clock stepping back doesn't stall the gate"))
 
 # No token: a sane empty answer, never an upstream call.
 os.environ.pop("TRAVELPAYOUTS_TOKEN")
+server._flights_cache.clear()
 n_before = len(UP["monthly"]) + UP["latest"]
 st, _, bd = get("/api/flight-value?origin=US")
 results.append(ok(st == 200 and bd["configured"] is False and bd["countries"] == {} and not bd["filling"]
                   and len(UP["monthly"]) + UP["latest"] == n_before,
                   "no token: configured=false, empty, no upstream call"))
+st, _, bd = get("/api/flights?origin=US")
+results.append(ok(st == 200 and bd["configured"] is False and "US" not in server._flights_cache
+                  and len(UP["monthly"]) + UP["latest"] == n_before,
+                  "no token: /api/flights says not configured, caches nothing"))
 httpd.shutdown()
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
