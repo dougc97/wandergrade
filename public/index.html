@@ -470,14 +470,19 @@
               <small id="indexchg"></small>
             </div>
           </div>
-          <div class="windowtoggle" id="windowtoggle">
-            <button data-days="30">1M</button>
-            <button data-days="90">3M</button>
-            <button data-days="180">6M</button>
-            <button data-days="365" class="active">1Y</button>
+          <div class="windowtoggle rangetoggle" id="windowtoggle" role="group" aria-label="Time range">
+            <button type="button" data-range="1m" aria-pressed="false">1M</button>
+            <button type="button" data-range="3m" aria-pressed="false">3M</button>
+            <button type="button" data-range="6m" aria-pressed="false">6M</button>
+            <button type="button" data-range="ytd" aria-pressed="false">YTD</button>
+            <button type="button" data-range="1y" aria-pressed="true" class="active">1Y</button>
+            <button type="button" data-range="2y" aria-pressed="false">2Y</button>
+            <button type="button" data-range="5y" aria-pressed="false">5Y</button>
+            <button type="button" data-range="10y" aria-pressed="false">10Y</button>
+            <button type="button" data-range="all" aria-pressed="false">All</button>
           </div>
           <div id="chart" class="chart"></div>
-          <p class="chartnote">100 = where your currency started the window. Above 100 = stronger overall than back then.</p>
+          <p class="chartnote" id="chartnote">Index: Jan 1999 = 100. Higher = your currency buys more of the others (before inflation).</p>
         </section>
       </div>
 

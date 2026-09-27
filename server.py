@@ -52,10 +52,10 @@ CACHE_TTL = 600  # seconds; FX reference rates update at most daily.
 # ordinary mixed-country traffic evict the entry on every alternation and
 # everyone paid the full three-fetch recompute. Expired keys prune on write.
 _rates_cache = {}  # (baseline_days, threshold_pct, watch, base) -> (ts, payload)
-_index_cache = {}  # (days, base) -> (timestamp, payload)
+_index_cache = {}  # (range, base) -> (timestamp, payload)
 # Expired rates/index entries are kept this long as the fallback for a failed
 # refresh (see _cached), then pruned on write. Keys are bounded: bases are
-# validated against the provider's list and index days snap to 4 windows.
+# validated against the provider's list and the index has 9 fixed ranges.
 STALE_MAX = 24 * 3600
 _adv_cache = {}     # source -> (timestamp, payload)
 ADV_TTL = 6 * 3600  # advisories change rarely; refresh a few times a day
@@ -641,18 +641,18 @@ def _base_param(qs):
     return base if rates.is_known_base(base) else None
 
 
-# The chart's own windows (1M/3M/6M/1Y; 1Y is capped at the provider's
-# history). Any other ?days= snaps to the next one up, so each base has at most
-# four cache keys instead of one per day count.
-INDEX_WINDOWS = (30, 90, 180, rates.MAX_HISTORY_DAYS)
-
-
-def _index_days(raw):
+# The chart's ranges (rates.INDEX_RANGES). A link from before they existed
+# carries ?days= (30/90/180/365); it snaps to the range that replaced it, so
+# each base still has a fixed handful of cache keys.
+def _index_range(qs):
+    rng = (qs.get("range", [""])[0] or "").strip().lower()
+    if rng in rates.INDEX_RANGES:
+        return rng
     try:
-        days = int(raw)
+        days = int(qs.get("days", ["365"])[0])
     except (TypeError, ValueError):
         days = 365
-    return next((w for w in INDEX_WINDOWS if days <= w), INDEX_WINDOWS[-1])
+    return "1m" if days <= 30 else "3m" if days <= 90 else "6m" if days <= 180 else "1y"
 
 
 # Other names people type or link for a country -> its ISO code. Each 301s to
@@ -1303,14 +1303,14 @@ class Handler(BaseHTTPRequestHandler):
     def _handle_index(self):
         from urllib.parse import parse_qs, urlparse
         qs = parse_qs(urlparse(self.path).query)
-        days = _index_days(qs.get("days", ["365"])[0])
+        rng = _index_range(qs)
         base = _base_param(qs)
         if base is None:
             self._send_json({"error": "unknown base currency"}, 400)
             return
         try:
-            payload = _cached("index", _index_cache, (days, base), CACHE_TTL,
-                              lambda: rates.compute_index(days, base), stale_max=STALE_MAX)
+            payload = _cached("index", _index_cache, (rng, base), CACHE_TTL,
+                              lambda: rates.compute_index(rng, base), stale_max=STALE_MAX)
         except Exception as e:
             # 500, not 502: Cloudflare swallows origin 502s and serves its own
             # text page instead of this JSON.
@@ -1532,6 +1532,19 @@ def _warm_flight_value(origin=flightvalue.DEFAULT_ORIGIN, delay=20):
     threading.Thread(target=run, daemon=True).start()
 
 
+def _warm_fx_history(delay=25):
+    # The strength chart's 27 years of ECB rates (~2.7 MB, a few seconds):
+    # fetched once after boot so the first Data-tab visitor doesn't wait on it.
+    def run():
+        time.sleep(delay)
+        try:
+            rates.get_history()
+        except Exception as e:
+            print("[fx-history] warm-up skipped: %s" % e, flush=True)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def main():
     # Port: CLI arg wins, else $PORT (hosting platforms set this), else 8000.
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 8000))
@@ -1541,6 +1554,7 @@ def main():
     if os.environ.get("RENDER"):   # set by Render; never self-ping from a laptop
         _keep_warm()
     _warm_flight_value()
+    _warm_fx_history()
     # One-off after deploy: opt-outs from before they reached Buttondown (see
     # accounts.reconcile_optouts). Background, and a no-op without the
     # Buttondown/Upstash keys or once its done-marker is set.

@@ -4,9 +4,10 @@ USD favorability.
 All rates are expressed as "units of foreign currency per 1 USD", so a HIGHER
 number means the dollar is STRONGER -> better for a US traveler.
 
-The only network surface is `fetch_json` + the three get_* helpers; swap those to
+The only network surface is `fetch_json` + the get_* helpers; swap those to
 change provider. History is limited to ~366 days on this free tier, so windows
-are capped at MAX_HISTORY_DAYS.
+are capped at MAX_HISTORY_DAYS — except the strength chart's, which reads the
+ECB's history back to 1999 (get_history; see "the strength chart" below).
 """
 
 import datetime
@@ -339,30 +340,294 @@ def is_known_base(code):
     return codes is None or code in codes
 
 
-def compute_index(days=365, base="USD"):
-    """The overall strength index for any home currency (default USD) over an
-    arbitrary window. Used by the chart's window toggle."""
-    days = min(days, MAX_HISTORY_DAYS)
+# ---- the strength chart: one index, any time range --------------------------
+# The Data tab's chart reads like a stock chart: ONE series with a fixed base,
+# so the headline level is the same whichever range is on screen and only the
+# change over the range moves (it used to restart at 100 for every window, so
+# the same day read 101.29 on 1M and 101.17 on 1Y — two "levels" for one moment).
+#
+# History comes from the ECB's daily reference rates via Frankfurter (keyless,
+# back to the euro's launch in 1999), which quote exactly the MAJORS basket.
+# fxratesapi, the rest of the site's source, reaches only ~1 year back.
+HISTORY_API = "https://api.frankfurter.dev/v1"
+HISTORY_START = "1999-01-04"      # the ECB's first euro fixing
+HISTORY_TTL = 12 * 3600           # the ECB publishes once a business day
+HISTORY_STALE = 7 * 24 * 3600     # serve an older copy this long if it's down
+HISTORY_RETRY = 600               # after a failed fetch, don't ask again sooner
+# Chronic high inflation is not the dollar getting stronger: the lira fell
+# ~155x against it from 1999. Kept in, it would add ~24 points to this index's
+# since-1999 change and double its 10-year one.
+INDEX_EXCLUDE = {"TRY"}
+# Quotes that aren't market prices, dropped before chaining. Through Iceland's
+# 2008 crisis the ECB published a placeholder króna rate (EUR/ISK held at 305,
+# then stepped), then no rate at all until 2018 — so the chain took the crash
+# at a non-market price and never saw the recovery (18% of the since-1999
+# change). Dropped, the króna leaves on its last market quote.
+INDEX_MASK = {"ISK": ("2008-10-09", "2018-01-31")}
+# A home currency whose own quotes pause this long starts its series after
+# the pause: across it, every rate against it is unknown.
+MAX_GAP_DAYS = 30
+INDEX_RANGES = ("1m", "3m", "6m", "ytd", "1y", "2y", "5y", "10y", "all")
+RANGE_MONTHS = {"1m": 1, "3m": 3, "6m": 6, "1y": 12, "2y": 24, "5y": 60, "10y": 120}
+# The euro, yen, pound and franc: the currencies whose long-run moves aren't
+# mostly inflation. The chart's ⓘ gives the change against them alone.
+CORE = {"USD", "EUR", "JPY", "GBP", "CHF"}
+# A 27-year daily series is ~7,000 points; the chart is ~800px wide.
+MAX_POINTS = 550
+
+# "snap" is (fetched_at, dates, cols), replaced as ONE value, so a reader can
+# never pair one refresh's dates with another's columns.
+_history = {"snap": (0.0, [], {}), "retry_at": 0.0}
+_history_lock = threading.Lock()
+_series_cache = {}     # (base, basket) -> (history_at or fetch time, source, [(date, level)])
+FALLBACK_TTL = 3600
+
+
+def _check_history(days, old_dates):
+    """Raise unless a Frankfurter reply is the whole history: it starts at
+    the euro's launch, reaches the copy we hold, and isn't shorter than it.
+    Only a short reply was rejected before — a reply cut to its last 300 days
+    was accepted and silently re-based the index to 100 in 2025."""
+    if len(days) < 250:
+        raise ValueError("FX history came back short (%d days)" % len(days))
+    first, last = min(days), max(days)
+    if first > (datetime.date.fromisoformat(HISTORY_START) + datetime.timedelta(days=7)).isoformat():
+        raise ValueError("FX history starts at %s, not %s" % (first, HISTORY_START))
+    if old_dates and (last < old_dates[-1] or len(days) < 0.98 * len(old_dates)):
+        raise ValueError("FX history came back behind the copy held")
+
+
+def get_history():
+    """(fetched_at, dates, {code: [USD-based rate or None per date]}) from
+    1999 to the latest ECB fixing, cached HISTORY_TTL; an older copy (up to
+    HISTORY_STALE) is served while the source is down, or while another
+    request is already refreshing it. Raises when there is nothing to serve."""
+    snap = _history["snap"]
+    if snap[1] and time.time() - snap[0] < HISTORY_TTL:
+        return snap
+    have = bool(snap[1]) and time.time() - snap[0] < HISTORY_STALE
+    # With a copy to serve, nobody waits on the refresh (a hung source is ~60s
+    # of retries); with none, the rest wait for the one fetch.
+    if not _history_lock.acquire(blocking=not have):
+        return snap
+    try:
+        snap, now = _history["snap"], time.time()
+        if snap[1] and now - snap[0] < HISTORY_TTL:
+            return snap
+        have = bool(snap[1]) and now - snap[0] < HISTORY_STALE
+        if now < _history["retry_at"]:
+            if have:
+                return snap
+            raise RuntimeError("FX history unavailable")
+        try:
+            data = fetch_json("{0}/{1}..?base=USD&symbols={2}".format(
+                HISTORY_API, HISTORY_START, ",".join(sorted(MAJORS))))
+            days = {_day(k): v for k, v in (data.get("rates") or {}).items()}
+            _check_history(days, snap[1])
+        except Exception as e:
+            _history["retry_at"] = time.time() + HISTORY_RETRY
+            if have:
+                print("[fx-history] refresh failed (%s); serving the copy from %ds ago"
+                      % (e, now - snap[0]), flush=True)
+                return snap
+            raise
+        dates = sorted(days)
+        cols = {}
+        for c in MAJORS:
+            lo, hi = INDEX_MASK.get(c, ("~", "~"))
+            cols[c] = [None if lo <= d <= hi else (days[d].get(c) or None) for d in dates]
+        _history["snap"] = (time.time(), dates, cols)
+        _history["retry_at"] = 0.0
+        return _history["snap"]
+    finally:
+        _history_lock.release()
+
+
+def _index_basket(base, within=None):
+    basket = (MAJORS - INDEX_EXCLUDE - {base}) | ({"USD"} if base != "USD" else set())
+    return basket & within if within else basket
+
+
+def _chain_index(dates, cols, basket):
+    """[(date, level)], 100 on the first date. An equal-weighted geometric
+    index (geometric like the DXY), chain-linked like the Fed's dollar
+    indexes: each day moves by the geometric mean of the basket's day-on-day
+    changes, over the currencies quoted on both days. So a currency that
+    starts later (BRL, 2000) or pauses (the ECB quoted no Icelandic króna
+    2008-2018) joins and leaves without a jump, and no single currency can
+    run away with the average."""
+    out, level, prev = [], 100.0, None
+    series = [cols[c] for c in basket if c in cols]
+    for i, d in enumerate(dates):
+        if prev is None:
+            if any(s[i] for s in series):
+                out.append((d, level))
+                prev = i
+            continue
+        logs = [math.log(s[i] / s[prev]) for s in series if s[i] and s[prev]]
+        if not logs:
+            continue
+        level *= math.exp(sum(logs) / len(logs))
+        out.append((d, level))
+        prev = i
+    return out
+
+
+def _rebased_cols(dates, cols, base):
+    """(dates, columns) re-expressed per unit of `base` (which must be a
+    column), with the dollar as a column of its own — starting after the
+    base's last pause of more than MAX_GAP_DAYS (Iceland's króna: 2018)."""
+    b = cols[base]
+    i0, prev = 0, None
+    for i, v in enumerate(b):
+        if not v:
+            continue
+        if prev is not None and (datetime.date.fromisoformat(dates[i])
+                                 - datetime.date.fromisoformat(dates[prev])).days > MAX_GAP_DAYS:
+            i0 = i
+        prev = i
+    out = {c: [r / b[i] if r and b[i] else None for i, r in enumerate(col[i0:], i0)]
+           for c, col in cols.items() if c != base}
+    out["USD"] = [1.0 / v if v else None for v in b[i0:]]
+    return dates[i0:], out
+
+
+def _index_series(base, core=False):
+    """(source, [(date, level)]) for a home currency — against the whole
+    basket, or with core=True only the CORE majors (ECB history only; None
+    otherwise). The ECB history serves the dollar and the 29 currencies it
+    quotes; anything else, and anyone while it's down with nothing cached,
+    gets the last year from the site's own provider."""
+    basket = _index_basket(base, CORE if core else None)
+    if base == "USD" or base in MAJORS:
+        try:
+            at, dates, cols = get_history()
+            key = (base, core)
+            hit = _series_cache.get(key)
+            if hit and hit[0] == at and hit[1] == "ecb":
+                return hit[1], hit[2]
+            if base != "USD":
+                dates, cols = _rebased_cols(dates, cols, base)
+            pts = _chain_index(dates, cols, basket)
+            _series_cache[key] = (at, "ecb", pts)
+            return "ecb", pts
+        except Exception as e:
+            print("[fx-history] %s: falling back to one year (%s)" % (base, e), flush=True)
+    if core:
+        return "market", None
+    hit = _series_cache.get((base, False))
+    if hit and hit[1] == "market" and time.time() - hit[0] < FALLBACK_TTL:
+        return hit[1], hit[2]
     today = datetime.date.today()
-    start = (today - datetime.timedelta(days=days)).isoformat()
-    end = today.isoformat()
-    timeseries = get_timeseries(start, end)
+    ts = get_timeseries((today - datetime.timedelta(days=MAX_HISTORY_DAYS)).isoformat(),
+                        today.isoformat())
     if base != "USD":
-        _, timeseries = _rebase(get_latest()[1], timeseries, base)
-        if timeseries is None:
+        _, ts = _rebase(get_latest()[1], ts, base)
+        if ts is None:
             raise ValueError("unknown base currency: " + base)
-    basket_def = _basket_for(base)
-    points, change = _usd_index(timeseries, basket=basket_def)
-    basket = set()
-    for day in timeseries.values():
-        basket.update(c for c in day if c in basket_def)
+    dates = sorted(ts)
+    cols = {c: [ts[d].get(c) or None for d in dates] for c in basket}
+    pts = _chain_index(dates, cols, basket)
+    _series_cache[(base, False)] = (time.time(), "market", pts)
+    return "market", pts
+
+
+def _months_back(day, n):
+    y, m = divmod(day.year * 12 + day.month - 1 - n, 12)
+    m += 1
+    for dd in (day.day, 30, 29, 28):       # 31 Mar - 1 month = 28/29 Feb
+        try:
+            return datetime.date(y, m, dd)
+        except ValueError:
+            continue
+
+
+def _range_start(rng, today):
+    if rng == "ytd":     # from the old year's last close, as markets count it
+        return datetime.date(today.year - 1, 12, 31)
+    if rng == "all":
+        return None
+    return _months_back(today, RANGE_MONTHS[rng])
+
+
+def _window(pts, rng, today):
+    """The range's slice of a series: from the last point ON or BEFORE its
+    start, so the change covers the whole range."""
+    start = _range_start(rng, today)
+    if start is None:
+        return pts
+    s = start.isoformat()
+    i0 = max(0, next((i for i, p in enumerate(pts) if p[0] > s), len(pts)) - 1)
+    return pts[i0:]
+
+
+def _thin(win, cap=MAX_POINTS):
+    """At most `cap` points: the first, the last, and each bucket's low and
+    high between them — every-k-th sampling dropped the peaks (the 2022 high
+    read 142.9 on All, 144.3 on 5Y)."""
+    if len(win) <= cap:
+        return win
+    inner, nb = win[1:-1], (cap - 2) // 2
+    size = len(inner) / nb
+    out = [win[0]]
+    for b in range(nb):
+        seg = inner[int(b * size):int((b + 1) * size)]
+        if seg:
+            lo = min(range(len(seg)), key=lambda j: seg[j][1])
+            hi = max(range(len(seg)), key=lambda j: seg[j][1])
+            out.extend(seg[j] for j in sorted({lo, hi}))
+    out.append(win[-1])
+    return out
+
+
+def compute_index(rng="1y", base="USD", today=None):
+    """The strength chart for one range: the home currency's single index
+    series, cut to the range and thinned to at most MAX_POINTS. A range
+    reaches back only as far as the series does (a year on the fallback
+    source, 2018 for the króna); asked for more, it answers with the longest
+    range that fits. core_change_pct is the same range against the euro, yen,
+    pound and franc alone (ECB history only)."""
+    today = today or datetime.date.today()
+    source, pts = _index_series(base)
+    if not pts:
+        raise RuntimeError("no FX history for " + base)
+    # A range fits if the series starts no more than a week after its start
+    # (the fallback's year is 364 days); "all" only on the long history,
+    # where it isn't a second 1Y.
+    reach = datetime.date.fromisoformat(pts[0][0]) - datetime.timedelta(days=7)
+    ranges = [r for r in INDEX_RANGES
+              if (source == "ecb" if r == "all" else _range_start(r, today) >= reach)]
+    ranges = ranges or ["1m"]    # under five weeks of data: all of it, as 1M
+    if rng not in ranges:
+        asked = INDEX_RANGES.index(rng) if rng in INDEX_RANGES else INDEX_RANGES.index("1y")
+        rng = ([r for r in ranges if INDEX_RANGES.index(r) < asked] or ranges[:1])[-1]
+    win = _window(pts, rng, today)
+    first, last = win[0][1], win[-1][1]
+    change = round((last / first - 1.0) * 100.0, 2) if first else 0.0
+    core = None
+    if source == "ecb":
+        _, cpts = _index_series(base, core=True)
+        if cpts:
+            cw = _window(cpts, rng, today)
+            if len(cw) > 1 and cw[0][1]:
+                core = round((cw[-1][1] / cw[0][1] - 1.0) * 100.0, 2)
     return {
-        "days": days,
+        "range": rng,
+        "ranges": ranges,
         "base": base,
-        "index": points,
-        "index_change_pct": change,
-        "index_count": len(basket),
-        "as_of": points[-1]["date"] if points else end,
+        "source": source,
+        # Significant figures, not decimals: a lira-home index is ~0.84 after
+        # 27 years, and two decimals drew its month as a flat line.
+        "index": [{"date": d, "value": float("%.5g" % v)} for d, v in _thin(win)],
+        "change_pct": change,
+        "index_change_pct": change,        # the pre-2026-09-27 client's name
+        "index_count": len(_index_basket(base)),
+        "core_change_pct": core,
+        "core": sorted(CORE - {base}),
+        "base_date": pts[0][0],            # where the series is 100
+        "as_of": win[-1][0],
+        "days": (datetime.date.fromisoformat(win[-1][0])
+                 - datetime.date.fromisoformat(win[0][0])).days,
     }
 
 

@@ -149,13 +149,6 @@ function rangeMarker(r) {
   return `<div class="range" title="${esc(tip)}"><span style="left:${clamped}%"></span></div>`;
 }
 
-function fmtMonth(iso) {
-  // "2025-06-06" -> "Jun '25"
-  const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const p = iso.split("-");
-  return m[parseInt(p[1], 10) - 1] + " '" + p[0].slice(2);
-}
-
 const DAY_LABEL = { 30: "1 month", 90: "3 months", 180: "6 months", 365: "1 year" };
 // The FX free tier only reaches ~366 days back, so rates.py caps history at 364 —
 // which meant asking for a year got 364 days, missed this map's exact 365 key, and
@@ -167,81 +160,205 @@ function dayLabel(days) {
   return days + "d";
 }
 
+// The strength chart reads like a stock chart: one index with a fixed base
+// (Jan 1999 = 100 on the ECB history), so the level is the same on every
+// range and only the change over the range moves.
+const RANGE_SPAN = { "1m": "past month", "3m": "past 3 months", "6m": "past 6 months", ytd: "this year",
+                     "1y": "past year", "2y": "past 2 years", "5y": "past 5 years", "10y": "past 10 years" };
+const fmtIdx = (v) => (Math.abs(v) >= 10 ? v.toFixed(1) : v.toPrecision(3));
+const fmtPct = (p) => (p >= 0 ? "+" : "−") + Math.abs(p).toFixed(Math.abs(p) >= 10 ? 1 : 2) + "%";
+// "2026-09-25" -> "Sep 25, 2026"; "Jan 1999" for the base
+function fmtDay(iso) {
+  const p = iso.split("-");
+  return MON_ABBR[+p[1] - 1] + " " + (+p[2]) + ", " + p[0];
+}
+const CORE_NAME = { USD: "dollar", EUR: "euro", JPY: "yen", GBP: "pound", CHF: "Swiss franc" };
+const fmtMonYear = (iso) => MON_ABBR[+iso.slice(5, 7) - 1] + " " + iso.slice(0, 4);
+// A round step for ~n ticks across span: 1, 2, 2.5 or 5 x 10^k.
+function niceStep(span, n) {
+  const raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (raw <= m * mag) return m * mag;
+  return 10 * mag;
+}
+// Calendar ticks, like a stock chart's: weeks on a month, months up to two
+// years (every 2nd on a year, every 3rd on two), then years. -> [{i, label,
+// year}], year = a year boundary, which is placed first when space is short.
+function indexTicks(pts) {
+  const first = new Date(pts[0].date + "T00:00:00Z"), last = new Date(pts[pts.length - 1].date + "T00:00:00Z");
+  const span = (last - first) / 86400000;
+  const out = [];
+  let prevKey = null;
+  pts.forEach((p, i) => {
+    const d = new Date(p.date + "T00:00:00Z");
+    let key, label;
+    if (span <= 45) {
+      // The first fixing of each week (Monday, or later after a holiday).
+      const wk = Math.floor((d - Date.UTC(1970, 0, 5)) / (7 * 86400000));
+      key = wk; label = MON_ABBR[d.getUTCMonth()] + " " + d.getUTCDate();
+    } else if (span <= 800) {
+      const m = d.getUTCMonth(), step = span <= 200 ? 1 : span <= 400 ? 2 : 3;
+      key = d.getUTCFullYear() * 12 + m;
+      if (m % step) { prevKey = key; return; }
+      label = m === 0 ? String(d.getUTCFullYear()) : MON_ABBR[m];
+      if (m === 0) { if (i > 0 && key !== prevKey) out.push({ i, label, year: true }); prevKey = key; return; }
+    } else {
+      const y = d.getUTCFullYear(), yrs = span / 365.25;
+      const step = yrs <= 6 ? 1 : yrs <= 12 ? 2 : 5;
+      key = y;
+      if (y % step) { prevKey = key; return; }
+      label = String(y);
+      if (i > 0 && key !== prevKey) out.push({ i, label, year: true });
+      prevKey = key;
+      return;
+    }
+    if (i > 0 && key !== prevKey) out.push({ i, label });
+    prevKey = key;
+  });
+  return out;
+}
+
 function renderIndex(data) {
   const pts = data.index || [];
-  const chg = data.index_change_pct || 0;
+  const rng = data.range || "1y";
+  const chg = Number(data.change_pct != null ? data.change_pct : data.index_change_pct) || 0;
   const up = chg >= 0;
-  const label = dayLabel(data.days);
-
-  $("indexnow").textContent = pts.length ? pts[pts.length - 1].value.toFixed(1) : "—";
-  const chgEl = $("indexchg");
-  chgEl.textContent = (up ? "▲ +" : "▼ ") + chg + " over " + label;
-  chgEl.className = up ? "pos" : "neg";
-  $("chartsub").textContent =
-    `Equal-weighted across ${data.index_count} currencies · ${pts.length ? pts[0].date : ""} → ${data.as_of}`;
+  const span = rng === "all" ? "since " + (pts.length ? pts[0].date.slice(0, 4) : "") : RANGE_SPAN[rng] || "";
+  const nowEl = $("indexnow"), chgEl = $("indexchg");
+  const showHead = (value, text, pos) => {
+    nowEl.textContent = value;
+    chgEl.textContent = text;
+    chgEl.className = pos ? "pos" : "neg";
+  };
+  const restHead = () => showHead(pts.length ? fmtIdx(pts[pts.length - 1].value) : "—",
+                                  (up ? "▲ " : "▼ ") + fmtPct(chg) + " " + span, up);
+  restHead();
+  $("chartsub").textContent = `Equal-weighted across ${data.index_count} currencies`
+    + (pts.length ? ` · ${fmtDay(pts[0].date)} → ${fmtDay(data.as_of)}` : "");
+  // Nominal, and over decades that matters: high-inflation currencies drift
+  // down against everything, which reads as the dollar "up 31% since 1999"
+  // while against the euro, yen, pound and franc it is ~2%. The ⓘ says so,
+  // with that core figure for the same range.
+  const core = data.core_change_pct;
+  const coreNames = ["USD", "EUR", "JPY", "GBP", "CHF"].filter((c) => (data.core || []).includes(c))
+    .map((c) => CORE_NAME[c]);
+  const tip = "Exchange rates before inflation: a currency with high inflation slides against the rest "
+    + "over the years, so long ranges can run well ahead of what prices abroad feel like."
+    + (core != null && coreNames.length
+      ? ` Against the ${coreNames.slice(0, -1).join(", ")} and ${coreNames[coreNames.length - 1]} alone: ${fmtPct(core)} ${span}.`
+      : "");
+  $("chartnote").innerHTML = esc(`Index: ${data.base_date ? fmtMonYear(data.base_date) : "start"} = 100. Higher = `
+    + `${baseWord(data.base || "USD")} buys more of ${data.index_count} other currencies (before inflation).`)
+    + ` <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`;
 
   const host = $("chart");
   if (pts.length < 2) { host.innerHTML = "<p class='hint'>Not enough data.</p>"; return; }
 
-  // Geometry (viewBox units; scales to container width via CSS).
-  const W = 800, H = 260, padL = 44, padR = 16, padT = 14, padB = 26;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-
+  // Drawn at the card's own pixel width (and redrawn when it changes), so the
+  // axis text is 12px on a phone too — a fixed 800-wide viewBox shrank it to
+  // ~6px there. Price axis on the right, as on a stock chart.
+  const W = Math.round(host.clientWidth) || 800;
+  const H = Math.max(190, Math.min(300, Math.round(W * 0.4)));
   const vals = pts.map((p) => p.value);
-  let lo = Math.min(100, ...vals), hi = Math.max(100, ...vals);
-  const pad = (hi - lo) * 0.12 || 1;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.1 || Math.abs(hi) * 0.01 || 1;
   lo -= pad; hi += pad;
-
+  // Price levels on round values, at least three: four steps sometimes left two.
+  let step = niceStep(hi - lo, 4);
+  for (const n of [5, 6, 8]) {
+    if (Math.floor(hi / step) - Math.ceil(lo / step) + 1 >= 3) break;
+    step = niceStep(hi - lo, n);
+  }
+  const dec = (String(+step.toPrecision(2)).split(".")[1] || "").length;   // 2.5 -> 1, 0.05 -> 2
+  const levels = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) levels.push(v);
+  // The axis is as wide as its widest label ("126.75" clipped at a fixed 46).
+  const padL = 2, padT = 12, padB = 26;
+  const padR = Math.max(46, Math.ceil(7 * Math.max(...levels.map((v) => v.toFixed(dec).length))) + 12);
+  const plotW = W - padL - padR, plotH = H - padT - padB, right = W - padR;
   const x = (i) => padL + (i / (pts.length - 1)) * plotW;
   const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * plotH;
 
-  const color = up ? "#0a7d28" : "#b00020";
-  const fill = up ? "rgba(10,125,40,0.08)" : "rgba(176,0,32,0.07)";
-
-  // Theme-aware chart chrome (gridlines/labels follow light/dark mode).
+  const color = up ? cssVar("--green", "#0a7d28") : cssVar("--red", "#b00020");
   const gridCol = cssVar("--chartgrid", "#eee");
   const labCol = cssVar("--gray", "#999");
 
-  // Y gridlines + labels (~4 ticks).
+  // Price gridlines, labelled at the right edge.
   let grid = "";
-  const ticks = 4;
-  for (let t = 0; t <= ticks; t++) {
-    const v = lo + (t / ticks) * (hi - lo);
-    const gy = y(v);
-    grid += `<line x1="${padL}" y1="${gy}" x2="${W - padR}" y2="${gy}" stroke="${gridCol}" stroke-width="1"/>`;
-    grid += `<text x="${padL - 6}" y="${gy + 3}" text-anchor="end" font-size="10" fill="${labCol}">${v.toFixed(1)}</text>`;
+  for (const v of levels) {
+    const gy = y(v).toFixed(1);
+    grid += `<line x1="${padL}" y1="${gy}" x2="${right}" y2="${gy}" stroke="${gridCol}" stroke-width="1"/>`
+      + `<text x="${right + 8}" y="${(+gy + 4).toFixed(1)}" font-size="12" fill="${labCol}">${v.toFixed(dec)}</text>`;
   }
-
-  // Baseline at 100.
-  const by = y(100);
-  const baseline =
-    `<line x1="${padL}" y1="${by}" x2="${W - padR}" y2="${by}" stroke="${labCol}" stroke-width="1" stroke-dasharray="4 3"/>` +
-    `<text x="${W - padR}" y="${by - 4}" text-anchor="end" font-size="10" fill="${labCol}">100 (start)</text>`;
-
-  // X date labels (~5 evenly spaced).
+  // Date gridlines at calendar boundaries; a label that would run past the
+  // plot is dropped rather than squeezed.
+  // Years go down first, so a narrow card keeps "2025 … 2026" rather than
+  // "Oct Apr Oct Apr"; months and weeks fill in where they fit.
+  const lw = (t) => 7.5 * t.label.length + 12;
+  const placed = [];
+  const ticks = indexTicks(pts);
+  for (const t of ticks.filter((t) => t.year).concat(ticks.filter((t) => !t.year))) {
+    const tx = x(t.i);
+    if (tx > right - lw(t) + 8) continue;
+    if (placed.some((p) => (tx >= p.x ? tx - p.x < lw(p) : p.x - tx < lw(t)))) continue;
+    placed.push({ x: tx, label: t.label, i: t.i });
+  }
   let xlab = "";
-  const xticks = 5;
-  for (let t = 0; t <= xticks; t++) {
-    const i = Math.round((t / xticks) * (pts.length - 1));
-    xlab += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="${labCol}">${fmtMonth(pts[i].date)}</text>`;
+  for (const t of placed.sort((a, b) => a.x - b.x)) {
+    const tx = t.x;
+    xlab += `<line x1="${tx.toFixed(1)}" y1="${padT}" x2="${tx.toFixed(1)}" y2="${H - padB}" stroke="${gridCol}" stroke-width="1"/>`
+      + `<text x="${(tx + 4).toFixed(1)}" y="${H - 7}" font-size="12" fill="${labCol}">${t.label}</text>`;
   }
+  // Where the range started, dotted: above it = up over the range.
+  const sy = y(pts[0].value).toFixed(1);
+  const startLine = `<line x1="${padL}" y1="${sy}" x2="${right}" y2="${sy}" stroke="${labCol}" stroke-width="1" stroke-dasharray="2 4" opacity=".7"/>`;
 
-  // Line + area paths.
   const line = pts.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p.value).toFixed(1)).join(" ");
-  const area = `M${x(0).toFixed(1)} ${y(pts[0].value).toFixed(1)} ` +
-    pts.map((p, i) => "L" + x(i).toFixed(1) + " " + y(p.value).toFixed(1)).join(" ") +
-    ` L${x(pts.length - 1).toFixed(1)} ${by} L${x(0).toFixed(1)} ${by} Z`;
-
+  const area = line + ` L${x(pts.length - 1).toFixed(1)} ${H - padB} L${x(0).toFixed(1)} ${H - padB} Z`;
   const lastX = x(pts.length - 1), lastY = y(pts[pts.length - 1].value);
 
   host.innerHTML =
-    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(data.base || "USD")} strength index over time">` +
-    grid + baseline +
-    `<path d="${area}" fill="${fill}"/>` +
-    `<path d="${line}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>` +
-    `<circle cx="${lastX}" cy="${lastY}" r="3.5" fill="${color}"/>` +
-    xlab +
-    `</svg>`;
+    `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(`${data.base || "USD"} strength index ${fmtIdx(vals[vals.length - 1])}, ${fmtPct(chg)} ${span}`)}">`
+    + `<defs><linearGradient id="idxfill" x1="0" y1="0" x2="0" y2="1">`
+    + `<stop offset="0" stop-color="${color}" stop-opacity=".32"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>`
+    + grid + xlab + startLine
+    + `<path d="${area}" fill="url(#idxfill)"/>`
+    + `<path d="${line}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linejoin="round"/>`
+    + `<circle cx="${lastX.toFixed(1)}" cy="${lastY.toFixed(1)}" r="3.5" fill="${color}"/>`
+    + `<g class="scrub" visibility="hidden"><line y1="${padT}" y2="${H - padB}" stroke="${labCol}" stroke-width="1"/>`
+    + `<circle r="4.5" fill="${color}" stroke="${cssVar("--card", "#fff")}" stroke-width="2"/></g>`
+    + `</svg>`;
+
+  // Scrub: hovering (or dragging a finger along) the chart shows that day in
+  // the headline — its level, date and change since the range began.
+  const svg = host.querySelector("svg"), scrub = svg.querySelector(".scrub");
+  const sl = scrub.querySelector("line"), sc = scrub.querySelector("circle");
+  const at = (e) => {
+    const r = svg.getBoundingClientRect();
+    const vx = ((e.clientX - r.left) / r.width) * W;
+    const i = Math.max(0, Math.min(pts.length - 1, Math.round(((vx - padL) / plotW) * (pts.length - 1))));
+    const px = x(i).toFixed(1), py = y(pts[i].value).toFixed(1);
+    sl.setAttribute("x1", px); sl.setAttribute("x2", px);
+    sc.setAttribute("cx", px); sc.setAttribute("cy", py);
+    scrub.setAttribute("visibility", "visible");
+    const c = (pts[i].value / pts[0].value - 1) * 100;
+    showHead(fmtIdx(pts[i].value), fmtDay(pts[i].date) + " · " + (c >= 0 ? "▲ " : "▼ ") + fmtPct(c), c >= 0);
+  };
+  const off = () => { scrub.setAttribute("visibility", "hidden"); restHead(); };
+  svg.addEventListener("pointermove", at);
+  svg.addEventListener("pointerdown", at);
+  svg.addEventListener("pointerleave", off);
+  svg.addEventListener("pointercancel", off);
+  svg.addEventListener("pointerup", (e) => { if (e.pointerType !== "mouse") off(); });
+  // Redraw whenever the card's width differs from the width last DRAWN — a
+  // render while the tab was hidden drew at the 800 fallback, and comparing
+  // with the previous observed width left it there (5px text on a phone).
+  // Next frame, not inside the callback: the redraw changes the card's height,
+  // which inside it is a "ResizeObserver loop" error in Firefox and Safari.
+  host._w = W;
+  if (!host._ro && window.ResizeObserver) {
+    host._ro = new ResizeObserver(() => requestAnimationFrame(refitIndex));
+    host._ro.observe(host);
+  }
 }
 
 // Client-side sort for the currency table. Default matches the server order
@@ -609,23 +726,55 @@ async function checkNow() {
   }
 }
 
-// ---- index chart window toggle --------------------------------------------
-let activeDays = 365;
+// ---- index chart range toggle --------------------------------------------
+const INDEX_RANGES = ["1m", "3m", "6m", "ytd", "1y", "2y", "5y", "10y", "all"];
+let activeRange = "1y";
+// ?win= carries a range; a link from before ranges existed carries days.
+function rangeFromParam(v) {
+  v = String(v || "").toLowerCase();
+  if (INDEX_RANGES.includes(v)) return v;
+  const d = parseInt(v, 10);
+  return !d ? "1y" : d <= 30 ? "1m" : d <= 90 ? "3m" : d <= 180 ? "6m" : "1y";
+}
+// A home currency the ECB doesn't quote has a year of history (and the
+// Icelandic króna starts in 2018), so the ranges it can't reach are off.
+function markRange(active, data) {
+  for (const b of document.querySelectorAll("#windowtoggle button")) {
+    const r = b.dataset.range, on = r === active;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+    if (data && data.ranges) {
+      b.disabled = !data.ranges.includes(r);
+      b.title = !b.disabled ? ""
+        : data.source === "market" ? "Only a year of history for " + data.base
+        : data.base + " history starts " + fmtMonYear(data.base_date || "");
+    }
+  }
+}
+
+// A render while the chart was hidden (a home-currency change on another tab)
+// drew at the 800 fallback. The ResizeObserver catches the chart reappearing;
+// showing the Currency view checks too, for browsers that hold observers back.
+function refitIndex() {
+  const h = $("chart");
+  if (lastIndexData && h.clientWidth && Math.abs(h.clientWidth - (h._w || 0)) > 4) renderIndex(lastIndexData);
+}
 
 let _indexSeq = 0;
-async function loadIndex(days) {
-  activeDays = days;
-  for (const b of document.querySelectorAll("#windowtoggle button")) {
-    b.classList.toggle("active", parseInt(b.dataset.days, 10) === days);
-  }
+async function loadIndex(range) {
+  activeRange = INDEX_RANGES.includes(range) ? range : "1y";
+  markRange(activeRange);
   const base = homeBase, seq = ++_indexSeq;
   try {
-    const data = await getJSON("/api/index?days=" + days +
+    const data = await getJSON("/api/index?range=" + activeRange +
       (base !== "USD" ? "&base=" + base : ""));
-    // Same newest-wins rule as loadRates: a slow earlier window or currency
+    // Same newest-wins rule as loadRates: a slow earlier range or currency
     // must not repaint the chart under the button now active.
     if (seq !== _indexSeq) return;
-    if (base !== homeBase) return loadIndex(activeDays);
+    if (base !== homeBase) return loadIndex(activeRange);
+    // A range this currency's history can't reach comes back as 1Y.
+    if (data.range && INDEX_RANGES.includes(data.range)) activeRange = data.range;
+    markRange(activeRange, data);
     lastIndexData = data;
     renderIndex(lastIndexData);
     syncURL();
@@ -635,7 +784,7 @@ async function loadIndex(days) {
 }
 
 for (const b of document.querySelectorAll("#windowtoggle button")) {
-  b.addEventListener("click", () => loadIndex(parseInt(b.dataset.days, 10)));
+  b.addEventListener("click", () => loadIndex(b.dataset.range));
 }
 
 // ---- world heatmap ---------------------------------------------------------
@@ -1493,7 +1642,7 @@ function affordColor(pl) {
 }
 
 // ---- wiring ---------------------------------------------------------------
-$("refresh").addEventListener("click", () => { loadRates(); loadIndex(activeDays); });
+$("refresh").addEventListener("click", () => { loadRates(); loadIndex(activeRange); });
 $("check").addEventListener("click", checkNow);
 $("save").addEventListener("click", saveConfig);
 $("toggleSettings").addEventListener("click", async () => {
@@ -3175,7 +3324,7 @@ function setHomeCur(code, manual) {
   // The Data tab reasons in this currency too, so refetch it in the new base.
   // Guarded on lastRates, not a loaded.* flag: the rates table isn't lazy — it
   // loads at boot — so there is no flag for it, and there was never one to check.
-  if (changed && lastRates) { loadRates(); loadIndex(activeDays); }
+  if (changed && lastRates) { loadRates(); loadIndex(activeRange); }
   // The guide's FX trend AND fare chart are anchored to the home currency —
   // an open guide must not keep showing the previous one (the fare chart's
   // display currency falls back to homeBase when unpinned; its fetch is
@@ -5482,7 +5631,7 @@ function renderFlights() {
       <td class="num">${mfare}</td>
       <td class="num">${fareCell}</td>
       <td class="num">${Number(c.min) ? `${approx}${esc(cur)} ${F(Number(c.min)).toLocaleString()}` : `${esc(cur)} ?`}</td>
-      <td class="num">${fmtDuration(c.dur)}</td>
+      <td class="num"${c.dur && c.dur_city ? ` title="to ${esc(c.dur_city)}, one way — the most direct cached flight"` : ""}>${fmtDuration(c.dur)}</td>
       <td class="num">${fmtStops(c.stops)}</td></tr>`;
   }).join("")
     || '<tr><td colspan="7">No fares found from this country.</td></tr>';
@@ -5538,7 +5687,8 @@ function fmtDuration(mins) {
   const h = Math.floor(m / 60), r = m % 60;
   return (h ? h + "h" : "") + (r ? " " + r + "m" : (h ? "" : r + "m")) || "—";
 }
-// Layovers each way (the server sends the most direct cached flight's).
+// Layovers each way: the table's are the most direct cached flight's, the
+// month strips' the cheapest fare's.
 function fmtStops(stops) {
   if (stops == null) return "—";
   const n = Number(stops);
@@ -6542,7 +6692,8 @@ async function setDataMode(mode) {
       loaded.risk = true;
     }
     if (mode === "currency") {
-      if (!lastIndexData) loadIndex(activeDays);   // deferred from init
+      if (!lastIndexData) loadIndex(activeRange);   // deferred from init
+      else refitIndex();
       // Re-render the (already-populated) rates table so rows carry their level.
       if (!loaded.curRisk) {
         loaded.curRisk = true;
@@ -6839,7 +6990,7 @@ function buildShareURL(forShare) {
     // The Flights tab bands fares for a month, so its link keeps the one on
     // screen — same rule as Top Picks for the address bar.
     if (dataMode === "flights" && (forShare || travelMonthChosen)) q.set("vmn", String(flightMonthNum()));
-    if (dataMode === "currency" && activeDays !== 365) q.set("win", String(activeDays));
+    if (dataMode === "currency" && activeRange !== "1y") q.set("win", activeRange);
     if (dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
     if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
     // Clean, indexable URL: /guide/<slug> (no query string). Same-origin so
@@ -7031,7 +7182,7 @@ async function postApplyShared() {
     await openGuideFor(gc);
     if (sharedQ.get("ai")) openGuideAI(gc);   // email "Plan with AI" deep link
   }
-  if (sharedQ.get("win")) loadIndex(parseInt(sharedQ.get("win"), 10) || 365);
+  if (sharedQ.get("win")) loadIndex(rangeFromParam(sharedQ.get("win")));
   const db = sharedQ.get("db");
   // A currency carried on a shared link is an explicit choice: pin it, and let
   // setHomeCur mirror both pickers and refresh whatever has loaded.

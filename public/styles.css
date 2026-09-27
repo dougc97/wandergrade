@@ -401,11 +401,19 @@ html[data-tab="guide"] header .sub { display: none; }
 .bignum small.pos { color: var(--green); }
 .bignum small.neg { color: var(--red); }
 .chart { margin-top: 12px; }
-/* Same trick as .map below: the chart starts empty and becomes an 800x260 SVG,
-   pushing the note and table under it down a card-height. Reserve its box until
-   the SVG exists. */
-.chart:not(:has(svg)) { aspect-ratio: 800 / 260; }
+/* Same trick as .map below: the chart starts empty and becomes an SVG as tall
+   as renderIndex draws it (40% of its width, 190-300px), pushing the note and
+   table under it down a card-height. Reserve that box until the SVG exists
+   (max-width: the 190px floor alone made the ratio 475px wide on a phone). */
+.chart:not(:has(svg)) { aspect-ratio: 5 / 2; min-height: 190px; max-height: 300px; max-width: 100%; }
 .chart svg { width: 100%; height: auto; display: block; }
+/* The strength chart scrubs under a finger sideways; vertical drags still
+   scroll the page. */
+#chart svg { touch-action: pan-y; cursor: crosshair; }
+/* Nine ranges, spread across the card like a stock chart's. */
+.rangetoggle { display: flex; width: 100%; box-sizing: border-box; }
+.rangetoggle button { flex: 1 1 0; min-width: 0; padding: 5px 0; white-space: nowrap; }
+.rangetoggle button:disabled { opacity: .35; cursor: default; }
 .chartnote { color: var(--gray); font-size: 12px; margin: 6px 0 0; }
 
 .tablewrap { margin-top: 18px; padding-bottom: 24px; overflow-x: auto; }
