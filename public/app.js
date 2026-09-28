@@ -277,7 +277,11 @@ function renderIndex(data) {
 // dotted reference level, drawn only inside the range), noStart (no start line).
 function stockChart(host, pts, o) {
   const W = Math.round(host.clientWidth) || 800;
-  const H = Math.max(190, Math.min(300, Math.round(W * 0.4)));
+  // In a card row the box is sized by the layout (as tall as its neighbour
+  // card leaves room for) and the chart fills it; elsewhere it takes a shape.
+  const fill = !!host.closest(".toprow");
+  const H = fill && host.clientHeight >= 150 ? Math.round(host.clientHeight)
+    : Math.max(190, Math.min(300, Math.round(W * 0.4)));
   const vals = pts.map((p) => p.value);
   let lo = Math.min(...vals), hi = Math.max(...vals);
   const pad = (hi - lo) * 0.1 || Math.abs(hi) * 0.01 || 1;
@@ -384,7 +388,7 @@ function stockChart(host, pts, o) {
   // with the previous observed width left it there (5px text on a phone).
   // Next frame, not inside the callback: the redraw changes the host's height,
   // which inside it is a "ResizeObserver loop" error in Firefox and Safari.
-  host._w = W;
+  host._w = W; host._h = H;
   host._redraw = () => stockChart(host, pts, o);
   if (!host._ro && window.ResizeObserver) {
     host._ro = new ResizeObserver(() => requestAnimationFrame(() => refitChart(host)));
@@ -392,7 +396,10 @@ function stockChart(host, pts, o) {
   }
 }
 function refitChart(host) {
-  if (host && host._redraw && host.clientWidth && Math.abs(host.clientWidth - (host._w || 0)) > 4) host._redraw();
+  if (!host || !host._redraw || !host.clientWidth) return;
+  const fill = !!host.closest(".toprow") && host.clientHeight >= 150;
+  if (Math.abs(host.clientWidth - (host._w || 0)) > 4
+      || (fill && Math.abs(host.clientHeight - (host._h || 0)) > 4)) host._redraw();
 }
 
 // Client-side sort for the currency table. Default matches the server order

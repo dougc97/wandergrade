@@ -295,9 +295,16 @@ small { color: var(--gray); font-weight: 400; }
 .watchlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; margin-bottom: 8px; }
 .watchlist label { flex-direction: row; align-items: center; gap: 6px; font-weight: 400; font-size: 13px; }
 
+/* Map and chart cards side by side, the same height: the row stretches both
+   to the taller (usually the map card), and the chart grows into the space
+   (its svg is absolutely placed, so drawing it never pushes the card taller —
+   stockChart sizes it to the box). Stacked below 760px, each takes its own. */
 .toprow { max-width: 1200px; margin: 18px auto 0; padding: 0 20px;
-  display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+  display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: stretch; }
 .toprow .mapcard, .toprow .chartcard { margin-top: 0; min-width: 0; }
+.toprow .chartcard { display: flex; flex-direction: column; }
+.toprow .chartcard > .chart { flex: 1 1 auto; position: relative; min-height: 190px; }
+.toprow .chartcard > .chart > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 
 .mapcard, .chartcard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 14px; }
 .map { margin-top: 10px; }
@@ -1277,7 +1284,11 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 
 @media (max-width: 560px) { .actthumb { width: 68px; height: 50px; } }
 
-@media (max-width: 760px) { .toprow { grid-template-columns: 1fr; } }
+@media (max-width: 760px) {
+  .toprow { grid-template-columns: 1fr; }
+  /* Stacked, nothing to stretch to: the chart keeps its own shape. */
+  .toprow .chartcard > .chart { min-height: clamp(190px, 40vw, 300px); }
+}
 
 @media (max-width: 680px) {
   /* keep numeric columns readable on phones — scroll sideways instead of crushing */
