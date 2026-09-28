@@ -456,9 +456,6 @@ html[data-tab="guide"] header .sub { display: none; }
 .rangetoggle button { flex: 1 1 0; min-width: 0; padding: 5px 0; white-space: nowrap; }
 .rangetoggle button:disabled { opacity: .35; cursor: default; }
 .chartnote { color: var(--gray); font-size: 12px; margin: 6px 0 0; }
-/* Cost over time: in the same 1200px column as the map and table around it
-   (.chartcard alone ran edge to edge on a wide screen). */
-#colCard { max-width: 1200px; margin-left: auto; margin-right: auto; }
 /* Nothing to draw: no reserved chart-sized void. */
 #colChart:has(.hint) { aspect-ratio: auto; min-height: 0; }
 /* Cost over time: country picker and range side by side, wrapping on phones. */

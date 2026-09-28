@@ -548,7 +548,10 @@
     </div>
 
     <div id="dataSubAfford" hidden>
-      <div class="cardwide">
+      <!-- Map and chart side by side, like the Currency tab: the map opens full
+           screen from its zoom stack when it needs the room. -->
+      <div class="toprow">
+      <section class="mapcard">
         <div class="charthead">
           <div>
             <h2>Cost of living <span class="muted">how far your money goes</span></h2>
@@ -565,7 +568,7 @@
           <button id="affShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
         </div>
         <div id="affMap" class="map">Loading…</div>
-      </div>
+      </section>
       <!-- Cost over time: the map's price level, per year since 1990 and then
            today (renderCol). Follows the Vs home picker; a country clicked on
            the map above becomes the line. -->
@@ -594,6 +597,7 @@
         <div id="colChart" class="chart"></div>
         <p class="chartnote" id="colNote"></p>
       </section>
+      </div>
       <div class="filterbar">
         <input id="affFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
         <label class="chk"><input type="checkbox" id="affRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>

@@ -655,17 +655,25 @@ async function loadRates() {
 // currency out the way the rates table below them already does. The name comes
 // from the same rows the table renders, so the two can never disagree. It also
 // makes the searchable select match on words — typing "turkish" finds TRY.
+// The dollar is the rate feed's base, so it has no row of its own to take a
+// name from — and read as a bare "USD" at the top of every list of named
+// currencies. Named like the rest, and sorted with them.
+const BASE_CUR_NAME = { USD: "US Dollar" };
 function curLabel(code) {
   const row = lastRates && lastRates.rows.find((r) => r.code === code);
-  const name = row && row.name;
+  const name = (row && row.name) || BASE_CUR_NAME[code];
   return name && name !== code ? code + " (" + name + ")" : code;
 }
+// Every currency the pickers offer, A-Z (the dollar in its place, not first).
+function pickerCurrencies() {
+  return [...new Set(["USD", ...lastRates.rows.map((r) => r.code)])].sort();
+}
 
-// Populate the "My currency" picker once real data exists (USD first).
+// Populate the "My currency" picker once real data exists.
 function buildBaseSelect() {
   const sel = $("dataBase");
   if (!sel || sel.options.length > 1 || !lastRates) return;
-  const codes = ["USD", ...lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort()];
+  const codes = pickerCurrencies();
   sel.innerHTML = codes.map((c) =>
     `<option value="${esc(c)}"${c === homeBase ? " selected" : ""}>${esc(curLabel(c))}</option>`).join("");
   // Writes through the same setter as Top Picks' "In" picker, so the two can't
@@ -3734,7 +3742,7 @@ function setHomeCur(code, manual) {
 function initHomeCur() {
   const sel = $("homeCur");
   if (!sel || sel.options.length > 1 || !lastRates) return;
-  const codes = ["USD", ...lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort()];
+  const codes = pickerCurrencies();
   sel.innerHTML = codes.map((c) => `<option value="${esc(c)}">${esc(curLabel(c))}</option>`).join("");
   const stored = localStorage.getItem("fx_homecur");
   const start = homeManual && codes.includes(stored) ? stored : homeCurAuto();
