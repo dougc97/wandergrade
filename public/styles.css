@@ -314,6 +314,16 @@ small { color: var(--gray); font-weight: 400; }
    apart instead of 16, and the sub-lines cut to one line + ⓘ (app.js). */
 .toprow .mapcard, .toprow .chartcard { padding: 14px 16px 12px; }
 .toprow .charthead { gap: 8px 14px; }
+.toprow .chartsub { margin-top: 2px; }
+.toprow .map { margin-top: 8px; }
+.toprow .mappicksrow { margin-top: 6px; }
+/* The legend shares a row with whatever is beside it — the 📸, or the Cost
+   card's home picker — wrapping its own swatches inside that space rather
+   than claiming a row of its own the moment it is wider than the gap left.
+   The 160px basis is what flex-wrap fits into the row (then it grows); a
+   smaller one let it be squeezed to a word-per-line column. */
+.toprow .charthead .legend { flex: 1 1 160px; min-width: 0; }
+.toprow .legend .bar { width: 90px; }
 .toprow .chartcard { display: flex; flex-direction: column; }
 .toprow .chartcard > .chart { flex: 1 1 auto; position: relative; min-height: 190px; }
 .toprow .chartcard > .chart > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -509,6 +519,8 @@ html[data-tab="guide"] header .sub { display: none; }
 .rangetoggle button { flex: 1 1 0; min-width: 0; padding: 5px 0; white-space: nowrap; }
 .rangetoggle button:disabled { opacity: .35; cursor: default; }
 .chartnote { color: var(--gray); font-size: 12px; margin: 6px 0 0; }
+/* A one-line note above a Data table (the Flights affiliate disclosure). */
+.tablenote { color: var(--gray); font-size: 12px; margin: 0 0 8px; }
 /* Nothing to draw: no reserved chart-sized void. */
 #colChart:has(.hint) { aspect-ratio: auto; min-height: 0; }
 /* Cost over time: country picker and range side by side, wrapping on phones. */
@@ -1408,8 +1420,6 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
      Dollar)"), and at 140 the closed box showed "USD (US D". */
   #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 172px; }
   #dataSubCurrency > .bar .pickgroup .combo { min-width: 0; flex: 1; }
-  /* A shorter ramp lets the legend and the 📸 share one line in a 328px card. */
-  .toprow .legend .bar { width: 90px; }
   #dataSubCurrency > .bar .pickgroup .combo-input { width: 100%; min-width: 0; }
   /* That picker is pinned to the right edge here, and ~100px wide: hang its
      list from the right and let it be as wide as the screen allows, so the

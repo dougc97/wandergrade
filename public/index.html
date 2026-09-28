@@ -621,7 +621,7 @@
                  also the widest column here ("about the same"), squeezing the
                  country names. The word still rides the price level in the
                  Currency sub-tab, where it isn't sat beside its own source. -->
-            <th class="num sortable" aria-sort="none" data-sk="buys" title="what 100 in your home currency buys there, measured in at-home goods (100 ÷ price level)"><button type="button" class="sortbtn">100 buys ~</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="buys" title="what 100 in your home currency buys there, measured in at-home goods (100 ÷ price level)"><button type="button" class="sortbtn">100 buys</button></th>
           </tr></thead>
           <tbody id="affRows"><tr><td colspan="4">Loading…</td></tr></tbody>
         </table>
@@ -752,6 +752,9 @@
         <label class="chk"><input type="checkbox" id="flightRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>
       </div>
       <section class="tablewrap">
+        <!-- The affiliate disclosure sits with the fare links it is about, not
+             in the map card's header (which the whole card row is as tall as). -->
+        <p class="tablenote"><b>fares ↗</b> open a live search on Aviasales — affiliate links: booking through them may earn us a commission at no extra cost to you.</p>
         <table id="flightTable">
           <thead><tr>
             <th class="sortable" aria-sort="none" data-sk="dest"><button type="button" class="sortbtn">Destination country</button></th>

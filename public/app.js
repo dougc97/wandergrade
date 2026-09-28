@@ -1586,7 +1586,8 @@ function renderMap(rows, base) {
   base = base || "USD";
   const byCode = {};
   for (const r of rows) byCode[r.code] = r;
-  const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
+  // One decimal, like the table: the raw figure printed "+53.76%" beside "+53.8%".
+  const sgn = (p) => (p >= 0 ? "+" : "−") + Math.abs(p).toFixed(1) + "%";
 
   let tracked = 0;
   drawMap("map", (f) => {
@@ -1598,8 +1599,13 @@ function renderMap(rows, base) {
     }
     if (row) {
       tracked++;
+      // The fill is the nominal rate and the hover says so, with the move
+      // after inflation beside it where the country has a figure: the list
+      // under the map ranks by that, and a lira "+9%" is a loss by it.
+      const real = realFxPct(iso, row.strength_pct);
       return { fill: strengthColor(row.strength_pct),
-        title: `${f.properties.name} — ${cur}: ${sgn(row.strength_pct)} vs 1yr avg` };
+        title: `${f.properties.name} — ${cur}: ${sgn(row.strength_pct)} vs 1-yr avg`
+          + (real != null ? ` (before inflation; ${sgn(real)} after)` : "") };
     }
     return { fill: NODATA, title: f.properties.name + " — not tracked" };
   }, base + " strength world heatmap");
@@ -1616,13 +1622,15 @@ function renderMap(rows, base) {
     })
     .filter((g) => g.real != null && g.real > 0 && fxInflBasis(g.iso).adj)
     .sort((a, b) => b.real - a.real).slice(0, 8);
-  renderDimPicks("map", (base === "USD" ? "Your dollar's" : "Your " + base + "'s") + " biggest gains, after inflation",
+  // "Your dollar's", "Your euro's", "Your money's" — never a bare code.
+  renderDimPicks("map", baseWord(base).replace(/^(the|your) /, "Your ") + "'s biggest gains, after inflation",
     gains.map((g) => (g.r.code in PRIMARY_COUNTRY ? g.r.name : countryName(g.iso)) + " " + sgn(g.real)),
     gains.flatMap((g) => currencyCountries(g.r.code)));
 
-  $("mapsub").innerHTML = esc(
-    `Greener = ${baseWord(base)} stronger vs that country's currency. Hover for detail · ${tracked} countries tracked.`)
-    + ` <span class="muted" data-tip="Nominal exchange rate — in high-inflation countries local prices can rise faster than the currency falls, so a stronger rate isn't always more buying power. Top Picks and the guides net out inflation." title="">ⓘ</span>`;
+  // One line: what green means and how many countries; the nominal caveat
+  // (and that there is anything to hover) goes in the ⓘ.
+  $("mapsub").innerHTML = esc(`Greener = ${baseWord(base)} above its 1-year average there · ${tracked} countries`)
+    + ` <span class="muted" data-tip="Nominal exchange rate vs each currency's own 1-year average — in high-inflation countries local prices can rise faster than the currency falls, so a stronger rate isn't always more buying power. Hover a country for both figures. Top Picks and the guides net out inflation." title="">ⓘ</span>`;
   renderLegend(base);
 }
 
@@ -1654,6 +1662,13 @@ async function ensurePPP() {
     ppp = await r.json();
   }
   return ppp;
+}
+// The base year most countries' PPP factor is from (2025 for 185 of 202), for
+// crediting the source.
+function pppYear() {
+  const n = {};
+  for (const k in ppp) { const y = ppp[k] && ppp[k].year; if (y) n[y] = (n[y] || 0) + 1; }
+  return Object.keys(n).sort((a, b) => n[b] - n[a])[0] || "";
 }
 function rateForCurrency(code) {
   if (code === "USD") return 1;
@@ -3187,11 +3202,6 @@ function advSrcName(short) {
   if (short) return ADV_SRC_SHORT[src] || "US State Dept";
   return (advisories && advisories.source_name) || ADV_SRC_SHORT[src] || "U.S. State Department";
 }
-// "the U.S. State Department", "the German Federal Foreign Office", but
-// "Global Affairs Canada": a proper name that takes no article.
-function advSrcArticle() {
-  return ((advisories && advisories.source) || advisorySource()) === "ca" ? "" : "the ";
-}
 // A gap the chosen government leaves is filled by another (server stamps `via`).
 function advViaShort(it) {
   return it && it.via ? ADV_SRC_SHORT[it.via] || it.via_name || "" : "";
@@ -3246,41 +3256,56 @@ const LVL_MAP_COLOR = {
   4: mix("#eef0f1", "#b00020", 0.55),
 };
 
+// Germany grades nothing (see govGraded): a formal warning for the whole
+// country (read as Level 4), one for some regions (Level 2), or none. Read as
+// Level 1, its 150-odd "Keine Warnung" countries — North Korea among them —
+// painted the map "safest" green. They get a neutral fill of their own, their
+// own words in the pill, legend and level filter, and the German term in the
+// tip. A gap another government fills (`via`) is a real level and keeps it.
+const DE_NONE_FILL = "#e3e6e8";
+const DE_LVL_LABEL = { 1: "No warning", 2: "Some regions", 3: "L3 — filled in by others", 4: "Travel warning" };
 function renderAdvisories() {
   const byIso = {};
   for (const it of advisories.items) if (it.iso) byIso[it.iso] = it;
+  const de = advisories.source === "de";
+  const deOwn = (it) => de && !it.via && parseInt(it.level, 10) < 4;
+  // "Keine Warnung (no warning)" -> ["Keine Warnung", "no warning"]
+  const deSplit = (it) => { const m = /^(.*?) \((.*)\)$/.exec(it.level_text || ""); return m ? [m[1], m[2]] : [it.level_text, it.level_text]; };
   drawMap("advMap", (f) => {
     const it = byIso[f.properties.iso];
-    return it
-      ? { fill: LVL_MAP_COLOR[it.level], title: `${advName(it)} — Level ${it.level}: ${it.level_text}`
-            + (it.via ? ` (per ${advViaShort(it)})` : "") }
-      : { fill: NODATA, title: f.properties.name + " — no advisory data" };
+    if (!it) return { fill: NODATA, title: f.properties.name + " — no advisory data" };
+    if (deOwn(it) && parseInt(it.level, 10) === 1)
+      return { fill: DE_NONE_FILL, title: `${advName(it)} — no warning (${deSplit(it)[0]}; Germany warns, it doesn't grade)` };
+    return { fill: LVL_MAP_COLOR[it.level],
+      title: `${advName(it)} — ${deOwn(it) ? DE_LVL_LABEL[it.level] : "Level " + it.level}: ${it.level_text}`
+        + (it.via ? ` (per ${advViaShort(it)})` : "") };
   }, (advisories.source_name || "Travel") + " advisory levels");
   // No "top" list — a hundred Level-1 ties can't be ranked. What CAN be said
   // is what MOVED: the feed's own "level was increased/decreased" statements,
-  // dated. Shown under the map and again above the table.
+  // dated. Under the map only (it used to repeat above the table, 100px on).
   const cutoff = new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10);
   const changed = advisories.items
     .filter((it) => it.change && it.updated && it.updated >= cutoff && (!it.iso || inRegion(it.iso)))
     .sort((a, b) => (a.updated < b.updated ? 1 : -1)).slice(0, 8);
   const chLine = (it) => {
     const d = new Date(it.updated + "T12:00:00");
-    const when = isNaN(d) ? it.updated : MON_ABBR[d.getMonth()] + " " + d.getDate();
+    // Day first, like fmtDay; the year only once the window has crossed one.
+    const when = isNaN(d) ? it.updated : d.getDate() + " " + MON_ABBR[d.getMonth()]
+      + (d.getFullYear() === new Date().getFullYear() ? "" : " " + d.getFullYear());
     return advName(it) + " " + (it.change === "up" ? "▲ raised" : "▼ lowered")
       + " to L" + it.level + " (" + when + ")";
   };
   renderDimPicks("advMap", "Recently changed", changed.map(chLine), changed.map((it) => it.iso));
-  const rec = $("advRecent");
-  if (rec) {
-    rec.hidden = !changed.length;
-    rec.innerHTML = changed.length
-      ? "<strong>Recently changed</strong>" + changed.map((it) =>
-          '<span class="' + (it.change === "up" ? "chup" : "chdown") + '">' + esc(chLine(it)) + "</span>").join("")
-      : "";
-  }
 
+  // The source is named once in the title; the picker beside it is the
+  // control, and the sub-line counts instead of repeating it.
   const advH2 = $("advH2");
-  if (advH2) advH2.textContent = (advisories.source_name || "Travel") + " travel advisories";
+  if (advH2) advH2.innerHTML = `Travel advisories <span class="muted">per ${esc(advSrcName(true))}</span>`;
+  const lvlSel = $("advLevel");
+  if (lvlSel) for (const o of lvlSel.options) {
+    if (!o.dataset.lbl) o.dataset.lbl = o.textContent;
+    o.textContent = (de && DE_LVL_LABEL[o.value]) || o.dataset.lbl;
+  }
   const srcSel = $("advSource");
   if (srcSel) {
     srcSel.value = advisories.source || advisorySource();
@@ -3298,15 +3323,26 @@ function renderAdvisories() {
     };
   }
   // Gap-fills are counted apart: they are another government's call, and the
-  // rows carrying one say whose.
+  // rows carrying one say whose. One line; the reading of the scale, and that
+  // an advisory is one government's foreign policy, live in the ⓘ.
   const filled = advisories.filled || 0;
-  $("advSub").innerHTML =
-    `${advisories.count - filled} advisories from ${advSrcArticle()}<b>${esc(advSrcName())}</b>` +
-    (filled ? `, plus ${filled} gaps filled by other governments (each row says whose)` : "") + ". " +
-    `Green = safest (Level 1), red = avoid travel (Level 4). ` +
-    `<span class="muted">Government advisories reflect each country's own foreign policy.</span>`;
-  $("advLegend").innerHTML = [1, 2, 3, 4]
-    .map((l) => `<span><span class="swatch" style="background:${LVL_MAP_COLOR[l]}"></span>L${l}</span>`).join(" ");
+  const own = advisories.count - filled;
+  const tip = (de
+    ? "Germany issues a formal travel warning for a whole country (read here as Level 4), a warning for some "
+      + "regions (Level 2), or none. \"No warning\" is not a safety grade — it advises against North Korea "
+      + "without one — so those countries are left neutral rather than painted safest."
+    : `Levels per ${advSrcName()}: 1 normal precautions, 2 increased caution, 3 reconsider travel, `
+      + "4 do not travel.")
+    + (filled ? ` ${filled} ${filled === 1 ? "country" : "countries"} it doesn't cover carry another government's level (each row says whose).` : "")
+    + " Advisories reflect each government's own foreign policy — pick another under “Per” to compare.";
+  $("advSub").innerHTML = esc(de ? `${own} countries · Germany warns, it doesn't grade` : `${own} countries rated`)
+    + (filled ? esc(` · ${filled} filled in by others`) : "")
+    + ` <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`;
+  const sw = (c, l) => `<span><span class="swatch" style="background:${c}"></span>${l}</span>`;
+  $("advLegend").innerHTML = de
+    ? [sw(DE_NONE_FILL, "No warning"), sw(LVL_MAP_COLOR[2], "Some regions"), sw(LVL_MAP_COLOR[4], "Warning")].join(" ")
+      + (filled ? ` <span class="muted" data-tip="${esc(`${filled} countries Germany doesn't cover show another government's Level 1–4, green to red — each row says whose.`)}" title="">+${filled} per others</span>` : "")
+    : [1, 2, 3, 4].map((l) => sw(LVL_MAP_COLOR[l], "L" + l)).join(" ");
 
   markSort("#advTable", advSort);
   $("advRows").innerHTML = sortRows(advisories.items, advSort, ADV_GET).map((it) => {
@@ -3315,10 +3351,19 @@ function renderAdvisories() {
     const nm = advName(it);
     const guideAttr = it.iso ? ` data-iso="${esc(it.iso)}" title="See the ${esc(nm)} travel guide →"` : "";
     const via = it.via ? `<span class="muted"> · per ${esc(advViaShort(it))}</span>` : "";
+    // Germany's own rows: the English in the pill, the government's own word
+    // in the cell (as every source's cell is its own text) and the English
+    // again in the tip. The feed's date rides in the tip too, so a row says
+    // when its government last looked.
+    const [term, eng] = de && !it.via ? deSplit(it) : [it.level_text, ""];
+    const pill = deOwn(it) ? `<span class="lvl ${lvl === 1 ? "none" : "lvl2"}">${DE_LVL_LABEL[lvl]}</span>`
+      : `<span class="lvl lvl${lvl}">Level ${lvl}</span>`;
+    const tip = [it.summary, eng && eng !== term ? eng.charAt(0).toUpperCase() + eng.slice(1) : "",
+                 it.updated ? "updated " + fmtDay(it.updated) : ""].filter(Boolean).join(" · ");
     return `
     <tr data-lvl="${lvl}"${guideAttr}><td>${esc(nm)}</td>
-      <td><span class="lvl lvl${lvl}">Level ${lvl}</span></td>
-      <td><span${it.summary ? ` data-tip="${esc(it.summary)}" title=""` : ""}>${esc(it.level_text)}</span>${via}${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ safety notes</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details ↗</a>` : ""}</td>
+      <td>${pill}</td>
+      <td><span${tip ? ` data-tip="${esc(tip)}" title=""` : ""}>${esc(term)}</span>${via}${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ safety notes</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details ↗</a>` : ""}</td>
     </tr>`;
   }).join("");
   applyAdvFilter();
@@ -3551,7 +3596,9 @@ function renderAfford() {
   initAffAnchor();
   const anchorIso = originIso();
   const { pl: anchorPl, cur: anchorCur, name: anchorName } = plAnchor(anchorIso);
-  const sym = anchorCur === "USD" ? "$" : anchorCur + " ";
+  // "$100", "€100", "₹100": the browser's own sign for every home currency,
+  // not a "$" for the dollar and "EUR 100" for the rest.
+  const money = (v) => fmtCur(anchorCur, v), hundred = money(100);
   drawMap("affMap", (f) => {
     const pl = priceLevel(f.properties.iso);
     if (pl == null) return { fill: NODATA, title: f.properties.name + " — no price data" };
@@ -3562,20 +3609,25 @@ function renderAfford() {
       title: `${f.properties.name} — price level ${rel.toFixed(2)} (${plWord(rel)} vs ${anchorName})`
              + (drift ? " · " + drift : "") };
   }, "Cost of living (price level vs " + anchorName + ")");
-  // Mirrors the table under it, including its Level 3–4 filter.
+  // Mirrors the table under it, including its Level 3–4 filter. Only places
+  // cheaper than home: ranked by the raw level alone, an Indian home listed
+  // India itself at #2 and six places where the rupee goes less far.
   const adv = advisoryByIso();
   const cheap = Object.keys(CUR_BY_ISO)
     .map((iso) => ({ iso, pl: priceLevel(iso) }))
-    .filter((x) => x.pl != null && countryName(x.iso) !== x.iso && inRegion(x.iso)
+    .filter((x) => x.pl != null && x.iso !== anchorIso && x.pl < anchorPl
+      && countryName(x.iso) !== x.iso && inRegion(x.iso)
       && (showRisky || (adv[x.iso] || 0) < 3))
     .sort((a, b) => a.pl - b.pl).slice(0, 8);
-  renderDimPicks("affMap", "Where " + sym + "100 goes furthest",
-    cheap.map((x) => countryName(x.iso) + " · " + sym + "100≈" + sym + Math.round(100 * anchorPl / x.pl)),
-    cheap.map((x) => x.iso));
+  renderDimPicks("affMap", "Where " + hundred + " goes furthest",
+    cheap.map((x) => countryName(x.iso) + " · " + hundred + "≈" + money(100 * anchorPl / x.pl)),
+    cheap.map((x) => x.iso), "Few places are cheaper than " + anchorName + " on average — see the table");
 
-  $("affSub").textContent =
-    `Below 1.00 = cheaper than ${anchorName} (your money buys more — follows the “From” selector). World Bank PPP, brought up to date by inflation, ÷ live rate · ${n} countries. `
-    + `These are national averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.`;
+  // One line above the map; the source, its year and the national-average
+  // caveat sit in the ⓘ. The "Vs home" picker beside it is the reference.
+  $("affSub").innerHTML = esc(`Below 1.00 = cheaper than ${anchorName} · ${n} countries`)
+    + ` <span class="muted" data-tip="${esc(`World Bank PPP (${pppYear()} for most countries), brought up to date by inflation, ÷ today's exchange rate. `
+      + "National averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.")}" title="">ⓘ</span>`;
   $("affLegend2").innerHTML =
     '<span>Pricey</span><span class="bar"></span><span>Cheap</span>' +
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
@@ -3589,6 +3641,10 @@ function renderAfford() {
     rows.push({ iso, name, cur: CUR_BY_ISO[iso], pl });
   }
   markSort("#affTable", affSort);
+  // The header carries the currency ("€100 buys"), so the cells needn't
+  // repeat "of at-home goods" 176 times — the th title still says it.
+  const bth = document.querySelector('#affTable th[data-sk="buys"] .sortbtn');
+  if (bth) bth.textContent = hundred + " buys";
   $("affRows").innerHTML = sortRows(rows, affSort, AFF_GET).map((r) => {
     const rel = r.pl / anchorPl;
     const cls = rel <= 0.85 ? "pos" : rel > 1.15 ? "neg" : "";
@@ -3599,7 +3655,7 @@ function renderAfford() {
     const cn = countryName(r.iso);
     return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(cn)} travel guide →"><td>${esc(cn)}</td><td>${esc(r.cur)}</td>
       <td class="num ${cls}">${rel.toFixed(2)}</td>
-      <td class="num">${sym}${Math.round(100 * anchorPl / r.pl).toLocaleString()} <span class="lbl-lg">of at-home goods</span></td></tr>`;
+      <td class="num">${esc(money(100 * anchorPl / r.pl))}</td></tr>`;
   }).join("");
   applyAffordFilter();
   // Clicking a country on this map also makes it the chart's line.
@@ -3687,17 +3743,22 @@ function colJoins(iso, last, now) {
   return r < 1.5 && r > 1 / 1.5;
 }
 
+// Rebuilt when the home country changes: home is left out (a country against
+// itself is a flat 1.00 line), so the list depends on it.
 function fillColPick() {
   const sel = $("colPick");
-  if (!sel || sel.options.length) return;
-  const isos = Object.keys(plHist.pl).filter((c) => countryName(c) !== c)
+  const home = originIso();
+  if (!sel || sel.dataset.home === home) return;
+  sel.dataset.home = home;
+  const isos = Object.keys(plHist.pl).filter((c) => c !== home && countryName(c) !== c)
     .sort((a, b) => countryName(a).localeCompare(countryName(b)));
   sel.innerHTML = '<option value="world">🌍 A typical country</option>'
     + isos.map((c) => `<option value="${esc(c)}">${esc(countryName(c))}</option>`).join("");
-  sel.addEventListener("change", () => setColCountry(sel.value));
-  enhanceSelect(sel);
+  sel.onchange = () => setColCountry(sel.value);
+  enhanceSelect(sel);   // once; its observer resyncs the label on a rebuild
 }
 function setColCountry(iso) {
+  if (iso === originIso()) iso = "world";   // home vs home: the typical line instead
   if (!plHist || (iso !== "world" && !plHist.pl[iso])) return;
   colIso = iso;
   renderCol();
@@ -3715,7 +3776,7 @@ async function renderCol() {
     return;
   }
   fillColPick();
-  if (colIso !== "world" && !plHist.pl[colIso]) colIso = "world";
+  if (colIso !== "world" && (!plHist.pl[colIso] || colIso === originIso())) colIso = "world";
   const sel = $("colPick");
   if (sel.value !== colIso) { sel.value = colIso; if (sel._sync) sel._sync(); }
   const anchor = plAnchor(originIso());
@@ -3760,7 +3821,8 @@ async function renderCol() {
   // headline is, rather than passing an old number off as today's.
   const rest = () => showHead(lastP, lastP.year == null ? "" : "in " + lastP.year);
   rest();
-  $("colSub").innerHTML = esc(`Price level vs ${anchor.name} · 1.00 = the same prices · `)
+  // The title names the home country; this line doesn't say it again.
+  $("colSub").innerHTML = esc(`1.00 = ${anchor.home ? "home" : "US"} prices · `)
     + `<span style="white-space:nowrap">${esc(first.year + "–" + when(lastP))}</span>`
     + (lastP.year == null ? "" : " (no figures since)");
   $("colNote").innerHTML = esc("Lower = your money buys more there. Yearly averages from the World Bank"
@@ -3972,6 +4034,7 @@ function setTravelOrigin(iso) {
   loadValueFlights(false);                             // Top Picks fares (re-renders)
   if (loaded.value) renderValue();                     // immediate: new affordability anchor
   if (loaded.afford) renderAfford();                   // cost-of-living anchor
+  if (dataRates) renderRates(dataRates);               // its Price level column is vs From too
   if (ccCurrent) renderCountryCard();                  // its price level is vs From
   if (loaded.flights) loadFlights();                   // Explore-the-Data fares
   // The advisory source is an explicit dropdown (no longer tied to the home
@@ -5233,8 +5296,10 @@ function initBudgetCur() {
   const sel = $("budgetCur");
   if (!sel || !lastRates) return;
   if (!sel.options.length) {
-    const codes = ["USD"].concat(lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort());
-    sel.innerHTML = codes.map((c) => `<option value="${c}">${c}</option>`).join("");
+    // A-Z with the dollar in its place, like every other currency picker. A
+    // compact inline control: the name rides on the option's title, since
+    // spelling it out would widen the native select.
+    sel.innerHTML = pickerCurrencies().map((c) => `<option value="${esc(c)}" title="${esc(curLabel(c))}">${esc(c)}</option>`).join("");
     sel.onchange = () => {
       try { localStorage.setItem("wg_budgetcur", sel.value); } catch (e) {}
       renderValue();
@@ -6201,17 +6266,20 @@ function initFlightCur() {
   const sel = $("flightCur");
   if (!sel || !lastRates) return;
   if (!sel.options.length) {
-    const codes = ["USD"].concat(lastRates.rows.map((r) => r.code).filter((c) => c !== "USD").sort());
-    sel.innerHTML = codes.map((c) => `<option value="${c}">${c}</option>`).join("");
+    // Named and A-Z like "My currency" (buildBaseSelect): the two pickers on
+    // this tab used to disagree, this one listing a bare "USD" first.
+    sel.innerHTML = pickerCurrencies().map((c) => `<option value="${esc(c)}">${esc(curLabel(c))}</option>`).join("");
     sel.onchange = () => {
       try { localStorage.setItem("wg_flightcur", sel.value); } catch (e) {}
       renderFlights();
     };
+    enhanceSelect(sel);
   }
   // Unpinned display currency follows "My currency", same rule as the budget:
   // an explicit pick persists and wins; the default tracks the home switch.
   const want = flightDisplayCur();
   if (sel.value !== want && [...sel.options].some((o) => o.value === want)) sel.value = want;
+  if (sel._sync) sel._sync();
 }
 
 // Fares are cached in the feed's currency (USD) and shown in the reader's
@@ -6225,8 +6293,9 @@ function flightFmt() {
   const cur = conv ? dispCur : feedCur;
   const F = (v) => (conv ? Math.round(v * conv) : Math.round(v));
   const approx = cur !== feedCur ? "≈" : "";
-  const money = (v) => approx + cur + " " + F(v).toLocaleString();   // plain text: esc() it into HTML
-  const range = (a, b) => approx + cur + " " + F(a).toLocaleString() + "–" + F(b).toLocaleString();
+  // "$295" / "≈€481", the browser's own sign (fmtCur). Plain text: esc() it into HTML.
+  const money = (v) => approx + fmtCur(cur, F(v));
+  const range = (a, b) => approx + fmtCur(cur, F(a)) + "–" + fmtCur(cur, F(b));
   return { cur, feedCur, F, approx, money, range };
 }
 
@@ -6279,13 +6348,14 @@ function renderFlights() {
     + "of the median; in this month's last 9 days its last-minute fares leave the range where 6 other months remain). "
     + "Low = under that range, High = over it; the % is vs the median. Needs "
     + ((fv && fv.min_months) || 6) + "+ months of fares — grey has fewer. Round-trips from "
-    + (flightsData.hub || "the main hub") + " that Aviasales has seen in real searches: indicative, not live.";
+    + (flightsData.hub || "the main hub") + " that Aviasales has seen in real searches: indicative, not live."
+    + (cur !== feedCur ? ` Fares are cached in ${feedCur}; shown ≈${cur} at today's rate.` : "");
+  // One line: the affiliate disclosure sits beside the table's fare links
+  // (index.html), and the conversion note is in the ⓘ with the rest.
   $("flightSub").innerHTML =
     `${esc(monthName)} fares from ${esc(flightsData.origin_name || flightsData.origin)} vs each route's typical`
     + ` <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`
     + ` · cached by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a>, not live`
-    + ` · <b>fares ↗</b> search live (affiliate links — booking through them may earn us a commission at no extra cost to you).`
-    + (cur !== feedCur ? ` <span class="muted">Fares cached in ${esc(feedCur)}; shown ≈${esc(cur)} at today's rate.</span>` : "")
     + (gathering > 0 ? ` <span class="muted fvfill">Still gathering fares for ${gathering} ${gathering === 1 ? "country" : "countries"}`
       + (fv.gaveUp ? " — reload in a few minutes to see them." : "…") + "</span>" : "");
   // Legend names the month and the comparison — green isn't "cheap", it's
@@ -6302,7 +6372,8 @@ function renderFlights() {
   if (mth) mth.textContent = MON_ABBR[m - 1] + " fare";
   $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET).map((c) => {
     const v = c._fv;
-    const fare = Number(c.avg) ? `${approx}${esc(cur)} ${F(Number(c.avg)).toLocaleString()}` : `${esc(cur)} ?`;
+    const fare = Number(c.avg) ? esc(money(Number(c.avg))) : `${esc(cur)} ?`;
+    const cheapest = cheapestFare(c);   // the lower of the cached rows and the month curve
     const url = flightSearchURL(c.dest);
     // revisit: Kiwi — decided Aviasales-only here (2026-07). A Kiwi booking CTA
     // would be price-less (no Kiwi data w/o Tequila) beside this priced,
@@ -6334,7 +6405,7 @@ function renderFlights() {
       <td>${vs}</td>
       <td class="num">${mfare}</td>
       <td class="num">${fareCell}</td>
-      <td class="num">${Number(c.min) ? `${approx}${esc(cur)} ${F(Number(c.min)).toLocaleString()}` : `${esc(cur)} ?`}</td>
+      <td class="num">${cheapest ? esc(money(cheapest)) : `${esc(cur)} ?`}</td>
       <td class="num"${c.dur && c.dur_city ? ` title="to ${esc(c.dur_city)}, one way — the most direct cached flight"` : ""}>${fmtDuration(c.dur)}</td>
       <td class="num">${fmtStops(c.stops)}</td></tr>`;
   }).join("")
