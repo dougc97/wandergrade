@@ -57,45 +57,62 @@ CURATED = {
 }
 
 
-# Where to sample, as (lat, lon), for countries one geometric point can't stand
-# for. A vertex average over every part put France's sample in the Atlantic west
-# of Morocco (dragged by French Guiana) and Fiji's in the Indian Ocean; the big
-# ones' interior points were nowhere anyone goes (the US at Mt Hood, Canada in
-# Nunavut, Chile in the high Andes, China on the Gansu plateau). So: the capital
-# for multi-part countries, for the named big ones, and wherever the old point
-# fell at sea or in a neighbour — or the main city visitors go to where the
-# capital is atypical of it (Sydney, Istanbul). Tel Aviv, not Jerusalem, for
-# Israel: the simplified map puts East Jerusalem in the Palestine polygon.
+# Where to sample, as (lat, lon, place), for countries one geometric point can't
+# stand for. A vertex average over every part put France's sample in the
+# Atlantic west of Morocco (dragged by French Guiana) and Fiji's in the Indian
+# Ocean; the big ones' interior points were nowhere anyone goes (the US at Mt
+# Hood, Canada in Nunavut, Chile in the high Andes, China on the Gansu plateau,
+# Peru in the Ucayali Amazon — 25°C every month while Cusco's dry season is
+# 10-13°C — Iceland's central highlands, Kenya's Samburu lowlands). So: the
+# capital for multi-part countries, for the named big ones, and wherever the
+# old point fell at sea or in a neighbour — or the main city visitors go to
+# where the capital is atypical of it (Sydney, Istanbul, Cusco, Rio, Marrakech,
+# Cape Town, Arusha). Tel Aviv, not Jerusalem, for Israel: the simplified map
+# puts East Jerusalem in the Palestine polygon.
+# The place name ships in climate.json ("at") so the guide can say WHERE its
+# temperatures are measured; countries on the fallback path carry none, and
+# the guide says "one representative point" rather than inventing a name.
 SAMPLE_POINTS = {
-    "FR": (48.857, 2.352),     # Paris
-    "NO": (59.913, 10.752),    # Oslo
-    "CL": (-33.449, -70.669),  # Santiago
-    "CA": (45.421, -75.697),   # Ottawa
-    "US": (38.907, -77.037),   # Washington, D.C.
-    "FJ": (-18.141, 178.442),  # Suva
-    "MY": (3.139, 101.687),    # Kuala Lumpur
-    "NZ": (-41.286, 174.776),  # Wellington
-    "GR": (37.984, 23.728),    # Athens
-    "JP": (35.676, 139.650),   # Tokyo
-    "GB": (51.507, -0.128),    # London
-    "HR": (45.815, 15.982),    # Zagreb
-    "TH": (13.756, 100.502),   # Bangkok
-    "VN": (21.028, 105.854),   # Hanoi
-    "SB": (-9.433, 159.950),   # Honiara
-    "CV": (14.933, -23.513),   # Praia
-    "FO": (62.011, -6.776),    # Tórshavn
-    "IL": (32.085, 34.782),    # Tel Aviv
-    "HT": (18.594, -72.307),   # Port-au-Prince
-    "PG": (-9.443, 147.180),   # Port Moresby
-    "ID": (-6.209, 106.846),   # Jakarta
-    "PH": (14.600, 120.984),   # Manila
-    "AR": (-34.604, -58.382),  # Buenos Aires
-    "RU": (55.756, 37.617),    # Moscow
-    "CN": (39.904, 116.407),   # Beijing
-    "IT": (41.903, 12.496),    # Rome
-    "OM": (23.588, 58.383),    # Muscat
-    "TR": (41.008, 28.978),    # Istanbul
-    "AU": (-33.869, 151.209),  # Sydney
+    "FR": (48.857, 2.352, "Paris"),
+    "NO": (59.913, 10.752, "Oslo"),
+    "CL": (-33.449, -70.669, "Santiago"),
+    "CA": (45.421, -75.697, "Ottawa"),
+    "US": (38.907, -77.037, "Washington, D.C."),
+    "FJ": (-18.141, 178.442, "Suva"),
+    "MY": (3.139, 101.687, "Kuala Lumpur"),
+    "NZ": (-41.286, 174.776, "Wellington"),
+    "GR": (37.984, 23.728, "Athens"),
+    "JP": (35.676, 139.650, "Tokyo"),
+    "GB": (51.507, -0.128, "London"),
+    "HR": (45.815, 15.982, "Zagreb"),
+    "TH": (13.756, 100.502, "Bangkok"),
+    "VN": (21.028, 105.854, "Hanoi"),
+    "SB": (-9.433, 159.950, "Honiara"),
+    "CV": (14.933, -23.513, "Praia"),
+    "FO": (62.011, -6.776, "Tórshavn"),
+    "IL": (32.085, 34.782, "Tel Aviv"),
+    "HT": (18.594, -72.307, "Port-au-Prince"),
+    "PG": (-9.443, 147.180, "Port Moresby"),
+    "ID": (-6.209, 106.846, "Jakarta"),
+    "PH": (14.600, 120.984, "Manila"),
+    "AR": (-34.604, -58.382, "Buenos Aires"),
+    "RU": (55.756, 37.617, "Moscow"),
+    "CN": (39.904, 116.407, "Beijing"),
+    "IT": (41.903, 12.496, "Rome"),
+    "OM": (23.588, 58.383, "Muscat"),
+    "TR": (41.008, 28.978, "Istanbul"),
+    "AU": (-33.869, 151.209, "Sydney"),
+    "IS": (64.146, -21.942, "Reykjavík"),
+    "PE": (-13.532, -71.967, "Cusco"),
+    "KE": (-1.286, 36.817, "Nairobi"),
+    "BR": (-22.907, -43.173, "Rio de Janeiro"),
+    "MA": (31.629, -7.981, "Marrakech"),
+    "MX": (19.433, -99.133, "Mexico City"),
+    "IN": (28.614, 77.209, "New Delhi"),
+    "ZA": (-33.925, 18.423, "Cape Town"),
+    "CO": (4.711, -74.072, "Bogotá"),
+    "BO": (-16.495, -68.133, "La Paz"),
+    "TZ": (-3.387, 36.683, "Arusha"),
 }
 # An override must sit on (or just off the simplified coastline of) its own
 # country — a typo'd coordinate should fail the build, not sample the sea.
@@ -135,7 +152,7 @@ def sample_point(iso, geometry):
        shape puts it outside (geo.ring_centroid, as app.js does for map pins).
     """
     if iso in SAMPLE_POINTS:
-        lat, lon = SAMPLE_POINTS[iso]
+        lat, lon = SAMPLE_POINTS[iso][:2]
         pt = (lon, lat)
         if geo.in_geometry(pt, geometry) or _km_to_geometry(pt, geometry) <= MAX_OFFSHORE_KM:
             return pt
@@ -150,6 +167,14 @@ def sample_point(iso, geometry):
     if c and geo.in_ring(c, ring):
         return (c[0], c[1])
     return None
+
+
+def sample_place(iso, pt):
+    """The named place `pt` stands for, or None when it is a geometric point
+    (an override that was rejected as off-land falls back to geometry too, so
+    the name is only claimed when the point really is the override's)."""
+    o = SAMPLE_POINTS.get(iso)
+    return o[2] if o and pt == (o[1], o[0]) else None
 
 
 def comfort(temp, rain):
@@ -252,6 +277,12 @@ def main(only=None):
                 "best": best_months(scores, iso),
                 "curated": iso in CURATED,
             }
+            # Where the temperatures are measured, for the guide's ⓘ. Unset
+            # (not null) on the geometric path, so a country whose point moved
+            # from a city back to geometry loses the stale name on the merge.
+            at = sample_place(iso, pt)
+            if at:
+                out[iso]["at"] = at
             print("  [{0}/{1}] {2} {3} ok".format(i + 1, len(feats), iso, name))
         except (urllib.error.HTTPError, urllib.error.URLError, Exception) as e:
             print("  [{0}/{1}] {2} {3} FAILED: {4}".format(i + 1, len(feats), iso, name, e))
@@ -274,7 +305,12 @@ def main(only=None):
     kept = [k for k in previous if k not in out]
     merged = dict(previous)
     for iso, row in out.items():
-        merged[iso] = dict(previous.get(iso) or {}, **row)
+        prev = dict(previous.get(iso) or {})
+        # "at" is this script's own field: a country whose override was
+        # removed (or rejected as off-land) must not keep naming a city its
+        # numbers no longer come from.
+        prev.pop("at", None)
+        merged[iso] = dict(prev, **row)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(merged, f, separators=(",", ":"), sort_keys=True)
     print("wrote {0} countries -> {1} ({2} fresh, {3} kept from the previous file)"
