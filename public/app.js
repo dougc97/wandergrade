@@ -37,7 +37,15 @@ let dataRates = null;   // whatever the Explore-the-Data currency view shows
 // for the right base instead of loading USD and correcting itself.
 let homeBase = /^[A-Z]{3}$/.test(localStorage.getItem("fx_homecur") || "")
   ? localStorage.getItem("fx_homecur") : "USD";
-const baseWord = (b) => (b === "USD" ? "the dollar" : b);
+// The dollar had a word ("the dollar") and every other home currency a bare
+// code in the same sentence ("Where EUR is strong"). The common ones get their
+// word; the rest read as "your money" — never a code where a word belongs.
+const CUR_WORD = { USD: "the dollar", EUR: "the euro", GBP: "the pound", JPY: "the yen", CHF: "the franc",
+                   INR: "the rupee", CAD: "the Canadian dollar", AUD: "the Australian dollar",
+                   NZD: "the New Zealand dollar", SGD: "the Singapore dollar", HKD: "the Hong Kong dollar",
+                   MXN: "the peso", BRL: "the real", KRW: "the won", CNY: "the yuan", ZAR: "the rand",
+                   SEK: "the krona", NOK: "the krone", DKK: "the krone", PLN: "the złoty", TRY: "the lira" };
+const baseWord = (b) => CUR_WORD[b] || "your money";
 
 // Escape any externally-sourced string before it goes into innerHTML.
 // (Currency names, advisory titles, flight city names, etc. come from
@@ -171,10 +179,22 @@ const RANGE_SPAN = { "1m": "past month", "3m": "past 3 months", "6m": "past 6 mo
                      "1y": "past year", "2y": "past 2 years", "5y": "past 5 years", "10y": "past 10 years" };
 const fmtIdx = (v) => (Math.abs(v) >= 10 ? v.toFixed(1) : v.toPrecision(3));
 const fmtPct = (p) => (p >= 0 ? "+" : "−") + Math.abs(p).toFixed(Math.abs(p) >= 10 ? 1 : 2) + "%";
-// "2026-09-25" -> "Sep 25, 2026"; "Jan 1999" for the base
+// "2026-09-25" -> "25 Sep 2026" (day-month-year reads the same to everyone;
+// month-first was the one US-only habit left in the copy); "Jan 1999" for
+// the base
 function fmtDay(iso) {
   const p = iso.split("-");
-  return MON_ABBR[+p[1] - 1] + " " + (+p[2]) + ", " + p[0];
+  return (+p[2]) + " " + MON_ABBR[+p[1] - 1] + " " + p[0];
+}
+// Money in any currency, the browser's way: "$601", "€481", "₹8,000". "USD 295"
+// beside "$100" was two looks for the same idea, and the sign was the dollar's
+// alone. Whole units — cached averages and annual indexes, not receipts. A
+// code Intl doesn't know (GGP) falls back to "GGP 100".
+function fmtCur(code, v) {
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: code,
+      minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v);
+  } catch (e) { return code + " " + Math.round(v).toLocaleString(); }
 }
 const CORE_NAME = { USD: "dollar", EUR: "euro", JPY: "yen", GBP: "pound", CHF: "Swiss franc" };
 const fmtMonYear = (iso) => MON_ABBR[+iso.slice(5, 7) - 1] + " " + iso.slice(0, 4);
@@ -233,8 +253,9 @@ function renderIndex(data) {
     chgEl.textContent = text;
     chgEl.className = pos ? "pos" : "neg";
   };
+  // The arrow is the sign: "▼ −2.31%" said it twice.
   const restHead = () => showHead(pts.length ? fmtIdx(pts[pts.length - 1].value) : "—",
-                                  (up ? "▲ " : "▼ ") + fmtPct(chg) + " " + span, up);
+                                  (up ? "▲ " : "▼ ") + fmtPct(chg).slice(1) + " " + span, up);
   restHead();
   $("chartsub").textContent = `Equal-weighted across ${data.index_count} currencies`
     + (pts.length ? ` · ${fmtDay(pts[0].date)} → ${fmtDay(data.as_of)}` : "");
@@ -249,7 +270,10 @@ function renderIndex(data) {
     + "over the years, so long ranges can run well ahead of what prices abroad feel like."
     + (core != null && coreNames.length
       ? ` Against the ${coreNames.slice(0, -1).join(", ")} and ${coreNames[coreNames.length - 1]} alone: ${fmtPct(core)} ${span}.`
-      : "");
+      : "")
+    // Credit the history's source here: the footer names today's rate feed,
+    // and this line ends on the ECB's last fixing, not today.
+    + (data.source === "ecb" ? " Built on ECB euro reference rates (daily fixings, back to 1999)." : "");
   $("chartnote").innerHTML = esc(`Index: ${data.base_date ? fmtMonYear(data.base_date) : "start"} = 100. Higher = `
     + `${baseWord(data.base || "USD")} buys more of ${data.index_count} other currencies (before inflation).`)
     + ` <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`;
@@ -515,11 +539,24 @@ const ADV_GET = { country: (it) => advName(it), level: (it) => parseInt(it.level
 const advSort = { key: "level", asc: true };
 wireSort("#advTable", advSort, {}, () => { if (advisories) renderAdvisories(); });
 
+// c.min is the cheapest of the recently cached rows; the month curve is a
+// separate sample, so "Cheapest" could sit above the month's own fare in the
+// same row (Ecuador: 315 beside an October 295). The column means the cheapest
+// fare seen on the route, any month: the lower of the two.
+function cheapestFare(c) {
+  const curve = (c._fv && c._fv.c && c._fv.c.curve) || {};
+  const vals = [Number(c.min), ...Object.values(curve).map((x) => x[0])].filter((x) => x > 0);
+  return vals.length ? Math.min(...vals) : null;
+}
 // Flights: ranked by the chosen month's fare vs the route's own typical year
-// (renderFlights stamps each row's _fv), most below typical first. Rows with
-// no range sort last.
-const FLIGHT_GET = { dest: (c) => countryName(c.iso), vs: (c) => c._fv && c._fv.dev,
-                     mfare: (c) => c._fv && c._fv.price, avg: (c) => c.avg, min: (c) => c.min,
+// (renderFlights stamps each row's _fv), most below typical first. Band first,
+// then the %: the band is judged against each route's own middle-half range
+// and the % against its median, so sorted by % alone a "Low −8%" landed under
+// a "Typical −9%" and read as a contradiction. Rows with no range sort last.
+const FV_ORDER = { low: -100, typical: 0, high: 100 };
+const FLIGHT_GET = { dest: (c) => countryName(c.iso),
+                     vs: (c) => (c._fv && c._fv.dev != null ? FV_ORDER[c._fv.band] + c._fv.dev : null),
+                     mfare: (c) => c._fv && c._fv.price, avg: (c) => c.avg, min: (c) => cheapestFare(c),
                      dur: (c) => c.dur, stops: (c) => c.stops };
 const flightSort = { key: "vs", asc: true };
 wireSort("#flightTable", flightSort, {}, () => { if (flightsData) renderFlights(); });
@@ -562,7 +599,10 @@ function renderRates(data) {
   buildBaseSelect();
   const w = baseWord(base);
   $("mapH2").innerHTML = `Where ${esc(w)} is strong <span class="muted">vs each currency's 1-year average</span>`;
-  $("chartH2").innerHTML = `Overall ${esc(w === "the dollar" ? "dollar" : w)} strength <span class="muted">vs rest of world</span>`;
+  // "Overall euro strength"; a currency without a word of its own gets
+  // "Overall strength of your money" rather than "Overall your money strength".
+  $("chartH2").innerHTML = (w.startsWith("the ") ? `Overall ${esc(w.slice(4))} strength` : `Overall strength of ${esc(w)}`)
+    + ` <span class="muted">vs rest of world</span>`;
   // Into the sort button, not the th: textContent on the th would wipe it.
   const rch = $("rateColHead");
   (rch.querySelector(".sortbtn") || rch).textContent = `1 ${base} =`;
@@ -576,7 +616,7 @@ function renderRates(data) {
     + `than the currency falls, so the Affordability grade uses this net of inflation. `
     + `Fixed at a year (the chart's window above doesn't change it): a shorter `
     + `average is mostly noise.`;
-  $("asof").textContent = "As of " + data.as_of;
+  $("asof").textContent = "As of " + fmtDay(data.as_of);
   // A pegged currency (XOF, BAM, GGP...) moves exactly with its anchor (the
   // server derives it at the official rate), so it is listed inside the
   // anchor's row, and counted once, rather than as a separate "deal".
@@ -587,13 +627,34 @@ function renderRates(data) {
     (folded[r.pegged_to] = folded[r.pegged_to] || []).push(r.code);
     return false;
   });
-  const fav = tableRows.filter((r) => r.favorable && r.watched);
+  // A "favorable" row is one the money has really gained on: the nominal move
+  // net of the inflation gap (realFxPct), the figure the list under the map
+  // ranks by. By the nominal rate alone the lira read as a +9% win, tinted
+  // green, while prices there rose faster than it fell (−4.5% real) — and it
+  // was missing from the "after inflation" list directly below.
+  const realGain = (r) => {
+    const c = currencyCountry(r.code);
+    const real = c ? realFxPct(c, r.strength_pct) : null;
+    return r.favorable && r.watched && real != null && real > 0;
+  };
+  const fav = tableRows.filter(realGain);
   // "364-day avg" was the history cap leaking into the copy; the column header one
   // line over already calls the same number a 1-year average, so say that here too.
   // Hyphenate as a compound modifier: "1 year" -> "1-year avg", "6 months" -> "6-month".
   const avgSpan = dayLabel(data.baseline_days).replace(/^(\d+) (\w+?)s?$/, "$1-$2");
-  $("summary").textContent =
-    `${tableRows.length} currencies · ${fav.length} favorable (≥ +${data.threshold_pct}% vs ${avgSpan} avg)`;
+  $("summary").innerHTML = esc(`${tableRows.length} currencies · ${fav.length} stronger than usual after inflation`)
+    + ` <span class="muted" data-tip="${esc(`≥ +${data.threshold_pct}% vs its ${avgSpan} average, net of the inflation gap `
+      + "between the two countries (a nominal rise that local inflation eats isn't counted; where a country "
+      + "has no inflation figure the nominal move stands). These rows are tinted green.")}" title="">ⓘ</span>`;
+
+  // The price level is measured against the traveller's From country, like the
+  // Cost of living tab (plAnchor): "cheap" to a German is cheaper than
+  // Germany. Every level is stored vs the US, so divide by the anchor's own.
+  const A = plAnchor(originIso());
+  const rel = (pl) => pl / A.pl;
+  const plHead = document.querySelector('#rates th[data-sk="price"]');
+  if (plHead) plHead.title = `local prices vs ${A.name}; below 1.00 = cheaper than ${A.home ? "home" : "the US"}. `
+    + "A currency several countries share shows the range across them.";
 
   const adv = advisoryByIso();
   const tbody = $("rows");
@@ -601,7 +662,7 @@ function renderRates(data) {
   updateCurSortIndicators();
   for (const r of sortedRates(tableRows)) {
     const tr = document.createElement("tr");
-    if (r.favorable && r.watched) tr.className = "favorable";
+    if (realGain(r)) tr.className = "favorable";
     const sign = r.strength_pct >= 0 ? "pos" : "neg";
     const star = r.watched ? "" : ' <span title="not on watchlist" style="opacity:.4">·</span>';
     const sp = currencySpread(r.code);
@@ -623,10 +684,10 @@ function renderRates(data) {
     const plCell = !sp ? `<span class="muted" data-tip="${esc(currencyCountries(r.code).length
         ? "No World Bank price data for " + currencyCountries(r.code).map(countryName).join(", ") + "."
         : "Not matched to a country.")}" title="">—</span>`
-      : sp.n === 1 ? sp.lo.pl.toFixed(2) + " " + plTag(sp.lo.pl)
-      : `<span data-tip="${esc(countryName(sp.lo.iso) + " " + sp.lo.pl.toFixed(2) + " to " + countryName(sp.hi.iso) + " "
-          + sp.hi.pl.toFixed(2) + " · " + sp.n + " places use the " + r.code + " (median " + sp.mid.toFixed(2) + ")")}" title="">`
-        + `${sp.lo.pl.toFixed(2)}–${sp.hi.pl.toFixed(2)}</span>`;
+      : sp.n === 1 ? rel(sp.lo.pl).toFixed(2) + " " + plTag(rel(sp.lo.pl))
+      : `<span data-tip="${esc(countryName(sp.lo.iso) + " " + rel(sp.lo.pl).toFixed(2) + " to " + countryName(sp.hi.iso) + " "
+          + rel(sp.hi.pl).toFixed(2) + " · " + sp.n + " places use the " + r.code + " (median " + rel(sp.mid).toFixed(2) + ")")}" title="">`
+        + `${rel(sp.lo.pl).toFixed(2)}–${rel(sp.hi.pl).toFixed(2)}</span>`;
     const flag = currencyFlag(r.code, ctry);
     tr.innerHTML = `
       <td><div class="curcell"><span class="curflag">${flag}</span><div><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div>${peg}</div></div></td>
@@ -1477,7 +1538,8 @@ function renderCountryCard() {
   const act = activities && activities[iso];
 
   const facts = [];
-  const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
+  // One decimal, like the table: the raw figure printed "+10.34%" beside "+7.9%".
+  const sgn = (p) => (p >= 0 ? "+" : "−") + Math.abs(p).toFixed(1) + "%";
   if (cur) facts.push(`💱 ${esc(cur)}` + (cur === homeBase ? " (your home currency)"
     : fx ? `: your ${esc(homeBase)} ${sgn(fx.nom)} vs 1-yr avg`
       + (fx.real == null ? " (nominal)" : fx.adj ? ` (${sgn(fx.real)} after inflation)` : "")
@@ -1902,7 +1964,6 @@ function affordColor(pl) {
 }
 
 // ---- wiring ---------------------------------------------------------------
-$("refresh").addEventListener("click", () => { loadRates(); loadIndex(activeRange); });
 $("check").addEventListener("click", checkNow);
 $("save").addEventListener("click", saveConfig);
 $("toggleSettings").addEventListener("click", async () => {

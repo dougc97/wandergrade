@@ -233,6 +233,9 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
    break it across two lines inside the pill and stand the whole row up. */
 .lvl { display: inline-block; white-space: nowrap; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; }
 .lvl1 { background: #0a7d28; } .lvl2 { background: #c9a200; } .lvl3 { background: #d4730a; } .lvl4 { background: #b00020; }
+/* Germany's "no warning" is not a level (renderAdvisories): a quiet chip, not
+   the Level 1 green. */
+.lvl.none { background: var(--soft); color: var(--gray); border: 1px solid var(--line); }
 /* Level 2/3 fills are too light for white (2.4 / 3.4:1); black is 8.7 / 6.3.
    Covers the three badge families that share this palette — two classes
    each, because .advbadge sets its white further down the file. */
@@ -304,6 +307,13 @@ small { color: var(--gray); font-weight: 400; }
 .toprow { max-width: 1200px; margin: 18px auto 0; padding: 0 20px;
   display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: stretch; }
 .toprow .mapcard, .toprow .chartcard { margin-top: 0; min-width: 0; }
+/* The row is as tall as its taller card, nearly always the map card, and its
+   header was the height driver: 160-270px of title, body copy, legend and a
+   share button each on their own line, above a 204px map (the owner: "the
+   graph cards seem a bit too long"). Tighter card padding, header lines 8px
+   apart instead of 16, and the sub-lines cut to one line + ⓘ (app.js). */
+.toprow .mapcard, .toprow .chartcard { padding: 14px 16px 12px; }
+.toprow .charthead { gap: 8px 14px; }
 .toprow .chartcard { display: flex; flex-direction: column; }
 .toprow .chartcard > .chart { flex: 1 1 auto; position: relative; min-height: 190px; }
 .toprow .chartcard > .chart > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -506,6 +516,17 @@ html[data-tab="guide"] header .sub { display: none; }
 .colbar .windowtoggle { margin-top: 0; }
 
 .tablewrap { margin-top: 18px; padding-bottom: 24px; overflow-x: auto; }
+/* The Data tables run to ~5,700px and their headers ("vs 1-yr avg", "Price
+   level", "100 buys") scrolled away within the first screen. Sticky headers
+   need no scroll container between th and the viewport: the wrapper's
+   overflow-x goes wherever the table fits (above 680 every Data table fits its
+   box; at 560 and under they are unpinned, see the phone rules), and the
+   table's radius clip becomes overflow:clip, which clips without becoming a
+   scroll container the way hidden does. The 561-680 band keeps its sideways
+   scroll and does without the sticky row. */
+@media (min-width: 681px), (max-width: 560px) { #tab-data .tablewrap { overflow-x: visible; } }
+#tab-data .tablewrap table { overflow: clip; }
+#tab-data .tablewrap thead th { position: sticky; top: 0; z-index: 2; }
 
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
@@ -516,6 +537,10 @@ tr.favorable { background: var(--green-bg); }
 
 .code { font-weight: 700; }
 .name { color: var(--gray); font-size: 12px; }
+/* Desktop: code and name on one line ("BOB Bolivian Boliviano"), so a row is
+   ~41px, not 59 with the name stacked under the code — a third off a
+   139-row table. Phones keep the stack: there the column is 104px. */
+@media (min-width: 761px) { #rates .curcell .name { display: inline; margin-left: 6px; } }
 .curcell { display: flex; align-items: center; gap: 9px; }
 /* Pegged currencies folded into their anchor's row (see renderRates). */
 .pegnote { font-size: 11px; color: var(--gray); margin-top: 2px; white-space: normal; }
@@ -867,7 +892,10 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 /* searchable dropdown (combobox over a native select) */
 .combo { position: relative; display: inline-block; }
 .combo-input { padding: 6px 10px; border: 1px solid var(--border-input); border-radius: 8px;
-  background: var(--card); color: var(--ink); font-size: 14px; min-width: 130px; max-width: 220px; }
+  background: var(--card); color: var(--ink); font-size: 14px; min-width: 130px; max-width: 220px;
+  /* A name longer than the box ("BAM (Bosnia-Herzegovina Convertible Mark)")
+     ends in "…" rather than mid-word. */
+  text-overflow: ellipsis; }
 /* The list is as wide as the combo (min-width:100%) and its options WRAP:
    nowrap (set here, and inherited from .pickgroup) made it as wide as the
    longest label ("BAM (Bosnia-Herzegovina Convertible Mark)", ~320px), which
@@ -1326,6 +1354,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 
 @media (max-width: 760px) {
   .toprow { grid-template-columns: 1fr; }
+  /* A phone map is ~124px tall (a 322px-wide 1000x386 box) and the four-button
+     zoom stack 146px: it hung 32px past the map and the ⌂ sat on the first
+     pick under it, clipping "$100≈$601" to "$100≈$6". Pinch already zooms on
+     touch (drawMap), so ＋/－ go below 760 on every map — the Data maps, Top
+     Picks and Wander List alike — leaving ⛶ and ⌂ (80px), which fit. Full
+     screen has the room and keeps all four. */
+  .map .mapzoom [data-z="in"], .map .mapzoom [data-z="out"] { display: none; }
+  .mapfs .map .mapzoom [data-z="in"], .mapfs .map .mapzoom [data-z="out"] { display: block; }
   /* Stacked, nothing to stretch to: the chart keeps its own shape, and a
      panel's list its own height (capped, scrolling). */
   .toprow .chartcard > .chart { min-height: clamp(190px, 40vw, 300px); }
@@ -1368,8 +1404,12 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
      field. Side by side: 108px -> 76px. */
   #dataSubCurrency > .bar { flex-wrap: nowrap; gap: 8px; }
   #dataSubCurrency > .bar .meta { flex: 1 1 0; min-width: 0; }
-  #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 140px; }
+  /* 172, not 140: the dollar is now named like every other currency ("USD (US
+     Dollar)"), and at 140 the closed box showed "USD (US D". */
+  #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 172px; }
   #dataSubCurrency > .bar .pickgroup .combo { min-width: 0; flex: 1; }
+  /* A shorter ramp lets the legend and the 📸 share one line in a 328px card. */
+  .toprow .legend .bar { width: 90px; }
   #dataSubCurrency > .bar .pickgroup .combo-input { width: 100%; min-width: 0; }
   /* That picker is pinned to the right edge here, and ~100px wide: hang its
      list from the right and let it be as wide as the screen allows, so the
@@ -1395,6 +1435,13 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
      the worst 107 -> 58, and hands Price level the width it was missing. */
   #rates td:first-child { max-width: 104px; }
   #rates .curcell .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* …which never applied: the name's parent is a flex item, and a flex item's
+     min-width is auto — as wide as its longest word — so "Bolivian Boliviano"
+     ran under the rate in 39 of 139 rows. Letting it shrink is what makes the
+     ellipsis above take effect. */
+  #rates .curcell > div { min-width: 0; }
+  /* "1 USD =" wrapped into two header lines at this width. */
+  #rateColHead .sortbtn { white-space: nowrap; }
   /* Cost of living had the same 560px pin: 213px hidden, and "$1163 of US goods"
      broke across two lines. Unpinned it wants 404. The Currency column is 94px
      to show a 3-letter code — its own header is what makes it that wide — and it
@@ -1506,9 +1553,6 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   /* Currency: hide Range position (5) — the widest column, and the one whose
      meaning needs the ⓘ anyway. */
   #rates th:nth-child(5), #rates td:nth-child(5) { display: none; }
-  /* "Recently changed" renders under the map AND above the table; on a phone
-     they are a screen apart and read as a duplicate — one copy is enough. */
-  #advRecent { display: none; }
   /* Budget hero: inputs and their words stay on one line inside the group. */
   .budgethero { flex-wrap: nowrap; }
   /* The verdict badge steps down with the viewport so the Overall column
@@ -1701,6 +1745,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 
 /* Share-image buttons sit in the map headers beside the legend. */
 .charthead .shareimg { margin-left: auto; align-self: center; white-space: nowrap; }
+/* In a card row the button is its 📸 alone, so it shares the legend's line
+   instead of taking a ~43px row of its own under it — the row is as tall as
+   its tallest card, and that card's header was the height driver. The word
+   stays for screen readers (clipped, not display:none) and the title tells
+   sighted readers what the icon does. */
+.toprow .shareimg { position: relative; padding: 5px 8px; }
+.toprow .shareimg .btxt { position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 
 /* Trip toggle on the guide page — sits beside "Plan with AI", muted until
    active so the green AI button stays the primary action. */

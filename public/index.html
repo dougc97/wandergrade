@@ -430,9 +430,10 @@
         <select id="dataRegion" aria-label="Region"></select>
       </span>
       <div class="actions">
-        <!-- aria-label, not title: with the word hidden the accessible name would
-             otherwise be the bare "↻" glyph. -->
-        <button id="refresh" aria-label="Refresh" title="Refresh"><span class="lbl-lg">Refresh</span><span class="lbl-sm">↻</span></button>
+        <!-- No Refresh button: it refetched only the currency data, which the
+             server caches for ten minutes on a feed that updates daily, and
+             sat on every sub-tab, three of which it didn't redraw. "As of …"
+             in the Currency bar says how fresh the data is. -->
         <button id="check">Check &amp; email now</button>
         <button id="toggleSettings">Settings</button>
       </div>
@@ -544,7 +545,9 @@
                    must not — strength_pct is 30% of every Affordability grade, so a
                    view control cannot own it. The window is always a year. -->
               <th class="num sortable" aria-sort="none" data-sk="vsavg" id="vsAvgHead" title="vs its own 1-year average — positive = the dollar buys more of this currency than usual. Nominal: in a high-inflation country local prices can rise faster than the currency falls, so the Affordability grade uses the inflation-adjusted move instead."><button type="button" class="sortbtn">vs <span class="lbl-lg">1-yr </span>avg</button></th>
-              <th class="num sortable" aria-sort="none" data-sk="price" title="local prices vs the US; below 1.00 = cheaper than the US. A currency several countries share shows the range across them."><button type="button" class="sortbtn">Price level</button></th>
+              <!-- Against the home country (renderRates rewrites the title with
+                   its name), the same measure as the Cost of living tab. -->
+              <th class="num sortable" aria-sort="none" data-sk="price" title="local prices vs your home country; below 1.00 = cheaper than home. A currency several countries share shows the range across them."><button type="button" class="sortbtn">Price level</button></th>
               <th class="num sortable" aria-sort="none" data-sk="range" title="where today's rate sits in its 1-year range — further right (greener) = your money is near its strongest, so it goes further"><button type="button" class="sortbtn">Range position</button></th>
             </tr>
           </thead>
@@ -618,7 +621,7 @@
                  also the widest column here ("about the same"), squeezing the
                  country names. The word still rides the price level in the
                  Currency sub-tab, where it isn't sat beside its own source. -->
-            <th class="num sortable" aria-sort="none" data-sk="buys" title="what 100 in your home currency buys there, in at-home goods"><button type="button" class="sortbtn">100 buys ~</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="buys" title="what 100 in your home currency buys there, measured in at-home goods (100 ÷ price level)"><button type="button" class="sortbtn">100 buys ~</button></th>
           </tr></thead>
           <tbody id="affRows"><tr><td colspan="4">Loading…</td></tr></tbody>
         </table>
@@ -636,10 +639,12 @@
             <h2 id="advH2">Travel advisories</h2>
             <p id="advSub" class="chartsub">Loading…</p>
           </div>
-          <!-- Whose judgement you're reading. Defaults to your home country's
-               government (From selector); picking one here overrides it —
-               advisories reflect each government's own foreign policy, and
-               seeing another's view is the point of offering the choice. -->
+          <!-- Whose judgement you're reading: one explicit pick, US by default
+               for everyone (the owner's call — it no longer follows the From
+               country; silent switching between three sources confused more
+               than it helped). Advisories reflect each government's own
+               foreign policy, and seeing another's view is the point of
+               offering the choice. -->
           <span class="pickgroup" data-tip="which government's travel advice — advisories reflect each country's own foreign policy" title="">
             <span class="picklabel">🏛️ Per</span>
             <select id="advSource">
@@ -676,8 +681,8 @@
       </div>
       <section class="tablewrap">
         <!-- What moved recently — the feed's own "level was increased/
-             decreased" statements, dated. Filled by renderAdvisories. -->
-        <div id="advRecent" class="mappicksrow" hidden></div>
+             decreased" statements, dated — is the list under the map
+             (renderAdvisories); it used to repeat here, 100px below. -->
         <table id="advTable">
           <thead><tr><th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="level"><button type="button" class="sortbtn">Level</button></th><th class="sortable" aria-sort="none" data-sk="text"><button type="button" class="sortbtn">Advisory</button></th></tr></thead>
           <tbody id="advRows"><tr><td colspan="3">Loading…</td></tr></tbody>
@@ -750,10 +755,10 @@
         <table id="flightTable">
           <thead><tr>
             <th class="sortable" aria-sort="none" data-sk="dest"><button type="button" class="sortbtn">Destination country</button></th>
-            <th class="sortable" aria-sort="none" data-sk="vs" title="the month's cheapest fare vs this route's typical range over the next 12 months: Low, Typical or High, and % vs its median"><button type="button" class="sortbtn">vs typical</button></th>
+            <th class="sortable" aria-sort="none" data-sk="vs" title="the month's cheapest fare vs this route's own year: Low/High = outside its usual middle-half range over the next 12 months (wider on routes whose fares swing more), Typical = inside it; the % is vs its median, so a −8% can be Low on one route and Typical on another"><button type="button" class="sortbtn">vs typical</button></th>
             <th class="num sortable" aria-sort="none" data-sk="mfare" title="cheapest cached round-trip departing in the chosen month"><button type="button" class="sortbtn">Month fare</button></th>
             <th class="num sortable" aria-sort="none" data-sk="avg" title="average of the cached fares, any month"><button type="button" class="sortbtn">Avg round-trip</button></th>
-            <th class="num sortable" aria-sort="none" data-sk="min"><button type="button" class="sortbtn">Cheapest</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="min" title="cheapest cached round-trip on this route, any month in the next 12"><button type="button" class="sortbtn">Cheapest</button></th>
             <th class="num sortable" aria-sort="none" data-sk="dur" title="one way, layovers included, on the most direct cached flight"><button type="button" class="sortbtn">Flight time</button></th>
             <th class="num sortable" aria-sort="none" data-sk="stops" title="fewest stops on any cached flight"><button type="button" class="sortbtn">Stops</button></th>
           </tr></thead>
@@ -778,7 +783,7 @@
   </details>
 
   <footer>
-    Currency: <a href="https://fxratesapi.com" target="_blank" rel="noopener">fxratesapi.com</a> ·
+    Currency: <a href="https://fxratesapi.com" target="_blank" rel="noopener">fxratesapi.com</a> (today's rates) &amp; <a href="https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html" target="_blank" rel="noopener">ECB</a> (strength history) ·
     PPP: World Bank ·
     Climate: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> ·
     Advisories: <a href="https://travel.state.gov" target="_blank" rel="noopener">U.S. State Dept</a>, <a href="https://travel.gc.ca/travelling/advisories" target="_blank" rel="noopener">Global Affairs Canada</a> &amp; <a href="https://www.auswaertiges-amt.de/de/ReiseUndSicherheit/reise-und-sicherheitshinweise" target="_blank" rel="noopener">German Foreign Office</a> ·
