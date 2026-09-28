@@ -4,6 +4,7 @@ used follows the traveler's home country (US State Dept by default; German
 Federal Foreign Office for German travelers) — government advisories reflect
 each country's own foreign policy, so a single source can feel skewed. No key."""
 
+import time
 import os
 import re
 import json
@@ -217,7 +218,7 @@ def _german_advisories():
     raw = rates.fetch_json(AA_FEED)
     resp = (raw or {}).get("response", {}) if isinstance(raw, dict) else {}
     items = []
-    for v in resp.values():
+    for key, v in resp.items():
         if not isinstance(v, dict):
             continue
         iso = (v.get("countryCode") or "").strip().upper()
@@ -232,8 +233,17 @@ def _german_advisories():
             level, txt = 2, "Teilreisewarnung (warning for some regions)"
         else:
             level, txt = 1, "Keine Warnung (no warning)"
-        items.append({"iso": iso, "country": v.get("countryName", ""),
-                      "level": level, "level_text": txt, "link": AA_URL})
+        # The feed's key is the country page's content id: /de/-/<id> redirects
+        # to that country's safety advice (the general index said nothing
+        # about the country). lastModified is epoch seconds.
+        link = "https://www.auswaertiges-amt.de/de/-/%s" % key if str(key).isdigit() else AA_URL
+        item = {"iso": iso, "country": v.get("countryName", ""),
+                "level": level, "level_text": txt, "link": link}
+        try:
+            item["updated"] = time.strftime("%Y-%m-%d", time.gmtime(int(v.get("lastModified"))))
+        except (TypeError, ValueError):
+            pass
+        items.append(item)
     items.sort(key=lambda r: (-r["level"], r["country"]))
     return {"items": items, "count": len(items),
             "matched": sum(1 for i in items if i["iso"]),

@@ -423,6 +423,12 @@
         <button data-dm="advisory">⚠️ Safety</button>
         <button data-dm="flights">✈️ Flights</button>
       </div>
+      <!-- One region for every Data view (and Top Picks): filters the tables,
+           lists and panels, and zooms each map to it. -->
+      <span class="pickgroup" data-tip="show one region: filters the tables and lists and zooms the map — the same setting as the Region on Top Picks" title="">
+        <span class="picklabel">🌍 <span class="lbl-lg">Region</span></span>
+        <select id="dataRegion" aria-label="Region"></select>
+      </span>
       <div class="actions">
         <!-- aria-label, not title: with the word hidden the accessible name would
              otherwise be the bare "↻" glyph. -->
@@ -620,7 +626,11 @@
     </div>
 
     <div id="dataSubAdvisory" hidden>
-      <div class="cardwide">
+      <!-- Map beside "what each government says" (renderGov): by default the
+           countries the three governments rate furthest apart; a country
+           clicked on the map shows all three of its advisories. -->
+      <div class="toprow">
+      <section class="mapcard">
         <div class="charthead">
           <div>
             <h2 id="advH2">Travel advisories</h2>
@@ -642,6 +652,17 @@
           <button id="advShare" class="themebtn shareimg" type="button" title="Download this map as an image">📸 <span class="btxt">Share image</span></button>
         </div>
         <div id="advMap" class="map">Loading…</div>
+      </section>
+      <section class="chartcard" id="govCard">
+        <div class="charthead">
+          <div>
+            <h2 id="govH2">Where governments disagree</h2>
+            <p id="govSub" class="chartsub">Loading…</p>
+          </div>
+        </div>
+        <div class="panelbody"><div class="panelscroll" id="govScroll"></div></div>
+        <p class="chartnote" id="govNote"></p>
+      </section>
       </div>
       <div class="filterbar">
         <input id="advFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
@@ -665,7 +686,11 @@
     </div>
 
     <div id="dataSubFlights" hidden>
-      <div class="cardwide">
+      <!-- Map beside "Fares by month" (renderFbm): each departure month's fare
+           for the destination clicked on the map, or for all destinations vs
+           their own typical; a month bar sets the travel month. -->
+      <div class="toprow">
+      <section class="mapcard">
         <div class="charthead">
           <div>
             <h2>Flight prices by country <span class="muted">low, typical or high for your month</span></h2>
@@ -695,6 +720,27 @@
           </div>
         </div>
         <div id="flightMap" class="map">Loading…</div>
+      </section>
+      <section class="chartcard" id="fbmCard">
+        <div class="charthead">
+          <div>
+            <h2 id="fbmH2">Fares by month</h2>
+            <p id="fbmSub" class="chartsub">Loading…</p>
+          </div>
+          <div class="bignum" aria-live="polite">
+            <span id="fbmNow"></span>
+            <small id="fbmChg"></small>
+          </div>
+        </div>
+        <div class="colbar">
+          <span class="pickgroup">
+            <span class="picklabel">📍 To</span>
+            <select id="fbmPick" aria-label="Destination"></select>
+          </span>
+        </div>
+        <div id="fbmChart" class="chart"></div>
+        <p class="chartnote" id="fbmNote"></p>
+      </section>
       </div>
       <div class="filterbar">
         <input id="flightFilter" class="tablefilter" type="search" placeholder="🔍 Filter by destination…">

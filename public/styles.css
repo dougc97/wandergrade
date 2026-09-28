@@ -7,6 +7,8 @@
   --softer: #eeeeee;
   --tablehead: #f3f3f3;
   --mapbg: #f7fafc;
+  --mapout: #e3e7eb;
+  --fvtyp: #aeb6be;
   --zebra: #fbfbfb;
   --chartgrid: #ececec;
   --border-input: #cccccc;
@@ -305,6 +307,31 @@ small { color: var(--gray); font-weight: 400; }
 .toprow .chartcard { display: flex; flex-direction: column; }
 .toprow .chartcard > .chart { flex: 1 1 auto; position: relative; min-height: 190px; }
 .toprow .chartcard > .chart > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* A table beside a map (Safety): the same trick — the list fills the room its
+   card has and scrolls, rather than stretching the row past the map card. */
+.toprow .chartcard > .panelbody { flex: 1 1 auto; position: relative; min-height: 220px; margin-top: 10px; }
+.toprow .chartcard > .panelbody > .panelscroll { position: absolute; inset: 0; overflow: auto; }
+
+/* Safety: what each government says. */
+.govtable { width: 100%; border-collapse: collapse; font-size: 13px; }
+.govtable th { position: sticky; top: 0; background: var(--card); text-align: left; font-size: 11px;
+  font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: .03em; padding: 6px; z-index: 1; }
+.govtable td { padding: 6px; border-top: 1px solid var(--line); }
+.govtable th.mine, .govtable td.mine { background: var(--soft); }
+.govtable tbody tr { cursor: pointer; }
+/* The country is a real button: keyboard and screen readers open it too. */
+.govpick { border: none; background: none; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.govpick:hover { text-decoration: underline; }
+.govtable tbody tr:hover td { background: var(--soft); }
+.govtable .lvl { padding: 1px 8px; font-size: 11.5px; }
+.govtable .none { color: var(--gray); }
+.govrow { padding: 10px 2px; border-top: 1px solid var(--line); }
+.govrow:first-child { border-top: none; }
+.govrow.mine { background: var(--soft); border-radius: 8px; padding: 10px; }
+.govrow .govname { font-weight: 700; margin-bottom: 4px; }
+.govrow .govsum { margin: 6px 0 0; color: var(--gray); font-size: 12.5px; }
+.govback { border: none; background: none; padding: 0; color: var(--green); font: inherit; cursor: pointer; }
+.govback:hover { text-decoration: underline; }
 
 .mapcard, .chartcard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 18px; padding: 18px 20px 14px; }
 .map { margin-top: 10px; }
@@ -352,6 +379,12 @@ html[data-theme="dark"] .chdown, html[data-theme="dark"] .fxmark.fxup { color: #
 .mapzoom button:hover { border-color: var(--green); color: var(--green); }
 /* The icon is an svg inside .map, so the map's own svg rules (100% wide,
    ocean fill, white country strokes) reach it too; these undo them. */
+/* A map in a two-column card row gets short below ~1100px (a 340px-wide map
+   is ~130px tall): smaller zoom buttons keep the stack inside it. */
+@media (max-width: 1100px) and (min-width: 761px) {
+  .toprow .map .mapzoom { top: 6px; right: 6px; gap: 4px; }
+  .toprow .map .mapzoom button { width: 26px; height: 26px; font-size: 14px; }
+}
 .map .mapzoom button svg { display: block; margin: auto; width: 16px; height: 16px;
   background: none; border-radius: 0; }
 .map .mapzoom button svg path, html[data-theme] .map .mapzoom button svg path,
@@ -412,6 +445,8 @@ html.mapfs-open, html.mapfs-open body { overflow: hidden; }
 /* been AND want-to-go-again: green fill with a blue ring */
 .map svg path.both { stroke: #2b6cb0; stroke-width: 1.8; }
 .map svg path:hover { stroke: #222; stroke-width: 0.9; }
+/* Outside the chosen region (drawMap): a quiet shape, neither data nor "no data". */
+.map svg path.out { fill: var(--mapout); }
 
 .legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--gray); flex-wrap: wrap; }
 .legend .bar { width: 130px; height: 10px; border-radius: 5px;
@@ -444,7 +479,8 @@ html[data-tab="guide"] header .sub { display: none; }
 .charthead .muted { color: var(--gray); font-weight: 400; font-size: 14px; }
 .chartsub { margin: 4px 0 0; color: var(--gray); font-size: 13px; }
 .bignum { text-align: left; line-height: 1.1; }
-.bignum #indexnow, .bignum #colNow { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+#fbmChart svg:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 6px; }
+.bignum #indexnow, .bignum #colNow, .bignum #fbmNow { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .bignum small { display: block; font-size: 14px; font-weight: 600; }
 .bignum small.pos { color: var(--green); }
 .bignum small.neg { color: var(--red); }
@@ -1067,6 +1103,8 @@ html[data-theme="dark"] {
   --softer: #2c3338;
   --tablehead: #21262b;
   --mapbg: #161a1e;
+  --mapout: #262c32;
+  --fvtyp: #c3cad1;
   --zebra: #1d2227;
   --chartgrid: #2a3036;
   --border-input: #3a4147;
@@ -1096,6 +1134,8 @@ html[data-theme="dark"] { --doodle: 0.10; }
     --softer: #2c3338;
     --tablehead: #21262b;
     --mapbg: #161a1e;
+    --mapout: #262c32;
+    --fvtyp: #c3cad1;
     --zebra: #1d2227;
     --chartgrid: #2a3036;
     --border-input: #3a4147;
@@ -1286,8 +1326,13 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 
 @media (max-width: 760px) {
   .toprow { grid-template-columns: 1fr; }
-  /* Stacked, nothing to stretch to: the chart keeps its own shape. */
+  /* Stacked, nothing to stretch to: the chart keeps its own shape, and a
+     panel's list its own height (capped, scrolling). */
   .toprow .chartcard > .chart { min-height: clamp(190px, 40vw, 300px); }
+  .toprow .chartcard > .panelbody { min-height: 0; }
+  .toprow .chartcard > .panelbody > .panelscroll { position: static; max-height: 420px; }
+  /* A country's three advisories are read whole, not scrolled in a box. */
+  .toprow .chartcard > .panelbody > .panelscroll.detail { max-height: none; }
 }
 
 @media (max-width: 680px) {

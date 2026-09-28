@@ -57,6 +57,7 @@ function applyTheme(t) {
   if (btn) btn.textContent = t === "dark" ? "☀️" : "🌙";
   if (lastIndexData) renderIndex(lastIndexData);   // redraw charts in new palette
   if (plHist) renderCol();
+  if ($("fbmChart") && $("fbmChart")._redraw) renderFbm();
 }
 function initTheme() {
   // Default follows the browser/OS color scheme; a manual toggle overrides and
@@ -78,6 +79,7 @@ function initTheme() {
         if (btn) btn.textContent = sys() === "dark" ? "☀️" : "🌙";
         if (lastIndexData) renderIndex(lastIndexData);
         if (plHist) renderCol();
+        if ($("fbmChart") && $("fbmChart")._redraw) renderFbm();
       }
     });
   }
@@ -607,6 +609,9 @@ function renderRates(data) {
     // hide-higher-risk filter (so the Iranian rial isn't row one).
     const ctry = currencyCountry(r.code);
     tr.dataset.adv = String((ctry && adv[ctry]) || 0);
+    // Every region a currency is used in: the euro row shows under Europe, the
+    // West African franc under Africa (regionRowOk).
+    tr.dataset.regions = [...new Set(currencyCountries(r.code).map(regionOf).filter(Boolean))].join(" ");
     // Row links to the representative country's Travel Guide (shared currencies
     // point at a primary country, e.g. EUR→Germany; XCD has none, so no link).
     // Only where a guide exists: Tonga's row must not open a near-empty page.
@@ -948,6 +953,13 @@ function projectRing(ring, W, H, latTop, latBot) {
 function drawMap(hostId, colorFn, ariaLabel) {
   const host = $(hostId);
   if (!worldGeo) { host.textContent = "Map data unavailable."; return; }
+  // The region filter (setRegion): places outside it are drawn as "outside"
+  // whatever their own colour would be.
+  if (REGION_MAPS.has(hostId) && regionSel !== "all") {
+    const own = colorFn, rn = REGIONS[regionSel];
+    colorFn = (f) => (inRegion(f.properties.iso) ? own(f)
+      : { fill: NODATA, cls: "out", title: f.properties.name + " — outside " + rn });
+  }
   const W = 1000, latTop = 83, latBot = -56;
   const H = Math.round((W * (latTop - latBot)) / 360);
   let paths = "";
@@ -1049,6 +1061,14 @@ function drawMap(hostId, colorFn, ariaLabel) {
   // unhittable at world scale, and the Top Picks map is where people are
   // actually trying to click through to a guide.
   attachMapZoom(host, W, H);
+  // A new region glides the camera there (or back out); a re-render for any
+  // other reason keeps whatever zoom the reader has.
+  if (REGION_MAPS.has(hostId) && host._zoomTo && host._regionShown !== regionSel) {
+    const first = host._regionShown === undefined;
+    host._regionShown = regionSel;
+    if (!(first && regionSel === "all"))
+      host._zoomTo(regionSel === "all" ? { x: 0, y: 0, w: W, h: H } : regionZoomBox(regionSel), !first);
+  }
 }
 
 // "Ctrl/⌘ + scroll to zoom" over a map, shown briefly when a plain wheel
@@ -1526,7 +1546,8 @@ function renderMap(rows, base) {
   // read as "wins" while prices there rose faster than the currency fell
   // (Turkey: +9% nominal, -4% real). No inflation figure, no claimed gain.
   // Named by country (a currency union by its own name): "BOB" meant little.
-  const gains = rows.filter((r) => !(r.pegged_to && byCode[r.pegged_to]))
+  const gains = rows.filter((r) => !(r.pegged_to && byCode[r.pegged_to])
+      && currencyCountries(r.code).some(inRegion))
     .map((r) => {
       const iso = currencyCountry(r.code);
       return { r, iso, real: iso ? realFxPct(iso, r.strength_pct) : null };
@@ -1910,6 +1931,66 @@ const ISO_REGION = (() => {
   for (const r in g) for (const iso of g[r]) m[iso] = r;
   return m;
 })();
+// One region for the whole site, like the travel month and the From country:
+// Top Picks' Region and the Data tab's share it (and the vr= link param). The
+// maps it applies to zoom to it and shade everything outside it as "outside"
+// — not grey "no data", and never a colour: under "Asia" the Do Not Travel
+// fill used to light up Africa, Russia and Haiti.
+const REGION_MAPS = new Set(["valueMap", "map", "affMap", "advMap", "flightMap"]);
+let regionSel = (() => { const v = new URLSearchParams(location.search).get("vr") || ""; return REGIONS[v] ? v : "all"; })();
+// Every place on the maps, not just the scored ones (Puerto Rico, the
+// Caribbean islands, Pacific states come from the Wander List's continents).
+function regionOf(iso) {
+  if (ISO_REGION[iso]) return ISO_REGION[iso];
+  if (iso === "EH") return "MENA";
+  const c = continentOf(iso);
+  return c ? ({ NA: "AMER", SA: "AMER", EU: "EUR", AS: "ASIA", AF: "AFRICA", OC: "OCEANIA" }[c] || null) : null;
+}
+const inRegion = (iso) => regionSel === "all" || regionOf(iso) === regionSel;
+// A table row belongs if its country (or, for a currency, any country using
+// it: data-regions) is in the region.
+function regionRowOk(tr) {
+  if (regionSel === "all") return true;
+  if (tr.dataset.regions != null) return tr.dataset.regions.split(" ").includes(regionSel);
+  return !!tr.dataset.iso && inRegion(tr.dataset.iso);
+}
+// lon1, lon2, lat1, lat2 each region is framed on.
+const REGION_VIEW = {
+  AMER: [-170, -30, -56, 72], EUR: [-25, 45, 34, 71], MENA: [-18, 63, 12, 42],
+  ASIA: [34, 150, -11, 56], AFRICA: [-26, 52, -36, 22], OCEANIA: [110, 180, -48, 2],
+};
+function regionZoomBox(r) {
+  const [lo1, lo2, la1, la2] = REGION_VIEW[r];
+  const W = 1000, H = 386, latTop = 83, latBot = -56;
+  const x1 = ((lo1 + 180) / 360) * W, x2 = ((lo2 + 180) / 360) * W;
+  const y1 = ((latTop - la2) / (latTop - latBot)) * H, y2 = ((latTop - la1) / (latTop - latBot)) * H;
+  const w = Math.max(x2 - x1, (y2 - y1) * W / H);
+  return { x: (x1 + x2) / 2 - w / 2, y: (y1 + y2) / 2 - (w * H / W) / 2, w, h: w * H / W };
+}
+function setRegion(r) {
+  regionSel = REGIONS[r] ? r : "all";
+  for (const id of ["valueRegion", "dataRegion"]) {
+    const sel = $(id);
+    if (sel && sel.value !== regionSel) { sel.value = regionSel; if (sel._sync) sel._sync(); }
+  }
+  if (loaded.value) renderValue();
+  if (dataRates) { renderRates(dataRates); renderMapSafe(); }
+  if (loaded.afford) renderAfford();
+  if (loaded.advisory && advisories) renderAdvisories();
+  if (loaded.flights && flightsData && flightsData.configured) renderFlights();
+  syncURL();
+}
+// Filled here, after REGIONS and regionSel exist; Top Picks fills its own
+// select when that tab is built.
+fillRegionSelect($("dataRegion"));
+function fillRegionSelect(sel) {
+  if (!sel || sel.options.length) return;
+  sel.innerHTML = '<option value="all">All regions</option>'
+    + Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
+  sel.value = regionSel;
+  sel.addEventListener("change", () => setRegion(sel.value));
+}
+
 const MONTHS = ["January","February","March","April","May","June","July",
   "August","September","October","November","December"];
 const MON_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -3119,7 +3200,7 @@ function renderAdvisories() {
   // dated. Shown under the map and again above the table.
   const cutoff = new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10);
   const changed = advisories.items
-    .filter((it) => it.change && it.updated && it.updated >= cutoff)
+    .filter((it) => it.change && it.updated && it.updated >= cutoff && (!it.iso || inRegion(it.iso)))
     .sort((a, b) => (a.updated < b.updated ? 1 : -1)).slice(0, 8);
   const chLine = (it) => {
     const d = new Date(it.updated + "T12:00:00");
@@ -3181,6 +3262,146 @@ function renderAdvisories() {
   }).join("");
   applyAdvFilter();
   wireWatchoutRows();
+  // A country clicked on the map shows all three governments' advice beside it.
+  $("advMap")._onPick = (iso) => setGovCountry(iso);
+  renderGov();
+}
+
+// ---- Safety: what each government says -------------------------------------
+// Beside the map: by default the countries the US, Canada and Germany rate
+// furthest apart; a country picked on the map (or in the list) shows all three
+// advisories. Only each government's OWN ratings are compared — the gap-fills
+// a feed borrows from another government (`via`) would compare a government
+// with itself.
+const GOV = [["us", "🇺🇸", "US"], ["ca", "🇨🇦", "Canada"], ["de", "🇩🇪", "Germany"]];
+let govIso = (() => { const v = new URLSearchParams(location.search).get("sc") || ""; return /^[A-Z]{2}$/.test(v) ? v : null; })();
+let govScrollTop = 0;
+// Each feed on its own: one that fails leaves its column "unavailable"
+// rather than blanking the panel.
+async function ensureAllAdvisories() {
+  await Promise.allSettled(GOV.map(async ([src]) => {
+    if (!_advBySource[src]) _advBySource[src] = await getJSON("/api/advisories?source=" + src);
+  }));
+}
+function govOwn(src) {
+  const out = {};
+  for (const it of ((_advBySource[src] || {}).items) || [])
+    if (it.iso && !it.via && parseInt(it.level, 10) >= 1) out[it.iso] = it;
+  return out;
+}
+// Germany grades nothing: it issues a formal warning for a whole country (read
+// as Level 4), a warning for some regions, or none. Neither of the last two is
+// a level: "none" is not "normal precautions" (it advises against North Korea
+// without a formal warning), and a regional warning can sit anywhere from
+// "caution" to "avoid" for the rest of the country. Read as Level 1 and 2 they
+// made up most of the "disagreements" — a scale mismatch, not a difference of
+// view. Only Germany's full warning is compared.
+const govGraded = (src, it) => !!it && (src !== "de" || parseInt(it.level, 10) === 4);
+function setGovCountry(iso) {
+  const box = $("govScroll");
+  if (iso && !govIso && box) govScrollTop = box.scrollTop;   // come back to the same place in the list
+  govIso = iso || null;
+  renderGov(true);
+  syncURL();
+}
+async function renderGov(focus) {
+  const box = $("govScroll");
+  if (!box) return;
+  await ensureAllAdvisories();
+  const loadedSrc = GOV.filter(([src]) => _advBySource[src] && _advBySource[src].items);
+  if (!loadedSrc.length) {
+    $("govSub").textContent = "Couldn't load the governments' advisories — try again later.";
+    box.innerHTML = ""; $("govNote").textContent = "";
+    return;
+  }
+  const own = {};
+  for (const [src] of GOV) own[src] = govOwn(src);
+  const ok = (src) => !!(_advBySource[src] && _advBySource[src].items);
+  // A code nobody rates (a bad sc= link) is no country to show.
+  if (govIso && !GOV.some(([src]) => own[src][govIso])) govIso = null;
+  const mine = (advisories && advisories.source) || advisorySource();
+  const pill = (it, src) => (!ok(src) ? '<span class="none" title="this feed didn\'t load">unavailable</span>'
+    : !it ? '<span class="none" title="no advisory of its own">—</span>'
+    : src === "de" && !govGraded(src, it)
+      ? `<span class="none" title="${esc(it.level_text || "")}">${parseInt(it.level, 10) === 2 ? "some regions" : "no warning"}</span>`
+    : `<span class="lvl lvl${parseInt(it.level, 10)}"${src === "de" ? ` title="${esc(it.level_text || "")}"` : ""}>L${parseInt(it.level, 10)}</span>`);
+  const tip = "Each government rates risk for its own citizens, and through its own foreign policy — the same country can be "
+    + "'exercise caution' to one and 'avoid travel' to another. Canada grades 1–4 like the US. Germany only issues formal "
+    + "warnings, for a whole country (shown as L4) or for some regions — so a regional warning, or none, isn't a level and "
+    + "isn't compared. Only each government's own ratings count: gaps one fills from another are left out.";
+  if (govIso) {
+    const name = countryName(govIso);
+    $("govH2").innerHTML = `${esc(name)} <span class="muted">what each government says</span>`;
+    $("govSub").innerHTML = '<button type="button" class="govback">← Where governments disagree</button>';
+    $("govNote").innerHTML = `<span class="muted" data-tip="${esc(tip)}" title="">How these compare ⓘ</span>`;
+    box.classList.add("detail");
+    box.innerHTML = GOV.map(([src, flag]) => {
+      const it = own[src][govIso];
+      const full = (_advBySource[src] || {}).source_name || ADV_SRC_SHORT[src];
+      const link = it && /^https:\/\//.test(it.link || "") ? it.link : "";
+      // Germany's page for the country is in German: say so.
+      const linkText = src === "de" ? "Read the advice (in German) ↗" : "Read the advisory ↗";
+      const meta = [it && it.updated ? "Updated " + fmtDay(String(it.updated).slice(0, 10)) : "",
+                    link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${linkText}</a>` : ""].filter(Boolean);
+      const line = !ok(src) ? '<div class="muted">This government\'s advisories didn\'t load.</div>'
+        : !it ? `<div class="muted">No advisory of its own for ${esc(name)}</div>`
+        : src === "de" && !govGraded(src, it)
+          ? `<div>${parseInt(it.level, 10) === 2 ? "A formal warning for some regions only" : "No formal warning from Germany"}</div>`
+        : `<div>${pill(it, src)} ${esc(it.level_text || "")}</div>`;
+      // A long feed summary ends on its last full sentence, not mid-word.
+      let sum = it && it.summary ? String(it.summary) : "";
+      if (/\.\.\.$|…$/.test(sum)) { const k = sum.lastIndexOf(". ", sum.length - 4); if (k > 40) sum = sum.slice(0, k + 1); }
+      return `<div class="govrow${src === mine ? " mine" : ""}"><div class="govname">${flag} ${esc(full)}</div>`
+        + line
+        + (meta.length ? `<div class="muted">${meta.map((m, i) => (i ? " · " : "") + m).join("")}</div>` : "")
+        + (sum ? `<p class="govsum">${esc(sum)}</p>` : "")
+        + "</div>";
+    }).join("");
+    if (focus) { const bk = document.querySelector("#govCard .govback"); if (bk) bk.focus({ preventScroll: true }); }
+  } else {
+    const rows = [];
+    const isos = new Set(GOV.flatMap(([src]) => Object.keys(own[src])));
+    for (const iso of isos) {
+      const lv = GOV.map(([src]) => (govGraded(src, own[src][iso]) ? own[src][iso] : null))
+        .filter(Boolean).map((it) => parseInt(it.level, 10));
+      if (lv.length < 2) continue;
+      const spread = Math.max(...lv) - Math.min(...lv);
+      if (spread >= 1 && countryName(iso) !== iso && inRegion(iso)) rows.push({ iso, spread, max: Math.max(...lv) });
+    }
+    rows.sort((a, b) => b.spread - a.spread || b.max - a.max || countryName(a.iso).localeCompare(countryName(b.iso)));
+    const far = rows.filter((r) => r.spread >= 2).length;
+    $("govH2").innerHTML = 'Where governments disagree <span class="muted">US · Canada · Germany'
+      + (regionSel === "all" ? "" : " · " + esc(REGIONS[regionSel])) + "</span>";
+    $("govSub").textContent = rows.length
+      ? `${far} ${far === 1 ? "country" : "countries"} rated 2+ levels apart, ${rows.length - far} one level apart · `
+        + "pick a country here or on the map to compare all three"
+      : "They agree on every country here · pick one on the map to see all three";
+    $("govNote").innerHTML = esc("L1–L4 = each government's level; — = no advisory of its own. ")
+      + `<span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`;
+    box.classList.remove("detail");
+    box.innerHTML = `<table class="govtable"><thead><tr><th>Country</th>`
+      + GOV.map(([src, flag, short]) => `<th class="${src === mine ? "mine" : ""}">${flag} ${short}</th>`).join("")
+      + `</tr></thead><tbody>`
+      + rows.map((r) => `<tr data-iso="${esc(r.iso)}"><td><button type="button" class="govpick" data-iso="${esc(r.iso)}"`
+        + ` title="All three advisories for ${esc(countryName(r.iso))}">${esc(countryName(r.iso))}</button></td>`
+        + GOV.map(([src]) => `<td class="${src === mine ? "mine" : ""}">${pill(own[src][r.iso], src)}</td>`).join("") + "</tr>").join("")
+      + "</tbody></table>";
+    // Back from a country: the same place in the list, focus on its row.
+    if (focus) {
+      box.scrollTop = govScrollTop;
+      const last = box._lastIso && box.querySelector(`.govpick[data-iso="${box._lastIso}"]`);
+      if (last) last.focus({ preventScroll: true });
+    }
+  }
+  box._lastIso = govIso || box._lastIso;
+  if (!box._wired) {
+    box._wired = true;
+    $("govCard").addEventListener("click", (e) => {
+      if (e.target.closest(".govback")) { setGovCountry(null); return; }
+      const tr = e.target.closest(".govtable tbody tr[data-iso]");
+      if (tr) setGovCountry(tr.dataset.iso);
+    });
+  }
 }
 
 // The table is where safety research happens, so the full watchouts live here
@@ -3284,7 +3505,7 @@ function renderAfford() {
   const adv = advisoryByIso();
   const cheap = Object.keys(CUR_BY_ISO)
     .map((iso) => ({ iso, pl: priceLevel(iso) }))
-    .filter((x) => x.pl != null && countryName(x.iso) !== x.iso
+    .filter((x) => x.pl != null && countryName(x.iso) !== x.iso && inRegion(x.iso)
       && (showRisky || (adv[x.iso] || 0) < 3))
     .sort((a, b) => a.pl - b.pl).slice(0, 8);
   renderDimPicks("affMap", "Where " + sym + "100 goes furthest",
@@ -3367,7 +3588,7 @@ function colSeries(iso, anchor) {
       out.push({ date: asOf, value: now / anchor.pl, year: null });
     return out;
   }
-  const isos = Object.keys(P);
+  const isos = Object.keys(P).filter(inRegion);
   let level = null;
   Y.forEach((y, i) => {
     const logs = [];
@@ -3451,7 +3672,8 @@ async function renderCol() {
     b.classList.toggle("active", on);
     b.setAttribute("aria-pressed", on ? "true" : "false");
   }
-  const name = colIso === "world" ? "A typical country" : countryName(colIso);
+  const name = colIso === "world" ? "A typical country" + (regionSel === "all" ? "" : " in " + REGIONS[regionSel])
+    : countryName(colIso);
   $("colH2").innerHTML = `Cost over time <span class="muted">${esc(name)} vs ${esc(anchor.name)}</span>`;
   if (pts.length < 2) {
     host.innerHTML = "<p class='hint'>No price history for " + esc(name) + ".</p>";
@@ -4100,9 +4322,7 @@ function resyncCombos() {
 
 function buildValueTab() {
   const reg = $("valueRegion"), mon = ensureMonthOptions();
-  reg.innerHTML = '<option value="all">All regions</option>' +
-    Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
-  reg.onchange = renderValue;
+  fillRegionSelect(reg);
   mon.onchange = renderValue;
   enhanceSelect(mon);
   // Fares auto-load for the home country (defaults to United States) and
@@ -4507,7 +4727,7 @@ function buildTripAIPrompt() {
 function buildAIPrompt() {
   const month = lastPicksMonth || curMonth();
   const originName = originLabel();
-  const region = $("valueRegion").value;
+  const region = regionSel;
   // What they care about = the counted factors weighted High.
   const p = loadPriorities();
   const careMap = { afford: "affordability (low prices & strong currency)", safe: "safety",
@@ -5474,7 +5694,7 @@ async function ensurePopularity() {
 }
 
 function renderValue() {
-  const region = $("valueRegion").value;
+  const region = regionSel;
   const month = parseInt($("valueMonth").value, 10);
   setSeason(month);
   renderTripBar();
@@ -5737,6 +5957,7 @@ async function loadFlights() {
   clearTimeout(_fvTimer);
   flightValue = null;   // another origin's ranges must never band these fares
   _fvFailed = false;
+  resetFbm($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin);
   $("flightSub").textContent = "Loading fares from " +
     ($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin) + "…";
   let data;
@@ -5900,7 +6121,7 @@ function flightLows(countries, key, adv) {
   return countries
     .map((r) => ({ iso: r.iso, v: fareValue(r.iso, key) }))
     .filter((x) => x.v.state === "ok" && x.v.band === "low" && countryName(x.iso) !== x.iso
-      && (showRisky || (adv[x.iso] || 0) < 3))
+      && inRegion(x.iso) && (showRisky || (adv[x.iso] || 0) < 3))
     .sort((a, b) => a.v.dev - b.v.dev);
 }
 
@@ -5932,12 +6153,11 @@ function initFlightCur() {
   if (sel.value !== want && [...sel.options].some((o) => o.value === want)) sel.value = want;
 }
 
-function renderFlights() {
-  const countries = flightsData.countries || [];
-  initFlightCur();
-  initFlightMonth();
+// Fares are cached in the feed's currency (USD) and shown in the reader's
+// pick, converted at today's rate — "≈" marks a conversion.
+function flightFmt() {
   const dispCur = ($("flightCur") || {}).value || flightDisplayCur();
-  const feedCur = (flightsData.currency || "usd").toUpperCase();
+  const feedCur = ((flightsData && flightsData.currency) || "usd").toUpperCase();
   const conv = dispCur === feedCur ? 1 : (rateForCurrency(dispCur) || null);
   // Fall back to the feed currency rather than show unconverted numbers under
   // the wrong label.
@@ -5946,6 +6166,14 @@ function renderFlights() {
   const approx = cur !== feedCur ? "≈" : "";
   const money = (v) => approx + cur + " " + F(v).toLocaleString();   // plain text: esc() it into HTML
   const range = (a, b) => approx + cur + " " + F(a).toLocaleString() + "–" + F(b).toLocaleString();
+  return { cur, feedCur, F, approx, money, range };
+}
+
+function renderFlights() {
+  const countries = flightsData.countries || [];
+  initFlightCur();
+  initFlightMonth();
+  const { cur, feedCur, F, approx, money, range } = flightFmt();
   const m = flightMonthNum(), key = flightMonthKey(m), monthName = MONTHS[m - 1];
   const byIso = {};
   for (const c of countries) { c._fv = fareValue(c.iso, key); byIso[c.iso] = c; }
@@ -6051,6 +6279,288 @@ function renderFlights() {
   }).join("")
     || '<tr><td colspan="7">No fares found from this country.</td></tr>';
   applyFlightFilter();
+  $("flightMap")._onPick = (iso) => setFbmCountry(iso);
+  renderFbm();
+}
+
+// ---- Flights: fares by month -----------------------------------------------
+// Beside the map, Google Flights' price graph by departure month: the picked
+// destination's cheapest cached round-trip for each of the next 12 months,
+// its typical range shaded and each bar coloured Low / Typical / High the way
+// the map is. With no destination picked, every destination at once: each
+// month's median fare vs each route's own typical — "when is it cheap to fly
+// anywhere from here". A month bar sets the travel month for the whole site.
+let fbmIso = (() => { const v = new URLSearchParams(location.search).get("fc") || ""; return /^[A-Z]{2}$/.test(v) ? v : "all"; })();
+function setFbmCountry(iso) {
+  // The origin itself is no destination (domestic flights aren't listed).
+  fbmIso = iso && !(flightsData && iso === flightsData.origin) ? iso : "all";
+  renderFbm();
+  syncURL();
+}
+const median = (a) => { const b = a.slice().sort((x, y) => x - y), n = b.length;
+  return n ? (n % 2 ? b[(n - 1) / 2] : (b[n / 2 - 1] + b[n / 2]) / 2) : null; };
+// A new From: nothing of the old origin's chart may stay up while its fares load.
+function resetFbm(originName) {
+  const host = $("fbmChart");
+  if (!host) return;
+  host.innerHTML = "<p class='hint'>" + esc("Loading fares" + (originName ? " from " + originName : "") + "…") + "</p>";
+  host._redraw = null;
+  for (const id of ["fbmNow", "fbmChg", "fbmNote"]) $(id).textContent = "";
+  $("fbmChg").className = "";
+}
+
+function renderFbm() {
+  const host = $("fbmChart");
+  if (!host || !flightsData || !flightsData.configured) return;
+  const fv = flightValue;
+  const { money, range, F, cur, approx } = flightFmt();
+  const m = flightMonthNum(), key = flightMonthKey(m);
+  const origin = flightsData.origin_name || flightsData.origin || "here";
+  if (fbmIso !== "all" && (fbmIso === flightsData.origin || countryName(fbmIso) === fbmIso)) fbmIso = "all";
+  // Destinations with any cached month, A-Z (the list grows while the server
+  // is still filling). The picked one is always listed, fares or not, so the
+  // control never names another destination than the chart.
+  const sel = $("fbmPick");
+  const withFares = fv && fv.countries ? Object.keys(fv.countries)
+    .filter((iso) => { const c = fv.countries[iso]; return c && !c.pending && c.curve && Object.keys(c.curve).length
+      && countryName(iso) !== iso && inRegion(iso); })
+    .sort((a, b) => countryName(a).localeCompare(countryName(b))) : [];
+  const extra = fbmIso !== "all" && !withFares.includes(fbmIso) ? fbmIso : null;
+  const sig = withFares.join(",") + "|" + (extra || "");
+  if (sel && sel._sig !== sig) {
+    sel._sig = sig;
+    sel.innerHTML = '<option value="all">🌍 All destinations</option>'
+      + (extra ? `<option value="${esc(extra)}">${esc(countryName(extra))} (no fares yet)</option>` : "")
+      + withFares.map((iso) => `<option value="${esc(iso)}">${esc(countryName(iso))}</option>`).join("");
+    if (!sel._fbmWired) { sel._fbmWired = true; sel.addEventListener("change", () => setFbmCountry(sel.value)); }
+    enhanceSelect(sel);
+  }
+  if (sel && sel.value !== fbmIso) { sel.value = fbmIso; if (sel._sync) sel._sync(); }
+  const months = (fv && fv.months) || [];
+  const clear = (msg) => {
+    host.innerHTML = "<p class='hint'>" + esc(msg) + "</p>";
+    host._redraw = null;
+    for (const id of ["fbmNow", "fbmChg", "fbmNote"]) $(id).textContent = "";
+    $("fbmChg").className = "";
+  };
+  const monthWord = (k) => MONTHS[+k.slice(5) - 1] + " " + k.slice(0, 4);
+  // This month, late in it: what's left is last-minute fares (the tab bands it
+  // apart the same way) — drawn faded, and never "the cheapest month".
+  const partial = fv && fv.partial;
+  const filling = fv && fv.filling ? ` · still gathering fares (${fv.ready} of ${fv.total} routes)` : "";
+  if (!months.length) {
+    $("fbmH2").innerHTML = 'Fares by month';
+    $("fbmSub").textContent = "From " + origin;
+    clear(_fvFailed ? "Couldn't load the fare ranges — try again later." : "Loading fares…");
+    return;
+  }
+  let items, band = null, mode;
+  if (fbmIso === "all") {
+    mode = "dev";
+    items = months.map((k) => {
+      const devs = [];
+      for (const iso in fv.countries) {
+        const c = fv.countries[iso];
+        if (!c || c.pending || c.median == null || !c.curve || !c.curve[k] || !inRegion(iso)) continue;
+        devs.push(c.curve[k][0] / c.median - 1);
+      }
+      return { key: k, value: devs.length >= 5 ? median(devs) : null, n: devs.length };
+    });
+    const ns = items.map((i) => i.n);
+    $("fbmH2").innerHTML = 'Fares by month <span class="muted">all destinations'
+      + (regionSel === "all" ? "" : " in " + esc(REGIONS[regionSel])) + "</span>";
+    $("fbmSub").textContent = `From ${origin} · each month vs each route's typical fare (median of up to ${Math.max(...ns)} routes)` + filling;
+  } else {
+    mode = "price";
+    const c = fv.countries[fbmIso];
+    const name = countryName(fbmIso);
+    $("fbmH2").innerHTML = `Fares by month <span class="muted">${esc(name)}</span>`;
+    if (!c || c.pending) {
+      $("fbmSub").textContent = `From ${origin} to ${name}`;
+      clear(c && c.pending && fv.filling ? `Still gathering fares to ${name}…` : `No cached fares to ${name} from ${origin} — pick another destination, or All destinations.`);
+      return;
+    }
+    // Charted in the display currency, so the axis steps are round in it
+    // (USD steps converted read "EUR 176, 351, 527").
+    items = months.map((k) => { const r = c.curve && c.curve[k]; return { key: k, value: r ? F(r[0]) : null, city: r ? r[1] : null }; });
+    if (c.median != null) band = { lo: F(c.lo), hi: F(c.hi), median: F(c.median) };
+    $("fbmSub").textContent = `From ${origin} · cheapest cached round-trip per departure month`
+      + (band ? ` · typical ${range(c.lo, c.hi)}` : "") + filling;
+  }
+  for (const it of items) it.partial = it.key === partial;
+  if (items.filter((i) => i.value != null).length < 2) {
+    clear(fbmIso === "all" ? "Not enough fares yet to compare months." : "Too few cached months to chart — pick another destination, or All destinations.");
+    return;
+  }
+  const show = (v) => approx + cur + " " + Math.round(v).toLocaleString();
+  const bandOf = (it) => (it.value == null ? null
+    : mode === "dev" ? (it.value < -0.05 ? "low" : it.value > 0.05 ? "high" : "typical")
+    : band ? (it.value < band.lo ? "low" : it.value > band.hi ? "high" : "typical") : null);
+  const head = (it) => {
+    const now = $("fbmNow"), chg = $("fbmChg"), b = bandOf(it);
+    const when = monthWord(it.key) + (it.partial ? " (last days — last-minute fares)" : "");
+    chg.className = "";
+    if (it.value == null) {
+      now.textContent = "—";
+      chg.textContent = when + " · " + (mode === "dev" ? `too few routes to compare (${it.n})` : "no fares cached");
+      return;
+    }
+    if (mode === "dev") {
+      now.textContent = fmtDevPct(it.value);
+      chg.textContent = when + " · " + (b === "low" ? "cheaper than usual" : b === "high" ? "pricier than usual" : "about usual")
+        + ` · ${it.n} routes`;
+    } else {
+      now.textContent = show(it.value);
+      chg.textContent = when + (b ? " · " + FV_WORD[b] + (band && b !== "typical" ? ", " + fmtDevPct(it.value / band.median - 1) + " vs its median" : "") : "");
+    }
+    chg.className = b === "low" ? "pos" : b === "high" ? "neg" : "";
+  };
+  const selIt = items.find((i) => i.key === key) || items.find((i) => i.value != null);
+  head(selIt);
+  const ranked = items.filter((i) => i.value != null && !i.partial);
+  const cheapest = ranked.length ? ranked.reduce((a, b) => (b.value < a.value ? b : a)) : null;
+  $("fbmNote").innerHTML = esc((cheapest ? `Best month: ${MON_ABBR[+cheapest.key.slice(5) - 1]} (${mode === "dev" ? fmtDevPct(cheapest.value) + " vs typical" : show(cheapest.value)}). ` : "")
+    + "Tap a month to plan for it.")
+    + ` <span class="muted" data-tip="${esc(mode === "dev"
+      ? "For each destination with 6+ months of fares, a month's cheapest cached round-trip is compared with that route's own median; the bar is the median of those comparisons (5+ routes). Green/red = more than 5% below/above usual. Far-off months have fewer cached searches, so fewer routes."
+      : "The cheapest cached round-trip per departure month (Aviasales, real searches, not live). Shaded = the route's typical range — the middle half of its months, never narrower than ±5% of the median; green bars fall below it, red above. A faded bar is this month's last days (last-minute fares)." + (band ? "" : " This route has too few months of fares for a typical range, so its bars aren't coloured."))}" title="">ⓘ</span>`;
+  const typ = cssVar("--fvtyp", "#b7bec6");
+  monthBars(host, items, {
+    mode, band, sel: key,
+    fmt: (v) => (mode === "dev" ? fmtDevPct(v) : cur + " " + Math.round(v).toLocaleString()),
+    colorOf: (it) => { const b = bandOf(it);
+      return b === "low" ? cssVar("--green", "#0a7d28") : b === "high" ? cssVar("--red", "#b00020") : b === "typical" ? typ : null; },
+    aria: (fbmIso === "all" ? "Fares by month, all destinations" : "Fares by month to " + countryName(fbmIso))
+      + (cheapest ? ", best month " + monthWord(cheapest.key) : "") + ". Use the arrow keys to read each month, Enter to plan for it.",
+    onScrub: (i) => head(items[i]),
+    onLeave: () => head(selIt),
+    onPick: (i) => { if (items[i].value != null) planForMonth(+items[i].key.slice(5), true); },
+  });
+}
+
+// Twelve month bars, stock-chart style: axis on the right, drawn at the box's
+// own size (a card row's box is sized by the layout — see stockChart). mode
+// "price" bars rise from zero with the typical band shaded and its median
+// dashed; mode "dev" bars go up or down from a "typical" zero line. The
+// travel month is outlined; hovering scrubs, a tap picks; the chart takes
+// focus, arrow keys scrub and Enter picks. colorOf null = an outlined bar
+// (no range to judge it against); it.partial = faded.
+function monthBars(host, items, o) {
+  const W = Math.round(host.clientWidth) || 800;
+  const fillBox = !!host.closest(".toprow");
+  const H = fillBox && host.clientHeight >= 150 ? Math.round(host.clientHeight)
+    : Math.max(190, Math.min(300, Math.round(W * 0.4)));
+  const vals = items.map((i) => i.value).filter((v) => v != null);
+  let lo, hi;
+  if (o.mode === "dev") {
+    lo = Math.min(0, ...vals); hi = Math.max(0, ...vals);
+    const pad = (hi - lo) * 0.12 || 0.05; lo -= pad; hi += pad;
+  } else {
+    lo = 0; hi = Math.max(...vals, o.band ? o.band.hi : 0) * 1.12;
+  }
+  let step = niceStep(hi - lo, 4);
+  for (const n of [5, 6, 8]) {
+    if (Math.floor(hi / step) - Math.ceil(lo / step) + 1 >= 3) break;
+    step = niceStep(hi - lo, n);
+  }
+  const levels = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) levels.push(Math.abs(v) < 1e-9 ? 0 : v);
+  const lab = (v) => o.fmt(v);
+  const padL = 2, padT = 12, padB = 26;
+  const padR = Math.max(46, Math.ceil(7 * Math.max(...levels.map((v) => lab(v).length))) + 12);
+  const plotW = W - padL - padR, plotH = H - padT - padB, right = W - padR;
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * plotH;
+  const n = items.length, slot = plotW / n, bw = Math.max(6, Math.min(34, slot * 0.64));
+  const xs = (i) => padL + i * slot + (slot - bw) / 2;
+  const gridCol = cssVar("--chartgrid", "#eee"), labCol = cssVar("--gray", "#999"), ink = cssVar("--ink", "#111");
+  const card = cssVar("--card", "#fff");
+  let g = "", marks = "";
+  for (const v of levels) {
+    const gy = y(v).toFixed(1);
+    g += `<line x1="${padL}" y1="${gy}" x2="${right}" y2="${gy}" stroke="${gridCol}" stroke-width="1"/>`
+      + `<text x="${right + 8}" y="${(+gy + 4).toFixed(1)}" font-size="12" fill="${labCol}">${esc(lab(v))}</text>`;
+  }
+  // The "typical" label goes on last, at the right end with a halo, so no bar
+  // paints over it.
+  const typLabel = (ly) => `<text x="${(right - 4).toFixed(1)}" y="${(ly - 5).toFixed(1)}" font-size="11" text-anchor="end" fill="${labCol}"`
+    + ` stroke="${card}" stroke-width="3" paint-order="stroke">typical</text>`;
+  if (o.mode === "price" && o.band) {
+    const ty = y(o.band.hi), by = y(o.band.lo), my = y(o.band.median).toFixed(1);
+    g += `<rect x="${padL}" y="${ty.toFixed(1)}" width="${plotW.toFixed(1)}" height="${Math.max(1, by - ty).toFixed(1)}" fill="${labCol}" opacity=".13"/>`
+      + `<line x1="${padL}" y1="${my}" x2="${right}" y2="${my}" stroke="${labCol}" stroke-width="1" stroke-dasharray="4 4"/>`;
+    marks += typLabel(ty);
+  }
+  const zeroY = y(o.mode === "dev" ? 0 : lo);
+  if (o.mode === "dev") {
+    g += `<line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${right}" y2="${zeroY.toFixed(1)}" stroke="${labCol}" stroke-width="1.2" stroke-dasharray="4 4"/>`;
+    marks += typLabel(zeroY);
+  }
+  let bars = "", xl = "";
+  // Every month labelled where it fits; otherwise every other one, counted
+  // from the travel month so its own label never crowds a neighbour's.
+  const labEvery = slot < 26 ? 2 : 1;
+  const selIdx = Math.max(0, items.findIndex((it) => it.key === o.sel));
+  items.forEach((it, i) => {
+    const x = xs(i), mo = +it.key.slice(5), isSel = i === selIdx && it.key === o.sel;
+    if (it.value != null) {
+      const top = Math.min(y(it.value), zeroY), h = Math.max(1.5, Math.abs(zeroY - y(it.value)));
+      const col = o.colorOf(it);
+      const op = it.partial ? 0.35 : isSel ? 1 : 0.8;
+      bars += `<rect x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3"`
+        + (col ? ` fill="${col}"` : ` fill="none" stroke="${labCol}" stroke-width="1.5"`)
+        + ` opacity="${op}"${isSel ? ` stroke="${ink}" stroke-width="2"` : ""}/>`;
+    } else {
+      bars += `<line x1="${x.toFixed(1)}" y1="${(zeroY - 1).toFixed(1)}" x2="${(x + bw).toFixed(1)}" y2="${(zeroY - 1).toFixed(1)}" stroke="${labCol}" stroke-width="2" stroke-dasharray="2 3"/>`;
+    }
+    if ((i - selIdx) % labEvery === 0)
+      xl += `<text x="${(padL + i * slot + slot / 2).toFixed(1)}" y="${H - 7}" font-size="12" text-anchor="middle"`
+        + ` fill="${isSel ? ink : labCol}"${isSel ? ' font-weight="700"' : ""}>${MON_ABBR[mo - 1]}${it.partial ? "*" : ""}</text>`;
+  });
+  host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" tabindex="0" aria-label="${esc(o.aria || "")}">${g}${bars}${marks}${xl}`
+    + `<rect class="scrub" y="${padT}" height="${plotH}" width="${slot.toFixed(1)}" fill="${labCol}" opacity="0" pointer-events="none"/></svg>`;
+  const svg = host.querySelector("svg"), sc = svg.querySelector(".scrub");
+  const at = (e) => {
+    const r = svg.getBoundingClientRect();
+    const vx = ((e.clientX - r.left) / r.width) * W;
+    return Math.max(0, Math.min(n - 1, Math.floor((vx - padL) / slot)));
+  };
+  const mark = (i) => { sc.setAttribute("x", (padL + i * slot).toFixed(1)); sc.setAttribute("opacity", ".08"); if (o.onScrub) o.onScrub(i); };
+  let down = null, kbd = selIdx;
+  svg.addEventListener("pointermove", (e) => mark(at(e)));
+  svg.addEventListener("pointerdown", (e) => { down = { x: e.clientX, i: at(e) }; });
+  svg.addEventListener("pointerup", (e) => {
+    const tap = down && Math.abs(e.clientX - down.x) < 8 && o.onPick;
+    down = null;
+    // A finger lifting ends the scrub BEFORE the pick: the pick redraws with
+    // the new month's headline, which a late onLeave would overwrite.
+    if (e.pointerType !== "mouse") { sc.setAttribute("opacity", "0"); if (o.onLeave) o.onLeave(); }
+    if (tap) o.onPick(at(e));
+  });
+  const off = () => { down = null; sc.setAttribute("opacity", "0"); if (o.onLeave) o.onLeave(); };
+  svg.addEventListener("pointerleave", off);
+  svg.addEventListener("pointercancel", off);
+  // Keyboard: the same scrub and pick, month by month.
+  svg.addEventListener("focus", () => mark(kbd));
+  svg.addEventListener("blur", off);
+  svg.addEventListener("keydown", (e) => {
+    const k = e.key;
+    if (k === "ArrowRight" || k === "ArrowLeft" || k === "Home" || k === "End") {
+      e.preventDefault();
+      kbd = k === "Home" ? 0 : k === "End" ? n - 1 : Math.max(0, Math.min(n - 1, kbd + (k === "ArrowRight" ? 1 : -1)));
+      mark(kbd);
+    } else if ((k === "Enter" || k === " ") && o.onPick) {
+      e.preventDefault();
+      o.onPick(kbd);
+      const again = host.querySelector("svg");
+      if (again) again.focus();
+    }
+  });
+  host._w = W; host._h = H;
+  host._redraw = () => monthBars(host, items, o);
+  if (!host._ro && window.ResizeObserver) {
+    host._ro = new ResizeObserver(() => requestAnimationFrame(() => refitChart(host)));
+    host._ro.observe(host);
+  }
 }
 
 // "Departing in" IS the travel month (#valueMonth), mirrored the way From is:
@@ -6173,6 +6683,7 @@ function applyCurrencyFilter() {
   const q = _q("curFilter");
   filterRows("rows", (tr) => {
     if (!showRisky && riskyOf(tr)) return false;
+    if (!regionRowOk(tr)) return false;
     return !q || tr.textContent.toLowerCase().includes(q);
   });
 }
@@ -6180,6 +6691,7 @@ function applyAffordFilter() {
   const q = _q("affFilter");
   filterRows("affRows", (tr) => {
     if (!showRisky && riskyOf(tr)) return false;
+    if (!regionRowOk(tr)) return false;
     return rowMatches(tr, "affFilter", q);
   });
 }
@@ -6187,12 +6699,13 @@ function applyAdvFilter() {
   const q = _q("advFilter");
   const lvl = ($("advLevel") && $("advLevel").value) || "all";
   filterRows("advRows", (tr) =>
-    (lvl === "all" || tr.dataset.lvl === lvl) && rowMatches(tr, "advFilter", q));
+    (lvl === "all" || tr.dataset.lvl === lvl) && regionRowOk(tr) && rowMatches(tr, "advFilter", q));
 }
 function applyFlightFilter() {
   const q = _q("flightFilter");
   filterRows("flightRows", (tr) => {
     if (!showRisky && riskyOf(tr)) return false;
+    if (!regionRowOk(tr)) return false;
     return rowMatches(tr, "flightFilter", q);
   });
   // The "~" on Top Picks promises the Flights tab; a country with no cached
@@ -7122,6 +7635,8 @@ async function setDataMode(mode) {
       renderAfford(); loaded.afford = true;
     } else if (mode === "afford") {
       refitChart($("colChart"));   // drawn while hidden: at the 800 fallback
+    } else if (mode === "flights" && loaded.flights) {
+      refitChart($("fbmChart"));
     } else if (mode === "advisory" && !loaded.advisory) {
       $("advSub").textContent = "Loading advisories…";
       await Promise.all([ensureWorld(), ensureAdvisories()]);
@@ -7389,8 +7904,7 @@ function buildShareURL(forShare) {
   if (tab === "value") {
     // Read before Top Picks builds too (activateTab pushes first): an empty
     // region select is "all", not vr=.
-    const vr = $("valueRegion").value;
-    if (vr && vr !== "all") q.set("vr", vr);
+    if (regionSel !== "all") q.set("vr", regionSel);
     // A shared link pins the month; the address bar only once it's chosen, so
     // a reload doesn't turn the untouched default into a pick (see flightMonthNum).
     if ($("valueMonth").value && (forShare || travelMonthChosen)) q.set("vmn", $("valueMonth").value);
@@ -7406,6 +7920,7 @@ function buildShareURL(forShare) {
     if (compact !== WEIGHT_DEFS.map((w) => w.def[0]).join(".")) q.set("pri", compact);
   } else if (tab === "data") {
     if (dataMode !== "currency") q.set("dm", dataMode);
+    if (regionSel !== "all") q.set("vr", regionSel);
     // The Flights tab bands fares for a month, so its link keeps the one on
     // screen — same rule as Top Picks for the address bar.
     if (dataMode === "flights" && (forShare || travelMonthChosen)) q.set("vmn", String(flightMonthNum()));
@@ -7413,6 +7928,8 @@ function buildShareURL(forShare) {
     if (dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
     if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
     if (dataMode === "afford" && colIso !== "world") q.set("cc", colIso);
+    if (dataMode === "advisory" && govIso) q.set("sc", govIso);
+    if (dataMode === "flights" && fbmIso !== "all") q.set("fc", fbmIso);
     if (dataMode === "afford" && colRange !== "all") q.set("cr", colRange);
     // Clean, indexable URL: /guide/<slug> (no query string). Same-origin so
     // history.pushState in syncURL accepts it.
