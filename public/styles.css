@@ -104,7 +104,11 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .besthead h3, .besthead h2 { margin: 0; font-size: 18px; }
 .monthslabel { font-size: 13px; color: var(--gray); font-weight: 600; margin: 8px 0 2px; }
 .picksnote { font-size: 12.5px; color: var(--gray); margin: 14px 0 0; line-height: 1.45; }
-.rankshare { display: flex; justify-content: flex-end; margin: 10px 0 0; }
+/* The note and Share ranking share one row (the button had a 57px band of its
+   own). The note wraps first; on a phone the button drops under it. */
+.picksrow { display: flex; align-items: center; justify-content: space-between; gap: 8px 10px; flex-wrap: wrap; margin: 12px 0 0; }
+.picksrow .picksnote { margin: 0; flex: 1 1 280px; min-width: 0; }
+.picksrow .shareimg { margin-left: auto; white-space: nowrap; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 14px; }
 .chip2 { background: var(--green-bg); color: var(--green); border-radius: 999px; padding: 3px 11px; font-size: 13px; font-weight: 600; }
 /* minmax(0, 1fr), not 1fr: a bare 1fr is minmax(auto, 1fr), and that auto floor
@@ -331,6 +335,40 @@ small { color: var(--gray); font-weight: 400; }
    card has and scrolls, rather than stretching the row past the map card. */
 .toprow .chartcard > .panelbody { flex: 1 1 auto; position: relative; min-height: 220px; margin-top: 10px; }
 .toprow .chartcard > .panelbody > .panelscroll { position: absolute; inset: 0; overflow: auto; }
+/* Top Picks keeps its row inside the tab's own card (its folds already sit
+   there as cards within the card), so the row takes the card's width, not
+   the page's. */
+.cardwide > .toprow { max-width: none; margin: 14px 0 0; padding: 0; }
+
+/* Card headers of the compact kind: heading + ⓘ (+ the Share button) on one
+   line, the legend on the next, nothing more. The sentence that used to sit
+   under the heading is the ⓘ's tip. A .brk after the button ends the line,
+   so the legend gets the card's full width — one row at desktop widths,
+   where beside the button it wrapped to two (98px of header in all). Not
+   .headrow: that is the site header's row, with a phone column rule. */
+.charthead.compact { justify-content: flex-start; align-items: center; gap: 4px 8px; }
+/* Tighter leading than body copy: on a phone the heading wraps to two lines
+   beside the ⓘ and the button, and 1.5 spent 9px on air between them. */
+.charthead.compact h2 { line-height: 1.25; }
+.charthead.compact > .muted { font-size: 13px; cursor: help; }
+.compact .brk { flex-basis: 100%; height: 0; }
+.compact .legend { flex: 1 1 auto; min-width: 0; }
+/* The key's gradient is a .bar, which is also the Data tab's control bar: its
+   12px paddings and rule made a 10px gradient a 25px row. Reset here, where
+   the row's height is the card's. */
+.compact .legend .bar { padding: 0; border: 0; }
+/* Tune the ranking: one priority per line reads better than two columns of
+   High/Med/Low at card width, and four lines bring the card to the height of
+   the map beside it. The ranked list sits at the foot of the card. */
+.tunecard .rankby { margin-top: 8px; }
+.tunecard .rankby .windowtoggle { margin-top: 0; }
+.tunecard .weightrows { grid-template-columns: 1fr; gap: 6px; padding: 8px 0 0;
+  /* Reserved: buildWeightSliders fills it after load (four 30px rows, three
+     6px gaps, measured), and a card that grows 138px shoves the folds below. */
+  min-height: 138px; }
+.tunecard .pickslot { margin-top: auto; }
+.tunecard .pickslot:empty { display: none; }
+.tunecard .mappicksrow { margin-top: 10px; }
 
 /* Safety: what each government says. */
 .govtable { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -835,6 +873,11 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
    same calendar axis, same size, same "now" outline. Up here, above the
    responsive overrides, on purpose: it used to sit below them and silently
    beat the narrow-screen hide (same specificity, later in the file). */
+/* With a budget set, what the flight leaves per day — under the name, where
+   the answer is read, not only in the row's native tooltip (unreachable on
+   touch, and masked by the pills' own titles on desktop). */
+.budline { display: block; margin-top: 2px; font-size: 11px; font-weight: 400; color: var(--gray);
+  white-space: nowrap; cursor: help; }
 .rowfares { display: block; margin-top: 4px; text-align: center; }
 .rowfares .farestrip .fcell { width: 5px; height: 9px; border-radius: 1px; }
 
@@ -1323,8 +1366,8 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   .pickersmain .combo-input { width: 100%; min-width: 0; }
   /* Surprise me wrapped to its own line, spending 33px to say what fits beside
      the heading. The subtitle takes the second line instead. */
-  #tab-value .charthead { flex-wrap: nowrap; gap: 10px; }
-  #tab-value .charthead > div { flex: 1 1 auto; min-width: 0; }
+  #tab-value .charthead:not(.compact) { flex-wrap: nowrap; gap: 10px; }
+  #tab-value .charthead:not(.compact) > div { flex: 1 1 auto; min-width: 0; }
   #tab-value .surprisebtn { flex-shrink: 0; }
   /* 663px of controls in 345px should pack into two rows; it took three, because
      nothing gave. Letting the search box surrender its slack (and Share image
@@ -1377,6 +1420,13 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   /* Stacked, nothing to stretch to: the chart keeps its own shape, and a
      panel's list its own height (capped, scrolling). */
   .toprow .chartcard > .chart { min-height: clamp(190px, 40vw, 300px); }
+  /* Stacked inside the Top Picks card, the two cards lose their side chrome
+     (as the Hidden gems fold does on phones): the map gets the card's full
+     width, 360px rather than 318 at 390 — on a 139px-tall map, every pixel. */
+  .cardwide > .toprow > .mapcard, .cardwide > .toprow > .chartcard {
+    padding-left: 0; padding-right: 0; border-left: 0; border-right: 0; border-radius: 0; }
+  .cardwide > .toprow > .mapcard { padding-top: 10px; padding-bottom: 6px; }
+  .cardwide > .toprow > .chartcard { padding-top: 10px; }
   .toprow .chartcard > .panelbody { min-height: 0; }
   .toprow .chartcard > .panelbody > .panelscroll { position: static; max-height: 420px; }
   /* A country's three advisories are read whole, not scrolled in a box. */
@@ -1609,7 +1659,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .farestrip .fcell.na { background: var(--line); opacity: .6; }
 .farestrip .fcell.now { outline: 2px solid var(--ink); outline-offset: 1px; }
 .tbfare { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; }
-.tbfarenote { font-size: 11px; white-space: nowrap; }
+/* Wraps: nowrap ran "priciest Apr $706" off the card's edge at 390px, with no
+   scroll to reach it. On a phone the strip takes a row of its own. */
+.tbfarenote { font-size: 11px; min-width: 0; }
+@media (max-width: 480px) { .tbfare { flex-basis: 100%; margin-left: 0; } }
 
 /* Calm watchouts fold on L1/L2 guides. */
 .wofold { margin-top: 6px; font-size: 12.5px; }
@@ -1652,6 +1705,16 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
      and the old single button on one row. An ID selector outranks a class one
      whatever the source order, so this override has to match its specificity. */
   #tab-value .charthead { flex-wrap: wrap; }
+  /* The map card's Share keeps its icon only, so the heading row stays one
+     row on a phone; title= still names it, and the word stays for screen
+     readers (same clip as the header's Share above). */
+  .charthead.compact .shareimg .btxt {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  /* And the heading gives way (wrapping to two lines) rather than pushing the
+     ⓘ and the button onto rows of their own: 44px for the row, not 59. */
+  .charthead.compact h2 { flex: 1 1 0; min-width: 0; }
   #tab-value .herobtns { width: 100%; justify-content: flex-start; }
   #tab-value .herobtns > button { flex: 1 1 0; min-width: 0; text-align: center; }
 }
@@ -1719,7 +1782,11 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    stay as-is: they're inline links inside a sentence, where padding would
    break the line box, and WCAG exempts inline text links for that reason. */
 .prigroup button { min-height: 24px; display: inline-flex; align-items: center; }
-.foldable > summary, .weights summary { min-height: 24px; display: flex; align-items: center; }
+/* Flex drops the whitespace text node between the label and its muted
+   "— …" span ("Hidden gems— high value"); the column gap puts the space back.
+   Wrapping lets the long span drop to its own line on a phone instead of
+   standing beside the label as a ragged second column. */
+.foldable > summary, .weights summary { min-height: 24px; display: flex; align-items: center; flex-wrap: wrap; column-gap: .35em; }
 
 /* Crawlable index of every guide page. Collapsed so it costs a reader nothing,
    but the anchors are in the HTML either way — before this the homepage linked

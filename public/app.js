@@ -1419,16 +1419,23 @@ function openMapFullscreen(host) {
   if (legend) overlay.querySelector(".legend").innerHTML = legend.innerHTML;
   const body = overlay.querySelector(".mapfs-body"), stage = overlay.querySelector(".mapfs-stage");
   const parent = host.parentElement;
-  const rows = [...parent.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
+  // The ranked list may live in another card (Top Picks keeps it beside the
+  // map, in the Tune card), so it is found by its data-for, anywhere.
+  const rows = [...document.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
   const card = [...parent.children].find((c) => c.classList.contains("countrycard"));
-  // A placeholder as tall as what leaves, so the page behind keeps its length
-  // (a map near the end of a page shrank it, and the scroll position with it).
-  const moved = [host, ...rows, ...(card ? [card] : [])];
-  const top = Math.min(...moved.map((el) => el.getBoundingClientRect().top));
-  const bottom = Math.max(...moved.map((el) => el.getBoundingClientRect().bottom));
-  const marker = document.createElement("div");
-  marker.className = "mapfs-ph";
-  marker.style.height = Math.max(0, bottom - top) + "px";
+  // Placeholders as tall as what leaves, so the page behind keeps its length
+  // (a map near the end of a page shrank it, and the scroll position with it):
+  // one for the map and its card, one per list row where it stood.
+  const ph = (els) => {
+    const top = Math.min(...els.map((el) => el.getBoundingClientRect().top));
+    const bottom = Math.max(...els.map((el) => el.getBoundingClientRect().bottom));
+    const m = document.createElement("div");
+    m.className = "mapfs-ph";
+    m.style.height = Math.max(0, bottom - top) + "px";
+    return m;
+  };
+  const marker = ph([host, ...(card ? [card] : [])]);
+  const rowMarks = rows.map((r) => { const m = ph([r]); r.before(m); return m; });
   host.before(marker);
   // The map and its card share a stage (the card floats over the map, not the
   // list); the ranked list sits below it.
@@ -1450,7 +1457,7 @@ function openMapFullscreen(host) {
   inerted.forEach((el) => { el.inert = true; });
   document.body.appendChild(overlay);
   document.documentElement.classList.add("mapfs-open");
-  mapFs = { host, marker, overlay, mode, inerted, prevFocus: document.activeElement, real: false,
+  mapFs = { host, marker, rowMarks, overlay, mode, inerted, prevFocus: document.activeElement, real: false,
             scroll: [window.scrollX, window.scrollY] };
   overlay.querySelector(".mapfs-close").onclick = closeMapFullscreen;
   document.addEventListener("keydown", mapFsKey);
@@ -1468,7 +1475,7 @@ function openMapFullscreen(host) {
 }
 function closeMapFullscreen() {
   if (!mapFs) return;
-  const { host, marker, overlay, mode, inerted, prevFocus, real, scroll } = mapFs;
+  const { host, marker, rowMarks, overlay, mode, inerted, prevFocus, real, scroll } = mapFs;
   mapFs = null;
   document.removeEventListener("keydown", mapFsKey);
   document.removeEventListener("focusin", mapFsFocus);
@@ -1477,8 +1484,9 @@ function closeMapFullscreen() {
   const rows = [...overlay.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
   const card = overlay.querySelector(".countrycard");
   // The page's own order: the card right under the map (renderCountryCard
-  // puts it there), then the list.
-  marker.replaceWith(host, ...(card ? [card] : []), ...rows);
+  // puts it there); each list row back where its placeholder stands.
+  marker.replaceWith(host, ...(card ? [card] : []));
+  rows.forEach((r, i) => { const m = rowMarks[i]; if (m && m.isConnected) m.replaceWith(r); else host.after(r); });
   if (mode) mode.mark.replaceWith(mode.el);
   overlay.remove();
   document.documentElement.classList.remove("mapfs-open");
@@ -1538,17 +1546,20 @@ function renderCountryCard() {
   const act = activities && activities[iso];
 
   const facts = [];
-  // One decimal, like the table: the raw figure printed "+10.34%" beside "+7.9%".
+  // One number, not two — the after-inflation one when a destination figure
+  // was netted out (the one the table's mark uses), otherwise the exchange-
+  // rate move, said plainly for what it is instead of "(nominal)". One
+  // decimal, like the table: the raw figure printed "+10.34%" beside "+7.9%".
   const sgn = (p) => (p >= 0 ? "+" : "−") + Math.abs(p).toFixed(1) + "%";
   if (cur) facts.push(`💱 ${esc(cur)}` + (cur === homeBase ? " (your home currency)"
-    : fx ? `: your ${esc(homeBase)} ${sgn(fx.nom)} vs 1-yr avg`
-      + (fx.real == null ? " (nominal)" : fx.adj ? ` (${sgn(fx.real)} after inflation)` : "")
+    : fx ? `: your ${esc(homeBase)} ${sgn(fx.adj ? fx.real : fx.nom)} vs 1-yr avg`
+      + (fx.adj ? " after inflation" : " (exchange rate only — local inflation not netted out)")
     : ""));
-  if (pl != null) {
-    const rel = pl / anchor.pl;
-    facts.push(`💰 price level ${rel.toFixed(2)} (${plWord(rel)} vs ${esc(anchor.name)})`);
-  }
-  if (advLvl) facts.push(`⚠️ advisory Level ${advLvl}${advLvl === 4 ? " — Do Not Travel" : ""}`);
+  if (pl != null) facts.push(`💰 ${plPhrase(pl / anchor.pl, esc(anchor.name))}`);
+  // 🛡️ for Levels 1–2, ⚠️ only where the advice is to reconsider: a warning
+  // sign on "normal precautions" was alarmist. Whose advice it is, as the
+  // table's pill already says.
+  if (advLvl) facts.push(`${advLvl >= 3 ? "⚠️" : "🛡️"} ${ADV_TEXT[advLvl]}${esc(advVia(iso))}`);
   if (cl && cl.best && cl.best.length) facts.push(`📅 best months: ${cl.best.map((m) => MON_ABBR[m - 1]).join(", ")}`);
   if (act && act.days) facts.push(`🧳 worth ${act.days[0]}–${act.days[1]} days`);
 
@@ -1813,10 +1824,18 @@ function pppDrift(iso) {
 }
 function pppDriftNote(iso) {
   const d = pppDrift(iso);
-  if (d) return `⚠️ The ${d.code} has fallen ${Math.round(d.pct)}% against the dollar in the past year`
-       + (d.real ? " even after inflation" : "")
+  if (d) {
+    // d.pct is how much MORE a dollar buys (+43%); the currency's own fall is
+    // 1 − 1/1.43 ≈ 30%, and it is measured against a 1-year average, not
+    // over "the past year". The dollar is named: the price level is computed
+    // from the USD rate whatever the reader's money, and "the dollar" is
+    // ambiguous to a Canadian or an Australian.
+    const fall = Math.round(100 * (1 - 1 / (1 + d.pct / 100)));
+    return `⚠️ The ${d.code} is ~${fall}% weaker against the US Dollar than its 1-year average`
+       + (d.real ? ", even after inflation" : "")
        + (d.year ? `, but the price level uses World Bank data from ${d.year}` : "")
        + ". Local prices may not have caught up yet, so this reads cheaper than it currently feels.";
+  }
   // No current inflation figure: the price level couldn't be carried forward.
   if (highInflUnknown(iso)) {
     const e = ppp[iso];
@@ -1948,6 +1967,16 @@ function currencyFlag(code, iso) {
   return CUR_SUPRA_FLAG[code] || (iso ? flagEmoji(iso) : "🌍");
 }
 function plWord(pl) { return pl < 0.55 ? "very cheap" : pl < 0.85 ? "cheap" : pl <= 1.15 ? "about the same" : "pricey"; }
+// The price level in words, one way everywhere it is read (pill tip, row tip,
+// map card, AI prompts, share images). 1 − pl is how much cheaper prices are;
+// the "your money goes 1/pl further" framing overstated it (pl 0.58 read "73%
+// further" for prices 42% lower), and "price level 0.47" is economist-speak.
+// One fact used to appear as four different numbers across the hovers.
+function plPhrase(rel, home) {
+  return rel <= 0.9 ? `~${Math.round((1 - rel) * 100)}% cheaper than ${home}`
+       : rel <= 1.1 ? `about the same as ${home}`
+       : `~${Math.round((rel - 1) * 100)}% pricier than ${home}`;
+}
 // The From country's price level — the yardstick "cheap" is measured against.
 // Taiwan is a flight origin with no World Bank PPP row; it used to fall back to
 // the US silently while every label said "vs Taiwan", so the fallback now says
@@ -2181,6 +2210,22 @@ async function ensureFareMonths(iso) {
   return _fareMonthsCache[key];
 }
 
+// A cached fare in the reader's currency, the same look as the Flights tab:
+// the code always, "≈" when converted at today's rate. A bare "$" read as
+// local money to a Canadian or an Australian, and the strips carried it to
+// every traveller — "$258" beside "EUR 1,500" budget copy.
+function fareMoney(v, cur, conv) {
+  return (cur === "USD" ? "" : "≈") + cur + " " + Math.round(v * (conv || 1)).toLocaleString();
+}
+// Strip options for the table and trip strips: the reader's flight currency
+// (the guide and the Flights tab follow the same rule), or USD while no rate
+// has loaded. Scoring and the budget filter stay in USD; this is display.
+function fareStripOpts(month) {
+  const c = flightDisplayCur();
+  const r = c === "USD" ? 1 : rateForCurrency(c);
+  return { highlightMonth: month, minMonths: 6, cur: r ? c : "USD", conv: r || 1 };
+}
+
 // The next 12 months as cells, coloured within THIS route's own range —
 // cheapest month green, priciest red, missing grey. Returns null when there's
 // too little to say (a one-month curve is a number, not a season).
@@ -2205,8 +2250,7 @@ function fareStripHTML(months, opts) {
   const vals = present.map((k) => months[k.key].price);
   const lo = Math.min(...vals), hi = Math.max(...vals);
   const conv = opts.conv || 1, cur = opts.cur || "USD";
-  const fm = (v) => (cur === "USD" ? "$" + Math.round(v * conv).toLocaleString()
-                                   : "≈" + cur + " " + Math.round(v * conv).toLocaleString());
+  const fm = (v) => fareMoney(v, cur, conv);
   const cells = keys.map((k) => {
     const m = months[k.key];
     const nowCls = opts.highlightMonth === k.mon ? " now" : "";
@@ -2232,9 +2276,8 @@ async function renderGuideFares(iso) {
   host.hidden = true;
   const fm = await ensureFareMonths(iso);
   if (ccGuideIso !== iso || !fm || !fm.months) return;
-  const dispCur = flightDisplayCur();
-  const conv = dispCur === "USD" ? 1 : (rateForCurrency(dispCur) || 1);
-  const strip = fareStripHTML(fm.months, { cur: conv === 1 ? "USD" : dispCur, conv });
+  const { cur: dispCur, conv } = fareStripOpts();
+  const strip = fareStripHTML(fm.months, { cur: dispCur, conv });
   if (!strip) return;
   host.hidden = false;
   // Origin name from the strip's own payload — flightsData may be null on a
@@ -2244,10 +2287,11 @@ async function renderGuideFares(iso) {
   // temperature chart and must speak that chart's language — 12 labeled
   // columns, the number on the bar, taller = cheaper (tall means "go", same
   // as the comfort bars above; colour double-codes it so nobody misreads).
-  const conv2 = conv;                       // dispCur/conv declared above
-  const cur2 = conv2 === 1 ? "USD" : dispCur;
-  const fmv = (v) => (cur2 === "USD" ? "$" + Math.round(v * conv2).toLocaleString()
-                                     : "≈" + Math.round(v * conv2).toLocaleString());
+  const conv2 = conv, cur2 = dispCur;       // declared above
+  // On the bar itself only the number fits (12 columns on a phone); the tip
+  // and the note carry the currency.
+  const fmv = (v) => (cur2 === "USD" ? "$" : "≈") + Math.round(v * conv2).toLocaleString();
+  const fmt = (v) => fareMoney(v, cur2, conv2);
   const now2 = new Date();
   const prices = [];
   for (let m = 1; m <= 12; m++) {
@@ -2268,7 +2312,7 @@ async function renderGuideFares(iso) {
                           : mix("#eef0f1", "#b00020", (t - 0.5) * 1.3);
     return '<div class="col"><div class="mscore">' + fmv(p) + "</div>"
       + '<div class="fill" style="height:' + h + '%;background:' + fill + '" data-tip="'
-      + esc(MONTHS[i] + ": from " + fmv(p) + " round-trip") + '" title=""></div>'
+      + esc(MONTHS[i] + ": from " + fmt(p) + " round-trip") + '" title=""></div>'
       + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
   }).join("");
   host.innerHTML = '<span class="fareshead">✈️ Fares by month <span class="muted">'
@@ -4180,6 +4224,13 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
 }
 
 let valueMapMode = "score";
+// Rank by follows the map mode into the tables: in weather mode the picks and
+// gems sort on the Weather column. The list was ranked by comfort, then the
+// tables quietly re-sorted it by Overall, so #1 was not the best-weather pick.
+function syncRankSort() {
+  pickSort.key = gemSort.key = valueMapMode === "weather" ? "weather" : "overall";
+  pickSort.asc = gemSort.asc = false;
+}
 
 // ---- fare estimation for countries the cached-fare API doesn't cover -------
 // Travelpayouts only knows prices for recently-searched routes, so roughly half
@@ -4492,6 +4543,7 @@ function buildValueTab() {
       for (const x of document.querySelectorAll("#valueMapMode button"))
         x.classList.toggle("active", x === b);
       valueMapMode = b.dataset.vm;
+      syncRankSort();
       renderValue();
     });
   }
@@ -4611,10 +4663,14 @@ function renderTripBar() {
       '<button type="button" class="tripchip" data-iso="' + iso + '" title="Remove '
       + esc(countryName(iso)) + '">' + flagEmoji(iso) + " " + esc(countryName(iso))
       + ' <span class="x">×</span></button>').join("");
-    host.innerHTML = '<div class="triphead"><strong>🧳 Your trip</strong> '
-      + '<span class="muted">' + t.size + " " + (t.size === 1 ? "country" : "countries") + "</span>"
+    // No "🧳 Your trip" here: the card's heading says it 40px above.
+    host.innerHTML = '<div class="triphead">'
+      + "<strong>" + t.size + " " + (t.size === 1 ? "country" : "countries") + "</strong>"
       + '<label class="tripdays">for <input id="tripDays" type="number" min="1" max="180" '
-      + 'value="' + esc((sharedTripView && sharedTripView.td) || localStorage.getItem("fx_tripdays") || 14) + '" inputmode="numeric"> days</label>'
+      // One trip length: a budget's "for N days" on Top Picks seeds this until
+      // the trip has its own.
+      + 'value="' + esc((sharedTripView && sharedTripView.td) || localStorage.getItem("fx_tripdays")
+        || ($("budgetDays") || {}).value || localStorage.getItem("wg_budgetdays") || 14) + '" inputmode="numeric"> days</label>'
       + '<label class="tripmonth">in <select id="tripMonth">'
       + '<option value="0"' + (savedM === "0" ? " selected" : "") + ">I'm flexible — suggest when</option>"
       + MONTHS.map((m, i) => '<option value="' + (i + 1) + '"'
@@ -4704,10 +4760,12 @@ function renderTripBook(isos) {
     const fm = await ensureFareMonths(iso2);
     const slot = host.querySelector('.tbfare[data-iso="' + iso2 + '"]');
     if (!fm || !fm.months || !slot) return;
-    const strip = fareStripHTML(fm.months, { highlightMonth: tripM, minMonths: 6 });
+    const strip = fareStripHTML(fm.months, fareStripOpts(tripM));
     if (!strip) return;
+    // The strip's cells are aria-hidden and their meaning lived in per-cell
+    // hovers; the note says what the row shows, for eyes and screen readers.
     slot.innerHTML = '<span class="farestrip" aria-hidden="true">' + strip.cells + "</span>"
-      + '<span class="muted tbfarenote">' + esc(strip.note) + "</span>";
+      + '<span class="muted tbfarenote">✈️ Round trips by month: ' + esc(strip.note) + "</span>";
   });
   ensureStayCoords().then((cc) => {
     const { checkin, checkout } = tripStayDates();
@@ -4753,6 +4811,11 @@ function buildTripAIPrompt() {
     + ", travelling from " + originName
     + ", and a shortlist of countries I'm interested in. I used a travel-value tool (WanderGrade) "
     + "for the underlying data — use what's below, don't re-derive it.");
+  // The currency every figure below is in, and the budget if one was set on
+  // Top Picks: the model was asked for a daily budget with no currency named.
+  const bud = budgetOf();
+  lines.push("MY MONEY: " + bud.cur + (bud.entered
+    ? "; budget " + bud.cur + " " + Math.round(bud.entered).toLocaleString() + " all-in for the whole trip" : ""));
   lines.push("");
   lines.push("MY SHORTLIST (" + t.length + (t.length === 1 ? " country, " : " countries, ") + days + " days total):");
   t.forEach((iso) => {
@@ -4783,9 +4846,16 @@ function buildTripAIPrompt() {
     }
     const plIso = GUIDE_PARENT[iso] || iso;       // England etc: the UK's figure
     const pl = priceLevel(plIso);
-    // Same direction as every other surface: purchasing power, bigger = cheaper.
-    if (pl) bits.push((A.home ? "your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / pl)) + " there"
+    // Same framing as the table's pill, and the yardstick named: "your 100 ≈
+    // 134 there" said neither what 100 nor 134 was, and a model can read it
+    // as an exchange rate.
+    if (pl) bits.push("prices " + plPhrase(pl / anchorPl, A.name)
       + (plIso !== iso ? " (" + parentWide(plIso) + ")" : ""));
+    // The cached average round trip from home, in the budget's money — the
+    // level the daily budget has to be worked out from; "Book the pieces"
+    // shows the month curve to the reader.
+    const fare = flightsData && flightsData.by_country && flightsData.by_country[iso];
+    if (fare > 0) bits.push("return flights avg ~" + fmtBC(fare));
     const vi = visaInfo(iso, passport);
     if (vi && vi.meta) bits.push("visa: " + vi.meta.long);
     // Curated first-visit range. This is what lets the model refuse a cramped
@@ -4882,14 +4952,9 @@ function buildAIPrompt() {
     const vi = visaInfo(s.iso, passport);
     // Affordability in plain words.
     let aff = "";
-    if (s.pl != null) {
-      const ratio = 1 / s.pl;
-      const home = plHomeWord();
-      aff = ratio >= 1.12 ? `your money goes ~${ratio >= 1.75 ? (Math.round(ratio * 10) / 10) + "×" : Math.round((ratio - 1) * 100) + "%"} further than ${home === "home" ? "at home" : "in " + home}`
-          : s.pl <= 1.1 ? `prices about the same as ${home}` : `pricier than ${home}`;
-    }
+    if (s.pl != null) aff = "prices " + plPhrase(s.pl, plHomeWord());
     if (s.fx != null && Math.abs(s.fx) >= 2)
-      aff += ` (${homeBase} ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr avg${s.fxAdj ? ", after inflation" : ""})`;
+      aff += ` (${homeBase} ${s.fx >= 0 ? "+" : ""}${Math.round(s.fx)}% vs its 1-yr avg${s.fxAdj ? ", after inflation" : ""})`;
     // Same shrunk ratio as the Flights pill, so the words can't disagree with it.
     const fl = (s.dealRatio != null && !s.fareEst)
       ? (s.dealRatio <= 0.95 ? "cheaper than usual for the distance"
@@ -5265,8 +5330,10 @@ function safetyFloor() {
 //      whether that's comfortable; we don't.
 // Whole dollars: cents on a $260/day estimate would imply a precision that isn't
 // there — the fare is a cached average and the price level is an annual index.
+// The code, not "$": the Flights tab spells every currency the same way, and
+// a bare $ reads as local money to a Canadian or an Australian.
 function fmtMoney(n) {
-  return "$" + Math.round(n).toLocaleString();
+  return "USD " + Math.round(n).toLocaleString();
 }
 
 // The budget's own currency — an Argentine thinks in pesos, and a number box
@@ -5350,29 +5417,39 @@ function passesFloor(s, floor) {
   return floor === "any" || (floor === "a" ? s.advLvl === 1 : s.advLvl !== 3);
 }
 
+// What the flight leaves per day, in words: the row title and the line under
+// the name say the same thing. Admits when the fare is a distance estimate
+// rather than a seen one.
+function budgetWords(s, bf) {
+  const home = plHomeWord();
+  const atHome = home === "home" ? "at home" : "in " + home;
+  return `${fmtBC(bf.fare)} ${bf.fareIsMin ? "cheapest " : ""}flight${bf.fareEst ? " (est.)" : ""} leaves `
+    + `${fmtBC(bf.perDay)}/day`
+    + (bf.homeEquiv && s.pl < 0.95 ? ` — like ${fmtBC(bf.homeEquiv)}/day ${atHome}` : "");
+}
+// With a budget set, the per-day figure under the destination's name, where
+// the answer is read. It used to live only in the row's title, which touch
+// never shows and the pills' own titles mask on desktop.
+function budLine(s) {
+  const bf = budgetFit(s);
+  if (!bf || bf.impossible || bf.estOut) return "";
+  return `<span class="budline" data-tip="${esc(budgetWords(s, bf))}" title="">💵 ${fmtBC(bf.perDay)}/day left</span>`;
+}
+
 // Compose a human sentence from the score ingredients — answers, not numbers.
 function whyLine(s, month) {
-  const money = homeBase === "USD" ? "your dollar" : "your " + homeBase;
+  const money = "your " + homeBase;            // the code for everyone, USD included
   const home = plHomeWord();                   // "the US" when From has no price level
-  const atHome = home === "home" ? "at home" : "in " + home;
   const bits = [];
-  if (s.pl != null) {
-    const ratio = 1 / s.pl;
-    if (ratio >= 1.75) bits.push(`${money} goes ~${(Math.round(ratio * 10) / 10).toFixed(1).replace(/\.0$/, "")}× further than ${atHome}`);
-    else if (ratio >= 1.12) bits.push(`${money} goes ~${Math.round((ratio - 1) * 100)}% further than ${atHome}`);
-    else if (s.pl <= 1.1) bits.push(`prices about the same as ${home}`);
-    else bits.push(`pricier than ${home}`);
-  }
-  if (s.fx != null && s.fx >= 2) bits.push(`${money} is unusually strong there right now`);
-  // Only when a budget is set. Says what the flight leaves and what it's worth
-  // there, and admits when the fare is a distance estimate rather than a seen one.
+  // One framing for the price level everywhere (plPhrase): this row title, the
+  // pill, the map card and the prompts used to give four numbers for one fact.
+  if (s.pl != null) bits.push("prices " + plPhrase(s.pl, home));
+  // Same gate as the table's FX mark: below it the mark stays silent, and a
+  // sentence calling +2% "unusual" contradicted the table's own silence.
+  if (s.fx != null && s.fx >= FX_MARK_PCT) bits.push(`${money} is unusually strong there right now`);
+  // Only when a budget is set.
   const bf = budgetFit(s);
-  if (bf && !bf.impossible && !bf.estOut) {
-    bits.push(`${fmtBC(bf.fare)} ${bf.fareIsMin ? "cheapest " : ""}flight${bf.fareEst ? " (est.)" : ""} leaves `
-      + `${fmtBC(bf.perDay)}/day`
-      + (bf.homeEquiv && s.pl < 0.95
-          ? ` — like ${fmtBC(bf.homeEquiv)}/day ${atHome}` : ""));
-  }
+  if (bf && !bf.impossible && !bf.estOut) bits.push(budgetWords(s, bf));
   if (s.wx >= 75) bits.push(`great weather in ${MONTHS[month - 1]}`);
   else if (s.wx >= 55) bits.push(`decent weather in ${MONTHS[month - 1]}`);
   if (s.advLvl === 1) bits.push("safest travel rating");
@@ -5380,8 +5457,11 @@ function whyLine(s, month) {
   // The deal grade's own (shrunk) ratio, so this never contradicts the pill.
   if (s.dealRatio != null && !s.fareEst) {
     const r = s.dealRatio;
-    bits.push(r <= 0.95 ? "flights cheaper than usual"
-            : r >= 1.05 ? "flights pricier than usual" : "flights about average");
+    // "for the distance", always: "cheaper than usual" read as cheaper than
+    // this route's own year, which the month strip beside it can contradict
+    // (the grade is the year-round average fare against a distance-typical one).
+    bits.push(r <= 0.95 ? "flights cheap for the distance"
+            : r >= 1.05 ? "flights pricey for the distance" : "flights typical for the distance");
   }
   return bits.slice(0, 4).join(" · ");
 }
@@ -5459,7 +5539,10 @@ function renderDimPicks(hostId, title, items, isos, empty) {
     row = document.createElement("div");
     row.className = "mappicksrow";
     row.dataset.for = hostId;
-    host.insertAdjacentElement("afterend", row);
+    // Top Picks keeps the list at the foot of the Tune card beside the map (a
+    // slot says where); every other map has it directly underneath.
+    const slot = document.querySelector('[data-picks-slot="' + hostId + '"]');
+    if (slot) slot.appendChild(row); else host.insertAdjacentElement("afterend", row);
   }
   // The note is a <strong>, not a <span>: dimPicksFromDom reads the spans as
   // picks, and the share image must not list "Nothing below…" as #1.
@@ -5626,7 +5709,7 @@ function fillRowFareStrips(hostSel, month) {
     const iso = slot.dataset.iso;
     const fm = await ensureFareMonths(iso);
     if (!fm || !fm.months || !slot.isConnected) return;
-    const strip = fareStripHTML(fm.months, { highlightMonth: month, minMonths: 6 });
+    const strip = fareStripHTML(fm.months, fareStripOpts(month));
     if (strip) slot.innerHTML = '<span class="farestrip" role="img" aria-label="'
       + esc("Fares by month — " + strip.note) + '">' + strip.cells + "</span>";
   });
@@ -5653,7 +5736,7 @@ function fxMark(iso) {
   const tip = f.adj
     ? "After inflation, your " + homeBase + " buys " + Math.abs(Math.round(pct)) + "% " + (up ? "more" : "less")
       + " in " + cn + " than its 1-yr average — your money goes " + (up ? "further" : "less far")
-      + " there than usual right now. Exchange-rate move " + (f.nom >= 0 ? "+" : "") + f.nom
+      + " there than usual right now. Exchange-rate move " + (f.nom >= 0 ? "+" : "") + Math.round(f.nom)
       + "%; inflation " + inflGapText(iso, f.homeIso) + " (World Bank)."
     : "Your " + homeBase + " is " + Math.abs(Math.round(pct)) + "% " + (up ? "stronger" : "weaker")
       + " in " + cn + " than its 1-yr average. Exchange rate only — no inflation figure for " + cn
@@ -5694,13 +5777,13 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     const driftNote = pppDriftNote(s.iso);
     return `<tr data-iso="${iso}" title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">#${i + 1}</td>
-      <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}${seasonalTags(s.iso, month)}</td>
+      <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}${seasonalTags(s.iso, month)}${budLine(s)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}${fxMark(s.iso)}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}"><span class="pillwrap">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</span></td>
       <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="muted" title="${esc(wxTitle)}">—</span>` : gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
       <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="muted">—</span>'
             : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
-            : gradePill(s.fly, "Flight deal vs the typical fare for this distance · click for exact prices")}</span><span class="rowfares" data-iso="${iso}"></span></td>
+            : gradePill(s.fly, "Year-round fare vs the typical fare for this distance · click for exact prices")}</span><span class="rowfares" data-iso="${iso}"></span></td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span>${coverageMark(s)}</td>
     </tr>`;
   }).join("");
@@ -5709,7 +5792,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now">💰 <span class="thword">Affordability</span></th>
       <th class="${sc.trim()}"${sa("safety")} title="${esc(advSafetyTitle())}">🛡️ <span class="thword">Safety</span></th>
       <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month">🌤️ <span class="thword">Weather</span></th>
-      <th class="${sc.trim()}"${sa("flights")} title="flight deal: fare vs the typical price for this distance (exact prices in the Flights tab)">✈️ <span class="thword">Flights</span></th>
+      <th class="${sc.trim()}"${sa("flights")} title="flight deal: year-round average fare vs a typical fare for this distance, not specific to your month (the strip shows each month)">✈️ <span class="thword">Flights</span></th>
       <th class="ovh ${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (sortable) markSort("#" + host.id, state);   // sort buttons + aria-sort
@@ -5729,8 +5812,10 @@ function affordTitle(s) {
              : `daily prices ~${Math.round((s.pl - 1) * 100)}% pricier than ${home}`);
   }
   // "after inflation" only when a destination figure was actually netted out.
+  // Whole percentages: two decimals on a cached 1-yr average claimed a
+  // precision the figure doesn't have.
   if (s.fx != null && Math.abs(s.fx) >= 1)
-    parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${s.fx}% vs its 1-yr average${s.fxAdj ? ", after inflation" : ""}`);
+    parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${Math.round(s.fx)}% vs its 1-yr average${s.fxAdj ? ", after inflation" : ""}`);
   // Repeatedly the sharpest critique this gets: PPP is a national consumption
   // basket, so it under-weights the one cost a visitor most feels — rent in the
   // few neighbourhoods foreigners actually stay in. Say so where the number is
@@ -5838,24 +5923,28 @@ function renderValue() {
     const s = valueScores(iso, month, advMap, fares, anchorPl);
     if (s) scored[iso] = s;
   }
-  // Title, sub and key follow whichever map is showing.
+  // Title, ⓘ and key follow whichever map is showing. The sub line is an ⓘ
+  // (one header line, per the owner), so its sentence goes in the tip.
   const vTitle = $("valueMapTitle"), vSub = $("valueMapSub"), vLeg = $("valueLegend");
   if (vTitle) vTitle.textContent = valueMapMode === "weather"
     ? "Weather comfort in " + MONTHS[month - 1]
     : "Best value destinations in " + MONTHS[month - 1];
-  if (vSub) vSub.textContent = valueMapMode === "weather"
+  if (vSub) vSub.dataset.tip = valueMapMode === "weather"
     ? "Greener = more comfortable weather that month."
     : "Greener = better overall value — affordability, safety, weather and flights combined.";
+  // Short labels ("Lower"/"Higher", as the share image has them; the title
+  // says of what): the key then fits one row under the title in a half-width
+  // card, where "Lower value … your top picks" wrapped to two.
   if (vLeg) vLeg.innerHTML = valueMapMode === "weather"
     ? '<span>Harsh</span><span class="bar"></span><span>Comfortable</span>'
-      + '<span style="margin-left:6px"><span class="swatch"></span>No data</span>'
-    : '<span>Lower value</span><span class="bar"></span><span>Higher value</span>'
+      + '<span><span class="swatch"></span>No data</span>'
+    : '<span>Lower</span><span class="bar"></span><span>Higher</span>'
       // Only claimed when the pulse actually runs — reducedMotion() suppresses
       // it, and a key describing an animation nobody sees is worse than none.
       + (reducedMotion() ? ""
-         : '<span style="margin-left:6px"><span class="swatch pulsekey"></span>Pulsing = your top picks</span>')
-      + '<span style="margin-left:6px"><span class="swatch"></span>No data</span>'
-      + '<span style="margin-left:6px"><span class="swatch" style="background:' + DNT_FILL + '"></span>Do Not Travel</span>';
+         : '<span><span class="swatch pulsekey"></span>Pulsing = top picks</span>')
+      + '<span><span class="swatch"></span>No data</span>'
+      + '<span><span class="swatch" style="background:' + DNT_FILL + '"></span>Do Not Travel</span>';
 
   if (valueMapMode === "weather" && climate) {
     // Weather-only view (absorbed the old "best places by month" tab).
@@ -5880,8 +5969,9 @@ function renderValue() {
   // The viewer's OWN been-list: while a shared map is open, `visited` holds the
   // sharer's countries, and Top Picks was hiding those as "you've been".
   const been = ownVisited();
-  // In weather mode the TABLE follows the map: ranked by weather comfort for the
-  // chosen month (value as tiebreak), with a note explaining the sort.
+  // In weather mode the TABLES follow the map: ranked by weather comfort for the
+  // chosen month (value as tiebreak; syncRankSort sets the column), and the
+  // picks note says so where it is read — the old note sat in the closed fold.
   const weatherMode = valueMapMode === "weather";
   // Filled in below, once the filters have run and we know what they removed.
   const note = $("rankNote");
@@ -5916,8 +6006,6 @@ function renderValue() {
   const hiddenVisited = showVisited ? 0 : rankedAll.filter((s) => been.has(s.iso)).length;
   if (note) {
     const bits = [];
-    if (weatherMode) bits.push(`Ranked by weather comfort in ${MONTHS[month - 1]} — `
-      + "switch back to “Value” for the blended score ranking.");
     if (hiddenVisited) bits.push(`Hiding ${hiddenVisited} `
       + (hiddenVisited === 1 ? "country" : "countries")
       + " you've marked ✓ been — change that under ⚙️ Filters → Been-to.");
@@ -5933,7 +6021,7 @@ function renderValue() {
   const bud = budgetOf();
   const nOut = outOfReach + outOfReachEst;
   const budNote = bud.total
-    ? ` 💵 <b>${bud.cur === "USD" ? fmtMoney(bud.entered) : bud.cur + " " + Math.round(bud.entered).toLocaleString()} for ${bud.days} ${bud.days === 1 ? "day" : "days"}</b>`
+    ? ` 💵 <b>${bud.cur} ${Math.round(bud.entered).toLocaleString()} for ${bud.days} ${bud.days === 1 ? "day" : "days"}</b>`
       + (!judged ? " — no fare data yet, so nothing was filtered."
          : nOut ? ` — ${nOut} ${nOut === 1 ? "country is" : "countries are"} out of reach on the flight alone`
            + (outOfReachEst ? ` (${outOfReachEst === nOut ? "all" : outOfReachEst} on estimated fares)` : "") + "."
@@ -5942,9 +6030,10 @@ function renderValue() {
       + (judged && unjudged ? ` ${unjudged} had no fare to judge.` : "")
       + ` <span class="muted" data-tip="Flights are the cached fares Aviasales has seen (the cheapest one decides what's out of reach); where none is cached, a distance-based estimate, marked est. What's left is your budget minus the fare, spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
     : "";
+  const rankedBy = weatherMode ? `weather comfort in ${MONTHS[month - 1]}` : "value";
   if (picksNote) picksNote.innerHTML = (popular.length
-    ? `🌍 Popular destinations, ranked by value${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
-    : "Ranked by overall value — no mainstream destinations match these filters, so showing everything.") + budNote;
+    ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
+    : `Ranked by ${weatherMode ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + budNote;
   lastPicks = picks; lastPicksMonth = month;   // for the AI export + re-sort
   renderGradeTable($("topCards"), picks, month, false, true);
   // "Show more" reveals 10 then 20; hides when maxed out or nothing left.
@@ -8236,6 +8325,7 @@ async function postApplyShared() {
   }
   if (sharedQ.get("vmm") === "weather") {
     valueMapMode = "weather"; rerender = true;
+    syncRankSort();
     document.querySelectorAll("#valueMapMode button").forEach((b) =>
       b.classList.toggle("active", b.dataset.vm === "weather"));
   }
@@ -8662,12 +8752,12 @@ function buildRankShareSVG() {
       + '" font-size="17" font-weight="700" fill="' + FG + '">' + esc2(s.name) + "</text>";
     const bits = [];
     // s.fare is the cached AVERAGE round trip (or a distance estimate), never
-    // a minimum — so not "from". The 100 line is a price-level ratio: the same
-    // in any currency, so it carries none (as on the guide card).
+    // a minimum — so not "from". The price line is the pill's own framing with
+    // the yardstick named (an image travels; "home" means nothing to its reader).
     if (s.fare != null) bits.push("avg flight ~" + shareMoney(s.fare) + (s.fareEst ? " (est.)" : ""));
     // s.pl comes from valueScores, already divided by the home anchor — dividing
     // by it again squared the anchor (DE→BG read 136, the guide card said 170).
-    if (s.pl) bits.push((A.home ? "your 100" : "US$100") + " ≈ " + Math.round(100 / s.pl) + " there");
+    if (s.pl) bits.push("prices " + plPhrase(s.pl, A.name));
     body += '<text x="102" y="' + (y + 48) + '" font-family="' + F
       + '" font-size="11" fill="' + MUTE + '">' + esc2(bits.join("  ·  ")) + "</text>";
     body += '<rect x="' + (W - 30 - gw) + '" y="' + (y + 17) + '" width="' + gw
@@ -8755,7 +8845,9 @@ function buildGuideCardSVG(iso) {
   // saying whose it is ("for Denmark" keeps the longest source on the card).
   const plIso = GUIDE_PARENT[iso] || iso;
   const pl = priceLevel(plIso);
-  if (pl) facts.push("💰  " + (A.home ? "Your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / pl)) + " there"
+  // The pill's framing, yardstick named: a shared card is read by people who
+  // are not at the sharer's "home".
+  if (pl) facts.push("💰  Prices " + plPhrase(pl / anchorPl, A.name)
     + (plIso !== iso ? " (" + parentWide(plIso) + ")" : ""));
   const meta = advisoryMetaByIso();
   const advPar = !meta[iso] && ADV_PARENT[iso] && meta[ADV_PARENT[iso]] ? ADV_PARENT[iso] : null;
