@@ -272,6 +272,14 @@ h1, .sitetitle { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spac
 .meta #summary { color: var(--gray); }
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.actions[hidden] { display: none; }
+/* Data tab: Region on the right, at the cards' edge and above the Currency
+   view's own picker. Between space-between neighbours it sat mid-row, tied to
+   neither the tabs nor the cards. On a phone it wraps under the tabs and
+   stays left, where the eye already is. */
+@media (min-width: 561px) {
+  #tab-data > .bar > .pickgroup { margin-left: auto; }
+}
 button {
   background: var(--card); border: 1px solid var(--border-input); border-radius: 7px;
   padding: 8px 14px; font-size: 14px; cursor: pointer;
@@ -340,7 +348,7 @@ small { color: var(--gray); font-weight: 400; }
    The 160px basis is what flex-wrap fits into the row (then it grows); a
    smaller one let it be squeezed to a word-per-line column. */
 .toprow .charthead .legend { flex: 1 1 160px; min-width: 0; }
-.toprow .legend .bar { width: 90px; }
+.toprow .legend .scale { width: 90px; }
 .toprow .chartcard { display: flex; flex-direction: column; }
 .toprow .chartcard > .chart { flex: 1 1 auto; position: relative; min-height: 190px; }
 .toprow .chartcard > .chart > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -366,10 +374,6 @@ small { color: var(--gray); font-weight: 400; }
 .charthead.compact > .muted { font-size: 13px; cursor: help; }
 .compact .brk { flex-basis: 100%; height: 0; }
 .compact .legend { flex: 1 1 auto; min-width: 0; }
-/* The key's gradient is a .bar, which is also the Data tab's control bar: its
-   12px paddings and rule made a 10px gradient a 25px row. Reset here, where
-   the row's height is the card's. */
-.compact .legend .bar { padding: 0; border: 0; }
 /* Tune the ranking: one priority per line reads better than two columns of
    High/Med/Low at card width, and four lines bring the card to the height of
    the map beside it. The ranked list sits at the foot of the card. */
@@ -518,7 +522,10 @@ html.mapfs-open, html.mapfs-open body { overflow: hidden; }
 .map svg path.out { fill: var(--mapout); }
 
 .legend { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--gray); flex-wrap: wrap; }
-.legend .bar { width: 130px; height: 10px; border-radius: 5px;
+/* .scale, not .bar: as a .bar the key took the page's control-bar rules —
+   margin auto and 20px side padding centred a 90px gradient in all the room
+   the legend had, 60–80px from the words it sits between. */
+.legend .scale { flex: none; width: 130px; height: 10px; border-radius: 5px;
   background: linear-gradient(90deg, #b00020, #e88, #f0f0f0, #8c8, #0a7d28); }
 /* Keep in step with NODATA in app.js — this is the legend key for it. */
 .legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: #6b7681; vertical-align: -1px; margin-right: 3px; }

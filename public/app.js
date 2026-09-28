@@ -1649,7 +1649,7 @@ function renderMap(rows, base) {
 
 function renderLegend(base) {
   $("legend").innerHTML =
-    '<span>Weaker</span><span class="bar"></span><span>Stronger</span>' +
+    '<span>Weaker</span><span class="scale"></span><span>Stronger</span>' +
     `<span style="margin-left:8px"><span class="swatch" style="background:#bcd0e6"></span>${esc(base || "USD")}-linked</span>` +
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
 }
@@ -3786,7 +3786,7 @@ function renderAfford() {
     + ` <span class="muted" data-tip="${esc(`World Bank PPP (${pppYear()} for most countries), brought up to date by inflation, ÷ today's exchange rate. `
       + "National averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.")}" title="">ⓘ</span>`;
   $("affLegend2").innerHTML =
-    '<span>Pricey</span><span class="bar"></span><span>Cheap</span>' +
+    '<span>Pricey</span><span class="scale"></span><span>Cheap</span>' +
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
 
   // Ranked cheapest-first table.
@@ -6081,9 +6081,9 @@ function renderValue() {
   // says of what): the key then fits one row under the title in a half-width
   // card, where "Lower value … your top picks" wrapped to two.
   if (vLeg) vLeg.innerHTML = valueMapMode === "weather"
-    ? '<span>Harsh</span><span class="bar"></span><span>Comfortable</span>'
+    ? '<span>Harsh</span><span class="scale"></span><span>Comfortable</span>'
       + '<span><span class="swatch"></span>No data</span>'
-    : '<span>Lower</span><span class="bar"></span><span>Higher</span>'
+    : '<span>Lower</span><span class="scale"></span><span>Higher</span>'
       // Only claimed when the pulse actually runs — reducedMotion() suppresses
       // it, and a key describing an animation nobody sees is worse than none.
       + (reducedMotion() ? ""
@@ -6590,13 +6590,15 @@ function renderFlights() {
     `${esc(monthName)} fares from ${esc(flightsData.origin_name || flightsData.origin)} vs each route's typical`
     + ` <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`
     + ` · cached by <a href="https://www.aviasales.com" target="_blank" rel="noopener">Aviasales</a>, not live`
-    + (gathering > 0 ? ` <span class="muted fvfill">Still gathering fares for ${gathering} ${gathering === 1 ? "country" : "countries"}`
+    // " · still gathering…", the right-hand card's own wording: joined with a
+    // bare space it read "not live Still gathering fares".
+    + (gathering > 0 ? ` <span class="muted fvfill">· still gathering fares for ${gathering} ${gathering === 1 ? "country" : "countries"}`
       + (fv.gaveUp ? " — reload in a few minutes to see them." : "…") + "</span>" : "");
   // Legend names the month and the comparison — green isn't "cheap", it's
   // "cheaper than this route usually is".
   $("flightLegend").innerHTML =
     `<span>${esc(MON_ABBR[m - 1])} vs typical:</span><span>Low</span>`
-    + '<span class="bar" style="background:linear-gradient(90deg,#0a7d28,#eef0f1 35%,#eef0f1 65%,#b00020)"></span><span>High</span>'
+    + '<span class="scale" style="background:linear-gradient(90deg,#0a7d28,#eef0f1 35%,#eef0f1 65%,#b00020)"></span><span>High</span>'
     // Grey is most of this map: a range needs half a year of cached months,
     // and Aviasales only caches routes somebody searched.
     + '<span style="margin-left:6px"><span class="swatch"></span>Not enough fare data</span>';
@@ -6833,7 +6835,11 @@ function monthBars(host, items, o) {
   for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) levels.push(Math.abs(v) < 1e-9 ? 0 : v);
   const lab = (v) => o.fmt(v);
   const padL = 2, padT = 12, padB = 26;
-  const padR = Math.max(46, Math.ceil(7 * Math.max(...levels.map((v) => lab(v).length))) + 12);
+  // "typical" names its own line in the axis column, where the other values
+  // are read: the dev chart's zero ("0%" said nothing a reader could use) and
+  // the price chart's dashed median. It used to float over the last bar.
+  const typAt = o.mode === "dev" ? 0 : o.mode === "price" && o.band ? o.band.median : null;
+  const padR = Math.max(46, Math.ceil(7 * Math.max(typAt != null ? 7 : 0, ...levels.map((v) => lab(v).length))) + 12);
   const plotW = W - padL - padR, plotH = H - padT - padB, right = W - padR;
   const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * plotH;
   const n = items.length, slot = plotW / n, bw = Math.max(6, Math.min(34, slot * 0.64));
@@ -6841,25 +6847,25 @@ function monthBars(host, items, o) {
   const gridCol = cssVar("--chartgrid", "#eee"), labCol = cssVar("--gray", "#999"), ink = cssVar("--ink", "#111");
   const card = cssVar("--card", "#fff");
   let g = "", marks = "";
+  const typY = typAt != null ? y(typAt) : null;
   for (const v of levels) {
     const gy = y(v).toFixed(1);
-    g += `<line x1="${padL}" y1="${gy}" x2="${right}" y2="${gy}" stroke="${gridCol}" stroke-width="1"/>`
-      + `<text x="${right + 8}" y="${(+gy + 4).toFixed(1)}" font-size="12" fill="${labCol}">${esc(lab(v))}</text>`;
+    g += `<line x1="${padL}" y1="${gy}" x2="${right}" y2="${gy}" stroke="${gridCol}" stroke-width="1"/>`;
+    // A value label that would sit on the "typical" one gives way to it (the
+    // dev chart's own zero, or a price tick within a line's height of the median).
+    if (typY == null || Math.abs(+gy - typY) >= 14)
+      g += `<text x="${right + 8}" y="${(+gy + 4).toFixed(1)}" font-size="12" fill="${labCol}">${esc(lab(v))}</text>`;
   }
-  // The "typical" label goes on last, at the right end with a halo, so no bar
-  // paints over it.
-  const typLabel = (ly) => `<text x="${(right - 4).toFixed(1)}" y="${(ly - 5).toFixed(1)}" font-size="11" text-anchor="end" fill="${labCol}"`
-    + ` stroke="${card}" stroke-width="3" paint-order="stroke">typical</text>`;
+  if (typY != null)
+    marks += `<text x="${right + 8}" y="${(typY + 4).toFixed(1)}" font-size="12" font-weight="600" fill="${ink}">typical</text>`;
   if (o.mode === "price" && o.band) {
     const ty = y(o.band.hi), by = y(o.band.lo), my = y(o.band.median).toFixed(1);
     g += `<rect x="${padL}" y="${ty.toFixed(1)}" width="${plotW.toFixed(1)}" height="${Math.max(1, by - ty).toFixed(1)}" fill="${labCol}" opacity=".13"/>`
       + `<line x1="${padL}" y1="${my}" x2="${right}" y2="${my}" stroke="${labCol}" stroke-width="1" stroke-dasharray="4 4"/>`;
-    marks += typLabel(ty);
   }
   const zeroY = y(o.mode === "dev" ? 0 : lo);
   if (o.mode === "dev") {
     g += `<line x1="${padL}" y1="${zeroY.toFixed(1)}" x2="${right}" y2="${zeroY.toFixed(1)}" stroke="${labCol}" stroke-width="1.2" stroke-dasharray="4 4"/>`;
-    marks += typLabel(zeroY);
   }
   let bars = "", xl = "";
   // Every month labelled where it fits; otherwise every other one, counted
@@ -10055,7 +10061,9 @@ document.addEventListener("scroll", _hideTip, true);
   preApplyShared();
   // On a public deployment the server disables settings + manual email; hide them.
   getJSON("/api/config").then((c) => {
-    if (c.readonly) { $("toggleSettings").hidden = true; $("check").hidden = true; }
+    // The group goes too: an empty .actions still took a slot in the Data bar's
+    // space-between row and parked the Region picker mid-page.
+    if (c.readonly) { $("toggleSettings").hidden = true; $("check").hidden = true; $("check").parentElement.hidden = true; }
   }).catch(() => {});
   // Load the currency data (the "Where to go" score needs live rates + PPP),
   // render the currency tab in the background, then open the verdict tab.
