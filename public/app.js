@@ -266,6 +266,8 @@ function renderIndex(data) {
   const core = data.core_change_pct;
   const coreNames = ["USD", "EUR", "JPY", "GBP", "CHF"].filter((c) => (data.core || []).includes(c))
     .map((c) => CORE_NAME[c]);
+  // The history is the ECB's, not fxratesapi's (rates.py): the longest-horizon
+  // number on the site names its source here, and the footer credits it.
   const tip = "Exchange rates before inflation: a currency with high inflation slides against the rest "
     + "over the years, so long ranges can run well ahead of what prices abroad feel like."
     + (core != null && coreNames.length
@@ -7365,8 +7367,17 @@ function toggleMark(iso) {
 }
 
 let _displayNames = null;
+// The map data carries Natural Earth's names, which abbreviate ("Dominican
+// Rep.", "S. Sudan") and give one country its long official name ("United
+// States of America" beside "United Kingdom" and "Russia"). These match
+// public/country-names.json, which the guide pages and the From picker use,
+// so a country is called the same thing everywhere on the site.
+const NAME_FIX = { US: "United States", BA: "Bosnia and Herzegovina", CD: "DR Congo",
+  CG: "Republic of the Congo", CF: "Central African Republic", DO: "Dominican Republic",
+  GQ: "Equatorial Guinea", SS: "South Sudan", SB: "Solomon Islands" };
 function countryName(iso) {
   if (EXTRA_PLACES[iso]) return EXTRA_PLACES[iso];   // flag-emoji places
+  if (NAME_FIX[iso]) return NAME_FIX[iso];
   const n = (climate && climate[iso] && climate[iso].name) ||
             (ppp && ppp[iso] && ppp[iso].name);
   if (n) return n;
@@ -7401,6 +7412,7 @@ const COUNTRY_ALIASES = {
   "uae": "AE", "emirates": "AE", "south korea": "KR", "korea": "KR", "north korea": "KP",
   "czechia": "CZ", "czech republic": "CZ", "ivory coast": "CI", "cote d'ivoire": "CI",
   "myanmar": "MM", "burma": "MM", "holland": "NL", "bosnia": "BA", "bosnia and herz": "BA",
+  "congo": "CG",   // its display name is now "Republic of the Congo"; a bare "Congo" still imports
   "macedonia": "MK", "turkiye": "TR", "viet nam": "VN", "drc": "CD", "swaziland": "SZ",
   "cape verde": "CV", "east timor": "TL", "timor leste": "TL", "vatican": "VA",
   "vatican city": "VA", "the gambia": "GM", "the bahamas": "BS", "st lucia": "LC",
@@ -7678,22 +7690,21 @@ function renderVisited() {
   }, "Your travel map");
   // an active continent filter (click a % chip) narrows the country chips too
   const inFilter = (iso) => !contFilter || continentOf(iso) === contFilter;
+  // flag + name, like the bulk-add chips: this list is the one place each
+  // country appears (the stats used to repeat every one as a bare flag).
   const chipsFor = (set, cls) => [...set].filter(inFilter)
     .map((iso) => ({ iso, name: countryName(iso) }))
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((c) => `<span class="chip2 rm ${cls}" data-iso="${esc(c.iso)}" title="remove">${esc(c.name)} ✕</span>`).join("");
-  $("visitedSub").innerHTML =
-    `<b class="subbeen">${visited.size} been</b> · ` +
-    `<b class="subwant">${wishlist.size} want to go</b> — ` +
-    `marking <b>${visitMode === "visited" ? "✓ been" : "★ want to go"}</b>. Click the map or pick a country.`;
+    .map((c) => `<span class="chip2 rm ${cls}" data-iso="${esc(c.iso)}" title="remove">${flagEmoji(c.iso)} ${esc(c.name)} ✕</span>`).join("");
   renderVisitedStats();
   const sections = [];
   const beenChips = chipsFor(visited, "v"), wantChips = chipsFor(wishlist, "w");
   if (beenChips) sections.push('<div class="chiprow"><span class="chiplabel">✓ Been</span>' + beenChips + '</div>');
   if (wantChips) sections.push('<div class="chiprow"><span class="chiplabel">★ Want to go</span>' + wantChips + '</div>');
+  // With nothing marked at all the stats column carries the hint (it sits
+  // beside the map); this only speaks for a continent filter that finds nothing.
   $("visitedChips").innerHTML = sections.join("") ||
-    (contFilter ? '<span class="hint">Nothing marked on this continent yet.</span>'
-                : '<span class="hint">Nothing yet — click countries on the map.</span>');
+    (contFilter ? '<span class="hint">Nothing marked on this continent yet.</span>' : "");
   syncURL();
 }
 
@@ -7731,18 +7742,38 @@ function setContFilter(c) {
     map._zoomTo(contFilter ? continentZoomBox(contFilter) : { x: 0, y: 0, w: 1000, h: 386 }, true);
 }
 
+// "% of the world" is UN members out of UN_MEMBERS, the same basis as the
+// continent chips and the badge ladder beside it. Out of every place on the
+// map (226, territories included) the line read "~12%" next to chips that
+// said 15%, and someone with all 193 would have read "~85%". The headline
+// count still includes territories: marking Hong Kong or Puerto Rico is real.
+function worldPct(set) {
+  const unN = [...set].filter((i) => UN_MEMBERS.has(i)).length;
+  return Math.max(1, Math.round((unN / UN_MEMBERS.size) * 100));
+}
+const WORLD_PCT_TIP = "Share of the 193 UN member states plus Vatican City and Palestine. "
+  + "Territories and Antarctica count in your total but not in this %.";
+
 function renderVisitedStats() {
   const host = $("visitedStats");
   if (!host) return;
   const n = visited.size, m = wishlist.size;
-  if (!n && !m) { host.innerHTML = ""; return; }
+  // The empty state lives here, beside the map, so the layout is the same
+  // before and after the first mark (the map doesn't jump under the cursor).
+  // The first rung of the badge ladder sits with it: the column then holds a
+  // goal rather than one line of grey text beside an empty map.
+  if (!n && !m) {
+    const [t, label] = MILESTONE_TIERS[0];
+    host.innerHTML = '<div class="vstats-line"><span class="hint">Nothing yet — tap a country on the map, or search for one above.</span>'
+      + `<span class="awardtag locked" title="${esc(`Visit ${t} countries to earn ${label}`)}">🔒 ${t} to ${esc(label)}</span></div>`;
+    return;
+  }
   const cont = visitedContinents();
-  const pct = Math.max(1, Math.round((n / allPlaces().length) * 100));
   const bits = [];
   if (n) bits.push(`<b>${n}</b> ${n === 1 ? "country" : "countries"}`);
   if (cont) bits.push(`🌍 ${cont} continent${cont === 1 ? "" : "s"}`);
-  if (n) bits.push(`~${pct}% of the world`);
-  if (m) bits.push(`${m} on the wishlist`);
+  if (n) bits.push(`<span data-tip="${WORLD_PCT_TIP}" title="">~${worldPct(visited)}% of the world ⓘ</span>`);
+  if (m) bits.push(`${m} want to go`);
   const mi = milestoneInfo(n);
   let award = "";
   // All seven continents (Antarctica included) outranks any count tier.
@@ -7755,13 +7786,6 @@ function renderVisitedStats() {
   } else if (mi.next && n) {
     award += `<span class="awardtag locked" title="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
   }
-  // every visited flag, alphabetical (narrowed by the continent filter when
-  // one is active) — each names its place on hover/tap
-  const flags = [...visited]
-    .filter((iso) => !contFilter || continentOf(iso) === contFilter)
-    .sort((a, b) => countryName(a).localeCompare(countryName(b)))
-    .map((iso) => `<span data-tip="${esc(countryName(iso))}" title="">${flagEmoji(iso)}</span>`)
-    .join(" ");
   // continent progress chips — click to filter to that continent, gold at 100%
   const prog = continentProgress().filter((p) => p.n > 0 && p.total > 0);
   const contRow = prog.length
@@ -7780,14 +7804,16 @@ function renderVisitedStats() {
   // for the save before the reader has anything worth saving. Motivation peaks
   // at exactly this point: they have just marked N countries and can see what
   // they'd lose. Only shown once there is something to lose, and never to
-  // someone already signed in.
+  // someone already signed in. The why is a ⓘ, and it counts been and want
+  // to go apart: added together, a country on both lists was counted twice
+  // and the note disagreed with the stats line right above it.
   const saveCta = (ACCT_ON && !acctSignedIn() && (n || m))
     ? `<div class="vsave"><button type="button" id="visitedSave">👤 Save this map</button>`
-      + `<span class="vsavenote">Marked in this browser only — signing in keeps ${n + m} `
-      + `${n + m === 1 ? "country" : "countries"} across devices and private tabs.</span></div>`
+      + `<span class="muted" data-tip="${esc(`Saved in this browser only. Sign in to keep your `
+        + (n ? `${n} been` : "") + (n && m ? " + " : "") + (m ? `${m} want to go` : "")
+        + ` on every device.`)}" title="">ⓘ</span></div>`
     : "";
   host.innerHTML = `<div class="vstats-line"><span>${bits.join(" · ")}</span>${award}</div>`
-    + (flags.trim() ? `<div class="vflags">${flags}</div>` : "")
     + contRow + saveCta;
   const sb = $("visitedSave");
   if (sb) sb.onclick = () => openSignIn();
@@ -7999,17 +8025,13 @@ for (const b of document.querySelectorAll("#dataMode button"))
 const BUTTONDOWN_USER = "wandergrade";
 
 // ---- feedback form ----------------------------------------------------------
-// Google Form ("WanderGrade — Feedback", anonymous-friendly). Drives the footer
-// link + the line under the newsletter box; set "" to hide both.
+// Google Form ("WanderGrade — Feedback", anonymous-friendly). Drives the line
+// under the newsletter box; set "" to hide it. (A second "Feedback" link in the
+// footer, 70px below the same form, was dropped as a duplicate.)
 const FEEDBACK_URL = "https://forms.gle/gzG1Bmg7kKRKubri7";
 
 function renderFeedback() {
   if (!FEEDBACK_URL) return;
-  const foot = $("feedbackFoot");
-  if (foot) {
-    foot.hidden = false;
-    foot.querySelector("a").href = FEEDBACK_URL;
-  }
   const sub = $("subscribe");
   if (sub) sub.insertAdjacentHTML("beforeend",
     `<a class="feedbacklink" href="${FEEDBACK_URL}" target="_blank" rel="noopener">💬 Spotted something off, or missing a feature? Tell me — it takes 30 seconds →</a>`);
@@ -8025,6 +8047,9 @@ function subscribeFormHTML() {
   // unchanged; nothing here was ever going to reveal it, because the form posts
   // to a popup and the site never sees the response.
   // The hidden embed=1 is what Buttondown's own embed docs specify.
+  // One honest line under the pitch: the digest is written in US dollars from
+  // a US point of view (newsletter.py), and a visitor from anywhere else
+  // should know that before they type an email — so it is text, not a ⓘ.
   return `<span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
     <form action="https://buttondown.com/api/emails/embed-subscribe/${BUTTONDOWN_USER}"
           method="post" target="popupwindow"
@@ -8032,7 +8057,8 @@ function subscribeFormHTML() {
       <input type="email" name="email" placeholder="you@email.com" required>
       <input type="hidden" name="embed" value="1">
       <button type="submit">Subscribe</button>
-    </form>`;
+    </form>
+    <span class="subnote">Written in US dollars, from a US traveler's point of view.</span>`;
 }
 
 function renderSubscribe() {
@@ -8517,8 +8543,9 @@ function visitedContinents() {
 // "% of each continent" chips under the stats line, gold at 100%. Progress
 // counts UN members only — completing Europe shouldn't require Guernsey,
 // Svalbard and all three UK home nations (territories still count toward the
-// total and % of world). Antarctica is one place; its trophies are the map
-// medallion and the 7-continents badge, so it sits out of this row.
+// headline total, but not the "% of the world", which shares this basis).
+// Antarctica is one place; its trophies are the map medallion and the
+// 7-continents badge, so it sits out of this row.
 const UN_MEMBERS = new Set(("AF AL DZ AD AO AG AR AM AU AT AZ BS BH BD BB BY BE BZ BJ BT BO BA BW BR BN BG BF BI " +
   "CV KH CM CA CF TD CL CN CO KM CG CD CR CI HR CU CY CZ DK DJ DM DO EC EG SV GQ ER EE SZ ET " +
   "FJ FI FR GA GM GE DE GH GR GD GT GN GW GY HT HN HU IS IN ID IR IQ IE IL IT JM JP JO KZ KE " +
@@ -8574,7 +8601,7 @@ function buildVisitedShareSVG(orientation, withPins) {
   const story = orientation === "story";
   const W = story ? STORY_W : SHARE_W, H = story ? STORY_H : SHARE_H;
   const n = visited.size, m = wishlist.size;
-  const pct = Math.max(1, Math.round((n / allPlaces().length) * 100));
+  const pct = worldPct(visited);
   const cont = visitedContinents();
   // the 7-continent badge (Antarctica included) outranks any count tier
   const badge = cont === 7 ? "🌐 All 7 Continents" : travelMilestone(n);
