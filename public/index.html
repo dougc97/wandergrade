@@ -75,7 +75,8 @@
       <a class="homelink" href="/" title="Back to Top Picks">
         <span class="brand">🌍 WanderGrade</span>
         {{SITE_HEADING}}
-        <p class="sub">Every country, graded A+ to F — free, no sign-up.</p>
+        <!-- nowrap: at 390 the line broke as "sign-" / "up." and cost a row. -->
+        <p class="sub">Every country, graded A+ to F — free, no <span style="white-space:nowrap">sign-up</span>.</p>
       </a>
       <div class="headbtns">
         <!-- Three clusters, left to right: the two growth asks, then the personal
@@ -92,12 +93,15 @@
     </div>
   </header>
 
+  <!-- Five tabs. The emoji sit in .temoji so a phone can drop them (they are
+       what pushed "Data" onto a row of its own at 390), and Travel Guide has a
+       short twin for the narrowest screens — see the phone rules in styles.css. -->
   <nav class="tabs" id="tabs">
-    <button data-tab="value" class="active">🧭 Top Picks</button>
-    <button data-tab="guide">📅 Travel Guide</button>
-    <button data-tab="trip">🧳 <span id="tripTabLabel">Trip</span></button>
-    <button data-tab="visited">🗺️ Wander List</button>
-    <button data-tab="data">📊 Data</button>
+    <button data-tab="value" class="active"><span class="temoji" aria-hidden="true">🧭 </span>Top Picks</button>
+    <button data-tab="guide"><span class="temoji" aria-hidden="true">📅 </span><span class="lbl-tab-lg">Travel Guide</span><span class="lbl-tab-sm">Guide</span></button>
+    <button data-tab="trip"><span class="temoji" aria-hidden="true">🧳 </span><span id="tripTabLabel">Trip</span></button>
+    <button data-tab="visited"><span class="temoji" aria-hidden="true">🗺️ </span>Wander List</button>
+    <button data-tab="data"><span class="temoji" aria-hidden="true">📊 </span>Data</button>
   </nav>
 
   <div id="status" class="status" hidden></div>
@@ -392,11 +396,11 @@
 
   <section class="tab" id="tab-visited" hidden>
     <div class="cardwide">
+      <!-- One header row: the title with its ⓘ, and the controls beside it (they
+           drop under it when the card is narrow). The how-to lives in the tip,
+           and the Been / Want to go switch already says what a tap marks. -->
       <div class="charthead">
-        <div>
-          <h2>Your travel map</h2>
-          <p id="visitedSub" class="chartsub">Mark where you've been and where you want to go. Saved in this browser.</p>
-        </div>
+        <h2>Your travel map <span class="muted" data-tip="Tap a country on the map, or search for it, to mark it — the switch decides whether that means ✓ been or ★ want to go. Saved in this browser." title="">ⓘ</span></h2>
         <div class="pickers">
           <div class="windowtoggle" id="visitedMode">
             <button data-vm="visited" class="active">✓ Been</button>
@@ -408,9 +412,15 @@
           <button id="visitedClear">Clear all</button>
         </div>
       </div>
-      <div id="visitedMap" class="map">Loading…</div>
-      <div id="visitedStats" class="visitedstats"></div>
-      <div id="visitedChips" class="chips" style="margin-top:12px"></div>
+      <!-- Map beside its stats (count, badge, continent progress) from 900px up,
+           like the Data tab's paired cards; the country lists keep the full
+           width below, where a long list has room. The map's own aspect sets
+           the row's height, so nothing under it moves as marks are added. -->
+      <div class="vrow">
+        <div id="visitedMap" class="map">Loading…</div>
+        <div id="visitedStats" class="visitedstats"></div>
+      </div>
+      <div id="visitedChips" class="chips"></div>
     </div>
   </section>
 
@@ -773,23 +783,26 @@
        Collapsed by default so it costs the reader nothing; <details> content is
        still in the HTML and still crawled. -->
   <details class="guideindex">
-    <summary>Browse all country guides</summary>
+    <summary>Browse all {{GUIDE_COUNT}} country guides</summary>
     <nav class="guideindex-links">{{GUIDE_LINKS}}</nav>
   </details>
 
   <footer>
-    Currency: <a href="https://fxratesapi.com" target="_blank" rel="noopener">fxratesapi.com</a> ·
+    <!-- Live rates are fxratesapi; the strength chart's history back to 1999 is
+         the ECB's reference rates (fxtracker/rates.py), whose reuse terms ask
+         for the credit. Advisory sources in country order, not the US first:
+         the safety source follows the traveller's home country. -->
+    Currency: <a href="https://fxratesapi.com" target="_blank" rel="noopener">fxratesapi.com</a> (live) &amp; <a href="https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html" target="_blank" rel="noopener">ECB reference rates</a> (history since 1999) ·
     PPP: World Bank ·
     Climate: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> ·
-    Advisories: <a href="https://travel.state.gov" target="_blank" rel="noopener">U.S. State Dept</a>, <a href="https://travel.gc.ca/travelling/advisories" target="_blank" rel="noopener">Global Affairs Canada</a> &amp; <a href="https://www.auswaertiges-amt.de/de/ReiseUndSicherheit/reise-und-sicherheitshinweise" target="_blank" rel="noopener">German Foreign Office</a> ·
+    Advisories: <a href="https://travel.gc.ca/travelling/advisories" target="_blank" rel="noopener">Global Affairs Canada</a>, <a href="https://www.auswaertiges-amt.de/de/ReiseUndSicherheit/reise-und-sicherheitshinweise" target="_blank" rel="noopener">German Foreign Office</a> &amp; <a href="https://travel.state.gov" target="_blank" rel="noopener">US State Dept</a> ·
     Safety notes: Global Affairs Canada ·
     Flights: <a href="https://www.aviasales.com" target="_blank" rel="noopener" title="Cheapest round-trip fares Aviasales has seen from real searches in roughly the last 90 days, aggregated by destination country — cached, not live prices. Accessed via the Travelpayouts API.">Aviasales</a> (cached fares) ·
     Photos: <a href="https://commons.wikimedia.org" target="_blank" rel="noopener">Wikimedia Commons</a> (credited per photo) ·
     Visas: <a href="https://github.com/ilyankou/passport-index-dataset" target="_blank" rel="noopener">Passport Index</a> &amp; <a href="https://travel.state.gov" target="_blank" rel="noopener">US State Dept</a> ·
     Popularity: <a href="https://data.worldbank.org/indicator/ST.INT.RCPT.CD" target="_blank" rel="noopener">UN Tourism / World Bank</a>.
-    <br><a href="/data"><strong>Free dataset:</strong> cost of living by country (CSV &amp; JSON)</a>
+    <br><a href="/data"><strong>Free dataset:</strong> cost of living by country (CSV &amp; JSON)</a> ·
     Informational only — verify before booking.
-    <span id="feedbackFoot" hidden> · <a href="#" target="_blank" rel="noopener">💬 Feedback</a></span>
     <span class="disclosure">WanderGrade earns a commission when you book through some of our flight, stay &amp; activity links, at no extra cost to you.</span>
   </footer>
 

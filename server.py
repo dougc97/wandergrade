@@ -25,6 +25,7 @@ import time
 import unicodedata
 import urllib.parse
 import urllib.request
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
@@ -154,6 +155,7 @@ _HTML_DEFAULTS = {
     # country it was for. Same pixels either way — .sitetitle carries the style.
     "SITE_HEADING": '<h1 class="sitetitle">Where Should I Travel to Next?</h1>',
     "GUIDE_LINKS": "",
+    "GUIDE_COUNT": "",
     "JSONLD": _WEBSITE_JSONLD,
     "ANALYTICS": _analytics_tag(),
     # Lets the page hide every trace of sign-in until accounts are provisioned.
@@ -372,6 +374,12 @@ def _guide_links():
     return _guide_links_html
 
 
+def _guide_count():
+    """How many guides the index lists — the number the "Browse all N country
+    guides" summary quotes, so it can't go stale."""
+    return _guide_links().count("<a ")
+
+
 def _sitemap():
     """Generate sitemap.xml from the live slug list.
 
@@ -443,7 +451,7 @@ def _data_page_body_tpl():
         '<div class="ssrguide">'
         "<h1>Cost of living by country: the dataset</h1>"
         "<p>What US$100 buys in <strong>__N__ countries</strong>, as a free CSV or JSON "
-        "download. No sign-up, no key, updated continuously.</p>"
+        "download. No sign-up, no key; exchange rates as of __ASOF__ (refreshed daily).</p>"
         '<p><a href="/data/price-levels.csv"><strong>Download CSV</strong></a> &middot; '
         '<a href="/data/price-levels.json"><strong>Download JSON</strong></a></p>'
         "<h2>What's in it</h2>"
@@ -452,7 +460,7 @@ def _data_page_body_tpl():
         "forward from its year by the gap between local and US inflation, divided by "
         "the market exchange rate. 1.00 means prices match the US, 0.50 means half.</li>"
         "<li><strong>usd100_buys</strong> — the local purchasing power of US$100, in US "
-        "dollars. Vietnam sits near $370.</li>"
+        "dollars. Vietnam sits near US$370.</li>"
         "<li>Plus the inputs, so you can check the arithmetic: PPP factor and its year, "
         "GDP per capita and its year, the currency used, the currency the PPP factor is "
         "quoted in (<code>ppp_unit</code>), the inflation rate and its year "
@@ -460,6 +468,13 @@ def _data_page_body_tpl():
         "multiplier it produced (<code>inflation_factor</code>, 1 when there is no "
         "current figure).</li>"
         "</ul>"
+        # The table is US-based because World Bank PPP is quoted against the US;
+        # a reader from anywhere else needs one line on how to compare from home.
+        "<p>Comparing from somewhere else? Divide one price_level by the other: "
+        "Vietnam 0.27 &divide; Germany 0.80 &asymp; 0.34, so prices are about a third "
+        "of Germany's. The <a href=\"/?tab=data&amp;dm=afford\">Data tab</a> does this "
+        "for your home currency. Join on <code>iso</code>; <code>country</code> uses "
+        "World Bank naming.</p>"
         "<h2>Why it differs from other PPP tables</h2>"
         "<p>Most purchasing-power figures are a snapshot: prices and exchange rates from "
         "the year the PPP was published, so they drift as both move. This carries the "
@@ -486,31 +501,58 @@ def _data_page_body_tpl():
 
 
 
-def _data_page_body():
-    # The count comes from the dataset; the copy has literal % signs, so it is
-    # swapped in rather than %-formatted.
-    return _data_page_body_tpl().replace("__N__", str(_dataset_count()))
+def _rates_as_of():
+    """The dataset's rate date as '28 Sep 2026' — day-month-year, not US
+    numeric, for a page read from anywhere. Empty when the dataset is down."""
+    try:
+        d = datetime.strptime(_dataset()["payload"]["meta"]["rates_as_of"], "%Y-%m-%d")
+        return "%d %s %d" % (d.day, d.strftime("%b"), d.year)
+    except Exception:
+        return ""
 
-def _shell_page(title, body, head="", analytics=True):
+
+def _data_page_body():
+    # The count and date come from the dataset; the copy has literal % signs,
+    # so they are swapped in rather than %-formatted.
+    asof = _rates_as_of()
+    return (_data_page_body_tpl().replace("__N__", str(_dataset_count()))
+            .replace("exchange rates as of __ASOF__ (refreshed daily)",
+                     "exchange rates as of %s (refreshed daily)" % asof if asof
+                     else "exchange rates refreshed daily"))
+
+# The same 🌍 tab icon as index.html: without it the browser asked for
+# /favicon.ico on every shell page and got a 404.
+_SHELL_ICON = ('<link rel="icon" href="data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' '
+               'viewBox=\'0 0 100 100\'><text y=\'.9em\' font-size=\'90\'>🌍</text></svg>">')
+
+
+def _shell_page(title, body, head="", analytics=True, credits=True):
     """A whole, self-contained HTML document in the site's header/footer —
-    no app.js. /data, the 404 page and the sign-in confirmation use it."""
+    no app.js. /data, the 404 page and the sign-in confirmation use it.
+    credits=False drops the data sources from the footer, for a page that
+    shows no data."""
     return (
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        "<title>%s</title>%s"
+        "<title>%s</title>%s%s"
         '<link rel="stylesheet" href="/styles.css?v=%s">'
         "%s</head><body>"
         '<header><div class="headrow"><a class="homelink" href="/">'
         '<span class="brand">🌍 WanderGrade</span>'
         '<p class="sitetitle">Where Should I Travel to Next?</p>'
         '<p class="sub">Every country, graded A+ to F — free, no sign-up.</p>'
-        "</a></div></header><main>%s</main>"
-        '<footer>Data: <a href="https://data.worldbank.org" rel="noopener" '
-        'target="_blank">World Bank</a> &amp; '
-        '<a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
-        '&middot; <a href="/">Back to WanderGrade</a></footer></body></html>'
-        % (html.escape(title), head, _asset_version("styles.css"),
-           _analytics_tag() if analytics else "", body)
+        "</a></div></header>"
+        # .shellmain: the site gutter and reading measure (styles.css) — a bare
+        # <main> ran edge to edge, with no side padding at all on a phone.
+        '<main class="shellmain">%s</main>'
+        "<footer>%s"
+        '<a href="/">Back to WanderGrade</a></footer></body></html>'
+        % (html.escape(title), _SHELL_ICON, head, _asset_version("styles.css"),
+           _analytics_tag() if analytics else "", body,
+           ('Data: <a href="https://data.worldbank.org" rel="noopener" '
+            'target="_blank">World Bank</a> &amp; '
+            '<a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
+            "&middot; ") if credits else "")
     ).encode("utf-8")
 
 
@@ -541,10 +583,11 @@ def _render_404_page(message):
     body = (
         '<div class="ssrguide"><h1>%s</h1>'
         '<p><a href="/"><strong>Back to WanderGrade →</strong></a></p></div>'
-        '<details class="guideindex"><summary>Browse all country guides</summary>'
+        '<details class="guideindex"><summary>Browse all %d country guides</summary>'
         '<nav class="guideindex-links">%s</nav></details>'
-        % (html.escape(message), _guide_links()))
-    return _shell_page("Not found | WanderGrade", body, _NOINDEX)
+        % (html.escape(message), _guide_count(), _guide_links()))
+    # No data on this page, so no data credits in its footer.
+    return _shell_page("Not found | WanderGrade", body, _NOINDEX, credits=False)
 
 
 def _render_verify_page(token):
@@ -568,6 +611,7 @@ def _render_index(gc_iso=None):
     country page with server-rendered <title>/meta/canonical and body."""
     vals = dict(_HTML_DEFAULTS)
     vals["GUIDE_LINKS"] = _guide_links()
+    vals["GUIDE_COUNT"] = str(_guide_count())
     if gc_iso:
         r = render_guide.render(gc_iso)
         vals.update(

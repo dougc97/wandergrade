@@ -63,7 +63,7 @@ body {
 }
 body > *:not(.bgdoodle):not(.bgseason):not(.lightbox):not(.wgtip):not(.submodal):not(.spinover):not(.mapfs) { position: relative; z-index: 1; }
 
-header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide, .filterbar { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide, .filterbar, .shellmain { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
 
 /* tab nav */
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); margin-top: 8px; }
@@ -85,6 +85,9 @@ html[data-tab="data"]    #tab-data { display: block; }
    no specificity of their own, so a base rule further down the file would beat
    the overrides below and hide both halves, leaving the control unlabelled. */
 .lbl-sm { display: none; }
+/* The tab bar's own pair ("Travel Guide" / "Guide"), swapped only below 375
+   where even the emoji-less row is too wide. Same placement reason as .lbl-sm. */
+.lbl-tab-sm { display: none; }
 /* Deliberately NOT .lbl-sm: that pair swaps only between 375 and 600px, because
    it is tied to the pickers going side by side. This line wraps at every phone
    width, 320 included, so it needs its own switch (see the max-width:600 block). */
@@ -278,6 +281,18 @@ button:hover { border-color: #999; }
 }
 .status.ok { background: var(--green-bg); color: var(--green); }
 .status.err { background: #fdecef; color: var(--red); }
+/* Transient notices float as a toast at the bottom of the screen. In the page
+   flow, every "Share link copied" pushed the whole tab down 54px and back up
+   six seconds later, and one shown while scrolled into a long list rendered
+   off the top of the screen where nobody saw it. Sticky notices (the shared-
+   view warnings, which describe an ongoing state) and #acctnote stay in flow.
+   Below tooltips (.wgtip 2000) and the modals, above the full-screen map. */
+.status:not(#acctnote):not([data-sticky="1"]) {
+  position: fixed; left: 50%; bottom: 16px; top: auto; margin: 0; transform: translateX(-50%);
+  z-index: 1600; width: max-content; max-width: min(560px, calc(100% - 32px));
+  box-shadow: 0 4px 16px rgba(0,0,0,.18); }
+/* The Undo in a toast reads in the toast's own colour, not the system link blue. */
+.status .linkbtn { color: inherit; font-weight: 600; }
 
 .settings { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 16px; padding: 18px 20px; }
 .settings h2 { margin-top: 0; }
@@ -440,8 +455,6 @@ html.mapfs-open, html.mapfs-open body { overflow: hidden; }
    your marks glow instead of receding — one green across site and export. */
 .map svg path.been { fill: #0a7d28; }
 .map svg path.want { fill: #2b6cb0; }
-.subbeen { color: #0a7d28; }
-.subwant { color: #2b6cb0; }
 /* been AND want-to-go-again: green fill with a blue ring */
 .map svg path.both { stroke: #2b6cb0; stroke-width: 1.8; }
 .map svg path:hover { stroke: #222; stroke-width: 0.9; }
@@ -534,6 +547,9 @@ tr.favorable { background: var(--green-bg); }
   border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center;
   gap: 12px; flex-wrap: wrap; justify-content: center; }
 .subscribe .sublabel { font-size: 14px; font-weight: 600; }
+/* The "US dollars, US point of view" line: its own row under the pitch and
+   form, in the box and in the modal alike. */
+.subnote { width: 100%; text-align: center; font-size: 12.5px; color: var(--gray); }
 /* Newsletter modal opened by the small header "📬 Subscribe" button. */
 /* The overlay scrolls: a fixed box can't be scrolled by the page, so on a
    landscape phone the guided picker's ✕ and submit button sat off-screen for
@@ -1026,6 +1042,11 @@ html[data-tab="guide"] #tab-guide .cardwide { min-height: 100vh; }
 .ssrguide ul { margin: 0 0 8px; padding-left: 20px; line-height: 1.5; }
 .ssrguide li { margin: 0 0 8px; }
 .ssrguide p { line-height: 1.55; }
+/* The shell pages (/data, 404, sign-in) put their text in <main class="shellmain">:
+   it takes the site gutter above, and a reading measure — without it the
+   dataset page ran edge to edge in 190-character lines. */
+.shellmain .ssrguide { max-width: 72ch; margin-top: 18px; }
+.shellmain .ssrguide a { color: var(--green); }
 /* Instant tooltip for [data-tip] elements (e.g. hazard ⚠️ in Top Picks). */
 .wgtip { position: fixed; z-index: 2000; background: #16181d; color: #fff;
   border: 1px solid rgba(255,255,255,.16); border-radius: 8px; padding: 7px 11px;
@@ -1160,18 +1181,35 @@ html[data-theme="dark"] .map svg path { stroke: var(--card); }
 html[data-theme="dark"] .map svg path.been { fill: #34d27b; }
 html[data-theme="dark"] .map svg path.want { fill: #4f9bf0; }
 html[data-theme="dark"] .map svg path.both { stroke: #4f9bf0; }
-html[data-theme="dark"] .subbeen { color: #34d27b; }
-html[data-theme="dark"] .subwant { color: #4f9bf0; }
+/* Unmarked countries on the travel map: the light-theme grey stayed in dark
+   mode, where "been" (#34d27b) was 1.5:1 against it and the whole map glared.
+   The fill is set inline by renderVisited (dotFor compares against that
+   literal), so the attribute selector is what picks out exactly these paths —
+   and skips the Antarctica medallion's rgba disc. */
+html[data-theme="dark"] #visitedMap svg path[fill="#e0e4e8"]:not(.out) { fill: #3a434c; }
 html[data-theme="dark"] #check { color: #14181c; }
 html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 
-/* Wanderlist header: keep the controls on their own row so toggling Been/Want
-   (which changes the subtitle's length) can never reflow them. */
-#tab-visited .charthead { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 10px; }
-#tab-visited .charthead .pickers { width: 100%; }
+/* Wanderlist header: title and controls on one row (the base .charthead), the
+   controls dropping under the title when they don't fit. The subtitle that
+   used to reflow them is now the ⓘ on the title. */
+#tab-visited .charthead { align-items: center; gap: 8px 16px; }
+#tab-visited .charthead .pickers { flex: 1 1 auto; justify-content: flex-end; }
+/* Map beside its stats from 900px up: at that width the map is still 480px
+   wide, tall enough for the zoom stack to fit inside it. The map's aspect
+   sets the row height, so the card is as short as the map allows; the country
+   lists sit under the row at full width. */
+.vrow { margin-top: 10px; }
+.vrow > .map { margin-top: 0; }
+@media (min-width: 900px) {
+  .vrow { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
+  .vrow > .visitedstats { margin-top: 0; }
+}
+#visitedChips { margin: 12px 0 0; }
+#visitedChips:empty { display: none; }
 
 /* Wanderlist on-page stats (mirrors the shareable card) */
-.visitedstats { margin-top: 14px; }
+.visitedstats { margin-top: 12px; }
 .vstats-line { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 15px; color: var(--ink); }
 .vstats-line b { color: var(--green); font-weight: 800; }
 .awardtag { display: inline-flex; align-items: center; gap: 4px; padding: 4px 12px; border-radius: 999px;
@@ -1179,7 +1217,6 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .awardtag.locked { background: transparent; color: var(--gray); border-color: var(--line); }
 /* all 7 continents — gold, because Antarctica */
 .awardtag.seven { background: rgba(212,175,55,.12); color: var(--amber); border-color: #b9962e; }
-.vflags { margin-top: 9px; font-size: 22px; line-height: 1.5; letter-spacing: 2px; }
 /* per-continent progress chips; gold when a continent is 100% done */
 .contbar { margin-top: 9px; display: flex; flex-wrap: wrap; gap: 6px; }
 .contchip { font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
@@ -1248,13 +1285,17 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   }
 }
 
-@media (min-width: 375px) and (max-width: 760px) {
-  /* All four fit one row once the padding and type tighten: measured at 326px
-     against the 335px available at 375. Which puts the floor at a 366px
-     viewport (326 + the 20px side padding each side), so 375 is the honest
-     breakpoint — every current phone (375/390/393/414/430) clears it. */
+@media (max-width: 760px) {
+  /* Five tabs on one row. With the padding and type tightened the five need
+     374px at 390 against 362 available, so "Data" wrapped alone onto a second
+     row — the 3+1 mistake. Dropping the emoji (below, at 440) brings them to
+     283px plus gaps: one 34px row at every phone width down to 360, with room
+     for the Trip badge. */
   .tabs { gap: 0 4px; }
   .tabs button { padding: 9px 5px; font-size: 12px; }
+}
+@media (max-width: 440px) {
+  .tabs button .temoji { display: none; }
 }
 
 @media (min-width: 375px) and (max-width: 600px) {
@@ -1311,21 +1352,19 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 }
 
 @media (max-width: 374px) {
-  /* Below 375 there is no honest one-row answer: a 320px screen offers 280px
-     and the four tabs need 286 even at 11px type — only dropping the emoji
-     fits, which costs more than the wrap does. So make the wrap deliberate:
-     an even 2x2 reads as a grid rather than a 3+1 mistake. */
-  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0 6px; }
-  /* justify-self keeps each button hugging its label, so the active underline
-     tracks the word instead of stretching the full half-width cell and reading
-     as a segmented control. */
-  .tabs button { justify-self: center; padding: 9px 6px; }
+  /* Below 375 the emoji-less row still needs 299px against a 320px screen's
+     280: "Travel Guide" becomes "Guide" (274px), and all five stay on one row. */
+  .lbl-tab-lg { display: none; }
+  .lbl-tab-sm { display: inline; }
 }
 
 @media (max-width: 560px) { .actthumb { width: 68px; height: 50px; } }
 
 @media (max-width: 760px) {
   .toprow { grid-template-columns: 1fr; }
+  /* Wander List controls sit under the title here, so they read left to right
+     like the title above them; the right alignment is for the one-row desktop. */
+  #tab-visited .charthead .pickers { justify-content: flex-start; }
   /* Stacked, nothing to stretch to: the chart keeps its own shape, and a
      panel's list its own height (capped, scrolling). */
   .toprow .chartcard > .chart { min-height: clamp(190px, 40vw, 300px); }
@@ -1442,7 +1481,7 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 @media (max-width: 560px) {
   /* tighter side gutters (20px -> 14px) so dense content uses more of a phone screen */
   header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide, .filterbar,
-  .toprow, .status, .subscribe { padding-left: 14px; padding-right: 14px; }
+  .toprow, .status, .subscribe, .shellmain { padding-left: 14px; padding-right: 14px; }
   /* phones: picker groups wrap inside themselves instead of overflowing the card */
   .pickgroup { flex-wrap: wrap; white-space: normal; }
   .pickersmain select, .pickersfilters select { max-width: 100%; }
@@ -1673,6 +1712,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .guideindex { max-width: 1180px; margin: 26px auto 0; padding: 0 18px; }
 .guideindex > summary { cursor: pointer; font-size: 13px; color: var(--gray);
   min-height: 24px; display: flex; align-items: center; }
+/* display:flex drops the summary's own ::marker, which left the line reading
+   as a caption; this is the disclosure arrow it lost. */
+.guideindex > summary::after { content: "▾"; margin-left: 5px; font-size: 11px; }
+.guideindex[open] > summary::after { content: "▴"; }
 .guideindex-links { display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 12px 0 0; }
 .guideindex-links a { font-size: 12.5px; color: var(--gray); text-decoration: none; }
 .guideindex-links a:hover { color: var(--green); text-decoration: underline; }
@@ -1697,7 +1740,7 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .vsave button { font: inherit; font-weight: 700; font-size: 14px; padding: 8px 14px;
   border: 0; border-radius: 8px; background: var(--green-fill); color: #fff;
   cursor: pointer; min-height: 24px; }
-.vsavenote { font-size: 13px; color: var(--gray); }
+.vsave .muted { color: var(--gray); font-size: 14px; }
 
 /* Share-image buttons sit in the map headers beside the legend. */
 .charthead .shareimg { margin-left: auto; align-self: center; white-space: nowrap; }
