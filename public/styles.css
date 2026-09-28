@@ -134,8 +134,6 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .bars .mlabel.shoulder { color: var(--amber); }
 .bars .mlabel.off { color: #aaa; }
 .bars .mscore { font-size: 9px; color: var(--gray); }
-.seasons { display: flex; gap: 18px; flex-wrap: wrap; font-size: 13px; color: var(--gray); margin: 10px 0 14px; }
-.seasons b.peak { color: var(--green); } .seasons b.off { color: #999; }
 
 /* things to do */
 .actlist { margin: 6px 0 16px; padding-left: 0; list-style: none; }
@@ -733,6 +731,34 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
   cursor: help; font-weight: 400; }
 .guidefx .fxspark { display: block; width: 240px; max-width: 100%; height: 46px; }
 .guidefx .fxavg { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
+/* The local price level, one line above the FX trend, same voice. */
+.guidecost { display: block; margin: 12px 0 0; font-size: 12.5px; color: var(--gray); }
+.guidecost b { color: var(--ink); }
+.guidecost .fxinfo { margin-left: 5px; cursor: help; }
+
+/* Guide top half in two columns from 900px (index.html .guidegrid): visa |
+   trip + AI, safety | stays + insurance, weather chart | fares + prices + FX.
+   Each block used to take a full 1158px row with two thirds of it empty, and
+   the two 12-bar charts sat one above the other. Phones keep the DOM order;
+   the rule inside the grid is a phone-only fold. Three rows, no spans: a
+   block spanning two rows spreads its height across both and opens a gap
+   between the pair beside it. */
+@media (min-width: 900px) {
+  .guidegrid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 28px; align-items: start; }
+  .guidegrid > * { min-width: 0; }
+  .guidegrid > hr { display: none; }
+  #guideVisa { grid-row: 1; grid-column: 1; }
+  #guideAI { grid-row: 1; grid-column: 2; margin-top: 0; }
+  #guideSafety { grid-row: 2; grid-column: 1; }
+  .guidegrid .staycol { grid-row: 2; grid-column: 2; }
+  #bestDetail { grid-row: 3; grid-column: 1; }
+  .guidegrid .farecol { grid-row: 3; grid-column: 2; }
+  /* "Top things to do" beside "What's in season" (renderActivity): three
+     short season rows were each stretched across the whole card, label at
+     the left edge and months a thousand pixels away. */
+  .actgrid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 28px; align-items: start; }
+  .actgrid > div { min-width: 0; }
+}
 
 /* The Overall grade is the verdict, not a fifth peer chip — a full step up in
    size, and the whole column sits on its own band so the eye lands there. */
@@ -1541,6 +1567,9 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   box-sizing: content-box; }
 .farebars .fill { width: 42%; }
 .farebars .fill.na { background: var(--soft); opacity: .4; }
+/* A month at the route's typical fare: the Flights tab's range-band grey
+   (.fvtyp), so "nothing to see" reads the same on both instruments. */
+.farebars .fill.typ { background: var(--gray); opacity: .45; }
 
 /* Fare-by-month strip (guide + trip). Same visual grammar as the season
    strip: cells across a year, colour carries the answer, tips carry numbers. */

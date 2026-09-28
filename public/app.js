@@ -2075,6 +2075,7 @@ function renderGuide(iso) {
   renderActivity(iso);
   renderGuideStay(iso);
   renderGuideFares(iso);
+  renderGuideCost(iso);
   renderGuideFx(iso);
   syncURL();
 }
@@ -2156,22 +2157,6 @@ async function renderGuideFares(iso) {
   host.hidden = true;
   const fm = await ensureFareMonths(iso);
   if (ccGuideIso !== iso || !fm || !fm.months) return;
-  const dispCur = flightDisplayCur();
-  const conv = dispCur === "USD" ? 1 : (rateForCurrency(dispCur) || 1);
-  const strip = fareStripHTML(fm.months, { cur: conv === 1 ? "USD" : dispCur, conv });
-  if (!strip) return;
-  host.hidden = false;
-  // Origin name from the strip's own payload — flightsData may be null on a
-  // direct guide load (that null is what hid the first production version).
-  const originName = countryName(fm.origin || travelOrigin() || "US");
-  // The guide gets real bars, not chips: it sits directly under the full-size
-  // temperature chart and must speak that chart's language — 12 labeled
-  // columns, the number on the bar, taller = cheaper (tall means "go", same
-  // as the comfort bars above; colour double-codes it so nobody misreads).
-  const conv2 = conv;                       // dispCur/conv declared above
-  const cur2 = conv2 === 1 ? "USD" : dispCur;
-  const fmv = (v) => (cur2 === "USD" ? "$" + Math.round(v * conv2).toLocaleString()
-                                     : "≈" + Math.round(v * conv2).toLocaleString());
   const now2 = new Date();
   const prices = [];
   for (let m = 1; m <= 12; m++) {
@@ -2180,28 +2165,61 @@ async function renderGuideFares(iso) {
     prices.push(rec ? rec.price : null);
   }
   const known = prices.filter((p) => p != null);
-  const lo = Math.min(...known), hi = Math.max(...known);
+  // Under three months there is no curve to read (the Trip strip's floor,
+  // fareStripHTML minMonths): two bars would claim a season.
+  if (known.length < 3) return;
+  host.hidden = false;
+  // Origin name from the strip's own payload — flightsData may be null on a
+  // direct guide load (that null is what hid the first production version).
+  const originName = countryName(fm.origin || travelOrigin() || "US");
+  // The guide gets real bars, not chips: it sits beside the full-size
+  // temperature chart and must speak that chart's language — 12 labeled
+  // columns, the number on the bar, taller = cheaper (tall means "go", same
+  // as the comfort bars; colour double-codes it so nobody misreads).
+  // The Flights tab's formatter, so every currency gets the same treatment:
+  // "USD 646" and "≈EUR 734" in the tips, the unit named once in the header,
+  // bare numbers on the bars. The old "$646" vs "≈734" made the dollar the
+  // one currency with a symbol and left the euro with no unit at all.
+  const { F, money, approx, cur } = flightFmt();
+  // Each month against the route's TYPICAL fare, not its own min and max —
+  // min-max scaling drew a 6% spread as full green against full red. The
+  // Flights tab's range (median + typical band, /api/flight-value) when it
+  // has this route, so the two agree; else this curve's median with ±8%.
+  const fvC = flightValue && flightValue.origin === (fm.origin || originIso())
+    && flightValue.countries && flightValue.countries[iso];
+  const typ = fvC && fvC.median != null ? fvC : null;
+  const sorted = known.slice().sort((a, b) => a - b), mid = sorted.length >> 1;
+  const med = typ ? typ.median : sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const bandOf = (p, dev) => (typ ? (p < typ.lo ? "low" : p > typ.hi ? "high" : "typical")
+                                  : dev < -0.08 ? "low" : dev > 0.08 ? "high" : "typical");
   const cols = prices.map((p, i) => {
     if (p == null) return '<div class="col"><div class="mscore"></div>'
       + '<div class="fill na" style="height:8%" data-tip="'
       + esc(MONTHS[i] + " — no cached fares") + '" title=""></div>'
       + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
-    const t = hi > lo ? (p - lo) / (hi - lo) : 0.5;         // 0 = cheapest
-    const h = 30 + (1 - t) * 65;                            // taller = cheaper
-    const fill = t <= 0.5 ? mix("#eef0f1", "#0a7d28", 1 - t * 1.3)
-                          : mix("#eef0f1", "#b00020", (t - 0.5) * 1.3);
-    return '<div class="col"><div class="mscore">' + fmv(p) + "</div>"
-      + '<div class="fill" style="height:' + h + '%;background:' + fill + '" data-tip="'
-      + esc(MONTHS[i] + ": from " + fmv(p) + " round-trip") + '" title=""></div>'
+    const dev = p / med - 1;
+    const band = bandOf(p, dev);
+    const h = Math.max(30, Math.min(95, 62 - dev * 110));     // taller = cheaper
+    // Typical months take the Flights tab's range-bar grey (styles .fill.typ)
+    // rather than the map's pale fill, which vanished against the panel.
+    const fill = band === "typical" ? "" : ";background:" + fareValueFill({ state: "ok", band, dev });
+    return '<div class="col"><div class="mscore">' + F(p).toLocaleString() + "</div>"
+      + '<div class="fill' + (band === "typical" ? " typ" : "") + '" style="height:' + h + "%" + fill + '" data-tip="'
+      + esc(MONTHS[i] + ": from " + money(p) + " round-trip · " + FV_WORD[band]
+        + (band === "typical" ? "" : " (" + fmtDevPct(dev) + " vs typical)")) + '" title=""></div>'
       + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
   }).join("");
-  host.innerHTML = '<span class="fareshead">✈️ Fares by month <span class="muted">'
-    + esc(originName + " → " + countryName(iso) + " · taller = cheaper · " + strip.note)
+  // Source, method and legend in the ⓘ; the header itself is one line. The
+  // cheapest/priciest note it carried repeated what the bars already label.
+  const tip = "Cheapest cached round-trip Aviasales has seen for each departure month"
+    + (approx ? ", converted at today's rate" : "") + " — indicative, not live. Taller = cheaper. "
+    + "Colour = the month against the route's typical fare: green low, pale typical, red high"
+    + (typ ? " (the Flights tab's range)." : ".");
+  host.innerHTML = '<span class="fareshead">✈️ Fares by month'
+    + '<span class="legendinfo" data-tip="' + esc(tip) + '" title="">ⓘ</span>'
+    + ' <span class="muted">' + esc(originName + " → " + countryName(iso) + " · round-trip, " + approx + cur)
     + "</span></span>"
-    + '<div class="bars farebars">' + cols + "</div>"
-    + '<span class="advsrcnote">Cheapest cached round-trip Aviasales has seen for each month'
-    + (cur2 !== "USD" ? " (≈" + esc(cur2) + " at today's rate)" : "")
-    + " — indicative, not live.</span>";
+    + '<div class="bars farebars">' + cols + "</div>";
 }
 
 // ---- FX trailing trend ------------------------------------------------------
@@ -2267,7 +2285,7 @@ async function renderGuideFx(iso) {
   const path = pts.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
   // Same thresholds as the Currency tab's strong/typical/weak labels.
   const col = nominal ? "#8891a0" : pct >= 2 ? "#2f9e44" : pct <= -2 ? "#d9480f" : "#8891a0";
-  const verdict = pct >= 2 ? "further than usual" : pct <= -2 ? "less far than usual" : "about typical";
+  const verdict = pct >= 2 ? "goes further than usual" : pct <= -2 ? "goes less far than usual" : "about typical";
   const mLabel = (m) => MON_ABBR[parseInt(m.slice(5), 10) - 1] + " '" + m.slice(2, 4);
   const cn = countryName(iso);
   const gap = inflGapText(fxIso, homeIso);
@@ -2277,7 +2295,7 @@ async function renderGuideFx(iso) {
       : nominal
       ? `Nominal — ${countryName(b.stale)}'s inflation data isn't current, so we can't say whether your money goes further. `
       : gap ? `After inflation: the exchange-rate move minus the inflation gap (${gap}, World Bank)`
-          + (Math.abs(t.pct - pct) >= 0.1 ? `; the plain rate moved ${t.pct > 0 ? "+" : ""}${t.pct}%` : "") + ". "
+          + (Math.abs(t.pct - pct) >= 0.1 ? `; the plain rate moved ${t.pct > 0 ? "+" : ""}${Number(t.pct).toFixed(1)}%` : "") + ". "
         : `No current inflation figure for ${countryName(fxIso)}, so this is the plain exchange-rate move. `)
     + `Monthly averages of the daily ${base}→${dest} rate, ${mLabel(months[0].m)} to ${mLabel(months[months.length - 1].m)}`
     + (nominal || !gap ? "" : ", in today's prices")
@@ -2285,14 +2303,51 @@ async function renderGuideFx(iso) {
     + (nominal || noInfl || !gap ? ". Higher = a stronger rate for you" : ". Higher = your money buys more")
     + ". Backward-looking on purpose: exchange rates aren't seasonal, "
     + "so this says whether now is favourable — not which month to pick.";
-  host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b> · past 12 months: `
-    + `<b style="color:${col}">${pct > 0 ? "+" : ""}${pct}%</b> vs its 1-yr average`
-    + ` <span class="muted">(${noInfl ? "exchange rate only" : nominal ? "nominal — inflation data isn't current" : "goes " + verdict})</span>`
+  // "past 12 months: +0.1% vs its 1-yr average" read as a year's move and
+  // named the period twice; the number is today's rate against the 12-month
+  // average. "after inflation" is said on the line, as Top Picks says it —
+  // it was only in the ⓘ. One decimal everywhere (-1.0%, not "-1%" beside
+  // "+4.8%"). No verdict on a nominal line: that is a claim about prices.
+  const basis = noInfl ? " (exchange rate only)"
+    : nominal ? " (nominal — inflation data isn't current)"
+    : gap ? ", after inflation" : " (exchange rate only)";
+  host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b>: `
+    + `<b style="color:${col}">${pct > 0 ? "+" : ""}${pct.toFixed(1)}%</b> vs its 12-month average${basis}`
+    + (noInfl || nominal ? "" : ` <span class="muted">— ${verdict}</span>`)
     + `<span class="fxinfo" data-tip="${esc(tip)}" title="">ⓘ</span></span>`
     + `<svg class="fxspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
     + `<line x1="${P}" y1="${y(avg).toFixed(1)}" x2="${W - P}" y2="${y(avg).toFixed(1)}" class="fxavg"/>`
     + `<path d="${path}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/>`
     + `<circle cx="${x(pts.length - 1).toFixed(1)}" cy="${y(pts[pts.length - 1]).toFixed(1)}" r="3" fill="${col}"/></svg>`;
+  host.hidden = false;
+}
+
+// ---- Local price level -------------------------------------------------------
+// The one number the share card and the AI prompt both assert, said on the
+// page in the same words — a decision engine must not export a figure its own
+// page never shows. Against the traveller's home; the US only as a fallback,
+// and then the line says so.
+function localPricesText(iso) {
+  const A = plAnchor(originIso());
+  const plIso = GUIDE_PARENT[iso] || iso;       // England etc: the UK's figure
+  const pl = priceLevel(plIso);
+  if (!pl) return null;
+  return "≈ " + Math.round(100 * pl / A.pl) + "% of " + A.name
+    + (A.home ? "" : " (no figure for " + countryName(originIso()) + ")")
+    + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "");
+}
+async function renderGuideCost(iso) {
+  const host = $("guideCost");
+  if (!host) return;
+  host.hidden = true;
+  await ensurePPP().catch(() => {});
+  if (ccGuideIso !== iso) return;
+  const line = localPricesText(iso);
+  if (!line) return;
+  host.innerHTML = `💰 <b>Local prices ${esc(line)}</b><span class="fxinfo" data-tip="${esc(
+    "World Bank price level for residents, carried to today's exchange rate — what a local basket"
+    + " costs here against the same basket at home. National averages: tourist areas and"
+    + " foreigner rent run well above this.")}" title="">ⓘ</span>`;
   host.hidden = false;
 }
 
@@ -2434,9 +2489,30 @@ function renderGuideStay(iso) {
 // Passport used for visa info = the traveller's home ("From") country.
 function guidePassport() { return originIso(); }
 
+// The passport as an adjective — "German passport", not "Germany passport".
+// Every origin the From picker offers, plus common others; anything else
+// reads "passport of <country>", clumsy but never wrong. "US" stays: "American passport" is not what its holders
+// say on a form.
+const DEMONYM = { US: "US", GB: "British", DE: "German", FR: "French", CA: "Canadian",
+  AU: "Australian", NZ: "New Zealand", IN: "Indian", IT: "Italian", ES: "Spanish", PT: "Portuguese",
+  NL: "Dutch", BE: "Belgian", CH: "Swiss", AT: "Austrian", IE: "Irish", SE: "Swedish", NO: "Norwegian",
+  DK: "Danish", FI: "Finnish", PL: "Polish", CZ: "Czech", GR: "Greek", TR: "Turkish", IL: "Israeli",
+  JP: "Japanese", KR: "South Korean", CN: "Chinese", TW: "Taiwanese", HK: "Hong Kong", SG: "Singaporean",
+  MY: "Malaysian", TH: "Thai", PH: "Filipino", ID: "Indonesian", VN: "Vietnamese", AE: "Emirati",
+  SA: "Saudi", ZA: "South African", NG: "Nigerian", KE: "Kenyan", EG: "Egyptian", MA: "Moroccan",
+  BR: "Brazilian", AR: "Argentine", CL: "Chilean", CO: "Colombian", PE: "Peruvian", MX: "Mexican",
+  RU: "Russian", UA: "Ukrainian", RO: "Romanian", HU: "Hungarian", PK: "Pakistani", BD: "Bangladeshi",
+  IS: "Icelandic", LK: "Sri Lankan", KH: "Cambodian", CR: "Costa Rican", DO: "Dominican", PA: "Panamanian",
+  GH: "Ghanaian", QA: "Qatari" };
+function passportLabel(passport) {
+  return DEMONYM[passport] ? DEMONYM[passport] + " passport" : "passport of " + countryName(passport);
+}
+
 // Visa FYI for this country — informational only, not part of any score.
 // US passports link to the official State Dept page; other passports use the
-// Passport Index matrix (loaded lazily on first use).
+// Passport Index matrix (loaded lazily on first use). German and Canadian
+// passports link their own government's destination page — the advisory
+// feeds carry it per country, and it covers entry rules.
 function renderGuideVisa(iso) {
   const host = $("guideVisa");
   if (!host) return;
@@ -2446,24 +2522,38 @@ function renderGuideVisa(iso) {
     ensureVisaMatrix().then(() => { if (ccGuideIso === iso) renderGuideVisa(iso); }).catch(() => {});
     return;
   }
-  const ppName = passport === "US" ? "US" : countryName(passport);
   const info = visaInfo(iso, passport);
   if (info && info.home) {
     host.hidden = false;
     host.innerHTML = `<span class="visa vfree">🛂 Home</span>
-      <span class="guidevisa-txt">Your home country (${esc(ppName)} passport) — no visa needed.</span>`;
+      <span class="guidevisa-txt">Your home country — no visa needed.</span>`;
     return;
   }
   if (!info) { host.hidden = true; return; }
   host.hidden = false;
   const detail = info.meta.long + (info.note ? " · " + info.note : "");
-  const link = /^https:\/\/travel\.state\.gov\//.test(info.link)
-    ? ` <a href="${esc(info.link)}" target="_blank" rel="noopener">official details ↗</a>` : "";
+  let href = /^https:\/\/travel\.state\.gov\//.test(info.link) ? info.link : "";
+  if (!href && (passport === "DE" || passport === "CA")) {
+    const src = passport.toLowerCase();
+    const viso = GUIDE_PARENT[iso] || ADV_PARENT[iso] || iso;
+    const it = ((_advBySource[src] || {}).items || []).find((x) => x.iso === viso && !x.via);
+    if (it && /^https:\/\/(www\.)?(auswaertiges-amt\.de|travel\.gc\.ca)\//.test(it.link || "")) href = it.link;
+    // Not loaded yet (the safety row fetches the CHOSEN source, which need not
+    // be this passport's): fetch it once and redraw, like the matrix above.
+    else if (!_advBySource[src]) getJSON("/api/advisories?source=" + src).then((r) => {
+      if (r && r.items && !_advBySource[src]) _advBySource[src] = r;
+      if (ccGuideIso === iso) renderGuideVisa(iso);
+    }).catch(() => {});
+  }
+  const link = href ? ` <a href="${esc(href)}" target="_blank" rel="noopener">official details ↗</a>` : "";
   const checked = visaVerified(passport);
-  const asOf = checked ? ` Checked ${esc(checked)}; verify before booking — rules change.`
-                       : " Verify before booking — rules change.";
+  // Non-US passports read the Passport Index matrix; the US table is checked
+  // against the State Dept pages it links. Credit the source either way.
+  const via = passport === "US" ? "" : " (Passport Index)";
+  const asOf = checked ? ` Checked ${esc(checked)}${via}; verify before booking — rules change.`
+                       : ` Verify before booking${via} — rules change.`;
   host.innerHTML = `<span class="visa ${info.meta.cls}">🛂 ${esc(info.meta.label)}</span>
-    <span class="guidevisa-txt"><b>Visa · ${esc(ppName)} passport:</b> ${esc(detail)}.${link}
+    <span class="guidevisa-txt"><b>Visa · ${esc(passportLabel(passport))}:</b> ${esc(detail)}.${link}
     ${asOf}</span>`;
 }
 
@@ -2977,12 +3067,21 @@ function seasons(scores) {
     return f >= 0.66 ? "peak" : f <= 0.34 ? "off" : "shoulder";
   });
 }
-const fmtMonths = (arr) => (arr.length ? arr.map((m) => MON_ABBR[m - 1]).join(", ") : "—");
 // What each class may say: weather, relative to the country's own year, nothing
 // more. Relative matters — Fiji's "least comfy" months still score 80+, and a
 // curated best month (Brazil's April) can sit there for non-weather reasons.
 const SEASON_WX = { peak: "one of its comfiest months", shoulder: "a middling month",
                     off: "one of its least comfy months", na: "no data" };
+// The two places the bare class contradicted the line beside it: a curated
+// best month in the bottom third of its own year (Mexico's December scores
+// 82/100) is not simply "least comfy", and a comfiest month with a hazard
+// (Japan's September typhoons) is not simply "comfiest". Null = no caveat,
+// the caller uses SEASON_WX.
+function seasonCaveat(seas, isBest, hasHazard) {
+  if (hasHazard && seas === "peak") return "comfortable temperatures, but note the heads-up";
+  if (isBest && seas === "off") return "a curated best month, though not its comfiest weather";
+  return null;
+}
 
 // ---- Temperature units ------------------------------------------------------
 // Default to °C (what most of the world uses); only US-style home countries
@@ -3027,8 +3126,6 @@ function renderCountryClimate(iso) {
   if (!c) { $("bestDetail").textContent = "No data."; return; }
   const bestSet = new Set(c.best);
   const seas = seasons(c.scores);
-  const peakM = [], offM = [];
-  seas.forEach((s, i) => { if (s === "peak") peakM.push(i + 1); else if (s === "off") offM.push(i + 1); });
 
   // Curated month-level hazards (smoke season, monsoon, hurricanes…) — a blunt
   // peak/off-peak label hides these, so they get their own markers and lines.
@@ -3061,7 +3158,7 @@ function renderCountryClimate(iso) {
     // weather comfort (score lives in the tooltip). Bars double as the month
     // picker — clicking one plans the trip for that month (planForMonth).
     const head = t != null ? fmtTemp(t) : (s == null ? "" : s);
-    return `<div class="${col}" data-mn="${i + 1}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${SEASON_WX[seas[i]]}${hz ? " · ⚠️ " + esc(hz) : ""} · click to plan for ${MONTHS[i]}">
+    return `<div class="${col}" data-mn="${i + 1}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seasonCaveat(seas[i], bestSet.has(i + 1), !!hz) || SEASON_WX[seas[i]]}${hz ? " · ⚠️ " + esc(hz) : ""} · click to plan for ${MONTHS[i]}">
       <div class="mscore">${head}</div>
       <div class="fill" style="height:${h}%;background:${t != null ? tempColor(t) : comfortColor(s)}"></div>
       <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? `<span class="hzmark" data-tip="⚠️ ${esc(hz)}" title="">⚠️</span>` : ""}</div></div>`;
@@ -3076,17 +3173,31 @@ function renderCountryClimate(iso) {
   const hazardLines = hazards.map((h) =>
     `<div class="hazardline">⚠️ <b>${monthSpan(h.months)}:</b> ${esc(h.note)}</div>`).join("");
 
+  // WHERE the temperatures are measured: one point stands for the country
+  // (build_climate.py), named in climate.json ("at") where the point is a
+  // city the build chose. No name = a geometric point; say that, never guess
+  // a city. Peru's chart once read 25°C every month from the Amazon while
+  // Cusco's dry season is 10-13°C, and nothing said so.
+  const where = c.at
+    ? `Temperatures are monthly averages for ${c.at}.`
+    : "Monthly temperatures are for one representative point in the country.";
+  const legend = "Each bar is a month — the number is its average temperature, taller = comfier"
+    + " weather, and color = heat: blue cold, green ideal, amber warm, red hot. Month labels"
+    + " underneath: green = its comfiest months, amber = in between, grey = its least comfy —"
+    + " weather only, relative to its own year, not prices or crowds. Outlined bars = the"
+    + (c.curated ? " curated best months" : " best-weather months")
+    + "; the boxed, underlined bar = the month you're planning for (click any bar to change it). "
+    + where;
+  // The "Comfiest weather / Least comfy" line that sat here was cut: it named
+  // curated best months as least comfy on the next line (the classes split the
+  // country's own range into thirds), and the label colours already carry it.
   $("bestDetail").innerHTML = `
     <div class="besthead">
       <h2>Best time to visit ${esc(c.name)} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span>${
-        hasTemps ? `<span class="legendinfo" data-tip="Each bar is a month — the number is its average temperature, taller = comfier weather, and color = heat: blue cold, green ideal, amber warm, red hot. Month labels underneath: green = its comfiest months, amber = in between, grey = its least comfy — weather only, relative to its own year, not prices or crowds." title="">ⓘ</span>` : ""}</h2>
+        hasTemps ? `<span class="legendinfo" data-tip="${esc(legend)}" title="">ⓘ</span>` : ""}</h2>
       ${unitToggle}
     </div>
     <div class="monthslabel">${bestLine}</div>
-    <div class="seasons">
-      <span><b class="peak">☀️ Comfiest weather:</b> ${fmtMonths(peakM)}</span>
-      <span><b class="off">🌧️ Least comfy:</b> ${fmtMonths(offM)}</span>
-    </div>
     ${hazardLines}
     <div class="bars">${bars}</div>`;
   for (const b of document.querySelectorAll("#bestDetail .tempunit button"))
@@ -3922,7 +4033,7 @@ function setTravelOrigin(iso) {
     if (ccGuideIso) renderGuideSafety(ccGuideIso);
   }).catch(() => {});
   // guide visa + AI + temperature units (default unit follows the home country)
-  if (ccGuideIso) { renderGuideVisa(ccGuideIso); renderGuideAI(ccGuideIso); renderCountryClimate(ccGuideIso); renderGuideSafety(ccGuideIso); }
+  if (ccGuideIso) { renderGuideVisa(ccGuideIso); renderGuideAI(ccGuideIso); renderCountryClimate(ccGuideIso); renderGuideSafety(ccGuideIso); renderGuideCost(ccGuideIso); }
   syncURL();
 }
 
@@ -4870,30 +4981,28 @@ function buildCountryAIPrompt(iso) {
   lines.push("WHEN: " + monthName);
   lines.push("FROM: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
   if (prof.length) lines.push("KNOWN FOR: " + prof.join(", "));
-  if (vi) lines.push("VISA (" + (passport === "US" ? "US" : countryName(passport)) + " passport): " + vi.meta.long + (vi.note ? " — " + vi.note : ""));
-  if (best) lines.push("BEST MONTHS: " + best + "; " + monthName + ": " + (SEASON_WX[seas] || "no data") + " for weather");
+  if (vi) lines.push("VISA (" + passportLabel(passport) + "): " + vi.meta.long + (vi.note ? " — " + vi.note : ""));
+  if (best) lines.push("BEST MONTHS: " + best + "; " + monthName + ": "
+    + (seasonCaveat(seas, cl.best.includes(month), hz.length > 0) || (SEASON_WX[seas] || "no data") + " for weather"));
   if (hz.length) lines.push(monthName + " HEADS-UP: " + hz.join("; "));
   if (acts.length) lines.push("HIGHLIGHTS: " + acts.map(actLabel).filter(Boolean).join("; "));
   // The cost line is the whole reason this prompt beats asking an AI cold: it
   // is the one number here the model cannot look up and would otherwise guess.
-  // Expressed against the traveller's own home prices, not the US, so it means
-  // something to a reader who isn't American.
-  const anchor = plAnchor(originIso());
-  const plIso = GUIDE_PARENT[iso] || iso;       // England etc: the UK's figure
-  const pl = priceLevel(plIso);
-  if (pl) {
-    const rel = pl / anchor.pl;
-    // Phrased as a concrete comparison rather than "% of <origin> prices",
-    // which reads badly for every origin name ("the US prices").
-    lines.push("LOCAL PRICES: what costs 100 in " + (anchor.home ? originName : anchor.name) + " costs about "
-      + Math.round(100 * rel) + " here" + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "")
-      + ". National averages for residents; tourist areas and foreigner rent run well above this.");
-  }
+  // The same sentence the guide page and the share card show (localPricesText):
+  // against the traveller's own home prices, the US only as a named fallback.
+  const lp = localPricesText(iso);
+  if (lp) lines.push("LOCAL PRICES: " + lp
+    + ". National averages for residents; tourist areas and foreigner rent run well above this.");
   try {
     const fc = buildFareContext();
     const f = fc && fc.prices && fc.prices[iso];
     if (f != null) {
-      lines.push("TYPICAL ROUND-TRIP FLIGHT: about US$" + Math.round(f).toLocaleString("en-US") + " from " + originName
+      // In the currency the FROM line says the reader budgets in; fares are
+      // cached in dollars, so a rate must have loaded — US$ only when none has.
+      const k = homeBase === "USD" ? 1 : rateForCurrency(homeBase);
+      const amt = k ? "about " + Math.round(f * k).toLocaleString("en-US") + " " + homeBase
+                    : "about US$" + Math.round(f).toLocaleString("en-US");
+      lines.push("TYPICAL ROUND-TRIP FLIGHT: " + amt + " from " + originName
         + (fc.est && fc.est.has && fc.est.has(iso) ? " (distance-based estimate)" : " (recently seen fares)"));
     }
   } catch (e) { /* fares are a bonus; never block the prompt on them */ }
@@ -6869,7 +6978,10 @@ function renderActivity(iso) {
   const a = activities[iso];
   const name = (climate && climate[iso] && climate[iso].name) || (ppp && ppp[iso] && ppp[iso].name) || iso;
   if (!a) { $("actDetail").innerHTML = `<h3>${esc(name)}</h3><p class="hint">No curated activity profile yet.</p>`; return; }
-  const m = curMonth();
+  // The travel month the rest of the page plans for (?vmn=, a month-bar
+  // click), not the calendar month: stays and the AI prompt already followed
+  // it, and this list was the one block still saying "now".
+  const m = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
   const tags = a.profile.map((p) =>
     `<span class="chip2">${PROFILE_EMOJI[p] ? PROFILE_EMOJI[p] + " " : ""}${esc(p)}</span>`).join("");
   // Each activity is either a plain label or { t: label, d: one-line insight }.
@@ -6887,10 +6999,13 @@ function renderActivity(iso) {
   }).join("");
   const seas = (a.seasonal || []).map((s) => {
     const on = s.months.includes(m);
+    // "not in <month>", never "off season": that reads as the tourist low
+    // season, which this list (what nature and the calendar are doing) does
+    // not measure and must not claim.
     return `<div class="seasrow">
       <span class="what"><span class="actemoji">${activityEmoji(s.what)}</span>${esc(s.what)}</span>
       <span class="months">${s.months.map((x) => MON_ABBR[x - 1]).join(", ")}</span>
-      <span class="${on ? "inseason" : "offseason"}">${on ? "in season now" : "off season"}</span>
+      <span class="${on ? "inseason" : "offseason"}">${on ? "in season" : "not in " + MON_ABBR[m - 1]}</span>
       ${s.d ? `<span class="seasdesc">${esc(s.d)}</span>` : ""}
     </div>`;
   }).join("");
@@ -6900,16 +7015,21 @@ function renderActivity(iso) {
   // deleting it meant the rendered DOM Google indexes no longer contained the
   // sentence the snippet promises. One muted line is the honest price.
   const summary = (a.summary || "").trim();
-  $("actDetail").innerHTML = `
-    <div class="besthead"><h3>${esc(name)} ${vis} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span></h3></div>
-    ${summary ? `<p class="actsummary muted">${esc(summary)}</p>` : ""}
-    <div class="chips">${tags}</div>
-    <h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
+  const todo = `<h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
     <ul class="actlist">${acts}</ul>
     <a class="viatorbtn" href="${viatorURL(name)}" target="_blank" rel="sponsored nofollow noopener"
        title="Browse bookable tours & experiences in ${esc(name)} on Viator">🎟️ Book tours &amp; activities in ${esc(name)} <span class="muted">on Viator</span> <span class="ext">↗</span></a>
-    <p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p>
-    ${seas ? `<h4 style="margin:.6em 0 .2em">🗓️ What's in season <span class="muted">(now: ${MONTHS[m - 1]})</span></h4>${seas}` : ""}`;
+    <p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p>`;
+  // Things to do beside what's in season on a desktop (.actgrid, styles.css);
+  // the season rows were each a card-wide line with the months a thousand
+  // pixels from their label. Phones stack them as before.
+  const seasHead = m === curMonth() ? "🗓️ What's in season now" : `🗓️ What's in season in ${MONTHS[m - 1]}`;
+  // No "· Asia" on this heading: the weather heading just above already says it.
+  $("actDetail").innerHTML = `
+    <div class="besthead"><h3>${esc(name)} ${vis}</h3></div>
+    ${summary ? `<p class="actsummary muted">${esc(summary)}</p>` : ""}
+    <div class="chips">${tags}</div>
+    ${seas ? `<div class="actgrid"><div>${todo}</div><div><h4 style="margin:.6em 0 .2em">${seasHead}</h4>${seas}</div></div>` : todo}`;
   loadActivityThumbs(iso);
 }
 
@@ -7570,7 +7690,7 @@ function planForMonth(m, quiet) {
   if (sel.value !== String(m)) return;   // never report a change that didn't happen
   if (sel._sync) sel._sync();
   if (loaded.value) renderValue();
-  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); }
+  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); }
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
   if (changed && !quiet) status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
   syncURL();
@@ -8093,8 +8213,16 @@ async function postApplyShared() {
   }
   const vmn = sharedQ.get("vmn"), vmSel = ensureMonthOptions();
   if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) {
-    vmSel.value = vmn; travelMonthChosen = true; rerender = true;
-    if (loaded.flights && flightsData && flightsData.configured) renderFlights();
+    // A /guide/<slug>?vmn= page (the newsletter's link) has already drawn its
+    // guide for the calendar month: go through planForMonth so the chart, the
+    // stays, the season list and the AI prompt all move to the link's month.
+    // A ?gc= link opens its guide below, after the value is set, and the
+    // guide then draws for it directly.
+    if (ccGuideIso) planForMonth(+vmn, true);
+    else {
+      vmSel.value = vmn; travelMonthChosen = true; rerender = true;
+      if (loaded.flights && flightsData && flightsData.configured) renderFlights();
+    }
   }
   if (sharedQ.get("pc")) { $("pickCount").value = sharedQ.get("pc"); rerender = true; }
   if (["a", "b", "any"].includes(sharedQ.get("sf"))) { $("safeFloor").value = sharedQ.get("sf"); rerender = true; }
@@ -8618,13 +8746,13 @@ function buildGuideCardSVG(iso) {
   if (cl && cl.best && cl.best.length)
     facts.push((cl.curated ? "📅  Best months: " : "📅  Best weather: ")
       + cl.best.map((m) => MON_ABBR[m - 1]).join(", "));
-  // Home nations carry the UK's price level, and they, the Crown Dependencies
-  // and the Faroes their parent's advisory, as the guide page does — each
-  // saying whose it is ("for Denmark" keeps the longest source on the card).
-  const plIso = GUIDE_PARENT[iso] || iso;
-  const pl = priceLevel(plIso);
-  if (pl) facts.push("💰  " + (A.home ? "Your 100" : "US$100") + " ≈ " + Math.round(100 * (anchorPl / pl)) + " there"
-    + (plIso !== iso ? " (" + parentWide(plIso) + ")" : ""));
+  // The price sentence the guide page shows, word for word (localPricesText):
+  // "Your 100 ≈ 130 there" left open which 100 and which 130. Home nations
+  // carry the UK's figure, and they, the Crown Dependencies and the Faroes
+  // their parent's advisory, as the guide page does — each saying whose it
+  // is ("for Denmark" keeps the longest source on the card).
+  const lp = localPricesText(iso);
+  if (lp) facts.push("💰  Local prices " + lp);
   const meta = advisoryMetaByIso();
   const advPar = !meta[iso] && ADV_PARENT[iso] && meta[ADV_PARENT[iso]] ? ADV_PARENT[iso] : null;
   const adv = meta[iso] || (advPar && meta[advPar]);
