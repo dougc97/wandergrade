@@ -320,21 +320,32 @@ small { color: var(--gray); font-weight: 400; }
    the page's. */
 .cardwide > .toprow { max-width: none; margin: 14px 0 0; padding: 0; }
 
-/* Card headers of the compact kind: heading + ⓘ on one line, nothing more.
-   The sentence that used to sit under the heading is the ⓘ's tip. A .brk
-   after the ⓘ ends the line, so the legend and the Share button share the
-   next one; the legend wraps inside its own box, so the button never drops
-   to a row of its own again (it did, under a 589px legend, 98px in all). */
-.charthead.headrow { justify-content: flex-start; align-items: center; gap: 4px 8px; }
-.charthead.headrow > .muted { font-size: 13px; cursor: help; }
-.headrow .brk { flex-basis: 100%; height: 0; }
-.headrow .legend { flex: 1 1 200px; min-width: 0; }
+/* Card headers of the compact kind: heading + ⓘ (+ the Share button) on one
+   line, the legend on the next, nothing more. The sentence that used to sit
+   under the heading is the ⓘ's tip. A .brk after the button ends the line,
+   so the legend gets the card's full width — one row at desktop widths,
+   where beside the button it wrapped to two (98px of header in all). Not
+   .headrow: that is the site header's row, with a phone column rule. */
+.charthead.compact { justify-content: flex-start; align-items: center; gap: 4px 8px; }
+/* Tighter leading than body copy: on a phone the heading wraps to two lines
+   beside the ⓘ and the button, and 1.5 spent 9px on air between them. */
+.charthead.compact h2 { line-height: 1.25; }
+.charthead.compact > .muted { font-size: 13px; cursor: help; }
+.compact .brk { flex-basis: 100%; height: 0; }
+.compact .legend { flex: 1 1 auto; min-width: 0; }
+/* The key's gradient is a .bar, which is also the Data tab's control bar: its
+   12px paddings and rule made a 10px gradient a 25px row. Reset here, where
+   the row's height is the card's. */
+.compact .legend .bar { padding: 0; border: 0; }
 /* Tune the ranking: one priority per line reads better than two columns of
    High/Med/Low at card width, and four lines bring the card to the height of
    the map beside it. The ranked list sits at the foot of the card. */
 .tunecard .rankby { margin-top: 8px; }
 .tunecard .rankby .windowtoggle { margin-top: 0; }
-.tunecard .weightrows { grid-template-columns: 1fr; gap: 6px; padding: 8px 0 0; }
+.tunecard .weightrows { grid-template-columns: 1fr; gap: 6px; padding: 8px 0 0;
+  /* Reserved: buildWeightSliders fills it after load (four 30px rows, three
+     6px gaps, measured), and a card that grows 138px shoves the folds below. */
+  min-height: 138px; }
 .tunecard .pickslot { margin-top: auto; }
 .tunecard .pickslot:empty { display: none; }
 .tunecard .mappicksrow { margin-top: 10px; }
@@ -1315,8 +1326,8 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   .pickersmain .combo-input { width: 100%; min-width: 0; }
   /* Surprise me wrapped to its own line, spending 33px to say what fits beside
      the heading. The subtitle takes the second line instead. */
-  #tab-value .charthead { flex-wrap: nowrap; gap: 10px; }
-  #tab-value .charthead > div { flex: 1 1 auto; min-width: 0; }
+  #tab-value .charthead:not(.compact) { flex-wrap: nowrap; gap: 10px; }
+  #tab-value .charthead:not(.compact) > div { flex: 1 1 auto; min-width: 0; }
   #tab-value .surprisebtn { flex-shrink: 0; }
   /* 663px of controls in 345px should pack into two rows; it took three, because
      nothing gave. Letting the search box surrender its slack (and Share image
@@ -1640,6 +1651,16 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
      and the old single button on one row. An ID selector outranks a class one
      whatever the source order, so this override has to match its specificity. */
   #tab-value .charthead { flex-wrap: wrap; }
+  /* The map card's Share keeps its icon only, so the heading row stays one
+     row on a phone; title= still names it, and the word stays for screen
+     readers (same clip as the header's Share above). */
+  .charthead.compact .shareimg .btxt {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  /* And the heading gives way (wrapping to two lines) rather than pushing the
+     ⓘ and the button onto rows of their own: 44px for the row, not 59. */
+  .charthead.compact h2 { flex: 1 1 0; min-width: 0; }
   #tab-value .herobtns { width: 100%; justify-content: flex-start; }
   #tab-value .herobtns > button { flex: 1 1 0; min-width: 0; text-align: center; }
 }

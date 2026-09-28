@@ -259,18 +259,18 @@
       <!-- The map beside the controls that shape it, the way the Data tab
            pairs each map with its chart: one row, both cards the same height,
            the map opening full screen from its zoom stack when it needs room.
-           The header is two short rows — title + ⓘ, then legend + Share — where
-           it was four (a sub line restating the legend, and Share wrapped
+           The header is two short rows — title + ⓘ + Share, then the legend —
+           where it was four (a sub line restating the legend, and Share wrapped
            alone under a 589px legend). Title and ⓘ swap with the map mode;
            see renderValue(). -->
       <div class="toprow">
         <section class="mapcard">
-          <div class="charthead headrow">
+          <div class="charthead compact">
             <h2 id="valueMapTitle">Best value destinations</h2>
             <span class="muted" id="valueMapSub" data-tip="Greener = better overall value this month." title="">ⓘ</span>
+            <button id="valueShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
             <span class="brk" aria-hidden="true"></span>
             <div class="legend" id="valueLegend"></div>
-            <button id="valueShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
           </div>
           <div id="valueMap" class="map">Loading…</div>
         </section>
@@ -281,7 +281,7 @@
              exported image reads it, and it stands in for the pulse under
              reduced motion. -->
         <section class="chartcard tunecard" id="tuneCard">
-          <div class="charthead headrow">
+          <div class="charthead compact">
             <h2>⚙️ Tune the ranking</h2>
             <span class="muted" data-tip="What matters most to you: High, Med or Low per factor reweights every grade, the picks and the map. Rank by switches the map and the tables between the blended value score and weather comfort alone." title="">ⓘ</span>
           </div>
@@ -394,7 +394,7 @@
     <div class="cardwide">
       <!-- One heading, one line: the sub sentence lives in the ⓘ, and the
            trip bar below no longer repeats "Your trip" 40px under it. -->
-      <div class="charthead headrow">
+      <div class="charthead compact">
         <h2>Your trip</h2>
         <span class="muted" data-tip="Countries you're considering, how long you have, and when — or let the AI work out when." title="">ⓘ</span>
       </div>
