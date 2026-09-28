@@ -36,6 +36,7 @@ GRAB = [
     "function plFit", "function plImplausible", "function priceLevel",
     "function loadFactors", "function loadPriorities", "function loadWeights",
     "function countryCentroids", "function distKm", "function buildFareContext",
+    "function flightMonthKey", "function fareValue",
     "function valueScores", "function plAnchor",
 ]
 
@@ -100,6 +101,7 @@ let ppp = FIX.ppp, climate = FIX.climate, worldGeo = FIX.world;
 let priorities = null, factors = null;
 let _centroids = null, _plFitFor, _plFitVal;
 let flightsData = FIX.flights;
+let flightValue = FIX.flight_value || null, _fvFailed = false;
 let ISO2SLUG = null;
 function guidePassport() { return FIX.home_iso || "US"; }
 function originIso() { return FIX.home_iso || "US"; }
@@ -124,7 +126,8 @@ const out = { anchor_pl: A.pl, scored: {} };
 for (const iso in CUR_BY_ISO) {
   const s = valueScores(iso, FIX.month, advMap, fares, A.pl);
   if (s) out.scored[iso] = { afford: s.afford, safe: s.safe, wx: s.wx, fly: s.fly, value: s.value,
-                             pl: s.pl, fare: s.fare, fareEst: s.fareEst, fx: s.fx, advLvl: s.advLvl };
+                             pl: s.pl, fare: s.fare, fareEst: s.fareEst, fx: s.fx, advLvl: s.advLvl,
+                             flyBasis: s.flyBasis };
 }
 print(JSON.stringify(out));
 '''

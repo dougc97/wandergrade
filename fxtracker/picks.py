@@ -255,6 +255,43 @@ def _us_fares():
         return None
 
 
+def _us_flight_value(fares):
+    """The Flights tab's per-route month curves and typical ranges for the
+    same origin — flightvalue.serve() with a token (the site's own cache),
+    else the live site's copy. None when unavailable: the grade then falls
+    back to the distance measure for every country, as it did before."""
+    try:
+        from . import flights, flightvalue
+        if flights.is_configured():
+            return flightvalue.serve(HOME_ISO, fares)
+    except Exception:
+        pass
+    try:
+        return rates.fetch_json(SITE + "/api/flight-value?origin=" + HOME_ISO)
+    except Exception:
+        return None
+
+
+def month_fare(fv, iso, month, today=None):
+    """(price, deviation vs the route's median) for `month` from the flight-
+    value payload, or None when the route has no range or no fare that month.
+    The month key is its next occurrence, the guide chart's rule — mirrors
+    app.js flightMonthKey + fareValue."""
+    c = (fv or {}).get("countries", {}).get(iso) if fv else None
+    if not c or c.get("pending") or c.get("median") is None:
+        return None
+    today = today or datetime.date.today()
+    mm = "%02d" % month
+    key = next((k for k in fv.get("months") or [] if k[5:] == mm), None)
+    if key is None:
+        key = "%04d-%s" % (today.year if month > today.month else today.year + 1, mm)
+    rec = (c.get("curve") or {}).get(key)
+    if not rec:
+        return None
+    price = rec[0]
+    return price, price / c["median"] - 1
+
+
 def fare_context(data, centroids=None):
     """Port of app.js buildFareContext(): `prices` is the fare a traveller pays
     (cached average, or a distance estimate for every mappable country); `deal`
@@ -339,13 +376,27 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     if len(scores) >= month and scores[month - 1] is not None:
         comps["wx"] = scores[month - 1]
     fare = None
-    if fares and fares["prices"].get(iso) is not None:
+    fly_basis = None
+    # Flights, month first: the chosen month's fare against the route's own
+    # typical range (the Flights tab's Low/Typical/High), where a route has
+    # one — at the median 70 (B), 30% under 100, 30% over 40, the same slope
+    # the distance measure uses. Poland read an "A" beside a strip showing
+    # September its priciest month, because the grade was the all-months
+    # average against a distance-typical fare. That measure stays the
+    # fallback for routes with too few cached months (and says so).
+    mf = month_fare(fares.get("fv"), iso, month) if fares else None
+    if mf:
+        fare, dev = mf
+        comps["fly"] = clamp100(70 - dev * 100)
+        fly_basis = "month"
+    elif fares and fares["prices"].get(iso) is not None:
         fare = fares["prices"][iso]
         deal = fares.get("deal", fares["prices"]).get(iso, fare)
         base = fares["expected"](iso) if fares["expected"] else None
         comps["fly"] = (clamp100(70 + (1 - deal / base) * 100) if base
                         else clamp100((fares["max"] - deal) / (fares["max"] - fares["min"]) * 100)
                         if fares["max"] > fares["min"] else 50)
+        fly_basis = "distance"
     num = sum(WEIGHTS[k] * v for k, v in comps.items())
     den = sum(WEIGHTS[k] for k in comps)
     value = clamp100(num / den) if den else 0
@@ -353,7 +404,8 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     return {
         "iso": iso, "name": name, "afford": comps["afford"], "safe": comps["safe"],
         "wx": comps.get("wx"), "fly": comps.get("fly"), "value": value, "advLvl": adv,
-        "pl": pl, "fare": fare, "fareEst": bool(fares and iso in fares["est"]),
+        "pl": pl, "fare": fare, "fareEst": bool(fares and iso in fares["est"] and fly_basis != "month"),
+        "fly_basis": fly_basis,
         # REAL move, which is what "your dollar goes further" claims are about
         # (2 decimals, the same figure as the site's s.fx).
         "fx": real,
@@ -439,7 +491,10 @@ def build(month=None, n_picks=5, n_gems=3):
     popular = _popular_set()
     fit = pricelevel.plausibility_fit(ppp, rate_by_code, CUR_BY_ISO)
     anchor = _price_level(HOME_ISO, ppp, rate_by_code, fit) or 1
-    fares = fare_context(_us_fares())
+    us_fares = _us_fares()
+    fares = fare_context(us_fares)
+    if fares:
+        fares["fv"] = _us_flight_value(us_fares)
 
     scored = []
     for iso in CUR_BY_ISO:

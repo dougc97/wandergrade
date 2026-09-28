@@ -258,8 +258,14 @@ def _fly(s, compact=False):
     # shows the Overall shows it too (the gem lines used to leave it out).
     if s.get("fly") is None:
         return ""
-    return ((" &middot; ✈️ %s" if compact else " &nbsp;&middot;&nbsp; ✈️ Flights <b>%s</b>")
-            % _grade(s["fly"]))
+    # The grade's basis, in the hero line: the featured month's fare vs the
+    # route's own typical, or — where a route has too few cached months —
+    # the year-round fare vs a distance-typical one.
+    basis = "" if compact else (" <span style='color:#6b7681'>(%s)</span>"
+                                % ("this month vs the route's usual" if s.get("fly_basis") == "month"
+                                   else "year-round, for the distance"))
+    return ((" &middot; ✈️ %s" if compact else " &nbsp;&middot;&nbsp; ✈️ Flights <b>%s</b>%s")
+            % ((_grade(s["fly"]),) if compact else (_grade(s["fly"]), basis)))
 
 
 def _hero_card(s, month):

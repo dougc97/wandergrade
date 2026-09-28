@@ -4302,8 +4302,22 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   // s.fare is the fare the traveller would pay — the cached average, or the
   // distance estimate (fareEst). The deal grade alone uses the version shrunk
   // toward the distance fit (dealPrices), so a one-route sample can't swing it.
-  let fare = null, fareEst = false, fareBase = null, fareMin = null, dealRatio = null;
-  if (fares && fares.prices[iso] != null) {
+  let fare = null, fareEst = false, fareBase = null, fareMin = null, dealRatio = null, flyBasis = null;
+  // Flights, month first: the chosen month's fare against the route's own
+  // typical range (the Flights tab's Low/Typical/High), where a route has
+  // one — at the median 70 (B), 30% under 100, 30% over 40, the same slope
+  // the distance measure uses. Poland read an "A" beside a strip showing
+  // September its priciest month, because the grade was the all-months
+  // average against a distance-typical fare. That measure stays the
+  // fallback for routes with too few cached months (and says so).
+  // Mirrors picks.py month_fare + _score.
+  const mv = fares && flightValue && flightValue.origin === originIso() ? fareValue(iso, flightMonthKey(month)) : null;
+  if (mv && mv.state === "ok") {
+    fare = mv.price;
+    comps.fly = clamp100(70 - mv.dev * 100);
+    flyBasis = "month";
+  } else if (fares && fares.prices[iso] != null) {
+    flyBasis = "distance";
     fare = fares.prices[iso];
     fareEst = !!(fares.est && fares.est.has(iso));
     fareMin = fareEst ? null : (fares.mins && fares.mins[iso]) || null;
@@ -4324,7 +4338,7 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   const value = den ? clamp100(num / den) : 0;
   return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
            afford: comps.afford, safe: comps.safe, wx: wxKnown ? comps.wx : null,
-           fly: comps.fly, fare, fareEst, fareMin, fareBase, dealRatio, advLvl, value,
+           fly: comps.fly, fare, fareEst, fareMin, fareBase, dealRatio, flyBasis, advLvl, value,
            // Which dimensions this score is actually built on. A country with
            // no measure for something is averaged over the rest, so those carry
            // full weight and it can float above a country measured on four —
@@ -4521,7 +4535,17 @@ async function loadValueFlights(silent) {
       if (say) status("Flight prices need TRAVELPAYOUTS_TOKEN on the server — see the Flights tab.", "err");
     } else {
       flightsData = data;
-      if (say) status(`Average fares from ${data.origin_name || origin} folded into the score.`, "ok");
+      if (say) status(`Fares from ${data.origin_name || origin} folded into the score.`, "ok");
+      // The month curves the grade prefers: the same payload the Flights tab
+      // polls, fetched once here (no polling — a country still filling just
+      // grades on the distance measure until the next render).
+      if (!(flightValue && flightValue.origin === origin)) {
+        getJSON("/api/flight-value?origin=" + encodeURIComponent(origin)).then((fv) => {
+          if (seq !== _vfSeq || !fv || fv.configured === false || fv.origin !== origin) return;
+          flightValue = fv;
+          if (loaded.value) renderValue();
+        }).catch(() => {});
+      }
       // A guide opened before fares arrived rendered its fare strip against
       // nothing and stayed hidden — give it its data now.
       if (ccGuideIso) renderGuideFares(ccGuideIso);
@@ -5068,8 +5092,13 @@ function buildAIPrompt() {
     if (s.pl != null) aff = "prices " + plPhrase(s.pl, plHomeWord());
     if (s.fx != null && Math.abs(s.fx) >= 2)
       aff += ` (${homeBase} ${s.fx >= 0 ? "+" : ""}${Math.round(s.fx)}% vs its 1-yr avg${s.fxAdj ? ", after inflation" : ""})`;
-    // Same shrunk ratio as the Flights pill, so the words can't disagree with it.
-    const fl = (s.dealRatio != null && !s.fareEst)
+    // The same basis as the Flights pill, so the words can't disagree with it:
+    // the month's fare vs the route's usual, or the year-round fare for the
+    // distance where a route has too few cached months.
+    const fl = s.flyBasis === "month"
+      ? (s.fly >= 80 ? "cheaper than this route's usual for " : s.fly <= 60 ? "pricier than this route's usual for "
+         : "about this route's usual for ") + MONTHS[month - 1]
+      : (s.dealRatio != null && !s.fareEst)
       ? (s.dealRatio <= 0.95 ? "cheaper than usual for the distance"
          : s.dealRatio >= 1.05 ? "pricier than usual for the distance" : "about average for the distance")
       : null;
@@ -5565,14 +5594,17 @@ function whyLine(s, month) {
   else if (s.wx >= 55) bits.push(`decent weather in ${MONTHS[month - 1]}`);
   if (s.advLvl === 1) bits.push("safest travel rating");
   else if (s.advLvl === 3) bits.push("⚠️ has a reconsider-travel advisory");
-  // The deal grade's own (shrunk) ratio, so this never contradicts the pill.
-  if (s.dealRatio != null && !s.fareEst) {
+  // The deal grade's own (shrunk) ratio, so this never contradicts the pill;
+  // a month grade has no ratio and speaks for the month instead.
+  if (s.flyBasis === "month" || (s.dealRatio != null && !s.fareEst)) {
     const r = s.dealRatio;
     // "for the distance", always: "cheaper than usual" read as cheaper than
     // this route's own year, which the month strip beside it can contradict
     // (the grade is the year-round average fare against a distance-typical one).
-    bits.push(r <= 0.95 ? "flights cheap for the distance"
-            : r >= 1.05 ? "flights pricey for the distance" : "flights typical for the distance");
+    bits.push(s.flyBasis === "month"
+      ? (s.fly >= 80 ? "flights cheap for " : s.fly <= 60 ? "flights pricey for " : "flights typical for ") + MONTHS[month - 1]
+      : r <= 0.95 ? "flights cheap for the distance"
+      : r >= 1.05 ? "flights pricey for the distance" : "flights typical for the distance");
   }
   return bits.slice(0, 4).join(" · ");
 }
@@ -5893,8 +5925,10 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <td class="scell" data-go="advisory" data-iso="${iso}"><span class="pillwrap">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</span></td>
       <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="muted" title="${esc(wxTitle)}">—</span>` : gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
       <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="muted">—</span>'
-            : (s.fareEst || s.fareBase == null) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
-            : gradePill(s.fly, "Year-round fare vs the typical fare for this distance · click for exact prices")}</span><span class="rowfares" data-iso="${iso}"></span></td>
+            : (s.flyBasis !== "month" && (s.fareEst || s.fareBase == null)) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
+            : gradePill(s.fly, (s.flyBasis === "month"
+                ? MONTHS[month - 1] + "'s fare vs this route's usual · click for exact prices"
+                : "Year-round fare vs the typical fare for this distance (too few cached months for a month grade) · click for exact prices"))}</span><span class="rowfares" data-iso="${iso}"></span></td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span>${coverageMark(s)}</td>
     </tr>`;
   }).join("");

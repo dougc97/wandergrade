@@ -38,7 +38,7 @@ FIXTURES = {
     "flights": "/api/flights?origin=US",
     "flight_value": "/api/flight-value?origin=US",
 }
-FIELDS = ("afford", "safe", "wx", "fly", "value", "pl", "fare", "fareEst", "fx", "advLvl")
+FIELDS = ("afford", "safe", "wx", "fly", "value", "pl", "fare", "fareEst", "fx", "advLvl", "flyBasis")
 # pl and fx are floats on both sides; the rest are rounded ints (or None/bool).
 TOL = {"pl": 1e-9, "fx": 1e-9}
 
@@ -101,6 +101,8 @@ def digest_scores(fixture, month):
     fit = pricelevel.plausibility_fit(ppp, rate_by_code, picks.CUR_BY_ISO)
     anchor = picks._price_level(picks.HOME_ISO, ppp, rate_by_code, fit) or 1
     fares = picks.fare_context(fixture["flights"], geo.country_centroids(fixture["world"]))
+    if fares:
+        fares["fv"] = fixture["flight_value"]
     out = {"anchor_pl": anchor, "scored": {}}
     for iso in picks.CUR_BY_ISO:
         s = picks._score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
@@ -108,7 +110,8 @@ def digest_scores(fixture, month):
         if s:
             out["scored"][iso] = {"afford": s["afford"], "safe": s["safe"], "wx": s["wx"], "fly": s["fly"],
                                   "value": s["value"], "pl": s["pl"], "fare": s["fare"],
-                                  "fareEst": s["fareEst"], "fx": s["fx"], "advLvl": s["advLvl"]}
+                                  "fareEst": s["fareEst"], "fx": s["fx"], "advLvl": s["advLvl"],
+                                  "flyBasis": s["fly_basis"]}
     return out
 
 
