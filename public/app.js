@@ -1358,16 +1358,23 @@ function openMapFullscreen(host) {
   if (legend) overlay.querySelector(".legend").innerHTML = legend.innerHTML;
   const body = overlay.querySelector(".mapfs-body"), stage = overlay.querySelector(".mapfs-stage");
   const parent = host.parentElement;
-  const rows = [...parent.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
+  // The ranked list may live in another card (Top Picks keeps it beside the
+  // map, in the Tune card), so it is found by its data-for, anywhere.
+  const rows = [...document.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
   const card = [...parent.children].find((c) => c.classList.contains("countrycard"));
-  // A placeholder as tall as what leaves, so the page behind keeps its length
-  // (a map near the end of a page shrank it, and the scroll position with it).
-  const moved = [host, ...rows, ...(card ? [card] : [])];
-  const top = Math.min(...moved.map((el) => el.getBoundingClientRect().top));
-  const bottom = Math.max(...moved.map((el) => el.getBoundingClientRect().bottom));
-  const marker = document.createElement("div");
-  marker.className = "mapfs-ph";
-  marker.style.height = Math.max(0, bottom - top) + "px";
+  // Placeholders as tall as what leaves, so the page behind keeps its length
+  // (a map near the end of a page shrank it, and the scroll position with it):
+  // one for the map and its card, one per list row where it stood.
+  const ph = (els) => {
+    const top = Math.min(...els.map((el) => el.getBoundingClientRect().top));
+    const bottom = Math.max(...els.map((el) => el.getBoundingClientRect().bottom));
+    const m = document.createElement("div");
+    m.className = "mapfs-ph";
+    m.style.height = Math.max(0, bottom - top) + "px";
+    return m;
+  };
+  const marker = ph([host, ...(card ? [card] : [])]);
+  const rowMarks = rows.map((r) => { const m = ph([r]); r.before(m); return m; });
   host.before(marker);
   // The map and its card share a stage (the card floats over the map, not the
   // list); the ranked list sits below it.
@@ -1389,7 +1396,7 @@ function openMapFullscreen(host) {
   inerted.forEach((el) => { el.inert = true; });
   document.body.appendChild(overlay);
   document.documentElement.classList.add("mapfs-open");
-  mapFs = { host, marker, overlay, mode, inerted, prevFocus: document.activeElement, real: false,
+  mapFs = { host, marker, rowMarks, overlay, mode, inerted, prevFocus: document.activeElement, real: false,
             scroll: [window.scrollX, window.scrollY] };
   overlay.querySelector(".mapfs-close").onclick = closeMapFullscreen;
   document.addEventListener("keydown", mapFsKey);
@@ -1407,7 +1414,7 @@ function openMapFullscreen(host) {
 }
 function closeMapFullscreen() {
   if (!mapFs) return;
-  const { host, marker, overlay, mode, inerted, prevFocus, real, scroll } = mapFs;
+  const { host, marker, rowMarks, overlay, mode, inerted, prevFocus, real, scroll } = mapFs;
   mapFs = null;
   document.removeEventListener("keydown", mapFsKey);
   document.removeEventListener("focusin", mapFsFocus);
@@ -1416,8 +1423,9 @@ function closeMapFullscreen() {
   const rows = [...overlay.querySelectorAll('.mappicksrow[data-for="' + host.id + '"]')];
   const card = overlay.querySelector(".countrycard");
   // The page's own order: the card right under the map (renderCountryCard
-  // puts it there), then the list.
-  marker.replaceWith(host, ...(card ? [card] : []), ...rows);
+  // puts it there); each list row back where its placeholder stands.
+  marker.replaceWith(host, ...(card ? [card] : []));
+  rows.forEach((r, i) => { const m = rowMarks[i]; if (m && m.isConnected) m.replaceWith(r); else host.after(r); });
   if (mode) mode.mark.replaceWith(mode.el);
   overlay.remove();
   document.documentElement.classList.remove("mapfs-open");
@@ -1477,16 +1485,21 @@ function renderCountryCard() {
   const act = activities && activities[iso];
 
   const facts = [];
-  const sgn = (p) => (p >= 0 ? "+" : "") + p + "%";
+  // Whole percentages: two decimals on a cached 1-yr average claimed a
+  // precision the figure doesn't have. One number, not two — the
+  // after-inflation one when a destination figure was netted out (that is
+  // the one the table's mark uses), otherwise the exchange-rate move, said
+  // plainly for what it is instead of "(nominal)".
+  const sgn = (p) => (p >= 0 ? "+" : "") + Math.round(p) + "%";
   if (cur) facts.push(`💱 ${esc(cur)}` + (cur === homeBase ? " (your home currency)"
-    : fx ? `: your ${esc(homeBase)} ${sgn(fx.nom)} vs 1-yr avg`
-      + (fx.real == null ? " (nominal)" : fx.adj ? ` (${sgn(fx.real)} after inflation)` : "")
+    : fx ? `: your ${esc(homeBase)} ${sgn(fx.adj ? fx.real : fx.nom)} vs 1-yr avg`
+      + (fx.adj ? " after inflation" : " (exchange rate only — local inflation not netted out)")
     : ""));
-  if (pl != null) {
-    const rel = pl / anchor.pl;
-    facts.push(`💰 price level ${rel.toFixed(2)} (${plWord(rel)} vs ${esc(anchor.name)})`);
-  }
-  if (advLvl) facts.push(`⚠️ advisory Level ${advLvl}${advLvl === 4 ? " — Do Not Travel" : ""}`);
+  if (pl != null) facts.push(`💰 ${plPhrase(pl / anchor.pl, esc(anchor.name))}`);
+  // 🛡️ for Levels 1–2, ⚠️ only where the advice is to reconsider: a warning
+  // sign on "normal precautions" was alarmist. Whose advice it is, as the
+  // table's pill already says.
+  if (advLvl) facts.push(`${advLvl >= 3 ? "⚠️" : "🛡️"} ${ADV_TEXT[advLvl]}${esc(advVia(iso))}`);
   if (cl && cl.best && cl.best.length) facts.push(`📅 best months: ${cl.best.map((m) => MON_ABBR[m - 1]).join(", ")}`);
   if (act && act.days) facts.push(`🧳 worth ${act.days[0]}–${act.days[1]} days`);
 
@@ -1736,10 +1749,18 @@ function pppDrift(iso) {
 }
 function pppDriftNote(iso) {
   const d = pppDrift(iso);
-  if (d) return `⚠️ The ${d.code} has fallen ${Math.round(d.pct)}% against the dollar in the past year`
-       + (d.real ? " even after inflation" : "")
+  if (d) {
+    // d.pct is how much MORE a dollar buys (+43%); the currency's own fall is
+    // 1 − 1/1.43 ≈ 30%, and it is measured against a 1-year average, not
+    // over "the past year". The dollar is named: the price level is computed
+    // from the USD rate whatever the reader's money, and "the dollar" is
+    // ambiguous to a Canadian or an Australian.
+    const fall = Math.round(100 * (1 - 1 / (1 + d.pct / 100)));
+    return `⚠️ The ${d.code} is ~${fall}% weaker against the US Dollar than its 1-year average`
+       + (d.real ? ", even after inflation" : "")
        + (d.year ? `, but the price level uses World Bank data from ${d.year}` : "")
        + ". Local prices may not have caught up yet, so this reads cheaper than it currently feels.";
+  }
   // No current inflation figure: the price level couldn't be carried forward.
   if (highInflUnknown(iso)) {
     const e = ppp[iso];
@@ -1871,6 +1892,16 @@ function currencyFlag(code, iso) {
   return CUR_SUPRA_FLAG[code] || (iso ? flagEmoji(iso) : "🌍");
 }
 function plWord(pl) { return pl < 0.55 ? "very cheap" : pl < 0.85 ? "cheap" : pl <= 1.15 ? "about the same" : "pricey"; }
+// The price level in words, one way everywhere it is read (pill tip, row tip,
+// map card, AI prompts, share images). 1 − pl is how much cheaper prices are;
+// the "your money goes 1/pl further" framing overstated it (pl 0.58 read "73%
+// further" for prices 42% lower), and "price level 0.47" is economist-speak.
+// One fact used to appear as four different numbers across the hovers.
+function plPhrase(rel, home) {
+  return rel <= 0.9 ? `~${Math.round((1 - rel) * 100)}% cheaper than ${home}`
+       : rel <= 1.1 ? `about the same as ${home}`
+       : `~${Math.round((rel - 1) * 100)}% pricier than ${home}`;
+}
 // The From country's price level — the yardstick "cheap" is measured against.
 // Taiwan is a flight origin with no World Bank PPP row; it used to fall back to
 // the US silently while every label said "vs Taiwan", so the fallback now says
@@ -2105,6 +2136,22 @@ async function ensureFareMonths(iso) {
   return _fareMonthsCache[key];
 }
 
+// A cached fare in the reader's currency, the same look as the Flights tab:
+// the code always, "≈" when converted at today's rate. A bare "$" read as
+// local money to a Canadian or an Australian, and the strips carried it to
+// every traveller — "$258" beside "EUR 1,500" budget copy.
+function fareMoney(v, cur, conv) {
+  return (cur === "USD" ? "" : "≈") + cur + " " + Math.round(v * (conv || 1)).toLocaleString();
+}
+// Strip options for the table and trip strips: the reader's flight currency
+// (the guide and the Flights tab follow the same rule), or USD while no rate
+// has loaded. Scoring and the budget filter stay in USD; this is display.
+function fareStripOpts(month) {
+  const c = flightDisplayCur();
+  const r = c === "USD" ? 1 : rateForCurrency(c);
+  return { highlightMonth: month, minMonths: 6, cur: r ? c : "USD", conv: r || 1 };
+}
+
 // The next 12 months as cells, coloured within THIS route's own range —
 // cheapest month green, priciest red, missing grey. Returns null when there's
 // too little to say (a one-month curve is a number, not a season).
@@ -2129,8 +2176,7 @@ function fareStripHTML(months, opts) {
   const vals = present.map((k) => months[k.key].price);
   const lo = Math.min(...vals), hi = Math.max(...vals);
   const conv = opts.conv || 1, cur = opts.cur || "USD";
-  const fm = (v) => (cur === "USD" ? "$" + Math.round(v * conv).toLocaleString()
-                                   : "≈" + cur + " " + Math.round(v * conv).toLocaleString());
+  const fm = (v) => fareMoney(v, cur, conv);
   const cells = keys.map((k) => {
     const m = months[k.key];
     const nowCls = opts.highlightMonth === k.mon ? " now" : "";
@@ -2156,9 +2202,8 @@ async function renderGuideFares(iso) {
   host.hidden = true;
   const fm = await ensureFareMonths(iso);
   if (ccGuideIso !== iso || !fm || !fm.months) return;
-  const dispCur = flightDisplayCur();
-  const conv = dispCur === "USD" ? 1 : (rateForCurrency(dispCur) || 1);
-  const strip = fareStripHTML(fm.months, { cur: conv === 1 ? "USD" : dispCur, conv });
+  const { cur: dispCur, conv } = fareStripOpts();
+  const strip = fareStripHTML(fm.months, { cur: dispCur, conv });
   if (!strip) return;
   host.hidden = false;
   // Origin name from the strip's own payload — flightsData may be null on a
@@ -2168,10 +2213,11 @@ async function renderGuideFares(iso) {
   // temperature chart and must speak that chart's language — 12 labeled
   // columns, the number on the bar, taller = cheaper (tall means "go", same
   // as the comfort bars above; colour double-codes it so nobody misreads).
-  const conv2 = conv;                       // dispCur/conv declared above
-  const cur2 = conv2 === 1 ? "USD" : dispCur;
-  const fmv = (v) => (cur2 === "USD" ? "$" + Math.round(v * conv2).toLocaleString()
-                                     : "≈" + Math.round(v * conv2).toLocaleString());
+  const conv2 = conv, cur2 = dispCur;       // declared above
+  // On the bar itself only the number fits (12 columns on a phone); the tip
+  // and the note carry the currency.
+  const fmv = (v) => (cur2 === "USD" ? "$" : "≈") + Math.round(v * conv2).toLocaleString();
+  const fmt = (v) => fareMoney(v, cur2, conv2);
   const now2 = new Date();
   const prices = [];
   for (let m = 1; m <= 12; m++) {
@@ -2192,7 +2238,7 @@ async function renderGuideFares(iso) {
                           : mix("#eef0f1", "#b00020", (t - 0.5) * 1.3);
     return '<div class="col"><div class="mscore">' + fmv(p) + "</div>"
       + '<div class="fill" style="height:' + h + '%;background:' + fill + '" data-tip="'
-      + esc(MONTHS[i] + ": from " + fmv(p) + " round-trip") + '" title=""></div>'
+      + esc(MONTHS[i] + ": from " + fmt(p) + " round-trip") + '" title=""></div>'
       + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
   }).join("");
   host.innerHTML = '<span class="fareshead">✈️ Fares by month <span class="muted">'

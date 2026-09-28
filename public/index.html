@@ -201,10 +201,14 @@
       </details>
 
       <!-- Static, not injected after the table loads: injecting it would grow
-           the page below the skeleton and re-open the CLS wound c742c6a closed. -->
-      <div class="rankshare"><button id="rankShare" class="themebtn shareimg" type="button"
-        title="Download the ranked list as an image — grades, fares and sourcing included">📸 <span class="btxt">Share ranking</span></button></div>
-      <p class="picksnote" id="picksNote"></p>
+           the page below the skeleton and re-open the CLS wound c742c6a closed.
+           One row with the note: alone, the button took a 57px band for a
+           single 133px control. -->
+      <div class="picksrow">
+        <p class="picksnote" id="picksNote"></p>
+        <button id="rankShare" class="themebtn shareimg" type="button"
+          title="Download the ranked list as an image — grades, fares and sourcing included">📸 <span class="btxt">Share ranking</span></button>
+      </div>
       <!-- A skeleton of the real table, not a "Loading…" line: this swaps for a
            five-row grade table (the Show default), and the old one-line
            placeholder meant everything below it dropped 280px on first paint —
@@ -252,33 +256,46 @@
         <div id="gemRows" class="gradewrap"></div>
       </details>
 
-      <!-- The map had no visible title or key at all — drawMap()'s label is only
-           an aria-label, and the mode toggle sits below it. A reader arriving
-           here saw a coloured world map with nothing saying what the colour
-           meant. Title and sub swap with the map mode; see renderValue(). -->
-      <div class="charthead">
-        <div>
-          <h2 id="valueMapTitle">Best value destinations</h2>
-          <p class="chartsub" id="valueMapSub">Greener = better overall value this month.</p>
-        </div>
-        <div class="legend" id="valueLegend"></div>
-        <button id="valueShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
-      </div>
-      <div id="valueMap" class="map">Loading…</div>
-
-      <details class="foldable" id="customizeBox">
-        <summary>⚙️ Customize the ranking <span class="muted">— what matters most to you?</span></summary>
-        <div class="weightrows" id="weightRows"></div>
-        <div class="rowsplit" style="margin-top:8px">
-          <span class="rankby">
+      <!-- The map beside the controls that shape it, the way the Data tab
+           pairs each map with its chart: one row, both cards the same height,
+           the map opening full screen from its zoom stack when it needs room.
+           The header is two short rows — title + ⓘ, then legend + Share — where
+           it was four (a sub line restating the legend, and Share wrapped
+           alone under a 589px legend). Title and ⓘ swap with the map mode;
+           see renderValue(). -->
+      <div class="toprow">
+        <section class="mapcard">
+          <div class="charthead headrow">
+            <h2 id="valueMapTitle">Best value destinations</h2>
+            <span class="muted" id="valueMapSub" data-tip="Greener = better overall value this month." title="">ⓘ</span>
+            <span class="brk" aria-hidden="true"></span>
+            <div class="legend" id="valueLegend"></div>
+            <button id="valueShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
+          </div>
+          <div id="valueMap" class="map">Loading…</div>
+        </section>
+        <!-- Was the collapsed "Customize the ranking" fold under the map. The
+             priorities and the Rank-by switch decide what the map and every
+             table show, so they sit open beside the map rather than behind a
+             click below it. The ranked list under the map lives here too: the
+             exported image reads it, and it stands in for the pulse under
+             reduced motion. -->
+        <section class="chartcard tunecard" id="tuneCard">
+          <div class="charthead headrow">
+            <h2>⚙️ Tune the ranking</h2>
+            <span class="muted" data-tip="What matters most to you: High, Med or Low per factor reweights every grade, the picks and the map. Rank by switches the map and the tables between the blended value score and weather comfort alone." title="">ⓘ</span>
+          </div>
+          <div class="rankby">
             <span class="picklabel">Rank by</span>
             <div class="windowtoggle" id="valueMapMode">
               <button data-vm="score" class="active">Best value</button>
               <button data-vm="weather">Best weather</button>
             </div>
-          </span>
-        </div>
-      </details>
+          </div>
+          <div class="weightrows" id="weightRows"></div>
+          <div class="pickslot" data-picks-slot="valueMap"></div>
+        </section>
+      </div>
 
       <details class="foldable" id="tableBox">
         <summary>📋 Full ranking &amp; the math <span class="muted">— every score, top 40 by any column</span></summary>
@@ -375,16 +392,16 @@
        the user back to Top Picks to plan something they assembled elsewhere. -->
   <section class="tab" id="tab-trip" hidden>
     <div class="cardwide">
-      <div class="charthead">
-        <div>
-          <h2>Your trip</h2>
-          <p class="chartsub" id="tripSub">Countries you're considering, how long you have, and when — or let the AI work out when.</p>
-        </div>
+      <!-- One heading, one line: the sub sentence lives in the ⓘ, and the
+           trip bar below no longer repeats "Your trip" 40px under it. -->
+      <div class="charthead headrow">
+        <h2>Your trip</h2>
+        <span class="muted" data-tip="Countries you're considering, how long you have, and when — or let the AI work out when." title="">ⓘ</span>
       </div>
       <div id="tripBar" class="tripbar"></div>
       <div class="aibar">
         <button id="tripPlanBtn" class="aibtn" type="button" title="Build a planning prompt for these countries">✨ Plan this trip with AI →</button>
-        <span class="aihint">Builds a realistic route from your shortlist — and says plainly what doesn't fit in your days. Choose “I'm flexible” and it picks the best month too. Opens in ChatGPT, Claude, Grok or Perplexity.</span>
+        <span class="aihint">Routes your shortlist and flags what won't fit <span class="muted" data-tip="Builds a realistic route from your shortlist and says plainly what doesn't fit in your days. Choose “I'm flexible” and it picks the best month too. Opens in ChatGPT, Claude, Grok or Perplexity." title="">ⓘ</span></span>
       </div>
       <div id="tripPanel" class="aipanel" hidden></div>
     </div>
