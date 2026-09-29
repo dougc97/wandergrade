@@ -8514,10 +8514,16 @@ function buildShareURL(forShare) {
     if (dataMode === "advisory" && govIso) q.set("sc", govIso);
     if (dataMode === "flights" && fbmIso !== "all") q.set("fc", fbmIso);
     if (dataMode === "afford" && colRange !== "all") q.set("cr", colRange);
-    // Clean, indexable URL: /guide/<slug> (no query string). Same-origin so
-    // history.pushState in syncURL accepts it.
+    // Clean path: /guide/<slug>, plus ?vmn= once a trip month is chosen (or
+    // for an explicit Share) — the Top Picks rule above. The month is what the
+    // bars, stay dates and AI prompt are drawn for; dropping it made a shared
+    // guide or a reload open on the calendar month. The canonical stays the
+    // bare path (setDocMeta), so the query adds no duplicate for search.
+    // Same-origin so history.pushState in syncURL accepts it.
   } else if (tab === "guide") {
-    return location.origin + guidePath(_guideTarget || $("bestCountry").value || "JP");
+    const u = location.origin + guidePath(_guideTarget || $("bestCountry").value || "JP");
+    const vm = $("valueMonth").value;
+    return vm && (forShare || travelMonthChosen) ? u + "?vmn=" + vm : u;
   } else if (tab === "visited") {
     loadVisited();
     // The visited list persists in localStorage already; only embed it for an
@@ -8568,13 +8574,16 @@ window.addEventListener("popstate", async () => {
   if (!appReady) return;
   restoringHistory = true;
   try {
-    // Clean guide URL (/guide/<slug>) takes precedence over query params.
-    const pIso = pathGuideIso();
-    if (pIso) { await openGuideFor(pIso, false); return; }
     const q = new URLSearchParams(location.search);
-    const tab = q.get("tab") || "value";
+    // The month first: a guide URL carries it too (/guide/<slug>?vmn=), and
+    // the guide returns early below — Back between two months of one guide
+    // left the bars on the month being left.
     const vmn = q.get("vmn"), vmSel = $("valueMonth");
     if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) { vmSel.value = vmn; travelMonthChosen = true; }
+    // Clean guide URL (/guide/<slug>) takes precedence over the other params.
+    const pIso = pathGuideIso();
+    if (pIso) { resyncCombos(); await openGuideFor(pIso, false); return; }
+    const tab = q.get("tab") || "value";
     // setDataMode only loads Flights the first time, so without this Back
     // left the table on the month it was leaving while the URL said another.
     if (loaded.flights && flightsData && flightsData.configured) renderFlights();
