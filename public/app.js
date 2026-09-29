@@ -2199,7 +2199,9 @@ function renderGuide(iso) {
   const ssr = $("ssrGuide"); if (ssr) ssr.remove();
   // The country is the answer — put it in the page title, not just mid-page.
   const h2c = $("guideH2Country");
-  if (h2c) h2c.innerHTML = " — " + flagEmoji(iso) + " " + esc(countryName(iso));
+  // The flag is decoration (the tables hide theirs too): the heading reads
+  // "Travel Guide — Japan", not "… — flag: Japan Japan".
+  if (h2c) h2c.innerHTML = ' — <span aria-hidden="true">' + flagEmoji(iso) + "</span> " + esc(countryName(iso));
   // Reveal the real h1 only now: the SSR block it replaces has been removed just
   // above, so exactly one h1 is visible before and after hydration.
   const gh1 = $("guideH1"); if (gh1) gh1.hidden = false;
@@ -2308,6 +2310,16 @@ function fareStripHTML(months, opts) {
     cheapMon: cheap.mon, cheapPrice: months[cheap.key].price };
 }
 
+// A fare short enough for a phone's ~20px fare column: 818, 1.3K, 12K, 1.5M.
+// Deliberately not Intl's compact notation in the reader's locale — de gives
+// "12.000" and "1,5 Mio.", es "1,3 mil", all wider than the column. The digits
+// still follow the reader's locale (toLocaleString); only the suffix is fixed.
+function fareShort(n) {
+  if (n < 1000) return n.toLocaleString();
+  if (n < 1e6) return (n < 1e4 ? Math.round(n / 100) / 10 : Math.round(n / 1000)).toLocaleString() + "K";
+  return (n < 1e7 ? Math.round(n / 1e5) / 10 : Math.round(n / 1e6)).toLocaleString() + "M";
+}
+
 async function renderGuideFares(iso) {
   const host = $("guideFares");
   if (!host) return;
@@ -2349,10 +2361,17 @@ async function renderGuideFares(iso) {
   const med = typ ? typ.median : sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   const bandOf = (p, dev) => (typ ? (p < typ.lo ? "low" : p > typ.hi ? "high" : "typical")
                                   : dev < -0.08 ? "low" : dev > 0.08 ? "high" : "typical");
+  // The trip month is boxed like the temperature chart's (.selmonth), so the
+  // fare for the month being planned is findable at a glance; planForMonth
+  // redraws this panel when it changes.
+  const selM = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
+  // The tip sits on the whole column, not the bar: on a phone a 9px-wide bar
+  // (or an 8%-high empty stub) was the only tap target.
   const cols = prices.map((p, i) => {
-    if (p == null) return '<div class="col"><div class="mscore"></div>'
-      + '<div class="fill na" style="height:8%" data-tip="'
-      + esc(MONTHS[i] + " — no cached fares") + '" title=""></div>'
+    const colCls = "col" + (i + 1 === selM ? " selmonth" : "");
+    if (p == null) return '<div class="' + colCls + '" data-tip="'
+      + esc(MONTHS[i] + " — no cached fares") + '" title=""><div class="mscore">–</div>'
+      + '<div class="fill na" style="height:8%"></div>'
       + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
     const dev = p / med - 1;
     const band = bandOf(p, dev);
@@ -2360,12 +2379,20 @@ async function renderGuideFares(iso) {
     // Typical months take the Flights tab's range-bar grey (styles .fill.typ)
     // rather than the map's pale fill, which vanished against the panel.
     const fill = band === "typical" ? "" : ";background:" + fareValueFill({ state: "ok", band, dev });
-    return '<div class="col"><div class="mscore">' + F(p).toLocaleString() + "</div>"
-      + '<div class="fill' + (band === "typical" ? " typ" : "") + '" style="height:' + h + "%" + fill + '" data-tip="'
+    // Two labels, CSS picks one: the full number where the column fits it,
+    // the compact one on a phone (styles: .farebars .mscore .mfull/.mshort).
+    return '<div class="' + colCls + '" data-tip="'
       + esc(MONTHS[i] + ": from " + money(p) + " round-trip · " + FV_WORD[band]
-        + (band === "typical" ? "" : " (" + fmtDevPct(dev) + " vs typical)")) + '" title=""></div>'
+        + (band === "typical" ? "" : " (" + fmtDevPct(dev) + " vs typical)")) + '" title="">'
+      + '<div class="mscore"><span class="mfull">' + F(p).toLocaleString() + '</span><span class="mshort">'
+      + fareShort(F(p)) + "</span></div>"
+      + '<div class="fill' + (band === "typical" ? " typ" : "") + '" style="height:' + h + "%" + fill + '"></div>'
       + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
   }).join("");
+  // One accessible name for the chart rather than 12 tab stops: every month's
+  // number (or "no data") in the order the bars show them.
+  const ariaFares = "Fares by month, " + approx + cur + ": " + prices.map((p, i) =>
+    MON_ABBR[i] + " " + (p == null ? "no data" : F(p).toLocaleString())).join(", ");
   // Source, method and legend in the ⓘ; the header itself is one line. The
   // cheapest/priciest note it carried repeated what the bars already label.
   const tip = "Cheapest cached round-trip Aviasales has seen for each departure month"
@@ -2376,7 +2403,7 @@ async function renderGuideFares(iso) {
     + '<span class="legendinfo" data-tip="' + esc(tip) + '" title="">ⓘ</span>'
     + ' <span class="muted">' + esc(originName + " → " + countryName(iso) + " · round-trip, " + approx + cur)
     + "</span></span>"
-    + '<div class="bars farebars">' + cols + "</div>";
+    + '<div class="bars farebars" role="img" aria-label="' + esc(ariaFares) + '">' + cols + "</div>";
 }
 
 // ---- FX trailing trend ------------------------------------------------------
@@ -2470,7 +2497,7 @@ async function renderGuideFx(iso) {
     : gap ? ", after inflation" : " (exchange rate only)";
   host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b>: `
     + `<b style="color:${col}">${pct > 0 ? "+" : ""}${pct.toFixed(1)}%</b> vs its 12-month average${basis}`
-    + (noInfl || nominal ? "" : ` <span class="muted">— ${verdict}</span>`)
+    + (noInfl || nominal || !gap ? "" : ` <span class="muted">— ${verdict}</span>`)
     + `<span class="fxinfo" data-tip="${esc(tip)}" title="">ⓘ</span></span>`
     + `<svg class="fxspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
     + `<line x1="${P}" y1="${y(avg).toFixed(1)}" x2="${W - P}" y2="${y(avg).toFixed(1)}" class="fxavg"/>`
@@ -2626,7 +2653,7 @@ function renderGuideStay(iso) {
     const chips = spots.length > 1
       ? '<div class="staychips">' + spots.map((s, i) =>
           '<button type="button" class="staychip' + (i === _staySpotIdx ? " active" : "") +
-          '" data-si="' + i + '">📍 ' + esc(s.n) + "</button>").join("") + "</div>"
+          '" aria-pressed="' + (i === _staySpotIdx) + '" data-si="' + i + '">📍 ' + esc(s.n) + "</button>").join("") + "</div>"
       : "";
     host.innerHTML =
       '<h3 class="staytitle">🏨 Where to stay <span class="staynear">near ' + esc(sp.n) + "</span></h3>" +
@@ -3315,7 +3342,11 @@ function renderCountryClimate(iso) {
     // weather comfort (score lives in the tooltip). Bars double as the month
     // picker — clicking one plans the trip for that month (planForMonth).
     const head = t != null ? fmtTemp(t) : (s == null ? "" : s);
-    return `<div class="${col}" data-mn="${i + 1}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seasonCaveat(seas[i], bestSet.has(i + 1), !!hz) || SEASON_WX[seas[i]]}${hz ? " · ⚠️ " + esc(hz) : ""} · click to plan for ${MONTHS[i]}">
+    // The chart is the guide's month control, so it takes the keyboard too:
+    // a focusable toggle per month (Enter/Space plans it, see the keydown
+    // handler by planForMonth), named by the same text as its hover title.
+    const what = `${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seasonCaveat(seas[i], bestSet.has(i + 1), !!hz) || SEASON_WX[seas[i]]}${hz ? " · ⚠️ " + esc(hz) : ""} · click to plan for ${MONTHS[i]}`;
+    return `<div class="${col}" data-mn="${i + 1}" title="${what}" tabindex="0" role="button" aria-pressed="${i + 1 === selM}" aria-label="${what}">
       <div class="mscore">${head}</div>
       <div class="fill" style="height:${h}%;background:${t != null ? tempColor(t) : comfortColor(s)}"></div>
       <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? `<span class="hzmark" data-tip="⚠️ ${esc(hz)}" title="">⚠️</span>` : ""}</div></div>`;
@@ -3323,8 +3354,8 @@ function renderCountryClimate(iso) {
   const hasTemps = temps.some((t) => t != null);
   const unitToggle = hasTemps
     ? `<div class="tempunit" role="group" aria-label="temperature unit">
-         <button type="button" data-u="C" class="${tempUnit() === "C" ? "active" : ""}">°C</button>
-         <button type="button" data-u="F" class="${tempUnit() === "F" ? "active" : ""}">°F</button>
+         <button type="button" data-u="C" class="${tempUnit() === "C" ? "active" : ""}" aria-pressed="${tempUnit() === "C"}">°C</button>
+         <button type="button" data-u="F" class="${tempUnit() === "F" ? "active" : ""}" aria-pressed="${tempUnit() === "F"}">°F</button>
        </div>` : "";
 
   const hazardLines = hazards.map((h) =>
@@ -3348,9 +3379,13 @@ function renderCountryClimate(iso) {
   // The "Comfiest weather / Least comfy" line that sat here was cut: it named
   // curated best months as least comfy on the next line (the classes split the
   // country's own range into thirds), and the label colours already carry it.
+  // regionOf, not ISO_REGION alone: 11 guides (North Korea, El Salvador…)
+  // are missing from that table and headed "· —". Antarctica and the French
+  // Southern Lands have no region at all, so no suffix.
+  const rg = REGIONS[regionOf(iso)];
   $("bestDetail").innerHTML = `
     <div class="besthead">
-      <h2>Best time to visit ${esc(c.name)} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span>${
+      <h2>Best time to visit ${esc(c.name)}${rg ? ` <span class="muted">· ${rg}</span>` : ""}${
         hasTemps ? `<span class="legendinfo" data-tip="${esc(legend)}" title="">ⓘ</span>` : ""}</h2>
       ${unitToggle}
     </div>
@@ -8188,7 +8223,7 @@ function planForMonth(m, quiet) {
   if (sel.value !== String(m)) return;   // never report a change that didn't happen
   if (sel._sync) sel._sync();
   if (loaded.value) renderValue();
-  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); }
+  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); renderGuideFares(ccGuideIso); }
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
   if (changed && !quiet) status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
   syncURL();
@@ -8198,6 +8233,18 @@ $("bestDetail").addEventListener("click", (e) => {
   if (!bar) return;
   if (e.target.closest(".hzmark")) return;   // ⚠️ taps show the hazard, not switch months
   planForMonth(parseInt(bar.dataset.mn, 10));
+});
+// The keyboard half of the same control (the columns are role="button").
+// planForMonth rebuilds the chart, so focus goes back to the new column.
+$("bestDetail").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const bar = e.target.closest("#bestDetail .bars .col[data-mn]");
+  if (!bar || e.target.closest(".hzmark")) return;
+  e.preventDefault();   // Space would scroll the page
+  const m = parseInt(bar.dataset.mn, 10);
+  planForMonth(m);
+  const again = document.querySelector('#bestDetail .col[data-mn="' + m + '"]');
+  if (again) again.focus();
 });
 
 // Guide jump chips: smooth-scroll to a section (buttons, not #hash links, so
@@ -8550,10 +8597,16 @@ function buildShareURL(forShare) {
     if (dataMode === "advisory" && govIso) q.set("sc", govIso);
     if (dataMode === "flights" && fbmIso !== "all") q.set("fc", fbmIso);
     if (dataMode === "afford" && colRange !== "all") q.set("cr", colRange);
-    // Clean, indexable URL: /guide/<slug> (no query string). Same-origin so
-    // history.pushState in syncURL accepts it.
+    // Clean path: /guide/<slug>, plus ?vmn= once a trip month is chosen (or
+    // for an explicit Share) — the Top Picks rule above. The month is what the
+    // bars, stay dates and AI prompt are drawn for; dropping it made a shared
+    // guide or a reload open on the calendar month. The canonical stays the
+    // bare path (setDocMeta), so the query adds no duplicate for search.
+    // Same-origin so history.pushState in syncURL accepts it.
   } else if (tab === "guide") {
-    return location.origin + guidePath(_guideTarget || $("bestCountry").value || "JP");
+    const u = location.origin + guidePath(_guideTarget || $("bestCountry").value || "JP");
+    const vm = $("valueMonth").value;
+    return vm && (forShare || travelMonthChosen) ? u + "?vmn=" + vm : u;
   } else if (tab === "visited") {
     loadVisited();
     // The visited list persists in localStorage already; only embed it for an
@@ -8604,13 +8657,16 @@ window.addEventListener("popstate", async () => {
   if (!appReady) return;
   restoringHistory = true;
   try {
-    // Clean guide URL (/guide/<slug>) takes precedence over query params.
-    const pIso = pathGuideIso();
-    if (pIso) { await openGuideFor(pIso, false); return; }
     const q = new URLSearchParams(location.search);
-    const tab = q.get("tab") || "value";
+    // The month first: a guide URL carries it too (/guide/<slug>?vmn=), and
+    // the guide returns early below — Back between two months of one guide
+    // left the bars on the month being left.
     const vmn = q.get("vmn"), vmSel = $("valueMonth");
     if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) { vmSel.value = vmn; travelMonthChosen = true; }
+    // Clean guide URL (/guide/<slug>) takes precedence over the other params.
+    const pIso = pathGuideIso();
+    if (pIso) { resyncCombos(); await openGuideFor(pIso, false); return; }
+    const tab = q.get("tab") || "value";
     // setDataMode only loads Flights the first time, so without this Back
     // left the table on the month it was leaving while the URL said another.
     if (loaded.flights && flightsData && flightsData.configured) renderFlights();

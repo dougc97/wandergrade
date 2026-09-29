@@ -156,6 +156,16 @@ _HTML_DEFAULTS = {
     "SITE_HEADING": '<h1 class="sitetitle">Where Should I Travel to Next?</h1>',
     "GUIDE_LINKS": "",
     "GUIDE_COUNT": "",
+    # Which tab the served HTML shows before (or without) JS: Top Picks here,
+    # the guide on /guide/<slug>. Left to JS alone, a no-JS reader or a
+    # readability extractor got the Top Picks shell with the guide — its h1
+    # and server-rendered body — inside a [hidden] section. JS visitors are
+    # unaffected: the head script sets the same data-tab, activateTab the rest.
+    "HTML_TAB": "",
+    "VALUE_HIDDEN": "",
+    "GUIDE_HIDDEN": " hidden",
+    "VALUE_ACTIVE": ' class="active"',
+    "GUIDE_ACTIVE": "",
     "JSONLD": _WEBSITE_JSONLD,
     "ANALYTICS": _analytics_tag(),
     # Lets the page hide every trace of sign-in until accounts are provisioned.
@@ -633,6 +643,12 @@ def _render_index(gc_iso=None):
             JSONLD=r.get("jsonld", ""),               # FAQPage schema (raw JSON-LD)
             # Demoted so the country's own <h1> is the only one on the page.
             SITE_HEADING='<p class="sitetitle">Where Should I Travel to Next?</p>',
+            # The guide is the page: shown and underlined without JS.
+            HTML_TAB=' data-tab="guide"',
+            VALUE_HIDDEN=" hidden",
+            GUIDE_HIDDEN="",
+            VALUE_ACTIVE="",
+            GUIDE_ACTIVE=' class="active"',
         )
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)

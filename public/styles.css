@@ -139,8 +139,11 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
   bottom: 15px; margin: 0; font-size: 10px; line-height: 1; }
 .bars .mlabel.peak { color: var(--green); font-weight: 700; }
 .bars .mlabel.shoulder { color: var(--amber); }
-.bars .mlabel.off { color: #aaa; }
+.bars .mlabel.off { color: var(--gray); }   /* #aaa was 2.32:1 at 10px; still reads grey beside green/amber */
 .bars .mscore { font-size: 9px; color: var(--gray); }
+/* Guide fare bars carry two price labels: the full one here, the compact twin
+   on a phone (the max-width: 640px block, which must come after this rule). */
+.farebars .mscore .mshort { display: none; }
 
 /* things to do */
 .actlist { margin: 6px 0 16px; padding-left: 0; list-style: none; }
@@ -1769,10 +1772,12 @@ button.chip2 { border: 0; }
   /* The verdict badge steps down with the viewport so the Overall column
      never forces the table wider than the phone. */
   .gr.big { min-width: 36px; font-size: 16px; padding: 4px 8px; }
-  /* Fare-panel columns are ~27px here — "$1,167" cannot fit and a clipped
-     price is worse than none. The header names cheapest and priciest, and
-     each bar's tooltip keeps its exact price. */
-  .farebars .mscore { display: none; }
+  /* Fare-panel columns are ~20-22px here — "1,167" cannot fit and a clipped
+     price is worse than none, but no number at all left a phone reader with
+     twelve unlabelled bars. The compact twin ("1.2K", fareShort) fits; each
+     column's tooltip keeps the exact price. */
+  .farebars .mscore .mfull { display: none; }
+  .farebars .mscore .mshort { display: inline; }
   /* Same reasoning for the table's FX mark: half-clipped "+9%" reads as
      broken. The full signal lives on the guide's trend line. The ▲/▼
      advisory arrow stays — a single glyph fits anywhere. */
@@ -1795,7 +1800,9 @@ button.chip2 { border: 0; }
   border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px 6px;
   box-sizing: content-box; }
 .farebars .fill { width: 42%; }
-.farebars .fill.na { background: var(--soft); opacity: .4; }
+/* Empty months: the fare strip's own na look (.farestrip .fcell.na) — the old
+   --soft at .4 vanished against the light panel, so 12 slots read as 4. */
+.farebars .fill.na { background: var(--line); opacity: .6; }
 /* A month at the route's typical fare: the Flights tab's range-band grey
    (.fvtyp), so "nothing to see" reads the same on both instruments. */
 .farebars .fill.typ { background: var(--gray); opacity: .45; }
