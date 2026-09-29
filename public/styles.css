@@ -1052,7 +1052,7 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   border: 1px solid var(--line); border-radius: 8px; background: var(--card2); color: inherit; }
 .tripmonth { font-size: 13px; color: var(--gray); display: inline-flex;
   flex-direction: row; align-items: center; white-space: nowrap; }
-.tripmonth select { margin-left: 4px; padding: 4px 6px; font: inherit; max-width: 210px;
+.tripmonth select { margin-left: 4px; padding: 4px 6px; font: inherit; max-width: none;
   border: 1px solid var(--line); border-radius: 8px; background: var(--card2); color: inherit; }
 .tripseed { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line);
   border-radius: 999px; background: none; color: var(--gray); cursor: pointer; }
@@ -1063,22 +1063,68 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   border-radius: 999px; background: none; color: var(--green); cursor: pointer; }
 .tripgo:hover { background: rgba(10,125,40,.12); }
 .tripseed:hover { border-color: var(--green); color: var(--green); }
-.tripchips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 /* Booking links for the trip — one row per country, same partners as the
    guide pages. Pills echo .tripseed so the tab keeps one visual language. */
-.tripbook { margin-top: 14px; }
-.tbhead { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
-.tbrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 0; }
-.tbname { font-size: 13px; min-width: 130px; }
+/* The trip list: one grid, so the name, 🌤️, ✈️ and link columns line up
+   across rows (each row a subgrid) under a header row in the grade tables'
+   th style. Desktop: name | 🌤️ | fare | links | ×. At 900 and under the links
+   take a second line; the × stays on the first. */
+.tripbook { margin-top: 14px; display: grid; column-gap: 14px;
+  grid-template-columns: minmax(0, max-content) auto auto auto 1fr; }
+.tbrow { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center;
+  padding: 6px 0; border-top: 1px solid var(--line); }
+.tbhdr { border-top: 0; padding: 0 0 4px; font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .03em; color: var(--gray); }
+.tbhdr .tbacts { grid-column: 4 / -1; justify-self: end; display: inline-flex; gap: 6px;
+  text-transform: none; letter-spacing: 0; font-weight: 400; }
+.tbn { min-width: 0; font-size: 14px; }
+.tbdest { font-weight: 700; color: inherit; text-decoration: none; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; display: inline-block; max-width: 100%; vertical-align: bottom; }
+.tbdest:hover { color: var(--green); }
+.tbdest:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 4px; }
+.tbwx { justify-self: center; }
+.tbfare { display: inline-flex; align-items: center; gap: 8px; }
+.tbfarenote { font-size: 12px; white-space: nowrap; }
+.tblow { color: var(--gray); }
+.tblinks { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.tbx { justify-self: end; background: none; border: 0; color: var(--gray); font-size: 18px; line-height: 1;
+  min-width: 28px; min-height: 28px; border-radius: 6px; cursor: pointer; }
+.tbx:hover { color: #b00020; background: var(--soft); }
+.tbins .tblinks { grid-column: 4; }
+.tripbook > .affnote { grid-column: 1 / -1; margin: 8px 0 0; }
+/* The trip strip: the table strip's quiet look (1px gap, a tick for the trip
+   month, no 2px outline box) at a size a lone strip can still be read at.
+   A fixed slot even when empty, so notes line up and a late fill doesn't move
+   the row. */
+#tripBook .farestrip { gap: 1px; width: 95px; flex: none; }
+#tripBook .farestrip .fcell { width: 7px; height: 11px; border-radius: 1px; }
+#tripBook .farestrip .fcell.now { outline: 0; box-shadow: 0 3px 0 -1px var(--ink); }
+@media (max-width: 900px) {
+  .tripbook { grid-template-columns: minmax(0, 1fr) auto auto auto; column-gap: 10px; }
+  .tbrow .tblinks { grid-column: 1 / -1; grid-row: 2; margin-top: 6px; }
+  .tbrow .tbx { grid-column: 4; grid-row: 1; }
+  .tbins .tblinks { grid-column: 2 / -1; grid-row: 1; margin-top: 0; }
+  /* Header: the count and the buttons share line 1; the column emoji sit on
+     line 2 over their columns. */
+  .tbhdr .tbn { grid-row: 1; grid-column: 1 / -1; align-self: center; }
+  .tbhdr .tbacts { grid-row: 1; grid-column: 1 / -1; }
+  .tbhdr .tbwx { grid-row: 2; grid-column: 2; }
+  .tbhdr .tbfare { grid-row: 2; grid-column: 3; }
+  .tbhdr .thw { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+}
+@media (max-width: 560px) {
+  /* The strip can't share a phone's first line with a name and a converted
+     fare ("Oct ≈EUR 1,234") without clipping every name; the month's price
+     stays, and the cheapest month is kept for screen readers. */
+  #tripBook .farestrip { display: none; }
+  #tripBook .tblow { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+}
 .triplink { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line);
   border-radius: 999px; color: var(--ink); text-decoration: none; }
 .triplink:hover { border-color: var(--green); color: var(--green); }
 .triplink .ext { color: var(--gray); font-size: 10px; }
-.tripchip { font-size: 13px; padding: 5px 10px; border: 1px solid var(--green);
-  border-radius: 999px; background: none; color: inherit; cursor: pointer; }
-.tripchip .x { color: var(--gray); margin-left: 2px; }
-.tripchip:hover { border-color: #b00020; }
-.tripchip:hover .x { color: #b00020; }
 
 /* Travel Guide per-country "Plan with AI" */
 .guideai { margin: 12px 0 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -1743,11 +1789,7 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    than data, but never invisible against the page background. */
 .farestrip .fcell.na { background: var(--line); opacity: .6; }
 .farestrip .fcell.now { outline: 2px solid var(--ink); outline-offset: 1px; }
-.tbfare { display: inline-flex; align-items: center; gap: 8px; margin-left: 4px; }
-/* Wraps: nowrap ran "priciest Apr $706" off the card's edge at 390px, with no
-   scroll to reach it. On a phone the strip takes a row of its own. */
-.tbfarenote { font-size: 11px; min-width: 0; }
-@media (max-width: 480px) { .tbfare { flex-basis: 100%; margin-left: 0; } }
+
 
 /* Calm watchouts fold on L1/L2 guides. */
 .wofold { margin-top: 6px; font-size: 12.5px; }

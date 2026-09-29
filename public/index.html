@@ -423,12 +423,13 @@
            trip bar below no longer repeats "Your trip" 40px under it. -->
       <div class="charthead compact">
         <h2>Your trip</h2>
-        <span class="muted" data-tip="Countries you're considering, how long you have, and when — or let the AI work out when." title="">ⓘ</span>
+        <span class="muted" data-tip="Countries you're considering, how long you have, and when — or pick “I'm flexible” and let the AI work out when." title="">ⓘ</span>
       </div>
       <div id="tripBar" class="tripbar"></div>
       <div class="aibar">
         <button id="tripPlanBtn" class="aibtn" type="button" title="Build a planning prompt for these countries">✨ Plan this trip with AI →</button>
-        <span class="aihint">Routes your shortlist and flags what won't fit <span class="muted" data-tip="Builds a realistic route from your shortlist and says plainly what doesn't fit in your days. Choose “I'm flexible” and it picks the best month too. Opens in ChatGPT, Claude, Grok or Perplexity." title="">ⓘ</span></span>
+        <!-- The hint sentence repeated its own ⓘ tip; the ⓘ alone carries it. -->
+        <span class="aihint"><span class="muted" data-tip="Builds a realistic route from your shortlist and says plainly what doesn't fit in your days. Choose “I'm flexible” and it picks the best month too. Opens in ChatGPT, Claude, Grok or Perplexity." title="">ⓘ</span></span>
       </div>
       <div id="tripPanel" class="aipanel" hidden></div>
     </div>

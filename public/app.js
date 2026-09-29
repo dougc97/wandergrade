@@ -2270,7 +2270,7 @@ function fareStripHTML(months, opts) {
   const dear = present.reduce((a, b) => (months[a.key].price >= months[b.key].price ? a : b));
   return { cells, note: "cheapest " + MON_ABBR[cheap.mon - 1] + " " + fm(months[cheap.key].price)
       + " · priciest " + MON_ABBR[dear.mon - 1] + " " + fm(months[dear.key].price),
-    cheapMon: cheap.mon };
+    cheapMon: cheap.mon, cheapPrice: months[cheap.key].price };
 }
 
 async function renderGuideFares(iso) {
@@ -4826,39 +4826,26 @@ function renderTripBar() {
     if (goP) goP.onclick = () => activateTab("value", true);
     if (goG) goG.onclick = () => activateTab("guide", true);
   } else {
-    const chips = [...t].map((iso) =>
-      '<button type="button" class="tripchip" data-iso="' + iso + '" title="Remove '
-      + esc(countryName(iso)) + '">' + flagEmoji(iso) + " " + esc(countryName(iso))
-      + ' <span class="x">×</span></button>').join("");
-    // No "🧳 Your trip" here: the card's heading says it 40px above.
+    // One line: "for [14] days in [October]". The count, the wishlist seed and
+    // Clear moved to the list's header row (renderTripBook), and the chips
+    // went: every country was listed twice, and the chips were the only way
+    // to remove one. Each row now carries its own ×.
     host.innerHTML = '<div class="triphead">'
-      + "<strong>" + t.size + " " + (t.size === 1 ? "country" : "countries") + "</strong>"
-      + '<label class="tripdays">for <input id="tripDays" type="number" min="1" max="180" '
+      + '<label class="tripdays">for <input id="tripDays" type="number" min="1" max="180" aria-label="Trip length in days" '
       // One trip length: a budget's "for N days" on Top Picks seeds this until
       // the trip has its own.
       + 'value="' + esc((sharedTripView && sharedTripView.td) || localStorage.getItem("fx_tripdays")
         || ($("budgetDays") || {}).value || localStorage.getItem("wg_budgetdays") || 14) + '" inputmode="numeric"> days</label>'
-      + '<label class="tripmonth">in <select id="tripMonth">'
-      + '<option value="0"' + (savedM === "0" ? " selected" : "") + ">I'm flexible — suggest when</option>"
+      + '<label class="tripmonth">in <select id="tripMonth" aria-label="Trip month">'
+      + '<option value="0"' + (savedM === "0" ? " selected" : "") + ">I'm flexible</option>"
       + MONTHS.map((m, i) => '<option value="' + (i + 1) + '"'
         + ((savedM === "0" ? false : (parseInt(savedM, 10) || (lastPicksMonth || curMonth())) === i + 1)
           ? " selected" : "") + ">" + m + "</option>").join("")
-      + "</select></label>"
-      + (seedable ? '<button type="button" class="tripseed" id="tripSeed">+ my ★ wishlist</button>' : "")
-      + '<button type="button" class="tripseed" id="tripClear">Clear</button></div>'
-      + '<div class="tripchips">' + chips + "</div>"
+      + "</select></label></div>"
       + '<div class="tripbook" id="tripBook"></div>';
     renderTripBook([...t]);
   }
-  host.querySelectorAll(".tripchip").forEach((b) =>
-    b.addEventListener("click", () => { tripToggle(b.dataset.iso); renderValue(); }));
-  const seed = $("tripSeed");
-  if (seed) seed.onclick = () => {
-    loadWishlist().forEach((i) => loadTrip().add(i));
-    saveTrip(); renderTripBar(); renderValue();
-  };
-  const clr = $("tripClear");
-  if (clr) clr.onclick = () => { loadTrip().clear(); saveTrip(); renderTripBar(); renderValue(); };
+  bindTripActions();
   const days = $("tripDays");
   if (days) days.onchange = () => {
     sharedTripView = null;             // an edit makes the trip the recipient's own
@@ -4872,6 +4859,23 @@ function renderTripBar() {
     refreshTripPrompt();
     renderTripBook([...loadTrip()]);   // stay links carry month-derived dates
   };
+}
+// The wishlist seed and Clear live in the list's header, which a month change
+// re-renders on its own (renderTripBook), so they are bound from both.
+function bindTripActions() {
+  const seed = $("tripSeed");
+  if (seed) seed.onclick = () => {
+    loadWishlist().forEach((i) => loadTrip().add(i));
+    saveTrip(); renderTripBar(); renderValue();
+  };
+  const clr = $("tripClear");
+  if (clr) clr.onclick = () => { loadTrip().clear(); saveTrip(); renderTripBar(); renderValue(); };
+}
+// A month's next occurrence as "YYYY-MM" — fareStripHTML's rule, so the price
+// on a row is the cell its strip ticks.
+function nextMonthKey(m) {
+  const now = new Date();
+  return (m > now.getMonth() ? now.getFullYear() : now.getFullYear() + 1) + "-" + String(m).padStart(2, "0");
 }
 
 // Booking links for the trip itself. The Trip tab is the one surface where
@@ -4897,42 +4901,111 @@ function tripStayDates() {
 function renderTripBook(isos) {
   const host = $("tripBook");
   if (!host) return;
-  const A = (href, label) => '<a class="triplink" target="_blank" '
-    + 'rel="sponsored nofollow noopener" href="' + href + '">' + label
-    + ' <span class="ext">↗</span></a>';
+  // Booking links name their country for screen readers ("Flights, Morocco
+  // (new tab)"): a links list read four identical "Flights". The emoji and
+  // the arrow are decoration.
+  const A = (href, emo, label, whose) => '<a class="triplink" target="_blank" '
+    + 'rel="sponsored nofollow noopener" href="' + href + '">'
+    + (emo ? '<span aria-hidden="true">' + emo + "</span> " : "") + label
+    + '<span class="vh">, ' + esc(whose) + " (new tab)</span>"
+    + ' <span class="ext" aria-hidden="true">↗</span></a>';
+  const tm = tripMonth();
+  const m = tm.flexible ? null : tm.month;
+  const key = m ? nextMonthKey(m) : null;
+  const adv = advisoryByIso();
+  loadWishlist();
+  const seedable = wishlist && wishlist.size && [...wishlist].some((i) => !isos.includes(i));
+  // The trip month's weather, as the other tables grade it (climate comfort
+  // for that month), so the month select shows what it changes. Nothing in
+  // flexible mode: there is no month to grade.
+  const wxPill = (iso) => {
+    if (!m || !climate) return "";
+    const cl = climate[iso];
+    const sc = cl && cl.scores ? cl.scores[m - 1] : null;
+    if (sc == null) return '<span class="gr grx" data-tip="No weather data" title="">—</span>';
+    const seas = seasons(cl.scores)[m - 1];
+    const tip = MONTHS[m - 1] + " weather: comfort " + sc + "/100 · "
+      + (seasonCaveat(seas, !!(cl.best && cl.best.includes(m)), hazardsFor(iso, m).length > 0) || SEASON_WX[seas]);
+    return '<span class="gr ' + gradeCls(grade(sc)) + '" role="img" aria-label="' + esc(MONTHS[m - 1] + " weather " + grade(sc))
+      + '" data-tip="' + esc(tip) + '" title="">' + grade(sc) + "</span>";
+  };
+  const hdr = '<div class="tbrow tbhdr">'
+    + '<span class="tbn">' + isos.length + " " + (isos.length === 1 ? "country" : "countries") + "</span>"
+    + '<span class="tbwx">' + (m ? '<span aria-hidden="true">🌤️</span><span class="vh">' + MONTHS[m - 1] + " weather</span>" : "") + "</span>"
+    + '<span class="tbfare"><span aria-hidden="true">✈️</span><span class="thw"> Fares by month</span>'
+    + '<span class="muted" data-tip="' + esc("Cheapest cached round trip from " + originLabel() + " each month, January to December"
+      + (m ? "; " + MONTHS[m - 1] + " is ticked and priced" : "") + ". Cached searches (Aviasales), not live prices.")
+    + '" title=""> ⓘ</span></span>'
+    + '<span class="tbacts">' + (seedable ? '<button type="button" class="tripseed" id="tripSeed">+ my ★ wishlist</button>' : "")
+    + '<button type="button" class="tripseed" id="tripClear">Clear</button></span></div>';
   const rows = isos.map((iso) => {
-    const links = [];
+    const name = countryName(iso);
     const fr = flightsData && flightsData.countries
       ? flightsData.countries.find((r) => r.iso === iso) : null;
-    const fu = fr && fr.dest ? flightSearchURL(fr.dest) : null;
-    if (fu) links.push(A(fu, "✈️ Flights"));
+    // The trip month's search, not the default ~60 days out: the row now
+    // says "Oct USD 608", and its Flights link has to mean October.
+    const fu = fr && fr.dest ? flightSearchURL(fr.dest, key) : null;
+    const links = [];
+    if (fu) links.push(A(fu, "✈️", "Flights", name).replace('class="triplink"', 'class="triplink tbfly"'));
     // Stay link needs coordinates that load async; the span keeps the row's
-    // shape until fillTripStays swaps it for the real anchor (width-only
-    // change, no reflow below).
+    // shape until the fill swaps it for the real anchor.
     links.push('<span class="tbstay" data-iso="' + iso + '"></span>');
-    links.push(A(viatorURL(countryName(iso)), "🎟️ Things to do"));
-    return '<div class="tbrow"><span class="tbname">' + flagEmoji(iso) + " "
-      + esc(countryName(iso)) + "</span>" + links.join("")
-      + '<span class="tbfare" data-iso="' + iso + '"></span></div>';
+    links.push(A(viatorURL(name), "🎟️", "Things to do", name));
+    // Level 3-4: the table's ⚠️ exception mark. The only surface that puts
+    // booking links beside a do-not-travel country, so it says so.
+    const lvl = adv[iso] || (ADV_PARENT[iso] && adv[ADV_PARENT[iso]]) || 0;
+    const warn = lvl >= 3 ? ' <span class="hzmark" data-tip="' + esc(ADV_TEXT[lvl] + advVia(iso)) + '" title="">⚠️</span>' : "";
+    return '<div class="tbrow" data-iso="' + iso + '">'
+      + '<span class="tbn"><a class="tbdest" href="' + esc(guidePath(iso)) + '"><span aria-hidden="true">' + flagEmoji(iso)
+      + "</span> " + esc(name) + "</a>" + warn + "</span>"
+      + '<span class="tbwx">' + wxPill(iso) + "</span>"
+      + '<span class="tbfare" data-iso="' + iso + '"><span class="farestrip empty" aria-hidden="true"></span></span>'
+      + '<span class="tblinks">' + links.join("") + "</span>"
+      + '<button type="button" class="tbx" data-iso="' + iso + '" aria-label="' + esc("Remove " + name + " from the trip")
+      + '" title="' + esc("Remove " + name) + '">×</button></div>';
   }).join("");
-  host.innerHTML = '<div class="tbhead">Book the pieces</div>' + rows
-    + '<div class="tbrow"><span class="tbname">🛡️ The whole trip</span>'
-    + A(insuranceHref(isos[0] || "US"), "Travel insurance (EKTA)") + "</div>"
+  // 🧳, not 🛡️: 🛡️ means Safety everywhere else on the site.
+  host.innerHTML = hdr + rows
+    + '<div class="tbrow tbins"><span class="tbn">🧳 The whole trip</span>'
+    + '<span class="tblinks">' + A(insuranceHref(isos[0] || "US"), "", "Travel insurance (EKTA)", "whole trip") + "</span></div>"
     + '<p class="affnote">These earn us a commission at no extra cost to you — it’s what keeps the site free.</p>';
-  // Mini fare strip under each country, the trip's month marked — "your
-  // November flight is $723; October would be $550" is exactly the nudge the
-  // month selector is for.
-  const tripM = tripMonth().month || lastPicksMonth || curMonth();
+  bindTripActions();
+  host.querySelectorAll(".tbx").forEach((b) => b.addEventListener("click", () => {
+    const all = [...host.querySelectorAll(".tbx")];
+    const at = all.indexOf(b);
+    tripToggle(b.dataset.iso);
+    renderValue();
+    // Focus goes to the next row's ×, not to <body>.
+    const next = [...document.querySelectorAll("#tripBook .tbx")];
+    const f = next[Math.min(at, next.length - 1)] || $("tripDays") || $("tripGoPicks");
+    if (f) f.focus();
+  }));
+  // Each row's fare cell: the trip month's own price first ("Oct USD 608"),
+  // then the strip with that month ticked, and the cheapest month only when
+  // it is another one. A route too sparse for a strip still gets its month's
+  // price. Currency is the reader's (fareStripOpts).
+  const o = fareStripOpts(m);
   isos.forEach(async (iso2) => {
     const fm = await ensureFareMonths(iso2);
     const slot = host.querySelector('.tbfare[data-iso="' + iso2 + '"]');
-    if (!fm || !fm.months || !slot) return;
-    const strip = fareStripHTML(fm.months, fareStripOpts(tripM));
-    if (!strip) return;
-    // The strip's cells are aria-hidden and their meaning lived in per-cell
-    // hovers; the note says what the row shows, for eyes and screen readers.
-    slot.innerHTML = '<span class="farestrip" aria-hidden="true">' + strip.cells + "</span>"
-      + '<span class="muted tbfarenote">✈️ Round trips by month: ' + esc(strip.note) + "</span>";
+    if (!fm || !fm.months || !slot || !slot.isConnected) return;
+    const strip = fareStripHTML(fm.months, o);
+    const rec = key ? fm.months[key] : null;
+    const bits = [];
+    if (rec) bits.push('<b>' + MON_ABBR[m - 1] + "</b> " + fareMoney(rec.price, o.cur, o.conv));
+    if (strip && strip.cheapMon !== m) bits.push('<span class="tblow">' + (rec ? " · " : "") + "low "
+      + MON_ABBR[strip.cheapMon - 1] + " " + fareMoney(strip.cheapPrice, o.cur, o.conv) + "</span>");
+    slot.innerHTML = (strip
+      ? '<span class="farestrip" role="img" aria-label="' + esc("Round-trip fares from " + originLabel() + " by month — " + strip.note) + '">' + strip.cells + "</span>"
+      : '<span class="farestrip empty" aria-hidden="true"></span>')
+      + (bits.length ? '<span class="tbfarenote">' + bits.join("") + "</span>" : "");
+    // The month's fare may be to another airport (Morocco: CMN in October,
+    // RAK in November); the Flights link searches the one that has the price.
+    if (rec && rec.dest) {
+      const fl = slot.closest(".tbrow").querySelector("a.tbfly");
+      const u = flightSearchURL(rec.dest, key);
+      if (fl && u) fl.href = u;
+    }
   });
   ensureStayCoords().then((cc) => {
     const { checkin, checkout } = tripStayDates();
@@ -4943,7 +5016,7 @@ function renderTripBook(isos) {
       if (!sp) { el.remove(); return; }
       el.outerHTML = A("https://www.stay22.com/allez/booking?aid=" + STAY22_AID
         + "&lat=" + sp.ll[0] + "&lng=" + sp.ll[1]
-        + "&checkin=" + checkin + "&checkout=" + checkout, "🏨 Stays");
+        + "&checkin=" + checkin + "&checkout=" + checkout, "🏨", "Stays", countryName(el.dataset.iso));
     });
   }).catch(() => {});
 }
@@ -5019,8 +5092,8 @@ function buildTripAIPrompt() {
     if (pl) bits.push("prices " + plPhrase(pl / anchorPl, A.name)
       + (plIso !== iso ? " (" + parentWide(plIso) + ")" : ""));
     // The cached average round trip from home, in the budget's money — the
-    // level the daily budget has to be worked out from; "Book the pieces"
-    // shows the month curve to the reader.
+    // level the daily budget has to be worked out from; the trip list shows
+    // the reader the month curve.
     const fare = flightsData && flightsData.by_country && flightsData.by_country[iso];
     if (fare > 0) bits.push("return flights avg ~" + fmtBC(fare));
     const vi = visaInfo(iso, passport);
@@ -6013,11 +6086,11 @@ function affordTitle(s) {
 //  - a factor cell jumps to that factor's detail for the country
 //  - the rest of the row opens the country's travel guide
 document.addEventListener("click", (e) => {
-  const dl = e.target.closest(".gradetable a.destlink");
+  const dl = e.target.closest(".gradetable a.destlink, #tripBook a.tbdest");
   if (dl) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // new tab/window: the browser's
     e.preventDefault();
-    openGuideFor(dl.closest("tr").dataset.iso, true);
+    openGuideFor(dl.closest("[data-iso]").dataset.iso, true);
     return;
   }
   if (e.target.closest("a")) return;
