@@ -535,7 +535,16 @@ def _shell_page(title, body, head="", analytics=True, credits=True):
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         "<title>%s</title>%s%s"
+        # The brand font and the saved theme, as index.html has them: without
+        # these the shell pages fell back to system-ui and followed the OS even
+        # after the reader had picked light or dark on the main page.
+        '<link rel="preload" href="/fonts/LDIoaomQNQcsA88c7O9yZ4KMCoOg4Ko20yygg_vb.woff2" '
+        'as="font" type="font/woff2" crossorigin>'
+        '<link rel="stylesheet" href="/fonts/jakarta.css">'
         '<link rel="stylesheet" href="/styles.css?v=%s">'
+        '<script>(function(){var t;try{t=localStorage.getItem("fx_theme")}catch(e){}'
+        'if(t!=="dark"&&t!=="light")t=window.matchMedia&&matchMedia("(prefers-color-scheme: dark)")'
+        '.matches?"dark":"light";document.documentElement.setAttribute("data-theme",t);})();</script>'
         "%s</head><body>"
         '<header><div class="headrow"><a class="homelink" href="/">'
         '<span class="brand">🌍 WanderGrade</span>'

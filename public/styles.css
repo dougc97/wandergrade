@@ -1461,6 +1461,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
   }
 }
+@media (max-width: 400px) {
+  /* With the account button showing (production) the six buttons needed
+     352px against 335 at 375 (320 at 360), so the theme button dropped onto
+     a row of its own and pushed the tabs 41px down. 6px gaps and 8px side
+     padding make it 312px: one 33px row down to 360. */
+  .headbtns { gap: 6px; }
+  .headbtns .themebtn { padding-left: 8px; padding-right: 8px; }
+}
 
 @media (max-width: 760px) {
   /* Five tabs on one row. With the padding and type tightened the five need
