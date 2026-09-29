@@ -554,6 +554,9 @@ html[data-tab="guide"] header .sitetitle,
 html[data-tab="guide"] header .sub { display: none; }
 .charthead .muted { color: var(--gray); font-weight: 400; font-size: 14px; }
 .chartsub { margin: 4px 0 0; color: var(--gray); font-size: 13px; }
+/* A credit link mid-sentence (Flights' "via Aviasales") was the browser's own
+   blue, rgb(158,158,255) in dark. It reads as the sentence, underlined. */
+.chartsub a { color: inherit; text-decoration-color: var(--line); }
 .bignum { text-align: left; line-height: 1.1; }
 #fbmChart svg:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 6px; }
 .bignum #indexnow, .bignum #colNow, .bignum #fbmNow { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -587,12 +590,12 @@ html[data-tab="guide"] header .sub { display: none; }
 /* The Data tables run to ~5,700px and their headers ("vs 1-yr avg", "Price
    level", "100 buys") scrolled away within the first screen. Sticky headers
    need no scroll container between th and the viewport: the wrapper's
-   overflow-x goes wherever the table fits (above 680 every Data table fits its
-   box; at 560 and under they are unpinned, see the phone rules), and the
-   table's radius clip becomes overflow:clip, which clips without becoming a
-   scroll container the way hidden does. The 561-680 band keeps its sideways
-   scroll and does without the sticky row. */
-@media (min-width: 681px), (max-width: 560px) { #tab-data .tablewrap { overflow-x: visible; } }
+   overflow-x goes visible at every width, since every Data table fits its box
+   (above 680 as laid out; at 680 and under none is pinned to 560, see the
+   phone rules), and the table's radius clip becomes overflow:clip, which clips
+   without becoming a scroll container the way hidden does. The 561-680 band
+   used to keep a 560 pin and a sideways scroll, and lost the sticky row. */
+#tab-data .tablewrap { overflow-x: visible; }
 #tab-data .tablewrap table { overflow: clip; }
 #tab-data .tablewrap thead th { position: sticky; top: 0; z-index: 2; }
 
@@ -612,6 +615,7 @@ tr.favorable { background: var(--green-bg); }
 .curcell { display: flex; align-items: center; gap: 9px; }
 /* Pegged currencies folded into their anchor's row (see renderRates). */
 .pegnote { font-size: 11px; color: var(--gray); margin-top: 2px; white-space: normal; }
+.pegshort { display: none; }
 .curflag { font-size: 20px; line-height: 1; flex: none; }
 .pos { color: var(--green); font-weight: 700; }
 .neg { color: var(--red); }
@@ -1147,6 +1151,9 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 .filterbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 16px auto 0; }
 .tablefilter { padding: 7px 11px; border: 1px solid var(--border-input); border-radius: 8px;
   font-size: 14px; min-width: 220px; background: var(--card); color: var(--ink); }
+/* "…currency or country…" is 209px of placeholder: 220 cut it at "count".
+   Phones keep their flex sizing (the <=560 rule outranks this). */
+#curFilter { min-width: 250px; }
 .filterbar select { padding: 7px 9px; border: 1px solid var(--border-input); border-radius: 8px;
   background: var(--card); color: var(--ink); }
 .filterbar .chk { font-size: 13px; color: var(--gray); display: inline-flex; gap: 6px; align-items: center; }
@@ -1564,6 +1571,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 @media (max-width: 680px) {
   /* keep numeric columns readable on phones — scroll sideways instead of crushing */
   .tablewrap table { min-width: 560px; }
+  /* …except the Data tables, which fit unpinned down to 360 (the <=560 rules
+     trim them) and need a visible wrapper for their sticky header. At 561-599
+     the pin made them scroll sideways in a 521-599px box; Top Picks keeps it. */
+  #tab-data .tablewrap table { min-width: 0; }
   .grid { grid-template-columns: 1fr; }
 }
 
@@ -1616,6 +1627,24 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   /* Safety's table was pinned at 560 in 347 — 213px hidden, cutting the advisory
      text mid-word. It fits unpinned. */
   #advTable { min-width: 0; }
+  /* …and then stood 236 rows up at 82-164px (26,600px of page at 390): the
+     Advisory cell spelled out, over three lines, what the Level pill beside it
+     already says (234 of 236 phrases). The phrase, its "per X" and the link's
+     word drop; the pill's tip carries them (a tap shows it). Germany's own
+     rows keep their German term (no .advtext). One 43px line a row, as on
+     desktop, and the country name ellipsizes into what is left (data rows
+     only: an opened notes row is one colspan cell that must still wrap). */
+  #advTable .advtext, #advTable .advvia, #advTable .wolong,
+  #advTable .advlinkword, #advTable .advlink::before { display: none; }
+  #advTable td:nth-child(2), #advTable td:nth-child(3) { white-space: nowrap; width: 1%; }
+  /* The German term beside "▸ notes ↗" on one nowrap line pushed the page to
+     443px at 390; on a line of its own the cell is only as wide as the word. */
+  #advTable .advde { display: block; }
+  #advRows tr[data-lvl] > td:first-child { width: 100%; max-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The lone ↗ is the whole link here: pad it to something a thumb can hit.
+     The negative margin keeps the padding out of the line box, so the tap
+     target grows without standing the row up (50px rows otherwise). */
+  #advTable .advlink { display: inline-block; padding: 4px 6px; margin: -4px 0; }
   /* The long currency names were the real column hog: "Bosnia-Herzegovina
      Convertible Mark" wrapped to three lines and stood its row up at 107px while
      starving Price level next to it. Ellipsis instead — the code above it (BAM)
@@ -1628,6 +1657,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
      ran under the rate in 39 of 139 rows. Letting it shrink is what makes the
      ellipsis above take effect. */
   #rates .curcell > div { min-width: 0; }
+  /* EUR and GBP carry every pegged code (+ XOF · XAF · …): 136px rows at 390.
+     Here it is a count; the list is in the tip, which a tap shows. */
+  #rates .peglong { display: none; }
+  #rates .pegshort { display: inline; }
   /* "1 USD =" wrapped into two header lines at this width. */
   #rateColHead .sortbtn { white-space: nowrap; }
   /* Cost of living had the same 560px pin: 213px hidden, and "$1163 of US goods"
@@ -1763,6 +1796,9 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .worow:hover { border-color: var(--green); color: var(--green); }
 .wodetail td { background: var(--card2); padding: 10px 14px 12px; }
 .wodetail .wochips { margin-top: 6px; }
+/* The advisory's own page, after the notes button. The separator belongs to
+   the link, so it goes with the link's word on phones. */
+.advlink::before { content: " · "; }
 /* Guide fare bars: same colour law as everything (green = go), but visibly a
    DIFFERENT INSTRUMENT than the temperature chart above — its own inset panel
    and slimmer bars. Differentiation by module and silhouette, not by palette:
@@ -2272,9 +2308,13 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
   vertical-align: middle; margin-left: 6px; line-height: 1.15; }
 .ovnums .grnum { margin-left: 0; }
 .ovnums .covmark { margin-top: 1px; }
-/* The name is a link to its guide (keyboard path); it looks like the name. */
-.gradetable a.destlink { color: inherit; text-decoration: none; }
-.gradetable a.destlink:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 4px; }
+/* The name is a link to its guide (keyboard path); it looks like the name.
+   Top Picks, Hidden gems and all four Data tables. */
+a.destlink { color: inherit; text-decoration: none; }
+a.destlink:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 4px; }
+/* The currency cell's link holds the code, the watch dot and the name; block,
+   so the name's phone ellipsis still has a width to cut at. */
+#rates a.destlink { display: block; }
 /* Visited rows, as the Full ranking marks them. */
 .gradetable tr.visited td.dest { color: var(--gray); }
 .gradetable tr.visited .gr { filter: saturate(.35); }
@@ -2297,3 +2337,7 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
    so the sort arrow dropped to a third line; capped, the button wraps as
    "VS / AVG ⓘ" and the arrow stays beside it. */
 @media (max-width: 374px) { #vsAvgHead .sortbtn { max-width: 3.6em; } }
+/* From 375 up it fits on one line with its arrow, but the ▼ is the th's
+   ::after, outside the button, so the header broke before it (52px thead
+   at 390). nowrap on the th keeps "VS AVG ⓘ ▼" together. */
+@media (min-width: 375px) and (max-width: 560px) { #vsAvgHead { white-space: nowrap; } }

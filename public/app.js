@@ -466,17 +466,21 @@ wireSort("#rates", curSort, CUR_SORT_DEFAULT_ASC, () => { if (dataRates) renderR
 // Headers carry class="sortable" data-sk="col" (label in a button.sortbtn);
 // each table has a getters map, a sort-state object, a first-click direction
 // map (default asc unless false), and a re-render callback.
-function sortRows(rows, state, getters) {
+// nameOf (optional) breaks ties A-Z whichever way the column runs: the Safety
+// table's default Level sort had "Vatican City" between Guam and Hungary.
+// The Top Picks tables don't pass it (their order is the ranking's).
+function sortRows(rows, state, getters, nameOf) {
   const get = getters[state.key];
   if (!get) return rows.slice();
   const dir = state.asc ? 1 : -1;
+  const tie = (a, b) => (nameOf ? String(nameOf(a)).localeCompare(String(nameOf(b))) : 0);
   return rows.slice().sort((a, b) => {
     const va = get(a), vb = get(b);
     if (typeof va === "string" || typeof vb === "string")
-      return dir * String(va).localeCompare(String(vb));
+      return dir * String(va).localeCompare(String(vb)) || tie(a, b);
     const na = va == null || !isFinite(va), nb = vb == null || !isFinite(vb);
-    if (na || nb) return na - nb;                 // blanks/unknowns always last
-    return dir * (va - vb);
+    if (na || nb) return na - nb || tie(a, b);   // blanks/unknowns always last
+    return dir * (va - vb) || tie(a, b);
   });
 }
 // WAI-ARIA APG sortable table: the th keeps its columnheader role (a role on
@@ -675,7 +679,11 @@ function renderRates(data) {
   for (const r of sortedRates(tableRows)) {
     const tr = document.createElement("tr");
     if (realGain(r)) tr.className = "favorable";
-    const sign = r.strength_pct >= 0 ? "pos" : "neg";
+    // Green only where the row is: a nominal rise that local inflation ate
+    // (TRY +9.3%), or one under the threshold, is plain ink — the favInfo ⓘ
+    // says a big % that isn't green was eaten by price rises, and 68 rows
+    // used to show a green % with no tint. Display only; the sort is nominal.
+    const sign = realGain(r) ? "pos" : r.strength_pct < 0 ? "neg" : "";
     const star = r.watched ? "" : ' <span title="not on watchlist" style="opacity:.4">·</span>';
     const sp = currencySpread(r.code);
     // Advisory level of the currency's representative country, for the
@@ -691,8 +699,22 @@ function renderRates(data) {
     if (ctry && (CUR_BY_ISO[ctry] || (ISO2SLUG && ISO2SLUG[ctry]))) {
       tr.dataset.iso = ctry; tr.title = "See the " + countryName(ctry) + " travel guide →";
     }
+    // The filter matches row text, which names currencies, not places:
+    // "mexico" found nothing. Every country that uses the currency, or one
+    // pegged into this row, rides along as searchable text.
+    tr.dataset.q = [...currencyCountries(r.code), ...(folded[r.code] || []).flatMap(currencyCountries)]
+      .map(countryName).join(" ").toLowerCase();
+    // On a phone the full list stood the EUR and GBP rows up at 136px; there
+    // it is a count, and the list lives in the tip (a tap shows it).
     const peg = folded[r.code]
-      ? `<div class="pegnote" data-tip="${esc("Fixed to the " + r.code + " at official rates, so they move with it by exactly the same %: " + folded[r.code].join(", ") + ".")}" title="">+ ${esc(folded[r.code].join(" · "))} (pegged)</div>` : "";
+      ? `<div class="pegnote" data-tip="${esc("Fixed to the " + r.code + " at official rates, so they move with it by exactly the same %: " + folded[r.code].join(", ") + ".")}" title="">`
+        + `<span class="peglong">+ ${esc(folded[r.code].join(" · "))} (pegged)</span><span class="pegshort">+${folded[r.code].length} pegged</span></div>` : "";
+    // The code and name are a link to the guide the row opens (keyboard path;
+    // a modifier-click opens a tab). Block, so the phone name ellipsis holds.
+    const ident = `<span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div>`;
+    const identCell = tr.dataset.iso
+      ? `<a class="destlink" href="${esc(guidePath(ctry))}" aria-label="${esc(r.code + ": " + countryName(ctry) + " travel guide")}">${ident}</a>`
+      : ident;
     const plCell = !sp ? `<span class="muted" data-tip="${esc(currencyCountries(r.code).length
         ? "No World Bank price data for " + currencyCountries(r.code).map(countryName).join(", ") + "."
         : "Not matched to a country.")}" title="">—</span>`
@@ -702,7 +724,7 @@ function renderRates(data) {
         + `${rel(sp.lo.pl).toFixed(2)}–${rel(sp.hi.pl).toFixed(2)}</span>`;
     const flag = currencyFlag(r.code, ctry);
     tr.innerHTML = `
-      <td><div class="curcell"><span class="curflag">${flag}</span><div><span class="code">${esc(r.code)}</span>${star}<div class="name">${esc(r.name)}</div>${peg}</div></div></td>
+      <td><div class="curcell"><span class="curflag">${flag}</span><div>${identCell}${peg}</div></div></td>
       <td class="num">${fmt(r.rate_now)}</td>
       <td class="num ${sign}">${r.strength_pct >= 0 ? "+" : ""}${r.strength_pct.toFixed(1)}%</td>
       <td class="num">${plCell}</td>
@@ -3523,25 +3545,35 @@ function renderAdvisories() {
     : [1, 2, 3, 4].map((l) => sw(LVL_MAP_COLOR[l], "L" + l)).join(" ");
 
   markSort("#advTable", advSort);
-  $("advRows").innerHTML = sortRows(advisories.items, advSort, ADV_GET).map((it) => {
+  $("advRows").innerHTML = sortRows(advisories.items, advSort, ADV_GET, ADV_GET.country).map((it) => {
     const lvl = parseInt(it.level, 10) || 0;
     const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
     const nm = advName(it);
     const guideAttr = it.iso ? ` data-iso="${esc(it.iso)}" title="See the ${esc(nm)} travel guide →"` : "";
-    const via = it.via ? `<span class="muted"> · per ${esc(advViaShort(it))}</span>` : "";
+    const via = it.via ? `<span class="muted advvia"> · per ${esc(advViaShort(it))}</span>` : "";
     // Germany's own rows: the English in the pill, the government's own word
     // in the cell (as every source's cell is its own text) and the English
     // again in the tip. The feed's date rides in the tip too, so a row says
     // when its government last looked.
     const [term, eng] = de && !it.via ? deSplit(it) : [it.level_text, ""];
-    const pill = deOwn(it) ? `<span class="lvl ${lvl === 1 ? "none" : "lvl2"}">${DE_LVL_LABEL[lvl]}</span>`
-      : `<span class="lvl lvl${lvl}">Level ${lvl}</span>`;
     const tip = [it.summary, eng && eng !== term ? eng.charAt(0).toUpperCase() + eng.slice(1) : "",
                  it.updated ? "updated " + fmtDay(it.updated) : ""].filter(Boolean).join(" · ");
+    // On a phone the advisory phrase ("Exercise Increased Caution") only
+    // repeated the pill in three lines of a 152px column, standing 236 rows
+    // up at 82-164px. There the phrase, the "per X" and the link's word drop
+    // (.advtext/.advvia/.advlinkword, styles.css), and the pill carries all of
+    // it in its tip. Germany's own rows keep their word (.advde): the pill
+    // says it in English, the cell is the only place the German term shows.
+    const pillTip = [term, it.via ? "per " + advViaShort(it) : "", tip].filter(Boolean).join(" · ");
+    const pillAttr = ` data-tip="${esc(pillTip)}" title=""`;
+    const pill = deOwn(it) ? `<span class="lvl ${lvl === 1 ? "none" : "lvl2"}"${pillAttr}>${DE_LVL_LABEL[lvl]}</span>`
+      : `<span class="lvl lvl${lvl}"${pillAttr}>Level ${lvl}</span>`;
+    const src = it.via ? advViaShort(it) : advSrcName(true);
+    const nameCell = it.iso ? `<a class="destlink" href="${esc(guidePath(it.iso))}">${esc(nm)}</a>` : esc(nm);
     return `
-    <tr data-lvl="${lvl}"${guideAttr}><td>${esc(nm)}</td>
+    <tr data-lvl="${lvl}"${guideAttr}><td>${nameCell}</td>
       <td>${pill}</td>
-      <td><span${tip ? ` data-tip="${esc(tip)}" title=""` : ""}>${esc(term)}</span>${via}${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ safety notes</button>` : ""}${safeLink ? ` · <a href="${esc(safeLink)}" target="_blank" rel="noopener">details ↗</a>` : ""}</td>
+      <td><span class="${deOwn(it) ? "advde" : "advtext"}"${tip ? ` data-tip="${esc(tip)}" title=""` : ""}>${esc(term)}</span>${via}${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ <span class="wolong">safety </span>notes</button>` : ""}${safeLink ? `<a class="advlink farelink" href="${esc(safeLink)}" target="_blank" rel="noopener" aria-label="${esc(nm)} advisory on ${esc(src)} (opens in a new tab)"><span class="advlinkword">details</span>&nbsp;<span class="ext">↗</span></a>` : ""}</td>
     </tr>`;
   }).join("");
   applyAdvFilter();
@@ -3705,11 +3737,11 @@ function wireWatchoutRows() {
     const next = tr.nextElementSibling;
     if (next && next.classList.contains("wodetail")) {
       next.remove();
-      btn.textContent = "▸ safety notes";
+      btn.innerHTML = '▸ <span class="wolong">safety </span>notes';
       btn.setAttribute("aria-expanded", "false");
       return;
     }
-    btn.textContent = "▾ safety notes";
+    btn.innerHTML = '▾ <span class="wolong">safety </span>notes';
     btn.setAttribute("aria-expanded", "true");
     const det = document.createElement("tr");
     det.className = "wodetail";
@@ -3726,7 +3758,7 @@ function wireWatchoutRows() {
       const built = watchoutsBlockHTML(w);
       det.innerHTML = '<td colspan="3">' + built.reg + built.chips
         + '<span class="advsrcnote">Per ' + esc(w.source || "Global Affairs Canada")
-        + (w.link ? ' — <a href="' + esc(w.link) + '" target="_blank" rel="noopener">details ↗</a>' : "") + "</span></td>";
+        + (w.link ? ' — <a class="farelink" href="' + esc(w.link) + '" target="_blank" rel="noopener">details&nbsp;<span class="ext">↗</span></a>' : "") + "</span></td>";
     } catch (err) {
       if (det.isConnected) det.innerHTML = '<td colspan="3"><span class="muted">Could not load watchouts.</span></td>';
     }
@@ -3823,7 +3855,7 @@ function renderAfford() {
   // repeat "of at-home goods" 176 times — the th title still says it.
   const bth = document.querySelector('#affTable th[data-sk="buys"] .sortbtn');
   if (bth) bth.textContent = hundred + " buys";
-  $("affRows").innerHTML = sortRows(rows, affSort, AFF_GET).map((r) => {
+  $("affRows").innerHTML = sortRows(rows, affSort, AFF_GET, AFF_GET.name).map((r) => {
     const rel = r.pl / anchorPl;
     const cls = rel <= 0.85 ? "pos" : rel > 1.15 ? "neg" : "";
     // countryName(), not r.name: r.name is the World Bank's label from the PPP
@@ -3831,7 +3863,7 @@ function renderAfford() {
     // the rest of the site calls these places — and the filter matches on row
     // text, so searching "Laos" found nothing.
     const cn = countryName(r.iso);
-    return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(cn)} travel guide →"><td>${esc(cn)}</td><td>${esc(r.cur)}</td>
+    return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(cn)} travel guide →"><td><a class="destlink" href="${esc(guidePath(r.iso))}">${esc(cn)}</a></td><td>${esc(r.cur)}</td>
       <td class="num ${cls}">${rel.toFixed(2)}</td>
       <td class="num">${esc(money(100 * anchorPl / r.pl))}</td></tr>`;
   }).join("");
@@ -6096,7 +6128,7 @@ function affordTitle(s) {
 //  - a factor cell jumps to that factor's detail for the country
 //  - the rest of the row opens the country's travel guide
 document.addEventListener("click", (e) => {
-  const dl = e.target.closest(".gradetable a.destlink, #tripBook a.tbdest");
+  const dl = e.target.closest(".gradetable a.destlink, #tripBook a.tbdest, #tab-data a.destlink");
   if (dl) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // new tab/window: the browser's
     e.preventDefault();
@@ -6757,7 +6789,7 @@ function renderFlights() {
   markSort("#flightTable", flightSort);
   const mth = document.querySelector('#flightTable th[data-sk="mfare"] .sortbtn');
   if (mth) mth.textContent = MON_ABBR[m - 1] + " fare";
-  $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET).map((c) => {
+  $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET, FLIGHT_GET.dest).map((c) => {
     const v = c._fv;
     const fare = Number(c.avg) ? esc(money(Number(c.avg))) : `${esc(cur)} ?`;
     const cheapest = cheapestFare(c);   // the lower of the cached rows and the month curve
@@ -6788,7 +6820,7 @@ function renderFlights() {
         + `<span class="fvband ${v.band}">${FV_WORD[v.band]}</span><span class="fvpct ${v.band}">${fmtDevPct(v.dev)}</span>`
         + fareValueBar(v) + "</span>"
       : `<span class="fv na" data-tip="${esc(fareValueWhy(v, monthName, money, range))}" title="">${v.state === "loading" || (v.state === "pending" && fv.filling) ? "…" : "—"}</span>`;
-    return `<tr data-iso="${esc(c.iso)}" title="See the ${esc(countryName(c.iso))} travel guide →"><td>${esc(countryName(c.iso))}</td>
+    return `<tr data-iso="${esc(c.iso)}" title="See the ${esc(countryName(c.iso))} travel guide →"><td><a class="destlink" href="${esc(guidePath(c.iso))}">${esc(countryName(c.iso))}</a></td>
       <td>${vs}</td>
       <td class="num">${mfare}</td>
       <td class="num">${fareCell}</td>
@@ -7150,12 +7182,24 @@ $("flightOrigin").addEventListener("change", () => setTravelOrigin($("flightOrig
 // ---- Explore-the-Data table filters ----------------------------------------
 // Generic row filter: hide rows whose text doesn't match, skipping the
 // placeholder/empty rows (which have a single cell).
+// A filter that hid every row left a bare header with no word of why, so one
+// "No matches" row stands in (one cell, so the next pass skips it too). Its
+// own class: applyFlightFilter clears .jumpempty rows right after this.
 function filterRows(tbodyId, predicate) {
   const tb = $(tbodyId);
   if (!tb) return;
+  tb.querySelectorAll("tr.filterempty").forEach((r) => r.remove());
+  let rows = 0, shown = 0;
   for (const tr of tb.querySelectorAll("tr")) {
     if (tr.children.length < 2) continue;
-    tr.style.display = predicate(tr) ? "" : "none";
+    const ok = predicate(tr);
+    tr.style.display = ok ? "" : "none";
+    rows++; if (ok) shown++;
+  }
+  if (rows && !shown) {
+    const table = tb.closest("table");
+    const n = (table && table.querySelectorAll("thead th").length) || 1;
+    tb.insertAdjacentHTML("beforeend", `<tr class="filterempty"><td colspan="${n}">No matches</td></tr>`);
   }
 }
 const _q = (id) => (($(id) && $(id).value) || "").trim().toLowerCase();
@@ -7207,7 +7251,8 @@ function applyCurrencyFilter() {
   filterRows("rows", (tr) => {
     if (!showRisky && riskyOf(tr)) return false;
     if (!regionRowOk(tr)) return false;
-    return !q || tr.textContent.toLowerCase().includes(q);
+    // Row text names currencies; dataset.q adds the countries that use them.
+    return !q || (tr.textContent + " " + (tr.dataset.q || "")).toLowerCase().includes(q);
   });
 }
 function applyAffordFilter() {
@@ -7239,6 +7284,7 @@ function applyFlightFilter() {
   tb.querySelectorAll("tr.jumpempty").forEach((r) => r.remove());
   const iso = jumpActive("flightFilter");
   if (iso && flightsData && tb.querySelector("tr[data-iso]") && !tb.querySelector(`tr[data-iso="${iso}"]`)) {
+    tb.querySelectorAll("tr.filterempty").forEach((r) => r.remove());   // this says why; not both
     tb.insertAdjacentHTML("afterbegin", `<tr class="jumpempty"><td colspan="7">No cached fares from `
       + `${esc(flightsData.origin_name || countryName(flightsData.origin))} to ${esc(countryName(iso))} yet — `
       + "the grey “~” grade on Top Picks is a distance-based estimate.</td></tr>");
@@ -10128,7 +10174,7 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest ? e.target : null;
   const mouse = (e.pointerType || _lastPtrType) === "mouse";
   const info = t && (t.closest(".hzmark, .muted[data-tip], .legendinfo, .fxinfo, .covmark")
-    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv, .gr.grx[data-tip]")));
+    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv, .gr.grx[data-tip], #advRows .lvl[data-tip], #rows .pegnote")));
   if (info) { _showTipFor(info.dataset && info.dataset.tip ? info : e.target.closest("[data-tip]")); e.stopPropagation(); return; }
   // Touch screens have no hover: a tap on any other tipped element shows it, a
   // tap elsewhere dismisses. (closest() miss hides.)
