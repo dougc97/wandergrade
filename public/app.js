@@ -100,12 +100,36 @@ let lastIndexData = null;
 // seconds and die on tab switch; sticky ones (the shared-view warnings, which
 // describe an ongoing state) stay until replaced.
 let _statusTimer = null;
-function status(msg, kind, sticky) {
+// #status and #acctnote are polite live regions. A screen reader only reads a
+// change to a region that is already showing: text that arrives in the same
+// frame that un-hides the box is never announced. So un-hide it empty, and put
+// the words in a frame later. Two requestAnimationFrames, not one: a single
+// rAF callback still runs before that frame's accessibility update, so the
+// region would appear with its text in one step, exactly as before. The empty
+// frame is transparent (opacity keeps it in the accessibility tree, where
+// hidden/visibility would not), so the toast doesn't flash an empty pill.
+// The text is prepended, not assigned: a caller may append its own controls
+// right after (the Clear-all Undo), and assigning textContent later would
+// wipe them. `quiet` keeps the old synchronous path, for page-load chatter
+// nobody needs read out.
+const _liveRaf = new WeakMap();
+function _liveSet(el, msg, quiet) {
+  cancelAnimationFrame(_liveRaf.get(el));
+  el.style.opacity = "";
+  el.textContent = quiet ? msg : "";
+  el.hidden = !msg;
+  if (!msg || quiet) return;
+  el.style.opacity = "0";
+  _liveRaf.set(el, requestAnimationFrame(() => _liveRaf.set(el, requestAnimationFrame(() => {
+    el.prepend(msg);
+    el.style.opacity = "";
+  }))));
+}
+function status(msg, kind, sticky, quiet) {
   const el = $("status");
   clearTimeout(_statusTimer);
-  el.textContent = msg;
+  _liveSet(el, msg, quiet);
   el.className = "status " + (kind || "");
-  el.hidden = !msg;
   el.dataset.sticky = sticky ? "1" : "";
   if (msg && !sticky) _statusTimer = setTimeout(() => { el.hidden = true; }, 6000);
 }
@@ -717,7 +741,8 @@ function renderRates(data) {
 // and repaint the table in the old currency under the new picker.
 let _ratesSeq = 0;
 async function loadRates() {
-  status("Fetching rates…");
+  // Quiet: a polite live region would otherwise read this out on every load.
+  status("Fetching rates…", "", false, true);
   const base = homeBase, seq = ++_ratesSeq;
   try {
     // Top Picks scoring always needs the USD dataset, even when the data tab
@@ -7854,6 +7879,9 @@ function clearActiveList() {
   const undo = document.createElement("button");
   undo.type = "button"; undo.className = "linkbtn"; undo.textContent = "Undo";
   undo.onclick = () => {
+    // The status() below replaces the toast, Undo included: a keyboard user
+    // on it would drop to <body>. Clear all is where they came from.
+    if (document.activeElement === undo) $("visitedClear").focus();
     if (wasShared) {
       set.clear(); prev.forEach((iso) => set.add(iso));
       sharedVisitedView = true;
@@ -7869,8 +7897,16 @@ function clearActiveList() {
     status("Restored your " + label + " list.", "ok");
   };
   $("status").append(" ", undo);
+  // The toast floats at the foot of the screen, ~30 Tabs from the button that
+  // raised it, and it lives 8 seconds: a keyboard user could never reach Undo
+  // in time. Put them on it; when the toast goes, give focus back to Clear all
+  // rather than letting it drop to <body> with the hidden button.
+  if (_kbdNav) undo.focus();
   clearTimeout(_statusTimer);   // the Undo stays exactly as long as the hold
-  _statusTimer = setTimeout(() => { $("status").hidden = true; }, CLEAR_UNDO_MS);
+  _statusTimer = setTimeout(() => {
+    $("status").hidden = true;
+    if (document.activeElement === undo) $("visitedClear").focus();
+  }, CLEAR_UNDO_MS);
 }
 
 const VISITED_COLOR = "#0a7d28", WISH_COLOR = "#2b6cb0";
@@ -10554,9 +10590,8 @@ const SIGNIN_RESULT = new URLSearchParams(location.search).get("signin");
 function acctNote(msg, kind) {
   const el = $("acctnote");
   if (!el) return;
-  el.textContent = msg;
+  _liveSet(el, msg);   // announced, like status()
   el.className = "status " + (kind || "");
-  el.hidden = !msg;
 }
 if (ACCT_ON) {
   acctLoad().then(async () => {
