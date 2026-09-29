@@ -10120,17 +10120,27 @@ if ($("valueShare")) $("valueShare").addEventListener("click", () => {
 // suppresses the ancestor row's native tooltip from doubling up.)
 const _tipEl = document.createElement("div");
 _tipEl.className = "wgtip";
+_tipEl.id = "wgtip";
+_tipEl.setAttribute("role", "tooltip");
 _tipEl.hidden = true;
 document.body.appendChild(_tipEl);
 let _tipFor = null;   // the element the tooltip is currently displaying for
 
-function _hideTip() { _tipEl.hidden = true; _tipFor = null; }
+// While a tip shows, its element is described by it, so a screen reader that
+// lands on an ⓘ reads the tip's words, not just "More info". Only our own
+// link is removed — never an aria-describedby the markup set itself.
+function _tipUnlink() {
+  if (_tipFor && _tipFor.getAttribute("aria-describedby") === "wgtip") _tipFor.removeAttribute("aria-describedby");
+}
+function _hideTip() { _tipUnlink(); _tipEl.hidden = true; _tipFor = null; }
 
 function _showTipFor(t) {
   if (!t || !t.dataset.tip) { _hideTip(); return; }
   // Already showing for this exact element — don't reposition, that just jitters.
   if (t === _tipFor && !_tipEl.hidden) return;
+  _tipUnlink();
   _tipFor = t;
+  if (!t.hasAttribute("aria-describedby")) t.setAttribute("aria-describedby", "wgtip");
   _tipEl.textContent = t.dataset.tip;
   _tipEl.hidden = false;
   const r = t.getBoundingClientRect();
@@ -10194,6 +10204,44 @@ document.addEventListener("click", (e) => {
 document.addEventListener("focusin", _tipShowFor);
 document.addEventListener("focusout", () => _hideTip());
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") _hideTip(); });
+
+// ...but a <span>ⓘ</span> can't take focus, so that path never fired for the
+// marks it was written for. Every info mark becomes a Tab stop: the ⓘ hints
+// (by their glyph, which leaves out the per-row "—" cells and grade pills that
+// share .muted[data-tip]), the award tags and the guide's watch-out chips.
+// A mark that is only the glyph is named "More info"; one with words
+// ("~7% of the world ⓘ", "How these compare ⓘ") keeps them. Marks inside a
+// button or link are left alone: a focusable inside a control is a nested
+// control, which screen readers can't reach and axe fails. One subtree
+// observer covers the static page and every later render (tables, guides).
+const _TIPMARK_SEL = [".muted[data-tip]", ".legendinfo[data-tip]", ".fxinfo[data-tip]", ".awardtag[data-tip]",
+  ".wochip[data-tip]", ".vstats-line [data-tip]"].map((q) => q + ":not([tabindex])").join(", ");
+const _tipMarkEls = new WeakSet();
+function _tipMarks() {
+  for (const el of document.querySelectorAll(_TIPMARK_SEL)) {
+    const txt = el.textContent;
+    if (!txt.includes("ⓘ") && !el.matches(".awardtag, .wochip")) continue;
+    if (el.parentElement && el.parentElement.closest("button, a")) continue;
+    el.tabIndex = 0;
+    el.setAttribute("role", "button");
+    if (txt.trim() === "ⓘ") el.setAttribute("aria-label", "More info");
+    _tipMarkEls.add(el);
+  }
+}
+_tipMarks();
+new MutationObserver((muts) => {
+  // The tooltip's own text swaps on every hover; nothing to mark there.
+  if (muts.every((m) => m.target === _tipEl)) return;
+  _tipMarks();
+}).observe(document.body, { childList: true, subtree: true });
+// role=button answers Enter and Space: both (re)show the tip — after Escape,
+// say — and Space must not scroll the page out from under it.
+document.addEventListener("keydown", (e) => {
+  if ((e.key === " " || e.key === "Enter") && _tipMarkEls.has(e.target)) {
+    e.preventDefault();
+    _showTipFor(e.target);
+  }
+});
 
 // Every modal is a .submodal div appended to body and removed on close, so ONE
 // observer gives all of them dialog semantics and focus management — focus
