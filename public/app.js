@@ -3354,9 +3354,13 @@ function renderCountryClimate(iso) {
   // The "Comfiest weather / Least comfy" line that sat here was cut: it named
   // curated best months as least comfy on the next line (the classes split the
   // country's own range into thirds), and the label colours already carry it.
+  // regionOf, not ISO_REGION alone: 11 guides (North Korea, El Salvador…)
+  // are missing from that table and headed "· —". Antarctica and the French
+  // Southern Lands have no region at all, so no suffix.
+  const rg = REGIONS[regionOf(iso)];
   $("bestDetail").innerHTML = `
     <div class="besthead">
-      <h2>Best time to visit ${esc(c.name)} <span class="muted">· ${REGIONS[ISO_REGION[iso]] || "—"}</span>${
+      <h2>Best time to visit ${esc(c.name)}${rg ? ` <span class="muted">· ${rg}</span>` : ""}${
         hasTemps ? `<span class="legendinfo" data-tip="${esc(legend)}" title="">ⓘ</span>` : ""}</h2>
       ${unitToggle}
     </div>
