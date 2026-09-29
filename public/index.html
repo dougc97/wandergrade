@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en"{{HTML_TAB}}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -97,12 +97,20 @@
        what pushed "Data" onto a row of its own at 390), and Travel Guide has a
        short twin for the narrowest screens — see the phone rules in styles.css. -->
   <nav class="tabs" id="tabs">
-    <button data-tab="value" class="active"><span class="temoji" aria-hidden="true">🧭 </span>Top Picks</button>
-    <button data-tab="guide"><span class="temoji" aria-hidden="true">📅 </span><span class="lbl-tab-lg">Travel Guide</span><span class="lbl-tab-sm">Guide</span></button>
+    <button data-tab="value"{{VALUE_ACTIVE}}><span class="temoji" aria-hidden="true">🧭 </span>Top Picks</button>
+    <button data-tab="guide"{{GUIDE_ACTIVE}}><span class="temoji" aria-hidden="true">📅 </span><span class="lbl-tab-lg">Travel Guide</span><span class="lbl-tab-sm">Guide</span></button>
     <button data-tab="trip"><span class="temoji" aria-hidden="true">🧳 </span><span id="tripTabLabel">Trip</span></button>
     <button data-tab="visited"><span class="temoji" aria-hidden="true">🗺️ </span>Wander List</button>
     <button data-tab="data"><span class="temoji" aria-hidden="true">📊 </span>Data</button>
   </nav>
+  <!-- The server marks the tab it rendered (Top Picks, or the guide on
+       /guide/<slug>, so a no-JS reader sees the right one); ?tab= links need
+       the head script's data-tab. Set here, before first paint, so the
+       underline never sits on Top Picks until app.js arrives — activateTab
+       keeps it in sync after that. -->
+  <script>(function(){var t=document.documentElement.getAttribute("data-tab");
+    document.querySelectorAll("#tabs button").forEach(function(b){var on=b.dataset.tab===t;
+      b.classList.toggle("active",on);if(on)b.setAttribute("aria-current","true");else b.removeAttribute("aria-current");});})();</script>
 
   <div id="status" class="status" hidden></div>
   <!-- Sign-in results live in their own slot: #status is a transient line that
@@ -110,7 +118,7 @@
   <div id="acctnote" class="status" hidden></div>
 
   <!-- ============ TAB: TOP PICKS ============ -->
-  <section class="tab" id="tab-value">
+  <section class="tab" id="tab-value"{{VALUE_HIDDEN}}>
     <div class="cardwide">
       <div class="charthead">
         <div>
@@ -332,7 +340,7 @@
   </section>
 
   <!-- ============ TAB: TRAVEL GUIDE ============ -->
-  <section class="tab" id="tab-guide" hidden>
+  <section class="tab" id="tab-guide"{{GUIDE_HIDDEN}}>
     <div class="cardwide">
       <div class="charthead">
         <div>
