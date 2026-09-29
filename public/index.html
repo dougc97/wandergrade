@@ -104,10 +104,10 @@
     <button data-tab="data"><span class="temoji" aria-hidden="true">📊 </span>Data</button>
   </nav>
 
-  <div id="status" class="status" hidden></div>
+  <div id="status" class="status" role="status" aria-live="polite" hidden></div>
   <!-- Sign-in results live in their own slot: #status is a transient line that
        loadRates() clears a second after load, which swallowed this entirely. -->
-  <div id="acctnote" class="status" hidden></div>
+  <div id="acctnote" class="status" role="status" aria-live="polite" hidden></div>
 
   <!-- ============ TAB: TOP PICKS ============ -->
   <section class="tab" id="tab-value">

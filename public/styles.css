@@ -304,8 +304,9 @@ button:hover { border-color: #999; }
   position: fixed; left: 50%; bottom: 16px; top: auto; margin: 0; transform: translateX(-50%);
   z-index: 1600; width: max-content; max-width: min(560px, calc(100% - 32px));
   box-shadow: 0 4px 16px rgba(0,0,0,.18); }
-/* The Undo in a toast reads in the toast's own colour, not the system link blue. */
-.status .linkbtn { color: inherit; font-weight: 600; }
+/* The Undo in a toast reads in the toast's own colour, not the system link blue.
+   The padding makes it a 24px-tall target (it was 20px of bare text). */
+.status .linkbtn { color: inherit; font-weight: 600; padding: 4px 6px; }
 
 .settings { background: var(--card); border: 1px solid var(--line); border-radius: 10px; margin-top: 16px; padding: 18px 20px; }
 .settings h2 { margin-top: 0; }

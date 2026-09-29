@@ -100,12 +100,36 @@ let lastIndexData = null;
 // seconds and die on tab switch; sticky ones (the shared-view warnings, which
 // describe an ongoing state) stay until replaced.
 let _statusTimer = null;
-function status(msg, kind, sticky) {
+// #status and #acctnote are polite live regions. A screen reader only reads a
+// change to a region that is already showing: text that arrives in the same
+// frame that un-hides the box is never announced. So un-hide it empty, and put
+// the words in a frame later. Two requestAnimationFrames, not one: a single
+// rAF callback still runs before that frame's accessibility update, so the
+// region would appear with its text in one step, exactly as before. The empty
+// frame is transparent (opacity keeps it in the accessibility tree, where
+// hidden/visibility would not), so the toast doesn't flash an empty pill.
+// The text is prepended, not assigned: a caller may append its own controls
+// right after (the Clear-all Undo), and assigning textContent later would
+// wipe them. `quiet` keeps the old synchronous path, for page-load chatter
+// nobody needs read out.
+const _liveRaf = new WeakMap();
+function _liveSet(el, msg, quiet) {
+  cancelAnimationFrame(_liveRaf.get(el));
+  el.style.opacity = "";
+  el.textContent = quiet ? msg : "";
+  el.hidden = !msg;
+  if (!msg || quiet) return;
+  el.style.opacity = "0";
+  _liveRaf.set(el, requestAnimationFrame(() => _liveRaf.set(el, requestAnimationFrame(() => {
+    el.prepend(msg);
+    el.style.opacity = "";
+  }))));
+}
+function status(msg, kind, sticky, quiet) {
   const el = $("status");
   clearTimeout(_statusTimer);
-  el.textContent = msg;
+  _liveSet(el, msg, quiet);
   el.className = "status " + (kind || "");
-  el.hidden = !msg;
   el.dataset.sticky = sticky ? "1" : "";
   if (msg && !sticky) _statusTimer = setTimeout(() => { el.hidden = true; }, 6000);
 }
@@ -717,7 +741,8 @@ function renderRates(data) {
 // and repaint the table in the old currency under the new picker.
 let _ratesSeq = 0;
 async function loadRates() {
-  status("Fetching rates…");
+  // Quiet: a polite live region would otherwise read this out on every load.
+  status("Fetching rates…", "", false, true);
   const base = homeBase, seq = ++_ratesSeq;
   try {
     // Top Picks scoring always needs the USD dataset, even when the data tab
@@ -4601,6 +4626,7 @@ async function loadValueFlights(silent) {
 // ---- searchable dropdowns (custom combobox over a native <select>) ---------
 // Non-invasive: the native select stays the source of truth (existing .value /
 // change logic is untouched); we overlay a type-to-filter input + list.
+let _comboN = 0;   // unique list ids, for aria-controls / aria-activedescendant
 function enhanceSelect(sel) {
   if (!sel || sel.dataset.combo || sel.options.length < 10) return;
   sel.dataset.combo = "1";
@@ -4622,7 +4648,18 @@ function enhanceSelect(sel) {
     lblTxt || sel.title || sel.getAttribute("aria-label") || sel.id || "search");
   const list = document.createElement("ul");
   list.className = "combo-list"; list.hidden = true;
-  const setOpen = (open) => { list.hidden = !open; input.setAttribute("aria-expanded", String(open)); };
+  // A scrollable list is a Tab stop in Chrome: Tab from the input landed on
+  // it, the input's blur then hid it, and focus fell to <body>. -1 keeps it
+  // out of the Tab order, so Tab goes on to the next control. Options are
+  // announced through aria-activedescendant while focus stays in the input.
+  list.tabIndex = -1;
+  list.id = "cl" + (++_comboN);
+  list.setAttribute("role", "listbox");
+  input.setAttribute("aria-controls", list.id);
+  const setOpen = (open) => {
+    list.hidden = !open; input.setAttribute("aria-expanded", String(open));
+    if (!open) input.removeAttribute("aria-activedescendant");
+  };
   sel.parentNode.insertBefore(wrap, sel);
   wrap.appendChild(input); wrap.appendChild(list); wrap.appendChild(sel);
   sel.style.display = "none";
@@ -4634,9 +4671,11 @@ function enhanceSelect(sel) {
     q = (q || "").trim().toLowerCase();
     const opts = [...sel.options].filter((o) => o.value !== "" && o.textContent.toLowerCase().includes(q));
     list.innerHTML = opts.length
-      ? opts.map((o) => `<li class="combo-opt" data-val="${esc(o.value)}">${esc(o.textContent.trim())}</li>`).join("")
-      : '<li class="combo-opt muted">No matches</li>';
+      ? opts.map((o, i) => `<li class="combo-opt" role="option" id="${list.id}-${i}" data-val="${esc(o.value)}">${esc(o.textContent.trim())}</li>`).join("")
+      : '<li class="combo-opt muted" role="option" aria-disabled="true">No matches</li>';
     active = -1;
+    // The ids were just reissued, so an old one would now name a different option.
+    input.removeAttribute("aria-activedescendant");
   };
   // "change" only when the value moved (listeners re-render); "pick" on
   // every choice, for controls where re-picking the shown value means
@@ -4657,7 +4696,10 @@ function enhanceSelect(sel) {
     else if (e.key === "Escape") { setOpen(false); input.value = labelFor(); input.blur(); return; }
     else return;
     items.forEach((it, i) => it.classList.toggle("active", i === active));
-    if (items[active]) items[active].scrollIntoView({ block: "nearest" });
+    if (items[active]) {
+      input.setAttribute("aria-activedescendant", items[active].id);
+      items[active].scrollIntoView({ block: "nearest" });
+    }
   });
   list.addEventListener("mousedown", (e) => {   // mousedown beats the input blur
     const li = e.target.closest(".combo-opt[data-val]");
@@ -7843,6 +7885,9 @@ function clearActiveList() {
   const undo = document.createElement("button");
   undo.type = "button"; undo.className = "linkbtn"; undo.textContent = "Undo";
   undo.onclick = () => {
+    // The status() below replaces the toast, Undo included: a keyboard user
+    // on it would drop to <body>. Clear all is where they came from.
+    if (document.activeElement === undo) $("visitedClear").focus();
     if (wasShared) {
       set.clear(); prev.forEach((iso) => set.add(iso));
       sharedVisitedView = true;
@@ -7858,8 +7903,16 @@ function clearActiveList() {
     status("Restored your " + label + " list.", "ok");
   };
   $("status").append(" ", undo);
+  // The toast floats at the foot of the screen, ~30 Tabs from the button that
+  // raised it, and it lives 8 seconds: a keyboard user could never reach Undo
+  // in time. Put them on it; when the toast goes, give focus back to Clear all
+  // rather than letting it drop to <body> with the hidden button.
+  if (_kbdNav) undo.focus();
   clearTimeout(_statusTimer);   // the Undo stays exactly as long as the hold
-  _statusTimer = setTimeout(() => { $("status").hidden = true; }, CLEAR_UNDO_MS);
+  _statusTimer = setTimeout(() => {
+    $("status").hidden = true;
+    if (document.activeElement === undo) $("visitedClear").focus();
+  }, CLEAR_UNDO_MS);
 }
 
 const VISITED_COLOR = "#0a7d28", WISH_COLOR = "#2b6cb0";
@@ -10075,17 +10128,27 @@ if ($("valueShare")) $("valueShare").addEventListener("click", () => {
 // suppresses the ancestor row's native tooltip from doubling up.)
 const _tipEl = document.createElement("div");
 _tipEl.className = "wgtip";
+_tipEl.id = "wgtip";
+_tipEl.setAttribute("role", "tooltip");
 _tipEl.hidden = true;
 document.body.appendChild(_tipEl);
 let _tipFor = null;   // the element the tooltip is currently displaying for
 
-function _hideTip() { _tipEl.hidden = true; _tipFor = null; }
+// While a tip shows, its element is described by it, so a screen reader that
+// lands on an ⓘ reads the tip's words, not just "More info". Only our own
+// link is removed — never an aria-describedby the markup set itself.
+function _tipUnlink() {
+  if (_tipFor && _tipFor.getAttribute("aria-describedby") === "wgtip") _tipFor.removeAttribute("aria-describedby");
+}
+function _hideTip() { _tipUnlink(); _tipEl.hidden = true; _tipFor = null; }
 
 function _showTipFor(t) {
   if (!t || !t.dataset.tip) { _hideTip(); return; }
   // Already showing for this exact element — don't reposition, that just jitters.
   if (t === _tipFor && !_tipEl.hidden) return;
+  _tipUnlink();
   _tipFor = t;
+  if (!t.hasAttribute("aria-describedby")) t.setAttribute("aria-describedby", "wgtip");
   _tipEl.textContent = t.dataset.tip;
   _tipEl.hidden = false;
   const r = t.getBoundingClientRect();
@@ -10149,6 +10212,44 @@ document.addEventListener("click", (e) => {
 document.addEventListener("focusin", _tipShowFor);
 document.addEventListener("focusout", () => _hideTip());
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") _hideTip(); });
+
+// ...but a <span>ⓘ</span> can't take focus, so that path never fired for the
+// marks it was written for. Every info mark becomes a Tab stop: the ⓘ hints
+// (by their glyph, which leaves out the per-row "—" cells and grade pills that
+// share .muted[data-tip]), the award tags and the guide's watch-out chips.
+// A mark that is only the glyph is named "More info"; one with words
+// ("~7% of the world ⓘ", "How these compare ⓘ") keeps them. Marks inside a
+// button or link are left alone: a focusable inside a control is a nested
+// control, which screen readers can't reach and axe fails. One subtree
+// observer covers the static page and every later render (tables, guides).
+const _TIPMARK_SEL = [".muted[data-tip]", ".legendinfo[data-tip]", ".fxinfo[data-tip]", ".awardtag[data-tip]",
+  ".wochip[data-tip]", ".vstats-line [data-tip]"].map((q) => q + ":not([tabindex])").join(", ");
+const _tipMarkEls = new WeakSet();
+function _tipMarks() {
+  for (const el of document.querySelectorAll(_TIPMARK_SEL)) {
+    const txt = el.textContent;
+    if (!txt.includes("ⓘ") && !el.matches(".awardtag, .wochip")) continue;
+    if (el.parentElement && el.parentElement.closest("button, a")) continue;
+    el.tabIndex = 0;
+    el.setAttribute("role", "button");
+    if (txt.trim() === "ⓘ") el.setAttribute("aria-label", "More info");
+    _tipMarkEls.add(el);
+  }
+}
+_tipMarks();
+new MutationObserver((muts) => {
+  // The tooltip's own text swaps on every hover; nothing to mark there.
+  if (muts.every((m) => m.target === _tipEl)) return;
+  _tipMarks();
+}).observe(document.body, { childList: true, subtree: true });
+// role=button answers Enter and Space: both (re)show the tip — after Escape,
+// say — and Space must not scroll the page out from under it.
+document.addEventListener("keydown", (e) => {
+  if ((e.key === " " || e.key === "Enter") && _tipMarkEls.has(e.target)) {
+    e.preventDefault();
+    _showTipFor(e.target);
+  }
+});
 
 // Every modal is a .submodal div appended to body and removed on close, so ONE
 // observer gives all of them dialog semantics and focus management — focus
@@ -10562,9 +10663,8 @@ const SIGNIN_RESULT = new URLSearchParams(location.search).get("signin");
 function acctNote(msg, kind) {
   const el = $("acctnote");
   if (!el) return;
-  el.textContent = msg;
+  _liveSet(el, msg);   // announced, like status()
   el.className = "status " + (kind || "");
-  el.hidden = !msg;
 }
 if (ACCT_ON) {
   acctLoad().then(async () => {
