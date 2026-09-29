@@ -287,13 +287,13 @@
         <section class="chartcard tunecard" id="tuneCard">
           <div class="charthead compact">
             <h2>⚙️ Tune the ranking</h2>
-            <span class="muted" data-tip="What matters most to you: High, Med or Low per factor reweights every grade, the picks and the map. Rank by switches the map and the tables between the blended value score and weather comfort alone." title="">ⓘ</span>
+            <span class="muted" data-tip="What matters most to you: High, Med or Low per factor reweights every grade, the picks and the map. Rank by switches the map and the tables between the blended value score and weather comfort alone; in Best weather, High/Med/Low still set each country's Overall score." title="">ⓘ</span>
           </div>
           <div class="rankby">
             <span class="picklabel">Rank by</span>
             <div class="windowtoggle" id="valueMapMode">
-              <button data-vm="score" class="active">Best value</button>
-              <button data-vm="weather">Best weather</button>
+              <button data-vm="score" class="active" aria-pressed="true">Best value</button>
+              <button data-vm="weather" aria-pressed="false">Best weather</button>
             </div>
           </div>
           <div class="weightrows" id="weightRows"></div>
@@ -304,23 +304,27 @@
       <details class="foldable" id="tableBox">
         <summary>📋 Full ranking &amp; the math <span class="muted">— every score, top 40 by any column</span></summary>
         <p class="tablekey" id="rankNote" hidden></p>
-        <p class="tablekey">Safety grades map 1-to-1 to <span id="safeKeySrc">U.S. State Department</span> advisories<span class="muted" data-tip="Choose US, Canadian or German advice under 📊 Data → ⚠️ Safety. Where that government publishes nothing, one of the other two fills the gap, and the Safety grade's hover names which." title=""> ⓘ</span>:
-          A = <span class="advtag a1">L1</span> normal precautions ·
-          B = <span class="advtag a2">L2</span> increased caution ·
-          D = <span class="advtag a3">L3</span> reconsider travel ·
-          <span class="advtag a4">L4</span> do not travel is excluded entirely ·
-          places none of the three rate aren't graded or ranked</p>
+        <!-- One line: the scores the 🛡️ column shows, keyed in the chips the cells
+             use. The old paragraph explained letters (A = L1 …) this table never
+             shows; the detail lives in the ⓘ. #safeKeySrc stays visible so the
+             reader's own government is named (labelSafetySource). -->
+        <p class="tablekey rankkey"><span aria-hidden="true">🛡️</span> <span id="safeKeySrc">U.S. State Department</span>:
+          <span class="vchip" data-g="A">100</span> Level 1 ·
+          <span class="vchip" data-g="B">70</span> Level 2 ·
+          <span class="vchip" data-g="D">35</span> Level 3
+          <span class="keysep">·</span> <span aria-hidden="true">✈️</span> <span class="vchip" data-g="x">~70</span> estimated fare<span class="muted" data-tip="Safety follows the government you choose under 📊 Data → ⚠️ Safety (US, Canada or Germany). Where it publishes nothing, one of the other two fills the gap, and the cell's hover names which. Level 4, do not travel, is left out entirely, and places none of the three rate aren't graded or ranked. A ~ flight score means no cached fare: it counts as a typical fare for the distance." title=""> ⓘ</span></p>
         <section class="tablewrap">
           <table id="valueTable">
             <thead><tr>
-              <th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th>
-              <th class="num sortable" aria-sort="none" data-sk="value" title="overall 0-100 score blending everything below"><button type="button" class="sortbtn">Value</button></th>
-              <th class="num sortable" aria-sort="none" data-sk="afford" title="cost of living vs home + how strong your currency is now"><button type="button" class="sortbtn">Affordability</button></th>
-              <th class="num sortable" aria-sort="none" data-sk="safety" title="government travel-advisory level — source picked under Data → Safety"><button type="button" class="sortbtn">Safety</button></th>
-              <th class="num sortable" aria-sort="none" data-sk="weather" title="weather comfort for your chosen month"><button type="button" class="sortbtn">Weather</button></th>
-              <th class="num sortable" aria-sort="none" data-sk="flight" title="flight deal score 0-100 (fare vs typical for the distance); exact prices in the Flights tab"><button type="button" class="sortbtn">Flight</button></th>
+              <th class="rank"><span class="vh">Rank</span></th>
+              <th class="dest sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th>
+              <th class="num sortable" aria-sort="none" data-sk="afford" title="cost of living vs home + how strong your currency is now"><button type="button" class="sortbtn"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></button></th>
+              <th class="num sortable" aria-sort="none" data-sk="safety" title="government travel-advisory level — source picked under Data → Safety"><button type="button" class="sortbtn"><span aria-hidden="true">🛡️</span> <span class="thword">Safety</span></button></th>
+              <th class="num sortable" aria-sort="none" data-sk="weather" title="weather comfort for your chosen month"><button type="button" class="sortbtn"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></button></th>
+              <th class="num sortable" aria-sort="none" data-sk="flight" title="this month's fare vs the route's usual where we have cached months; otherwise the year-round fare vs a typical fare for the distance · ~ = no cached fare, counted as typical"><button type="button" class="sortbtn"><span aria-hidden="true">✈️</span> <span class="thword">Flights</span></button></th>
+              <th class="num sortable ovh" aria-sort="none" data-sk="value" title="everything blended, weighted by your priorities"><button type="button" class="sortbtn">Overall</button></th>
             </tr></thead>
-            <tbody id="valueRows"><tr><td colspan="6">Loading…</td></tr></tbody>
+            <tbody id="valueRows"><tr><td colspan="7">Loading…</td></tr></tbody>
           </table>
         </section>
       </details>

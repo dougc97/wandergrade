@@ -1846,7 +1846,8 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
   .gradetable td.rank { width: 4%; }
   .gradetable td.dest, .gradetable th.dest { width: 28%; }
   .gradetable td.scell, .gradetable td.overall { width: 13.5%; }
-  #valueTable td.num, #valueTable th.num { width: 13%; }
+  #valueTable td.rank { width: 4%; }
+  #valueTable td.num, #valueTable th.num { width: 12%; }
 }
 
 /* Remaining sub-24px controls found in the same 390px audit.
@@ -2115,4 +2116,98 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
   #flightTable tr[data-iso] td:first-child { max-width: 100px; }
   #flightTable td { font-size: 13px; }
   #flightTable th, #flightTable td { padding-left: 5px; padding-right: 5px; }
+}
+
+/* Visually hidden, still read by screen readers. */
+.vh { position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+
+/* ---- Top Picks: Tune the ranking ---------------------------------------- */
+/* Each High/Med/Low beside its label, on one column with the Rank-by toggle
+   (124 + 10 gap = 126 + 8 gap = 134px), instead of space-between leaving
+   320-356px between a label and its control on a desktop card. */
+.tunecard .prirow { justify-content: flex-start; }
+.tunecard .prilabel { flex: 0 0 124px; }
+.tunecard .rankby .picklabel { flex: 0 0 126px; }
+/* A fixed box per emoji so the words line up (🌤️ runs wider than 💰). */
+.prilabel .pico { display: inline-block; width: 1.5em; }
+/* A factor Count leaves out weighs nothing: its row says so. */
+.tunecard .prirow.off .prilabel, .tunecard .prirow.off .prigroup { opacity: .45; }
+
+/* ---- Top Picks: Full ranking & the math -------------------------------- */
+/* Raw 0-100 scores, tinted by their grade: the popular table's colours at
+   26% under ink text (8.8:1 dark, 14:1 light at the worst tint), not the
+   solid .grX pills, whose black letters would sit on a dark-mode tint. */
+.vchip { display: inline-block; min-width: 32px; padding: 1px 6px; border-radius: 6px;
+  font-weight: 600; font-variant-numeric: tabular-nums; text-align: center; color: var(--ink);
+  background: color-mix(in srgb, var(--gc, #6b7681) 26%, transparent); }
+.vchip[data-g="A+"] { --gc: #067a23; }
+.vchip[data-g="A"]  { --gc: #2f9e44; }
+.vchip[data-g="B+"] { --gc: #74b816; }
+.vchip[data-g="B"]  { --gc: #c9a200; }
+.vchip[data-g="C"]  { --gc: #e8590c; }
+.vchip[data-g="D"]  { --gc: #d9480f; }
+.vchip[data-g="F"]  { --gc: #b00020; }
+/* Estimated: grey, and quieter than any measured score. */
+.vchip[data-g="x"]  { --gc: #6b7681; color: var(--gray); background: color-mix(in srgb, var(--gc) 16%, transparent); }
+.rankkey .vchip { min-width: 0; padding: 0 5px; font-size: 11px; }
+#valueTable th.num, #valueTable td.num { text-align: center; }
+/* One line per header: at 12% "💰 AFFORDABILITY" stacked its emoji over the
+   word and doubled the header row. */
+#valueTable th { white-space: nowrap; }
+#valueTable td.rank { color: var(--gray); font-weight: 800; font-size: 13px; width: 34px; padding-right: 0; }
+#valueTable td.dest { font-weight: 600; white-space: nowrap; }
+/* The column the rows are ordered by — by hand, or by Rank by. */
+#valueTable td.sorted .vchip { font-weight: 800; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gc, #6b7681) 70%, transparent); }
+/* Overall: last, on its own band, the popular table's solid pill with the
+   number in it. */
+#valueTable th.ovh, #valueTable td.ovcell { background: var(--card2); border-left: 1px solid var(--line); }
+#valueTable td.ovcell .gr { min-width: 34px; }
+/* Visited: grey the name, keep the numbers readable (opacity .55 took ink to
+   3.9:1 and washed the tints into bad-looking grades). */
+#valueTable tr.visited td.dest { color: var(--gray); }
+#valueTable tr.visited .vchip, #valueTable tr.visited .gr { filter: saturate(.35); }
+/* Sticky header over 40 rows — the Data tab's recipe: the wrapper stops
+   being a scroll container (the table fits at every width, see the name
+   column below 760), and the table clips its corners with overflow:clip,
+   which does not make one either. */
+#tableBox .tablewrap { overflow-x: visible; }
+#tableBox .tablewrap table { overflow: clip; }
+#tableBox .tablewrap thead th { position: sticky; top: 0; z-index: 2; }
+
+@media (max-width: 760px) {
+  /* Header words to their emoji, as the popular table does; the words stay
+     for screen readers. */
+  #valueTable th .thword { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  /* One line per row: the name takes whatever the five score columns leave
+     (width 100% + max-width 0 is the auto-layout idiom for "the rest") and
+     ends in … if it must — the full name is the cell's title. A fixed cap
+     overflowed by 25px once live "~70" fare chips widened ✈️, and a rule
+     scoped to phones left the 561-760 band 1px too wide. */
+  #valueTable td.dest { overflow: hidden; text-overflow: ellipsis; width: 100%; max-width: 0; }
+}
+@media (max-width: 680px) {
+  /* Fits the phone now: no 560px floor, so no sideways scroll. */
+  #valueTable { min-width: 0; }
+}
+@media (max-width: 560px) {
+  #valueTable th, #valueTable td { padding: 8px 3px; }
+  #valueTable th.dest, #valueTable td.dest { padding-left: 10px; }
+  #valueTable th { letter-spacing: 0; white-space: nowrap; }
+  /* "OVERALL ▼" on one line made the pill column 64px wide; the arrow may
+     drop under the word, and the column is the pill's width again. */
+  #valueTable th.ovh { font-size: 10px; white-space: normal; line-height: 1.2; }
+  #valueTable .rank { display: none; }
+  #valueTable .vchip { min-width: 0; padding: 2px 4px; font-size: 12px; }
+  #valueTable td.ovcell .gr { min-width: 0; padding: 2px 5px; font-size: 12px; }
+  #valueTable .vtword { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  /* The summary's tail wrapped it to two lines. */
+  #tableBox > summary .muted { display: none; }
+  .rankkey .keysep { display: none; }
+}
+@media (max-width: 374px) {
+  #valueTable th, #valueTable td { padding: 7px 2px; }
+  #valueTable th.dest, #valueTable td.dest { padding-left: 8px; }
 }

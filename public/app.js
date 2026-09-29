@@ -3380,6 +3380,17 @@ function labelSafetySource() {
   const th = document.querySelector('#valueTable th[data-sk="safety"]');
   if (th) th.title = advSafetyTitle();
 }
+// The Full ranking's Overall header says what it is made of, from the
+// weights actually in force (Count off = "off"). The weights are the core of
+// "the math" and were shown nowhere.
+function labelFullRanking(W) {
+  const th = document.querySelector('#valueTable th[data-sk="value"]');
+  if (!th) return;
+  const tot = Object.values(W).reduce((a, b) => a + b, 0) || 1;
+  th.title = "everything blended, weighted by your priorities — now "
+    + WEIGHT_DEFS.map((w) => FACTOR_ICON[w.key] + " " + (W[w.key] ? Math.round(W[w.key] / tot * 100) + "%" : "off")).join(" · ")
+    + "; a missing score is left out";
+}
 async function ensureAdvisories() {
   const src = advisorySource();
   if (!_advBySource[src]) _advBySource[src] = await getJSON("/api/advisories?source=" + src);
@@ -4117,10 +4128,14 @@ function loadWeights() {
 
 function buildWeightSliders() {
   loadPriorities();
+  // The factor's emoji, as the table headers and the Count chips carry it, so
+  // "🛡️ Safety: Med" here reads straight across to the 🛡️ column. Each group
+  // is named by its label and says which level is pressed: the buttons used
+  // to announce only "High"/"Med"/"Low", with the choice a class.
   $("weightRows").innerHTML = WEIGHT_DEFS.map((w) => `
-    <div class="prirow"><span class="prilabel">${w.label}</span>
-      <span class="prigroup" data-w="${w.key}">${PRI_LEVELS.map(([v, t]) =>
-        `<button type="button" data-v="${v}" class="${priorities[w.key] === v ? "active" : ""}">${t}</button>`).join("")}</span>
+    <div class="prirow" data-w="${w.key}"><span class="prilabel" id="pri-${w.key}"><span class="pico" aria-hidden="true">${FACTOR_ICON[w.key]}</span>${w.label}</span>
+      <span class="prigroup" role="group" aria-labelledby="pri-${w.key}" data-w="${w.key}">${PRI_LEVELS.map(([v, t]) =>
+        `<button type="button" data-v="${v}" class="${priorities[w.key] === v ? "active" : ""}" aria-pressed="${priorities[w.key] === v}">${t}</button>`).join("")}</span>
     </div>`).join("");
   $("weightRows").onclick = (e) => {
     const btn = e.target.closest("button");
@@ -4128,7 +4143,10 @@ function buildWeightSliders() {
     if (!btn || !grp) return;
     priorities[grp.dataset.w] = btn.dataset.v;
     savePriorities();
-    grp.querySelectorAll("button").forEach((b) => b.classList.toggle("active", b === btn));
+    grp.querySelectorAll("button").forEach((b) => {
+      b.classList.toggle("active", b === btn);
+      b.setAttribute("aria-pressed", String(b === btn));
+    });
     renderValue();
   };
 }
@@ -4355,8 +4373,21 @@ let valueMapMode = "score";
 // gems sort on the Weather column. The list was ranked by comfort, then the
 // tables quietly re-sorted it by Overall, so #1 was not the best-weather pick.
 function syncRankSort() {
-  pickSort.key = gemSort.key = valueMapMode === "weather" ? "weather" : "overall";
-  pickSort.asc = gemSort.asc = false;
+  const wx = valueMapMode === "weather";
+  pickSort.key = gemSort.key = wx ? "weather" : "overall";
+  // The Full ranking follows too: it used to stay sorted by value in Best
+  // weather while bolding the Weather column. Only called on the toggle and a
+  // shared link, so a column the reader sorts by hand is left alone.
+  fullSort.key = wx ? "weather" : "value";
+  pickSort.asc = gemSort.asc = fullSort.asc = false;
+}
+// The Rank-by toggle's look and its pressed state, from valueMapMode.
+function markRankBy() {
+  document.querySelectorAll("#valueMapMode button").forEach((b) => {
+    const on = b.dataset.vm === valueMapMode;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
 }
 
 // ---- fare estimation for countries the cached-fare API doesn't cover -------
@@ -4677,9 +4708,8 @@ function buildValueTab() {
   }
   for (const b of document.querySelectorAll("#valueMapMode button")) {
     b.addEventListener("click", () => {
-      for (const x of document.querySelectorAll("#valueMapMode button"))
-        x.classList.toggle("active", x === b);
       valueMapMode = b.dataset.vm;
+      markRankBy();
       syncRankSort();
       renderValue();
     });
@@ -5934,10 +5964,10 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   }).join("");
   host.innerHTML = `<table class="gradetable">
     <thead><tr><th></th><th class="dest${sc}"${sa("dest")}>Destination</th>
-      <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now">💰 <span class="thword">Affordability</span></th>
-      <th class="${sc.trim()}"${sa("safety")} title="${esc(advSafetyTitle())}">🛡️ <span class="thword">Safety</span></th>
-      <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month">🌤️ <span class="thword">Weather</span></th>
-      <th class="${sc.trim()}"${sa("flights")} title="flight deal: year-round average fare vs a typical fare for this distance, not specific to your month (the strip shows each month)">✈️ <span class="thword">Flights</span></th>
+      <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></th>
+      <th class="${sc.trim()}"${sa("safety")} title="${esc(advSafetyTitle())}"><span aria-hidden="true">🛡️</span> <span class="thword">Safety</span></th>
+      <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></th>
+      <th class="${sc.trim()}"${sa("flights")} title="this month's fare vs the route's usual where we have cached months; otherwise the year-round fare vs a typical fare for the distance (the strip shows each month)"><span aria-hidden="true">✈️</span> <span class="thword">Flights</span></th>
       <th class="ovh ${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (sortable) markSort("#" + host.id, state);   // sort buttons + aria-sort
@@ -6214,27 +6244,49 @@ function renderValue() {
   }
   const ranked = sortRows(rankedAll, fullSort, FULL_GET).slice(0, 40);
   markSort("#valueTable", fullSort);
-  $("valueRows").innerHTML = ranked.map((s) => {
-    const vis = been.has(s.iso) ? ' <span class="visited-tag">✓ visited</span>' : "";
+  // Same vocabulary as the popular table (rank, flag, the four factor emoji,
+  // Overall last on its band), but the raw 0–100 numbers stay: this is "the
+  // math". Each number is tinted by its grade so a deal-breaker (weather 32,
+  // flights 55) shows without reading every cell; Safety is tinted by the
+  // advisory level (SAFE_GRADE), never grade(35) = F, which would contradict
+  // the popular table's D. The sorted column is the bold one, by hand or by
+  // Rank by, so the emphasis can't sit on a column the rows aren't ordered by.
+  const W = loadWeights();
+  labelFullRanking(W);
+  const hot = fullSort.key;
+  const chip = (v, g, title) => `<span class="vchip" data-g="${g}"${title ? ` title="${esc(title)}"` : ""}>${v}</span>`;
+  const td = (sk, html) => `<td class="num${sk === hot ? " sorted" : ""}">${html}</td>`;
+  $("valueRows").innerHTML = ranked.map((s, i) => {
+    const seen = been.has(s.iso);
+    const vis = seen ? ' <span class="visited-tag">✓<span class="vtword"> visited</span></span>' : "";
     // Generic level names + whose level it is: the State Dept's own phrases
     // ("Exercise Increased Caution") credited US wording to Canada's or Germany's.
-    const adv = s.advLvl >= 1 && s.advLvl <= 3
-      ? ` <span class="advtag a${s.advLvl}" title="${esc(ADV_TEXT[s.advLvl] + advVia(s.iso))}">L${s.advLvl}</span>` : "";
-    // "The math" table mirrors the other columns with the numeric flight deal
-    // score (0-100); exact fares live in the Flights data tab. An estimated
-    // fare is the distance baseline, so its 70 is labelled rather than passed
-    // off as a measured deal.
-    const flight = s.fly == null ? "—" : s.fareEst
-      ? `<span class="muted" title="estimated — no cached fare, scored as a typical fare for the distance">~${s.fly}</span>` : s.fly;
-    const valCell = weatherMode ? `${s.value}` : `<b>${s.value}</b>`;
-    const wxVal = s.wx == null ? '<span class="muted" title="no weather data">—</span>' : s.wx;
-    const wxCell = weatherMode ? `<b>${wxVal}</b>` : `${wxVal}`;
-    return `<tr${been.has(s.iso) ? ' style="opacity:.55"' : ""}><td>${esc(s.name)}${adv}${vis}</td>
-      <td class="num">${valCell}</td>
-      <td class="num">${s.afford}</td>
-      <td class="num">${s.safe}</td><td class="num">${wxCell}</td>
-      <td class="num">${flight}</td></tr>`;
-  }).join("") || '<tr><td colspan="6">No data for this region.</td></tr>';
+    const safe = chip(s.safe, SAFE_GRADE[s.advLvl] || "x", ADV_TEXT[s.advLvl] + advVia(s.iso))
+      + `<span class="vh"> · level ${s.advLvl}</span>`;
+    const wx = s.wx == null ? '<span class="muted" title="no weather data">—</span>'
+      : chip(s.wx, grade(s.wx), `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}`);
+    // An estimated fare is the distance baseline, so its 70 stays grey and
+    // says so rather than passing for a measured deal.
+    const fly = s.fly == null ? '<span class="muted" title="no fare data">—</span>'
+      : s.flyBasis !== "month" && s.fareEst
+        ? chip("~" + s.fly, "x", "estimated — no cached fare, scored as a typical fare for the distance")
+        : chip(s.fly, grade(s.fly), s.flyBasis === "month"
+          ? `${MONTHS[month - 1]}'s fare vs this route's usual`
+          : "year-round fare vs a typical fare for the distance");
+    return `<tr${seen ? ' class="visited"' : ""}>
+      <td class="rank">#${i + 1}</td>
+      <td class="dest" title="${esc(s.name)}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}${vis}</td>
+      ${td("afford", chip(s.afford, grade(s.afford), affordTitle(s).replace(" · click for cost-of-living detail", "")))}
+      ${td("safety", safe)}${td("weather", wx)}${td("flight", fly)}
+      <td class="num ovcell${hot === "value" ? " sorted" : ""}"><span class="gr ${gradeCls(grade(s.value))}" title="${esc(`Overall ${grade(s.value)} · ${s.value}/100`)}">${s.value}</span></td></tr>`;
+  }).join("") || '<tr><td colspan="7">No data for this region.</td></tr>';
+  // A factor Count leaves out weighs nothing; its row says so instead of
+  // showing a level the scorer isn't using.
+  document.querySelectorAll("#weightRows .prirow").forEach((r) => {
+    const off = !W[r.dataset.w];
+    r.classList.toggle("off", off);
+    r.title = off ? "Not counted — turn it back on under Count" : "";
+  });
   syncURL();
 }
 
@@ -8520,8 +8572,7 @@ async function postApplyShared() {
   if (sharedQ.get("vmm") === "weather") {
     valueMapMode = "weather"; rerender = true;
     syncRankSort();
-    document.querySelectorAll("#valueMapMode button").forEach((b) =>
-      b.classList.toggle("active", b.dataset.vm === "weather"));
+    markRankBy();
   }
   // Shared origin: vo is canonical; fall back to a legacy fo-only link. Either
   // way it drives the one global "traveling from".
@@ -9261,7 +9312,8 @@ function openGuidedPicker() {
     m.close();
     if (loaded.value) renderValue();
     // Land the user on the answer, not back at the top of the page.
-    const rows = $("valueRows") || $("topCards");
+    // The picks, not #valueRows: that always exists, inside the closed fold.
+    const rows = $("topCards");
     if (rows) rows.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
   };
 }
