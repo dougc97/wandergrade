@@ -646,8 +646,18 @@ function renderRates(data) {
   const avgSpan = dayLabel(data.baseline_days).replace(/^(\d+) (\w+?)s?$/, "$1-$2");
   $("summary").innerHTML = esc(`${tableRows.length} currencies · ${fav.length} stronger than usual after inflation`)
     + ` <span class="muted" data-tip="${esc(`≥ +${data.threshold_pct}% vs its ${avgSpan} average, net of the inflation gap `
-      + "between the two countries (a nominal rise that local inflation eats isn't counted; where a country "
-      + "has no inflation figure the nominal move stands). These rows are tinted green.")}" title="">ⓘ</span>`;
+      + "between the two countries (a nominal rise that local inflation eats isn't counted; a low-inflation "
+      + "country with no current figure keeps its nominal move, a high-inflation one isn't counted). "
+      + "These rows are tinted green.")}" title="">ⓘ</span>`;
+  // The same rule, said where the green is: on the column whose number drives
+  // it. The only explanation used to be the summary line a screen above the
+  // table. Inside the sort button, but a click on the ⓘ shows its tip and does
+  // not sort (the tip engine's capture handler stops it).
+  const fi = $("favInfo");
+  if (fi) fi.dataset.tip = `Green rows: ${w} is at least ${data.threshold_pct}% above its ${avgSpan} average there, `
+    + "and still ahead after that country's inflation, so your money really goes further. "
+    + "A big % that isn't green was eaten by local price rises (prices there climbed faster than "
+    + "the currency fell), or the country has high inflation and no current figure to check it against.";
 
   // The price level is measured against the traveller's From country, like the
   // Cost of living tab (plAnchor): "cheap" to a German is cheaper than

@@ -2291,3 +2291,9 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
   /* One line: the tagline wrapped the header to two and the 🎲 to a third. */
   #gemsBox > summary .muted { display: none; }
 }
+
+/* The ⓘ on the Currency table's "vs avg" header, which says what the green
+   rows mean. Below 375px the button grew to the column's full width with it,
+   so the sort arrow dropped to a third line; capped, the button wraps as
+   "VS / AVG ⓘ" and the arrow stays beside it. */
+@media (max-width: 374px) { #vsAvgHead .sortbtn { max-width: 3.6em; } }
