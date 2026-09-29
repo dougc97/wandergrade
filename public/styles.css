@@ -139,7 +139,7 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
   bottom: 15px; margin: 0; font-size: 10px; line-height: 1; }
 .bars .mlabel.peak { color: var(--green); font-weight: 700; }
 .bars .mlabel.shoulder { color: var(--amber); }
-.bars .mlabel.off { color: #aaa; }
+.bars .mlabel.off { color: var(--gray); }   /* #aaa was 2.32:1 at 10px; still reads grey beside green/amber */
 .bars .mscore { font-size: 9px; color: var(--gray); }
 /* Guide fare bars carry two price labels: the full one here, the compact twin
    on a phone (the max-width: 640px block, which must come after this rule). */
