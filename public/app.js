@@ -2174,7 +2174,9 @@ function renderGuide(iso) {
   const ssr = $("ssrGuide"); if (ssr) ssr.remove();
   // The country is the answer — put it in the page title, not just mid-page.
   const h2c = $("guideH2Country");
-  if (h2c) h2c.innerHTML = " — " + flagEmoji(iso) + " " + esc(countryName(iso));
+  // The flag is decoration (the tables hide theirs too): the heading reads
+  // "Travel Guide — Japan", not "… — flag: Japan Japan".
+  if (h2c) h2c.innerHTML = ' — <span aria-hidden="true">' + flagEmoji(iso) + "</span> " + esc(countryName(iso));
   // Reveal the real h1 only now: the SSR block it replaces has been removed just
   // above, so exactly one h1 is visible before and after hydration.
   const gh1 = $("guideH1"); if (gh1) gh1.hidden = false;
@@ -2626,7 +2628,7 @@ function renderGuideStay(iso) {
     const chips = spots.length > 1
       ? '<div class="staychips">' + spots.map((s, i) =>
           '<button type="button" class="staychip' + (i === _staySpotIdx ? " active" : "") +
-          '" data-si="' + i + '">📍 ' + esc(s.n) + "</button>").join("") + "</div>"
+          '" aria-pressed="' + (i === _staySpotIdx) + '" data-si="' + i + '">📍 ' + esc(s.n) + "</button>").join("") + "</div>"
       : "";
     host.innerHTML =
       '<h3 class="staytitle">🏨 Where to stay <span class="staynear">near ' + esc(sp.n) + "</span></h3>" +
@@ -3315,7 +3317,11 @@ function renderCountryClimate(iso) {
     // weather comfort (score lives in the tooltip). Bars double as the month
     // picker — clicking one plans the trip for that month (planForMonth).
     const head = t != null ? fmtTemp(t) : (s == null ? "" : s);
-    return `<div class="${col}" data-mn="${i + 1}" title="${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seasonCaveat(seas[i], bestSet.has(i + 1), !!hz) || SEASON_WX[seas[i]]}${hz ? " · ⚠️ " + esc(hz) : ""} · click to plan for ${MONTHS[i]}">
+    // The chart is the guide's month control, so it takes the keyboard too:
+    // a focusable toggle per month (Enter/Space plans it, see the keydown
+    // handler by planForMonth), named by the same text as its hover title.
+    const what = `${MONTHS[i]}: ${t != null ? fmtTemp(t) + " avg · " : ""}comfort ${s == null ? "n/a" : s + "/100"} · ${seasonCaveat(seas[i], bestSet.has(i + 1), !!hz) || SEASON_WX[seas[i]]}${hz ? " · ⚠️ " + esc(hz) : ""} · click to plan for ${MONTHS[i]}`;
+    return `<div class="${col}" data-mn="${i + 1}" title="${what}" tabindex="0" role="button" aria-pressed="${i + 1 === selM}" aria-label="${what}">
       <div class="mscore">${head}</div>
       <div class="fill" style="height:${h}%;background:${t != null ? tempColor(t) : comfortColor(s)}"></div>
       <div class="mlabel ${seas[i]}">${MON_ABBR[i]}${hz ? `<span class="hzmark" data-tip="⚠️ ${esc(hz)}" title="">⚠️</span>` : ""}</div></div>`;
@@ -3323,8 +3329,8 @@ function renderCountryClimate(iso) {
   const hasTemps = temps.some((t) => t != null);
   const unitToggle = hasTemps
     ? `<div class="tempunit" role="group" aria-label="temperature unit">
-         <button type="button" data-u="C" class="${tempUnit() === "C" ? "active" : ""}">°C</button>
-         <button type="button" data-u="F" class="${tempUnit() === "F" ? "active" : ""}">°F</button>
+         <button type="button" data-u="C" class="${tempUnit() === "C" ? "active" : ""}" aria-pressed="${tempUnit() === "C"}">°C</button>
+         <button type="button" data-u="F" class="${tempUnit() === "F" ? "active" : ""}" aria-pressed="${tempUnit() === "F"}">°F</button>
        </div>` : "";
 
   const hazardLines = hazards.map((h) =>
@@ -8163,6 +8169,18 @@ $("bestDetail").addEventListener("click", (e) => {
   if (!bar) return;
   if (e.target.closest(".hzmark")) return;   // ⚠️ taps show the hazard, not switch months
   planForMonth(parseInt(bar.dataset.mn, 10));
+});
+// The keyboard half of the same control (the columns are role="button").
+// planForMonth rebuilds the chart, so focus goes back to the new column.
+$("bestDetail").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const bar = e.target.closest("#bestDetail .bars .col[data-mn]");
+  if (!bar || e.target.closest(".hzmark")) return;
+  e.preventDefault();   // Space would scroll the page
+  const m = parseInt(bar.dataset.mn, 10);
+  planForMonth(m);
+  const again = document.querySelector('#bestDetail .col[data-mn="' + m + '"]');
+  if (again) again.focus();
 });
 
 // Guide jump chips: smooth-scroll to a section (buttons, not #hash links, so
