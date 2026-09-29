@@ -2472,7 +2472,7 @@ async function renderGuideFx(iso) {
     : gap ? ", after inflation" : " (exchange rate only)";
   host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b>: `
     + `<b style="color:${col}">${pct > 0 ? "+" : ""}${pct.toFixed(1)}%</b> vs its 12-month average${basis}`
-    + (noInfl || nominal ? "" : ` <span class="muted">— ${verdict}</span>`)
+    + (noInfl || nominal || !gap ? "" : ` <span class="muted">— ${verdict}</span>`)
     + `<span class="fxinfo" data-tip="${esc(tip)}" title="">ⓘ</span></span>`
     + `<svg class="fxspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
     + `<line x1="${P}" y1="${y(avg).toFixed(1)}" x2="${W - P}" y2="${y(avg).toFixed(1)}" class="fxavg"/>`
