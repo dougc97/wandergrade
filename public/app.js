@@ -4364,7 +4364,7 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
            // nonstop. The average was right; the row just never said it was
            // standing on less.
            wxMissing: !wxKnown,
-           flyMissing: comps.fly == null,
+           flyMissing: comps.fly == null && !!fares,
            pl, fx: fxReal, fxAdj: !!(fxi && fxi.adj) };
 }
 
@@ -5763,8 +5763,10 @@ function renderMapPicksOverlay(picks, month, hostId) {
 // Flights are different: every country with map geometry gets a fare — the
 // cached one, or a distance estimate scored as a neutral 70 (a typical fare for
 // the distance). Only the origin itself has none. So an estimate is flagged as
-// "estimated" rather than "missing" — it IS averaged in, so the mark reads
-// "3+1" (measured + estimated), not "3/4", which claimed it was left out.
+// "estimated" rather than "missing" — it IS averaged in. It used to read
+// "3+1" here; the estimate is now said once, where it is: the Flights cell's
+// grey "~B" pill (the Full ranking's grey "~70"), so this mark is only for a
+// measure the country has no data for.
 //
 // The fix is not to change the average. It is to stop the row implying it knows
 // four things when it knows fewer.
@@ -5772,17 +5774,13 @@ function coverageMark(s) {
   const missing = [];
   if (s.flyMissing) missing.push("flight prices");
   if (s.wxMissing) missing.push("weather");
+  if (!missing.length) return "";
   const est = !s.flyMissing && s.fareEst;
-  if (!missing.length && !est) return "";
-  const n = 4 - missing.length - (est ? 1 : 0);          // measured
-  const tip = (est ? "Graded on " + n + " measured + 1 estimated measure" : "Graded on " + n + " of 4 measures")
-    + (missing.length ? " — no " + missing.join(" or ") + " data for this country" : "")
-    + (est ? (missing.length ? ", and" : " —") + " no cached fare, so flights count as a typical fare"
-      + " for the distance (an estimate), averaged in with the rest" : "")
-    + (missing.length
-      ? ". The score is the average of the " + (n + (est ? 1 : 0)) + " it has, so it is not directly comparable with a fully-measured country."
-      : ". The estimate makes it less certain than a country with a real fare.");
-  return `<span class="covmark" data-tip="${esc(tip)}" title="">${est ? n + "+1" : n + "/4"}</span>`;
+  const n = 4 - missing.length;
+  const tip = "Graded on " + n + " of 4 measures — no " + missing.join(" or ") + " data for this country"
+    + (est ? ", and flights are an estimate (no cached fare, counted as a typical fare for the distance)" : "")
+    + ". The score is the average of the " + n + " it has, so it is not directly comparable with a fully-measured country.";
+  return `<span class="covmark" data-tip="${esc(tip)}" title="">${n}/4</span>`;
 }
 
 // ---- 12-month season strip --------------------------------------------------
@@ -5872,10 +5870,11 @@ function seasonalTags(iso, month, max) {
 }
 
 // Fare strips for the picks table, filled after render: one cached call per
-// row via /api/flight-months (12h server cache per route). Filling an empty
-// inline slot changes nothing vertically — the weather cell already sets the
-// row height — so the async arrival costs no CLS. The chosen month is
-// outlined, same mark the season strip uses.
+// row via /api/flight-months (12h server cache per route). The slot is a flex
+// box the strip's own height (styles .rowfares), so its async arrival adds the
+// same 4 + 9px the weather cell's season strip already sets — no CLS. It was
+// a block around an inline strip, a 20px line box that grew rows after paint.
+// The chosen month gets the season strip's tick, dimmed at rest like it.
 function fillRowFareStrips(hostSel, month) {
   const slots = document.querySelectorAll(hostSel + " .rowfares");
   slots.forEach(async (slot) => {
@@ -5941,6 +5940,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   const sa = (sk) => sortable
     ? ` data-sk="${sk}" data-sortdir="${state.key === sk ? (state.asc ? "asc" : "desc") : ""}"${sortableThAttrs(state, sk)}` : "";
   const sc = sortable ? " sortable" : "";
+  const been = ownVisited();
   const rows = list.map((s, i) => {
     const hz = hazardsFor(s.iso, month);
     const wxTitle = (s.wx == null ? "no weather data" : `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}`) +
@@ -5948,22 +5948,31 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     const iso = esc(s.iso);
     // Same ⚠️ affordance the weather column uses for seasonal hazards.
     const driftNote = pppDriftNote(s.iso);
-    return `<tr data-iso="${iso}" title="${esc(whyLine(s, month))}" style="--i:${i}">
+    // The name is a real link to the guide: rows open it on a click, but
+    // nothing in the row could take keyboard focus, so a keyboard user could
+    // sort the table and never open a country. The delegate below keeps a
+    // plain click in the app; cmd/middle-click opens a new tab. No title on
+    // the link, so the row's why-line still shows on hover.
+    const seen = been.has(s.iso);
+    return `<tr data-iso="${iso}"${seen ? ' class="visited"' : ""} title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">#${i + 1}</td>
-      <td class="dest">${flagEmoji(s.iso)} ${esc(s.name)}${seasonalTags(s.iso, month)}${budLine(s)}</td>
+      <td class="dest"><a class="destlink" href="${esc(guidePath(s.iso))}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}</a>${seen ? ' <span class="visited-tag">✓<span class="vtword"> visited</span></span>' : ""}${seasonalTags(s.iso, month)}${budLine(s)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}${fxMark(s.iso)}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}"><span class="pillwrap">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</span></td>
-      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="muted" title="${esc(wxTitle)}">—</span>` : gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
-      <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="muted">—</span>'
-            : (s.flyBasis !== "month" && (s.fareEst || s.fareBase == null)) ? '<span class="muted" title="estimated — no cached fare; click for the Flights tab">~</span>'
+      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="gr grx" data-tip="${esc(wxTitle)}" title="">—</span>` : gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
+      <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="gr grx" data-tip="No fare data" title="">—</span>'
+            // An estimate is a grey pill with its letter (it always scores
+            // 70, a B): the same test and the same grey as the Full ranking's
+            // "~70", where a bare "~" and a title touch never shows used to be.
+            : (s.flyBasis !== "month" && s.fareEst) ? `<span class="gr grx" role="img" aria-label="estimated ${grade(s.fly)}" data-tip="Estimated — no cached fare yet, so flights count as a typical fare for the distance, averaged in with the rest. Click for the Flights tab." title="">~${grade(s.fly)}</span>`
             : gradePill(s.fly, (s.flyBasis === "month"
                 ? MONTHS[month - 1] + "'s fare vs this route's usual · click for exact prices"
                 : "Year-round fare vs the typical fare for this distance (too few cached months for a month grade) · click for exact prices"))}</span><span class="rowfares" data-iso="${iso}"></span></td>
-      <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="grnum" title="value score out of 100">${s.value}</span>${coverageMark(s)}</td>
+      <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="ovnums"><span class="grnum" title="value score out of 100">${s.value}</span>${coverageMark(s)}</span></td>
     </tr>`;
   }).join("");
   host.innerHTML = `<table class="gradetable">
-    <thead><tr><th></th><th class="dest${sc}"${sa("dest")}>Destination</th>
+    <thead><tr><th><span class="vh">Rank</span></th><th class="dest${sc}"${sa("dest")}>Destination</th>
       <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></th>
       <th class="${sc.trim()}"${sa("safety")} title="${esc(advSafetyTitle())}"><span aria-hidden="true">🛡️</span> <span class="thword">Safety</span></th>
       <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></th>
@@ -6004,6 +6013,13 @@ function affordTitle(s) {
 //  - a factor cell jumps to that factor's detail for the country
 //  - the rest of the row opens the country's travel guide
 document.addEventListener("click", (e) => {
+  const dl = e.target.closest(".gradetable a.destlink");
+  if (dl) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // new tab/window: the browser's
+    e.preventDefault();
+    openGuideFor(dl.closest("tr").dataset.iso, true);
+    return;
+  }
   if (e.target.closest("a")) return;
   const cell = e.target.closest(".gradetable td.scell[data-go]");
   if (cell && cell.dataset.iso) { goToDetail(cell.dataset.go, cell.dataset.iso); return; }
@@ -7142,7 +7158,7 @@ function applyFlightFilter() {
   if (iso && flightsData && tb.querySelector("tr[data-iso]") && !tb.querySelector(`tr[data-iso="${iso}"]`)) {
     tb.insertAdjacentHTML("afterbegin", `<tr class="jumpempty"><td colspan="7">No cached fares from `
       + `${esc(flightsData.origin_name || countryName(flightsData.origin))} to ${esc(countryName(iso))} yet — `
-      + "the “~” on Top Picks is a distance-based estimate.</td></tr>");
+      + "the grey “~” grade on Top Picks is a distance-based estimate.</td></tr>");
   }
 }
 // Wire filter controls once (elements are static in the markup).
@@ -10028,8 +10044,8 @@ document.addEventListener("click", (e) => {
   // which already got the tip on hover — clicks through them to the row.
   const t = e.target.closest ? e.target : null;
   const mouse = (e.pointerType || _lastPtrType) === "mouse";
-  const info = t && (t.closest(".hzmark, .muted[data-tip], .legendinfo, .fxinfo")
-    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv")));
+  const info = t && (t.closest(".hzmark, .muted[data-tip], .legendinfo, .fxinfo, .covmark")
+    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv, .gr.grx[data-tip]")));
   if (info) { _showTipFor(info.dataset && info.dataset.tip ? info : e.target.closest("[data-tip]")); e.stopPropagation(); return; }
   // Touch screens have no hover: a tap on any other tipped element shows it, a
   // tap elsewhere dismisses. (closest() miss hides.)

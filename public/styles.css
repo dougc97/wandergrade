@@ -927,7 +927,17 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
    touch, and masked by the pills' own titles on desktop). */
 .budline { display: block; margin-top: 2px; font-size: 11px; font-weight: 400; color: var(--gray);
   white-space: nowrap; cursor: help; }
-.rowfares { display: block; margin-top: 4px; text-align: center; }
+/* The row fare strip is the season strip's quiet twin: a flex slot the
+   strip's own height (a block around an inline strip made a 20px line box,
+   rows of 66px beside 57px that grew after paint), dimmed at rest, and the
+   season strip's tick for the chosen month instead of a 2px outline box.
+   Scoped to .rowfares: the guide and Trip strips keep their own look.
+   (Stays above the <=640 hide, which must win.) */
+.rowfares { display: flex; justify-content: center; margin-top: 4px; }
+.rowfares .farestrip { gap: 1px; opacity: .55; transition: opacity .15s; }
+html:not([data-theme="dark"]) .rowfares .farestrip { opacity: .8; }
+tr:hover .rowfares .farestrip { opacity: 1; }
+.rowfares .farestrip .fcell.now { outline: 0; box-shadow: 0 3px 0 -1px var(--ink); }
 .rowfares .farestrip .fcell { width: 5px; height: 9px; border-radius: 1px; }
 
 /* visa pill (an <a> when an official link exists) */
@@ -1972,13 +1982,13 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
 #tabs .tripcount { display: inline-block; min-width: 17px; padding: 0 5px; margin-left: 4px;
   border-radius: 999px; background: var(--green-fill); color: #fff; font-size: 11px;
   font-weight: 700; line-height: 17px; text-align: center; }
-/* Skeleton spacers for the two things added after it was last measured: the
-   season strip and the coverage marker. Without these the reservation was
-   48.75px against a real 66.25px row — 87.5px of shift across five rows, which
-   is what pushed CLS on #topCards to 0.359 (Poor). They reserve space and show
-   nothing. */
+/* Skeleton spacer for the season strip. Without it the reservation was
+   48.75px against a real row with the strip — 87.5px of shift across five
+   rows, which is what pushed CLS on #topCards to 0.359 (Poor). The coverage
+   mark no longer adds a line (it sits beside the pill, .ovnums) and the fare
+   strip no longer does either (.rowfares), so a skeleton row now equals a
+   real row instead of a floor under taller ones. */
 .seasonstrip.skel { display: block; height: 9px; margin-top: 4px; background: none; }
-.covmark.skel { visibility: hidden; }
 /* Legend key for the map pulse. Same animation as #valueMap path.toppick so the
    key and the thing it describes are visibly the same effect. */
 .legend .swatch.pulsekey { background: #0a7d28; }
@@ -2210,4 +2220,32 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
 @media (max-width: 374px) {
   #valueTable th, #valueTable td { padding: 7px 2px; }
   #valueTable th.dest, #valueTable td.dest { padding-left: 8px; }
+}
+
+/* ---- Top Picks + Hidden gems grade tables ------------------------------- */
+/* The Overall number and its coverage mark stack beside the big pill rather
+   than the mark taking a line of its own under it: that line made every row
+   with a mark 75px against 57px. */
+.ovnums { display: inline-flex; flex-direction: column; align-items: flex-start;
+  vertical-align: middle; margin-left: 6px; line-height: 1.15; }
+.ovnums .grnum { margin-left: 0; }
+.ovnums .covmark { margin-top: 1px; }
+/* The name is a link to its guide (keyboard path); it looks like the name. */
+.gradetable a.destlink { color: inherit; text-decoration: none; }
+.gradetable a.destlink:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 4px; }
+/* Visited rows, as the Full ranking marks them. */
+.gradetable tr.visited td.dest { color: var(--gray); }
+.gradetable tr.visited .gr { filter: saturate(.35); }
+/* The two Top Picks folds had no open/closed cue at all: a flex <summary>
+   drops its marker, so on a phone the only visible control in the gems
+   header was the 🎲 button, which spins the globe instead. */
+#gemsBox > summary::-webkit-details-marker, #tableBox > summary::-webkit-details-marker { display: none; }
+#gemsBox > summary::after, #tableBox > summary::after { content: "▾"; margin-left: auto; font-size: 12px; color: var(--gray); }
+#gemsBox[open] > summary::after, #tableBox[open] > summary::after { content: "▴"; }
+@media (max-width: 560px) {
+  .ovnums { margin-left: 3px; }
+  .gradetable .vtword { position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+  /* One line: the tagline wrapped the header to two and the 🎲 to a third. */
+  #gemsBox > summary .muted { display: none; }
 }
