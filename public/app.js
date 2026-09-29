@@ -7720,7 +7720,11 @@ function openBulkAdd() {
     + '<button type="button" class="bulkdone">Done</button></div></div>';
   document.body.appendChild(m);
   requestAnimationFrame(() => m.classList.add("show"));
+  // close() drops the Escape listener itself, whichever way the modal closes
+  // (X, Done, backdrop, Escape) — a stale one re-ran renderVisited on every
+  // later Escape anywhere on the page.
   const close = () => {
+    document.removeEventListener("keydown", onKey);
     m.classList.remove("show");
     setTimeout(() => m.remove(), 220);
     renderVisited();                        // one redraw for the whole batch
@@ -7728,7 +7732,7 @@ function openBulkAdd() {
   m.querySelector(".submodal-x").onclick = close;
   m.querySelector(".bulkdone").onclick = close;
   m.addEventListener("click", (e) => { if (e.target === m) close(); });
-  const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
   document.addEventListener("keydown", onKey);
   m.querySelector(".bulkchips").addEventListener("click", (e) => {
     const chip = e.target.closest(".bulkchip");
@@ -8304,6 +8308,7 @@ function openSubscribeModal(opts) {
   wireSubForm(m);
   requestAnimationFrame(() => m.classList.add("show"));
   const close = () => {
+    document.removeEventListener("keydown", onKey);   // however it closes
     // Closed without subscribing → count as a dismissal (re-arm in 30 days).
     if (!subDone()) markDismissed();
     m.classList.remove("show");
@@ -8311,7 +8316,7 @@ function openSubscribeModal(opts) {
   };
   m.addEventListener("click", (e) => { if (e.target === m) close(); });
   m.querySelector(".submodal-x").onclick = close;
-  const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
   document.addEventListener("keydown", onKey);
   // Focus the field only for a deliberate click — auto-popping the mobile
   // keyboard on an unrequested modal is jarring.
@@ -10176,6 +10181,16 @@ new MutationObserver((muts) => {
         card.setAttribute("aria-label", (lbl && lbl.textContent.trim().slice(0, 80)) || "Dialog");
       }
       n._opener = _focusOutside;
+      // aria-modal alone does not stop Tab: without this, Tab from the last
+      // control walked out into the page behind the overlay. Everything else on
+      // body goes inert while the dialog is up (already-inert nodes are left
+      // alone, so the restore below never un-inerts something it didn't set).
+      // Not for the unrequested invite: inerting the page would blur the field
+      // the visitor is typing in, and that modal never takes focus anyway.
+      if (!n.dataset.nofocus) {
+        n._inerted = [...document.body.children].filter((el) => el !== n && !el.inert);
+        n._inerted.forEach((el) => { el.inert = true; });
+      }
       // An unrequested modal (the timed newsletter invite) never takes focus:
       // it would catch whatever the visitor was typing, and on phones pop the
       // keyboard; Escape still dismisses it from anywhere. Modals that focused
@@ -10187,6 +10202,8 @@ new MutationObserver((muts) => {
     }
     for (const n of mu.removedNodes) {
       if (!(n instanceof HTMLElement) || !n.classList || !n.classList.contains("submodal")) continue;
+      // Un-inert the page first: the opener can't take focus back while inert.
+      (n._inerted || []).forEach((el) => { el.inert = false; });
       // The unrequested invite never took focus, so unless the keyboard went
       // into it there is nothing to give back: a mouse close (the X focuses,
       // then vanishes) or Escape from a combobox (which blurs itself) left
@@ -10435,10 +10452,15 @@ function acctModal(inner) {
     + inner + "</div>";
   document.body.appendChild(m);
   requestAnimationFrame(() => m.classList.add("show"));
-  const close = () => { m.classList.remove("show"); setTimeout(() => m.remove(), 220); };
+  // close() drops the Escape listener however the modal closes (X, backdrop,
+  // Escape, or a caller's m.close()), so no stale one outlives it.
+  const close = () => {
+    document.removeEventListener("keydown", onKey);
+    m.classList.remove("show"); setTimeout(() => m.remove(), 220);
+  };
   m.addEventListener("click", (e) => { if (e.target === m) close(); });
   m.querySelector(".submodal-x").onclick = close;
-  const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
   document.addEventListener("keydown", onKey);
   m.close = close;
   return m;
@@ -10613,10 +10635,13 @@ if (ACCT_ON) {
       + "</div>";
     document.body.appendChild(m);
     requestAnimationFrame(() => m.classList.add("show"));
-    const close = () => { m.classList.remove("show"); setTimeout(() => m.remove(), 220); };
+    const close = () => {
+      document.removeEventListener("keydown", onKey);   // however it closes
+      m.classList.remove("show"); setTimeout(() => m.remove(), 220);
+    };
     m.addEventListener("click", (e) => { if (e.target === m) close(); });
     m.querySelector(".submodal-x").onclick = close;
-    const onKey = (e) => { if (e.key === "Escape") { close(); document.removeEventListener("keydown", onKey); } };
+    const onKey = (e) => { if (e.key === "Escape") close(); };
     document.addEventListener("keydown", onKey);
   });
 })();

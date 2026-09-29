@@ -647,8 +647,10 @@ tr.favorable { background: var(--green-bg); }
 .submodal.show .submodal-card { transform: none; }
 .submodal-card .sublabel { font-size: 15px; font-weight: 600; }
 .submodal-card .subform { justify-content: center; flex-wrap: wrap; }
-.submodal-x { position: absolute; top: 8px; right: 11px; background: none; border: none;
-  color: var(--gray); font-size: 17px; line-height: 1; cursor: pointer; padding: 4px; }
+/* A 36px target (it was 21x25), pulled into the corner so the glyph stays put. */
+.submodal-x { position: absolute; top: 4px; right: 4px; background: none; border: none;
+  color: var(--gray); font-size: 17px; line-height: 1; cursor: pointer; padding: 8px;
+  min-width: 36px; min-height: 36px; }
 .submodal-x:hover { color: var(--ink); }
 /* bulk-add modal: every country as a tap-to-toggle chip */
 /* No max-height: the card had no overflow rule, so a cap only let its content
@@ -688,6 +690,9 @@ tr.favorable { background: var(--green-bg); }
 .bulkpaste-toggle { background: none; border: none; color: var(--green); cursor: pointer;
   font: inherit; font-size: 12.5px; text-decoration: underline; padding: 0; }
 .bulkpaste { width: 100%; display: flex; flex-direction: column; gap: 8px; }
+/* display:flex above beat the [hidden] the modal opens with: the paste box was
+   always open and its toggle did nothing. */
+.bulkpaste[hidden] { display: none; }
 .bulkpastebox { width: 100%; padding: 8px 10px; border-radius: 8px; resize: vertical;
   border: 1px solid var(--line); background: var(--soft); color: var(--ink); font: inherit;
   font-size: 13px; }
