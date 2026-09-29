@@ -2283,6 +2283,16 @@ function fareStripHTML(months, opts) {
     cheapMon: cheap.mon, cheapPrice: months[cheap.key].price };
 }
 
+// A fare short enough for a phone's ~20px fare column: 818, 1.3K, 12K, 1.5M.
+// Deliberately not Intl's compact notation in the reader's locale — de gives
+// "12.000" and "1,5 Mio.", es "1,3 mil", all wider than the column. The digits
+// still follow the reader's locale (toLocaleString); only the suffix is fixed.
+function fareShort(n) {
+  if (n < 1000) return n.toLocaleString();
+  if (n < 1e6) return (n < 1e4 ? Math.round(n / 100) / 10 : Math.round(n / 1000)).toLocaleString() + "K";
+  return (n < 1e7 ? Math.round(n / 1e5) / 10 : Math.round(n / 1e6)).toLocaleString() + "M";
+}
+
 async function renderGuideFares(iso) {
   const host = $("guideFares");
   if (!host) return;
@@ -2324,10 +2334,17 @@ async function renderGuideFares(iso) {
   const med = typ ? typ.median : sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
   const bandOf = (p, dev) => (typ ? (p < typ.lo ? "low" : p > typ.hi ? "high" : "typical")
                                   : dev < -0.08 ? "low" : dev > 0.08 ? "high" : "typical");
+  // The trip month is boxed like the temperature chart's (.selmonth), so the
+  // fare for the month being planned is findable at a glance; planForMonth
+  // redraws this panel when it changes.
+  const selM = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
+  // The tip sits on the whole column, not the bar: on a phone a 9px-wide bar
+  // (or an 8%-high empty stub) was the only tap target.
   const cols = prices.map((p, i) => {
-    if (p == null) return '<div class="col"><div class="mscore"></div>'
-      + '<div class="fill na" style="height:8%" data-tip="'
-      + esc(MONTHS[i] + " — no cached fares") + '" title=""></div>'
+    const colCls = "col" + (i + 1 === selM ? " selmonth" : "");
+    if (p == null) return '<div class="' + colCls + '" data-tip="'
+      + esc(MONTHS[i] + " — no cached fares") + '" title=""><div class="mscore">–</div>'
+      + '<div class="fill na" style="height:8%"></div>'
       + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
     const dev = p / med - 1;
     const band = bandOf(p, dev);
@@ -2335,12 +2352,20 @@ async function renderGuideFares(iso) {
     // Typical months take the Flights tab's range-bar grey (styles .fill.typ)
     // rather than the map's pale fill, which vanished against the panel.
     const fill = band === "typical" ? "" : ";background:" + fareValueFill({ state: "ok", band, dev });
-    return '<div class="col"><div class="mscore">' + F(p).toLocaleString() + "</div>"
-      + '<div class="fill' + (band === "typical" ? " typ" : "") + '" style="height:' + h + "%" + fill + '" data-tip="'
+    // Two labels, CSS picks one: the full number where the column fits it,
+    // the compact one on a phone (styles: .farebars .mscore .mfull/.mshort).
+    return '<div class="' + colCls + '" data-tip="'
       + esc(MONTHS[i] + ": from " + money(p) + " round-trip · " + FV_WORD[band]
-        + (band === "typical" ? "" : " (" + fmtDevPct(dev) + " vs typical)")) + '" title=""></div>'
+        + (band === "typical" ? "" : " (" + fmtDevPct(dev) + " vs typical)")) + '" title="">'
+      + '<div class="mscore"><span class="mfull">' + F(p).toLocaleString() + '</span><span class="mshort">'
+      + fareShort(F(p)) + "</span></div>"
+      + '<div class="fill' + (band === "typical" ? " typ" : "") + '" style="height:' + h + "%" + fill + '"></div>'
       + '<div class="mlabel">' + MON_ABBR[i] + "</div></div>";
   }).join("");
+  // One accessible name for the chart rather than 12 tab stops: every month's
+  // number (or "no data") in the order the bars show them.
+  const ariaFares = "Fares by month, " + approx + cur + ": " + prices.map((p, i) =>
+    MON_ABBR[i] + " " + (p == null ? "no data" : F(p).toLocaleString())).join(", ");
   // Source, method and legend in the ⓘ; the header itself is one line. The
   // cheapest/priciest note it carried repeated what the bars already label.
   const tip = "Cheapest cached round-trip Aviasales has seen for each departure month"
@@ -2351,7 +2376,7 @@ async function renderGuideFares(iso) {
     + '<span class="legendinfo" data-tip="' + esc(tip) + '" title="">ⓘ</span>'
     + ' <span class="muted">' + esc(originName + " → " + countryName(iso) + " · round-trip, " + approx + cur)
     + "</span></span>"
-    + '<div class="bars farebars">' + cols + "</div>";
+    + '<div class="bars farebars" role="img" aria-label="' + esc(ariaFares) + '">' + cols + "</div>";
 }
 
 // ---- FX trailing trend ------------------------------------------------------
@@ -8128,7 +8153,7 @@ function planForMonth(m, quiet) {
   if (sel.value !== String(m)) return;   // never report a change that didn't happen
   if (sel._sync) sel._sync();
   if (loaded.value) renderValue();
-  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); }
+  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); renderGuideFares(ccGuideIso); }
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
   if (changed && !quiet) status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
   syncURL();
