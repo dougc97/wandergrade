@@ -4601,6 +4601,7 @@ async function loadValueFlights(silent) {
 // ---- searchable dropdowns (custom combobox over a native <select>) ---------
 // Non-invasive: the native select stays the source of truth (existing .value /
 // change logic is untouched); we overlay a type-to-filter input + list.
+let _comboN = 0;   // unique list ids, for aria-controls / aria-activedescendant
 function enhanceSelect(sel) {
   if (!sel || sel.dataset.combo || sel.options.length < 10) return;
   sel.dataset.combo = "1";
@@ -4622,7 +4623,18 @@ function enhanceSelect(sel) {
     lblTxt || sel.title || sel.getAttribute("aria-label") || sel.id || "search");
   const list = document.createElement("ul");
   list.className = "combo-list"; list.hidden = true;
-  const setOpen = (open) => { list.hidden = !open; input.setAttribute("aria-expanded", String(open)); };
+  // A scrollable list is a Tab stop in Chrome: Tab from the input landed on
+  // it, the input's blur then hid it, and focus fell to <body>. -1 keeps it
+  // out of the Tab order, so Tab goes on to the next control. Options are
+  // announced through aria-activedescendant while focus stays in the input.
+  list.tabIndex = -1;
+  list.id = "cl" + (++_comboN);
+  list.setAttribute("role", "listbox");
+  input.setAttribute("aria-controls", list.id);
+  const setOpen = (open) => {
+    list.hidden = !open; input.setAttribute("aria-expanded", String(open));
+    if (!open) input.removeAttribute("aria-activedescendant");
+  };
   sel.parentNode.insertBefore(wrap, sel);
   wrap.appendChild(input); wrap.appendChild(list); wrap.appendChild(sel);
   sel.style.display = "none";
@@ -4634,9 +4646,11 @@ function enhanceSelect(sel) {
     q = (q || "").trim().toLowerCase();
     const opts = [...sel.options].filter((o) => o.value !== "" && o.textContent.toLowerCase().includes(q));
     list.innerHTML = opts.length
-      ? opts.map((o) => `<li class="combo-opt" data-val="${esc(o.value)}">${esc(o.textContent.trim())}</li>`).join("")
-      : '<li class="combo-opt muted">No matches</li>';
+      ? opts.map((o, i) => `<li class="combo-opt" role="option" id="${list.id}-${i}" data-val="${esc(o.value)}">${esc(o.textContent.trim())}</li>`).join("")
+      : '<li class="combo-opt muted" role="option" aria-disabled="true">No matches</li>';
     active = -1;
+    // The ids were just reissued, so an old one would now name a different option.
+    input.removeAttribute("aria-activedescendant");
   };
   // "change" only when the value moved (listeners re-render); "pick" on
   // every choice, for controls where re-picking the shown value means
@@ -4657,7 +4671,10 @@ function enhanceSelect(sel) {
     else if (e.key === "Escape") { setOpen(false); input.value = labelFor(); input.blur(); return; }
     else return;
     items.forEach((it, i) => it.classList.toggle("active", i === active));
-    if (items[active]) items[active].scrollIntoView({ block: "nearest" });
+    if (items[active]) {
+      input.setAttribute("aria-activedescendant", items[active].id);
+      items[active].scrollIntoView({ block: "nearest" });
+    }
   });
   list.addEventListener("mousedown", (e) => {   // mousedown beats the input blur
     const li = e.target.closest(".combo-opt[data-val]");
