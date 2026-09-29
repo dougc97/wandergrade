@@ -7786,8 +7786,10 @@ function buildVisited() {
   for (const b of document.querySelectorAll("#visitedMode button")) {
     b.addEventListener("click", () => {
       visitMode = b.dataset.vm;
-      for (const x of document.querySelectorAll("#visitedMode button"))
+      for (const x of document.querySelectorAll("#visitedMode button")) {
         x.classList.toggle("active", x === b);
+        x.setAttribute("aria-pressed", String(x === b));   // the state, not just the colour
+      }
       renderVisited();
     });
   }
@@ -7890,7 +7892,8 @@ function renderVisited() {
   const chipsFor = (set, cls) => [...set].filter(inFilter)
     .map((iso) => ({ iso, name: countryName(iso) }))
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((c) => `<span class="chip2 rm ${cls}" data-iso="${esc(c.iso)}" title="remove">${flagEmoji(c.iso)} ${esc(c.name)} ✕</span>`).join("");
+    // Real buttons, so Tab reaches them and a screen reader hears what one does.
+    .map((c) => `<button type="button" class="chip2 rm ${cls}" data-iso="${esc(c.iso)}" aria-label="Remove ${esc(c.name)}" title="remove">${flagEmoji(c.iso)} ${esc(c.name)} ✕</button>`).join("");
   renderVisitedStats();
   const sections = [];
   const beenChips = chipsFor(visited, "v"), wantChips = chipsFor(wishlist, "w");
@@ -7960,7 +7963,7 @@ function renderVisitedStats() {
   if (!n && !m) {
     const [t, label] = MILESTONE_TIERS[0];
     host.innerHTML = '<div class="vstats-line"><span class="hint">Nothing yet — tap a country on the map, or search for one above.</span>'
-      + `<span class="awardtag locked" title="${esc(`Visit ${t} countries to earn ${label}`)}">🔒 ${t} to ${esc(label)}</span></div>`;
+      + `<span class="awardtag locked" data-tip="${esc(`Visit ${t} countries to earn ${label}`)}" title="">🔒 ${t} to ${esc(label)}</span></div>`;
     return;
   }
   const cont = visitedContinents();
@@ -7973,22 +7976,22 @@ function renderVisitedStats() {
   let award = "";
   // All seven continents (Antarctica included) outranks any count tier.
   if (cont === 7)
-    award += '<span class="awardtag seven" title="Every continent on Earth — Antarctica included. The rarest badge there is.">🌐 All 7 Continents</span>';
+    award += '<span class="awardtag seven" data-tip="Every continent on Earth — Antarctica included. The rarest badge there is." title="">🌐 All 7 Continents</span>';
   if (mi.earned) {
     const q = `Earned by visiting ${mi.earned.t}+ countries`
       + (mi.next ? ` — ${mi.next.t - n} more for ${mi.next.label}` : " — top tier!");
-    award += `<span class="awardtag" title="${esc(q)}">${esc(mi.earned.label)}</span>`;
+    award += `<span class="awardtag" data-tip="${esc(q)}" title="">${esc(mi.earned.label)}</span>`;
   } else if (mi.next && n) {
-    award += `<span class="awardtag locked" title="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
+    award += `<span class="awardtag locked" data-tip="${esc(`Visit ${mi.next.t} countries to earn ${mi.next.label} — ${mi.next.t - n} to go`)}" title="">🔒 ${mi.next.t - n} to ${esc(mi.next.label)}</span>`;
   }
   // continent progress chips — click to filter to that continent, gold at 100%
   const prog = continentProgress().filter((p) => p.n > 0 && p.total > 0);
   const contRow = prog.length
     ? '<div class="contbar">' + prog.map((p) =>
-        `<span class="contchip${p.pct === 100 ? " done" : ""}${p.c === contFilter ? " active" : ""}" data-cont="${p.c}"`
+        `<button type="button" class="contchip${p.pct === 100 ? " done" : ""}${p.c === contFilter ? " active" : ""}" data-cont="${p.c}" aria-pressed="${p.c === contFilter}"`
         + ` data-tip="${p.n} of ${p.total} countries in ${esc(p.name)} (UN members) — ${p.c === contFilter ? "tap to show everything again" : "tap to filter to this continent"}" title="">`
-        + `${p.pct === 100 ? "🏅 " : ""}${esc(p.name)} ${p.pct}%</span>`).join("")
-      + (contFilter ? `<span class="contchip clear" data-cont="${contFilter}" data-tip="show all continents" title="">✕ clear</span>` : "")
+        + `${p.pct === 100 ? "🏅 " : ""}${esc(p.name)} ${p.pct}%</button>`).join("")
+      + (contFilter ? `<button type="button" class="contchip clear" data-cont="${contFilter}" data-tip="show all continents" title="">✕ clear</button>` : "")
       + "</div>"
     : "";
   // One <span> per line of text: .vstats-line is a flex row (for the award

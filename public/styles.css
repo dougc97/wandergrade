@@ -1404,6 +1404,15 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 .contchip.active { color: var(--green); border-color: var(--green); background: var(--green-bg); font-weight: 700; }
 .contchip.done.active { color: var(--amber); border-color: var(--amber); }
 .contchip.clear { border-style: dashed; }
+/* The remove and continent chips are <button>s (Tab reaches them, a screen
+   reader hears them as buttons): undo what the UA and global button rules add,
+   so they look exactly as the spans did. */
+button.chip2, button.contchip { font-family: inherit; line-height: inherit; }
+button.chip2 { border: 0; }
+/* Wander List actions: the header's .themebtn metrics. The global button rule
+   left Bulk add and Share image 41px (emoji line boxes) and Clear all 34px,
+   ragged beside the 36px Been/Want switch in the same row. */
+#visitedBulk, #visitedImage, #visitedClear { line-height: 1.2; padding-top: 7px; padding-bottom: 7px; }
 
 /* ===========================================================================
    RESPONSIVE OVERRIDES — keep these LAST

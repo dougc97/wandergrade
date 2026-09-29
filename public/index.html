@@ -444,10 +444,10 @@
         <h2>Your travel map <span class="muted" data-tip="Tap a country on the map, or search for it, to mark it — the switch decides whether that means ✓ been or ★ want to go. Saved in this browser." title="">ⓘ</span></h2>
         <div class="pickers">
           <div class="windowtoggle" id="visitedMode">
-            <button data-vm="visited" class="active">✓ Been</button>
-            <button data-vm="wishlist">★ Want to go</button>
+            <button data-vm="visited" class="active" aria-pressed="true">✓ Been</button>
+            <button data-vm="wishlist" aria-pressed="false">★ Want to go</button>
           </div>
-          <select id="visitedPick"></select>
+          <select id="visitedPick" aria-label="Add a country"></select>
           <button id="visitedBulk" title="add many countries at once">➕ Bulk add</button>
           <button id="visitedImage" title="vertical image sized for phones — Stories, TikTok, or any share">📸 <span class="lbl-lg">Share image</span><span class="lbl-sm">Share</span></button>
           <button id="visitedClear">Clear all</button>
