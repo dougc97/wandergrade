@@ -276,13 +276,7 @@ h1, .sitetitle { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spac
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .actions[hidden] { display: none; }
-/* Data tab: Region on the right, at the cards' edge and above the Currency
-   view's own picker. Between space-between neighbours it sat mid-row, tied to
-   neither the tabs nor the cards. On a phone it wraps under the tabs and
-   stays left, where the eye already is. */
-@media (min-width: 561px) {
-  #tab-data > .bar > .pickgroup { margin-left: auto; }
-}
+
 button {
   background: var(--card); border: 1px solid var(--border-input); border-radius: 7px;
   padding: 8px 14px; font-size: 14px; cursor: pointer;
@@ -1646,10 +1640,14 @@ button.chip2 { border: 0; }
      Qualified with #tab-data because the base `.filterbar { flex-wrap: wrap }`
      lives ~600 lines further down, and a media query lends no specificity — the
      bare selector loses and the bar silently keeps wrapping. */
-  #tab-data .filterbar { flex-wrap: nowrap; gap: 8px; }
-  #tab-data .filterbar .tablefilter { min-width: 0; flex: 1 1 auto; }
+  /* With the Region picker beside every table's search, a phone gives the
+     search its own line and puts the pickers and the checkbox on the next;
+     selects are capped (the native picker still lists the full options). */
+  #tab-data .filterbar { flex-wrap: wrap; gap: 8px; }
+  #tab-data .filterbar .tablefilter { min-width: 0; flex: 1 1 100%; }
   #tab-data .filterbar .chk,
   #tab-data .filterbar select { flex-shrink: 0; }
+  #tab-data .filterbar select { max-width: 9.5em; }
   /* Safety's table was pinned at 560 in 347 — 213px hidden, cutting the advisory
      text mid-word. It fits unpinned. */
   #advTable { min-width: 0; }

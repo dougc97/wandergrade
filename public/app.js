@@ -2136,9 +2136,12 @@ function regionZoomBox(r) {
   const w = Math.max(x2 - x1, (y2 - y1) * W / H);
   return { x: (x1 + x2) / 2 - w / 2, y: (y1 + y2) / 2 - (w * H / W) / 2, w, h: w * H / W };
 }
+// One Region setting, one picker per Data table's filter bar (each tab shows
+// its own, beside the search it narrows) plus Top Picks'.
+const DATA_REGION_IDS = ["curRegion", "affRegion", "advRegion", "flightRegion"];
 function setRegion(r) {
   regionSel = REGIONS[r] ? r : "all";
-  for (const id of ["valueRegion", "dataRegion"]) {
+  for (const id of ["valueRegion", ...DATA_REGION_IDS]) {
     const sel = $(id);
     if (sel && sel.value !== regionSel) { sel.value = regionSel; if (sel._sync) sel._sync(); }
   }
@@ -2151,10 +2154,10 @@ function setRegion(r) {
 }
 // Filled here, after REGIONS and regionSel exist; Top Picks fills its own
 // select when that tab is built.
-fillRegionSelect($("dataRegion"));
-function fillRegionSelect(sel) {
+DATA_REGION_IDS.forEach((id) => fillRegionSelect($(id), "🌍 All regions"));
+function fillRegionSelect(sel, allLabel) {
   if (!sel || sel.options.length) return;
-  sel.innerHTML = '<option value="all">All regions</option>'
+  sel.innerHTML = '<option value="all">' + (allLabel || "All regions") + '</option>'
     + Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
   sel.value = regionSel;
   sel.addEventListener("change", () => setRegion(sel.value));

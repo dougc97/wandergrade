@@ -489,12 +489,6 @@
         <button data-dm="advisory">🛡️ Safety</button>
         <button data-dm="flights">✈️ Flights</button>
       </div>
-      <!-- One region for every Data view (and Top Picks): filters the tables,
-           lists and panels, and zooms each map to it. -->
-      <span class="pickgroup" data-tip="show one region: filters the tables and lists and zooms the map — the same setting as the Region on Top Picks" title="">
-        <span class="picklabel">🌍 <span class="lbl-lg">Region</span></span>
-        <select id="dataRegion" aria-label="Region"></select>
-      </span>
       <div class="actions">
         <!-- No Refresh button: it refetched only the currency data, which the
              server caches for ten minutes on a feed that updates daily, and
@@ -599,6 +593,7 @@
 
       <div class="filterbar">
         <input id="curFilter" class="tablefilter" type="search" placeholder="🔍 Filter by currency or country…">
+        <select id="curRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"></select>
         <label class="chk"><input type="checkbox" id="curRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>
       </div>
       <section class="tablewrap">
@@ -675,6 +670,7 @@
       </div>
       <div class="filterbar">
         <input id="affFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
+        <select id="affRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"></select>
         <label class="chk"><input type="checkbox" id="affRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>
       </div>
       <section class="tablewrap">
@@ -739,6 +735,7 @@
       </div>
       <div class="filterbar">
         <input id="advFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
+        <select id="advRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"></select>
         <select id="advLevel" title="filter by advisory level">
           <option value="all">All levels</option>
           <option value="1">L1 — Normal precautions</option>
@@ -817,6 +814,7 @@
       </div>
       <div class="filterbar">
         <input id="flightFilter" class="tablefilter" type="search" placeholder="🔍 Filter by destination…">
+        <select id="flightRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"></select>
         <label class="chk"><input type="checkbox" id="flightRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>
       </div>
       <section class="tablewrap">
