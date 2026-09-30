@@ -2212,11 +2212,17 @@ function renderGuideInsurance(iso) {
 // show a figure its own page never shows): the same valueScores call, the
 // travel month, the reader's Top Picks priorities. Static host (#guideGrades,
 // height reserved in styles.css), so filling it moves nothing.
+let _guideAskedFares = false;
 async function renderGuideGrades(iso) {
   const host = $("guideGrades");
   if (!host) return;
   try { await Promise.all([ensureAdvisories(), ensurePPP()]); } catch (e) {}
   if (ccGuideIso !== iso) return;
+  // The fares the ✈️ grade (and so the Overall) needs load with Top Picks; a
+  // guide opened directly never asked for them, and graded flights as "—"
+  // with an Overall the Top Picks table wouldn't show. Ask once; its arrival
+  // re-renders this line (loadValueFlights).
+  if (!flightsData && !_guideAskedFares) { _guideAskedFares = true; loadValueFlights(true); }
   const month = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
   let s = null;
   try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), plAnchor(originIso()).pl); } catch (e) {}
