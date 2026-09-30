@@ -2864,7 +2864,7 @@ function renderGuideSafety(iso) {
     // CURRENT advisory, so the latest move is all the history that exists.
     let moved = "";
     if (it.change && it.updated
-        && it.updated >= new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10)) {
+        && it.updated >= advMoveCutoff()) {
       const d = new Date(it.updated + "T12:00:00");
       const when = isNaN(d) ? it.updated : MON_ABBR[d.getMonth()] + " " + d.getDate();
       moved = ` <span class="advmoved ${it.change === "up" ? "chup" : "chdown"}" data-tip="${
@@ -3610,7 +3610,7 @@ function renderAdvisories() {
   // No "top" list — a hundred Level-1 ties can't be ranked. What CAN be said
   // is what MOVED: the feed's own "level was increased/decreased" statements,
   // dated. Under the map only (it used to repeat above the table, 100px on).
-  const cutoff = new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10);
+  const cutoff = advMoveCutoff();
   const changed = advisories.items
     .filter((it) => it.change && it.updated && it.updated >= cutoff && (!it.iso || inRegion(it.iso)))
     .sort((a, b) => (a.updated < b.updated ? 1 : -1)).slice(0, 8);
@@ -3672,6 +3672,9 @@ function renderAdvisories() {
     : [1, 2, 3, 4].map((l) => sw(LVL_MAP_COLOR[l], "L" + l)).join(" ");
 
   markSort("#advTable", advSort);
+  // Only the US feed dates its level changes; for Canada and Germany the
+  // Changed column would be "—" on every row, so it goes.
+  $("advTable").classList.toggle("nochg", !advisories.items.some((i) => i.change && i.updated));
   $("advRows").innerHTML = sortRows(advisories.items, advSort, ADV_GET, ADV_GET.country).map((it) => {
     const lvl = parseInt(it.level, 10) || 0;
     const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
@@ -3711,11 +3714,11 @@ function renderAdvisories() {
       changed = `<span class="${up ? "neg" : "pos"}" data-tip="${esc((it.via ? advViaShort(it) : advSrcName(true))
         + (up ? " raised" : " lowered") + " it to Level " + lvl + " on " + when)}" title="">${up ? "▲" : "▼"}<span class="advchgword"> ${up ? "raised" : "lowered"}</span>`
         + ` <span class="advwhen">${esc(when)}</span></span>`;
-      if (it.updated >= new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10)) moveCls = up ? "advup" : "advdown";
+      if (it.updated >= advMoveCutoff()) moveCls = up ? "advup" : "advdown";
     }
     return `
     <tr data-lvl="${lvl}"${guideAttr}${moveCls ? ` class="${moveCls}"` : ""}><td>${nameCell}</td>
-      <td>${pill}</td>
+      <td>${pill}${it.change && it.updated ? `<span class="advmvp ${it.change === "up" ? "neg" : "pos"}" data-tip="${esc((it.change === "up" ? "Raised" : "Lowered") + " on " + it.updated)}" title="">${it.change === "up" ? "▲" : "▼"}</span>` : ""}</td>
       <td><span class="${deOwn(it) ? "advde" : "advtext"}"${tip ? ` data-tip="${esc(tip)}" title=""` : ""}>${esc(term)}</span>${via}${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ <span class="wolong">safety </span>notes</button>` : ""}${safeLink ? `<a class="advlink farelink" href="${esc(safeLink)}" target="_blank" rel="noopener" aria-label="${esc(nm)} advisory on ${esc(src)} (opens in a new tab)"><span class="advlinkword">details</span>&nbsp;<span class="ext">↗</span></a>` : ""}</td>
       <td class="advchg">${changed}</td>
     </tr>`;
@@ -3889,22 +3892,22 @@ function wireWatchoutRows() {
     btn.setAttribute("aria-expanded", "true");
     const det = document.createElement("tr");
     det.className = "wodetail";
-    det.innerHTML = '<td colspan="3">Loading…</td>';
+    det.innerHTML = '<td colspan="4">Loading…</td>';
     tr.insertAdjacentElement("afterend", det);
     try {
       const w = _watchoutCache[iso]
         || (_watchoutCache[iso] = await getJSON("/api/watchouts?iso=" + encodeURIComponent(iso)));
       if (!det.isConnected) return;
       if (!w.watchouts.length && !w.regional.length) {
-        det.innerHTML = '<td colspan="3"><span class="muted">No structured watchouts published for this country.</span></td>';
+        det.innerHTML = '<td colspan="4"><span class="muted">No structured watchouts published for this country.</span></td>';
         return;
       }
       const built = watchoutsBlockHTML(w);
-      det.innerHTML = '<td colspan="3">' + built.reg + built.chips
+      det.innerHTML = '<td colspan="4">' + built.reg + built.chips
         + '<span class="advsrcnote">Per ' + esc(w.source || "Global Affairs Canada")
         + (w.link ? ' — <a class="farelink" href="' + esc(w.link) + '" target="_blank" rel="noopener">details&nbsp;<span class="ext">↗</span></a>' : "") + "</span></td>";
     } catch (err) {
-      if (det.isConnected) det.innerHTML = '<td colspan="3"><span class="muted">Could not load watchouts.</span></td>';
+      if (det.isConnected) det.innerHTML = '<td colspan="4"><span class="muted">Could not load watchouts.</span></td>';
     }
   });
 }
@@ -4015,7 +4018,8 @@ function renderAfford() {
     const name = (ppp[iso] && ppp[iso].name) || (climate && climate[iso] && climate[iso].name) || iso;
     rows.push({ iso, name, cur: CUR_BY_ISO[iso], pl, tr: iso === anchorIso ? null : affTrend(iso, anchorObj, pl / anchorPl) });
   }
-  const cheaperNow = rows.filter((r) => r.tr && r.tr.pct <= -AFF_CHEAP_PCT && inRegion(r.iso)).length;
+  const cheaperNow = rows.filter((r) => r.tr && r.tr.pct <= -AFF_CHEAP_PCT && inRegion(r.iso)
+    && (showRisky || (adv[r.iso] || 0) < 3)).length;
   const ai = $("affInfo");
   if (ai) ai.dataset.tip = `Green rows: prices there, measured against ${anchorName}, are at least ${AFF_CHEAP_PCT}% below `
     + "their own average of the last ten years — cheaper than usual, whether from a weaker currency or slower price rises. "
@@ -4081,7 +4085,9 @@ function ensurePLHistory() {
 }
 const COL_Q = new URLSearchParams(location.search);
 let colIso = /^[A-Z]{2}$/.test(COL_Q.get("cc") || "") ? COL_Q.get("cc") : "world";
-let colRange = ["10", "20"].includes(COL_Q.get("cr")) ? COL_Q.get("cr") : "all";
+// Opens on 10Y, the window the table's "vs 10-yr avg" measures (as Currency's
+// chart opens on 1Y beside its "vs 1-yr avg"); old cr=all links still work.
+let colRange = ["10", "20", "all"].includes(COL_Q.get("cr")) ? COL_Q.get("cr") : "10";
 
 // [{date, value, year}] for one country (or "world") vs the anchor, yearly
 // points dated mid-year (they are annual averages), then today's.
@@ -6241,12 +6247,16 @@ function fxMark(iso) {
   return `<span class="fxmark ${up ? "fxup" : "fxdn"}" data-tip="${esc(tip)}" title="">${
     up ? "+" : "−"}${Math.abs(Math.round(pct))}%</span>`;
 }
+// How long a level change counts as recent: the Safety list and table, the
+// guide's safety line and Top Picks' mark all read this one window.
+const ADV_MOVE_DAYS = 180;
+const advMoveCutoff = () => new Date(Date.now() - ADV_MOVE_DAYS * 864e5).toISOString().slice(0, 10);
 // Safety: the advisory's latest move (180-day window) — an event mark, only a
 // handful of countries carry one at a time.
 function advMovedMark(iso) {
   const it = advisoryMetaByIso()[iso];
   if (!it || !it.change || !it.updated) return "";
-  if (it.updated < new Date(Date.now() - 180 * 864e5).toISOString().slice(0, 10)) return "";
+  if (it.updated < advMoveCutoff()) return "";
   const d = new Date(it.updated + "T12:00:00");
   const when = isNaN(d) ? it.updated : MON_ABBR[d.getMonth()] + " " + d.getDate();
   const up = it.change === "up";
@@ -8790,7 +8800,7 @@ function buildShareURL(forShare) {
     if (dataMode === "afford" && colIso !== "world") q.set("cc", colIso);
     if (dataMode === "advisory" && govIso) q.set("sc", govIso);
     if (dataMode === "flights" && fbmIso !== "all") q.set("fc", fbmIso);
-    if (dataMode === "afford" && colRange !== "all") q.set("cr", colRange);
+    if (dataMode === "afford" && colRange !== "10") q.set("cr", colRange);
     // Clean path: /guide/<slug>, plus ?vmn= once a trip month is chosen (or
     // for an explicit Share) — the Top Picks rule above. The month is what the
     // bars, stay dates and AI prompt are drawn for; dropping it made a shared
@@ -10451,7 +10461,7 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest ? e.target : null;
   const mouse = (e.pointerType || _lastPtrType) === "mouse";
   const info = t && (t.closest(".hzmark, .muted[data-tip], .legendinfo, .fxinfo, .covmark")
-    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv, .gr.grx[data-tip], #advRows .lvl[data-tip], #rows .pegnote")));
+    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv, .gr.grx[data-tip], #advRows .lvl[data-tip], #rows .pegnote, #advRows .advchg [data-tip], #advRows .advmvp, #affRows td.num [data-tip], #affRows .range")));
   if (info) { _showTipFor(info.dataset && info.dataset.tip ? info : e.target.closest("[data-tip]")); e.stopPropagation(); return; }
   // Touch screens have no hover: a tap on any other tipped element shows it, a
   // tap elsewhere dismisses. (closest() miss hides.)

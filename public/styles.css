@@ -1663,8 +1663,11 @@ button.chip2 { border: 0; }
   #advTable .advtext, #advTable .advvia, #advTable .wolong,
   #advTable .advlinkword, #advTable .advlink::before { display: none; }
   #advTable td:nth-child(2), #advTable td:nth-child(3), #advTable td:nth-child(4) { white-space: nowrap; width: 1%; }
-  /* Changed: the arrow and the date; the word is in the tip. */
-  #advTable .advchgword { display: none; }
+  /* No Changed column on a phone: it was "—" on nearly every row and took
+     88px from the names ("Aus…" for Australia and Austria). The ▲/▼ rides
+     after the Level pill instead, its date in the tip. */
+  #advTable th:nth-child(4), #advTable td:nth-child(4) { display: none; }
+  #advTable .advmvp { display: inline; }
   /* The German term beside "▸ notes ↗" on one nowrap line pushed the page to
      443px at 390; on a line of its own the cell is only as wide as the word. */
   #advTable .advde { display: block; }
@@ -2411,6 +2414,10 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 /* Safety table: a flag before each name, and the Changed column. */
 .advflag { margin-right: 7px; }
 #advTable .advchg { white-space: nowrap; }
+/* A source that doesn't date its changes (Canada, Germany): no column. */
+#advTable.nochg th:nth-child(4), #advTable.nochg td:nth-child(4) { display: none; }
+/* The phone form of a change: the arrow after the Level pill. */
+.advmvp { display: none; margin-left: 5px; font-size: 12px; font-weight: 700; }
 /* One weight either way (.pos is bold and .neg is not, so "lowered" read
    heavier than "raised"); the date is the quiet part. */
 #advTable .advchg > span { font-weight: 600; }

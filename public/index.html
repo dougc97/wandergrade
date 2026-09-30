@@ -664,9 +664,9 @@
             <select id="colPick" aria-label="Country"></select>
           </span>
           <div class="windowtoggle" id="colRange" role="group" aria-label="Time range">
-            <button type="button" data-range="10" aria-pressed="false">10Y</button>
+            <button type="button" data-range="10" aria-pressed="true" class="active">10Y</button>
             <button type="button" data-range="20" aria-pressed="false">20Y</button>
-            <button type="button" data-range="all" aria-pressed="true" class="active">All</button>
+            <button type="button" data-range="all" aria-pressed="false">All</button>
           </div>
         </div>
         <div id="colChart" class="chart"></div>
@@ -752,7 +752,7 @@
              decreased" statements, dated — is the list under the map
              (renderAdvisories); it used to repeat here, 100px below. -->
         <table id="advTable">
-          <thead><tr><th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="level"><button type="button" class="sortbtn">Level</button></th><th class="sortable" aria-sort="none" data-sk="text"><button type="button" class="sortbtn">Advisory</button></th><th class="sortable" aria-sort="none" data-sk="changed" title="the latest level change the government published, and when; rows changed in the last 90 days are tinted"><button type="button" class="sortbtn">Changed</button></th></tr></thead>
+          <thead><tr><th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="level"><button type="button" class="sortbtn">Level</button></th><th class="sortable" aria-sort="none" data-sk="text"><button type="button" class="sortbtn">Advisory</button></th><th class="sortable" aria-sort="none" data-sk="changed" title="the latest level change the government published, and when; rows changed in the last 180 days are tinted"><button type="button" class="sortbtn">Changed</button></th></tr></thead>
           <tbody id="advRows"><tr><td colspan="4">Loading…</td></tr></tbody>
         </table>
       </section>
