@@ -2371,3 +2371,19 @@ a.destlink:focus-visible { outline: 2px solid var(--green); outline-offset: 2px;
    ::after, outside the button, so the header broke before it (52px thead
    at 390). nowrap on the th keeps "VS AVG ⓘ ▼" together. */
 @media (min-width: 375px) and (max-width: 560px) { #vsAvgHead { white-space: nowrap; } }
+
+/* The guide's grade line (renderGuideGrades): the overall pill and its number,
+   then 💰 🛡️ 🌤️ ✈️, the trip length and an ⓘ. A static host with its height
+   reserved, so filling it after hydration moves nothing below it. */
+.guidegrades { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: 38px; margin: 6px 0 0; }
+.guidegrades:empty { min-height: 38px; }
+.guidegrades .ggnum { font-weight: 800; font-size: 14px; margin-left: -6px; }
+.guidegrades .ggf { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; }
+.guidegrades .ggdays { font-size: 13px; color: var(--gray); }
+/* On a phone the line wraps to two (measured 56px at 390). */
+@media (max-width: 560px) { .guidegrades, .guidegrades:empty { min-height: 56px; } }
+/* The guide's h1 is hidden until hydration (one visible h1 at a time — the
+   SSR block carries its own), and revealing it pushed the hero and everything
+   under it down a line: 0.069 of the desktop layout shift. Its line is held
+   from the first frame, invisible (and so still absent for screen readers). */
+html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }

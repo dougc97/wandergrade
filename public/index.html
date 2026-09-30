@@ -355,6 +355,9 @@
                rendered page with no h1 at all, because the SSR h1 it replaces is
                deleted a moment earlier. -->
           <h1 class="cardtitle" id="guideH1" hidden>Travel Guide<span id="guideH2Country"></span></h1>
+          <!-- The grades the share card prints, on the page (renderGuideGrades).
+               Static, height reserved in styles.css — the CLS rule. -->
+          <div id="guideGrades" class="guidegrades"></div>
           <!-- No subtitle: the one it had named three of the page's ten blocks
                and said "right now" even when another month was chosen. -->
         </div>
@@ -371,10 +374,9 @@
           <button id="guideShare" class="themebtn shareimg" type="button" title="Download this country as a shareable card — grade, months, prices, safety">📸 <span class="btxt">Share card</span></button>
         </div>
       </div>
-      <!-- Server-rendered guide content for crawlers + instant first paint;
-           app.js removes this once it hydrates the interactive guide. -->
-      <div id="ssrGuide" class="ssrguide">{{SSR_BODY}}</div>
-      <div id="guideHero" class="guidehero"></div>
+      <!-- Loading from the first frame: the hero's 300px is reserved before
+           app.js runs (renderGuideHero keeps or clears the class). -->
+      <div id="guideHero" class="guidehero loading"></div>
       <nav class="guidejump" aria-label="jump to a guide section">
         <button type="button" data-go="bestDetail">🌤️ When to go</button>
         <button type="button" data-go="guideStay">🏨 Where to stay</button>
@@ -415,6 +417,11 @@
           <div id="guideInsurance" class="afflink"></div>
         </div>
       </div>
+      <!-- Server-rendered guide content for crawlers and readers without JS.
+           Below the grid, not above the hero: app.js removes it on hydration,
+           and above it that removal pulled the whole page up 365px on desktop
+           (CLS 0.11). Here nothing visible sits beneath it but the activities. -->
+      <div id="ssrGuide" class="ssrguide">{{SSR_BODY}}</div>
       <hr class="softrule">
       <div id="actDetail" class="bestdetail"></div>
     </div>

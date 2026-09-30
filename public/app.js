@@ -2200,6 +2200,51 @@ function insuranceHref(iso) {
 function renderGuideInsurance(iso) {
   const host = $("guideInsurance");
   if (!host) return;
+  // No insurance, stays or tours under "Level 4 — do not travel": the grades
+  // are the product, and a booking button beneath "do not travel for any
+  // reason" makes the badge look like it is there to sell the booking. Held
+  // back until the level is known, so it never flashes on a Level 4 page.
+  host.innerHTML = "";
+  const show = () => { if (ccGuideIso === iso && guideAdvLevel(iso) !== 4) fillGuideInsurance(host, iso); };
+  ensureAdvisories().then(show, show);
+}
+// The grades the 📸 share card prints, on the page itself (an export must not
+// show a figure its own page never shows): the same valueScores call, the
+// travel month, the reader's Top Picks priorities. Static host (#guideGrades,
+// height reserved in styles.css), so filling it moves nothing.
+async function renderGuideGrades(iso) {
+  const host = $("guideGrades");
+  if (!host) return;
+  try { await Promise.all([ensureAdvisories(), ensurePPP()]); } catch (e) {}
+  if (ccGuideIso !== iso) return;
+  const month = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
+  let s = null;
+  try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), plAnchor(originIso()).pl); } catch (e) {}
+  const act = activities && activities[iso];
+  const days = act && act.days ? '<span class="ggdays" data-tip="' + esc("Worth " + act.days[0] + "–" + act.days[1]
+    + " days on a first visit") + '" title="">🧳 ' + act.days[0] + "–" + act.days[1] + " days</span>" : "";
+  const grey = (txt, tip) => '<span class="gr grx" data-tip="' + esc(tip) + '" title="">' + txt + "</span>";
+  if (!s) {
+    const lvl = guideAdvLevel(iso);
+    const why = lvl === 4 ? "Level 4, do not travel: not graded"
+      : !lvl ? "No advisory from the governments we follow, so it isn't graded" : "Not enough data to grade it";
+    host.innerHTML = grey("—", why) + '<span class="vh"> ' + esc(why) + "</span>" + days;
+    return;
+  }
+  const f = (emo, word, pill) => '<span class="ggf"><span aria-hidden="true">' + emo + '</span><span class="vh">' + word + " </span>" + pill + "</span>";
+  const fly = s.fare == null ? grey("—", "No fare data")
+    : (s.flyBasis !== "month" && s.fareEst) ? grey("~" + grade(s.fly), "Estimated — no cached fare yet, so flights count as a typical fare for the distance.")
+    : gradePill(s.fly, s.flyBasis === "month" ? MONTHS[month - 1] + "'s fare vs this route's usual" : "Year-round fare vs the typical fare for this distance");
+  host.innerHTML = gradePill(s.value, "Overall " + grade(s.value) + " · " + s.value + "/100 for " + MONTHS[month - 1], "big")
+    + '<span class="ggnum">' + s.value + "</span>"
+    + f("💰", "Affordability", gradePill(s.afford, affordTitle(s).replace(" · click for cost-of-living detail", "")))
+    + f("🛡️", "Safety", safetyPill(s.advLvl, iso))
+    + f("🌤️", "Weather", s.wx == null ? grey("—", "No weather data") : gradePill(s.wx, s.wx + "/100 weather comfort in " + MONTHS[month - 1]))
+    + f("✈️", "Flights", fly) + days
+    + '<span class="muted" data-tip="' + esc("Graded for " + MONTHS[month - 1] + " from " + originLabel()
+      + ", weighted by your Top Picks priorities — the grades the Top Picks table and this page's 📸 share card show.") + '" title="">ⓘ</span>';
+}
+function fillGuideInsurance(host, iso) {
   // Named, and styled like the stay buttons it sits beside. It used to read
   // "Compare travel insurance" as a bare text link, which was wrong twice: it
   // compares nothing — it is one insurer's quote form — and an unfamiliar brand
@@ -2228,6 +2273,7 @@ function renderGuide(iso) {
   // above, so exactly one h1 is visible before and after hydration.
   const gh1 = $("guideH1"); if (gh1) gh1.hidden = false;
   renderGuideInsurance(iso);
+  renderGuideGrades(iso);
   // Title and canonical here, not only in openGuideFor: the country picker and a
   // plain return to the guide tab both re-render without going through it, which
   // left the h1 naming one country while the title still said another (or the
@@ -2649,8 +2695,9 @@ function renderGuideStay(iso) {
   const host = $("guideStay");
   if (!host) return;
   host.hidden = true; host.innerHTML = "";
-  ensureStayCoords().then((cc) => {
+  Promise.all([ensureStayCoords(), ensureAdvisories().catch(() => null)]).then(([cc]) => {
     if (ccGuideIso !== iso) return;                    // user switched country
+    if (guideAdvLevel(iso) === 4) return;              // no bookings under "do not travel"
     // Spots = the country's top places (from the curated gallery), each a
     // stay-search anchor. Tolerate the old single-anchor shape from cache.
     let spots = cc[iso];
@@ -2773,6 +2820,15 @@ const ADV_LABEL = { 1: "Level 1 · Normal precautions", 2: "Level 2 · Increased
 // Faroes under Denmark). The guide shows the parent's level and says so;
 // scoring never sees these ISOs, so nothing is ranked on it.
 const ADV_PARENT = { ...GUIDE_PARENT, GG: "GB", IM: "GB", JE: "GB", FO: "DK" };
+// The level the reader's chosen source gives a guide's country (a territory
+// reads its parent's, as the badge does); 0 unrated, null while loading.
+function guideAdvLevel(iso) {
+  if (!advisories) return null;
+  const meta = advisoryMetaByIso();
+  const parent = !meta[iso] && ADV_PARENT[iso] && meta[ADV_PARENT[iso]] ? ADV_PARENT[iso] : null;
+  const it = meta[iso] || (parent && meta[parent]);
+  return it ? it.level : 0;
+}
 function renderGuideSafety(iso) {
   const host = $("guideSafety");
   if (!host) return;
@@ -3407,7 +3463,7 @@ function renderCountryClimate(iso) {
   const rg = REGIONS[regionOf(iso)];
   $("bestDetail").innerHTML = `
     <div class="besthead">
-      <h2>Best time to visit ${esc(c.name)}${rg ? ` <span class="muted">· ${rg}</span>` : ""}${
+      <h2><span aria-hidden="true">🌤️</span> Best time to visit ${esc(c.name)}${rg ? ` <span class="muted">· ${rg}</span>` : ""}${
         hasTemps ? `<span class="legendinfo" data-tip="${esc(legend)}" title="">ⓘ</span>` : ""}</h2>
       ${unitToggle}
     </div>
@@ -4681,7 +4737,7 @@ async function loadValueFlights(silent) {
       }
       // A guide opened before fares arrived rendered its fare strip against
       // nothing and stayed hidden — give it its data now.
-      if (ccGuideIso) renderGuideFares(ccGuideIso);
+      if (ccGuideIso) { renderGuideFares(ccGuideIso); renderGuideGrades(ccGuideIso); }
     }
   } catch (e) {
     if (seq !== _vfSeq) return;
@@ -5063,16 +5119,19 @@ function renderTripBook(isos) {
       ? flightsData.countries.find((r) => r.iso === iso) : null;
     // The trip month's search, not the default ~60 days out: the row now
     // says "Oct USD 608", and its Flights link has to mean October.
-    const fu = fr && fr.dest ? flightSearchURL(fr.dest, key) : null;
+    const lvl = adv[iso] || (ADV_PARENT[iso] && adv[ADV_PARENT[iso]]) || 0;
+    // No booking links for a "Level 4 — do not travel" country (the guide's
+    // rule); its ⚠️ still says why.
+    const fu = lvl < 4 && fr && fr.dest ? flightSearchURL(fr.dest, key) : null;
     const links = [];
     if (fu) links.push(A(fu, "✈️", "Flights", name).replace('class="triplink"', 'class="triplink tbfly"'));
     // Stay link needs coordinates that load async; the span keeps the row's
     // shape until the fill swaps it for the real anchor.
-    links.push('<span class="tbstay" data-iso="' + iso + '"></span>');
-    links.push(A(viatorURL(name), "🎟️", "Things to do", name));
-    // Level 3-4: the table's ⚠️ exception mark. The only surface that puts
-    // booking links beside a do-not-travel country, so it says so.
-    const lvl = adv[iso] || (ADV_PARENT[iso] && adv[ADV_PARENT[iso]]) || 0;
+    if (lvl < 4) {
+      links.push('<span class="tbstay" data-iso="' + iso + '"></span>');
+      links.push(A(viatorURL(name), "🎟️", "Things to do", name));
+    }
+    // Level 3-4: the table's ⚠️ exception mark.
     const warn = lvl >= 3 ? ' <span class="hzmark" data-tip="' + esc(ADV_TEXT[lvl] + advVia(iso)) + '" title="">⚠️</span>' : "";
     return '<div class="tbrow" data-iso="' + iso + '">'
       + '<span class="tbn"><a class="tbdest" href="' + esc(guidePath(iso)) + '"><span aria-hidden="true">' + flagEmoji(iso)
@@ -7552,11 +7611,15 @@ function renderActivity(iso) {
   // deleting it meant the rendered DOM Google indexes no longer contained the
   // sentence the snippet promises. One muted line is the honest price.
   const summary = (a.summary || "").trim();
-  const todo = `<h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
-    <ul class="actlist">${acts}</ul>
+  // The tours button waits for the advisory level like the stays do: none
+  // under "Level 4 — do not travel" (guideAdvLevel), hidden until it is known.
+  const lv = guideAdvLevel(iso);
+  const tours = lv === 4 ? "" : `<div class="guidetours"${lv == null ? " hidden" : ""}>
     <a class="viatorbtn" href="${viatorURL(name)}" target="_blank" rel="sponsored nofollow noopener"
        title="Browse bookable tours & experiences in ${esc(name)} on Viator">🎟️ Book tours &amp; activities in ${esc(name)} <span class="muted">on Viator</span> <span class="ext">↗</span></a>
-    <p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p>`;
+    <p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p></div>`;
+  const todo = `<h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
+    <ul class="actlist">${acts}</ul>${tours}`;
   // Things to do beside what's in season on a desktop (.actgrid, styles.css);
   // the season rows were each a card-wide line with the months a thousand
   // pixels from their label. Phones stack them as before.
@@ -7567,6 +7630,14 @@ function renderActivity(iso) {
     ${summary ? `<p class="actsummary muted">${esc(summary)}</p>` : ""}
     <div class="chips">${tags}</div>
     ${seas ? `<div class="actgrid"><div>${todo}</div><div><h4 style="margin:.6em 0 .2em">${seasHead}</h4>${seas}</div></div>` : todo}`;
+  if (lv == null) {
+    const settle = () => {
+      const t = $("actDetail").querySelector(".guidetours");
+      if (!t || ccGuideIso !== iso) return;
+      if (guideAdvLevel(iso) === 4) t.remove(); else t.hidden = false;
+    };
+    ensureAdvisories().then(settle, settle);
+  }
   loadActivityThumbs(iso);
 }
 
@@ -8096,7 +8167,7 @@ function renderVisitedStats() {
   // goal rather than one line of grey text beside an empty map.
   if (!n && !m) {
     const [t, label] = MILESTONE_TIERS[0];
-    host.innerHTML = '<div class="vstats-line"><span class="hint">Nothing yet — tap a country on the map, or search for one above.</span>'
+    host.innerHTML = '<div class="vstats-line"><span class="hint">Nothing marked yet</span>'
       + `<span class="awardtag locked" data-tip="${esc(`Visit ${t} countries to earn ${label}`)}" title="">🔒 ${t} to ${esc(label)}</span></div>`;
     return;
   }
@@ -8269,7 +8340,7 @@ function planForMonth(m, quiet) {
   if (sel.value !== String(m)) return;   // never report a change that didn't happen
   if (sel._sync) sel._sync();
   if (loaded.value) renderValue();
-  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); renderGuideFares(ccGuideIso); }
+  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); renderGuideFares(ccGuideIso); renderGuideGrades(ccGuideIso); }
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
   if (changed && !quiet) status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
   syncURL();
@@ -8733,7 +8804,9 @@ async function shareCurrent() {
   const url = buildShareURL();
   if (navigator.share) {
     try { await navigator.share({ title: "Where Should I Travel to Next?", url }); return; }
-    catch (e) { /* user cancelled -> fall through to clipboard */ }
+    // Cancelled: nothing. A real failure (no permission, unsupported) falls
+    // through to the clipboard.
+    catch (e) { if (e && e.name === "AbortError") return; }
   }
   try {
     await navigator.clipboard.writeText(url);
@@ -9061,7 +9134,7 @@ function buildVisitedShareSVG(orientation, withPins) {
       contLines += `<text x="${cx}" y="${772 + (i / 3) * 46}" text-anchor="middle" font-family="${font}" font-size="30" fill="#9fb3cd">${parts}</text>`;
     }
     inner = `
-      <text x="${cx}" y="160" text-anchor="middle" font-family="${font}" font-size="30" font-weight="800" letter-spacing="6" fill="#7fd99a">🗺️ WANDERLIST</text>
+      <text x="${cx}" y="160" text-anchor="middle" font-family="${font}" font-size="30" font-weight="800" letter-spacing="6" fill="#7fd99a">🗺️ WANDER LIST</text>
       <text x="${cx}" y="440" text-anchor="middle" font-family="${font}" font-size="260" font-weight="800" fill="#34d27b">${big}</text>
       <text x="${cx}" y="520" text-anchor="middle" font-family="${font}" font-size="48" font-weight="700" fill="#ffffff">${n ? (n === 1 ? "country visited" : "countries visited") : "on my wishlist"}</text>
       ${badge ? pill(cx, 610, badge, "middle") : ""}
@@ -9081,7 +9154,7 @@ function buildVisitedShareSVG(orientation, withPins) {
       : `My travel <tspan fill="#34d27b">Wander List</tspan>`;
     const subParts = [statLine, listLine].filter(Boolean).join("   ·   ");
     inner = `
-      <text x="60" y="52" font-family="${font}" font-size="20" font-weight="800" letter-spacing="3" fill="#7fd99a">🗺️ WANDERLIST</text>
+      <text x="60" y="52" font-family="${font}" font-size="20" font-weight="800" letter-spacing="3" fill="#7fd99a">🗺️ WANDER LIST</text>
       ${badge ? pill(W - 50, 50, badge, "end") : ""}
       <text x="60" y="116" font-family="${font}" font-size="42" font-weight="800" fill="#ffffff">${headline}</text>
       ${subParts ? `<text x="60" y="150" font-family="${font}" font-size="21" fill="#9fb3cd">${esc(subParts)}</text>` : ""}
@@ -9202,7 +9275,7 @@ async function downloadMapImage(hostId, o) {
     const file = new File([blob], o.filename, { type: "image/png" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file], title: o.title }); return; }
-      catch (e) { /* cancelled -> fall through to download */ }
+      catch (e) { if (e && e.name === "AbortError") return; }   // cancelled: nothing; a real failure downloads
     }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -9313,7 +9386,7 @@ async function downloadRankImage() {
     const file = new File([blob], name, { type: "image/png" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file], title: "Where to travel next" }); return; }
-      catch (e) { /* cancelled -> fall through to download */ }
+      catch (e) { if (e && e.name === "AbortError") return; }   // cancelled: nothing; a real failure downloads
     }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -9408,7 +9481,7 @@ async function downloadGuideCard(iso) {
     const file = new File([blob], "wandergrade-" + nameSlug + ".png", { type: "image/png" });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file], title: countryName(iso) }); return; }
-      catch (e) { /* cancelled -> download */ }
+      catch (e) { if (e && e.name === "AbortError") return; }   // cancelled: nothing; a real failure downloads
     }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -9455,12 +9528,12 @@ async function downloadVisitedImage(orientation) {
       });
     }
     const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
-    const name = orientation === "story" ? "wanderlist-story.png" : "wanderlist-map.png";
+    const name = orientation === "story" ? "wandergrade-wander-list-story.png" : "wandergrade-wander-list-map.png";
     const file = new File([blob], name, { type: "image/png" });
     // Native share sheet on phones (posts straight to socials); download elsewhere.
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try { await navigator.share({ files: [file], title: "My Wander List" }); return; }
-      catch (e) { /* cancelled -> download instead */ }
+      catch (e) { if (e && e.name === "AbortError") return; }   // cancelled: nothing; a real failure downloads
     }
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
@@ -10394,7 +10467,7 @@ new MutationObserver((muts) => {
       // Not for the unrequested invite: inerting the page would blur the field
       // the visitor is typing in, and that modal never takes focus anyway.
       if (!n.dataset.nofocus) {
-        n._inerted = [...document.body.children].filter((el) => el !== n && !el.inert);
+        n._inerted = [...document.body.children].filter((el) => el !== n && el !== _tipEl && !el.inert);
         n._inerted.forEach((el) => { el.inert = true; });
       }
       // An unrequested modal (the timed newsletter invite) never takes focus:
@@ -10674,15 +10747,14 @@ function acctModal(inner) {
 
 function openSignIn() {
   const m = acctModal(
-    '<span class="sublabel">👤 Save your travel map</span>'
-    + '<p class="hint">Private tabs wipe it. Sign in and it follows you — on every device.</p>'
+    '<span class="sublabel">👤 Save your travel map <span class="muted" data-tip="Private tabs wipe it. Sign in and it follows you — on every device. No password — just a one-time link." title="">ⓘ</span></span>'
     + '<form class="subform acctform"><input type="email" name="email" placeholder="you@email.com" required>'
     + '<button type="submit">Email me a link</button></form>'
     // Unticked by default: saving a map is not consent to a newsletter (a
     // pre-ticked box isn't valid consent under GDPR). Monthly is the only
     // cadence there is, so it's in the words rather than a one-option picker.
     + '<label class="acctcheck"><input type="checkbox" id="acctSub"> Also send me the monthly newsletter</label>'
-    + '<span class="hint">No password — just a one-time link.</span>');
+    );
   if (!m) return;
   const sub = m.querySelector("#acctSub");
   m.querySelector("form").onsubmit = async (e) => {

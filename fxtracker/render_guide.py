@@ -219,7 +219,7 @@ def render(iso):
         # abbreviated months nobody searches for. Heading and prose now say the
         # thing people actually typed.
         best_full = _join_and(MON_FULL[m - 1] for m in best if 1 <= m <= 12)
-        p.append("<h2>Best time to visit %s</h2>" % html.escape(name))
+        p.append("<h2>🌤️ Best time to visit %s</h2>" % html.escape(name))
         # Same sentence the hydrated page shows: the strong "best months to
         # visit" claim only where months are hand-curated; a weather statement
         # everywhere else. SSR asserting more than the live page is a lie
