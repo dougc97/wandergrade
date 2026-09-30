@@ -1827,6 +1827,13 @@ button.chip2 { border: 0; }
 /* The advisory's own page, after the notes button. The separator belongs to
    the link, so it goes with the link's word on phones. */
 .advlink::before { content: " · "; }
+/* The Advisory cell: the phrase is the cell's text (14px ink); where it comes
+   from, the notes button and the details link are one quieter group. "· per
+   Global Affairs Canada" and "details" were 14px ink beside an 11px notes
+   button, three sizes in one line. */
+#advTable .advvia, #advTable .advlink { font-size: 12px; color: var(--gray); }
+#advTable .advlink:hover { color: var(--green); }
+#advTable .advlink .ext { font-size: 10px; }
 /* Guide fare bars: same colour law as everything (green = go), but visibly a
    DIFFERENT INSTRUMENT than the temperature chart above — its own inset panel
    and slimmer bars. Differentiation by module and silhouette, not by palette:

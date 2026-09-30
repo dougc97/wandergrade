@@ -3672,12 +3672,14 @@ function renderAdvisories() {
     const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
     const nm = advName(it);
     const guideAttr = it.iso ? ` data-iso="${esc(it.iso)}" title="See the ${esc(nm)} travel guide →"` : "";
-    const via = it.via ? `<span class="muted advvia"> · per ${esc(advViaShort(it))}</span>` : "";
     // Germany's own rows: the English in the pill, the government's own word
     // in the cell (as every source's cell is its own text) and the English
     // again in the tip. The feed's date rides in the tip too, so a row says
     // when its government last looked.
     const [term, eng] = de && !it.via ? deSplit(it) : [it.level_text, ""];
+    // "· per X" only after a phrase: a feed row without one began the cell
+    // with a stray separator ("· per Global Affairs Canada").
+    const via = it.via ? `<span class="muted advvia">${term ? " · " : ""}per ${esc(advViaShort(it))}</span>` : "";
     const tip = [it.summary, eng && eng !== term ? eng.charAt(0).toUpperCase() + eng.slice(1) : "",
                  it.updated ? "updated " + fmtDay(it.updated) : ""].filter(Boolean).join(" · ");
     // On a phone the advisory phrase ("Exercise Increased Caution") only
