@@ -558,16 +558,21 @@ function sortableThAttrs(state, sk) {
 // name sorts by what the row actually shows, or "Laos" would file under L-a-o
 // PDR while the eye looks for it under Laos.
 const AFF_GET = { name: (r) => countryName(r.iso), cur: (r) => r.cur, pl: (r) => r.pl,
-                  buys: (r) => 100 / r.pl };
+                  buys: (r) => 100 / r.pl, vs: (r) => (r.tr ? r.tr.pct : null),
+                  range: (r) => (r.tr ? r.tr.pos : null) };
 const affSort = { key: "pl", asc: true };
-wireSort("#affTable", affSort, { buys: false }, () => { if (typeof ppp !== "undefined" && ppp) renderAfford(); });
+wireSort("#affTable", affSort, { buys: false, range: false }, () => { if (typeof ppp !== "undefined" && ppp) renderAfford(); });
 
 // Safety: safest (Level 1) first by default. The advisory text tracks the
 // level, so that column sorts by severity too.
 const ADV_GET = { country: (it) => advName(it), level: (it) => parseInt(it.level, 10) || 0,
-                  text: (it) => parseInt(it.level, 10) || 0 };
+                  text: (it) => parseInt(it.level, 10) || 0,
+                  // A number, not the date string: sortRows compares strings
+                  // as text, and a missing move became "null", which sorts
+                  // after every date — the changed rows fell to the bottom.
+                  changed: (it) => (it.change && it.updated ? Date.parse(it.updated) : null) };
 const advSort = { key: "level", asc: true };
-wireSort("#advTable", advSort, {}, () => { if (advisories) renderAdvisories(); });
+wireSort("#advTable", advSort, { changed: false }, () => { if (advisories) renderAdvisories(); });
 
 // c.min is the cheapest of the recently cached rows; the month curve is a
 // separate sample, so "Cheapest" could sit above the month's own fare in the
@@ -3693,11 +3698,26 @@ function renderAdvisories() {
     const pill = deOwn(it) ? `<span class="lvl ${lvl === 1 ? "none" : "lvl2"}"${pillAttr}>${DE_LVL_LABEL[lvl]}</span>`
       : `<span class="lvl lvl${lvl}"${pillAttr}>Level ${lvl}</span>`;
     const src = it.via ? advViaShort(it) : advSrcName(true);
-    const nameCell = it.iso ? `<a class="destlink" href="${esc(guidePath(it.iso))}">${esc(nm)}</a>` : esc(nm);
+    const nameCell = it.iso ? `<span class="advflag" aria-hidden="true">${flagEmoji(it.iso)}</span><a class="destlink" href="${esc(guidePath(it.iso))}">${esc(nm)}</a>` : esc(nm);
+    // The latest move the feed records (only the current advisory is
+    // published, so this is all the history there is), dated; a move in the
+    // last 90 days tints the row — red raised, green lowered.
+    let changed = '<span class="muted">—</span>', moveCls = "";
+    if (it.change && it.updated) {
+      const d = new Date(it.updated + "T12:00:00");
+      const when = isNaN(d) ? it.updated : d.getDate() + " " + MON_ABBR[d.getMonth()]
+        + (d.getFullYear() === new Date().getFullYear() ? "" : " " + d.getFullYear());
+      const up = it.change === "up";
+      changed = `<span class="${up ? "neg" : "pos"}" data-tip="${esc((it.via ? advViaShort(it) : advSrcName(true))
+        + (up ? " raised" : " lowered") + " it to Level " + lvl + " on " + when)}" title="">${up ? "▲" : "▼"}<span class="advchgword"> ${up ? "raised" : "lowered"}</span>`
+        + ` <span class="advwhen">${esc(when)}</span></span>`;
+      if (it.updated >= new Date(Date.now() - 90 * 864e5).toISOString().slice(0, 10)) moveCls = up ? "advup" : "advdown";
+    }
     return `
-    <tr data-lvl="${lvl}"${guideAttr}><td>${nameCell}</td>
+    <tr data-lvl="${lvl}"${guideAttr}${moveCls ? ` class="${moveCls}"` : ""}><td>${nameCell}</td>
       <td>${pill}</td>
       <td><span class="${deOwn(it) ? "advde" : "advtext"}"${tip ? ` data-tip="${esc(tip)}" title=""` : ""}>${esc(term)}</span>${via}${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ <span class="wolong">safety </span>notes</button>` : ""}${safeLink ? `<a class="advlink farelink" href="${esc(safeLink)}" target="_blank" rel="noopener" aria-label="${esc(nm)} advisory on ${esc(src)} (opens in a new tab)"><span class="advlinkword">details</span>&nbsp;<span class="ext">↗</span></a>` : ""}</td>
+      <td class="advchg">${changed}</td>
     </tr>`;
   }).join("");
   applyAdvFilter();
@@ -3921,8 +3941,30 @@ function initAffAnchor() {
   match();
 }
 
+// The price level against the country's own last ten years, both measured
+// against the same home — the Cost tab's answer to Currency's "vs 1-yr avg".
+// From the yearly World Bank history behind the Cost-over-time chart. null
+// with under six of those years, or a history on another exchange-rate basis
+// than today's figure (colJoins: Iran, Venezuela…). pos = where today sits in
+// the decade's range, 100 = its cheapest (right, green, like Currency's bar).
+function affTrend(iso, anchor, now) {
+  if (!plHist) return null;
+  const y0 = new Date().getFullYear() - 10;
+  const pts = colSeries(iso, anchor).filter((p) => p.year != null && p.year >= y0);
+  if (pts.length < 6 || !colJoins(iso, pts[pts.length - 1].value, now)) return null;
+  const vals = pts.map((p) => p.value);
+  const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const lo = Math.min(...vals, now), hi = Math.max(...vals, now);
+  return { pct: (now / avg - 1) * 100, from: pts[0].year, to: pts[pts.length - 1].year,
+           pos: hi > lo ? ((hi - now) / (hi - lo)) * 100 : 50, lo, hi };
+}
+const AFF_CHEAP_PCT = 5;   // "cheaper than usual": at least this far under the 10-year average
 function renderAfford() {
   let n = 0;
+  // The trend columns read the yearly history; its arrival re-renders.
+  // (Not gated on loaded.afford: on a direct /?dm=afford load the history can
+  // land before that flag is set, and the columns stayed "—".)
+  if (!plHist) ensurePLHistory().then(() => { if (typeof ppp !== "undefined" && ppp) renderAfford(); }).catch(() => {});
   // The reference is the traveler's From country, not a hard-coded US — the
   // owner's question, and Top Picks already anchors this way (anchorPl). A
   // German comparing prices wants "vs Germany, in euros"; price levels are
@@ -3959,37 +4001,61 @@ function renderAfford() {
 
   // One line above the map; the source, its year and the national-average
   // caveat sit in the ⓘ. The "Vs home" picker beside it is the reference.
-  $("affSub").innerHTML = esc(`Below 1.00 = cheaper than ${anchorName} · ${n} countries`)
-    + ` <span class="muted" data-tip="${esc(`World Bank PPP (${pppYear()} for most countries), brought up to date by inflation, ÷ today's exchange rate. `
-      + "National averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.")}" title="">ⓘ</span>`;
+
   $("affLegend2").innerHTML =
     '<span>Pricey</span><span class="scale"></span><span>Cheap</span>' +
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
 
   // Ranked cheapest-first table.
+  const anchorObj = plAnchor(anchorIso);
   const rows = [];
   for (const iso in CUR_BY_ISO) {
     const pl = priceLevel(iso);
     if (pl == null) continue;
     const name = (ppp[iso] && ppp[iso].name) || (climate && climate[iso] && climate[iso].name) || iso;
-    rows.push({ iso, name, cur: CUR_BY_ISO[iso], pl });
+    rows.push({ iso, name, cur: CUR_BY_ISO[iso], pl, tr: iso === anchorIso ? null : affTrend(iso, anchorObj, pl / anchorPl) });
   }
+  const cheaperNow = rows.filter((r) => r.tr && r.tr.pct <= -AFF_CHEAP_PCT && inRegion(r.iso)).length;
+  const ai = $("affInfo");
+  if (ai) ai.dataset.tip = `Green rows: prices there, measured against ${anchorName}, are at least ${AFF_CHEAP_PCT}% below `
+    + "their own average of the last ten years — cheaper than usual, whether from a weaker currency or slower price rises. "
+    + "From the World Bank's yearly price levels behind the Cost over time chart. The bar shows where today sits in that "
+    + "decade: further right = nearer its cheapest.";
+  // After the rows: the count comes from them.
+  $("affSub").innerHTML = esc(`Below 1.00 = cheaper than ${anchorName} · ${n} countries`
+    + (plHist ? ` · ${cheaperNow} cheaper than usual` : ""))
+    + ` <span class="muted" data-tip="${esc(`World Bank PPP (${pppYear()} for most countries), brought up to date by inflation, ÷ today's exchange rate. `
+      + "National averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.")}" title="">ⓘ</span>`;
   markSort("#affTable", affSort);
   // The header carries the currency ("€100 buys"), so the cells needn't
   // repeat "of at-home goods" 176 times — the th title still says it.
   const bth = document.querySelector('#affTable th[data-sk="buys"] .sortbtn');
   if (bth) bth.textContent = hundred + " buys";
+  // The Currency tab's grammar: flag + name (the currency code under it), the
+  // price level with its word, a move column against the country's own norm,
+  // green rows where that move favours the reader, and a range bar.
   $("affRows").innerHTML = sortRows(rows, affSort, AFF_GET, AFF_GET.name).map((r) => {
     const rel = r.pl / anchorPl;
     const cls = rel <= 0.85 ? "pos" : rel > 1.15 ? "neg" : "";
-    // countryName(), not r.name: r.name is the World Bank's label from the PPP
-    // feed ("Iran, Islamic Rep.", "Lao PDR", "Slovak Republic"), which is not what
-    // the rest of the site calls these places — and the filter matches on row
-    // text, so searching "Laos" found nothing.
+    // countryName(), not r.name: r.name is the World Bank's label ("Iran,
+    // Islamic Rep.", "Lao PDR"), not what the rest of the site calls them.
     const cn = countryName(r.iso);
-    return `<tr data-iso="${esc(r.iso)}" title="See the ${esc(cn)} travel guide →"><td><a class="destlink" href="${esc(guidePath(r.iso))}">${esc(cn)}</a></td><td>${esc(r.cur)}</td>
-      <td class="num ${cls}">${rel.toFixed(2)}</td>
-      <td class="num">${esc(money(100 * anchorPl / r.pl))}</td></tr>`;
+    const t = r.tr;
+    const cheapNow = t && t.pct <= -AFF_CHEAP_PCT;
+    const vsCls = !t ? "" : cheapNow ? "pos" : t.pct >= AFF_CHEAP_PCT ? "neg" : "";
+    const vsTip = t ? `${cn}'s prices vs ${anchorName} are ${Math.abs(Math.round(t.pct))}% ${t.pct < 0 ? "below" : "above"} `
+      + `their ${t.from}–${t.to} average` : "";
+    const vs = t ? `<span data-tip="${esc(vsTip)}" title="">${t.pct < 0 ? "−" : "+"}${Math.abs(t.pct).toFixed(0)}%</span>`
+      : `<span class="muted" data-tip="${esc("Too little price history on today's exchange-rate basis to compare with")}" title="">—</span>`;
+    const bar = t ? `<div class="range" data-tip="${esc(`Today sits ${Math.round(t.pos)}% of the way from its priciest to its cheapest level `
+      + `of ${t.from}–${t.to} (vs ${anchorName}) — further right = cheaper than usual`)}" title=""><span style="left:${t.pos.toFixed(0)}%"></span></div>` : "";
+    return `<tr data-iso="${esc(r.iso)}"${cheapNow ? ' class="favorable"' : ""} title="See the ${esc(cn)} travel guide →">`
+      + `<td><div class="curcell"><span class="curflag" aria-hidden="true">${flagEmoji(r.iso)}</span><div>`
+      + `<a class="destlink" href="${esc(guidePath(r.iso))}">${esc(cn)}</a><div class="affcur">${esc(r.cur)}</div></div></div></td>
+      <td class="num"><span class="${cls}">${rel.toFixed(2)}</span><span class="plw"> ${plTag(rel)}</span></td>
+      <td class="num ${vsCls}">${vs}</td>
+      <td class="num">${esc(money(100 * anchorPl / r.pl))}</td>
+      <td class="num">${bar}</td></tr>`;
   }).join("");
   applyAffordFilter();
   // Clicking a country on this map also makes it the chart's line.
@@ -6308,7 +6374,10 @@ async function goToDetail(go, iso) {
   // some names, e.g. Turkey vs Türkiye), so the text filter always matches.
   const rowName = (tbodyId) => {
     const r = document.querySelector(`#${tbodyId} tr[data-iso="${iso}"]`);
-    return r ? r.children[0].textContent.trim() : countryName(iso);
+    // The name link's text: the cell also carries a flag and (Cost) a
+    // currency code, which would make the filter match nothing.
+    const a = r && r.children[0].querySelector("a.destlink");
+    return a ? a.textContent.trim() : r ? r.children[0].textContent.trim() : countryName(iso);
   };
   // Jumping to a specific country must never land on an empty table, so reveal
   // Level 3–4 if that's what's being asked for. Not persisted: this is one look

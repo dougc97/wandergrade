@@ -679,17 +679,19 @@
       </div>
       <section class="tablewrap">
         <table id="affTable">
+          <!-- The Currency tab's grammar (the owner's model): flag + name with the
+               currency code under it, the price level with its word, a move
+               column against the country's own ten-year norm (green rows + ⓘ),
+               and where today sits in that decade. The word came back once the
+               Currency column went: that column, not the word, crowded the names. -->
           <thead><tr>
-            <th class="sortable" aria-sort="none" data-sk="name"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="cur"><button type="button" class="sortbtn">Currency</button></th>
+            <th class="sortable" aria-sort="none" data-sk="name"><button type="button" class="sortbtn">Country</button></th>
             <th class="num sortable" aria-sort="none" data-sk="pl" title="local prices vs your home country (the Vs home picker); below 1.00 = cheaper than home"><button type="button" class="sortbtn">Price level</button></th>
-            <!-- "How it feels" was plWord(pl) printed next to pl: the same fact the
-                 number, its colour, and the map legend above already give. It was
-                 also the widest column here ("about the same"), squeezing the
-                 country names. The word still rides the price level in the
-                 Currency sub-tab, where it isn't sat beside its own source. -->
+            <th class="num sortable" aria-sort="none" data-sk="vs"><button type="button" class="sortbtn">vs <span class="lbl-lg">10-yr </span>avg<span class="muted" id="affInfo" data-tip="Green rows: cheaper than their own average of the last ten years." title="">&nbsp;ⓘ</span></button></th>
             <th class="num sortable" aria-sort="none" data-sk="buys" title="what 100 in your home currency buys there, measured in at-home goods (100 ÷ price level)"><button type="button" class="sortbtn">100 buys</button></th>
+            <th class="num sortable" aria-sort="none" data-sk="range" title="where today sits between its priciest and cheapest level of the last ten years — further right = cheaper than usual"><button type="button" class="sortbtn">10-yr range</button></th>
           </tr></thead>
-          <tbody id="affRows"><tr><td colspan="4">Loading…</td></tr></tbody>
+          <tbody id="affRows"><tr><td colspan="5">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>
@@ -750,8 +752,8 @@
              decreased" statements, dated — is the list under the map
              (renderAdvisories); it used to repeat here, 100px below. -->
         <table id="advTable">
-          <thead><tr><th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="level"><button type="button" class="sortbtn">Level</button></th><th class="sortable" aria-sort="none" data-sk="text"><button type="button" class="sortbtn">Advisory</button></th></tr></thead>
-          <tbody id="advRows"><tr><td colspan="3">Loading…</td></tr></tbody>
+          <thead><tr><th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="level"><button type="button" class="sortbtn">Level</button></th><th class="sortable" aria-sort="none" data-sk="text"><button type="button" class="sortbtn">Advisory</button></th><th class="sortable" aria-sort="none" data-sk="changed" title="the latest level change the government published, and when; rows changed in the last 90 days are tinted"><button type="button" class="sortbtn">Changed</button></th></tr></thead>
+          <tbody id="advRows"><tr><td colspan="4">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>

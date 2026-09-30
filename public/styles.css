@@ -1662,7 +1662,9 @@ button.chip2 { border: 0; }
      only: an opened notes row is one colspan cell that must still wrap). */
   #advTable .advtext, #advTable .advvia, #advTable .wolong,
   #advTable .advlinkword, #advTable .advlink::before { display: none; }
-  #advTable td:nth-child(2), #advTable td:nth-child(3) { white-space: nowrap; width: 1%; }
+  #advTable td:nth-child(2), #advTable td:nth-child(3), #advTable td:nth-child(4) { white-space: nowrap; width: 1%; }
+  /* Changed: the arrow and the date; the word is in the tip. */
+  #advTable .advchgword { display: none; }
   /* The German term beside "▸ notes ↗" on one nowrap line pushed the page to
      443px at 390; on a line of its own the cell is only as wide as the word. */
   #advTable .advde { display: block; }
@@ -1697,11 +1699,17 @@ button.chip2 { border: 0; }
      drops: the card says "how far $100 goes" and the header says "$100 buys ~",
      so the phrase is the third time we say it. Everything fits, no wrap. */
   #affTable { min-width: 0; }
-  #affTable th:nth-child(2), #affTable td:nth-child(2) { display: none; }
+  /* The 10-yr range bar goes on a phone, as Currency's range does. */
+  #affTable th:nth-child(5), #affTable td:nth-child(5) { display: none; }
   /* Dropping "How it feels" returned its 127px to the country names, so the cap
      can be generous now — long names ellipsis only where they truly are long. */
   #affTable th, #affTable td { padding: 8px 6px; }
   #affTable td:first-child { max-width: 190px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #affTable td:first-child a.destlink { display: block; overflow: hidden; text-overflow: ellipsis; }
+  #affTable td:nth-child(2) { white-space: nowrap; }
+  /* The word's colour is the number's; on a phone the number carries it
+     (the table was 416px on a 390 screen with it). */
+  #affTable .plw { display: none; }
   #affTable td:nth-child(4) { white-space: nowrap; }
   /* Flights had the same 560px pin and was the one table left pinned: Stops and
      half of Cheapest sat past a 390px screen, so the max-width:640 diet (which
@@ -2394,3 +2402,18 @@ a.destlink:focus-visible { outline: 2px solid var(--green); outline-offset: 2px;
    under it down a line: 0.069 of the desktop layout shift. Its line is held
    from the first frame, invisible (and so still absent for screen readers). */
 html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
+
+/* Cost of living table (renderAfford): the Currency table's cell grammar. */
+#affTable .curcell > div { min-width: 0; }
+.affcur { font-size: 11px; color: var(--gray); }
+/* Desktop: the code beside the name, one line a row (as #rates does). */
+@media (min-width: 761px) { #affTable .curcell > div { display: flex; align-items: baseline; gap: 7px; } }
+/* Safety table: a flag before each name, and the Changed column. */
+.advflag { margin-right: 7px; }
+#advTable .advchg { white-space: nowrap; }
+/* One weight either way (.pos is bold and .neg is not, so "lowered" read
+   heavier than "raised"); the date is the quiet part. */
+#advTable .advchg > span { font-weight: 600; }
+#advTable .advwhen { font-size: 12px; color: var(--gray); font-weight: 400; }
+#advRows tr.advup, #advRows tr.advup:nth-child(even) { background: color-mix(in srgb, var(--red) 9%, transparent); }
+#advRows tr.advdown, #advRows tr.advdown:nth-child(even) { background: var(--green-bg); }
