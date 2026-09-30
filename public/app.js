@@ -563,16 +563,18 @@ const AFF_GET = { name: (r) => countryName(r.iso), cur: (r) => r.cur, pl: (r) =>
 const affSort = { key: "pl", asc: true };
 wireSort("#affTable", affSort, { buys: false, range: false }, () => { if (typeof ppp !== "undefined" && ppp) renderAfford(); });
 
-// Safety: safest (Level 1) first by default. The advisory text tracks the
-// level, so that column sorts by severity too.
-const ADV_GET = { country: (it) => advName(it), level: (it) => parseInt(it.level, 10) || 0,
-                  text: (it) => parseInt(it.level, 10) || 0,
-                  // A number, not the date string: sortRows compares strings
-                  // as text, and a missing move became "null", which sorts
-                  // after every date — the changed rows fell to the bottom.
-                  changed: (it) => (it.change && it.updated ? Date.parse(it.updated) : null) };
+// Safety: safest (Level 1) first by default. Risks sorts by how many
+// reasons a row names, most first, ties by level — with every "do not
+// travel" above the rest, however few reasons it names (Ukraine's one, "the
+// Russia-Ukraine war", sat at #99 below France's two). Health sorts by how
+// many diseases, ties by level. A country Canada's health advice doesn't
+// cover sorts last (null).
+const advLvl = (it) => parseInt(it.level, 10) || 0;
+const ADV_GET = { country: (it) => advName(it), level: advLvl,
+                  risks: (it) => (advLvl(it) >= 4 ? 1000 : 0) + (it._rk ? it._rk.length : 0) * 10 + advLvl(it),
+                  health: (it) => (it._hz ? (it._hz.h.length + (it._hz.n ? it._hz.n.length / 2 : 0)) * 10 + advLvl(it) : null) };
 const advSort = { key: "level", asc: true };
-wireSort("#advTable", advSort, { changed: false }, () => { if (advisories) renderAdvisories(); });
+wireSort("#advTable", advSort, { risks: false, health: false }, () => { if (advisories) renderAdvisories(); });
 
 // c.min is the cheapest of the recently cached rows; the month curve is a
 // separate sample, so "Cheapest" could sit above the month's own fare in the
@@ -2189,6 +2191,114 @@ async function ensureClimate() {
   return climate;
 }
 
+// Canada's travel health advice per country (build_health.py -> health.json):
+// h = the diseases it calls a risk to travellers there, country-wide first;
+// a = those among h it limits to some areas, seasons or itineraries; l = the
+// ones it calls low or sporadic; n = those with a travel health notice. A
+// failed load leaves `health` null and says so (healthFailed) rather than
+// asking again on every redraw; the next page load tries again.
+let health = null;
+let healthFailed = false;
+let _healthLoading = null;
+function ensureHealth() {
+  if (health) return Promise.resolve(health);
+  return _healthLoading || (_healthLoading = getJSON("/health.json")
+    .then((d) => { healthFailed = false; return (health = d && d.c ? d : { c: {} }); })
+    .catch(() => { healthFailed = true; _healthLoading = null; return null; }));
+}
+// undefined while loading, null for a country the advice doesn't cover.
+const healthOf = (iso) => (!health ? undefined : (iso && health.c[iso]) || null);
+// The file is a snapshot (build_health.py, re-run by hand or on a schedule).
+// A notice is only "current" while the snapshot is: past 45 days it's named
+// as of its date and loses its warning colour.
+const healthStale = () => !!(health && health.built && (Date.now() - Date.parse(health.built)) > 45 * 864e5);
+const healthAsOf = () => (health && health.built ? fmtDay(health.built) : "");
+// The chips' order: a notice first, then the build's (country-wide, then
+// some-areas, each by how likely it is to change a trip).
+const healthNames = (hz) => [...(hz.n || []), ...hz.h.filter((x) => !(hz.n || []).includes(x))];
+// What a country with none of the listed diseases shows: not "low risk" (our
+// words, and untrue where Canada advises hepatitis A) but that only what
+// Canada lists nearly everywhere applies.
+const HEALTH_USUAL = "only the usual";
+const HEALTH_USUAL_TIP = "None of the diseases Canada calls a risk to travellers here is one that sets a country apart. "
+  + "Left out everywhere because Canada lists them for nearly every country: hepatitis A and B, routine vaccines, "
+  + "travellers' diarrhea";
+function healthGroups(hz) {
+  const areas = hz.a || [], notice = hz.n || [];
+  const wide = hz.h.filter((x) => !areas.includes(x) && !notice.includes(x));
+  return [
+    [healthStale() ? "Travel health notice as of " + healthAsOf() : "Current travel health notice", notice],
+    ["A risk to travellers", wide],
+    ["Only in some areas, seasons or itineraries", areas.filter((x) => !notice.includes(x))],
+    ["Low or sporadic", hz.l || []],
+  ].filter(([, list]) => list.length);
+}
+function healthTip(hz) {
+  const parts = healthGroups(hz).map(([label, list]) => label + ": " + list.join(", "));
+  if (!hz.h.length) parts.unshift(HEALTH_USUAL_TIP);
+  return parts.join(". ") + ". Per the Government of Canada's travel health advice"
+    + (hz.v ? " (its " + hz.v + " page)" : "")
+    + (healthAsOf() ? " (as of " + healthAsOf() + ")" : "") + ".";
+}
+// Chips. A notice leads with ⚠️ and a some-areas risk ends with ◐ — marks,
+// not colour or a border alone, and each is spelled out for a screen reader.
+// In a table cell (`fit`) every chip is written, with a hidden "+N" that
+// fitChips() fills once it knows how many the cell has room for.
+function chipHTML(n, kind) {
+  if (kind === "notice") return `<span class="rkchip${healthStale() ? "" : " notice"}" data-n="${esc(n)}"><span aria-hidden="true">⚠️ </span><span class="rkname">${esc(n)}</span>`
+    + `<span class="vh"> (${healthStale() ? "travel health notice as of " + esc(healthAsOf()) : "current travel health notice"})</span></span>`;
+  if (kind === "area") return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span><span class="rkmark" aria-hidden="true"> ◐</span>`
+    + `<span class="vh"> (only in some areas, seasons or itineraries)</span></span>`;
+  return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span></span>`;
+}
+function chipsHTML(names, kindOf, fit) {
+  return names.map((n) => chipHTML(n, kindOf ? kindOf(n) : "")).join("")
+    + (fit ? '<span class="rkchip more" hidden></span>' : "");
+}
+function healthChipsHTML(hz, fit) {
+  const notice = hz.n || [], areas = hz.a || [];
+  return chipsHTML(healthNames(hz), (n) => (notice.includes(n) ? "notice" : areas.includes(n) ? "area" : ""), fit);
+}
+// One line of chips a cell: as many as its width holds, the rest counted in
+// the "+N" (named for a screen reader, and in the tip and the notes row).
+// Measured, not guessed from the window — a fixed cap left Argentina using
+// 235px of a 386px cell and still stood 21 rows up at 1100. One read pass,
+// then one write pass.
+function fitChips(root) {
+  // Hidden (another tab, or a phone with the columns off): nothing to
+  // measure yet. The table's ResizeObserver fits it once it has a width.
+  if (!root || !root.offsetWidth) return;
+  const wraps = [...root.querySelectorAll("td > .rkwrap, td > .hzwrap")].filter((w) => w.offsetWidth);
+  for (const w of wraps) {
+    w.querySelectorAll(".rkchip.cut, .rkchip.shrink").forEach((c) => c.classList.remove("cut", "shrink"));
+    const more = w.querySelector(".rkchip.more");
+    if (more) more.hidden = true;
+  }
+  const plan = wraps.map((w) => {
+    const chips = [...w.children].filter((c) => !c.classList.contains("more") && !c.classList.contains("rkus"));
+    const room = w.clientWidth;
+    const right = chips.map((c) => c.offsetLeft + c.offsetWidth);
+    if (!chips.length || right[right.length - 1] <= room) return null;
+    // A lone chip too wide for its cell just shortens ("Tick-borne enc… ◐");
+    // otherwise keep room for a "+12" chip and its gap.
+    if (chips.length === 1) return { w, chips, k: 1 };
+    const plus = 40;
+    const k = right.filter((r) => r <= room - plus).length;
+    return { w, chips, k: Math.max(1, k) };
+  });
+  for (const p of plan) {
+    if (!p) continue;
+    const rest = p.chips.slice(p.k);
+    rest.forEach((c) => c.classList.add("cut"));
+    if (p.k === 1) p.chips[0].classList.add("shrink");
+    const more = p.w.querySelector(".rkchip.more");
+    if (!more || !rest.length) continue;
+    more.hidden = false;
+    more.innerHTML = "+" + rest.length + '<span class="vh">: '
+      + esc(rest.map((c) => c.dataset.n || c.textContent).join(", ")) + "</span>";
+  }
+}
+
 // EKTA travel insurance via Travelpayouts — the client-side twin of the link
 // render_guide.py puts in the server block. Both are needed: the server copy is
 // what a crawler reads, and renderGuide() deletes it a few lines below, so the
@@ -2807,8 +2917,7 @@ function renderGuideVisa(iso) {
     if (it && /^https:\/\/(www\.)?(auswaertiges-amt\.de|travel\.gc\.ca)\//.test(it.link || "")) href = it.link;
     // Not loaded yet (the safety row fetches the CHOSEN source, which need not
     // be this passport's): fetch it once and redraw, like the matrix above.
-    else if (!_advBySource[src]) getJSON("/api/advisories?source=" + src).then((r) => {
-      if (r && r.items && !_advBySource[src]) _advBySource[src] = r;
+    else if (!_advBySource[src]) fetchAdv(src).then(() => {
       if (ccGuideIso === iso) renderGuideVisa(iso);
     }).catch(() => {});
   }
@@ -2888,7 +2997,30 @@ function renderGuideSafety(iso) {
       setDataMode("advisory");
     };
     renderWatchouts(iso);
+    renderGuideHealth(iso);
   }).catch(() => {});
+}
+// Under the advisory: the diseases Canada's travel health advice calls a risk
+// there (the Safety table's Health column), the rest in the tip. Only a
+// country's own entry, or for England, Scotland and Wales the UK's (the
+// advisory above is the UK's too) — never a territory's parent, whose
+// climate can be another world (French Guiana is not France).
+function renderGuideHealth(iso) {
+  ensureHealth().then(() => {
+    const host = $("guideSafety");
+    if (ccGuideIso !== iso || !host || host.hidden) return;
+    const parent = !healthOf(iso) && GUIDE_PARENT[iso] ? GUIDE_PARENT[iso] : null;
+    const hz = healthOf(parent || iso);
+    let el = host.querySelector(".guidehealth");
+    if (!hz) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement("div"); el.className = "guidehealth"; host.appendChild(el); }
+    const link = hz.s ? ` <a href="https://travel.gc.ca/destinations/${encodeURIComponent(hz.s)}#health" target="_blank" rel="noopener">health advice ↗</a>` : "";
+    const tip = healthTip(hz) + " Not every risk is listed — West Nile virus, for one, isn't in Canada's advice.";
+    el.innerHTML = `<b><span aria-hidden="true">💉 </span>Health · per the Government of Canada${parent ? " (" + esc(countryName(parent)) + ")" : ""}:</b> `
+      + (hz.h.length ? `<span class="hzwrap">${healthChipsHTML(hz)}</span> <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`
+        : `<span class="muted" data-tip="${esc(tip)}" title="">${HEALTH_USUAL} ⓘ</span>`)
+      + link;
+  });
 }
 
 // Specific watchouts, lifted verbatim from Global Affairs Canada's structured
@@ -3498,6 +3630,20 @@ function renderCountryClimate(iso) {
 // country's foreign policy, so whose read it is gets named wherever it shows.
 let advisories = null;
 const _advBySource = {};
+// One request per feed however many callers want it at once — the map, the
+// table, the governments panel and a guide each asked separately, and the
+// US and German feeds went out three times on a first load.
+// A feed that just failed isn't asked again for a minute — every redraw
+// (a sort, the governments panel) used to re-request a feed that was down.
+const _advFetch = {}, _advFailAt = {};
+function fetchAdv(src) {
+  if (_advBySource[src]) return Promise.resolve(_advBySource[src]);
+  if (_advFailAt[src] && Date.now() - _advFailAt[src] < 60000) return Promise.reject(new Error("feed unavailable"));
+  return _advFetch[src] || (_advFetch[src] = getJSON("/api/advisories?source=" + src)
+    .then((r) => { delete _advFailAt[src]; return (_advBySource[src] = r); })
+    .catch((e) => { _advFailAt[src] = Date.now(); throw e; })
+    .finally(() => { delete _advFetch[src]; }));
+}
 // Your own government first; the others fill its gaps (server-side, stamped `via`).
 // Three governments, one explicit dropdown, no magic: the source used to
 // follow the home country automatically, and the owner called it — with only
@@ -3555,7 +3701,7 @@ function labelFullRanking(W) {
 }
 async function ensureAdvisories() {
   const src = advisorySource();
-  if (!_advBySource[src]) _advBySource[src] = await getJSON("/api/advisories?source=" + src);
+  await fetchAdv(src);
   // A slow fetch for a source the user has since switched away from must not
   // land last and flip every level back to it.
   if (advisorySource() === src || !advisories) advisories = _advBySource[src];
@@ -3594,6 +3740,7 @@ const LVL_MAP_COLOR = {
 // tip. A gap another government fills (`via`) is a real level and keeps it.
 const DE_NONE_FILL = "#e3e6e8";
 const DE_LVL_LABEL = { 1: "No warning", 2: "Some regions", 3: "L3 — filled in by others", 4: "Travel warning" };
+const _advWait = {};   // one redraw per load, however many renders asked
 function renderAdvisories() {
   const byIso = {};
   for (const it of advisories.items) if (it.iso) byIso[it.iso] = it;
@@ -3663,7 +3810,7 @@ function renderAdvisories() {
       + "without one — so those countries are left neutral rather than painted safest."
     : `Levels per ${advSrcName()}: 1 normal precautions, 2 increased caution, 3 reconsider travel, `
       + "4 do not travel.")
-    + (filled ? ` ${filled} ${filled === 1 ? "country" : "countries"} it doesn't cover carry another government's level (each row says whose).` : "")
+    + (filled ? ` ${filled} ${filled === 1 ? "country" : "countries"} it doesn't cover carry another government's level — a dashed pill, whose tip says whose.` : "")
     + " Advisories reflect each government's own foreign policy — pick another under “Per” to compare.";
   $("advSub").innerHTML = esc(de ? `${own} countries · Germany warns, it doesn't grade` : `${own} countries rated`)
     + (filled ? esc(` · ${filled} filled in by others`) : "")
@@ -3675,57 +3822,136 @@ function renderAdvisories() {
     : [1, 2, 3, 4].map((l) => sw(LVL_MAP_COLOR[l], "L" + l)).join(" ");
 
   markSort("#advTable", advSort);
-  // Only the US feed dates its level changes; for Canada and Germany the
-  // Changed column would be "—" on every row, so it goes.
-  $("advTable").classList.toggle("nochg", !advisories.items.some((i) => i.change && i.updated));
+  // The two columns beside the level (usItem, healthOf): the US State
+  // Department's reasons, and Canada's disease risks. Each loads once and
+  // redraws the table when it lands; one that fails says so in its cells
+  // instead of asking again on every redraw.
+  if (!health && !healthFailed && !_advWait.health) {
+    _advWait.health = true;
+    ensureHealth().then(() => { _advWait.health = false; if (advisories) renderAdvisories(); });
+  }
+  const usMine = advisories.source === "us";
+  if (!usMine && !_advBySource.us && !_advWait.us && !_advWait.usFailed) {
+    _advWait.us = true;
+    ensureAllAdvisories().then(() => {
+      _advWait.us = false;
+      if (!_advBySource.us) _advWait.usFailed = true;
+      if (advisories) renderAdvisories();
+    });
+  }
+  const usOwn = {};
+  for (const x of ((_advBySource.us || {}).items) || []) if (x.iso && !x.via) usOwn[x.iso] = x;
+  const usLoaded = usMine || !!(_advBySource.us && _advBySource.us.items);
+  // The US item whose reasons a row shows: its own when the US is the pick,
+  // else the US's rating of the same country; null where the US rates none.
+  const usItem = (it) => (usMine ? (it.via ? null : it) : (it.iso && usOwn[it.iso]) || null);
+  for (const it of advisories.items) {
+    const u = usItem(it);
+    it._rk = u && u.risks && u.risks.length ? u.risks : null;
+    it._hz = healthOf(it.iso) || null;
+  }
+  // With Canada or Germany picked, the reasons are still the US's: the
+  // header says so, and so does every phrase that stands in for them.
+  const rkLabel = $("riskLabel");
+  if (rkLabel) rkLabel.textContent = usMine ? "Risks" : "Risks · US";
+  const riskInfo = $("riskInfo");
+  if (riskInfo) riskInfo.dataset.tip = "The reasons the U.S. State Department gives for its level — its own “due to "
+    + "crime, terrorism…” line — as short labels; “Other” is a reason no label fits (the tip quotes the sentence). "
+    + (usMine ? "" : "Shown beside the level you picked, which can differ: they're the US's, marked “US”. ")
+    + "Canada and Germany give reasons too, on each country's own page; the US feed is the one that carries them.";
+  const healthInfo = $("healthInfo");
+  if (healthInfo) healthInfo.dataset.tip = "Diseases the Government of Canada's travel health advice calls a risk to "
+    + "travellers there — mosquito-borne ones like dengue, malaria and Zika, street-dog rabies, and more. ⚠️ = a travel "
+    + "health notice" + (healthStale() ? " (as of " + healthAsOf() + ")" : "") + "; ◐ = only in some areas, seasons or "
+    + "itineraries. Ones Canada calls low or sporadic are in each row's tip. “Only the usual” = none that sets the "
+    + "country apart (hepatitis A, routine vaccines and the like are left out everywhere). Not every risk is listed — "
+    + "Canada's advice says so, and West Nile virus, for one, isn't in it."
+    + (healthAsOf() ? " As of " + healthAsOf() + "." : "");
+  // Keep open notes rows open across a redraw (a late feed or a sort).
+  const openIsos = [...document.querySelectorAll('#advRows .worow[aria-expanded="true"]')].map((b) => b.dataset.iso);
   $("advRows").innerHTML = sortRows(advisories.items, advSort, ADV_GET, ADV_GET.country).map((it) => {
-    const lvl = parseInt(it.level, 10) || 0;
+    const lvl = advLvl(it);
     const safeLink = /^https:\/\//.test(it.link || "") ? it.link : "";
     const nm = advName(it);
     const guideAttr = it.iso ? ` data-iso="${esc(it.iso)}" title="See the ${esc(nm)} travel guide →"` : "";
     // Germany's own rows: the English in the pill, the government's own word
-    // in the cell (as every source's cell is its own text) and the English
-    // again in the tip. The feed's date rides in the tip too, so a row says
-    // when its government last looked.
+    // in its tip.
     const [term, eng] = de && !it.via ? deSplit(it) : [it.level_text, ""];
-    // "· per X" only after a phrase: a feed row without one began the cell
-    // with a stray separator ("· per Global Affairs Canada").
-    const via = it.via ? `<span class="muted advvia">${term ? " · " : ""}per ${esc(advViaShort(it))}</span>` : "";
     const tip = [it.summary, eng && eng !== term ? eng.charAt(0).toUpperCase() + eng.slice(1) : "",
                  it.updated ? "updated " + fmtDay(it.updated) : ""].filter(Boolean).join(" · ");
-    // On a phone the advisory phrase ("Exercise Increased Caution") only
-    // repeated the pill in three lines of a 152px column, standing 236 rows
-    // up at 82-164px. There the phrase, the "per X" and the link's word drop
-    // (.advtext/.advvia/.advlinkword, styles.css), and the pill carries all of
-    // it in its tip. Germany's own rows keep their word (.advde): the pill
-    // says it in English, the cell is the only place the German term shows.
+    // The pill carries the level's words, whose call it is, the feed's
+    // summary and date in its tip. Another government's level (a gap-fill)
+    // is dashed, and says whose to a screen reader too.
     const pillTip = [term, it.via ? "per " + advViaShort(it) : "", tip].filter(Boolean).join(" · ");
     const pillAttr = ` data-tip="${esc(pillTip)}" title=""`;
-    const pill = deOwn(it) ? `<span class="lvl ${lvl === 1 ? "none" : "lvl2"}"${pillAttr}>${DE_LVL_LABEL[lvl]}</span>`
-      : `<span class="lvl lvl${lvl}"${pillAttr}>Level ${lvl}</span>`;
+    const viaCls = it.via ? " via" : "";
+    const viaSr = it.via ? `<span class="vh"> (per ${esc(advViaShort(it))})</span>` : "";
+    const pill = deOwn(it) ? `<span class="lvl ${lvl === 1 ? "none" : "lvl2"}${viaCls}"${pillAttr}>${DE_LVL_LABEL[lvl]}${viaSr}</span>`
+      : `<span class="lvl lvl${lvl}${viaCls}"${pillAttr}>Level ${lvl}${viaSr}</span>`;
     const src = it.via ? advViaShort(it) : advSrcName(true);
     const nameCell = it.iso ? `<span class="advflag" aria-hidden="true">${flagEmoji(it.iso)}</span><a class="destlink" href="${esc(guidePath(it.iso))}">${esc(nm)}</a>` : esc(nm);
     // The latest move the feed records (only the current advisory is
-    // published, so this is all the history there is), dated; a move in the
-    // last 90 days tints the row — red raised, green lowered.
-    let changed = '<span class="muted">—</span>', moveCls = "";
+    // published, so this is all the history there is): an arrow after the
+    // pill, dated in its tip and for a screen reader; a move in the last 180
+    // days tints the row — red raised, green lowered.
+    let moveCls = "", arrow = "";
     if (it.change && it.updated) {
-      const d = new Date(it.updated + "T12:00:00");
-      const when = isNaN(d) ? it.updated : d.getDate() + " " + MON_ABBR[d.getMonth()]
-        + (d.getFullYear() === new Date().getFullYear() ? "" : " " + d.getFullYear());
       const up = it.change === "up";
-      changed = `<span class="${up ? "neg" : "pos"}" data-tip="${esc((it.via ? advViaShort(it) : advSrcName(true))
-        + (up ? " raised" : " lowered") + " it to Level " + lvl + " on " + when)}" title="">${up ? "▲" : "▼"}<span class="advchgword"> ${up ? "raised" : "lowered"}</span>`
-        + ` <span class="advwhen">${esc(when)}</span></span>`;
+      arrow = `<span class="advmvp ${up ? "neg" : "pos"}" data-tip="${esc(src + (up ? " raised" : " lowered")
+        + " it to Level " + lvl + " on " + fmtDay(it.updated))}" title=""><span aria-hidden="true">${up ? "▲" : "▼"}</span>`
+        + `<span class="vh"> ${up ? "raised" : "lowered"} ${esc(fmtDay(it.updated))}</span></span>`;
       if (it.updated >= advMoveCutoff()) moveCls = up ? "advup" : "advdown";
     }
+    // 🚨 Risks: the US's reasons as chips, its sentence in the tip. Without
+    // reasons, one quiet phrase: "normal precautions" at Level 1 (the
+    // advisory's full phrase repeated the pill down 83 rows), the level's own
+    // words above it, or "no US advisory" where the US rates none. Beside
+    // another government's pill, each says it's the US's.
+    const u = usItem(it);
+    const usPre = usMine ? "" : "US: ";
+    const uTip = u && u.summary ? "Per the U.S. State Department: “" + u.summary + "”"
+      : "Per the U.S. State Department: Level " + (u ? advLvl(u) : "") + ", no reasons given";
+    const riskCell = it._rk
+      ? `<span class="rkwrap" data-tip="${esc(it._rk.join(" · ") + " — per the U.S. State Department"
+          + (u && u.summary ? ": “" + u.summary + "”" : ""))}" title="">${usMine ? "" : '<span class="rkus">US</span>'}${chipsHTML(it._rk, null, true)}</span>`
+      : !usLoaded && _advWait.usFailed ? `<span class="sftext" data-tip="The U.S. reasons couldn't be loaded — try again later." title="">—</span>`
+      : !usLoaded ? '<span class="muted">…</span>'
+      : !u ? `<span class="sftext">${usMine ? "no US advisory" : "US: no advisory"}</span>`
+      : `<span class="sftext" data-tip="${esc(uTip)}" title="">${usPre}${advLvl(u) >= 2 ? esc(String(u.level_text || "").toLowerCase()) : "normal precautions"}</span>`;
+    // 💉 Health: Canada's disease risks, the rest in the tip.
+    const hz = it._hz;
+    const healthCell = !health && healthFailed ? `<span class="sftext" data-tip="Canada's health advice couldn't be loaded — try again later." title="">—</span>`
+      : !health ? '<span class="muted">…</span>'
+      : !it.iso ? '<span class="muted">—</span>'
+      : !hz ? `<span class="sftext" data-tip="Not covered by Canada's travel health advice" title="">—</span>`
+      : `<span class="hzwrap" data-tip="${esc(healthTip(hz))}" title="">${hz.h.length
+          ? healthChipsHTML(hz, true) : `<span class="hzlow">${HEALTH_USUAL}</span>`}</span>`;
     return `
     <tr data-lvl="${lvl}"${guideAttr}${moveCls ? ` class="${moveCls}"` : ""}><td>${nameCell}</td>
-      <td>${pill}${it.change && it.updated ? `<span class="advmvp ${it.change === "up" ? "neg" : "pos"}" data-tip="${esc((it.change === "up" ? "Raised" : "Lowered") + " on " + it.updated)}" title="">${it.change === "up" ? "▲" : "▼"}</span>` : ""}</td>
-      <td><span class="${deOwn(it) ? "advde" : "advtext"}"${tip ? ` data-tip="${esc(tip)}" title=""` : ""}>${esc(term)}</span>${via}${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false">▸ <span class="wolong">safety </span>notes</button>` : ""}${safeLink ? `<a class="advlink farelink" href="${esc(safeLink)}" target="_blank" rel="noopener" aria-label="${esc(nm)} advisory on ${esc(src)} (opens in a new tab)"><span class="advlinkword">details</span>&nbsp;<span class="ext">↗</span></a>` : ""}</td>
-      <td class="advchg">${changed}</td>
+      <td>${pill}${arrow}</td>
+      <td class="rkcell">${riskCell}</td>
+      <td class="hzcell">${healthCell}</td>
+      <td class="advnotes">${it.iso ? `<button type="button" class="worow" data-iso="${esc(it.iso)}" aria-expanded="false" aria-label="${esc(nm)}: safety and health notes">▸ notes</button>` : ""}${safeLink ? `<a class="advlink farelink" href="${esc(safeLink)}" target="_blank" rel="noopener" aria-label="${esc(nm)} advisory on ${esc(src)} (opens in a new tab)"><span class="advlinkword">details</span>&nbsp;<span class="ext">↗</span></a>` : ""}</td>
     </tr>`;
   }).join("");
+  fitChips($("advRows"));
+  // …and again whenever the table's width changes: a window resized or a
+  // tablet turned, or the table shown after being drawn while hidden.
+  const tbl = $("advTable");
+  if (tbl && !tbl._fitRO && window.ResizeObserver) {
+    let lastW = 0, t = 0;
+    tbl._fitRO = new ResizeObserver(() => {
+      if (tbl.offsetWidth === lastW) return;
+      lastW = tbl.offsetWidth;
+      clearTimeout(t);
+      t = setTimeout(() => fitChips($("advRows")), 120);
+    });
+    tbl._fitRO.observe(tbl);
+  }
+  for (const iso of openIsos) {
+    const btn = document.querySelector(`#advRows .worow[data-iso="${iso}"]`);
+    if (btn) btn.click();
+  }
   applyAdvFilter();
   wireWatchoutRows();
   // A country clicked on the map shows all three governments' advice beside it.
@@ -3745,9 +3971,7 @@ let govScrollTop = 0;
 // Each feed on its own: one that fails leaves its column "unavailable"
 // rather than blanking the panel.
 async function ensureAllAdvisories() {
-  await Promise.allSettled(GOV.map(async ([src]) => {
-    if (!_advBySource[src]) _advBySource[src] = await getJSON("/api/advisories?source=" + src);
-  }));
+  await Promise.allSettled(GOV.map(([src]) => fetchAdv(src)));
 }
 function govOwn(src) {
   const out = {};
@@ -3874,6 +4098,32 @@ async function renderGov(focus) {
 // too (the owner moved them from the guide's front door). Lazy per country —
 // one fetch on first open, shared cache with the guides — and the toggle stops
 // propagation so it doesn't trip the row's open-the-guide handler.
+// The notes row opens on every reason and disease in full — on a phone, whose
+// table has no room for those columns, the only place they show — then
+// Canada's watchouts.
+function advDetailHead(iso) {
+  const it = advisories && advisories.items.find((x) => x.iso === iso);
+  const out = [];
+  if (it && it._rk) out.push(`<div class="advdl"><b><span aria-hidden="true">🚨 </span>Risks</b> <span class="muted">per US State Dept</span> `
+    + `<span class="rkwrap">${chipsHTML(it._rk)}</span></div>`);
+  // The Health line in words, group by group — on a phone (no hover, no
+  // column header) the ⚠️ and ◐ marks would otherwise go unexplained.
+  const hz = healthOf(iso);
+  if (hz) {
+    const notice = hz.n || [], areas = hz.a || [];
+    const kind = (n) => (notice.includes(n) ? "notice" : areas.includes(n) ? "area" : "");
+    const groups = healthGroups(hz).map(([label, list], i) => `<span class="advgrp"><span class="muted">${esc(label)}:</span> `
+      + (i === healthGroups(hz).length - 1 && label === "Low or sporadic"
+        ? `<span class="muted">${esc(list.join(", "))}</span>`
+        : `<span class="rkwrap">${chipsHTML(list, kind)}</span>`) + "</span>");
+    out.push(`<div class="advdl"><b><span aria-hidden="true">💉 </span>Health</b> <span class="muted">per Government of Canada${healthAsOf() ? ", as of " + esc(healthAsOf()) : ""}</span> `
+      + (hz.h.length ? "" : `<span class="hzlow">${HEALTH_USUAL}</span> `)
+      + groups.join(" ")
+      + (hz.s ? ` <a class="farelink" href="https://travel.gc.ca/destinations/${encodeURIComponent(hz.s)}#health" target="_blank" rel="noopener">health advice&nbsp;<span class="ext">↗</span></a>` : "")
+      + "</div>");
+  }
+  return out.join("");
+}
 function wireWatchoutRows() {
   const host = $("advRows");
   if (!host || host._woWired) return;
@@ -3887,30 +4137,31 @@ function wireWatchoutRows() {
     const next = tr.nextElementSibling;
     if (next && next.classList.contains("wodetail")) {
       next.remove();
-      btn.innerHTML = '▸ <span class="wolong">safety </span>notes';
+      btn.textContent = "▸ notes";
       btn.setAttribute("aria-expanded", "false");
       return;
     }
-    btn.innerHTML = '▾ <span class="wolong">safety </span>notes';
+    btn.textContent = "▾ notes";
     btn.setAttribute("aria-expanded", "true");
     const det = document.createElement("tr");
     det.className = "wodetail";
-    det.innerHTML = '<td colspan="4">Loading…</td>';
+    const head = advDetailHead(iso);
+    det.innerHTML = '<td colspan="5">' + head + '<span class="muted">Loading safety notes…</span></td>';
     tr.insertAdjacentElement("afterend", det);
     try {
       const w = _watchoutCache[iso]
         || (_watchoutCache[iso] = await getJSON("/api/watchouts?iso=" + encodeURIComponent(iso)));
       if (!det.isConnected) return;
       if (!w.watchouts.length && !w.regional.length) {
-        det.innerHTML = '<td colspan="4"><span class="muted">No structured watchouts published for this country.</span></td>';
+        det.innerHTML = '<td colspan="5">' + head + '<span class="muted">No structured watchouts published for this country.</span></td>';
         return;
       }
       const built = watchoutsBlockHTML(w);
-      det.innerHTML = '<td colspan="4">' + built.reg + built.chips
+      det.innerHTML = '<td colspan="5">' + head + built.reg + built.chips
         + '<span class="advsrcnote">Per ' + esc(w.source || "Global Affairs Canada")
         + (w.link ? ' — <a class="farelink" href="' + esc(w.link) + '" target="_blank" rel="noopener">details&nbsp;<span class="ext">↗</span></a>' : "") + "</span></td>";
     } catch (err) {
-      if (det.isConnected) det.innerHTML = '<td colspan="4"><span class="muted">Could not load watchouts.</span></td>';
+      if (det.isConnected) det.innerHTML = '<td colspan="5">' + head + '<span class="muted">Could not load watchouts.</span></td>';
     }
   });
 }
@@ -7492,8 +7743,17 @@ function applyAffordFilter() {
 function applyAdvFilter() {
   const q = _q("advFilter");
   const lvl = ($("advLevel") && $("advLevel").value) || "all";
+  // The name only: the rows now carry disease and reason chips, and "congo"
+  // matched 26 countries (Crimean-Congo fever), "den" 93.
+  const jumpIso = jumpActive("advFilter");
   filterRows("advRows", (tr) =>
-    (lvl === "all" || tr.dataset.lvl === lvl) && regionRowOk(tr) && rowMatches(tr, "advFilter", q));
+    (lvl === "all" || tr.dataset.lvl === lvl) && regionRowOk(tr)
+    && (jumpIso ? tr.dataset.iso === jumpIso : !q || (tr.cells[0] ? tr.cells[0].textContent : "").toLowerCase().includes(q)));
+  // An open notes row follows its country: hidden with it, back with it.
+  for (const d of $("advRows").querySelectorAll("tr.wodetail")) {
+    const p = d.previousElementSibling;
+    d.style.display = p && p.style.display === "none" ? "none" : "";
+  }
 }
 function applyFlightFilter() {
   const q = _q("flightFilter");
@@ -10464,7 +10724,7 @@ document.addEventListener("click", (e) => {
   const t = e.target.closest ? e.target : null;
   const mouse = (e.pointerType || _lastPtrType) === "mouse";
   const info = t && (t.closest(".hzmark, .muted[data-tip], .legendinfo, .fxinfo, .covmark")
-    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv, .gr.grx[data-tip], #advRows .lvl[data-tip], #rows .pegnote, #advRows .advchg [data-tip], #advRows .advmvp, #affRows td.num [data-tip], #affRows .range")));
+    || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv, .gr.grx[data-tip], #advRows .lvl[data-tip], #rows .pegnote, #advRows .advmvp, #advRows .rkwrap[data-tip], #advRows .hzwrap[data-tip], #advRows .sftext[data-tip], #affRows td.num [data-tip], #affRows .range")));
   if (info) { _showTipFor(info.dataset && info.dataset.tip ? info : e.target.closest("[data-tip]")); e.stopPropagation(); return; }
   // Touch screens have no hover: a tap on any other tipped element shows it, a
   // tap elsewhere dismisses. (closest() miss hides.)

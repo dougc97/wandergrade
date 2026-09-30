@@ -1648,32 +1648,6 @@ button.chip2 { border: 0; }
   #tab-data .filterbar .chk,
   #tab-data .filterbar select { flex-shrink: 0; }
   #tab-data .filterbar select { max-width: 9.5em; }
-  /* Safety's table was pinned at 560 in 347 — 213px hidden, cutting the advisory
-     text mid-word. It fits unpinned. */
-  #advTable { min-width: 0; }
-  /* …and then stood 236 rows up at 82-164px (26,600px of page at 390): the
-     Advisory cell spelled out, over three lines, what the Level pill beside it
-     already says (234 of 236 phrases). The phrase, its "per X" and the link's
-     word drop; the pill's tip carries them (a tap shows it). Germany's own
-     rows keep their German term (no .advtext). One 43px line a row, as on
-     desktop, and the country name ellipsizes into what is left (data rows
-     only: an opened notes row is one colspan cell that must still wrap). */
-  #advTable .advtext, #advTable .advvia, #advTable .wolong,
-  #advTable .advlinkword, #advTable .advlink::before { display: none; }
-  #advTable td:nth-child(2), #advTable td:nth-child(3), #advTable td:nth-child(4) { white-space: nowrap; width: 1%; }
-  /* No Changed column on a phone: it was "—" on nearly every row and took
-     88px from the names ("Aus…" for Australia and Austria). The ▲/▼ rides
-     after the Level pill instead, its date in the tip. */
-  #advTable th:nth-child(4), #advTable td:nth-child(4) { display: none; }
-  #advTable .advmvp { display: inline; }
-  /* The German term beside "▸ notes ↗" on one nowrap line pushed the page to
-     443px at 390; on a line of its own the cell is only as wide as the word. */
-  #advTable .advde { display: block; }
-  #advRows tr[data-lvl] > td:first-child { width: 100%; max-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  /* The lone ↗ is the whole link here: pad it to something a thumb can hit.
-     The negative margin keeps the padding out of the line box, so the tap
-     target grows without standing the row up (50px rows otherwise). */
-  #advTable .advlink { display: inline-block; padding: 4px 6px; margin: -4px 0; }
   /* The long currency names were the real column hog: "Bosnia-Herzegovina
      Convertible Mark" wrapped to three lines and stood its row up at 107px while
      starving Price level next to it. Ellipsis instead — the code above it (BAM)
@@ -1840,7 +1814,7 @@ button.chip2 { border: 0; }
    from, the notes button and the details link are one quieter group. "· per
    Global Affairs Canada" and "details" were 14px ink beside an 11px notes
    button, three sizes in one line. */
-#advTable .advvia, #advTable .advlink { font-size: 12px; color: var(--gray); }
+#advTable .advlink { font-size: 12px; color: var(--gray); }
 #advTable .advlink:hover { color: var(--green); }
 #advTable .advlink .ext { font-size: 10px; }
 /* Guide fare bars: same colour law as everything (green = go), but visibly a
@@ -2409,16 +2383,78 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .affcur { font-size: 11px; color: var(--gray); }
 /* Desktop: the code beside the name, one line a row (as #rates does). */
 @media (min-width: 761px) { #affTable .curcell > div { display: flex; align-items: baseline; gap: 7px; } }
-/* Safety table: a flag before each name, and the Changed column. */
+/* Safety table: a flag before each name; a level move is an arrow after the
+   pill (one weight either way — .pos is bold and .neg is not), its date in
+   the tip. */
 .advflag { margin-right: 7px; }
-#advTable .advchg { white-space: nowrap; }
-/* A source that doesn't date its changes (Canada, Germany): no column. */
-#advTable.nochg th:nth-child(4), #advTable.nochg td:nth-child(4) { display: none; }
-/* The phone form of a change: the arrow after the Level pill. */
-.advmvp { display: none; margin-left: 5px; font-size: 12px; font-weight: 700; }
-/* One weight either way (.pos is bold and .neg is not, so "lowered" read
-   heavier than "raised"); the date is the quiet part. */
-#advTable .advchg > span { font-weight: 600; }
-#advTable .advwhen { font-size: 12px; color: var(--gray); font-weight: 400; }
+.advmvp { margin-left: 5px; font-size: 12px; font-weight: 700; }
+#advTable td:nth-child(2) { white-space: nowrap; }
+/* Another government's level, filling a gap in the chosen one's: dashed —
+   the one thing a dash means in this table. */
+.lvl.via { outline: 1.5px dashed var(--gray); outline-offset: 1px; }
+/* 🚨 Risks and 💉 Health: chips. A travel health notice leads with ⚠️ on
+   amber; a risk only in some areas, seasons or itineraries ends with ◐. */
+.rkwrap, .hzwrap { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; vertical-align: middle; }
+.rkchip { font-size: 12px; line-height: 1.5; padding: 0 8px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--line); background: var(--soft); color: var(--ink); flex-shrink: 0; }
+.rkchip.more { background: none; color: var(--gray); }
+.rkchip.cut { display: none; }
+.rkchip.notice { border-color: #d4730a; background: color-mix(in srgb, #d4730a 16%, transparent); }
+.rkmark { color: var(--gray); }
+/* "US" before the reasons when another government's level is the pick. */
+.rkus { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--gray); margin-right: 2px; }
+.hzlow, #advTable .sftext { font-size: 13px; color: var(--gray); }
+#advTable .advnotes { white-space: nowrap; text-align: right; }
+#advTable .advnotes .worow { margin-left: 0; }
+/* The header ⓘ beside the sort button (inside it, a keyboard never reached it). */
+#advTable .thinfo { margin-left: 4px; cursor: help; font-weight: 400; }
+/* 700 and up: fixed columns, so each chip cell has a known width and
+   fitChips() fills it on one line (the rest counted in its "+N"). */
+@media (min-width: 700px) {
+  #advTable { table-layout: fixed; width: 100%; }
+  #advTable th:nth-child(1) { width: 23%; }
+  #advTable th:nth-child(2) { width: 118px; }
+  #advTable th:nth-child(5) { width: 132px; }
+  #advTable td > .rkwrap, #advTable td > .hzwrap { display: flex; flex-wrap: nowrap; overflow: hidden; position: relative; }
+  /* A lone chip longer than its cell ("Tick-borne encephalitis" at 800) ends
+     in … (fitChips marks it; every other chip keeps its width, or the fit
+     would measure squeezed chips as fitting). */
+  #advTable td > .rkwrap > .rkchip.shrink, #advTable td > .hzwrap > .rkchip.shrink { flex-shrink: 1; min-width: 0; display: inline-flex; }
+  #advTable .rkchip.shrink > .rkname { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  #advTable .rkchip.shrink > .rkmark { flex-shrink: 0; white-space: pre; }
+  /* Names on one line too (the row's tip names the country in full): at 700
+     "Antigua and Barbuda" stood 28 rows up at 62px. */
+  #advRows tr[data-lvl] > td:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #advTable td.rkcell .sftext { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+/* Narrower than 1100: the notes button and a bare ↗, padded to a thumb's
+   size (negative margins keep the row at 43px). */
+@media (max-width: 1099px) {
+  #advTable .advlinkword, #advTable .advlink::before { display: none; }
+  #advTable .advlink { display: inline-block; padding: 4px 6px; margin: -4px 0 -4px 6px; }
+}
+@media (min-width: 700px) and (max-width: 1099px) { #advTable th:nth-child(5) { width: 100px; } }
+/* Below 700: name, level, notes — one 43px line a row. The table was pinned
+   at 560 in a 347 card, then stood 236 rows up at 82-164px, then (with the
+   chip columns) ran 639px wide from 561 to 639. The Risks and Health chips
+   open in the notes row instead (advDetailHead), in full; the country name
+   ellipsizes into what is left (data rows only: an opened notes row is one
+   colspan cell that must wrap). */
+@media (max-width: 699px) {
+  #advTable { min-width: 0; }
+  #advTable th:nth-child(3), #advTable td:nth-child(3),
+  #advTable th:nth-child(4), #advTable td:nth-child(4) { display: none; }
+  #advTable td:nth-child(2), #advTable td:nth-child(5) { white-space: nowrap; width: 1%; }
+  #advRows tr[data-lvl] > td:first-child { width: 100%; max-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+/* The notes row: the reasons and diseases in full, in words, then Canada's
+   watchouts. */
+.advdl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; font-size: 13px; }
+.advdl > b { color: var(--ink); }
+.advdl .muted, #advTable .hzcell .muted { color: var(--gray); font-weight: 400; }
+.advgrp { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-right: 8px; }
+/* The guide's health line, under its advisory. */
+.guidehealth { margin-top: 8px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.guidehealth > a { font-size: 12px; }
 #advRows tr.advup, #advRows tr.advup:nth-child(even) { background: color-mix(in srgb, var(--red) 9%, transparent); }
 #advRows tr.advdown, #advRows tr.advdown:nth-child(even) { background: var(--green-bg); }

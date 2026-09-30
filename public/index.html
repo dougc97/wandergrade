@@ -749,8 +749,12 @@
              decreased" statements, dated — is the list under the map
              (renderAdvisories); it used to repeat here, 100px below. -->
         <table id="advTable">
-          <thead><tr><th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="level"><button type="button" class="sortbtn">Level</button></th><th class="sortable" aria-sort="none" data-sk="text"><button type="button" class="sortbtn">Advisory</button></th><th class="sortable" aria-sort="none" data-sk="changed" title="the latest level change the government published, and when; rows changed in the last 180 days are tinted"><button type="button" class="sortbtn">Changed</button></th></tr></thead>
-          <tbody id="advRows"><tr><td colspan="4">Loading…</td></tr></tbody>
+          <!-- Beside the level, why and what else: the US State Department's
+               stated reasons (🚨) and the diseases Canada's travel health advice
+               calls a risk (💉), as chips; both in full in the notes row. The ⓘ marks sit
+               beside the sort buttons, not in them, so they're keyboard stops. -->
+          <thead><tr><th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="level"><button type="button" class="sortbtn">Level</button></th><th class="sortable" aria-sort="none" data-sk="risks"><button type="button" class="sortbtn"><span aria-hidden="true">🚨 </span><span id="riskLabel">Risks</span></button><span class="muted thinfo" id="riskInfo" data-tip="The reasons the U.S. State Department gives for its level." title="">ⓘ</span></th><th class="sortable" aria-sort="none" data-sk="health"><button type="button" class="sortbtn"><span aria-hidden="true">💉 </span>Health</button><span class="muted thinfo" id="healthInfo" data-tip="Diseases the Government of Canada's travel health advice calls a risk to travellers there." title="">ⓘ</span></th><th><span class="vh">Notes and source</span></th></tr></thead>
+          <tbody id="advRows"><tr><td colspan="5">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>

@@ -46,6 +46,10 @@ LEVEL_TEXT = {
     4: "Do Not Travel",
 }
 
+# One US advisory covering several places, each of which has an ISO here.
+UMBRELLA = {"french west indies": ("GP", "MQ", "BL", "MF")}
+# Whose advisory an ISO shows when two of its places tie on level.
+PRIMARY = {"BQ": "bonaire"}
 # State Dept names that don't match the map's country names.
 ALIASES = {
     "burma": "MM", "myanmar": "MM",
@@ -80,6 +84,14 @@ ALIASES = {
     "bahrain": "BH", "comoros": "KM", "solomon islands": "SB", "hong kong": "HK",
     "macau": "MO", "sao tome and principe": "ST", "maldives": "MV",
     "mauritius": "MU", "kingdom of denmark": "DK",
+    # The French and Dutch Caribbean: unmatched, each US row stood ISO-less
+    # beside Canada's gap-fill for the same island, which then said "no US
+    # advisory". Bonaire and Saba (and Sint Eustatius) are both BQ; the most
+    # cautious of the two is kept. "French West Indies" is an umbrella row
+    # (Guadeloupe, Martinique, St Barthélemy, St Martin) and stays unmatched.
+    "guadeloupe": "GP", "martinique": "MQ", "saint barthelemy": "BL", "st barthelemy": "BL",
+    "french saint martin": "MF", "saint martin": "MF", "bonaire": "BQ",
+    "saba and sint eustatius": "BQ", "saba": "BQ", "sint eustatius": "BQ",
     # Names the feed publishes that the map spells differently. Without these the
     # country silently has no advisory and safetyPill() reads it as Level 2 — so
     # Kyrgyzstan (actually Level 1) was being marked down, not up.
@@ -92,7 +104,10 @@ ALIASES = {
 
 
 def _norm(name):
-    name = html.unescape(name).lower()
+    # Accents fold to their letters first: "Saint Barthélemy" used to become
+    # "saint barth lemy" and match nothing.
+    import unicodedata
+    name = unicodedata.normalize("NFKD", html.unescape(name)).encode("ascii", "ignore").decode().lower()
     name = re.sub(r"\btravel advisory\b", "", name)
     name = re.sub(r"[^a-z ]", " ", name)
     name = re.sub(r"\s+", " ", name).strip()
@@ -285,6 +300,7 @@ def _us_advisories():
     items = []
     seen = set()
     by_iso = {}
+    umbrellas = []
     # Single-country rows first, so a composite never shadows one.
     for composite, key, country, level, link, block in sorted(rows, key=lambda r: r[0]):
         if key in seen:              # the feed repeats some countries
@@ -303,20 +319,33 @@ def _us_advisories():
             # state" is the nuance a traveler actually needs, and quoting the
             # feed keeps us out of the business of authoring safety claims.
             "summary": _summary(desc, level, iso, name_iso),
+            "risks": _risks(_summary(desc, level, iso, name_iso, full=True), level),
             # The bookkeeping sentences _summary discards ("The advisory level
             # was decreased to 1") are exactly the change signal — captured
             # here with the item's publish date so the UI can show what moved.
             "change": _change(desc),
             "updated": _pubdate(_tag(block, "pubDate")),
         }
+        if key in UMBRELLA:
+            umbrellas.append((key, item))
+            continue
         if not iso:
             items.append(item)
             continue
         # One row per country, most cautious wins (Gaza L4 over West Bank L3).
         # Clients keep the last row per ISO, so a duplicate would silently let
-        # whichever sorted later decide.
-        if iso not in by_iso or level > by_iso[iso]["level"]:
+        # whichever sorted later decide. On a tie the place the ISO is named
+        # for wins (Bonaire over Sint Eustatius for BQ).
+        if (iso not in by_iso or level > by_iso[iso]["level"]
+                or (level == by_iso[iso]["level"] and PRIMARY.get(iso) == key)):
             by_iso[iso] = item
+    # An umbrella advisory speaks for each of its places the feed doesn't
+    # rate on its own — a US row for each, not a nameless one beside Canada's
+    # gap-fills (which then read "no US advisory" for St Barthélemy).
+    for key, item in umbrellas:
+        for u_iso in UMBRELLA[key]:
+            if u_iso not in by_iso:
+                by_iso[u_iso] = dict(item, iso=u_iso)
     items.extend(by_iso.values())
 
     items.sort(key=lambda r: (-r["level"], r["country"]))
@@ -350,7 +379,7 @@ def _names(sentence, iso, name_iso):
     return any(i == iso for _, i in hits), any(i != iso for _, i in hits)
 
 
-def _summary(desc, level=None, iso=None, name_iso=None):
+def _summary(desc, level=None, iso=None, name_iso=None, full=False):
     """First two meaningful sentences of the advisory description, plain text.
     The description opens by restating the level ("Exercise increased caution
     in Mexico due to...") — that first sentence carries the WHY (due to
@@ -390,6 +419,16 @@ def _summary(desc, level=None, iso=None, name_iso=None):
     text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>(?:\s|&nbsp;)*(?:</span>\s*)?</p>",
                   heading, text, flags=re.I)
     text = re.sub(r"<b>\s*([^<]{1,60}?)<br\s*/?>\s*</b>", heading, text, flags=re.I)
+    # An inline tag INSIDE a word is no word break ("a<b>rbitrary",
+    # "citizen</span>s", "W<u>eather"): the feed's markup split words, and
+    # quoted back they read "a rbitrary". Only where one side is a single
+    # letter — "caution</b>in Mexico" stays two words.
+    INL = r"</?(?:span|b|i|em|strong|u|a|font)\b[^>]*>"
+    prev = None
+    while prev != text:
+        prev = text
+        text = re.sub(r"(?<![A-Za-z])([A-Za-z])" + INL + r"(?=[a-z])", r"\1", text, flags=re.I)
+        text = re.sub(r"(?<=[a-z])" + INL + r"([a-z])(?![A-Za-z])", r"\1", text, flags=re.I)
     text = re.sub(r"<[^>]+>", " ", text)
     text = html.unescape(re.sub(r"\s+", " ", text)).strip()
     # "Read the entire Travel Advisory." is boilerplate in most items;
@@ -409,6 +448,7 @@ def _summary(desc, level=None, iso=None, name_iso=None):
     # "An area of increased risk was added.") — they describe the document,
     # not the country — and the read-more boilerplate.
     BOILER = re.compile(r"reissued|periodic review|advisory level was|no changes to the risk"
+                        r"|there (was|were) no changes? to the advisory level"
                         r"|risk indicators|updated? to reflect|was (added|updated|removed)"
                         r"|country information page|travel guidance for"
                         r"|always exercise caution when traveling"
@@ -423,7 +463,10 @@ def _summary(desc, level=None, iso=None, name_iso=None):
         if len(hits) >= 2 and hits[0].start() == 0 and "due to" not in p[:hits[1].start()].lower():
             p = p[hits[1].start():]
         keep[i] = p
-    if level in LEVEL_LEAD and name_iso is not None:
+    # An umbrella or unmatched row (no ISO of its own) names other places by
+    # design ("…the French West Indies, which includes Guadeloupe,
+    # Martinique…"): the lead test would drop its lead for Facebook plugs.
+    if level in LEVEL_LEAD and name_iso is not None and iso:
         own_lvl = re.compile("^" + LEVEL_LEAD[level], re.I)
         tags = [(bool(LEAD.match(p)), bool(own_lvl.match(p))) + _names(p, iso, name_iso)
                 for p in keep]
@@ -452,6 +495,24 @@ def _summary(desc, level=None, iso=None, name_iso=None):
     # every sentence after it is program plugs and generic tips, and padding a
     # Level 1 country's summary with them made safe places read scary.
     take = keep[:1] if keep and re.match(r"exercise normal precautions", keep[0], re.I) else keep[:2]
+    # Hong Kong and Macau open with the lead twice ("…when traveling to the
+    # Hong Kong SAR due to the arbitrary enforcement of local laws. Exercise
+    # increased caution due to the arbitrary enforcement of local laws."): the
+    # second says nothing new.
+    # Only when both open with the same level phrase: Honduras's "Reconsider
+    # travel… due to crime." is followed by "Do not travel to: Gracias a
+    # Dios… due to crime.", a different, sterner message.
+    STOP = {"the", "a", "an", "to", "for", "of", "and", "in", "us", "u", "s"}
+    def _due(p):
+        m = re.search(r"\bdue to\b(.*)", p, re.I)
+        return {w for w in re.findall(r"[a-z]+", m.group(1).lower()) if w not in STOP} if m else None
+    def _lead(p):
+        m = LEAD.match(p)
+        return m.group(1).lower() if m else None
+    if len(take) == 2 and _lead(take[0]) and _lead(take[0]) == _lead(take[1]):
+        a, b = _due(take[0]), _due(take[1])
+        if a and b and len(a & b) >= 0.7 * len(b):
+            take = take[:1]
     out = re.sub(r"\s+", " ", " ".join(take)).strip()
     out = re.sub(r"\s+([.,;])", r"\1", out)   # feed HTML leaves "Thailand ." artifacts
     if out and not LEAD.match(out) and len(out) < 40:
@@ -459,7 +520,91 @@ def _summary(desc, level=None, iso=None, name_iso=None):
     if re.fullmatch(r"(exercise normal precautions?|exercise increased caution|reconsider travel"
                     r"|do not travel)\.?", out, re.I):
         return ""          # a bare level phrase says no more than the level itself
+    if full:
+        return out
     return (out[:277] + "...") if len(out) > 280 else out
+
+
+# The reasons a US advisory gives for its level, in its own "due to" clause
+# ("…due to crime, terrorism, and kidnapping"), as short labels so the Safety
+# table can show them as chips — several of them the State Department's own
+# risk indicators (Crime, Terrorism, Unrest, Health, Kidnapping, Natural
+# disasters), the rest the advisories' own recurring words. Order is the
+# advisory's: the first reason it names comes first. A reason no label fits
+# becomes "Other" (the State Department's name for its catch-all indicator),
+# so a row never looks complete when it isn't; the tip quotes the sentence.
+# Read off the untruncated lead, not the 280-character summary — Hong Kong's
+# clause fell past the cut ("…(SAR) due t...").
+RISK_WORDS = [
+    ("Crime", r"\bcrim(e|inal)"),
+    ("Terrorism", r"terror"),
+    ("Unrest", r"unrest|political violence|demonstration"),
+    ("Kidnapping", r"kidnap|hostage"),
+    ("Armed conflict", r"armed conflict|\bwar\b|drone|missile|military"),
+    ("Landmines", r"landmine|land mine"),
+    ("Explosives", r"unexploded(?! land ?mines?)|ordnance|\bUXO\b|\bIEDs?\b|improvised explosive"),
+    ("Detention", r"\bdetention|\barrest|exit bans?|detain"),
+    ("Arbitrary laws", r"arbitrary enforcement"),
+    ("Health care", r"health ?care|health (infrastructure|services|system|facilit)|medical"),
+    ("Health", r"\bhealth\b(?! ?care| infrastructure| services| system| facilit)|ebola|disease|outbreak"),
+    ("Limited help", r"consular|emergency services|ability to (help|assist|provide)"),
+    ("Natural disasters", r"natural disaster|weather|environmental hazard|hurricane|earthquake|volcan"),
+    ("Piracy", r"pirac"),
+    ("Anti-LGBTQI+", r"\bgay\b|lesbian|lgbt|same-sex"),
+]
+
+
+def _risks(lead, level=None):
+    """['Crime', 'Terrorism', …] from the lead's "due to" clauses, or [].
+
+    Every clause counts (Hong Kong's first one arrived as "a rbitrary"), but
+    at Level 1 only the country's own "Exercise normal precautions…" sentence:
+    Senegal's "Exercise increased caution in the Casamance region due to crime
+    and landmines" is one region's reasons, not the country's. An advisory
+    above Level 1 that gives no "due to" still names its dangers in its
+    opening lines (Uganda: "Violent crime is a real danger"), so those are
+    read instead — never at Level 1, where general tips would become risks."""
+    text = (lead or "").replace("U.S.", "US")
+    sents = re.split(r"(?<=[.!?])\s+", text)
+    # Reasons come from the advisory's own level sentences ("Exercise…",
+    # "Reconsider…", "Do not travel…"), not from others that happen to say
+    # "due to" — the DRC's "Due to the Ebola outbreak, the Department of
+    # Homeland Security has implemented new restrictions" is an entry rule,
+    # the UAE's "…due to UAE government restrictions" is about US staff.
+    lead_re = r"exercise normal precaution" if (level or 0) <= 1 else r"exercise|reconsider|do not travel"
+    lead_text = " ".join(x for x in sents if re.match(lead_re, x, re.I))
+    full_text = text
+    text = lead_text
+    # "due to:" opens a list whose items are sentences of their own (Russia:
+    # "…due to: Danger associated with the continuing war… The risk of
+    # harassment or wrongful detention…"): everything after the colon counts.
+    listed = re.search(r"(?:^|[.!?]\s+)(?:exercise|reconsider|do not travel)[^.]*?\bdue to:\s+(.+)", full_text, re.I | re.S)
+    clauses = [listed.group(1)] if listed else []
+    clauses += re.findall(r"\bdue to(?!:)\s+(.+?)(?:\.(?=\s|$)|$)", text, re.I | re.S)
+    fallback = not clauses and (level or 0) >= 2
+    if fallback:
+        clauses = [full_text]
+    clause = " / ".join(clauses)
+    if not clause:
+        return []
+    hits = {}
+    for label, pat in RISK_WORDS:
+        f = re.search(pat, clause, re.I)
+        if f:
+            hits[label] = f.start()
+    # The reasons no label fits. Items are split on commas, "and", "or" and
+    # full stops; one-word leftovers are fragments of a split ("…war between
+    # Russia / and Ukraine"), not reasons. Not in the fallback, which reads
+    # whole sentences rather than a list of reasons.
+    if not fallback:
+        for m in re.finditer(r"[^,;.]+", clause):
+            seg = m.group(0)
+            for pm in re.finditer(r"(?:(?!\s+(?:and|or)\s+).)+", seg):
+                part = pm.group(0)
+                words = re.sub(r"^(?:\s*(?:the|a|an|risk|risks|of|threat|potential|and|or)\b)+", "", part.strip(), flags=re.I).split()
+                if len(words) >= 2 and not any(re.search(p, part, re.I) for _, p in RISK_WORDS):
+                    hits.setdefault("Other", m.start() + pm.start())
+    return [label for label, _ in sorted(hits.items(), key=lambda kv: kv[1])]
 
 
 def _change(desc):
