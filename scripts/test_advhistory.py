@@ -35,7 +35,7 @@ def fresh():
 
 
 # --- memory ---------------------------------------------------------------------
-print("memory (no Upstash configured):", not H._storage())
+print("memory (no Upstash configured):", not accounts.storage_configured())
 fresh()
 out = run("ca", [item("MX", 2), item("FR", 2), item("JP", 1)], "2026-10-01")
 results.append(ok(not any("changed" in r or "change" in r for r in out.values()),
@@ -112,6 +112,53 @@ out = run("us", [item("PS", 3), item("PS", 4)], "2026-08-02")
 results.append(ok(json.loads(H._mem["advlvl:us"])["PS"] == [4, "2026-08-01"] and "advchg:us" not in H._mem,
                   "duplicate ISO rows: most cautious level, no change logged"))
 
+# The US feed's own change: the since-date is its "updated", not the day seen.
+fresh()
+run("us", [item("MX", 2), item("KE", 2), item("NE", 3)], "2026-09-01")
+out = run("us", [item("MX", 3, change="up", updated="2026-09-28"),
+                 item("KE", 3, change=None, updated="2026-09-28"),
+                 item("NE", 4, change="up", updated="2026-08-15")], "2026-10-02")
+lv = json.loads(H._mem["advlvl:us"])
+results.append(ok(out["MX"].get("changed") == "2026-09-28" and lv["MX"] == [3, "2026-09-28", 2],
+                  "a change the feed reports: since = the feed's updated (2026-09-28, seen 10-02)"))
+results.append(ok(out["MX"].get("change") == "up", "...and the feed's own change stays"))
+results.append(ok(out["KE"].get("changed") == "2026-10-02",
+                  "a change only we saw (no feed change): since = the day seen"))
+results.append(ok(out["NE"].get("changed") == "2026-10-02",
+                  "a feed date before the old level's since (08-15 < 09-01) isn't believed"))
+results.append(ok({"iso": "MX", "from": 2, "to": 3, "date": "2026-09-28"} in json.loads(H._mem["advchg:us"]),
+                  "the change log carries the same date"))
+fresh()
+run("us", [item("CO", 2)], "2026-09-01")
+out = run("us", [item("CO", 3, change="up", updated="2026-10-09")], "2026-10-02")
+results.append(ok(out["CO"].get("changed") == "2026-10-02", "a feed date after today isn't believed"))
+fresh()
+run("us", [item("PE", 2)], "2026-09-01")
+out = run("us", [item("PE", 3, change="up", updated="Fri, 2 Oct")], "2026-10-02")
+results.append(ok(out["PE"].get("changed") == "2026-10-02", "an unparseable feed date: the day seen"))
+
+# Malformed stored records never fail the list (S5): they read as unseen.
+fresh()
+H._mem["advlvl:ca"] = json.dumps({"MX": [2, "2026-01-01", None], "FR": "2", "JP": [None, None],
+                                  "TH": [1], "BR": {"level": 2}, "IT": [2, "2026-01-01", 1]})
+try:
+    out = run("ca", [item(i, 2) for i in ("MX", "FR", "JP", "TH", "BR", "IT")], "2026-10-02")
+    lv = json.loads(H._mem["advlvl:ca"])
+    results.append(ok(not any("change" in r for k, r in out.items() if k != "IT"),
+                      "malformed records: no exception, nothing stamped from them"))
+    results.append(ok(out["IT"].get("changed") == "2026-01-01" and "change" not in out["IT"],
+                      "...a well-formed neighbour still stamped (changed kept, change past 180 days)"))
+    results.append(ok(lv["FR"] == [2, "2026-10-02"] and lv["JP"] == [2, "2026-10-02"]
+                      and lv["TH"] == [2, "2026-10-02"] and lv["BR"] == [2, "2026-10-02"],
+                      "...unreadable ones re-baselined as [level, today]"))
+    results.append(ok(lv["MX"] == [2, "2026-01-01", None] and "changed" not in out["MX"],
+                      "...[2, date, null] at the same level is left as is, unstamped"))
+    out = run("ca", [item("MX", 3)], "2026-10-03")
+    results.append(ok(out["MX"].get("change") == "up" and json.loads(H._mem["advlvl:ca"])["MX"] == [3, "2026-10-03", 2],
+                      "...and its next change is recorded normally"))
+except Exception as e:
+    results.append(ok(False, "malformed stored record raised %r" % e))
+
 # The log keeps the last 300.
 fresh()
 run("de", [item("XX", 1)], "2026-01-01")
@@ -135,7 +182,7 @@ os.environ["UPSTASH_REDIS_REST_TOKEN"] = "mock"
 for k in ("advlvl:ca", "advchg:ca"):
     accounts._kv_del(k)
 fresh()
-results.append(ok(H._storage(), "storage configured -> Upstash"))
+results.append(ok(accounts.storage_configured(), "storage configured -> Upstash"))
 run("ca", [item("MX", 2), item("TH", 1)], "2026-10-01")
 results.append(ok(json.loads(accounts._kv_get("advlvl:ca")) == {"MX": [2, "2026-10-01"], "TH": [1, "2026-10-01"]},
                   "baseline stored under advlvl:ca"))

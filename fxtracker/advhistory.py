@@ -16,11 +16,17 @@ start a fresh record each boot):
                    before, marks a change we saw; without it the date is just
                    when we started watching (the first-ever run is a baseline,
                    not a wave of changes, and so is a country the feed starts
-                   listing later).
+                   listing later). When the US feed itself says the level
+                   changed, since is the item's own "updated" date instead:
+                   the State Department's date, not the day we first fetched
+                   it, which can be days later (the client shows `changed`
+                   ahead of `updated`, so ours would read as the later one).
   advchg:<source>  [{iso, from, to, date}], oldest first, the last 300.
 
 Items are annotated (contract with the client):
-  changed — the date we saw the current level arrive, when we saw it change;
+  changed — the date the current level arrived, when we saw it change (the
+            feed's own "updated" when it reports that change, else the day
+            we saw it);
   change  — "up"/"down" for that change when it is under 180 days old and
             the feed gives no change of its own (the US words win).
 
@@ -33,6 +39,7 @@ change.
 
 import datetime
 import json
+import re
 import threading
 import time
 
@@ -45,12 +52,8 @@ _lock = threading.Lock()
 _mem = {}
 
 
-def _storage():
-    return bool(accounts._env("UPSTASH_REDIS_REST_URL") and accounts._env("UPSTASH_REDIS_REST_TOKEN"))
-
-
 def _load(key):
-    if _storage():
+    if accounts.storage_configured():
         raw = accounts._kv_get(key)
         return json.loads(raw) if raw else None
     v = _mem.get(key)
@@ -59,10 +62,34 @@ def _load(key):
 
 def _save(key, obj):
     raw = json.dumps(obj, separators=(",", ":"))
-    if _storage():
+    if accounts.storage_configured():
         accounts._kv_set(key, raw)
     else:
         _mem[key] = raw
+
+
+def _rec(rec):
+    """A stored record as (level, since, before|None), or None when it isn't
+    one: a record written by hand or by older code — [2, "2026-01-01", null],
+    say — must read as "never seen", not raise mid-list (rec[0] > rec[2] on a
+    None took the whole stamping down with a TypeError)."""
+    if (isinstance(rec, list) and len(rec) >= 2 and type(rec[0]) is int
+            and isinstance(rec[1], str)):
+        before = rec[2] if len(rec) >= 3 and type(rec[2]) is int else None
+        return rec[0], rec[1], before
+    return None
+
+
+def _since(item, prev_since, today):
+    """The date a level we just saw change arrived: the feed's own `updated`
+    when the feed itself reports the change (only the US does: "The advisory
+    level was increased to 3", advisories._change), else today. Only a date
+    between the previous level's since and today is believed — an earlier one
+    would put the new level before the old one arrived."""
+    upd = item.get("updated") if item and item.get("change") else None
+    if isinstance(upd, str) and re.fullmatch(r"\d{4}-\d\d-\d\d", upd) and prev_since <= upd <= today:
+        return upd
+    return today
 
 
 def _days(since, today):
@@ -84,9 +111,12 @@ def record_and_annotate(source, payload, today=None):
         return payload
     # One level per country, the most cautious: two rows for one ISO (Gaza
     # and the West Bank are both PS) must not read as a change on every fetch.
-    seen = {}
+    seen, at = {}, {}
     for it in own:
         seen[it["iso"]] = max(seen.get(it["iso"], it["level"]), it["level"])
+    for it in own:                      # the row that carries that level
+        if it["level"] == seen[it["iso"]]:
+            at.setdefault(it["iso"], it)
     try:
         with _lock:
             levels = _load("advlvl:" + source)
@@ -94,13 +124,14 @@ def record_and_annotate(source, payload, today=None):
             levels = levels if isinstance(levels, dict) else {}
             changes = []
             for iso, lvl in seen.items():
-                rec = levels.get(iso)
-                if not rec:
+                rec = _rec(levels.get(iso))
+                if not rec:                 # unseen, or unreadable: a baseline
                     levels[iso] = [lvl, today]
                     dirty = True
                 elif rec[0] != lvl:
-                    changes.append({"iso": iso, "from": rec[0], "to": lvl, "date": today})
-                    levels[iso] = [lvl, today, rec[0]]
+                    since = _since(at.get(iso), rec[1], today)
+                    changes.append({"iso": iso, "from": rec[0], "to": lvl, "date": since})
+                    levels[iso] = [lvl, since, rec[0]]
                     dirty = True
             if changes:
                 log = _load("advchg:" + source)
@@ -117,8 +148,8 @@ def record_and_annotate(source, payload, today=None):
         print("[adv-history] %s not recorded: %s" % (source, e), flush=True)
         return payload
     for it in own:
-        rec = levels.get(it["iso"])
-        if not rec or len(rec) < 3 or rec[0] != it["level"]:
+        rec = _rec(levels.get(it["iso"]))
+        if not rec or rec[2] is None or rec[0] != it["level"]:
             continue                        # never seen it change
         it["changed"] = rec[1]
         if not it.get("change") and _days(rec[1], today) <= WINDOW_DAYS:

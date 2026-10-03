@@ -36,12 +36,14 @@ reasons() below), so they ride along in the same document.
 
 Run (re-run to refresh):   python3 -m fxtracker.build_health
 Only some countries:       python3 -m fxtracker.build_health MX TH
+                           (the file keeps its date and its West Nile)
 From a local mirror:       python3 -m fxtracker.build_health --dir /path/to/cta-files
 It writes the static file the website ships with. The server keeps it fresh
 on its own (fxtracker/health.py runs build() once the copy it serves is a
 week old), so a visitor's request never waits on Canada's API.
 """
 
+import datetime
 import html
 import json
 import os
@@ -225,7 +227,7 @@ def _lead_block(eng, place=None):
             return body
     if place:
         return None
-    # 13 of 230 headings don't repeat the page's name ("The Bahamas" on
+    # 11 of 230 headings don't repeat the page's name ("The Bahamas" on
     # "Bahamas", "DEMOCRATIC REPUBLIC OF THE CONGO" on "Democratic Republic of
     # Congo (Kinshasa)", "ISRAEL" on "Israel and Palestine"): the country-wide
     # block is then the first one that isn't a regional advisory.
@@ -282,17 +284,23 @@ def _load(iso, local_dir):
     return rates.fetch_json(PAGE.format(iso=iso.lower()))
 
 
-def build(prev=None, only=None, local_dir=None, pause=0.3):
+MAX_FAILED = 5
+
+
+def build(prev=None, only=None, local_dir=None, pause=0.3, prev_built=None):
     """(doc, failed) — the document the site serves as /health.json:
     {built, source, url, c: {ISO: row}} — and the pages that failed.
 
     One page at a time (`pause` seconds apart: an open-data API, no need to
     hurry it). `prev` is the last good document's "c": a page that fails keeps
     its previous entry, rather than vanishing and reading as "not covered" on
-    the site. `only` refreshes just those ISOs on top of `prev`. Raises Outage
-    when more than a handful of pages fail — that is an outage, not an answer,
-    and whoever called keeps the document they have. Used by the CLI below and
-    by health.py's refresher on the server."""
+    the site. `only` refreshes just those ISOs on top of `prev`, and the
+    document keeps `prev_built` (prev's date): a few pages refreshed are not
+    the document refreshed, and dating it today would hold off the full
+    refresh for a week. Raises Outage as soon as more than MAX_FAILED pages
+    fail — that is an outage, not an answer, and whoever called keeps the
+    document they have. Used by the CLI below and by health.py's refresher on
+    the server."""
     prev = prev or {}
     if local_dir and os.path.exists(os.path.join(local_dir, "index.json")):
         with open(os.path.join(local_dir, "index.json"), encoding="utf-8") as f:
@@ -304,9 +312,12 @@ def build(prev=None, only=None, local_dir=None, pause=0.3):
     else:
         isos = sorted((rates.fetch_json(INDEX).get("data") or {}).keys())
         built = time.strftime("%Y-%m-%d")
+    if only and prev_built:
+        built = prev_built
     out = dict(prev) if only else {}
     hosts = {spec[0] for spec in SHARED.values()}
     engs = {}        # the hosts' pages, for the places they advise on
+    own = set()      # ISOs whose own page was read this run
     failed = []
     for iso in isos:
         if only and iso not in only:
@@ -317,20 +328,35 @@ def build(prev=None, only=None, local_dir=None, pause=0.3):
             if row is not None:
                 row.update(reasons(eng))
                 out[iso] = row
+                own.add(iso)
             if iso in hosts:
                 engs[iso] = eng
         except Exception as e:     # one bad page must not sink the build
             failed.append("%s (%s)" % (iso, e))
             if iso in prev:
                 out[iso] = prev[iso]
+            # Declared at once rather than after the last page: when the API
+            # hangs, each page costs ~65s (20s timeout x 3 tries, plus
+            # backoff), and 230 of them took ~4 hours to call an outage.
+            if len(failed) > MAX_FAILED:
+                raise Outage("%d pages failed, stopping at %s (the first: %s)"
+                             % (len(failed), iso, failed[0]))
         if pause and not local_dir:
             time.sleep(pause)
     # Places Canada advises on inside another country's page: Palestine is
     # on its "Israel and Palestine" page (the row said "not covered"). The
     # health advice is the page's; the reasons are the place's own block
-    # ("PALESTINE - AVOID ALL TRAVEL"), never Israel's.
+    # ("PALESTINE - AVOID ALL TRAVEL"), never Israel's. The copy fills in
+    # only: should Canada publish a PS page of its own, that row stands —
+    # whether read this run (own) or kept from the last one (a row with no
+    # "v" is a country's own page, so a failed PS page or a run of only=IL
+    # doesn't swap it for Israel's either). A copy made last time is
+    # refreshed when the host page loaded, else kept.
     for iso, (host, label, place) in SHARED.items():
-        if host not in out or (iso in out and host not in engs):
+        have = out.get(iso)
+        if iso in own or host not in out:
+            continue
+        if have is not None and ("v" not in have or host not in engs):
             continue
         row = {k: v for k, v in out[host].items() if k not in ("r", "rq")}
         row["v"] = label
@@ -339,7 +365,7 @@ def build(prev=None, only=None, local_dir=None, pause=0.3):
         else:
             row.update({k: v for k, v in prev.get(iso, {}).items() if k in ("r", "rq")})
         out[iso] = row
-    if len(failed) > 5 or (not only and len(out) < 150):
+    if len(failed) > MAX_FAILED or (not only and len(out) < 150):
         raise Outage("%d pages failed, %d countries parsed" % (len(failed), len(out)))
     doc = {"built": built,
            "source": "Government of Canada — travel health advice (Public Health Agency of Canada)",
@@ -348,21 +374,166 @@ def build(prev=None, only=None, local_dir=None, pause=0.3):
     return doc, failed
 
 
+# ---- West Nile ("w") ------------------------------------------------------------
+# Canada's pages list West Nile for no country, so it comes from ECDC's and
+# CDC's case reports (fxtracker/westnile.py, when that module is deployed).
+# A new w never replaces a newer one: ECDC's live page drops some networks'
+# connections and the module then reads the Internet Archive's newest capture,
+# which can be weeks older than the last live read. How current each agency's
+# data is, is in its own sentences — "ECDC: 319 locally acquired human cases
+# in 21 areas in 2026 so far (as of 10 Sep)", "CDC: … in the 2025 season" —
+# so that is what's compared, agency by agency: this week's CDC read is kept
+# even when ECDC fell back to an older copy than the one already served.
+_W_AGENCY = re.compile(r"^\s*([A-Z]{2,})\s*:")
+_W_WHEN = re.compile(r"\bin (?:the )?(\d{4})(?: season| so far)"
+                     r"(?:\s*\(as of (\d{1,2}) ([A-Za-z]{3})[a-z]*\.?\))?")
+_MONTHS = {m: i for i, m in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+_W_ORDER = {"ECDC": 0, "CDC": 1}     # westnile.build's order: ECDC's entries first
+
+
+def _w_parts(w):
+    """{agency: {c: {ISO: entry}, season, asof, w}} for a usable w, else {}.
+    Every agency the w says it read (its "source", "ECDC · CDC") is there,
+    even with no entries: read and no cases is an answer, not a failure."""
+    if not (isinstance(w, dict) and isinstance(w.get("c"), dict)):
+        return {}
+    parts = {}
+
+    def part(a):
+        return parts.setdefault(a, {"c": {}, "season": None, "asof": None, "w": w})
+    for a in str(w.get("source") or "").split("·"):
+        if a.strip():
+            part(a.strip())
+    for iso, e in w["c"].items():
+        t = str(e.get("t") or "") if isinstance(e, dict) else ""
+        m = _W_AGENCY.match(t)
+        p = part(m.group(1) if m else "")
+        p["c"][iso] = e
+        when = _W_WHEN.search(t)
+        if not when:
+            continue
+        season, asof = when.group(1), None
+        if when.group(2) and when.group(3).lower() in _MONTHS:
+            try:
+                asof = "%s-%02d-%02d" % (season, _MONTHS[when.group(3).lower()], int(when.group(2)))
+                datetime.date.fromisoformat(asof)
+            except ValueError:
+                asof = None
+        if (season, asof or "") > (p["season"] or "", p["asof"] or ""):
+            p["season"], p["asof"] = season, asof
+    for p in parts.values():
+        p["season"] = p["season"] or (str(w.get("season") or "") or None)
+    return parts
+
+
+def _w_older(new, old):
+    """True when `new` (a _w_parts part) is provably older data than `old`:
+    an earlier season, or the same season "as of" an earlier date. Anything
+    it can't tell apart goes to the later build — new, in practice."""
+    if new["season"] and old["season"] and new["season"] != old["season"]:
+        return new["season"] < old["season"]
+    if new["asof"] and old["asof"] and new["asof"] != old["asof"]:
+        return new["asof"] < old["asof"]
+    return str(new["w"].get("built") or "") < str(old["w"].get("built") or "")
+
+
+def merge_w(new, old, notes=None, log=print):
+    """The w to serve, from this build's (`new`) and the last document's
+    (`old`): per agency, the newer data. An agency this build couldn't read
+    keeps the last document's entries — unless they are from an earlier
+    season than the rest, which would read as this season's. `notes` maps a
+    frozenset of agencies to the note for that coverage, for a mix that
+    neither w had."""
+    np, op = _w_parts(new), _w_parts(old)
+    if not np:
+        if op:
+            log("[health] West Nile: nothing new; keeping the w built %s" % old.get("built"))
+        return old if op else None
+    if not op:
+        return new
+    chosen = {}
+    for a, p in np.items():
+        if a in op and _w_older(p, op[a]):
+            o = op[a]
+            log("[health] West Nile: kept %s from the w built %s (%s, as of %s) over this "
+                "build's (%s, as of %s)" % (a or "unattributed entries", o["w"].get("built"),
+                                             o["season"], o["asof"], p["season"], p["asof"]))
+            chosen[a] = o
+        else:
+            chosen[a] = p
+    newest = max((p["season"] or "" for p in chosen.values()), default="")
+    for a, o in op.items():
+        if a in np or not a:
+            continue
+        if o["season"] and newest and o["season"] < newest:
+            log("[health] West Nile: %s unread this build; its %s entries dropped beside %s data"
+                % (a, o["season"], newest))
+            continue
+        log("[health] West Nile: %s unread this build; kept its entries from the w built %s"
+            % (a, o["w"].get("built")))
+        chosen[a] = o
+    if all(p["w"] is new for p in chosen.values()):
+        return new
+    if all(p["w"] is old for p in chosen.values()) and set(chosen) == set(op):
+        return old
+    order = sorted(chosen, key=lambda a: (_W_ORDER.get(a, 2 if a else 3), a))
+    c = {}
+    for a in order:            # an ISO two agencies report: the first listed
+        for iso, e in chosen[a]["c"].items():
+            c.setdefault(iso, e)
+    agencies = [a for a in order if a]
+    have = frozenset(agencies)
+    note = next((w.get("note") for w in (new, old) if frozenset(a for a in _w_parts(w) if a) == have), None)
+    note = note or (notes or {}).get(have) or new.get("note")
+    out = {"source": " · ".join(agencies),
+           "url": chosen[order[0]]["w"].get("url") or new.get("url") or old.get("url"),
+           "season": max([p["season"] for p in chosen.values() if p["season"]] or [new.get("season")]),
+           "built": new.get("built")}
+    if note:
+        out["note"] = note
+    out["c"] = dict(sorted(c.items()))
+    return out
+
+
+def _w_routes(info):
+    """One log line: where each agency's data came from this build."""
+    def one(k):
+        v = str(info.get(k) or "not tried")
+        if v == "archive":
+            v = "from the Internet Archive's copy (the live page failed)"
+        return "%s %s" % (k.upper(), v[:200])
+    line = "[health] West Nile: %s; %s" % (one("ecdc"), one("cdc"))
+    if info.get("ecdc_errors"):
+        line += " — " + "; ".join(map(str, info["ecdc_errors"]))[:240]
+    if info.get("unmapped"):
+        line += "; unmapped: " + ", ".join(map(str, info["unmapped"]))
+    if info.get("build"):
+        line += "; " + str(info["build"])[:200]
+    return line
+
+
 def with_westnile(doc, prev_doc=None, log=print):
     """Adds West Nile (the top-level "w") from fxtracker.westnile when that
-    module exists. Canada's pages list it for no country, so it comes from
-    ECDC/CDC case reports. A source that fails keeps the last document's w
-    rather than dropping the season's areas."""
+    module exists, merged with the last document's (merge_w): an agency that
+    fails, or comes back with older data, keeps what was served."""
     try:
         from . import westnile
     except ImportError:
         return doc
+    info = {}
     try:
-        w = westnile.get()
+        try:
+            w = westnile.get(info=info)
+        except TypeError:          # a get() that takes no info
+            w = westnile.get()
     except Exception as e:
         log("[health] West Nile not refreshed: %s" % e)
-        w = (prev_doc or {}).get("w")
-    if isinstance(w, dict) and isinstance(w.get("c"), dict):
+        w = None
+    log(_w_routes(info))
+    notes = {frozenset(k): getattr(westnile, name, None) for k, name in (
+        (("ECDC", "CDC"), "NOTE_ALL"), (("ECDC",), "NOTE_NO_CDC"), (("CDC",), "NOTE_NO_ECDC"))}
+    w = merge_w(w, (prev_doc or {}).get("w"), notes, log)
+    if w:
         doc["w"] = w
     return doc
 
@@ -379,11 +550,16 @@ def main(argv):
         with open(OUT, encoding="utf-8") as f:
             prev_doc = json.load(f)
     try:
-        doc, failed = build(prev_doc.get("c", {}), only, local_dir)
+        doc, failed = build(prev_doc.get("c", {}), only, local_dir,
+                            prev_built=prev_doc.get("built"))
     except Outage as e:
         # Non-zero exit, for a scheduled job.
         sys.exit("%s — keeping the existing %s" % (e, OUT))
-    doc = with_westnile(doc, prev_doc)
+    if only:                   # a few pages: West Nile is the full run's
+        if prev_doc.get("w"):
+            doc["w"] = prev_doc["w"]
+    else:
+        doc = with_westnile(doc, prev_doc)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(doc, f, ensure_ascii=False, separators=(",", ":"))
     out = doc["c"]

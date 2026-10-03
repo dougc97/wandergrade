@@ -84,10 +84,16 @@ def _env(name, default=""):
     return os.environ.get(name, default).strip()
 
 
+def storage_configured():
+    """True when Upstash is configured. Also what health.py (the refreshed
+    /health.json) and advhistory.py (the advisory-level record) check to
+    store there rather than in memory."""
+    return bool(_env("UPSTASH_REDIS_REST_URL") and _env("UPSTASH_REDIS_REST_TOKEN"))
+
+
 def enabled():
     """True when both storage and mail are configured; the UI hides otherwise."""
-    return bool(_env("UPSTASH_REDIS_REST_URL") and _env("UPSTASH_REDIS_REST_TOKEN")
-                and _env("RESEND_API_KEY"))
+    return storage_configured() and bool(_env("RESEND_API_KEY"))
 
 
 def valid_email(email):
@@ -489,7 +495,7 @@ def reconcile_optouts(delay=60, pause=RECONCILE_PAUSE, backoff=60, tries=3,
     let the next issue reach the very people this is for. Returns the last
     pass's stats, or None when it didn't run."""
     key = _env("BUTTONDOWN_API_KEY")
-    if not (_env("UPSTASH_REDIS_REST_URL") and _env("UPSTASH_REDIS_REST_TOKEN")):
+    if not storage_configured():
         return None
     if not key:
         # Accounts are on but the list is out of reach: say so, since opt-outs

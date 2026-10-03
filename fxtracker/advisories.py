@@ -540,8 +540,8 @@ def _summary(desc, level=None, iso=None, name_iso=None, full=False):
 # hence the wider patterns: "criminal activity", "banditry" and "gang
 # violence" are Crime; "political tensions", "political instability", strikes,
 # roadblocks and inter-ethnic or sectarian violence are Unrest (the State
-# Department's own definition of its civil-unrest indicator: "political,
-# religious, or ethnic instability"); "ongoing conflict", "armed groups" and
+# Department's civil-unrest indicator is about political, religious and
+# ethnic instability); "ongoing conflict", "armed groups" and
 # "airstrikes" are Armed conflict. Canada's commonest reason — "the volatile
 # security situation in the region" — names no risk this list has, so it
 # stays "Other", with the sentence in the tip.
