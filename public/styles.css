@@ -2383,6 +2383,12 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .affcur { font-size: 11px; color: var(--gray); }
 /* Desktop: the code beside the name, one line a row (as #rates does). */
 @media (min-width: 761px) { #affTable .curcell > div { display: flex; align-items: baseline; gap: 7px; } }
+/* The price-data ⚠️ hangs off the number's corner, as it does on Top Picks'
+   pills: inline, it pushed Gambia's 0.24 a mark's width left of the 0.24s
+   above and below it (on a phone, where the word is hidden, out of the
+   column's right edge). #affTable outguns the tooltip rule's position. */
+#affTable .plnum { position: relative; }
+#affTable .plnum .hzmark[data-tip] { position: absolute; top: -7px; right: -9px; margin: 0; font-size: 10px; line-height: 1; }
 /* Safety table: a flag before each name; a level move is an arrow after the
    pill (one weight either way — .pos is bold and .neg is not), its date in
    the tip. */
