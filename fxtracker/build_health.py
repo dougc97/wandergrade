@@ -380,10 +380,12 @@ def build(prev=None, only=None, local_dir=None, pause=0.3, prev_built=None):
 # A new w never replaces a newer one: ECDC's live page drops some networks'
 # connections and the module then reads the Internet Archive's newest capture,
 # which can be weeks older than the last live read. How current each agency's
-# data is, is in its own sentences — "ECDC: 319 locally acquired human cases
-# in 21 areas in 2026 so far (as of 10 Sep)", "CDC: … in the 2025 season" —
-# so that is what's compared, agency by agency: this week's CDC read is kept
-# even when ECDC fell back to an older copy than the one already served.
+# data is, is in its own sentences — "ECDC: 319 locally acquired human cases,
+# 21 affected areas, in 2026 so far (as of 10 Sep)", "CDC: … in the 2025
+# season" — plus w.asof, ECDC's own data date, which survives when the
+# sentences drop theirs ("in the 2026 season" once ECDC concludes, and from
+# January). That is what's compared, agency by agency: this week's CDC read
+# is kept even when ECDC fell back to an older copy than the one served.
 _W_AGENCY = re.compile(r"^\s*([A-Z]{2,})\s*:")
 _W_WHEN = re.compile(r"\bin (?:the )?(\d{4})(?: season| so far)"
                      r"(?:\s*\(as of (\d{1,2}) ([A-Za-z]{3})[a-z]*\.?\))?")
@@ -421,6 +423,10 @@ def _w_parts(w):
                 asof = None
         if (season, asof or "") > (p["season"] or "", p["asof"] or ""):
             p["season"], p["asof"] = season, asof
+    ea = str(w.get("asof") or "")
+    if "ECDC" in parts and re.fullmatch(r"\d{4}-\d\d-\d\d", ea):
+        parts["ECDC"]["asof"] = ea
+        parts["ECDC"]["season"] = parts["ECDC"]["season"] or ea[:4]
     for p in parts.values():
         p["season"] = p["season"] or (str(w.get("season") or "") or None)
     return parts
@@ -489,6 +495,8 @@ def merge_w(new, old, notes=None, log=print):
            "url": chosen[order[0]]["w"].get("url") or new.get("url") or old.get("url"),
            "season": max([p["season"] for p in chosen.values() if p["season"]] or [new.get("season")]),
            "built": new.get("built")}
+    if "ECDC" in chosen and chosen["ECDC"]["asof"]:
+        out["asof"] = chosen["ECDC"]["asof"]
     if note:
         out["note"] = note
     out["c"] = dict(sorted(c.items()))
@@ -503,6 +511,9 @@ def _w_routes(info):
             v = "from the Internet Archive's copy (the live page failed)"
         return "%s %s" % (k.upper(), v[:200])
     line = "[health] West Nile: %s; %s" % (one("ecdc"), one("cdc"))
+    asof = [k.split("_")[0].upper() + " as of " + str(info[k]) for k in ("ecdc_asof", "cdc_asof") if info.get(k)]
+    if asof:
+        line += " (" + ", ".join(asof) + ")"
     if info.get("ecdc_errors"):
         line += " — " + "; ".join(map(str, info["ecdc_errors"]))[:240]
     if info.get("unmapped"):
@@ -522,10 +533,7 @@ def with_westnile(doc, prev_doc=None, log=print):
         return doc
     info = {}
     try:
-        try:
-            w = westnile.get(info=info)
-        except TypeError:          # a get() that takes no info
-            w = westnile.get()
+        w = westnile.get(info=info)
     except Exception as e:
         log("[health] West Nile not refreshed: %s" % e)
         w = None

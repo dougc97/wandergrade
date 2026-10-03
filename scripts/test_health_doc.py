@@ -290,9 +290,12 @@ with westnile(fake):
 results.append(ok(d.get("w") is old and any("not refreshed: boom" in x for x in log),
                   "get() raising: the last w stays"))
 fake.result = arch
-with westnile(types.SimpleNamespace(get=lambda: live)):   # a get() without info
+# get() always takes info= now (the TypeError fallback re-ran a whole fetch
+# whenever get() itself raised a TypeError): an old-style get() is a failed
+# refresh that keeps the last w, not a second request.
+with westnile(types.SimpleNamespace(get=lambda: live)):
     d = B.with_westnile({"built": "2026-10-05", "c": {}}, {"w": old}, L)
-results.append(ok(d.get("w") is live, "a get() that takes no info still works"))
+results.append(ok(d.get("w") is old, "a get() without info= is a failed refresh: the last w stays"))
 with westnile(None):
     d = B.with_westnile({"built": "2026-10-05", "c": {}}, {"w": old}, L)
 results.append(ok("w" not in d, "module not deployed: no w (the off switch)"))
@@ -378,19 +381,25 @@ results.append(ok(HL.get_doc().get("marker") == "mem", "a tie with memory: memor
 # CODE follows the code: West Nile's arrival changes it.
 fake_pkg = os.path.join(TMP, "pkg")
 os.makedirs(fake_pkg)
+# Without westnile.py first (the state before that module ships), then with it.
 for name in ("build_health.py", "advisories.py"):
     shutil.copy(os.path.join(os.path.dirname(HERE), "fxtracker", name), fake_pkg)
 real_here = HL.HERE
 HL.HERE = fake_pkg
 c1 = HL._code()
-with open(os.path.join(fake_pkg, "westnile.py"), "w") as f:
-    f.write("# arrives\n")
+real_wn = os.path.join(os.path.dirname(HERE), "fxtracker", "westnile.py")
+if os.path.exists(real_wn):
+    shutil.copy(real_wn, fake_pkg)
+else:
+    with open(os.path.join(fake_pkg, "westnile.py"), "w") as f:
+        f.write("# arrives\n")
 c2 = HL._code()
 with open(os.path.join(fake_pkg, "advisories.py"), "a") as f:
     f.write("# a label rule changes\n")
 c3 = HL._code()
 HL.HERE = real_here
-results.append(ok(c1 == HL.CODE and len({c1, c2, c3}) == 3,
+has_wn = os.path.exists(os.path.join(os.path.dirname(HERE), "fxtracker", "westnile.py"))
+results.append(ok((c2 == HL.CODE if has_wn else c1 == HL.CODE) and len({c1, c2, c3}) == 3,
                   "CODE changes with westnile.py's arrival and with advisories.py (the r labels)"))
 
 print("Refresh, stored envelope, served shape:")

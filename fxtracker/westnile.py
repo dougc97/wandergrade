@@ -12,9 +12,10 @@ Moldova, Russia, Switzerland and the UK are in Europe but outside it.
 
 w.asof is the ECDC data's own "as of" date (absent when w has no ECDC part).
 The ECDC part can come from an Internet Archive copy older than the last live
-read, so whoever stores w passes the stored one and the new one through
-keep_newer(), which never lets an older ECDC part (or a failed source)
-replace a newer one. get(info={}) also says which route each source took.
+read, so whoever stores w merges the stored one with the new one —
+fxtracker/build_health.merge_w, which never lets an older ECDC part (or a
+failed source, or a past season) replace a newer one. get(info={}) also
+says which route each source took.
 
 Sources
   ECDC weekly report — human West Nile infections in the EU/EEA and the
@@ -71,7 +72,8 @@ Failure modes
     (the CLI prints it); every name in the 2025 and 2026 reports maps.
   - Either agency failing leaves the other's countries and a note saying which
     is missing; both failing returns None (contract: w may be absent).
-    keep_newer() then holds on to the last stored part for the failed one.
+    build_health.merge_w then holds on to the last stored part for the
+    failed one.
 
 Run:   /usr/bin/python3 -m fxtracker.westnile             summary
        /usr/bin/python3 -m fxtracker.westnile --json      the "w" dict
@@ -256,7 +258,7 @@ def parse_ecdc(page):
     # reports for the 2025 season"): it's a finished season, not "so far".
     # Only that exact wording: a mid-season "ECDC will conclude its weekly
     # reports in November" would otherwise drop the "as of" date.
-    done = bool(re.search(r"\bECDC concludes its weekly reports\b", text))
+    done = bool(re.search(r"\bECDC concludes its weekly report(?:s|ing)\b", text))
 
     name_iso = _name_to_iso()
     countries, unmapped = {}, []
@@ -503,39 +505,6 @@ def build(ecdc=None, cdc=None, built=None):
                      cdc_entries(cdc, built) if cdc else {},
                      bool(ecdc), bool(cdc), max(seasons) if seasons else None,
                      built, ecdc and ecdc.get("asof"))
-
-
-def _part(w, agency):
-    return {iso: v for iso, v in w["c"].items() if str(v.get("t", "")).startswith(agency + ":")}
-
-
-def keep_newer(old, new):
-    """The "w" to store when a new build (new, may be None) would replace the
-    stored one (old). Per agency, new wins unless
-      - ECDC: new's ECDC data is dated before old's (w.asof) — a build that
-        only reached the Internet Archive got Week 37 (to 10 Sep) while a
-        live read could already hold Week 40;
-      - either agency: new couldn't read it at all.
-    Then old's entries for that agency are kept; each t carries its own "as
-    of" date, so a kept entry still says how old it is. Both from old -> old."""
-    usable = lambda w: isinstance(w, dict) and isinstance(w.get("c"), dict)
-    if not usable(new):
-        return old if usable(old) else None
-    if not usable(old):
-        return new
-    read = lambda w: set(str(w.get("source") or "").split(" · "))
-    old_e = _part(old, "ECDC")
-    stale = bool(new.get("asof") and old.get("asof") and new["asof"] < old["asof"])
-    e_from = old if old_e and ("ECDC" not in read(new) or stale) else new
-    c_from = old if _part(old, "CDC") and "CDC" not in read(new) else new
-    if e_from is new and c_from is new:
-        return new
-    if e_from is old and c_from is old:
-        return old
-    return _assemble(_part(e_from, "ECDC"), _part(c_from, "CDC"),
-                     "ECDC" in read(e_from), "CDC" in read(c_from),
-                     max(str(old.get("season")), str(new.get("season"))),
-                     new.get("built"), e_from.get("asof"))
 
 
 def get(built=None, info=None, ecdc=True, cdc=True):

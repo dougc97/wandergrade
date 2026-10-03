@@ -2279,9 +2279,16 @@ const wnCredit = (agency) => { const s = WN_SRC[agency]; return s ? fullStop(s.c
 // "human cases reported in 2026", not "this season": ECDC's last report of
 // a season stays up until the next one starts (December to June), when the
 // entries read "in the 2025 season" under a label that said "this season".
-const wnIn = () => (health && health.w && health.w.season ? " in " + health.w.season : "");
+// A country's own year comes from its own sentence ("in 2026 so far", "in
+// the 2025 season"): w.season is the latest of the two agencies', so in
+// winter, with CDC already on 2027, Italy's 2026 cases read "in 2027".
+const wnYear = (iso) => {
+  const m = /\b(?:in|the) (\d{4})\b/.exec(((wnOf(iso) || {}).t) || "");
+  return m ? m[1] : (health && health.w && health.w.season) || "";
+};
+const wnIn = (iso) => { const y = iso ? wnYear(iso) : (health && health.w && health.w.season) || ""; return y ? " in " + y : ""; };
 // "West Nile virus — human cases reported in 2026 (per ECDC)".
-const wnLabel = (iso) => "West Nile virus — human cases reported" + wnIn() + " (per " + wnAgency(iso) + ")";
+const wnLabel = (iso) => "West Nile virus — human cases reported" + wnIn(iso) + " (per " + wnAgency(iso) + ")";
 // The areas, as many as the entry lists (10 at most) and how many it leaves
 // out. " · ", not ", ": ECDC's names carry commas of their own ("Karditsa,
 // Trikala" is one Greek area), so "Pella, Karditsa, Trikala" read as three.
@@ -2360,10 +2367,14 @@ function chipHTML(n, kind) {
     + `<span class="vh"> (${healthStale() ? "travel health notice as of " + esc(healthAsOf()) : "current travel health notice"})</span></span>`;
   if (kind === "area") return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span><span class="rkmark" aria-hidden="true"> ◐</span>`
     + `<span class="vh"> (only in some areas, seasons or itineraries)</span></span>`;
-  // West Nile: `kind` is "wn:<agency>" — the one that reported this
-  // country's cases, not every agency in the build.
-  if (kind && kind.startsWith("wn:")) return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span>`
-    + `<span class="vh"> (human cases reported${esc(wnIn())}, per ${esc(kind.slice(3))})</span></span>`;
+  // West Nile: `kind` is "wn:<agency>:<iso>" — the agency that reported this
+  // country's cases (not every agency in the build), and the country, whose
+  // own sentence gives the year.
+  if (kind && kind.startsWith("wn:")) {
+    const [, agency, wiso] = kind.split(":");
+    return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span>`
+      + `<span class="vh"> (human cases reported${esc(wnIn(wiso))}, per ${esc(agency)})</span></span>`;
+  }
   return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span></span>`;
 }
 function chipsHTML(names, kindOf, fit) {
@@ -2372,9 +2383,9 @@ function chipsHTML(names, kindOf, fit) {
 }
 // `wnBy`: the agency behind this country's West Nile line (wnAgency), or
 // nothing when it has none.
-function healthChipsHTML(hz, fit, wnBy) {
+function healthChipsHTML(hz, fit, wnBy, wnIso) {
   const notice = hz.n || [], areas = hz.a || [];
-  return chipsHTML(healthNames(hz, wnBy), (n) => (notice.includes(n) ? "notice" : wnBy && n === WN_CHIP ? "wn:" + wnBy
+  return chipsHTML(healthNames(hz, wnBy), (n) => (notice.includes(n) ? "notice" : wnBy && n === WN_CHIP ? "wn:" + wnBy + ":" + (wnIso || "")
     : areas.includes(n) ? "area" : ""), fit);
 }
 // One line of chips a cell: as many as its width holds, the rest counted in
@@ -3169,7 +3180,7 @@ function renderGuideHealth(iso) {
     // to its own page, and the ⓘ carries the credit its data asks for.
     const wby = wn ? wnAgency(parent || iso) : "", ws = WN_SRC[wby];
     const wnPart = !wn ? "" : ` <span class="hzwrap">${chipHTML(WN_CHIP)}</span> `
-      + (ws ? `<a href="${esc(ws.url())}" target="_blank" rel="noopener">per ${esc(wby)}${health.w.season ? ", " + esc(health.w.season) : ""} ↗</a>` : `per ${esc(wby)}`)
+      + (ws ? `<a href="${esc(ws.url())}" target="_blank" rel="noopener">per ${esc(wby)}${wnYear(parent || iso) ? ", " + esc(wnYear(parent || iso)) : ""} ↗</a>` : `per ${esc(wby)}`)
       + ` <span class="muted" data-tip="${esc(wn + (ws ? " " + wnCredit(wby) : ""))}" title="">ⓘ</span>`;
     el.innerHTML = `<b><span aria-hidden="true">💉 </span>Health · per the Government of Canada${parent ? " (" + esc(countryName(parent)) + ")" : ""}:</b> `
       + (hz.h.length ? `<span class="hzwrap">${healthChipsHTML(hz)}</span> <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`
@@ -4165,7 +4176,7 @@ function renderAdvisories() {
       : !it.iso ? '<span class="muted">—</span>'
       : !hz && !wn ? `<span class="sftext" data-tip="Not covered by Canada's travel health advice" title="">—</span>`
       : `<span class="hzwrap" data-tip="${esc(hz ? healthTip(hz, wn) : "Not covered by Canada's travel health advice. " + wn)}" title="">${
-          (hz && hz.h.length) || wn ? healthChipsHTML(hz || { h: [] }, true, it._wn) : `<span class="hzlow">${HEALTH_USUAL}</span>`}</span>`;
+          (hz && hz.h.length) || wn ? healthChipsHTML(hz || { h: [] }, true, it._wn, it.iso) : `<span class="hzlow">${HEALTH_USUAL}</span>`}</span>`;
     // data-via: a gap another government fills — the level filter's "Rated
     // by others", and with Germany kept out of its own words' options.
     return `
@@ -6064,7 +6075,9 @@ function buildAIPrompt() {
     if (aff) lines.push(`   - Affordability ${grade(s.afford)}: ${aff}`);
     // Whose words they are, too: "“No warning”" alone doesn't say it's Germany's.
     lines.push(`   - Safety: ${s.advLvl ? advLevelText(s.iso, s.advLvl) + advVia(s.iso) : "no current advisory"}`);
-    if (vi) lines.push(`   - Visa (${passport === "US" ? "US" : countryName(passport)} passport): ${vi.meta.long}${vi.note ? " — " + vi.note : ""}`);
+    // visaInfo returns {home: true} with no meta for the passport's own
+    // country (the US in Top Picks for a US reader): it crashed the prompt.
+    if (vi && vi.meta) lines.push(`   - Visa (${passport === "US" ? "US" : countryName(passport)} passport): ${vi.meta.long}${vi.note ? " — " + vi.note : ""}`);
     if (best) lines.push(`   - Best months: ${best}; ${monthName}: ${SEASON_WX[seas] || "no data"} for weather`);
     if (hz.length) lines.push(`   - ${monthName} heads-up: ${hz.join("; ")}`);
     if (acts.length) lines.push(`   - Known for: ${acts.map(actLabel).filter(Boolean).join("; ")}`);
@@ -6160,7 +6173,7 @@ function buildCountryAIPrompt(iso) {
   lines.push("WHEN: " + monthName);
   lines.push("FROM: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
   if (prof.length) lines.push("KNOWN FOR: " + prof.join(", "));
-  if (vi) lines.push("VISA (" + passportLabel(passport) + "): " + vi.meta.long + (vi.note ? " — " + vi.note : ""));
+  if (vi && vi.meta) lines.push("VISA (" + passportLabel(passport) + "): " + vi.meta.long + (vi.note ? " — " + vi.note : ""));
   if (best) lines.push("BEST MONTHS: " + best + "; " + monthName + ": "
     + (seasonCaveat(seas, cl.best.includes(month), hz.length > 0) || (SEASON_WX[seas] || "no data") + " for weather"));
   if (hz.length) lines.push(monthName + " HEADS-UP: " + hz.join("; "));

@@ -243,39 +243,51 @@ for b_ in ("2026-10-3", "03/10/2026", "2026-13-01", "", 20261003):
         pass
 results.append(ok(not bad, "built: malformed values raise ValueError %s" % (bad or "")))
 
-# keep_newer: the stored w (old) vs a new build. ECDC: an archive copy dated
-# before the stored live read must not replace it; a source that failed keeps
-# its stored entries.
+# Merging the stored w (old) with a new build is the server's job —
+# build_health.merge_w, the one rule (westnile.keep_newer duplicated it and
+# lacked its season guard). ECDC: an archive copy dated before the stored live
+# read must not replace it; a source that failed keeps its stored entries.
+from fxtracker import build_health as bh
+NOTES = {frozenset(("ECDC", "CDC")): wn.NOTE_ALL, frozenset(("ECDC",)): wn.NOTE_NO_CDC, frozenset(("CDC",)): wn.NOTE_NO_ECDC}
+merge = lambda new_w, old_w: bh.merge_w(new_w, old_w, NOTES, log=lambda *a: None)
 e_live = wn.parse_ecdc(W37)
 e_live["asof"] = "2026-10-01"
 e_live["countries"]["IT"]["cases"] = 700
 cdc_old = wn.parse_cdc('"State","Reported Cases","Legend"\nTX,5,1 to 5\n', CDC_CONFIG, CDC_PAGE)
 old = wn.build(e_live, cdc_old, "2026-10-02")
 new = wn.build(ecdc, cdc, BUILT)                 # archive W37 (10 Sep) + fresh CDC
-k = wn.keep_newer(old, new)
+k = merge(new, old)
 results.append(ok(k["c"]["IT"] == old["c"]["IT"] and "700" in k["c"]["IT"]["t"] and "(as of 1 Oct)" in k["c"]["IT"]["t"]
                   and k["c"]["US"] == new["c"]["US"] and k["asof"] == "2026-10-01" and k["built"] == BUILT
                   and k["source"] == "ECDC · CDC" and k["note"] == wn.NOTE_ALL and not shape(k, BUILT),
-                  "keep_newer: older ECDC (10 Sep < 1 Oct) keeps the stored Europe, takes the new CDC"))
-results.append(ok(wn.keep_newer(new, old) is old, "keep_newer: newer ECDC and CDC -> the new w as is"))
-results.append(ok(wn.keep_newer(old, None) is old and wn.keep_newer(None, new) is new and wn.keep_newer(None, None) is None,
-                  "keep_newer: nothing new -> the stored w; nothing stored -> the new one"))
-k = wn.keep_newer(old, wn.build(None, cdc, BUILT))
+                  "merge_w: older ECDC (10 Sep < 1 Oct) keeps the stored Europe, takes the new CDC"))
+newer = dict(old, built="2026-10-04")           # built after the stored one, ECDC as of 1 Oct
+results.append(ok(merge(newer, new) is newer, "merge_w: newer ECDC and CDC -> the new w as is"))
+results.append(ok(merge(None, old) is old and merge(new, None) is new and merge(None, None) is None,
+                  "merge_w: nothing new -> the stored w; nothing stored -> the new one"))
+k = merge(wn.build(None, cdc, BUILT), old)
 results.append(ok(k["c"]["IT"] == old["c"]["IT"] and k["c"]["US"] == new["c"]["US"] and k["source"] == "ECDC · CDC"
                   and k["asof"] == "2026-10-01" and k["note"] == wn.NOTE_ALL and not shape(k, BUILT),
-                  "keep_newer: ECDC failed -> stored Europe + new CDC"))
-k = wn.keep_newer(new, wn.build(e_live, None, BUILT))
+                  "merge_w: ECDC failed -> stored Europe + new CDC"))
+k = merge(wn.build(e_live, None, BUILT), new)
 results.append(ok(k["c"]["IT"] == old["c"]["IT"] and k["c"]["US"] == new["c"]["US"] and k["asof"] == "2026-10-01"
                   and k["source"] == "ECDC · CDC" and not shape(k, BUILT),
-                  "keep_newer: CDC failed -> new Europe + stored US"))
-undated = wn.parse_ecdc(W37)
-undated["asof"] = None
-k = wn.keep_newer(old, wn.build(undated, cdc, BUILT))
-results.append(ok(k["c"]["IT"]["t"].startswith("ECDC: 590") and "asof" not in k,
-                  "keep_newer: ECDC read but undated -> the new one (a wording change mustn't freeze Europe)"))
-pre = dict(old)
-pre.pop("asof")
-results.append(ok(wn.keep_newer(pre, new) is new, "keep_newer: stored w from before asof existed -> replaced"))
+                  "merge_w: CDC failed -> new Europe + stored US"))
+# The season-concluded case: ECDC's last weekly report drops the "as of" from
+# every sentence ("in the 2026 season"), so only w.asof says how current the
+# stored Europe is — an older archive read must still not replace it.
+done_old = dict(old, asof="2026-11-19", built="2026-11-25")
+done_old["c"] = {iso: (dict(e, t=e["t"].replace("in 2026 so far (as of 1 Oct)", "in the 2026 season"))
+                       if e["t"].startswith("ECDC") else e) for iso, e in old["c"].items()}
+k = merge(dict(new, built="2026-12-02"), done_old)
+results.append(ok(k["c"]["IT"] == done_old["c"]["IT"] and k.get("asof") == "2026-11-19",
+                  "merge_w: season concluded (no as-of in the sentences) -> w.asof keeps the newer stored Europe"))
+# A new season where only CDC was read: last season's Europe is dropped, not
+# relabelled as this season's.
+cdc27 = wn.parse_cdc('"State","Reported Cases","Legend"\nTX,5,1 to 5\n', CDC_CONFIG, CDC_PAGE)
+k = merge(dict(wn.build(None, cdc27, "2027-07-01"), season="2027"), old)
+results.append(ok(k is None or "IT" not in k["c"] or "2027" not in str(k.get("season")) or k["c"]["IT"]["t"].find("2026") >= 0,
+                  "merge_w: a 2027 CDC-only build never labels 2026 Europe as 2027"))
 
 # --- get(): routes, offline ----------------------------------------------------------------
 GZ = gzip.compress(W37.encode("utf-8"))   # the archive serves ECDC's gzip bytes as they were
