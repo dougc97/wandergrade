@@ -2039,8 +2039,11 @@ function currencyFlag(code, iso) {
 // Banded on the two decimals every cell shows: on raw values Vanuatu vs
 // Germany (1.105) showed "1.10 pricey" and the Bahamas vs the US (0.904)
 // "0.90 about the same", each on the wrong side of its own printed edge.
+// plShown is toFixed(2) itself, the text the cells print: Math.round(rel *
+// 100) / 100 differs from it on binary edges — 1.105 prints "1.10" but
+// rounded to 1.11 and read "pricey" (likewise 0.605, 0.745, 0.815, 1.095).
 const PL_SAME = 0.1;
-const plShown = (rel) => Math.round(rel * 100) / 100;
+const plShown = (rel) => +rel.toFixed(2);
 function plBand(rel) { const r = plShown(rel); return r <= 1 - PL_SAME ? -1 : r <= 1 + PL_SAME ? 0 : 1; }
 function plWord(pl) {
   const b = plBand(pl);
@@ -4233,9 +4236,18 @@ function affTrend(iso, anchor, now) {
 }
 // "Cheaper than usual": at least this far under the 10-year average. 5% made
 // 77 of 176 rows green for a US home (43%, against 23% on Currency), so green
-// stopped picking anything out; 10% makes it 44 (25%). Every text that states
-// the threshold reads this constant.
+// stopped picking anything out; 10%, tested on the printed whole percent
+// (affPct), makes it 49 (28%). Every text that states the threshold reads
+// this constant.
 const AFF_CHEAP_PCT = 10;
+// The "vs 10-yr avg" move as its cell prints it: a whole percent, rounded on
+// the magnitude as the cell's toFixed(0) did, so −9.5 shows −10 (Math.round
+// alone gives −9).
+// Colour, row green and the sub-line count all test this, not the raw
+// figure: on raw values a US home showed Togo, Botswana, Fiji, Panama and
+// Sweden at "−10%" uncoloured and Romania and Estonia at "+10%", while the ⓘ
+// says green means "at least 10% below".
+const affPct = (t) => Math.sign(t.pct) * Math.round(Math.abs(t.pct));
 // A price level built on World Bank data older than the year before most
 // countries' (Eritrea 2021, British Virgin Islands 2017, against 2025):
 // inflation carries it forward three years at most (pplCarry), and not at all
@@ -4288,9 +4300,13 @@ function renderAfford() {
     .sort((a, b) => a.pl - b.pl).slice(0, 8);
   // "Egypt $604": the title already says $100, and "$100≈$604" between two
   // amounts read like an exchange rate rather than what the $100 buys.
+  // Each pick keeps its table row's ⚠️: Gambia sat at #7 for a US home on a
+  // price level its own row warns reads cheaper than it feels, and the list
+  // said nothing. The share image reads the names only (dimPicksFromDom).
   renderDimPicks("affMap", "Where " + hundred + " goes furthest",
     cheap.map((x) => countryName(x.iso) + " " + money(100 * anchorPl / x.pl)),
-    cheap.map((x) => x.iso), "Few places are cheaper than " + anchorName + " on average — see the table");
+    cheap.map((x) => x.iso), "Few places are cheaper than " + anchorName + " on average — see the table",
+    cheap.map((x) => pppNotes(x.iso)));
 
   // One line above the map; the source, its year and the national-average
   // caveat sit in the ⓘ. The "Vs home" picker beside it is the reference.
@@ -4308,7 +4324,7 @@ function renderAfford() {
     const name = (ppp[iso] && ppp[iso].name) || (climate && climate[iso] && climate[iso].name) || iso;
     rows.push({ iso, name, cur: CUR_BY_ISO[iso], pl, tr: iso === anchorIso ? null : affTrend(iso, anchorObj, pl / anchorPl) });
   }
-  const cheaperNow = rows.filter((r) => r.tr && r.tr.pct <= -AFF_CHEAP_PCT && inRegion(r.iso)
+  const cheaperNow = rows.filter((r) => r.tr && affPct(r.tr) <= -AFF_CHEAP_PCT && inRegion(r.iso)
     && (showRisky || (adv[r.iso] || 0) < 3)).length;
   const ai = $("affInfo");
   if (ai) ai.dataset.tip = `Green rows: prices there, measured against ${anchorName}, are at least ${AFF_CHEAP_PCT}% below `
@@ -4341,11 +4357,14 @@ function renderAfford() {
     const notes = pppNotes(r.iso);
     const warn = notes ? `<span class="hzmark" data-tip="${esc(notes)}" title="">⚠️</span>` : "";
     const t = r.tr;
-    const cheapNow = t && t.pct <= -AFF_CHEAP_PCT;
-    const vsCls = !t ? "" : cheapNow ? "pos" : t.pct >= AFF_CHEAP_PCT ? "neg" : "";
-    const vsTip = t ? `${cn}'s prices vs ${anchorName} are ${Math.abs(Math.round(t.pct))}% ${t.pct < 0 ? "below" : "above"} `
-      + `their ${t.from}–${t.to} average` : "";
-    const vs = t ? `<span data-tip="${esc(vsTip)}" title="">${t.pct < 0 ? "−" : "+"}${Math.abs(t.pct).toFixed(0)}%</span>`
+    const p = t ? affPct(t) : 0;
+    const cheapNow = t && p <= -AFF_CHEAP_PCT;
+    const vsCls = !t ? "" : cheapNow ? "pos" : p >= AFF_CHEAP_PCT ? "neg" : "";
+    // Sign and words from the rounded figure: on the raw one Austria (−0.3)
+    // printed "−0%" and "0% below their average".
+    const vsTip = !t ? "" : p === 0 ? `${cn}'s prices vs ${anchorName} are in line with their ${t.from}–${t.to} average`
+      : `${cn}'s prices vs ${anchorName} are ${Math.abs(p)}% ${p < 0 ? "below" : "above"} their ${t.from}–${t.to} average`;
+    const vs = t ? `<span data-tip="${esc(vsTip)}" title="">${p < 0 ? "−" : p > 0 ? "+" : ""}${Math.abs(p)}%</span>`
       : `<span class="muted" data-tip="${esc("Too little price history on today's exchange-rate basis to compare with")}" title="">—</span>`;
     const bar = t ? `<div class="range" data-tip="${esc(`Today sits ${Math.round(t.pos)}% of the way from its priciest to its cheapest level `
       + `of ${t.from}–${t.to} (vs ${anchorName}) — further right = cheaper than usual`)}" title=""><span style="left:${t.pos.toFixed(0)}%"></span></div>` : "";
@@ -6329,7 +6348,9 @@ function notScoredReason(iso) {
 // narrow layouts. Safety gets no list at all: ~100 countries tie at Level 1,
 // and ranking a tie is invention.
 // `empty`: a line to show instead when there are no items (else the row goes).
-function renderDimPicks(hostId, title, items, isos, empty) {
+// `marks`: an optional ⚠️ tip per item ("" for none), the same caveat its row
+// carries in the table under the map.
+function renderDimPicks(hostId, title, items, isos, empty, marks) {
   const host = $(hostId);
   if (!host) return;
   // Anywhere in the page: in full screen the map and its list sit apart.
@@ -6348,7 +6369,9 @@ function renderDimPicks(hostId, title, items, isos, empty) {
   // picks, and the share image must not list "Nothing below…" as #1.
   if (!items || !items.length) { row.innerHTML = "<strong>" + esc(empty) + "</strong>"; return; }
   row.innerHTML = "<strong>" + esc(title) + "</strong>"
-    + items.slice(0, 8).map((t, i) => "<span>" + (i + 1) + ". " + esc(t) + "</span>").join("");
+    + items.slice(0, 8).map((t, i) => "<span>" + (i + 1) + ". " + esc(t)
+      + (marks && marks[i] ? '<span class="hzmark" data-tip="' + esc(marks[i]) + '" title="">⚠️</span>' : "")
+      + "</span>").join("");
   if (isos && isos.length && !reducedMotion()) {
     const set = new Set(isos);
     let i = 0;
@@ -6362,10 +6385,15 @@ function renderDimPicks(hostId, title, items, isos, empty) {
 }
 // The share images read whatever list is on screen, so map and export can't
 // disagree about what the map claims.
+// Direct child spans only, with any ⚠️ left out: an item's nested .hzmark is
+// a span too, so the cost share image would have listed a ninth pick, "⚠️",
+// and Gambia as "Gambia $420⚠️".
 function dimPicksFromDom(hostId) {
   const row = document.querySelector('.mappicksrow[data-for="' + hostId + '"]');
   if (!row) return { picks: null, title: null };
-  return { picks: [...row.querySelectorAll("span")].map((x) => x.textContent.replace(/^\d+\.\s*/, "")),
+  const pickText = (x) => [...x.childNodes].filter((c) => !(c.classList && c.classList.contains("hzmark")))
+    .map((c) => c.textContent).join("").replace(/^\d+\.\s*/, "").trim();
+  return { picks: [...row.querySelectorAll(":scope > span")].map(pickText),
            title: (row.querySelector("strong") || {}).textContent || null };
 }
 
@@ -6577,8 +6605,12 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     const wxTitle = (s.wx == null ? "no weather data" : `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}`) +
       (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
     const iso = esc(s.iso);
-    // Same ⚠️ affordance the weather column uses for seasonal hazards.
-    const driftNote = pppDriftNote(s.iso);
+    // Same ⚠️ affordance the weather column uses for seasonal hazards, with
+    // every price-data caveat the Cost table's ⚠️ carries (pppNotes): on the
+    // drift note alone, San Marino, Greenland, the British Virgin Islands and
+    // Eritrea were flagged in the Cost table for old World Bank data but bare
+    // here, on the same price level.
+    const priceNotes = pppNotes(s.iso);
     // The name is a real link to the guide: rows open it on a click, but
     // nothing in the row could take keyboard focus, so a keyboard user could
     // sort the table and never open a country. The delegate below keeps a
@@ -6588,7 +6620,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     return `<tr data-iso="${iso}"${seen ? ' class="visited"' : ""} title="${esc(whyLine(s, month))}" style="--i:${i}">
       <td class="rank">#${i + 1}</td>
       <td class="dest"><a class="destlink" href="${esc(guidePath(s.iso))}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}</a>${seen ? ' <span class="visited-tag">✓<span class="vtword"> visited</span></span>' : ""}${seasonalTags(s.iso, month)}${budLine(s)}</td>
-      <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${driftNote ? `<span class="hzmark" data-tip="${esc(driftNote)}" title="">⚠️</span>` : ""}${fxMark(s.iso)}</span></td>
+      <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${priceNotes ? `<span class="hzmark" data-tip="${esc(priceNotes)}" title="">⚠️</span>` : ""}${fxMark(s.iso)}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}"><span class="pillwrap">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</span></td>
       <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="gr grx" data-tip="${esc(wxTitle)}" title="">—</span>` : gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
       <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="gr grx" data-tip="No fare data" title="">—</span>'
@@ -6619,13 +6651,11 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
 function affordTitle(s) {
   const parts = [];
   const home = plHomeWord();
-  if (s.pl != null) {
-    // 1 − pl is how much cheaper prices are; 1/pl − 1 (how much further money
-    // goes) overstated it — pl 0.58 read "73% cheaper" for prices 42% lower.
-    parts.push(s.pl <= 0.9 ? `daily prices ~${Math.round((1 - s.pl) * 100)}% cheaper than ${home}`
-             : s.pl <= 1.1 ? `daily prices about the same as ${home}`
-             : `daily prices ~${Math.round((s.pl - 1) * 100)}% pricier than ${home}`);
-  }
+  // plPhrase, not a copy of its band: the copy tested raw values while the
+  // table bands on the two decimals it prints, so at the edges the Bahamas vs
+  // the US (0.904) read "about the same" here but "0.90 cheap" in the table
+  // and "~10% cheaper" in its guide (Vanuatu vs Germany, 1.1048, the reverse).
+  if (s.pl != null) parts.push("daily prices " + plPhrase(s.pl, home));
   // "after inflation" only when a destination figure was actually netted out.
   // Whole percentages: two decimals on a cached 1-yr average claimed a
   // precision the figure doesn't have.
