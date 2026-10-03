@@ -2032,17 +2032,33 @@ const CUR_SUPRA_FLAG = { EUR: "🇪🇺", XOF: "🌍", XAF: "🌍", XPF: "🌍",
 function currencyFlag(code, iso) {
   return CUR_SUPRA_FLAG[code] || (iso ? flagEmoji(iso) : "🌍");
 }
-function plWord(pl) { return pl < 0.55 ? "very cheap" : pl < 0.85 ? "cheap" : pl <= 1.15 ? "about the same" : "pricey"; }
+// "About the same as home" is one band everywhere: within ±10%. The cell word
+// and its green/red ran on ±15% while plPhrase said ±10%, so Israel at 1.14
+// read "about the same" in the table and "~14% pricier" in its guide, and
+// Vanuatu at 0.87 likewise. −1 cheaper, 0 about the same, 1 pricier.
+// Banded on the two decimals every cell shows: on raw values Vanuatu vs
+// Germany (1.105) showed "1.10 pricey" and the Bahamas vs the US (0.904)
+// "0.90 about the same", each on the wrong side of its own printed edge.
+const PL_SAME = 0.1;
+const plShown = (rel) => Math.round(rel * 100) / 100;
+function plBand(rel) { const r = plShown(rel); return r <= 1 - PL_SAME ? -1 : r <= 1 + PL_SAME ? 0 : 1; }
+function plWord(pl) {
+  const b = plBand(pl);
+  return b < 0 ? (plShown(pl) < 0.55 ? "very cheap" : "cheap") : b > 0 ? "pricey" : "about the same";
+}
 // The price level in words, one way everywhere it is read (pill tip, row tip,
 // map card, AI prompts, share images). 1 − pl is how much cheaper prices are;
 // the "your money goes 1/pl further" framing overstated it (pl 0.58 read "73%
 // further" for prices 42% lower), and "price level 0.47" is economist-speak.
 // One fact used to appear as four different numbers across the hovers.
 function plPhrase(rel, home) {
-  return rel <= 0.9 ? `~${Math.round((1 - rel) * 100)}% cheaper than ${home}`
-       : rel <= 1.1 ? `about the same as ${home}`
-       : `~${Math.round((rel - 1) * 100)}% pricier than ${home}`;
+  const b = plBand(rel);
+  return b < 0 ? `~${Math.round((1 - rel) * 100)}% cheaper than ${home}`
+       : b > 0 ? `~${Math.round((rel - 1) * 100)}% pricier than ${home}`
+       : `about the same as ${home}`;
 }
+// The colour that goes with plWord: green cheaper, red pricier, plain between.
+function plCls(rel) { const b = plBand(rel); return b < 0 ? "pos" : b > 0 ? "neg" : ""; }
 // The From country's price level — the yardstick "cheap" is measured against.
 // Taiwan is a flight origin with no World Bank PPP row; it used to fall back to
 // the US silently while every label said "vs Taiwan", so the fallback now says
@@ -2056,7 +2072,7 @@ function plAnchor(iso) {
 function plHomeWord() { return plAnchor(guidePassport()).home ? "home" : "the US"; }
 function plTag(pl) {
   const w = plWord(pl);
-  const cls = pl <= 0.85 ? "pos" : pl > 1.15 ? "neg" : "";
+  const cls = plCls(pl);
   // nowrap: "very cheap" is one phrase, and a narrow column split it across two
   // lines under the number, making the row three deep to say two words.
   return `<span class="${cls}" style="font-size:11px;white-space:nowrap">${w}</span>`;
@@ -4215,7 +4231,25 @@ function affTrend(iso, anchor, now) {
   return { pct: (now / avg - 1) * 100, from: pts[0].year, to: pts[pts.length - 1].year,
            pos: hi > lo ? ((hi - now) / (hi - lo)) * 100 : 50, lo, hi };
 }
-const AFF_CHEAP_PCT = 5;   // "cheaper than usual": at least this far under the 10-year average
+// "Cheaper than usual": at least this far under the 10-year average. 5% made
+// 77 of 176 rows green for a US home (43%, against 23% on Currency), so green
+// stopped picking anything out; 10% makes it 44 (25%). Every text that states
+// the threshold reads this constant.
+const AFF_CHEAP_PCT = 10;
+// A price level built on World Bank data older than the year before most
+// countries' (Eritrea 2021, British Virgin Islands 2017, against 2025):
+// inflation carries it forward three years at most (pplCarry), and not at all
+// without a current figure, so it is rougher than its neighbours. "" when the
+// data is recent.
+function pppAgeNote(iso) {
+  const y = ppp && ppp[iso] && ppp[iso].year, most = Number(pppYear());
+  if (!y || !most || y >= most - 1) return "";
+  // "here", not the name: "for British Virgin Islands" lacked its "the".
+  return `⚠️ The World Bank's latest price data here is from ${y} (${most} for most countries), `
+    + "so this figure is rougher than most.";
+}
+// Every price-data caveat for a country, one per line, for a single ⚠️.
+function pppNotes(iso) { return [pppDriftNote(iso), pppAgeNote(iso)].filter(Boolean).join("\n"); }
 function renderAfford() {
   let n = 0;
   // The trend columns read the yearly history; its arrival re-renders.
@@ -4237,10 +4271,10 @@ function renderAfford() {
     if (pl == null) return { fill: NODATA, title: f.properties.name + " — no price data" };
     n++;
     const rel = pl / anchorPl;
-    const drift = pppDriftNote(f.properties.iso);
+    const notes = pppNotes(f.properties.iso);
     return { fill: affordColor(rel),
       title: `${f.properties.name} — price level ${rel.toFixed(2)} (${plWord(rel)} vs ${anchorName})`
-             + (drift ? " · " + drift : "") };
+             + (notes ? " · " + notes.replace(/\n/g, " ") : "") };
   }, "Cost of living (price level vs " + anchorName + ")");
   // Mirrors the table under it, including its Level 3–4 filter. Only places
   // cheaper than home: ranked by the raw level alone, an Indian home listed
@@ -4252,8 +4286,10 @@ function renderAfford() {
       && countryName(x.iso) !== x.iso && inRegion(x.iso)
       && (showRisky || (adv[x.iso] || 0) < 3))
     .sort((a, b) => a.pl - b.pl).slice(0, 8);
+  // "Egypt $604": the title already says $100, and "$100≈$604" between two
+  // amounts read like an exchange rate rather than what the $100 buys.
   renderDimPicks("affMap", "Where " + hundred + " goes furthest",
-    cheap.map((x) => countryName(x.iso) + " · " + hundred + "≈" + money(100 * anchorPl / x.pl)),
+    cheap.map((x) => countryName(x.iso) + " " + money(100 * anchorPl / x.pl)),
     cheap.map((x) => x.iso), "Few places are cheaper than " + anchorName + " on average — see the table");
 
   // One line above the map; the source, its year and the national-average
@@ -4294,10 +4330,16 @@ function renderAfford() {
   // green rows where that move favours the reader, and a range bar.
   $("affRows").innerHTML = sortRows(rows, affSort, AFF_GET, AFF_GET.name).map((r) => {
     const rel = r.pl / anchorPl;
-    const cls = rel <= 0.85 ? "pos" : rel > 1.15 ? "neg" : "";
+    const cls = plCls(rel);
     // countryName(), not r.name: r.name is the World Bank's label ("Iran,
     // Islamic Rep.", "Lao PDR"), not what the rest of the site calls them.
     const cn = countryName(r.iso);
+    // Top Picks' ⚠️ for a price level to doubt (Gambia's stale inflation,
+    // Bolivia's slide, Eritrea's 2021 data). It lived only in the map's hover
+    // title here, which touch never sees; .hzmark taps show the tip instead of
+    // opening the guide. Sorting reads r.pl, so the mark never moves a row.
+    const notes = pppNotes(r.iso);
+    const warn = notes ? `<span class="hzmark" data-tip="${esc(notes)}" title="">⚠️</span>` : "";
     const t = r.tr;
     const cheapNow = t && t.pct <= -AFF_CHEAP_PCT;
     const vsCls = !t ? "" : cheapNow ? "pos" : t.pct >= AFF_CHEAP_PCT ? "neg" : "";
@@ -4310,7 +4352,7 @@ function renderAfford() {
     return `<tr data-iso="${esc(r.iso)}"${cheapNow ? ' class="favorable"' : ""} title="See the ${esc(cn)} travel guide →">`
       + `<td><div class="curcell"><span class="curflag" aria-hidden="true">${flagEmoji(r.iso)}</span><div>`
       + `<a class="destlink" href="${esc(guidePath(r.iso))}">${esc(cn)}</a><div class="affcur">${esc(r.cur)}</div></div></div></td>
-      <td class="num"><span class="${cls}">${rel.toFixed(2)}</span><span class="plw"> ${plTag(rel)}</span></td>
+      <td class="num"><span class="plnum"><span class="${cls}">${rel.toFixed(2)}</span>${warn}</span><span class="plw"> ${plTag(rel)}</span></td>
       <td class="num ${vsCls}">${vs}</td>
       <td class="num">${esc(money(100 * anchorPl / r.pl))}</td>
       <td class="num">${bar}</td></tr>`;
