@@ -348,6 +348,15 @@ small { color: var(--gray); font-weight: 400; }
    The 160px basis is what flex-wrap fits into the row (then it grows); a
    smaller one let it be squeezed to a word-per-line column. */
 .toprow .charthead .legend { flex: 1 1 160px; min-width: 0; }
+/* Germany's legend (#advLegend.long, app.js) is 392px of words. Beside the
+   source picker from 761 to 1199 it got 172-200px: three lines (64px), the
+   📸 pushed to a row of its own at 1000. There it takes a row of its own,
+   under the picker, on one line where the card has the 392px; the 📸 moves
+   up beside the picker (order: visual only, the legend has no Tab stop). */
+@media (min-width: 761px) and (max-width: 1199px) {
+  .toprow .charthead #advLegend.long { order: 1; flex-basis: 100%; }
+  .toprow .charthead #advLegend.long ~ #advShare { margin-left: auto; }
+}
 .toprow .legend .scale { width: 90px; }
 .toprow .chartcard { display: flex; flex-direction: column; }
 .toprow .chartcard > .chart { flex: 1 1 auto; position: relative; min-height: 190px; }
@@ -406,6 +415,15 @@ small { color: var(--gray); font-weight: 400; }
    under the flag (at 360 the flag sat alone on a line above "Venezuela"). */
 .govpick { display: inline-flex; align-items: baseline; }
 .govtable .govflag { flex: none; margin-right: 6px; }
+/* Beside the map (761-999) the box is 318-412px: with flags, 5 names wrapped
+   to two lines at 800 (3 without), and at 761 the table was 332px in a 318
+   box, scrolling sideways. The phone rule's 4px sides and the 13px the table
+   declares (the global td 14px outranked it) bring 800 back to 3, all of
+   them names longer than the column ("Sao Tome and Principe"). */
+@media (min-width: 761px) and (max-width: 999px) {
+  .govtable td, .govtable th { padding-left: 4px; padding-right: 4px; }
+  .govtable td { font-size: 13px; }
+}
 /* The phone list's "Show all" (≤560 only, below). */
 .showmore.govmore { display: none; }
 .govrow { padding: 10px 2px; border-top: 1px solid var(--line); }
@@ -535,10 +553,10 @@ html.mapfs-open, html.mapfs-open body { overflow: hidden; }
    the legend had, 60–80px from the words it sits between. */
 .legend .scale { flex: none; width: 130px; height: 10px; border-radius: 5px;
   background: linear-gradient(90deg, #b00020, #e88, #f0f0f0, #8c8, #0a7d28); }
-/* Keep in step with NODATA in app.js — this is the legend key for it. */
 /* A note inside a map legend reads at the legend's size, not the 14px of a
-   header's muted text (Germany's "+32 per others" stood a line taller). */
+   header's muted text (Germany's "+32 others" stood a line taller). */
 #advLegend .muted { font-size: inherit; }
+/* Keep in step with NODATA in app.js — this is the legend key for it. */
 .legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: #6b7681; vertical-align: -1px; margin-right: 3px; }
 
 .windowtoggle { display: inline-flex; gap: 4px; margin-top: 10px; background: var(--soft); padding: 3px; border-radius: 8px; }
@@ -2484,6 +2502,11 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .advdl > b { color: var(--ink); }
 .advdl .muted, #advTable .hzcell .muted { color: var(--gray); font-weight: 400; }
 .advgrp { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-right: 8px; }
+/* West Nile's group (another agency's, after Canada's link) is sentences,
+   not chips: as flex items its label, areas, sentence and credit each broke
+   onto a line of their own, "ECDC ↗" alone on the last. A line of its own,
+   read as running text. */
+.advgrp.wngrp { display: block; flex-basis: 100%; line-height: 1.5; }
 /* The guide's health line, under its advisory. */
 .guidehealth { margin-top: 8px; font-size: 13px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .guidehealth > a { font-size: 12px; }

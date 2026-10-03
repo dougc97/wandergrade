@@ -1638,7 +1638,7 @@ function renderCountryCard() {
   // 🛡️ for Levels 1–2, ⚠️ only where the advice is to reconsider: a warning
   // sign on "normal precautions" was alarmist. Whose advice it is, as the
   // table's pill already says.
-  if (advLvl) facts.push(`${advLvl >= 3 ? "⚠️" : "🛡️"} ${ADV_TEXT[advLvl]}${esc(advVia(iso))}`);
+  if (advLvl) facts.push(`${advLvl >= 3 ? "⚠️" : "🛡️"} ${esc(advLevelText(iso, advLvl) + advVia(iso))}`);
   if (cl && cl.best && cl.best.length) facts.push(`📅 best months: ${cl.best.map((m) => MON_ABBR[m - 1]).join(", ")}`);
   if (act && act.days) facts.push(`🧳 worth ${act.days[0]}–${act.days[1]} days`);
 
@@ -2225,26 +2225,74 @@ const healthOf = (iso) => (!health ? undefined : (iso && health.c[iso]) || null)
 // all report cases every summer), so build_health.py adds this season's
 // reported transmission as `w`, from ECDC and/or CDC — each line says whose.
 // Absent `w`, nothing changes. Countries missing from it are not "clear":
-// ECDC watches Europe, CDC the US, and nobody here reports the rest.
+// ECDC watches the EU/EEA and seven neighbours (not Ukraine, Switzerland or
+// the UK), CDC the US and its territories, and nobody here reports the rest.
 const wnOf = (iso) => (health && health.w && health.w.c && iso && health.w.c[iso]) || null;
-// "West Nile virus — reported this season (per ECDC, 2026): Veneto, Lombardy."
-function wnLabel() {
-  const w = (health && health.w) || {};
-  return "West Nile virus — reported this season (per " + (w.source || "ECDC") + (w.season ? ", " + w.season : "") + ")";
+// A sentence closed with a full stop, unless it already ends one.
+const fullStop = (s) => String(s || "").trim().replace(/([^.!?])$/, "$1.");
+// Whose line it is. `w.source` names every agency in the build ("ECDC ·
+// CDC"), so printing it credited ECDC with the US's count and CDC with
+// Italy's; each entry's sentence opens with the one agency that made it
+// ("ECDC: 590 …", "CDC: 987 …").
+function wnAgency(iso) {
+  const x = wnOf(iso), m = x && /^(ECDC|CDC):/.exec(x.t || "");
+  return m ? m[1] : (health && health.w && health.w.source) || "ECDC";
+}
+// The agencies in the build, for the lines that speak of all of them:
+// "ECDC · CDC" -> ["ECDC", "CDC"].
+const wnAgencies = () => String((health && health.w && health.w.source) || "ECDC").split(/\s*·\s*/).filter(Boolean);
+// Each agency's page, and the credit its data asks for. ECDC's is CC BY 4.0:
+// its own credit line, the licence, and what we changed. `w.url` is ECDC's
+// page, so a US line linked there sent readers looking for CDC's count to
+// the wrong agency.
+const WN_CC_URL = "https://creativecommons.org/licenses/by/4.0/";
+const WN_ECDC_URL = "https://www.ecdc.europa.eu/en/west-nile-fever/surveillance-and-disease-data/disease-data-ecdc";
+const WN_SRC = {
+  ECDC: { credit: "Dataset provided by ECDC based on data provided by WHO and Ministries of Health from the affected "
+            + "countries; adapted (per-country totals, top 10 areas)", licence: "CC BY 4.0",
+          url: () => { const u = health && health.w && health.w.url; return /^https:\/\/[^/]*ecdc\.europa\.eu\//.test(u || "") ? u : WN_ECDC_URL; } },
+  CDC: { credit: "Data: CDC ArboNET",
+         url: () => "https://www.cdc.gov/west-nile-virus/data-maps/current-year-data.html" },
+};
+// The credit as a tip's sentence (a tip can't hold the licence's link; the
+// notes row links it).
+const wnCredit = (agency) => { const s = WN_SRC[agency]; return s ? fullStop(s.credit + (s.licence ? "; licence " + s.licence : "")) : ""; };
+// "human cases reported in 2026", not "this season": ECDC's last report of
+// a season stays up until the next one starts (December to June), when the
+// entries read "in the 2025 season" under a label that said "this season".
+const wnIn = () => (health && health.w && health.w.season ? " in " + health.w.season : "");
+// "West Nile virus — human cases reported in 2026 (per ECDC)".
+const wnLabel = (iso) => "West Nile virus — human cases reported" + wnIn() + " (per " + wnAgency(iso) + ")";
+// The areas, as many as the entry lists (10 at most) and how many it leaves
+// out. " · ", not ", ": ECDC's names carry commas of their own ("Karditsa,
+// Trikala" is one Greek area), so "Pella, Karditsa, Trikala" read as three.
+// The count is the sentence's: "64 affected areas" (ECDC; older builds "in 64
+// areas") or "from 42 states and DC" (CDC) — Italy listed 10 of 64 and read
+// as complete.
+function wnAreas(iso) {
+  const x = wnOf(iso), a = (x && x.a) || [];
+  if (!a.length) return "";
+  const t = (x && x.t) || "";
+  const m = /([\d,]+) (?:affected )?areas\b/.exec(t), s = /from ([\d,]+) states?( and DC)?\b/.exec(t);
+  const n = m ? +m[1].replace(/,/g, "") : s ? +s[1].replace(/,/g, "") + (s[2] ? 1 : 0) : 0;
+  return a.join(" · ") + (n > a.length ? " and " + (n - a.length) + " more" : "");
 }
 function wnText(iso) {
   const x = wnOf(iso);
   if (!x) return "";
-  const t = x.t ? " " + String(x.t).trim().replace(/([^.!?])$/, "$1.") : "";
-  return wnLabel() + (x.a && x.a.length ? ": " + x.a.join(", ") : "") + "." + t;
+  const areas = wnAreas(iso);
+  return wnLabel(iso) + (areas ? ": " + areas : "") + "." + (x.t ? " " + fullStop(x.t) : "");
 }
 // The guide tip's closing caveat: without `w`, the sentence it always had;
-// with it, where West Nile comes from instead (`here`: this country has a line).
+// with it, where West Nile comes from instead (`here`: this country has a
+// line). A country without one gets the build's coverage note too: "added
+// where ECDC or CDC reported it" alone read as "no entry, no West Nile" in
+// Russia or England, which neither agency covers.
 function wnCaveat(here) {
   const w = health && health.w;
   if (!w) return "Not every risk is listed — West Nile virus, for one, isn't in Canada's advice.";
   return "Not every risk is listed" + (here ? "." : " — West Nile virus, which Canada's advice leaves out, is added where "
-    + (w.source || "ECDC") + " reported it this season" + (w.season ? " (" + w.season + ")" : "") + ".");
+    + wnAgencies().join(" or ") + " reported human cases" + wnIn() + "." + (w.note ? " " + fullStop(w.note) : ""));
 }
 // The file is a snapshot (build_health.py, re-run by hand or on a schedule).
 // A notice is only "current" while the snapshot is: past 45 days it's named
@@ -2293,17 +2341,21 @@ function chipHTML(n, kind) {
     + `<span class="vh"> (${healthStale() ? "travel health notice as of " + esc(healthAsOf()) : "current travel health notice"})</span></span>`;
   if (kind === "area") return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span><span class="rkmark" aria-hidden="true"> ◐</span>`
     + `<span class="vh"> (only in some areas, seasons or itineraries)</span></span>`;
-  if (kind === "wn") return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span>`
-    + `<span class="vh"> (virus reported this season, per ${esc((health && health.w && health.w.source) || "ECDC")})</span></span>`;
+  // West Nile: `kind` is "wn:<agency>" — the one that reported this
+  // country's cases, not every agency in the build.
+  if (kind && kind.startsWith("wn:")) return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span>`
+    + `<span class="vh"> (human cases reported${esc(wnIn())}, per ${esc(kind.slice(3))})</span></span>`;
   return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span></span>`;
 }
 function chipsHTML(names, kindOf, fit) {
   return names.map((n) => chipHTML(n, kindOf ? kindOf(n) : "")).join("")
     + (fit ? '<span class="rkchip more" hidden></span>' : "");
 }
-function healthChipsHTML(hz, fit, wn) {
+// `wnBy`: the agency behind this country's West Nile line (wnAgency), or
+// nothing when it has none.
+function healthChipsHTML(hz, fit, wnBy) {
   const notice = hz.n || [], areas = hz.a || [];
-  return chipsHTML(healthNames(hz, wn), (n) => (notice.includes(n) ? "notice" : wn && n === WN_CHIP ? "wn"
+  return chipsHTML(healthNames(hz, wnBy), (n) => (notice.includes(n) ? "notice" : wnBy && n === WN_CHIP ? "wn:" + wnBy
     : areas.includes(n) ? "area" : ""), fit);
 }
 // One line of chips a cell: as many as its width holds, the rest counted in
@@ -3094,9 +3146,12 @@ function renderGuideHealth(iso) {
     // West Nile after Canada's part, with its own credit: this line is
     // headed "per the Government of Canada", and the virus isn't in its
     // advice (the table's cell is headed "Health" alone, so it rides there
-    // with the rest).
-    const wnPart = wn ? ` <span class="hzwrap">${chipHTML(WN_CHIP)}</span> <span class="muted" data-tip="${esc(wn)}" title="">per ${
-      esc(health.w.source || "ECDC")}${health.w.season ? ", " + esc(health.w.season) : ""} ⓘ</span>` : "";
+    // with the rest). The credit is the one agency's that reported it, linked
+    // to its own page, and the ⓘ carries the credit its data asks for.
+    const wby = wn ? wnAgency(parent || iso) : "", ws = WN_SRC[wby];
+    const wnPart = !wn ? "" : ` <span class="hzwrap">${chipHTML(WN_CHIP)}</span> `
+      + (ws ? `<a href="${esc(ws.url())}" target="_blank" rel="noopener">per ${esc(wby)}${health.w.season ? ", " + esc(health.w.season) : ""} ↗</a>` : `per ${esc(wby)}`)
+      + ` <span class="muted" data-tip="${esc(wn + (ws ? " " + wnCredit(wby) : ""))}" title="">ⓘ</span>`;
     el.innerHTML = `<b><span aria-hidden="true">💉 </span>Health · per the Government of Canada${parent ? " (" + esc(countryName(parent)) + ")" : ""}:</b> `
       + (hz.h.length ? `<span class="hzwrap">${healthChipsHTML(hz)}</span> <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`
         : `<span class="muted" data-tip="${esc(tip)}" title="">${HEALTH_USUAL} ⓘ</span>`)
@@ -3843,8 +3898,11 @@ function renderAdvisories() {
     if (!it) return { fill: NODATA, title: f.properties.name + " — no advisory data" };
     if (deOwn(it) && parseInt(it.level, 10) === 1)
       return { fill: DE_NONE_FILL, title: `${advName(it)} — no warning (${deSplit(it)[0]}; Germany warns, it doesn't grade)` };
+    // Germany's own whole-country warning in its words too (deOwn leaves
+    // out Level 4, so Russia read "Level 4: Reisewarnung" beside a "Travel
+    // warning" pill, legend and filter).
     return { fill: LVL_MAP_COLOR[it.level],
-      title: `${advName(it)} — ${deOwn(it) ? DE_LVL_LABEL[it.level] : "Level " + it.level}: ${it.level_text}`
+      title: `${advName(it)} — ${de && !it.via && DE_LVL_LABEL[it.level] ? DE_LVL_LABEL[it.level] : "Level " + it.level}: ${it.level_text}`
         + (it.via ? ` (per ${advViaShort(it)})` : "") };
   }, (advisories.source_name || "Travel") + " advisory levels");
   // No "top" list — a hundred Level-1 ties can't be ranked. What CAN be said
@@ -3916,7 +3974,9 @@ function renderAdvisories() {
     + " Advisories reflect each government's own foreign policy — pick another under “Per” to compare.";
   $("advSub").innerHTML = esc(de ? `${own} countries · Germany warns, it doesn't grade` : `${own} countries rated`)
     + (filled ? esc(` · ${filled} filled in by others`) : "")
-    + ` <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`;
+    // &nbsp;: the ⓘ goes down with the last word, not alone (Germany's line
+    // wrapped at 1000 and left it on a line of its own).
+    + `&nbsp;<span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`;
   // Each level's words in its swatch's tip; the grey of a country no
   // government we follow rates (~10 on the map) is keyed like the Cost map's.
   // Germany's gap-fill note is "+32 others" (its tip says whose): with "No
@@ -3927,6 +3987,10 @@ function renderAdvisories() {
       + (filled ? ` <span class="muted" data-tip="${esc(`${filled} countries Germany doesn't cover show another government's Level 1–4, green to red — each row says whose.`)}" title="">+${filled} others</span>` : "")
     : [1, 2, 3, 4].map((l) => sw(LVL_MAP_COLOR[l], "L" + l, `Level ${l} · ${words[l - 1]} (per ${advSrcName(true)})`)).join(" "))
     + ' <span><span class="swatch"></span>No data</span>';
+  // Germany's words make a legend twice the US's or Canada's (392px to 196):
+  // the CSS gives it a row of its own where squeezing it beside the picker
+  // took three lines (styles.css, #advLegend.long).
+  $("advLegend").classList.toggle("long", de);
 
   markSort("#advTable", advSort);
   // The two columns beside the level (usItem, healthOf): the reasons — the
@@ -3957,9 +4021,16 @@ function renderAdvisories() {
   // is another government's level): health.json's `r` labels, `rq` the lead
   // sentence they come from.
   const caMine = advisories.source === "ca";
+  // health.json is a snapshot and the feed is live: once Canada moves a
+  // level after the build, the sentence quoted would contradict the pill
+  // ("Exercise a high degree of caution" beside Level 3). Quoted only while
+  // it says the row's level in Canada's words; else the US's, as for a row
+  // Canada gives no reasons for. A gap-fill (`via`: Palestine on Canada's
+  // list carries the US's or Germany's level) never shows Canada's.
   const caWhy = (it) => {
     const c = caMine && !it.via && it.iso && health && health.c[it.iso];
-    return c && c.r && c.r.length ? c : null;
+    const words = ADV_LVL_WORDS.ca[advLvl(it) - 1];
+    return c && c.r && c.r.length && words && String(c.rq || "").toLowerCase().includes(words.toLowerCase()) ? c : null;
   };
   // _rk/_rkSrc: the reasons a row shows and whose — what the Risks sort and
   // the notes row read, so neither can disagree with the cell.
@@ -3969,7 +4040,7 @@ function renderAdvisories() {
     it._rk = c ? c.r : it._rkSrc ? u.risks : null;
     it._rq = c ? c.rq || "" : "";
     it._hz = healthOf(it.iso) || null;
-    it._wn = !!wnOf(it.iso);
+    it._wn = wnOf(it.iso) ? wnAgency(it.iso) : "";
   }
   // With Germany picked, the reasons are the US's: the header says so, and
   // so does every phrase that stands in for them. With Canada, its own —
@@ -3996,11 +4067,13 @@ function renderAdvisories() {
     + "itineraries. Ones Canada calls low or sporadic are in each row's tip. “Only the usual” = none that sets the "
     + "country apart (hepatitis A, routine vaccines and the like are left out everywhere). Not every risk is listed — "
     + (health && health.w
-      ? "Canada's advice says so. West Nile virus, which it leaves out, is added where " + (health.w.source || "ECDC")
-        + " reported it this season" + (health.w.season ? " (" + health.w.season + ")" : "") + "."
-        + (health.w.note ? " " + String(health.w.note).trim().replace(/([^.!?])$/, "$1.") : "")
-      : "Canada's advice says so, and West Nile virus, for one, isn't in it.")
-    + (healthAsOf() ? " As of " + healthAsOf() + "." : "");
+      // Canada's date before West Nile's part, which has its own: "As of"
+      // after the ECDC/CDC credits read as theirs.
+      ? "Canada's advice says so." + (healthAsOf() ? " As of " + healthAsOf() + "." : "")
+        + " West Nile virus, which Canada's advice leaves out, is added where " + wnAgencies().join(" or ")
+        + " reported human cases" + wnIn() + "." + (health.w.note ? " " + fullStop(health.w.note) : "")
+        + wnAgencies().map((a) => (WN_SRC[a] ? " " + wnCredit(a) : "")).join("")
+      : "Canada's advice says so, and West Nile virus, for one, isn't in it." + (healthAsOf() ? " As of " + healthAsOf() + "." : ""));
   // Keep open notes rows open across a redraw (a late feed or a sort).
   const openIsos = [...document.querySelectorAll('#advRows .worow[aria-expanded="true"]')].map((b) => b.dataset.iso);
   $("advRows").innerHTML = sortRows(advisories.items, advSort, ADV_GET, ADV_GET.country).map((it) => {
@@ -4009,14 +4082,18 @@ function renderAdvisories() {
     const nm = advName(it);
     const guideAttr = it.iso ? ` data-iso="${esc(it.iso)}" title="See the ${esc(nm)} travel guide →"` : "";
     // Germany's own rows: the English in the pill, the government's own word
-    // in its tip.
+    // in its tip, led by the pill's words — "Reisewarnung · Avoid travel"
+    // under a "Travel warning" pill never said the two were one call:
+    // "Travel warning (Reisewarnung): avoid travel".
     const [term, eng] = de && !it.via ? deSplit(it) : [it.level_text, ""];
-    const tip = [it.summary, eng && eng !== term ? eng.charAt(0).toUpperCase() + eng.slice(1) : "",
-                 it.updated ? "updated " + fmtDay(it.updated) : ""].filter(Boolean).join(" · ");
+    const deLbl = de && !it.via ? DE_LVL_LABEL[lvl] || "" : "";
+    const head = deLbl ? deLbl + " (" + term + ")" + (eng && eng.toLowerCase() !== deLbl.toLowerCase() ? ": " + eng : "")
+      : term + (eng && eng !== term ? " · " + eng.charAt(0).toUpperCase() + eng.slice(1) : "");
+    const tip = [it.summary, it.updated ? "updated " + fmtDay(it.updated) : ""].filter(Boolean).join(" · ");
     // The pill carries the level's words, whose call it is, the feed's
     // summary and date in its tip. Another government's level (a gap-fill)
     // is dashed, and says whose to a screen reader too.
-    const pillTip = [term, it.via ? "per " + advViaShort(it) : "", tip].filter(Boolean).join(" · ");
+    const pillTip = [head, it.via ? "per " + advViaShort(it) : "", tip].filter(Boolean).join(" · ");
     const pillAttr = ` data-tip="${esc(pillTip)}" title=""`;
     const viaCls = it.via ? " via" : "";
     const viaSr = it.via ? `<span class="vh"> (per ${esc(advViaShort(it))})</span>` : "";
@@ -4069,7 +4146,7 @@ function renderAdvisories() {
       : !it.iso ? '<span class="muted">—</span>'
       : !hz && !wn ? `<span class="sftext" data-tip="Not covered by Canada's travel health advice" title="">—</span>`
       : `<span class="hzwrap" data-tip="${esc(hz ? healthTip(hz, wn) : "Not covered by Canada's travel health advice. " + wn)}" title="">${
-          (hz && hz.h.length) || wn ? healthChipsHTML(hz || { h: [] }, true, !!wn) : `<span class="hzlow">${HEALTH_USUAL}</span>`}</span>`;
+          (hz && hz.h.length) || wn ? healthChipsHTML(hz || { h: [] }, true, it._wn) : `<span class="hzlow">${HEALTH_USUAL}</span>`}</span>`;
     // data-via: a gap another government fills — the level filter's "Rated
     // by others", and with Germany kept out of its own words' options.
     return `
@@ -4297,8 +4374,10 @@ function advDetailHead(iso) {
     + `<span class="rkwrap">${chipsHTML(it._rk)}</span></div>`);
   // The Health line in words, group by group — on a phone (no hover, no
   // column header) the ⚠️ and ◐ marks would otherwise go unexplained.
-  // West Nile is a group of its own, after the notices, credited to the
-  // agency that reported it (it isn't in Canada's advice).
+  // West Nile is a group of its own after Canada's link — spliced in among
+  // Canada's groups it sat under "per Government of Canada", whose advice
+  // leaves it out — credited to the agency that reported it, linked to that
+  // agency's page, with the credit its data asks for (ECDC's licence too).
   const hz = healthOf(iso), wx = wnOf(iso);
   if (hz || wx) {
     const notice = (hz && hz.n) || [], areas = (hz && hz.a) || [];
@@ -4308,15 +4387,21 @@ function advDetailHead(iso) {
       + (i === hg.length - 1 && label === "Low or sporadic"
         ? `<span class="muted">${esc(list.join(", "))}</span>`
         : `<span class="rkwrap">${chipsHTML(list, kind)}</span>`) + "</span>");
-    if (wx) groups.splice(notice.length ? 1 : 0, 0, `<span class="advgrp"><span class="muted">${esc(wnLabel())}${
-      wx.a && wx.a.length ? ":" : ""}</span> ${esc((wx.a || []).join(", "))}${
-      wx.t ? ` <span class="muted">${esc(wx.t)}</span>` : ""}</span>`);
+    const wby = wx ? wnAgency(iso) : "", ws = WN_SRC[wby], wa = wx ? wnAreas(iso) : "";
+    const ext = (href, text) => `<a class="farelink" href="${esc(href)}" target="_blank" rel="noopener">${text}&nbsp;<span class="ext">↗</span></a>`;
+    const wnGroup = !wx ? "" : ` <span class="advgrp wngrp"><span class="muted">${esc(wnLabel(iso))}${wa ? ":" : ""}</span> ${
+      esc(wa && wx.t ? fullStop(wa) : wa)}${wx.t ? ` <span class="muted">${esc(fullStop(wx.t))}</span>` : ""}${ws
+      ? ` <span class="muted">${esc(ws.credit)}${ws.licence ? "; licence</span> " + ext(WN_CC_URL, esc(ws.licence).replace(/ /g, "&nbsp;"))
+          + ' <span class="muted">·</span>' : ".</span>"}`
+        + " " + ext(ws.url(), esc(wby))
+      : ""}</span>`;
     out.push(`<div class="advdl"><b><span aria-hidden="true">💉 </span>Health</b> <span class="muted">${hz
       ? "per Government of Canada" + (healthAsOf() ? ", as of " + esc(healthAsOf()) : "")
       : "not covered by Canada's travel health advice"}</span> `
       + (!hz || hz.h.length ? "" : `<span class="hzlow">${HEALTH_USUAL}</span> `)
       + groups.join(" ")
-      + (hz && hz.s ? ` <a class="farelink" href="https://travel.gc.ca/destinations/${encodeURIComponent(hz.s)}#health" target="_blank" rel="noopener">health advice&nbsp;<span class="ext">↗</span></a>` : "")
+      + (hz && hz.s ? " " + ext(`https://travel.gc.ca/destinations/${encodeURIComponent(hz.s)}#health`, "health advice") : "")
+      + wnGroup
       + "</div>");
   }
   return out.join("");
@@ -5663,7 +5748,7 @@ function renderTripBook(isos) {
       links.push(A(viatorURL(name), "🎟️", "Things to do", name));
     }
     // Level 3-4: the table's ⚠️ exception mark.
-    const warn = lvl >= 3 ? ' <span class="hzmark" data-tip="' + esc(ADV_TEXT[lvl] + advVia(iso)) + '" title="">⚠️</span>' : "";
+    const warn = lvl >= 3 ? ' <span class="hzmark" data-tip="' + esc(advLevelText(iso, lvl) + advVia(iso)) + '" title="">⚠️</span>' : "";
     return '<div class="tbrow" data-iso="' + iso + '">'
       + '<span class="tbn"><a class="tbdest" href="' + esc(guidePath(iso)) + '"><span aria-hidden="true">' + flagEmoji(iso)
       + "</span> " + esc(name) + "</a>" + warn + "</span>"
@@ -5916,7 +6001,8 @@ function buildAIPrompt() {
       : null;
     lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)}`);
     if (aff) lines.push(`   - Affordability ${grade(s.afford)}: ${aff}`);
-    lines.push(`   - Safety: ${ADV_TEXT[s.advLvl] || "no current advisory"}`);
+    // Whose words they are, too: "“No warning”" alone doesn't say it's Germany's.
+    lines.push(`   - Safety: ${s.advLvl ? advLevelText(s.iso, s.advLvl) + advVia(s.iso) : "no current advisory"}`);
     if (vi) lines.push(`   - Visa (${passport === "US" ? "US" : countryName(passport)} passport): ${vi.meta.long}${vi.note ? " — " + vi.note : ""}`);
     if (best) lines.push(`   - Best months: ${best}; ${monthName}: ${SEASON_WX[seas] || "no data"} for weather`);
     if (hz.length) lines.push(`   - ${monthName} heads-up: ${hz.join("; ")}`);
@@ -6169,10 +6255,23 @@ function gradePill(score, title, extra) {
 // for its pill — but leaving the hole meant safetyPill(4) crashed on an undefined
 // grade. F, so the map is total and the next caller can't fall through it.
 const SAFE_GRADE = { 1: "A", 2: "B", 3: "D", 4: "F" };
-// Generic level names, not one government's phrasing: the level may be
-// Canada's or Germany's, and the pill names whose it is.
+// A level in its own government's words, for the Top Picks pills and tips:
+// "Level 2: high degree of caution" (Canada), "“No warning”" (Germany's own
+// call, which isn't a grade). Its one table of words (US's) printed "Level 2:
+// increased caution — per Global Affairs Canada" and "Level 1: normal
+// precautions — per German Foreign Office", the defect the Safety tab's
+// filter, legend and ⓘ had. A gap-fill speaks its filler's words (advSrcOf);
+// ADV_TEXT is for a level with no item behind it.
 const ADV_TEXT = { 1: "Level 1: normal precautions", 2: "Level 2: increased caution",
                    3: "Level 3: reconsider travel", 4: "Level 4: do not travel" };
+function advLevelText(iso, l) {
+  const it = iso ? advisoryMetaByIso()[iso] : null;
+  if (!it || !l) return ADV_TEXT[l] || "";
+  const s = advSrcOf(it);
+  if (s === "de" && DE_LVL_LABEL[l]) return "“" + DE_LVL_LABEL[l] + "”";
+  const w = (ADV_LVL_WORDS[s] || ADV_LVL_WORDS.us)[l - 1];
+  return w ? "Level " + l + ": " + w.toLowerCase() : ADV_TEXT[l] || "";
+}
 // " — per <source>", or which government filled the gap ("" without an iso).
 function advVia(iso) {
   const meta = iso ? advisoryMetaByIso()[iso] : null;
@@ -6187,7 +6286,7 @@ function safetyPill(advLvl, iso) {
   if (!advLvl) {
     return `<span class="gr grx" title="${esc("Not rated — none of the three governments we follow (US, Canada, Germany) publishes an advisory for this destination, so it isn't graded or ranked.")}">—</span>`;
   }
-  return `<span class="gr ${gradeCls(SAFE_GRADE[advLvl])}" title="${esc(ADV_TEXT[advLvl] + advVia(iso))}">${SAFE_GRADE[advLvl]}</span>`;
+  return `<span class="gr ${gradeCls(SAFE_GRADE[advLvl])}" title="${esc(advLevelText(iso, advLvl) + advVia(iso))}">${SAFE_GRADE[advLvl]}</span>`;
 }
 
 // ---- month-level hazards (curated in activities.json) -----------------------
@@ -7068,9 +7167,10 @@ function renderValue() {
   $("valueRows").innerHTML = ranked.map((s, i) => {
     const seen = been.has(s.iso);
     const vis = seen ? ' <span class="visited-tag">✓<span class="vtword"> visited</span></span>' : "";
-    // Generic level names + whose level it is: the State Dept's own phrases
-    // ("Exercise Increased Caution") credited US wording to Canada's or Germany's.
-    const safe = chip(s.safe, SAFE_GRADE[s.advLvl] || "x", ADV_TEXT[s.advLvl] + advVia(s.iso))
+    // The level in its own government's words + whose it is (advLevelText):
+    // the State Dept's phrases ("Exercise Increased Caution") credited US
+    // wording to Canada's or Germany's.
+    const safe = chip(s.safe, SAFE_GRADE[s.advLvl] || "x", advLevelText(s.iso, s.advLvl) + advVia(s.iso))
       + `<span class="vh"> · level ${s.advLvl}</span>`;
     const wx = s.wx == null ? '<span class="muted" title="no weather data">—</span>'
       : chip(s.wx, grade(s.wx), `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}`);
@@ -10950,24 +11050,31 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") _hideTip()
 
 // ...but a <span>ⓘ</span> can't take focus, so that path never fired for the
 // marks it was written for. Every info mark becomes a Tab stop: the ⓘ hints
-// (by their glyph, which leaves out the per-row "—" cells and grade pills that
-// share .muted[data-tip]), the award tags and the guide's watch-out chips.
-// A mark that is only the glyph is named "More info"; one with words
-// ("~7% of the world ⓘ", "How these compare ⓘ") keeps them. Marks inside a
-// button or link are left alone: a focusable inside a control is a nested
-// control, which screen readers can't reach and axe fails. One subtree
-// observer covers the static page and every later render (tables, guides).
+// and the ⚠️ caveats (by their glyph, which leaves out the per-row "—" cells
+// and grade pills that share .muted[data-tip]), the award tags and the
+// guide's watch-out chips. A ⚠️ (.hzmark: a month's hazard, a Level 3-4 pick,
+// a price level's caveat) held its words only in a hover or tap tip, so Tab
+// went from Gambia's link straight to Sri Lanka's past it.
+// A mark that is only the glyph is named "More info" (a ⚠️ "Warning — more
+// info"); one with words ("~7% of the world ⓘ", "How these compare ⓘ") keeps
+// them. Marks inside a control are left alone — a button, a link, or a
+// role="button" like the guide's month bars, whose ⚠️ the bar's own label
+// already reads: a focusable inside a control is a nested control, which
+// screen readers can't reach and axe fails. One subtree observer covers the
+// static page and every later render (tables, guides).
 const _TIPMARK_SEL = [".muted[data-tip]", ".legendinfo[data-tip]", ".fxinfo[data-tip]", ".awardtag[data-tip]",
-  ".wochip[data-tip]", ".vstats-line [data-tip]"].map((q) => q + ":not([tabindex])").join(", ");
+  ".wochip[data-tip]", ".vstats-line [data-tip]", ".hzmark[data-tip]"].map((q) => q + ":not([tabindex])").join(", ");
 const _tipMarkEls = new WeakSet();
 function _tipMarks() {
   for (const el of document.querySelectorAll(_TIPMARK_SEL)) {
     const txt = el.textContent;
-    if (!txt.includes("ⓘ") && !el.matches(".awardtag, .wochip")) continue;
-    if (el.parentElement && el.parentElement.closest("button, a")) continue;
+    if (!/[ⓘ⚠]/.test(txt) && !el.matches(".awardtag, .wochip")) continue;
+    if (el.parentElement && el.parentElement.closest('button, a, [role="button"]')) continue;
     el.tabIndex = 0;
     el.setAttribute("role", "button");
-    if (txt.trim() === "ⓘ") el.setAttribute("aria-label", "More info");
+    const g = txt.trim();
+    if (g === "ⓘ") el.setAttribute("aria-label", "More info");
+    else if (g.replace(/\uFE0F/g, "") === "⚠") el.setAttribute("aria-label", "Warning — more info");
     _tipMarkEls.add(el);
   }
 }
