@@ -29,8 +29,8 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
-    accounts, advisories, build_dataset, build_pl_history, build_ppp, flights, flightvalue,
-    mailer, popularity, rates, render_guide, store, watchouts
+    accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
+    flightvalue, health, mailer, popularity, rates, render_guide, store, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -714,6 +714,15 @@ def _cached(name, cache, key, ttl, compute, stale_max=None):
     return data
 
 
+def _advisories_fresh(source):
+    # Each freshly fetched list goes past WanderGrade's own record of the
+    # levels it has seen (fxtracker/advhistory.py), which stamps the items
+    # whose level it saw change. Only here, where the list is computed — never
+    # per request — and it can't fail the list: a storage error just leaves
+    # the items unstamped.
+    return advhistory.record_and_annotate(source, advisories.get_advisories(source))
+
+
 def _rates_payload(cfg, base="USD"):
     key = (cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]), base)
     return _cached("rates", _rates_cache, key, CACHE_TTL, lambda: rates.compute_favorability(
@@ -1340,6 +1349,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/pl_history.json":
             self._send_json(_pl_history(), extra=[("Cache-Control", "public, max-age=86400")])
             return
+        if path == "/health.json":
+            # The freshest of the refreshed copy and the committed file (see
+            # fxtracker/health.py); the file itself if anything goes wrong.
+            try:
+                body = health.get_json_bytes()
+            except Exception as e:
+                print("[health] serving the static file: %s" % e, flush=True)
+                body = None
+            if body:
+                self._send_body(body, "application/json; charset=utf-8",
+                                cache="public, max-age=600")
+            else:
+                self._send_file(os.path.join(PUBLIC, "health.json"))
+            return
         if path in ("/data/price-levels.json", "/data/price-levels.csv"):
             try:
                 data = _dataset()
@@ -1494,7 +1517,7 @@ class Handler(BaseHTTPRequestHandler):
             # No stale_max: a days-old advisory list beats a 500 that blanks
             # Top Picks, and the payload says it is stale.
             data = _cached("advisories", _adv_cache, source, ADV_TTL,
-                           lambda: advisories.get_advisories(source))
+                           lambda: _advisories_fresh(source))
         except Exception as e:
             # Nothing cached yet and the chosen feed is down (cold start):
             # another government's list, still labelled by its own
@@ -1506,7 +1529,7 @@ class Handler(BaseHTTPRequestHandler):
                     continue
                 try:
                     data = dict(_cached("advisories", _adv_cache, alt, ADV_TTL,
-                                        lambda a=alt: advisories.get_advisories(a)),
+                                        lambda a=alt: _advisories_fresh(a)),
                                 fallback_for=source)
                     break
                 except Exception:
@@ -1668,6 +1691,10 @@ def main():
         _keep_warm()
     _warm_flight_value()
     _warm_fx_history()
+    # Canada's health advice ages; the server rebuilds /health.json itself
+    # once it's a week old (fxtracker/health.py). Render only, unless
+    # HEALTH_REFRESH=1 — never from a laptop by accident.
+    health.start_refresher()
     # One-off after deploy: opt-outs from before they reached Buttondown (see
     # accounts.reconcile_optouts). Background, and a no-op without the
     # Buttondown/Upstash keys or once its done-marker is set.

@@ -535,12 +535,25 @@ def _summary(desc, level=None, iso=None, name_iso=None, full=False):
 # so a row never looks complete when it isn't; the tip quotes the sentence.
 # Read off the untruncated lead, not the 280-character summary — Hong Kong's
 # clause fell past the cut ("…(SAR) due t...").
+#
+# Canada's leads (build_health.reasons) say the same things in other words,
+# hence the wider patterns: "criminal activity", "banditry" and "gang
+# violence" are Crime; "political tensions", "political instability", strikes,
+# roadblocks and inter-ethnic or sectarian violence are Unrest (the State
+# Department's own definition of its civil-unrest indicator: "political,
+# religious, or ethnic instability"); "ongoing conflict", "armed groups" and
+# "airstrikes" are Armed conflict. Canada's commonest reason — "the volatile
+# security situation in the region" — names no risk this list has, so it
+# stays "Other", with the sentence in the tip.
 RISK_WORDS = [
-    ("Crime", r"\bcrim(e|inal)"),
+    ("Crime", r"\bcrim(e|inal)|\bgangs?\b|gang-related|bandit|spiked (?:food|drinks?)"),
     ("Terrorism", r"terror"),
-    ("Unrest", r"unrest|political violence|demonstration"),
+    ("Unrest", r"unrest|\bpolitic|demonstration|(?<!drone )(?<!air )(?<!missile )(?<!rocket )\bstrikes\b"
+               r"|general strike|roadblock|blockade|social (?:conflict|tension)"
+               r"|inter-?ethnic|inter-?communal|sectarian"),
     ("Kidnapping", r"kidnap|hostage"),
-    ("Armed conflict", r"armed conflict|\bwar\b|drone|missile|military"),
+    ("Armed conflict", r"armed (?:conflict|clash|group|attack)|(?<!social )\bconflicts?\b|\bwar\b|drone"
+                       r"|missile|military|air ?strike"),
     ("Landmines", r"landmine|land mine"),
     ("Explosives", r"unexploded(?! land ?mines?)|ordnance|\bUXO\b|\bIEDs?\b|improvised explosive"),
     ("Detention", r"\bdetention|\barrest|exit bans?|detain"),
@@ -587,24 +600,55 @@ def _risks(lead, level=None):
     clause = " / ".join(clauses)
     if not clause:
         return []
+    # Not "Other" in the fallback, which reads whole sentences rather than a
+    # list of reasons.
+    return label_reasons(clause, other=not fallback)
+
+
+def label_reasons(clause, other=True):
+    """['Crime', 'Terrorism', …] for a government's own list of reasons — the
+    words after "due to" — in the order the list names them. Shared by the US
+    feed (_risks) and Canada's pages (build_health), so one vocabulary covers
+    every government the Safety table quotes. With `other`, a listed reason no
+    label fits adds "Other" (see unlabelled)."""
+    clause = clause or ""
     hits = {}
     for label, pat in RISK_WORDS:
         f = re.search(pat, clause, re.I)
         if f:
             hits[label] = f.start()
-    # The reasons no label fits. Items are split on commas, "and", "or" and
-    # full stops; one-word leftovers are fragments of a split ("…war between
-    # Russia / and Ukraine"), not reasons. Not in the fallback, which reads
-    # whole sentences rather than a list of reasons.
-    if not fallback:
-        for m in re.finditer(r"[^,;.]+", clause):
-            seg = m.group(0)
-            for pm in re.finditer(r"(?:(?!\s+(?:and|or)\s+).)+", seg):
-                part = pm.group(0)
-                words = re.sub(r"^(?:\s*(?:the|a|an|risk|risks|of|threat|potential|and|or)\b)+", "", part.strip(), flags=re.I).split()
-                if len(words) >= 2 and not any(re.search(p, part, re.I) for _, p in RISK_WORDS):
-                    hits.setdefault("Other", m.start() + pm.start())
+    if other:
+        for pos, _part in unlabelled(clause)[:1]:
+            hits["Other"] = pos
     return [label for label, _ in sorted(hits.items(), key=lambda kv: kv[1])]
+
+
+def unlabelled(clause):
+    """[(position, text)] for the reasons in a "due to" list that no label
+    fits. Items are split on commas, semicolons, "and", "or" and full stops;
+    one-word leftovers are fragments of a split ("…war between Russia / and
+    Ukraine"), not reasons."""
+    out = []
+    for m in re.finditer(r"[^,;.]+", clause or ""):
+        where = False
+        for pm in re.finditer(r"(?:(?!\s+(?:and|or)\s+).)+", m.group(0)):
+            part = pm.group(0)
+            head = re.sub(r"^\s*(?:(?:and|or)\s+)?", "", part)
+            words = re.sub(r"^(?:\s*(?:the|a|an|risk|risks|of|threat|potential|and|or)\b)+", "", part.strip(), flags=re.I).split()
+            # Not reasons: qualifiers of the one before ("crime, especially in
+            # Nassau and Freeport", "terrorism, particularly against Western
+            # interests", "gang-related and other violence"), and an "and"
+            # inside a place ("…unexploded ordnance on roads and bridges in
+            # certain areas") — though "…crime in some regions and the
+            # tensions that exist in the Sahel region" is a second reason, and
+            # says so with "the".
+            skip = re.match(r"(?:especially|particularly|notably|mainly|including|elsewhere|other)\b", head, re.I) \
+                or (where and not re.match(r"(?:the|a|an|its|their)\b", head, re.I))
+            if len(words) >= 2 and not skip and not any(re.search(p, part, re.I) for _, p in RISK_WORDS):
+                out.append((m.start() + pm.start(), part.strip()))
+            if re.search(r"\b(?:in|on|near|along|throughout|across|outside|within)\s", part, re.I):
+                where = True
+    return out
 
 
 def _change(desc):
