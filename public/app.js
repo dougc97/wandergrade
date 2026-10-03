@@ -210,6 +210,16 @@ function fmtDay(iso) {
   const p = iso.split("-");
   return (+p[2]) + " " + MON_ABBR[+p[1] - 1] + " " + p[0];
 }
+// "2026-05-21" -> "21 May": when an advisory last moved, everywhere it is
+// shown (the Safety tab's list and arrows, the guide's safety line, Top
+// Picks' mark). They used to print it three ways — "21 May", "May 21" and
+// "21 May 2026" — for one date. Day first like fmtDay; the year only once
+// it isn't this one.
+function fmtDayShort(iso) {
+  const p = String(iso || "").slice(0, 10).split("-");
+  if (p.length < 3 || !MON_ABBR[+p[1] - 1]) return String(iso || "");
+  return (+p[2]) + " " + MON_ABBR[+p[1] - 1] + (+p[0] === new Date().getFullYear() ? "" : " " + p[0]);
+}
 // Money in any currency, the browser's way: "$601", "€481", "₹8,000". "USD 295"
 // beside "$100" was two looks for the same idea, and the sign was the dollar's
 // alone. Whole units — cached averages and annual indexes, not receipts. A
@@ -572,7 +582,8 @@ wireSort("#affTable", affSort, { buys: false, range: false }, () => { if (typeof
 const advLvl = (it) => parseInt(it.level, 10) || 0;
 const ADV_GET = { country: (it) => advName(it), level: advLvl,
                   risks: (it) => (advLvl(it) >= 4 ? 1000 : 0) + (it._rk ? it._rk.length : 0) * 10 + advLvl(it),
-                  health: (it) => (it._hz ? (it._hz.h.length + (it._hz.n ? it._hz.n.length / 2 : 0)) * 10 + advLvl(it) : null) };
+                  health: (it) => (it._hz || it._wn ? ((it._hz ? it._hz.h.length + (it._hz.n ? it._hz.n.length / 2 : 0) : 0)
+                    + (it._wn ? 1 : 0)) * 10 + advLvl(it) : null) };
 const advSort = { key: "level", asc: true };
 wireSort("#advTable", advSort, { risks: false, health: false }, () => { if (advisories) renderAdvisories(); });
 
@@ -1302,9 +1313,11 @@ function attachMapZoom(host, W, H) {
     const ctr = document.createElement("div");
     ctr.className = "mapzoom";
     ctr.innerHTML = '<button type="button" data-z="fs"></button>'
-      + '<button type="button" data-z="in" title="zoom in">＋</button>'
-      + '<button type="button" data-z="out" title="zoom out">－</button>'
-      + '<button type="button" data-z="reset" title="reset view">⌂</button>';
+      // Named like the full-screen button: a screen reader read the glyphs
+      // ("full-width plus sign", "house").
+      + '<button type="button" data-z="in" title="zoom in" aria-label="Zoom in">＋</button>'
+      + '<button type="button" data-z="out" title="zoom out" aria-label="Zoom out">－</button>'
+      + '<button type="button" data-z="reset" title="reset view" aria-label="Reset view">⌂</button>';
     ctr.onclick = (e) => {
       const b = e.target.closest("button");
       if (!b) return;
@@ -2208,6 +2221,31 @@ function ensureHealth() {
 }
 // undefined while loading, null for a country the advice doesn't cover.
 const healthOf = (iso) => (!health ? undefined : (iso && health.c[iso]) || null);
+// West Nile virus: Canada's advice leaves it out (Italy, Greece and the US
+// all report cases every summer), so build_health.py adds this season's
+// reported transmission as `w`, from ECDC and/or CDC — each line says whose.
+// Absent `w`, nothing changes. Countries missing from it are not "clear":
+// ECDC watches Europe, CDC the US, and nobody here reports the rest.
+const wnOf = (iso) => (health && health.w && health.w.c && iso && health.w.c[iso]) || null;
+// "West Nile virus — reported this season (per ECDC, 2026): Veneto, Lombardy."
+function wnLabel() {
+  const w = (health && health.w) || {};
+  return "West Nile virus — reported this season (per " + (w.source || "ECDC") + (w.season ? ", " + w.season : "") + ")";
+}
+function wnText(iso) {
+  const x = wnOf(iso);
+  if (!x) return "";
+  const t = x.t ? " " + String(x.t).trim().replace(/([^.!?])$/, "$1.") : "";
+  return wnLabel() + (x.a && x.a.length ? ": " + x.a.join(", ") : "") + "." + t;
+}
+// The guide tip's closing caveat: without `w`, the sentence it always had;
+// with it, where West Nile comes from instead (`here`: this country has a line).
+function wnCaveat(here) {
+  const w = health && health.w;
+  if (!w) return "Not every risk is listed — West Nile virus, for one, isn't in Canada's advice.";
+  return "Not every risk is listed" + (here ? "." : " — West Nile virus, which Canada's advice leaves out, is added where "
+    + (w.source || "ECDC") + " reported it this season" + (w.season ? " (" + w.season + ")" : "") + ".");
+}
 // The file is a snapshot (build_health.py, re-run by hand or on a schedule).
 // A notice is only "current" while the snapshot is: past 45 days it's named
 // as of its date and loses its warning colour.
@@ -2215,7 +2253,11 @@ const healthStale = () => !!(health && health.built && (Date.now() - Date.parse(
 const healthAsOf = () => (health && health.built ? fmtDay(health.built) : "");
 // The chips' order: a notice first, then the build's (country-wide, then
 // some-areas, each by how likely it is to change a trip).
-const healthNames = (hz) => [...(hz.n || []), ...hz.h.filter((x) => !(hz.n || []).includes(x))];
+// West Nile (`wn`, another agency's report) rides right after the notices:
+// this season's cases are as current as a notice, and less settled than the
+// standing list.
+const WN_CHIP = "West Nile";
+const healthNames = (hz, wn) => [...(hz.n || []), ...(wn ? [WN_CHIP] : []), ...hz.h.filter((x) => !(hz.n || []).includes(x))];
 // What a country with none of the listed diseases shows: not "low risk" (our
 // words, and untrue where Canada advises hepatitis A) but that only what
 // Canada lists nearly everywhere applies.
@@ -2233,12 +2275,14 @@ function healthGroups(hz) {
     ["Low or sporadic", hz.l || []],
   ].filter(([, list]) => list.length);
 }
-function healthTip(hz) {
+// `wn` = wnText(iso): West Nile, after Canada's credit — it is not Canada's.
+function healthTip(hz, wn) {
   const parts = healthGroups(hz).map(([label, list]) => label + ": " + list.join(", "));
   if (!hz.h.length) parts.unshift(HEALTH_USUAL_TIP);
   return parts.join(". ") + ". Per the Government of Canada's travel health advice"
     + (hz.v ? " (its " + hz.v + " page)" : "")
-    + (healthAsOf() ? " (as of " + healthAsOf() + ")" : "") + ".";
+    + (healthAsOf() ? " (as of " + healthAsOf() + ")" : "") + "."
+    + (wn ? " " + wn : "");
 }
 // Chips. A notice leads with ⚠️ and a some-areas risk ends with ◐ — marks,
 // not colour or a border alone, and each is spelled out for a screen reader.
@@ -2249,15 +2293,18 @@ function chipHTML(n, kind) {
     + `<span class="vh"> (${healthStale() ? "travel health notice as of " + esc(healthAsOf()) : "current travel health notice"})</span></span>`;
   if (kind === "area") return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span><span class="rkmark" aria-hidden="true"> ◐</span>`
     + `<span class="vh"> (only in some areas, seasons or itineraries)</span></span>`;
+  if (kind === "wn") return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span>`
+    + `<span class="vh"> (virus reported this season, per ${esc((health && health.w && health.w.source) || "ECDC")})</span></span>`;
   return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span></span>`;
 }
 function chipsHTML(names, kindOf, fit) {
   return names.map((n) => chipHTML(n, kindOf ? kindOf(n) : "")).join("")
     + (fit ? '<span class="rkchip more" hidden></span>' : "");
 }
-function healthChipsHTML(hz, fit) {
+function healthChipsHTML(hz, fit, wn) {
   const notice = hz.n || [], areas = hz.a || [];
-  return chipsHTML(healthNames(hz), (n) => (notice.includes(n) ? "notice" : areas.includes(n) ? "area" : ""), fit);
+  return chipsHTML(healthNames(hz, wn), (n) => (notice.includes(n) ? "notice" : wn && n === WN_CHIP ? "wn"
+    : areas.includes(n) ? "area" : ""), fit);
 }
 // One line of chips a cell: as many as its width holds, the rest counted in
 // the "+N" (named for a screen reader, and in the tip and the notes row).
@@ -2936,8 +2983,30 @@ function renderGuideVisa(iso) {
 // Safety advisory for this country, from the traveler's home-country source
 // (US State Dept by default, German Foreign Office for German travelers). Named
 // so readers know whose guidance it is — advisories are politically colored.
-const ADV_LABEL = { 1: "Level 1 · Normal precautions", 2: "Level 2 · Increased caution",
-                    3: "Level 3 · Reconsider travel", 4: "Level 4 · Avoid travel" };
+// Each government's own words for its four levels. Canada's Level 3 is
+// "avoid non-essential travel", not the US's "reconsider travel" — yet with
+// Canada picked the level filter, the ⓘ, the legend and this badge all spoke
+// US (the filter's "L3 — Reconsider travel" listed 17 of Canada's "Avoid
+// non-essential travel"). Germany doesn't grade: its words are DE_LVL_LABEL.
+const ADV_LVL_WORDS = {
+  us: ["Normal precautions", "Increased caution", "Reconsider travel", "Do not travel"],
+  ca: ["Normal security precautions", "High degree of caution", "Avoid non-essential travel", "Avoid all travel"],
+};
+// Whose call an item is: a gap-fill's is the government it came from.
+const advSrcOf = (it) => (it && it.via) || (advisories && advisories.source) || "us";
+// An item's level in the words of the government that set it.
+function advLvlWords(it) {
+  const s = advSrcOf(it), l = advLvl(it);
+  return s === "de" ? DE_LVL_LABEL[l] || "" : (ADV_LVL_WORDS[s] || ADV_LVL_WORDS.us)[l - 1] || "";
+}
+// A level inside a sentence: "Level 3", or Germany's own call, quoted.
+const advLvlName = (it) => (advSrcOf(it) === "de" ? "“" + advLvlWords(it) + "”" : "Level " + advLvl(it));
+// The date of an advisory's latest move: when WanderGrade's own record first
+// saw the current level (`changed`, the server's), else the feed's date. The
+// feeds' "updated" moves with every reissue — and only the US's says which
+// way the level went — so Canada's and Germany's moves only show at all
+// because the server keeps that record.
+const advChangedOn = (it) => (it && (it.changed || it.updated)) || "";
 // England, Scotland, Wales and the Crown Dependencies have guides of their own,
 // but every government we follow rates the United Kingdom as a whole (and the
 // Faroes under Denmark). The guide shows the parent's level and says so;
@@ -2975,18 +3044,23 @@ function renderGuideSafety(iso) {
     // where a single country's trajectory matters. Sources publish only the
     // CURRENT advisory, so the latest move is all the history that exists.
     let moved = "";
-    if (it.change && it.updated
-        && it.updated >= advMoveCutoff()) {
-      const d = new Date(it.updated + "T12:00:00");
-      const when = isNaN(d) ? it.updated : MON_ABBR[d.getMonth()] + " " + d.getDate();
+    const on = advChangedOn(it);
+    if (it.change && on && on >= advMoveCutoff()) {
+      const when = fmtDayShort(on);
       moved = ` <span class="advmoved ${it.change === "up" ? "chup" : "chdown"}" data-tip="${
         esc(src + (it.change === "up" ? " raised" : " lowered")
-        + " this advisory to Level " + lvl + " on " + when
+        + " this advisory to " + advLvlName(it) + " on " + when
         + " — recently " + (it.change === "up" ? "riskier" : "safer") + " in their judgement.")}" title="">${
         it.change === "up" ? "▲ raised" : "▼ lowered"} ${esc(when)}</span>`;
     }
+    // The level in its own government's words; Germany's calls are words
+    // alone, and its "No warning" is neutral, not the green of a grade (as on
+    // the Safety map).
+    const deCall = advSrcOf(it) === "de";
+    const badge = (deCall ? "" : "Level " + lvl + " · ") + (advLvlWords(it) || "");
+    const badgeCls = deCall && lvl === 1 ? "nowarn" : "advlvl" + lvl;
     host.hidden = false;
-    host.innerHTML = `<span class="advbadge advlvl${lvl}">🛡️ ${esc(ADV_LABEL[lvl] || "Level " + lvl)}</span>${moved}
+    host.innerHTML = `<span class="advbadge ${badgeCls}">🛡️ ${esc(badge.replace(/ · $/, ""))}</span>${moved}
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
       <span class="advlinks"><a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a> · <button type="button" class="linkbtn advsrcjump">switch source (US · CA · DE) → Safety tab</button></span>
       <span id="guideWatchouts"></span></span>`;
@@ -3011,15 +3085,22 @@ function renderGuideHealth(iso) {
     if (ccGuideIso !== iso || !host || host.hidden) return;
     const parent = !healthOf(iso) && GUIDE_PARENT[iso] ? GUIDE_PARENT[iso] : null;
     const hz = healthOf(parent || iso);
+    const wn = wnText(parent || iso);
     let el = host.querySelector(".guidehealth");
     if (!hz) { if (el) el.remove(); return; }
     if (!el) { el = document.createElement("div"); el.className = "guidehealth"; host.appendChild(el); }
     const link = hz.s ? ` <a href="https://travel.gc.ca/destinations/${encodeURIComponent(hz.s)}#health" target="_blank" rel="noopener">health advice ↗</a>` : "";
-    const tip = healthTip(hz) + " Not every risk is listed — West Nile virus, for one, isn't in Canada's advice.";
+    const tip = healthTip(hz) + " " + wnCaveat(!!wn);
+    // West Nile after Canada's part, with its own credit: this line is
+    // headed "per the Government of Canada", and the virus isn't in its
+    // advice (the table's cell is headed "Health" alone, so it rides there
+    // with the rest).
+    const wnPart = wn ? ` <span class="hzwrap">${chipHTML(WN_CHIP)}</span> <span class="muted" data-tip="${esc(wn)}" title="">per ${
+      esc(health.w.source || "ECDC")}${health.w.season ? ", " + esc(health.w.season) : ""} ⓘ</span>` : "";
     el.innerHTML = `<b><span aria-hidden="true">💉 </span>Health · per the Government of Canada${parent ? " (" + esc(countryName(parent)) + ")" : ""}:</b> `
       + (hz.h.length ? `<span class="hzwrap">${healthChipsHTML(hz)}</span> <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`
         : `<span class="muted" data-tip="${esc(tip)}" title="">${HEALTH_USUAL} ⓘ</span>`)
-      + link;
+      + link + wnPart;
   });
 }
 
@@ -3739,7 +3820,16 @@ const LVL_MAP_COLOR = {
 // own words in the pill, legend and level filter, and the German term in the
 // tip. A gap another government fills (`via`) is a real level and keeps it.
 const DE_NONE_FILL = "#e3e6e8";
-const DE_LVL_LABEL = { 1: "No warning", 2: "Some regions", 3: "L3 — filled in by others", 4: "Travel warning" };
+const DE_LVL_LABEL = { 1: "No warning", 2: "Some regions", 4: "Travel warning" };
+// The level filter. With Germany, its words match only its own calls: "No
+// warning" also caught 26 other governments' Level 1 gap-fills, "Some
+// regions" 6 country-wide Level 2s, and its "L3" option matched nothing —
+// the gap-fills are their own option, "Rated by others" ("via").
+function advLvlMatch(sel, lvl, via, de) {
+  if (!sel || sel === "all") return true;
+  if (sel === "via") return !!via;
+  return String(lvl) === sel && !(de && via);
+}
 const _advWait = {};   // one redraw per load, however many renders asked
 function renderAdvisories() {
   const byIso = {};
@@ -3762,15 +3852,15 @@ function renderAdvisories() {
   // dated. Under the map only (it used to repeat above the table, 100px on).
   const cutoff = advMoveCutoff();
   const changed = advisories.items
-    .filter((it) => it.change && it.updated && it.updated >= cutoff && (!it.iso || inRegion(it.iso)))
-    .sort((a, b) => (a.updated < b.updated ? 1 : -1)).slice(0, 8);
+    .filter((it) => it.change && advChangedOn(it) >= cutoff && (!it.iso || inRegion(it.iso)))
+    .sort((a, b) => (advChangedOn(a) < advChangedOn(b) ? 1 : -1)).slice(0, 8);
+  // "New Caledonia ▼ L2 · 21 May": the arrow in its colour (a <b>, which the
+  // share image reads as text, not as a pick of its own), named for a screen
+  // reader; Germany's own calls in its words.
   const chLine = (it) => {
-    const d = new Date(it.updated + "T12:00:00");
-    // Day first, like fmtDay; the year only once the window has crossed one.
-    const when = isNaN(d) ? it.updated : d.getDate() + " " + MON_ABBR[d.getMonth()]
-      + (d.getFullYear() === new Date().getFullYear() ? "" : " " + d.getFullYear());
-    return advName(it) + " " + (it.change === "up" ? "▲ raised" : "▼ lowered")
-      + " to L" + it.level + " (" + when + ")";
+    const up = it.change === "up";
+    return { html: esc(advName(it)) + ` <b class="${up ? "chup" : "chdown"}" role="img" aria-label="${up ? "raised to" : "lowered to"}">${up ? "▲" : "▼"}</b> `
+      + esc(advSrcOf(it) === "de" ? advLvlWords(it) : "L" + advLvl(it)) + " · " + esc(fmtDayShort(advChangedOn(it))) };
   };
   renderDimPicks("advMap", "Recently changed", changed.map(chLine), changed.map((it) => it.iso));
 
@@ -3778,16 +3868,29 @@ function renderAdvisories() {
   // control, and the sub-line counts instead of repeating it.
   const advH2 = $("advH2");
   if (advH2) advH2.innerHTML = `Travel advisories <span class="muted">per ${esc(advSrcName(true))}</span>`;
+  // The level filter in the chosen government's words; an option no row of
+  // its would match is hidden (and disabled, for Safari, which shows hidden
+  // options), and "Rated by others" is Germany's alone.
+  const words = ADV_LVL_WORDS[advisories.source] || ADV_LVL_WORDS.us;
   const lvlSel = $("advLevel");
-  if (lvlSel) for (const o of lvlSel.options) {
-    if (!o.dataset.lbl) o.dataset.lbl = o.textContent;
-    o.textContent = (de && DE_LVL_LABEL[o.value]) || o.dataset.lbl;
+  if (lvlSel) {
+    for (const o of lvlSel.options) {
+      if (o.value === "all") continue;
+      const l = +o.value;
+      o.textContent = o.value === "via" ? "Rated by others" : de ? DE_LVL_LABEL[l] || "L" + l : "L" + l + " — " + words[l - 1];
+      const n = (o.value !== "via" || de) && advisories.items.some((it) => advLvlMatch(o.value, advLvl(it), it.via, de));
+      o.hidden = o.disabled = !n;
+    }
+    if (lvlSel.selectedOptions[0] && lvlSel.selectedOptions[0].disabled) lvlSel.value = "all";
   }
   const srcSel = $("advSource");
   if (srcSel) {
     srcSel.value = advisories.source || advisorySource();
     srcSel.onchange = async () => {
       try { localStorage.setItem("wg_advsrc", srcSel.value); } catch (e) {}
+      // Another government, another scale: a level picked under the last
+      // one ("Some regions") could mean nothing under this one.
+      if (lvlSel) lvlSel.value = "all";
       await ensureAdvisories();
       renderAdvisories();
       if (loaded.value) renderValue();   // safety grades follow the chosen source
@@ -3808,24 +3911,29 @@ function renderAdvisories() {
     ? "Germany issues a formal travel warning for a whole country (read here as Level 4), a warning for some "
       + "regions (Level 2), or none. \"No warning\" is not a safety grade — it advises against North Korea "
       + "without one — so those countries are left neutral rather than painted safest."
-    : `Levels per ${advSrcName()}: 1 normal precautions, 2 increased caution, 3 reconsider travel, `
-      + "4 do not travel.")
+    : `Levels per ${advSrcName()}: ` + words.map((w, i) => (i + 1) + " " + w.toLowerCase()).join(", ") + ".")
     + (filled ? ` ${filled} ${filled === 1 ? "country" : "countries"} it doesn't cover carry another government's level — a dashed pill, whose tip says whose.` : "")
     + " Advisories reflect each government's own foreign policy — pick another under “Per” to compare.";
   $("advSub").innerHTML = esc(de ? `${own} countries · Germany warns, it doesn't grade` : `${own} countries rated`)
     + (filled ? esc(` · ${filled} filled in by others`) : "")
     + ` <span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`;
-  const sw = (c, l) => `<span><span class="swatch" style="background:${c}"></span>${l}</span>`;
-  $("advLegend").innerHTML = de
-    ? [sw(DE_NONE_FILL, "No warning"), sw(LVL_MAP_COLOR[2], "Some regions"), sw(LVL_MAP_COLOR[4], "Warning")].join(" ")
-      + (filled ? ` <span class="muted" data-tip="${esc(`${filled} countries Germany doesn't cover show another government's Level 1–4, green to red — each row says whose.`)}" title="">+${filled} per others</span>` : "")
-    : [1, 2, 3, 4].map((l) => sw(LVL_MAP_COLOR[l], "L" + l)).join(" ");
+  // Each level's words in its swatch's tip; the grey of a country no
+  // government we follow rates (~10 on the map) is keyed like the Cost map's.
+  // Germany's gap-fill note is "+32 others" (its tip says whose): with "No
+  // data" added, "per others" broke the legend onto a third line at 1280.
+  const sw = (c, l, tip) => `<span${tip ? ` data-tip="${esc(tip)}" title=""` : ""}><span class="swatch" style="background:${c}"></span>${l}</span>`;
+  $("advLegend").innerHTML = (de
+    ? [sw(DE_NONE_FILL, "No warning"), sw(LVL_MAP_COLOR[2], "Some regions"), sw(LVL_MAP_COLOR[4], "Travel warning")].join(" ")
+      + (filled ? ` <span class="muted" data-tip="${esc(`${filled} countries Germany doesn't cover show another government's Level 1–4, green to red — each row says whose.`)}" title="">+${filled} others</span>` : "")
+    : [1, 2, 3, 4].map((l) => sw(LVL_MAP_COLOR[l], "L" + l, `Level ${l} · ${words[l - 1]} (per ${advSrcName(true)})`)).join(" "))
+    + ' <span><span class="swatch"></span>No data</span>';
 
   markSort("#advTable", advSort);
-  // The two columns beside the level (usItem, healthOf): the US State
-  // Department's reasons, and Canada's disease risks. Each loads once and
-  // redraws the table when it lands; one that fails says so in its cells
-  // instead of asking again on every redraw.
+  // The two columns beside the level (usItem, healthOf): the reasons — the
+  // US State Department's, or with Canada picked Canada's own (health.json
+  // `r`, so it waits for that file too) — and Canada's disease risks. Each
+  // loads once and redraws the table when it lands; one that fails says so
+  // in its cells instead of asking again on every redraw.
   if (!health && !healthFailed && !_advWait.health) {
     _advWait.health = true;
     ensureHealth().then(() => { _advWait.health = false; if (advisories) renderAdvisories(); });
@@ -3845,27 +3953,53 @@ function renderAdvisories() {
   // The US item whose reasons a row shows: its own when the US is the pick,
   // else the US's rating of the same country; null where the US rates none.
   const usItem = (it) => (usMine ? (it.via ? null : it) : (it.iso && usOwn[it.iso]) || null);
+  // Canada's own reasons for its own level (never beside a gap-fill, which
+  // is another government's level): health.json's `r` labels, `rq` the lead
+  // sentence they come from.
+  const caMine = advisories.source === "ca";
+  const caWhy = (it) => {
+    const c = caMine && !it.via && it.iso && health && health.c[it.iso];
+    return c && c.r && c.r.length ? c : null;
+  };
+  // _rk/_rkSrc: the reasons a row shows and whose — what the Risks sort and
+  // the notes row read, so neither can disagree with the cell.
   for (const it of advisories.items) {
-    const u = usItem(it);
-    it._rk = u && u.risks && u.risks.length ? u.risks : null;
+    const u = usItem(it), c = caWhy(it);
+    it._rkSrc = c ? "ca" : u && u.risks && u.risks.length ? "us" : null;
+    it._rk = c ? c.r : it._rkSrc ? u.risks : null;
+    it._rq = c ? c.rq || "" : "";
     it._hz = healthOf(it.iso) || null;
+    it._wn = !!wnOf(it.iso);
   }
-  // With Canada or Germany picked, the reasons are still the US's: the
-  // header says so, and so does every phrase that stands in for them.
+  // With Germany picked, the reasons are the US's: the header says so, and
+  // so does every phrase that stands in for them. With Canada, its own —
+  // the US's, marked, only where Canada's page gives none. A health.json
+  // built before it carried Canada's reasons has none at all: then the
+  // column is the US's, and says so, as with Germany.
+  const caOwn = caMine && (advisories.items.some((it) => it._rkSrc === "ca") || (!health && !healthFailed));
   const rkLabel = $("riskLabel");
-  if (rkLabel) rkLabel.textContent = usMine ? "Risks" : "Risks · US";
+  if (rkLabel) rkLabel.textContent = usMine || caOwn ? "Risks" : "Risks · US";
   const riskInfo = $("riskInfo");
-  if (riskInfo) riskInfo.dataset.tip = "The reasons the U.S. State Department gives for its level — its own “due to "
-    + "crime, terrorism…” line — as short labels; “Other” is a reason no label fits (the tip quotes the sentence). "
-    + (usMine ? "" : "Shown beside the level you picked, which can differ: they're the US's, marked “US”. ")
-    + "Canada and Germany give reasons too, on each country's own page; the US feed is the one that carries them.";
+  const usWhy = "the reasons the U.S. State Department gives for its level — its own “due to crime, terrorism…” line — "
+    + "as short labels; “Other” is a reason no label fits (the tip quotes the sentence).";
+  if (riskInfo) riskInfo.dataset.tip = usMine ? "T" + usWhy.slice(1)
+    : caOwn ? "The reasons Global Affairs Canada gives for its level — its own lead sentence on each country's page — "
+      + "as short labels; the tip quotes it. Where Canada's page names none, the U.S. State Department's, marked “US” "
+      + "(its level can differ from Canada's)."
+    : caMine ? "T" + usWhy.slice(1) + " Beside Canada's level, which can differ — they're the US's, marked “US”."
+    : "Germany gives its reasons on each country's own page (in German). Shown here instead: " + usWhy
+      + " Beside Germany's call, which can differ — they're the US's, marked “US”.";
   const healthInfo = $("healthInfo");
   if (healthInfo) healthInfo.dataset.tip = "Diseases the Government of Canada's travel health advice calls a risk to "
     + "travellers there — mosquito-borne ones like dengue, malaria and Zika, street-dog rabies, and more. ⚠️ = a travel "
     + "health notice" + (healthStale() ? " (as of " + healthAsOf() + ")" : "") + "; ◐ = only in some areas, seasons or "
     + "itineraries. Ones Canada calls low or sporadic are in each row's tip. “Only the usual” = none that sets the "
     + "country apart (hepatitis A, routine vaccines and the like are left out everywhere). Not every risk is listed — "
-    + "Canada's advice says so, and West Nile virus, for one, isn't in it."
+    + (health && health.w
+      ? "Canada's advice says so. West Nile virus, which it leaves out, is added where " + (health.w.source || "ECDC")
+        + " reported it this season" + (health.w.season ? " (" + health.w.season + ")" : "") + "."
+        + (health.w.note ? " " + String(health.w.note).trim().replace(/([^.!?])$/, "$1.") : "")
+      : "Canada's advice says so, and West Nile virus, for one, isn't in it.")
     + (healthAsOf() ? " As of " + healthAsOf() + "." : "");
   // Keep open notes rows open across a redraw (a late feed or a sort).
   const openIsos = [...document.querySelectorAll('#advRows .worow[aria-expanded="true"]')].map((b) => b.dataset.iso);
@@ -3886,7 +4020,10 @@ function renderAdvisories() {
     const pillAttr = ` data-tip="${esc(pillTip)}" title=""`;
     const viaCls = it.via ? " via" : "";
     const viaSr = it.via ? `<span class="vh"> (per ${esc(advViaShort(it))})</span>` : "";
+    // Germany's own calls say its words, its whole-country warning too (it
+    // read "Level 4" beside a "Travel warning" filter and legend).
     const pill = deOwn(it) ? `<span class="lvl ${lvl === 1 ? "none" : "lvl2"}${viaCls}"${pillAttr}>${DE_LVL_LABEL[lvl]}${viaSr}</span>`
+      : de && !it.via && DE_LVL_LABEL[lvl] ? `<span class="lvl lvl${lvl}"${pillAttr}>${DE_LVL_LABEL[lvl]}</span>`
       : `<span class="lvl lvl${lvl}${viaCls}"${pillAttr}>Level ${lvl}${viaSr}</span>`;
     const src = it.via ? advViaShort(it) : advSrcName(true);
     const nameCell = it.iso ? `<span class="advflag" aria-hidden="true">${flagEmoji(it.iso)}</span><a class="destlink" href="${esc(guidePath(it.iso))}">${esc(nm)}</a>` : esc(nm);
@@ -3895,14 +4032,16 @@ function renderAdvisories() {
     // pill, dated in its tip and for a screen reader; a move in the last 180
     // days tints the row — red raised, green lowered.
     let moveCls = "", arrow = "";
-    if (it.change && it.updated) {
-      const up = it.change === "up";
+    const on = advChangedOn(it);
+    if (it.change && on) {
+      const up = it.change === "up", when = fmtDayShort(on);
       arrow = `<span class="advmvp ${up ? "neg" : "pos"}" data-tip="${esc(src + (up ? " raised" : " lowered")
-        + " it to Level " + lvl + " on " + fmtDay(it.updated))}" title=""><span aria-hidden="true">${up ? "▲" : "▼"}</span>`
-        + `<span class="vh"> ${up ? "raised" : "lowered"} ${esc(fmtDay(it.updated))}</span></span>`;
-      if (it.updated >= advMoveCutoff()) moveCls = up ? "advup" : "advdown";
+        + " it to " + advLvlName(it) + " on " + when)}" title=""><span aria-hidden="true">${up ? "▲" : "▼"}</span>`
+        + `<span class="vh"> ${up ? "raised" : "lowered"} ${esc(when)}</span></span>`;
+      if (on >= advMoveCutoff()) moveCls = up ? "advup" : "advdown";
     }
-    // 🚨 Risks: the US's reasons as chips, its sentence in the tip. Without
+    // 🚨 Risks: the reasons as chips, the sentence they come from in the
+    // tip — Canada's own beside Canada's level, else the US's. Without
     // reasons, one quiet phrase: "normal precautions" at Level 1 (the
     // advisory's full phrase repeated the pill down 83 rows), the level's own
     // words above it, or "no US advisory" where the US rates none. Beside
@@ -3911,23 +4050,30 @@ function renderAdvisories() {
     const usPre = usMine ? "" : "US: ";
     const uTip = u && u.summary ? "Per the U.S. State Department: “" + u.summary + "”"
       : "Per the U.S. State Department: Level " + (u ? advLvl(u) : "") + ", no reasons given";
-    const riskCell = it._rk
+    const riskCell = it._rkSrc === "ca"
+      ? `<span class="rkwrap" data-tip="${esc(it._rk.join(" · ") + " — per Global Affairs Canada"
+          + (it._rq ? ": “" + it._rq + "”" : ""))}" title="">${chipsHTML(it._rk, null, true)}</span>`
+      : caMine && !health && !healthFailed ? '<span class="muted">…</span>'
+      : it._rk
       ? `<span class="rkwrap" data-tip="${esc(it._rk.join(" · ") + " — per the U.S. State Department"
           + (u && u.summary ? ": “" + u.summary + "”" : ""))}" title="">${usMine ? "" : '<span class="rkus">US</span>'}${chipsHTML(it._rk, null, true)}</span>`
       : !usLoaded && _advWait.usFailed ? `<span class="sftext" data-tip="The U.S. reasons couldn't be loaded — try again later." title="">—</span>`
       : !usLoaded ? '<span class="muted">…</span>'
       : !u ? `<span class="sftext">${usMine ? "no US advisory" : "US: no advisory"}</span>`
       : `<span class="sftext" data-tip="${esc(uTip)}" title="">${usPre}${advLvl(u) >= 2 ? esc(String(u.level_text || "").toLowerCase()) : "normal precautions"}</span>`;
-    // 💉 Health: Canada's disease risks, the rest in the tip.
-    const hz = it._hz;
+    // 💉 Health: Canada's disease risks, the rest in the tip; West Nile
+    // (another agency's, named in its tip) after any notices.
+    const hz = it._hz, wn = it._wn ? wnText(it.iso) : "";
     const healthCell = !health && healthFailed ? `<span class="sftext" data-tip="Canada's health advice couldn't be loaded — try again later." title="">—</span>`
       : !health ? '<span class="muted">…</span>'
       : !it.iso ? '<span class="muted">—</span>'
-      : !hz ? `<span class="sftext" data-tip="Not covered by Canada's travel health advice" title="">—</span>`
-      : `<span class="hzwrap" data-tip="${esc(healthTip(hz))}" title="">${hz.h.length
-          ? healthChipsHTML(hz, true) : `<span class="hzlow">${HEALTH_USUAL}</span>`}</span>`;
+      : !hz && !wn ? `<span class="sftext" data-tip="Not covered by Canada's travel health advice" title="">—</span>`
+      : `<span class="hzwrap" data-tip="${esc(hz ? healthTip(hz, wn) : "Not covered by Canada's travel health advice. " + wn)}" title="">${
+          (hz && hz.h.length) || wn ? healthChipsHTML(hz || { h: [] }, true, !!wn) : `<span class="hzlow">${HEALTH_USUAL}</span>`}</span>`;
+    // data-via: a gap another government fills — the level filter's "Rated
+    // by others", and with Germany kept out of its own words' options.
     return `
-    <tr data-lvl="${lvl}"${guideAttr}${moveCls ? ` class="${moveCls}"` : ""}><td>${nameCell}</td>
+    <tr data-lvl="${lvl}"${it.via ? ` data-via="${esc(it.via)}"` : ""}${guideAttr}${moveCls ? ` class="${moveCls}"` : ""}><td>${nameCell}</td>
       <td>${pill}${arrow}</td>
       <td class="rkcell">${riskCell}</td>
       <td class="hzcell">${healthCell}</td>
@@ -3967,7 +4113,10 @@ function renderAdvisories() {
 // with itself.
 const GOV = [["us", "🇺🇸", "US"], ["ca", "🇨🇦", "Canada"], ["de", "🇩🇪", "Germany"]];
 let govIso = (() => { const v = new URLSearchParams(location.search).get("sc") || ""; return /^[A-Z]{2}$/.test(v) ? v : null; })();
-let govScrollTop = 0;
+// On a phone the list sits in the page, eight rows until "Show all" (CSS
+// gates both on width); this remembers the reader asked for all of them.
+let govAll = false;
+const GOV_SHORT = 8;
 // Each feed on its own: one that fails leaves its column "unavailable"
 // rather than blanking the panel.
 async function ensureAllAdvisories() {
@@ -3988,12 +4137,13 @@ function govOwn(src) {
 // view. Only Germany's full warning is compared.
 const govGraded = (src, it) => !!it && (src !== "de" || parseInt(it.level, 10) === 4);
 function setGovCountry(iso) {
-  const box = $("govScroll");
-  if (iso && !govIso && box) govScrollTop = box.scrollTop;   // come back to the same place in the list
   govIso = iso || null;
   renderGov(true);
   syncURL();
 }
+// Whether the list scrolls in its own box (beside the map, or stacked above
+// 560px) rather than in the page.
+const govInBox = (box) => getComputedStyle(box).overflowY !== "visible" && box.scrollHeight > box.clientHeight + 1;
 async function renderGov(focus) {
   const box = $("govScroll");
   if (!box) return;
@@ -4001,7 +4151,7 @@ async function renderGov(focus) {
   const loadedSrc = GOV.filter(([src]) => _advBySource[src] && _advBySource[src].items);
   if (!loadedSrc.length) {
     $("govSub").textContent = "Couldn't load the governments' advisories — try again later.";
-    box.innerHTML = ""; $("govNote").textContent = "";
+    box.innerHTML = ""; $("govNote").textContent = ""; $("govNote").hidden = true;
     return;
   }
   const own = {};
@@ -4047,7 +4197,15 @@ async function renderGov(focus) {
         + (sum ? `<p class="govsum">${esc(sum)}</p>` : "")
         + "</div>";
     }).join("");
-    if (focus) { const bk = document.querySelector("#govCard .govback"); if (bk) bk.focus({ preventScroll: true }); }
+    if (focus) {
+      box.scrollTop = 0;   // from deep in the list, the box kept its offset and hid the US's row
+      const bk = document.querySelector("#govCard .govback");
+      if (bk) bk.focus({ preventScroll: true });
+      // Picked deep in a page-long phone list: the three advisories are
+      // far shorter, and the page would be left showing what's below them.
+      const card = $("govCard");
+      if (card && card.getBoundingClientRect().top < 0) card.scrollIntoView({ block: "start" });
+    }
   } else {
     const rows = [];
     const isos = new Set(GOV.flatMap(([src]) => Object.keys(own[src])));
@@ -4060,34 +4218,63 @@ async function renderGov(focus) {
     }
     rows.sort((a, b) => b.spread - a.spread || b.max - a.max || countryName(a.iso).localeCompare(countryName(b.iso)));
     const far = rows.filter((r) => r.spread >= 2).length;
-    $("govH2").innerHTML = 'Where governments disagree <span class="muted">US · Canada · Germany'
-      + (regionSel === "all" ? "" : " · " + esc(REGIONS[regionSel])) + "</span>";
-    $("govSub").textContent = rows.length
-      ? `${far} ${far === 1 ? "country" : "countries"} rated 2+ levels apart, ${rows.length - far} one level apart · `
-        + "pick a country here or on the map to compare all three"
-      : "They agree on every country here · pick one on the map to see all three";
-    $("govNote").innerHTML = esc("L1–L4 = each government's level; — = no advisory of its own. ")
-      + `<span class="muted" data-tip="${esc(tip)}" title="">ⓘ</span>`;
+    // The column heads name the three governments; the header keeps only a
+    // region's name. One line of counts under it — how to use the list and
+    // the key to its marks are in the ⓘ (they were two more lines).
+    $("govH2").innerHTML = "Where governments disagree"
+      + (regionSel === "all" ? "" : ` <span class="muted">${esc(REGIONS[regionSel])}</span>`);
+    const how = (rows.length ? "Pick a country here or on the map to compare all three. " : "Pick one on the map to see all three. ")
+      + "L1–L4 = each government's level; — = no advisory of its own. " + tip;
+    $("govSub").innerHTML = esc(rows.length
+      ? `${far} ${far === 1 ? "country" : "countries"} 2+ levels apart · ${rows.length - far} one level apart`
+      : "They agree on every country here")
+      + `&nbsp;<span class="muted" data-tip="${esc(how)}" title="">ⓘ</span>`;
+    $("govNote").innerHTML = "";
     box.classList.remove("detail");
-    box.innerHTML = `<table class="govtable"><thead><tr><th>Country</th>`
+    // Back from a country further down than the phone's first rows: show
+    // them all, or there is no row to come back to.
+    const lastAt = box._lastIso ? rows.findIndex((r) => r.iso === box._lastIso) : -1;
+    if (focus && lastAt >= GOV_SHORT) govAll = true;
+    const more = rows.length > GOV_SHORT
+      ? `<button type="button" class="showmore govmore" aria-expanded="${govAll}">${govAll ? "Show fewer ↑" : "Show all " + rows.length + " ↓"}</button>` : "";
+    box.innerHTML = `<table class="govtable${govAll ? "" : " short"}"><thead><tr><th>Country</th>`
       + GOV.map(([src, flag, short]) => `<th class="${src === mine ? "mine" : ""}">${flag} ${short}</th>`).join("")
       + `</tr></thead><tbody>`
       + rows.map((r) => `<tr data-iso="${esc(r.iso)}"><td><button type="button" class="govpick" data-iso="${esc(r.iso)}"`
-        + ` title="All three advisories for ${esc(countryName(r.iso))}">${esc(countryName(r.iso))}</button></td>`
+        + ` title="All three advisories for ${esc(countryName(r.iso))}"><span class="govflag" aria-hidden="true">${flagEmoji(r.iso)}</span>`
+        + `${esc(countryName(r.iso))}</button></td>`
         + GOV.map(([src]) => `<td class="${src === mine ? "mine" : ""}">${pill(own[src][r.iso], src)}</td>`).join("") + "</tr>").join("")
-      + "</tbody></table>";
-    // Back from a country: the same place in the list, focus on its row.
+      + "</tbody></table>" + more;
+    // Back from a country: its row in view (centred in the box, or in the
+    // page where the list is part of it) and focused.
     if (focus) {
-      box.scrollTop = govScrollTop;
       const last = box._lastIso && box.querySelector(`.govpick[data-iso="${box._lastIso}"]`);
-      if (last) last.focus({ preventScroll: true });
+      if (last) {
+        if (govInBox(box)) {
+          const b = box.getBoundingClientRect(), r = last.getBoundingClientRect();
+          box.scrollTop += r.top - b.top - (box.clientHeight - r.height) / 2;
+        } else last.scrollIntoView({ block: "center" });
+        last.focus({ preventScroll: true });
+      }
     }
   }
+  $("govNote").hidden = !$("govNote").innerHTML;
   box._lastIso = govIso || box._lastIso;
   if (!box._wired) {
     box._wired = true;
     $("govCard").addEventListener("click", (e) => {
       if (e.target.closest(".govback")) { setGovCountry(null); return; }
+      const mb = e.target.closest(".govmore");
+      if (mb) {
+        govAll = !govAll;
+        const t = $("govScroll").querySelector(".govtable");
+        if (t) t.classList.toggle("short", !govAll);
+        mb.textContent = govAll ? "Show fewer ↑" : "Show all " + (t ? t.tBodies[0].rows.length : "") + " ↓";
+        mb.setAttribute("aria-expanded", String(govAll));
+        // Folding 2,000px away from under the reader: keep the button in view.
+        if (!govAll) mb.scrollIntoView({ block: "nearest" });
+        return;
+      }
       const tr = e.target.closest(".govtable tbody tr[data-iso]");
       if (tr) setGovCountry(tr.dataset.iso);
     });
@@ -4104,22 +4291,32 @@ async function renderGov(focus) {
 function advDetailHead(iso) {
   const it = advisories && advisories.items.find((x) => x.iso === iso);
   const out = [];
-  if (it && it._rk) out.push(`<div class="advdl"><b><span aria-hidden="true">🚨 </span>Risks</b> <span class="muted">per US State Dept</span> `
+  // Whose reasons these are: Canada's own beside its level, else the US's.
+  if (it && it._rk) out.push(`<div class="advdl"><b><span aria-hidden="true">🚨 </span>Risks</b> <span class="muted">per ${
+    it._rkSrc === "ca" ? "Global Affairs Canada" : "US State Dept"}</span> `
     + `<span class="rkwrap">${chipsHTML(it._rk)}</span></div>`);
   // The Health line in words, group by group — on a phone (no hover, no
   // column header) the ⚠️ and ◐ marks would otherwise go unexplained.
-  const hz = healthOf(iso);
-  if (hz) {
-    const notice = hz.n || [], areas = hz.a || [];
+  // West Nile is a group of its own, after the notices, credited to the
+  // agency that reported it (it isn't in Canada's advice).
+  const hz = healthOf(iso), wx = wnOf(iso);
+  if (hz || wx) {
+    const notice = (hz && hz.n) || [], areas = (hz && hz.a) || [];
     const kind = (n) => (notice.includes(n) ? "notice" : areas.includes(n) ? "area" : "");
-    const groups = healthGroups(hz).map(([label, list], i) => `<span class="advgrp"><span class="muted">${esc(label)}:</span> `
-      + (i === healthGroups(hz).length - 1 && label === "Low or sporadic"
+    const hg = hz ? healthGroups(hz) : [];
+    const groups = hg.map(([label, list], i) => `<span class="advgrp"><span class="muted">${esc(label)}:</span> `
+      + (i === hg.length - 1 && label === "Low or sporadic"
         ? `<span class="muted">${esc(list.join(", "))}</span>`
         : `<span class="rkwrap">${chipsHTML(list, kind)}</span>`) + "</span>");
-    out.push(`<div class="advdl"><b><span aria-hidden="true">💉 </span>Health</b> <span class="muted">per Government of Canada${healthAsOf() ? ", as of " + esc(healthAsOf()) : ""}</span> `
-      + (hz.h.length ? "" : `<span class="hzlow">${HEALTH_USUAL}</span> `)
+    if (wx) groups.splice(notice.length ? 1 : 0, 0, `<span class="advgrp"><span class="muted">${esc(wnLabel())}${
+      wx.a && wx.a.length ? ":" : ""}</span> ${esc((wx.a || []).join(", "))}${
+      wx.t ? ` <span class="muted">${esc(wx.t)}</span>` : ""}</span>`);
+    out.push(`<div class="advdl"><b><span aria-hidden="true">💉 </span>Health</b> <span class="muted">${hz
+      ? "per Government of Canada" + (healthAsOf() ? ", as of " + esc(healthAsOf()) : "")
+      : "not covered by Canada's travel health advice"}</span> `
+      + (!hz || hz.h.length ? "" : `<span class="hzlow">${HEALTH_USUAL}</span> `)
       + groups.join(" ")
-      + (hz.s ? ` <a class="farelink" href="https://travel.gc.ca/destinations/${encodeURIComponent(hz.s)}#health" target="_blank" rel="noopener">health advice&nbsp;<span class="ext">↗</span></a>` : "")
+      + (hz && hz.s ? ` <a class="farelink" href="https://travel.gc.ca/destinations/${encodeURIComponent(hz.s)}#health" target="_blank" rel="noopener">health advice&nbsp;<span class="ext">↗</span></a>` : "")
       + "</div>");
   }
   return out.join("");
@@ -6287,6 +6484,10 @@ function notScoredReason(iso) {
 // narrow layouts. Safety gets no list at all: ~100 countries tie at Level 1,
 // and ranking a tie is invention.
 // `empty`: a line to show instead when there are no items (else the row goes).
+// An item is text, or { html } for trusted markup the caller built and
+// escaped (Safety's coloured ▲/▼ — escaped, it printed as grey text). Any
+// element inside it must not be a <span>: dimPicksFromDom reads each span as
+// a pick of its own.
 function renderDimPicks(hostId, title, items, isos, empty) {
   const host = $(hostId);
   if (!host) return;
@@ -6306,7 +6507,7 @@ function renderDimPicks(hostId, title, items, isos, empty) {
   // picks, and the share image must not list "Nothing below…" as #1.
   if (!items || !items.length) { row.innerHTML = "<strong>" + esc(empty) + "</strong>"; return; }
   row.innerHTML = "<strong>" + esc(title) + "</strong>"
-    + items.slice(0, 8).map((t, i) => "<span>" + (i + 1) + ". " + esc(t) + "</span>").join("");
+    + items.slice(0, 8).map((t, i) => "<span>" + (i + 1) + ". " + (t && t.html != null ? t.html : esc(t)) + "</span>").join("");
   if (isos && isos.length && !reducedMotion()) {
     const set = new Set(isos);
     let i = 0;
@@ -6509,13 +6710,13 @@ const advMoveCutoff = () => new Date(Date.now() - ADV_MOVE_DAYS * 864e5).toISOSt
 // handful of countries carry one at a time.
 function advMovedMark(iso) {
   const it = advisoryMetaByIso()[iso];
-  if (!it || !it.change || !it.updated) return "";
-  if (it.updated < advMoveCutoff()) return "";
-  const d = new Date(it.updated + "T12:00:00");
-  const when = isNaN(d) ? it.updated : MON_ABBR[d.getMonth()] + " " + d.getDate();
+  const on = advChangedOn(it);
+  if (!it || !it.change || !on) return "";
+  if (on < advMoveCutoff()) return "";
+  const when = fmtDayShort(on);
   const up = it.change === "up";
   return `<span class="advmv ${up ? "chup" : "chdown"}" data-tip="${esc("Advisory "
-    + (up ? "raised" : "lowered") + " to Level " + it.level + " on " + when
+    + (up ? "raised" : "lowered") + " to " + advLvlName(it) + " on " + when
     + " — recently " + (up ? "riskier" : "safer") + " in the source's judgement.")}" title="">${
     up ? "▲" : "▼"}</span>`;
 }
@@ -7746,8 +7947,9 @@ function applyAdvFilter() {
   // The name only: the rows now carry disease and reason chips, and "congo"
   // matched 26 countries (Crimean-Congo fever), "den" 93.
   const jumpIso = jumpActive("advFilter");
+  const de = !!(advisories && advisories.source === "de");
   filterRows("advRows", (tr) =>
-    (lvl === "all" || tr.dataset.lvl === lvl) && regionRowOk(tr)
+    advLvlMatch(lvl, tr.dataset.lvl, tr.dataset.via, de) && regionRowOk(tr)
     && (jumpIso ? tr.dataset.iso === jumpIso : !q || (tr.cells[0] ? tr.cells[0].textContent : "").toLowerCase().includes(q)));
   // An open notes row follows its country: hidden with it, back with it.
   for (const d of $("advRows").querySelectorAll("tr.wodetail")) {
@@ -9782,7 +9984,7 @@ function buildGuideCardSVG(iso) {
   const meta = advisoryMetaByIso();
   const advPar = !meta[iso] && ADV_PARENT[iso] && meta[ADV_PARENT[iso]] ? ADV_PARENT[iso] : null;
   const adv = meta[iso] || (advPar && meta[advPar]);
-  if (adv) facts.push("🛡️  Level " + adv.level + " · " + (ADV_LABEL[adv.level] || "").split("· ")[1]
+  if (adv) facts.push("🛡️  " + (advSrcOf(adv) === "de" ? "" : "Level " + adv.level + " · ") + advLvlWords(adv)
     + "  (per " + (advViaShort(adv) || advSrcName(true))
     + (advPar ? ", for " + (advPar === "GB" ? "the UK" : countryName(advPar)) : "") + ")");
   const act = activities && activities[iso];
@@ -10589,12 +10791,20 @@ if ($("affShare")) $("affShare").addEventListener("click", () => {
 if ($("advShare")) $("advShare").addEventListener("click", () => downloadMapImage("advMap", {
   picks: dimPicksFromDom("advMap").picks, picksTitle: dimPicksFromDom("advMap").title,
   title: "Where governments say it's safe to travel",
-  // Read at click time: the map shows whichever government the picker holds.
-  sub: advSrcName() + " advisory levels, 1 (normal precautions) to 4 (do not travel)"
-     + (advisories && advisories.filled ? "; gaps filled by other governments." : "."),
-  swatches: [{ c: LVL_MAP_COLOR[1], label: "Level 1" }, { c: LVL_MAP_COLOR[2], label: "Level 2" },
-             { c: LVL_MAP_COLOR[3], label: "Level 3" }, { c: LVL_MAP_COLOR[4], label: "Level 4" },
-             { c: NODATA, label: "no data" }],
+  // Read at click time: the map shows whichever government the picker holds,
+  // in its own words — Germany's three calls, not a 1–4 it doesn't give.
+  sub: advisories && advisories.source === "de"
+    ? advSrcName() + ": a travel warning, one for some regions, or none"
+      + (advisories.filled ? "; gaps filled by other governments, 1–4." : ".")
+    : advSrcName() + " advisory levels, 1 (" + (ADV_LVL_WORDS[(advisories && advisories.source) || "us"] || ADV_LVL_WORDS.us)[0].toLowerCase()
+      + ") to 4 (" + (ADV_LVL_WORDS[(advisories && advisories.source) || "us"] || ADV_LVL_WORDS.us)[3].toLowerCase() + ")"
+      + (advisories && advisories.filled ? "; gaps filled by other governments." : "."),
+  swatches: (advisories && advisories.source === "de"
+    ? [{ c: DE_NONE_FILL, label: "No warning" }, { c: LVL_MAP_COLOR[2], label: "Some regions" },
+       { c: LVL_MAP_COLOR[4], label: "Travel warning" }]
+    : [{ c: LVL_MAP_COLOR[1], label: "Level 1" }, { c: LVL_MAP_COLOR[2], label: "Level 2" },
+       { c: LVL_MAP_COLOR[3], label: "Level 3" }, { c: LVL_MAP_COLOR[4], label: "Level 4" }])
+    .concat([{ c: NODATA, label: "no data" }]),
   footer: "Advisories are one government's read and change often — check the current notice before booking. wandergrade.com",
   filename: "wandergrade-travel-advisories.png",
 }));

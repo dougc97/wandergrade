@@ -243,7 +243,9 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .lvl1 { background: #0a7d28; } .lvl2 { background: #c9a200; } .lvl3 { background: #d4730a; } .lvl4 { background: #b00020; }
 /* Germany's "no warning" is not a level (renderAdvisories): a quiet chip, not
    the Level 1 green. */
-.lvl.none { background: var(--soft); color: var(--gray); border: 1px solid var(--line); }
+/* Its border comes out of the padding: a 2px-taller pill stood every German
+   "No warning" row up at 44px against the table's 43. */
+.lvl.none { background: var(--soft); color: var(--gray); border: 1px solid var(--line); padding: 1px 8px; }
 /* Level 2/3 fills are too light for white (2.4 / 3.4:1); black is 8.7 / 6.3.
    Covers the three badge families that share this palette — two classes
    each, because .advbadge sets its white further down the file. */
@@ -397,7 +399,15 @@ small { color: var(--gray); font-weight: 400; }
 .govpick:hover { text-decoration: underline; }
 .govtable tbody tr:hover td { background: var(--soft); }
 .govtable .lvl { padding: 1px 8px; font-size: 11.5px; }
-.govtable .none { color: var(--gray); }
+/* "no warning" and "some regions" on one line: at 360 they wrapped in 36 of
+   37 rows, doubling the list's height. */
+.govtable .none { color: var(--gray); white-space: nowrap; }
+/* The flag stays beside the name; a long name wraps under itself, not
+   under the flag (at 360 the flag sat alone on a line above "Venezuela"). */
+.govpick { display: inline-flex; align-items: baseline; }
+.govtable .govflag { flex: none; margin-right: 6px; }
+/* The phone list's "Show all" (≤560 only, below). */
+.showmore.govmore { display: none; }
 .govrow { padding: 10px 2px; border-top: 1px solid var(--line); }
 .govrow:first-child { border-top: none; }
 .govrow.mine { background: var(--soft); border-radius: 8px; padding: 10px; }
@@ -526,6 +536,9 @@ html.mapfs-open, html.mapfs-open body { overflow: hidden; }
 .legend .scale { flex: none; width: 130px; height: 10px; border-radius: 5px;
   background: linear-gradient(90deg, #b00020, #e88, #f0f0f0, #8c8, #0a7d28); }
 /* Keep in step with NODATA in app.js — this is the legend key for it. */
+/* A note inside a map legend reads at the legend's size, not the 14px of a
+   header's muted text (Germany's "+32 per others" stood a line taller). */
+#advLegend .muted { font-size: inherit; }
 .legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; background: #6b7681; vertical-align: -1px; margin-right: 3px; }
 
 .windowtoggle { display: inline-flex; gap: 4px; margin-top: 10px; background: var(--soft); padding: 3px; border-radius: 8px; }
@@ -1157,6 +1170,11 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 /* "…currency or country…" is 209px of placeholder: 220 cut it at "count".
    Phones keep their flex sizing (the <=560 rule outranks this). */
 #curFilter { min-width: 250px; }
+/* Canada's level names are long ("L3 — Avoid non-essential travel", a 251px
+   select): at 700 the select dropped to a row of its own. The search gives
+   up a little width first — a basis, not a shrink: a wrapping row wraps
+   before it shrinks. Phones have their own rule (search on its own line). */
+@media (min-width: 561px) { #advFilter { flex: 1 1 160px; min-width: 160px; max-width: 220px; } }
 .filterbar select { padding: 7px 9px; border: 1px solid var(--border-input); border-radius: 8px;
   background: var(--card); color: var(--ink); }
 .filterbar .chk { font-size: 13px; color: var(--gray); display: inline-flex; gap: 6px; align-items: center; }
@@ -1275,6 +1293,8 @@ html[data-tab="guide"] #tab-guide .cardwide { min-height: 100vh; }
 .advbadge { display: inline-block; border-radius: 999px; padding: 3px 11px; font-size: 12px; font-weight: 700; color: #fff; white-space: nowrap; }
 .advlvl1 { background: #0a7d28; } .advlvl2 { background: #c9a200; }
 .advlvl3 { background: #d4730a; } .advlvl4 { background: #b00020; }
+/* Germany's "No warning" is no grade: neutral, like its pill and map fill. */
+.advbadge.nowarn { background: var(--soft); color: var(--gray); border: 1px solid var(--line); }
 /* "Surprise me" discovery button in the Top Picks header. */
 .surprisebtn { background: var(--green-fill); color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; align-self: flex-start; }
 .surprisebtn:hover { filter: brightness(1.08); }
@@ -1599,6 +1619,17 @@ button.chip2 { border: 0; }
 }
 
 @media (max-width: 560px) {
+  /* "Where governments disagree" leaves its 420px box here: a thumb
+     scrolling the page landed in it and scrolled 2,010px of rows instead.
+     The list is part of the page — eight rows, then "Show all". */
+  .toprow #govScroll { max-height: none; overflow: visible; }
+  #govScroll .govtable.short tbody tr:nth-child(n+9) { display: none; }
+  .showmore.govmore { display: block; }
+  .govtable .none { font-size: 11.5px; }
+  /* Flag + "Turkmenistan" beside three columns: 309px of minimum in a 298px
+     box at 360. The global td 14px and 6px sides were the 11. */
+  .govtable td, .govtable th { padding-left: 4px; padding-right: 4px; }
+  .govtable td { font-size: 13px; }
   /* The currency table was pinned to 560 in a 375 phone — 213px hidden, and even
      unpinned it wants 482. Range position is a decorative bar (and the widest
      column at 115px); dropping it brings the table to 367, which fits. The number
