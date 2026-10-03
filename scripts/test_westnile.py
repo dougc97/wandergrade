@@ -18,7 +18,7 @@ file's first comment says which capture.
 
     /usr/bin/python3 scripts/test_westnile.py
 """
-import base64, csv, gzip, io, json, os, re, sys, urllib.error
+import base64, contextlib, copy, csv, datetime, gzip, io, json, os, re, sys, urllib.error
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -71,15 +71,17 @@ results.append(ok(sum(c["cases"] for c in C.values()) == 1285, "W37: 1,285 cases
 results.append(ok(C["IT"]["areas"][0] == ("Padova", 50) and C["GR"]["areas"][0] == ("Anatoliki Attiki", 87),
                   "W37: busiest area first (Padova 50, Anatoliki Attiki 87)"))
 ent = wn.ecdc_entries(e, BUILT)
-results.append(ok(ent["IT"]["t"] == "ECDC: 590 locally acquired human cases in 64 areas in 2026 so far (as of 10 Sep)",
+results.append(ok(ent["IT"]["t"] == "ECDC: 590 locally acquired human cases, 64 affected areas, in 2026 so far (as of 10 Sep)",
                   "W37: Italy's sentence"))
-results.append(ok(ent["XK"]["t"] == "ECDC: 1 locally acquired human case in 1 area in 2026 so far (as of 10 Sep)"
+results.append(ok(ent["XK"]["t"] == "ECDC: 1 locally acquired human case, 1 affected area, in 2026 so far (as of 10 Sep)"
                   and ent["XK"]["a"] == ["Gjakovë"], "W37: singular wording, Kosovo's area"))
 results.append(ok(len(ent["IT"]["a"]) == 10 and ent["IT"]["a"][:3] == ["Padova", "Milano", "Roma"],
                   "W37: at most 10 areas, in ECDC's spelling"))
 results.append(ok("Karditsa, Trikala" in ent["GR"]["a"], "W37: a two-place area keeps ECDC's name"))
+results.append(ok(ent["GR"]["t"] == "ECDC: 319 locally acquired human cases, 21 affected areas, in 2026 so far (as of 10 Sep)",
+                  "W37: Greece's 319 (9 with no known place) sit beside its 21 areas, not 'in' them"))
 off = wn.ecdc_entries(e, "2027-01-15")
-results.append(ok(off["IT"]["t"] == "ECDC: 590 locally acquired human cases in 64 areas in the 2026 season",
+results.append(ok(off["IT"]["t"] == "ECDC: 590 locally acquired human cases, 64 affected areas, in the 2026 season",
                   "W37 read in January 2027: 'in the 2026 season', no 'so far'"))
 
 # Same table from the DataTables widget when the data.csv button is gone.
@@ -88,6 +90,27 @@ e2 = wn.parse_ecdc(no_csv)
 results.append(ok({i: (c["cases"], c["areas"]) for i, c in e2["countries"].items()} ==
                   {i: (c["cases"], c["areas"]) for i, c in C.items()},
                   "W37: table widget fallback gives the same countries, areas and cases"))
+
+# A country in the summary with no table row (all its cases had an unknown
+# place of infection) still gets an entry — it used to vanish, and with it
+# the total stopped matching ECDC's.
+GERMANY = "<strong>Germany</strong>\n(2 cases), "
+assert W37.count(GERMANY) == 1
+be = wn.parse_ecdc(W37.replace(GERMANY, GERMANY + "<strong>Belgium</strong> (2 cases), "))
+results.append(ok(be["countries"].get("BE") == {"name": "Belgium", "cases": 2, "areas": []}
+                  and sum(c["cases"] for c in be["countries"].values()) == 1287,
+                  "W37 + 'Belgium (2 cases)' with no area row: BE kept, total 1,287"))
+be_ent = wn.ecdc_entries(be, BUILT)
+results.append(ok(be_ent["BE"] == {"t": "ECDC: 2 locally acquired human cases, place of infection not given, in 2026 so far (as of 10 Sep)"},
+                  "W37 + Belgium: no 'a', 'place of infection not given'"))
+
+# Only "ECDC concludes its weekly reports" ends a season; a mid-season notice
+# of when it will conclude must not drop the "as of" date.
+BASIS = "<h1>Basis and purpose of this weekly overview</h1>"
+assert W37.count(BASIS) == 1
+fp = wn.parse_ecdc(W37.replace(BASIS, "<p>ECDC will conclude its weekly reports at the end of November.</p>\n" + BASIS))
+results.append(ok(not fp["done"] and wn.ecdc_entries(fp, BUILT)["IT"]["t"].endswith("in 2026 so far (as of 10 Sep)"),
+                  "W37 + 'ECDC will conclude its weekly reports…': season not over, still 'so far (as of 10 Sep)'"))
 
 # --- ECDC, Week 28 2026: numbers in words ---------------------------------------------
 e = wn.parse_ecdc(W28)
@@ -106,7 +129,7 @@ results.append(ok(len(C) == 14 and "TR" in C and "BG" in C and e["unmapped"] == 
                   "2025 W50: 14 countries as ECDC lists them, Türkiye -> TR"))
 results.append(ok(all(c["cases"] is None for c in C.values()), "2025 W50: no case totals invented"))
 ent = wn.ecdc_entries(e, "2025-12-20")
-results.append(ok(ent["IT"]["t"] == "ECDC: locally acquired human cases in 64 areas in the 2025 season",
+results.append(ok(ent["IT"]["t"] == "ECDC: locally acquired human cases, 64 affected areas, in the 2025 season",
                   "2025 W50: area count only, 'the 2025 season' even in December"))
 it = [r for r in ecdc_csv(W2025) if r["Country"] == "Italy"]
 busiest = max(it, key=lambda r: int(r["Number of probable cases"]) + int(r["Number of confirmed cases"]))
@@ -140,12 +163,20 @@ except ValueError:
 ISOS = set()
 with open(os.path.join(os.path.dirname(HERE), "public", "world.geojson"), encoding="utf-8") as f:
     ISOS = {ft["properties"].get("iso") for ft in json.load(f)["features"]}
+# AS and MP have no map shape but are Safety-table rows (health.json's c).
+with open(os.path.join(os.path.dirname(HERE), "public", "health.json"), encoding="utf-8") as f:
+    ISOS |= set(json.load(f)["c"])
+KEYS = {"source", "url", "season", "built", "asof", "note", "c"}
 
 
 def shape(w, built):
     errs = []
-    if set(w) - {"source", "url", "season", "built", "note", "c"}:
-        errs.append("extra keys %s" % (set(w) - {"source", "url", "season", "built", "note", "c"}))
+    if set(w) - KEYS:
+        errs.append("extra keys %s" % (set(w) - KEYS))
+    if "asof" in w and not re.fullmatch(r"\d{4}-\d\d-\d\d", str(w["asof"])):
+        errs.append("asof %r" % w["asof"])
+    if "asof" in w and "ECDC" not in w.get("source", ""):
+        errs.append("asof without ECDC")
     if w.get("source") not in ("ECDC", "CDC", "ECDC · CDC"):
         errs.append("source %r" % w.get("source"))
     if not str(w.get("url", "")).startswith("https://"):
@@ -175,16 +206,76 @@ results.append(ok(not errs, "contract: both sources -> C1 shape, every key an IS
 results.append(ok(w["source"] == "ECDC · CDC" and w["url"] == wn.ECDC_URL and w["note"] == wn.NOTE_ALL
                   and len(w["c"]) == 16 and list(w["c"]) == sorted(w["c"]),
                   "contract: 'ECDC · CDC', 16 countries in ISO order, coverage note"))
+results.append(ok(w["asof"] == "2026-09-10", "contract: w.asof = the ECDC data's own date (10 Sep)"))
+results.append(ok(all(x in wn.NOTE_ALL for x in ("EU/EEA", "Albania", "Bosnia and Herzegovina", "Kosovo", "Montenegro",
+                                                 "North Macedonia", "Serbia", "Türkiye", "CDC covers the US"))
+                  and all("no entry doesn't mean no West Nile" in n and "elsewhere" not in n
+                          for n in (wn.NOTE_ALL, wn.NOTE_NO_CDC, wn.NOTE_NO_ECDC))
+                  and "US data (CDC) unavailable" in wn.NOTE_NO_CDC and "Europe's data (ECDC) unavailable" in wn.NOTE_NO_ECDC,
+                  "notes: ECDC's exact coverage named; the caveat applies everywhere, not 'elsewhere'"))
 w1 = wn.build(ecdc, None, BUILT)
 w2 = wn.build(None, cdc, BUILT)
 results.append(ok(w1["source"] == "ECDC" and w1["note"] == wn.NOTE_NO_CDC and "US" not in w1["c"] and not shape(w1, BUILT),
                   "contract: ECDC only -> note says the US is missing"))
 results.append(ok(w2["source"] == "CDC" and w2["url"] == wn.CDC_URL and w2["note"] == wn.NOTE_NO_ECDC
-                  and list(w2["c"]) == ["US"] and not shape(w2, BUILT),
+                  and list(w2["c"]) == ["US"] and "asof" not in w2 and not shape(w2, BUILT),
                   "contract: CDC only -> CDC's page, note says Europe is missing"))
 results.append(ok(wn.build(None, None, BUILT) is None, "contract: nothing read -> None (w absent)"))
 results.append(ok(wn.build(wn.parse_ecdc(W2025), None, "2026-03-01")["season"] == "2025",
                   "contract: off-season build carries the last season"))
+be_w = wn.build(be, None, BUILT)
+results.append(ok(not shape(be_w, BUILT) and "a" not in be_w["c"]["BE"], "contract: a summary-only country fits C1 (no 'a')"))
+terr = wn.build(None, wn.parse_cdc('"State","Reported Cases","Legend"\nAS,1,1 to 5\nMP,1,1 to 5\n', CDC_CONFIG, CDC_PAGE), BUILT)
+results.append(ok(set(terr["c"]) == {"AS", "MP"} and not shape(terr, BUILT),
+                  "contract: AS and MP kept (Safety-table rows, though not on the map)"))
+
+# built: a date object works (it used to raise inside build(), which get()
+# turned into None); a malformed string raises instead of being stored.
+results.append(ok(wn.build(ecdc, cdc, datetime.date(2026, 10, 3)) == w
+                  and wn.build(ecdc, cdc, datetime.datetime(2026, 10, 3, 9, 30)) == w,
+                  "built: date and datetime -> '2026-10-03', same w as the string"))
+bad = []
+for b_ in ("2026-10-3", "03/10/2026", "2026-13-01", "", 20261003):
+    try:
+        wn.build(ecdc, cdc, b_)
+        bad.append(b_)
+    except ValueError:
+        pass
+results.append(ok(not bad, "built: malformed values raise ValueError %s" % (bad or "")))
+
+# keep_newer: the stored w (old) vs a new build. ECDC: an archive copy dated
+# before the stored live read must not replace it; a source that failed keeps
+# its stored entries.
+e_live = wn.parse_ecdc(W37)
+e_live["asof"] = "2026-10-01"
+e_live["countries"]["IT"]["cases"] = 700
+cdc_old = wn.parse_cdc('"State","Reported Cases","Legend"\nTX,5,1 to 5\n', CDC_CONFIG, CDC_PAGE)
+old = wn.build(e_live, cdc_old, "2026-10-02")
+new = wn.build(ecdc, cdc, BUILT)                 # archive W37 (10 Sep) + fresh CDC
+k = wn.keep_newer(old, new)
+results.append(ok(k["c"]["IT"] == old["c"]["IT"] and "700" in k["c"]["IT"]["t"] and "(as of 1 Oct)" in k["c"]["IT"]["t"]
+                  and k["c"]["US"] == new["c"]["US"] and k["asof"] == "2026-10-01" and k["built"] == BUILT
+                  and k["source"] == "ECDC · CDC" and k["note"] == wn.NOTE_ALL and not shape(k, BUILT),
+                  "keep_newer: older ECDC (10 Sep < 1 Oct) keeps the stored Europe, takes the new CDC"))
+results.append(ok(wn.keep_newer(new, old) is old, "keep_newer: newer ECDC and CDC -> the new w as is"))
+results.append(ok(wn.keep_newer(old, None) is old and wn.keep_newer(None, new) is new and wn.keep_newer(None, None) is None,
+                  "keep_newer: nothing new -> the stored w; nothing stored -> the new one"))
+k = wn.keep_newer(old, wn.build(None, cdc, BUILT))
+results.append(ok(k["c"]["IT"] == old["c"]["IT"] and k["c"]["US"] == new["c"]["US"] and k["source"] == "ECDC · CDC"
+                  and k["asof"] == "2026-10-01" and k["note"] == wn.NOTE_ALL and not shape(k, BUILT),
+                  "keep_newer: ECDC failed -> stored Europe + new CDC"))
+k = wn.keep_newer(new, wn.build(e_live, None, BUILT))
+results.append(ok(k["c"]["IT"] == old["c"]["IT"] and k["c"]["US"] == new["c"]["US"] and k["asof"] == "2026-10-01"
+                  and k["source"] == "ECDC · CDC" and not shape(k, BUILT),
+                  "keep_newer: CDC failed -> new Europe + stored US"))
+undated = wn.parse_ecdc(W37)
+undated["asof"] = None
+k = wn.keep_newer(old, wn.build(undated, cdc, BUILT))
+results.append(ok(k["c"]["IT"]["t"].startswith("ECDC: 590") and "asof" not in k,
+                  "keep_newer: ECDC read but undated -> the new one (a wording change mustn't freeze Europe)"))
+pre = dict(old)
+pre.pop("asof")
+results.append(ok(wn.keep_newer(pre, new) is new, "keep_newer: stored w from before asof existed -> replaced"))
 
 # --- get(): routes, offline ----------------------------------------------------------------
 GZ = gzip.compress(W37.encode("utf-8"))   # the archive serves ECDC's gzip bytes as they were
@@ -195,15 +286,19 @@ class Headers(dict):
         return dict.get(self, k, d)
 
 
-def fake(live_ok, archive_ok, cdc_ok):
+FETCHED = []
+
+
+def fake(live_ok, archive_ok, cdc_ok, config=CDC_CONFIG):
     def _fetch(url, retries=2, timeout=None):
+        FETCHED.append(url)
         if url == wn.ECDC_LIVE and live_ok:
             return W37.encode("utf-8"), Headers()
         if wn.ECDC_ARCHIVE and url == wn.ECDC_ARCHIVE and archive_ok:
             return W37.encode("utf-8"), Headers()
         if cdc_ok and url == wn.CDC_CONFIG:
-            return json.dumps(CDC_CONFIG).encode(), Headers()
-        if cdc_ok and url.replace("%20", " ") == wn._cdc_map(CDC_CONFIG)[0]:
+            return json.dumps(config).encode(), Headers()
+        if cdc_ok and url.replace("%20", " ") == wn._cdc_map(config)[0]:
             return CDC_CSV.encode(), Headers({"Last-Modified": "Tue, 29 Sep 2026 16:28:37 GMT"})
         if cdc_ok and url == wn.CDC_URL:
             return CDC_PAGE.encode(), Headers()
@@ -236,6 +331,8 @@ try:
     w = wn.get(BUILT, info)
     results.append(ok(info.get("ecdc") == "live" and info.get("cdc") == "live" and len(w["c"]) == 16,
                       "get: live ECDC + CDC -> 16 countries"))
+    results.append(ok(info.get("ecdc_asof") == "2026-09-10" and info.get("cdc_asof") == "2026-09-29" and w["asof"] == "2026-09-10",
+                      "get: info carries each source's 'as of' date; w.asof is ECDC's"))
     wn._fetch = fake(False, True, True)
     info = {}
     w = wn.get(BUILT, info)
@@ -255,6 +352,52 @@ try:
     wn._fetch = fake(False, False, False)
     info = {}
     results.append(ok(wn.get(BUILT, info) is None and "failed" in info["cdc"], "get: both down -> None"))
+    off_host = copy.deepcopy(CDC_CONFIG)
+    for v in off_host["visualizations"].values():
+        if "countbystate" in (v.get("dataKey") or "").lower():
+            v["dataKey"] = "https://example.invalid/wnv_hum_current_CountbyState.csv"
+    del FETCHED[:]
+    wn._fetch = fake(False, False, True, off_host)
+    info = {}
+    results.append(ok(wn.get(BUILT, info) is None and "www.cdc.gov" in info["cdc"]
+                      and not any("example.invalid" in u for u in FETCHED),
+                      "get: a CDC config pointing the CSV off www.cdc.gov fails CDC, the URL never fetched"))
+    del FETCHED[:]
+    try:
+        wn.get("3 Oct 2026", {})
+        raised = False
+    except ValueError:
+        raised = True
+    results.append(ok(raised and not FETCHED, "get: a malformed built raises before anything is fetched"))
+
+    # main(): the CLI.
+    def cli(*argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = wn.main(list(argv))
+        return rc, out.getvalue(), err.getvalue()
+
+    W37_PATH = os.path.join(HERE, "westnile_sample.ecdc-2026w37.html")
+    rc, out, err = cli("--ecdc-file", W37_PATH, "--no-cdc", "--built", BUILT)
+    lines = out.splitlines()
+    results.append(ok(rc == 0 and lines[0] == "ECDC · season 2026 · built 2026-10-03 · 15 countries"
+                      and lines[1] == "note: " + wn.NOTE_NO_CDC and "file" in err and "2026-09-10" in err,
+                      "main --ecdc-file --no-cdc: summary line, note, route and date on stderr"))
+    gr = lines[lines.index("  GR  " + wn.ecdc_entries(wn.parse_ecdc(W37), BUILT)["GR"]["t"]) + 1]
+    results.append(ok("Anatoliki Attiki · " in gr and " · Karditsa, Trikala" in gr,
+                      "main: areas joined with ' · ' so 'Karditsa, Trikala' stays one area"))
+    rc, out, err = cli("--ecdc-file", W37_PATH, "--no-cdc", "--built", BUILT, "--json")
+    results.append(ok(rc == 0 and json.loads(out) == json.loads(json.dumps(wn.build(wn.parse_ecdc(W37), None, BUILT))),
+                      "main --json: the w dict"))
+    wn._fetch = fake(False, True, True)
+    rc, out, err = cli("--built", BUILT)
+    results.append(ok(rc == 0 and "archive" in err and "ECDC · CDC · season 2026 · built 2026-10-03 · 16 countries" in out,
+                      "main (fetching): live ECDC down -> archive, said on stderr; 16 countries"))
+    del FETCHED[:]
+    rc, out, err = cli("--built", "2026-10-3")
+    results.append(ok(rc == 2 and "--built" in err and not FETCHED, "main --built 2026-10-3: exit 2, nothing fetched"))
+    rc, out, err = cli("--no-ecdc", "--no-cdc", "--built", BUILT)
+    results.append(ok(rc == 1 and "no West Nile data" in out, "main --no-ecdc --no-cdc: exit 1"))
 finally:
     wn._fetch = real_fetch
 

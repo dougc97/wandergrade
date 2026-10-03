@@ -5,8 +5,16 @@ of their 230 countries, yet it is the mosquito-borne virus a summer trip to
 Italy, Greece or Texas is most likely to meet. Two agencies publish, as data and
 during the season, where people are catching it; this module reads both and
 says only what they say, attributed ("ECDC: …", "CDC: …"). Countries neither
-agency covers are simply absent — w.note says so, because no entry must not
-read as "no West Nile here".
+agency covers are simply absent — w.note names exactly what each covers and
+says no entry doesn't mean no West Nile, anywhere: ECDC's own overview "should
+not be considered a comprehensive epidemiological assessment", and Ukraine,
+Moldova, Russia, Switzerland and the UK are in Europe but outside it.
+
+w.asof is the ECDC data's own "as of" date (absent when w has no ECDC part).
+The ECDC part can come from an Internet Archive copy older than the last live
+read, so whoever stores w passes the stored one and the new one through
+keep_newer(), which never lets an older ECDC part (or a failed source)
+replace a newer one. get(info={}) also says which route each source took.
 
 Sources
   ECDC weekly report — human West Nile infections in the EU/EEA and the
@@ -23,7 +31,10 @@ Sources
     country's case total comes from the page's own summary sentence when it
     gives one, because the areas don't always add up to it: Week 37, 2026 says
     "Greece (319 cases, of which 9 had an unknown place of infection)" while
-    Greece's 21 areas sum to 310.
+    Greece's 21 areas sum to 310 — so t gives cases and areas side by side
+    ("319 … cases, 21 affected areas"), never "319 cases in 21 areas". A
+    country whose every case had an unknown place gets no table row at all;
+    it still gets an entry, from the summary, with no areas.
     Licence: ECDC content is CC BY 4.0; for the data ECDC asks for "Dataset
     provided by ECDC based on data provided by public health authorities,
     scientific institutes or health care providers in the relevant reporting
@@ -35,7 +46,8 @@ Sources
       Data: https://www.cdc.gov/wcms/vizdata/live/ncezid_dvbd/WNV/wnv_hum_current_CountbyState.csv
     The page's map reads that CSV; its URL and the year it covers are taken
     from the map's own config (current-data.json) so a renamed file or a new
-    year doesn't need a code change. US federal work, public domain; credit
+    year doesn't need a code change — but only a URL on https://www.cdc.gov/
+    is followed. US federal work, public domain; credit
     "CDC ArboNET". Cases are counted where people live, not where they were
     bitten (CDC's own caveat), so the states are "reported from".
 
@@ -59,6 +71,7 @@ Failure modes
     (the CLI prints it); every name in the 2025 and 2026 reports maps.
   - Either agency failing leaves the other's countries and a note saying which
     is missing; both failing returns None (contract: w may be absent).
+    keep_newer() then holds on to the last stored part for the failed one.
 
 Run:   /usr/bin/python3 -m fxtracker.westnile             summary
        /usr/bin/python3 -m fxtracker.westnile --json      the "w" dict
@@ -98,7 +111,9 @@ UA = "Mozilla/5.0 (compatible; WanderGrade/1.0; +https://wandergrade.com)"
 ALIASES = {"turkiye": "TR", "kosovo": "XK"}
 
 # CDC's postal codes. Territories are their own countries on the site, so
-# their cases go on their own ISO, not the US's.
+# their cases go on their own ISO, not the US's. AS and MP aren't in
+# world.geojson (no map shape) but the Safety table has rows for both, so
+# their entries stay.
 STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
     "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "DC": "District of Columbia",
@@ -186,9 +201,10 @@ def _ecdc_table(page):
 
 
 def _ecdc_totals(text, name_iso):
-    """{ISO: cases} from the summary sentence's "Italy (590 cases), Greece (319
-    cases, of which …)" list. Early-season weeks spell numbers out ("Italy has
-    reported six") — those give nothing here and the table's sums stand."""
+    """{ISO: (name, cases)} from the summary sentence's "Italy (590 cases),
+    Greece (319 cases, of which …)" list. Early-season weeks spell numbers out
+    ("Italy has reported six") — those give nothing here and the table's sums
+    stand."""
     m = re.search(r"human cases? of (?:WNV|West Nile virus) infection:(.{0,2500})", text)
     if not m:
         return {}
@@ -198,7 +214,7 @@ def _ecdc_totals(text, name_iso):
         name = re.sub(r"^(?:and|the)\s+", "", name.strip())
         iso = name_iso.get(_norm(name)) or ALIASES.get(_norm(name))
         if iso:
-            out[iso] = _int(n)
+            out[iso] = (name, _int(n))
     return out
 
 
@@ -238,7 +254,9 @@ def parse_ecdc(page):
         asof = datetime.date(int(m.group(3)), MONTHS[m.group(2).lower()], int(m.group(1))).isoformat()
     # The season's last weekly report says so ("ECDC concludes its weekly
     # reports for the 2025 season"): it's a finished season, not "so far".
-    done = bool(re.search(r"concludes? its weekly report", text))
+    # Only that exact wording: a mid-season "ECDC will conclude its weekly
+    # reports in November" would otherwise drop the "as of" date.
+    done = bool(re.search(r"\bECDC concludes its weekly reports\b", text))
 
     name_iso = _name_to_iso()
     countries, unmapped = {}, []
@@ -263,9 +281,17 @@ def parse_ecdc(page):
         rank = e.pop("_rank")
         order = sorted(range(len(rank)), key=lambda i: -rank[i])   # stable: ties keep ECDC's order
         e["areas"] = [e["areas"][i] for i in order]
-    for iso, n in _ecdc_totals(text, name_iso).items():
-        if iso in countries and n:
+    for iso, (name, n) in _ecdc_totals(text, name_iso).items():
+        if not n:
+            continue
+        if iso in countries:
             countries[iso]["cases"] = n
+        else:
+            # In the summary but in no table row: every case had an unknown
+            # place of infection (the table lists areas only). Dropped, a
+            # "Belgium (2 cases)" added to Week 37's summary vanished and the
+            # countries stopped adding up to ECDC's 1 287.
+            countries[iso] = {"name": name, "cases": n, "areas": []}
     return {"season": season, "asof": asof, "done": done,
             "countries": countries, "unmapped": unmapped}
 
@@ -333,15 +359,24 @@ def _when(season, asof, done, built):
 
 
 def ecdc_entries(e, built):
+    """Cases and areas are listed side by side, not as "N cases in M areas":
+    Greece's 319 include 9 with an unknown place of infection, so they aren't
+    all in its 21 areas, and ECDC never says they are."""
     when = _when(e["season"], e["asof"], e["done"], built)
     out = {}
     for iso, c in e["countries"].items():
         areas = c["areas"]
-        where = "in " + _plural(len(areas), "area")
+        if not areas:
+            # Summary-only country (parse_ecdc): ECDC counts the cases but
+            # names no area, so there is no "a" to give.
+            out[iso] = {"t": "ECDC: %s, place of infection not given, %s"
+                        % (_plural(c["cases"], "locally acquired human case"), when)}
+            continue
+        where = _plural(len(areas), "affected area")
         if c["cases"]:
-            t = "ECDC: %s %s %s" % (_plural(c["cases"], "locally acquired human case"), where, when)
+            t = "ECDC: %s, %s, %s" % (_plural(c["cases"], "locally acquired human case"), where, when)
         else:
-            t = "ECDC: locally acquired human cases %s %s" % (where, when)
+            t = "ECDC: locally acquired human cases, %s, %s" % (where, when)
         # Names stay ECDC's, commas included: "Karditsa, Trikala" is one Greek
         # area (EL611) but "Aschaffenburg, Landkreis" is one German district,
         # so no rewrite fits both — join them with something other than ", ".
@@ -392,6 +427,10 @@ def fetch_ecdc(info=None):
 def fetch_cdc(info=None):
     config = json.loads(_fetch(CDC_CONFIG)[0].decode("utf-8"))
     url = _cdc_map(config)[0] or CDC_STATES
+    # The config is data and could name any host; only CDC's own site is
+    # followed (a config pointing elsewhere fails CDC, and the note says so).
+    if not url.startswith("https://www.cdc.gov/"):
+        raise ValueError("CDC's map config points the state CSV off www.cdc.gov: %r" % url)
     body, headers = _fetch(url.replace(" ", "%20"))
     try:
         page = _fetch(CDC_URL)[0].decode("utf-8", "replace")
@@ -402,53 +441,123 @@ def fetch_cdc(info=None):
     return parse_cdc(body.decode("utf-8", "replace"), config, page, headers.get("Last-Modified"))
 
 
-NOTE_ALL = ("Europe (ECDC: EU/EEA and neighbouring countries) and the US (CDC) only; "
-            "elsewhere, no entry doesn't mean no West Nile.")
-NOTE_NO_CDC = ("Europe (ECDC: EU/EEA and neighbouring countries) only, US data (CDC) "
-               "unavailable this build; elsewhere, no entry doesn't mean no West Nile.")
-NOTE_NO_ECDC = ("US (CDC) only, Europe's data (ECDC) unavailable this build; "
-                "elsewhere, no entry doesn't mean no West Nile.")
+# ECDC's own footnote names its coverage exactly ("EU/EEA countries and
+# selected EU-neighbouring countries (Albania, …)"); "Europe" would claim
+# Ukraine, Moldova, Russia, Switzerland and the UK, which it doesn't cover.
+# The caveat is for everywhere, covered countries included: ECDC counts human
+# cases only and calls its overview not "a comprehensive epidemiological
+# assessment". "Latest season", not "this season": from December to June the
+# entries are last summer's ("in the 2025 season").
+_ECDC_COVERS = ("ECDC covers the EU/EEA plus Albania, Bosnia and Herzegovina, Kosovo, "
+                "Montenegro, North Macedonia, Serbia and Türkiye")
+_CDC_COVERS = "CDC covers the US and its territories"
+_CAVEAT = "Human cases reported in the latest season only — no entry doesn't mean no West Nile."
+NOTE_ALL = "%s; %s. %s" % (_ECDC_COVERS, _CDC_COVERS, _CAVEAT)
+NOTE_NO_CDC = "%s; US data (CDC) unavailable at this update. %s" % (_ECDC_COVERS, _CAVEAT)
+NOTE_NO_ECDC = "%s; Europe's data (ECDC) unavailable at this update. %s" % (_CDC_COVERS, _CAVEAT)
+
+
+def _day(built):
+    """built as "YYYY-MM-DD". A date (or datetime) is converted: passing
+    datetime.date.today() used to raise inside build(), which get() turned
+    into None — every West Nile entry gone without a word. Anything else that
+    isn't a real ISO day raises."""
+    if built is None:
+        return datetime.date.today().isoformat()
+    if isinstance(built, datetime.datetime):
+        built = built.date()
+    if isinstance(built, datetime.date):
+        return built.isoformat()
+    if isinstance(built, str) and re.fullmatch(r"\d{4}-\d\d-\d\d", built):
+        datetime.date.fromisoformat(built)          # 2026-13-40 raises here
+        return built
+    raise ValueError("built must be a date or 'YYYY-MM-DD', not %r" % (built,))
+
+
+def _assemble(ecdc_c, cdc_c, has_ecdc, has_cdc, season, built, asof):
+    """The "w" dict from each agency's entries. has_* says the agency was read
+    (it can be read and report no country yet, early in a season)."""
+    c = dict(cdc_c)
+    c.update(ecdc_c)        # ECDC first should a key ever be in both
+    if not c:
+        return None
+    w = {
+        "source": " · ".join(s for s, has in (("ECDC", has_ecdc), ("CDC", has_cdc)) if has),
+        "url": ECDC_URL if has_ecdc else CDC_URL,
+        "season": season,
+        "built": built,
+    }
+    if has_ecdc and asof:
+        w["asof"] = asof
+    w["note"] = NOTE_ALL if has_ecdc and has_cdc else NOTE_NO_CDC if has_ecdc else NOTE_NO_ECDC
+    w["c"] = dict(sorted(c.items()))
+    return w
 
 
 def build(ecdc=None, cdc=None, built=None):
-    """Contract C1's "w" from already-parsed reports (either may be None)."""
-    built = built or datetime.date.today().isoformat()
-    c, src, seasons = {}, [], []
-    if ecdc:
-        c.update(ecdc_entries(ecdc, built))
-        src.append("ECDC")
-        seasons.append(ecdc["season"])
-    if cdc:
-        for iso, v in cdc_entries(cdc, built).items():
-            c.setdefault(iso, v)
-        src.append("CDC")
-        seasons.append(cdc["season"])
-    if not c:
-        return None
-    return {
-        "source": " · ".join(src),
-        "url": ECDC_URL if ecdc else CDC_URL,
-        "season": max(seasons),
-        "built": built,
-        "note": NOTE_ALL if ecdc and cdc else NOTE_NO_CDC if ecdc else NOTE_NO_ECDC,
-        "c": dict(sorted(c.items())),
-    }
+    """Contract C1's "w" from already-parsed reports (either may be None).
+    w["asof"] is the ECDC data's own date, when there is ECDC data and a date."""
+    built = _day(built)
+    seasons = [x["season"] for x in (ecdc, cdc) if x]
+    return _assemble(ecdc_entries(ecdc, built) if ecdc else {},
+                     cdc_entries(cdc, built) if cdc else {},
+                     bool(ecdc), bool(cdc), max(seasons) if seasons else None,
+                     built, ecdc and ecdc.get("asof"))
+
+
+def _part(w, agency):
+    return {iso: v for iso, v in w["c"].items() if str(v.get("t", "")).startswith(agency + ":")}
+
+
+def keep_newer(old, new):
+    """The "w" to store when a new build (new, may be None) would replace the
+    stored one (old). Per agency, new wins unless
+      - ECDC: new's ECDC data is dated before old's (w.asof) — a build that
+        only reached the Internet Archive got Week 37 (to 10 Sep) while a
+        live read could already hold Week 40;
+      - either agency: new couldn't read it at all.
+    Then old's entries for that agency are kept; each t carries its own "as
+    of" date, so a kept entry still says how old it is. Both from old -> old."""
+    usable = lambda w: isinstance(w, dict) and isinstance(w.get("c"), dict)
+    if not usable(new):
+        return old if usable(old) else None
+    if not usable(old):
+        return new
+    read = lambda w: set(str(w.get("source") or "").split(" · "))
+    old_e = _part(old, "ECDC")
+    stale = bool(new.get("asof") and old.get("asof") and new["asof"] < old["asof"])
+    e_from = old if old_e and ("ECDC" not in read(new) or stale) else new
+    c_from = old if _part(old, "CDC") and "CDC" not in read(new) else new
+    if e_from is new and c_from is new:
+        return new
+    if e_from is old and c_from is old:
+        return old
+    return _assemble(_part(e_from, "ECDC"), _part(c_from, "CDC"),
+                     "ECDC" in read(e_from), "CDC" in read(c_from),
+                     max(str(old.get("season")), str(new.get("season"))),
+                     new.get("built"), e_from.get("asof"))
 
 
 def get(built=None, info=None, ecdc=True, cdc=True):
     """Contract C1's "w" dict, or None when neither agency could be read.
-    Pass info={} to get which route each source took and what failed."""
+    Pass info={} to learn the route each source took — info["ecdc"] is
+    "live", "archive" or "failed: …", info["cdc"] "live" or "failed: …" —
+    and each one's "as of" date (info["ecdc_asof"], info["cdc_asof"]).
+    A built that isn't a date raises before anything is fetched."""
+    built = _day(built)
     info = {} if info is None else info
     e = d = None
     if ecdc:
         try:
             e = fetch_ecdc(info)
             info["unmapped"] = e["unmapped"]
+            info["ecdc_asof"] = e["asof"]
         except Exception as ex:  # noqa: BLE001
             info["ecdc"] = "failed: %s" % ex
     if cdc:
         try:
             d = fetch_cdc(info)
+            info["cdc_asof"] = d["asof"]
         except Exception as ex:  # noqa: BLE001
             info["cdc"] = "failed: %s" % ex
     try:
@@ -461,16 +570,22 @@ def get(built=None, info=None, ecdc=True, cdc=True):
 def main(argv):
     built = None
     if "--built" in argv:
-        built = argv[argv.index("--built") + 1]
+        k = argv.index("--built") + 1
+        try:
+            built = _day(argv[k] if k < len(argv) else "")   # "" raises: --built needs a value
+        except ValueError as ex:
+            print("--built: %s" % ex, file=sys.stderr)
+            return 2
     info = {}
     if "--ecdc-file" in argv:
         with open(argv[argv.index("--ecdc-file") + 1], encoding="utf-8") as f:
             e = parse_ecdc(f.read())
-        info["ecdc"] = "file"
+        info["ecdc"], info["ecdc_asof"] = "file", e["asof"]
         d = None
         if "--no-cdc" not in argv:
             try:
                 d = fetch_cdc(info)
+                info["cdc_asof"] = d["asof"]
             except Exception as ex:  # noqa: BLE001
                 info["cdc"] = "failed: %s" % ex
         w = build(e, d, built)
@@ -479,7 +594,7 @@ def main(argv):
     if "--json" in argv:
         print(json.dumps(w, ensure_ascii=False, indent=1))
         return 0 if w else 1
-    for k in ("ecdc", "ecdc_errors", "cdc", "unmapped", "build"):
+    for k in ("ecdc", "ecdc_asof", "ecdc_errors", "cdc", "cdc_asof", "unmapped", "build"):
         if info.get(k):
             print("%-12s %s" % (k + ":", info[k]), file=sys.stderr)
     if not w:
@@ -490,7 +605,8 @@ def main(argv):
     for iso, v in w["c"].items():
         print("  %s  %s" % (iso, v["t"]))
         if v.get("a"):
-            print("      " + ", ".join(v["a"]))
+            # " · ", not ", ": "Karditsa, Trikala" is one area (see ecdc_entries).
+            print("      " + " · ".join(v["a"]))
     return 0
 
 
