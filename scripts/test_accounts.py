@@ -107,10 +107,65 @@ results.append(ok(len(BD) == 1 and BD[-1][0] == "PATCH" and BD[-1][1].endswith("
 BD.clear()
 accounts.set_prefs(email, subscribed=True, cadence="off")
 results.append(ok(BD == [], "subscribed but cadence off still sends nothing (already out)"))
+
+# --- newsletter currency: the digest edition rides on a currency-* tag --------
+# PATCH replaces Buttondown's tag list, so the account flow reads the current
+# tags and swaps every currency tag (any case) for the chosen one, keeping
+# cadence-monthly and anything the owner added.
+LOOK = []
+CUR_SUB = {"type": "regular", "tags": ["cadence-monthly", "vip", "currency-eur", "Currency-JPY"]}
+_real_lookup = accounts._bd_subscriber
+accounts._bd_subscriber = lambda addr, key: (LOOK.append(addr), (200, dict(CUR_SUB, email_address=addr)))[1]
+cemail = "currency@example.com"
+accounts._kv_del("user:" + cemail)
+BD.clear()
+u = accounts.set_prefs(cemail, currency="eur")
+results.append(ok(u["currency"] == "EUR" and BD == [] and LOOK == [],
+                  "a currency chosen while not subscribed is stored; no Buttondown call"))
+for junk in ("XYZ", "<script>", ["GBP"], 7, ""):
+    u = accounts.set_prefs(cemail, currency=junk)
+results.append(ok(u["currency"] == "EUR" and BD == [], "invalid currencies ignored (kept EUR)"))
+BD.clear(); LOOK.clear()
+u = accounts.set_prefs(cemail, subscribed=True, cadence="monthly")
+results.append(ok([b[0] for b in BD] == ["POST", "PATCH"] and LOOK == [cemail]
+                  and BD[0][2] == {"email_address": cemail, "tags": ["cadence-monthly"]}
+                  and BD[1][2] == {"tags": ["cadence-monthly", "vip", "currency-eur"]},
+                  "subscribing upserts as before, then sets the stored currency's tag (drops Currency-JPY)"))
+BD.clear(); LOOK.clear()
+CUR_SUB["tags"] = ["cadence-monthly", "vip", "currency-eur", "Currency-JPY"]
+u = accounts.set_prefs(cemail, currency="GBP")
+results.append(ok(u["currency"] == "GBP" and [b[0] for b in BD] == ["PATCH"] and LOOK == [cemail]
+                  and BD[0][1].endswith("/subscribers/" + cemail)
+                  and BD[0][2] == {"tags": ["cadence-monthly", "vip", "currency-gbp"]},
+                  "currency change: GET then PATCH -> %s; no POST (no subscriber-create spent)"
+                  % (BD and BD[-1][2])))
+BD.clear(); LOOK.clear()
+accounts.set_prefs(cemail, currency="GBP")
+results.append(ok(BD == [] and LOOK == [], "the same currency again: no Buttondown call"))
+CUR_SUB["tags"] = ["cadence-monthly", "currency-gbp"]
+BD.clear(); LOOK.clear()
+accounts.set_prefs(cemail, subscribed=True, cadence="monthly")
+results.append(ok([b[0] for b in BD] == ["POST"] and LOOK == [cemail],
+                  "tags already right: the upsert only, no PATCH"))
+accounts._bd_subscriber = lambda addr, key: (LOOK.append(addr), (503, None))[1]
+BD.clear(); LOOK.clear()
+u = accounts.set_prefs(cemail, currency="CHF")
+results.append(ok(u["currency"] == "CHF" and BD == [] and LOOK == [cemail],
+                  "a failed lookup is logged and skipped (best-effort), the choice still saved"))
+BD.clear(); LOOK.clear()
+u = accounts.set_prefs(cemail, subscribed=False, cadence="off", currency="JPY")
+results.append(ok(u["currency"] == "JPY" and [b[0] for b in BD] == ["PATCH"]
+                  and BD[0][2] == {"type": "unsubscribed"} and LOOK == [],
+                  "opting out still just unsubscribes; no re-tag for an address leaving"))
+accounts._bd_subscriber = _real_lookup
+results.append(ok(accounts.public_user(u)["currency"] == "JPY"
+                  and accounts.public_user({"subscribed": True})["currency"] is None,
+                  "public_user carries the currency (None when never chosen)"))
+accounts._kv_del("user:" + cemail)
 os.environ.pop("BUTTONDOWN_API_KEY")
 results.append(ok(accounts.public_user({"cadence": "quarterly", "subscribed": True})["cadence"] == "monthly",
                   "legacy quarterly records show as monthly"))
-results.append(ok(set(accounts.public_user(u)) == {"visited", "wishlist", "cadence", "subscribed"},
+results.append(ok(set(accounts.public_user(u)) == {"visited", "wishlist", "cadence", "subscribed", "currency"},
                   "public_user exposes only safe fields"))
 
 # --- one-off: legacy opt-outs that never reached Buttondown -------------------
@@ -127,6 +182,7 @@ seed("r-absent@example.com", subscribed=False)                     # never on th
 seed("r-subbed@example.com", subscribed=True, cadence="monthly")   # still wants mail
 seed("r-gone@example.com", subscribed=False)                       # already unsubscribed there
 seed("r-race@example.com", subscribed=False)                       # opts back in mid-pass
+seed("r-curonly@example.com", subscribed=False)                    # public form + currency picker
 BDSUBS = {
     "r-optout@example.com": {"type": "regular", "tags": ["cadence-monthly"]},
     "r-offcad@example.com": {"type": "regular", "tags": ["cadence-quarterly"]},
@@ -134,6 +190,7 @@ BDSUBS = {
     "r-subbed@example.com": {"type": "regular", "tags": ["cadence-monthly"]},
     "r-gone@example.com": {"type": "unsubscribed", "tags": ["cadence-monthly"]},
     "r-race@example.com": {"type": "regular", "tags": ["cadence-monthly"]},
+    "r-curonly@example.com": {"type": "regular", "tags": ["currency-eur"]},
 }
 LOOKUPS, FAIL, FAIL_ONCE = [], {}, {}
 
@@ -171,6 +228,8 @@ results.append(ok(patched == ["r-offcad@example.com", "r-optout@example.com"] an
                   "reconcile unsubscribes only opted-out accounts the account flow tagged -> %s" % patched))
 results.append(ok("r-subbed@example.com" not in LOOKUPS and "r-public@example.com" in LOOKUPS,
                   "accounts that want mail are never looked up; public-form subscribers are kept"))
+results.append(ok("r-curonly@example.com" in LOOKUPS and BDSUBS["r-curonly@example.com"]["type"] == "regular",
+                  "a currency-* tag is not the account flow's mark: that subscriber is kept"))
 results.append(ok("r-race@example.com" in LOOKUPS and BDSUBS["r-race@example.com"]["type"] == "regular",
                   "an account that opts back in mid-pass is left subscribed"))
 results.append(ok(st and st["errors"] == 0 and accounts._kv_get(accounts.RECONCILE_DONE)
@@ -328,12 +387,22 @@ st, hd, bd = http("POST", "/auth/verify", form, {"Content-Type": "application/x-
 results.append(ok(st == 403, "Sec-Fetch-Site: cross-site refused"))
 st, hd, bd = http("POST", "/auth/verify", form, {"Content-Type": "application/x-www-form-urlencoded",
                                                   "Origin": SITE, "Sec-Fetch-Site": "same-origin"})
+hd_ok = hd
 results.append(ok(st == 303 and hd.get("Location") == "/?signin=ok" and "wg_sess=" in hd.get("Set-Cookie", "")
                   and accounts._kv_get("magic:" + tok) is None,
                   "same-origin POST redeems the token and sets the session"))
 st, hd, bd = http("POST", "/auth/verify", form, {"Content-Type": "application/x-www-form-urlencoded",
                                                   "Origin": SITE})
 results.append(ok(st == 303 and hd.get("Location") == "/?signin=expired", "second POST: token already spent"))
+sess = hd_ok.get("Set-Cookie", "").split(";", 1)[0]
+st, _, bd = http("POST", "/api/auth/prefs", json.dumps({"currency": "gbp"}).encode(),
+                 {"Content-Type": "application/json", "Origin": SITE, "Cookie": sess})
+results.append(ok(st == 200 and json.loads(bd)["user"]["currency"] == "GBP"
+                  and accounts.get_user("http@example.com")["currency"] == "GBP",
+                  "/api/auth/prefs stores the newsletter currency"))
+st, _, bd = http("GET", "/")
+results.append(ok(st == 200 and b'window.__WGDIGEST__=["USD"]' in bd,
+                  "the page carries the subscribe picker's currencies (USD only: no picker)"))
 
 jreq = json.dumps({"email": "csrf@example.com"}).encode()
 SENT.clear()

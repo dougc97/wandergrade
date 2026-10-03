@@ -139,6 +139,10 @@ def _analytics_tag():
             "data-cf-beacon='%s'></script>" % beacon)
 
 
+# Kept out of the import block above: the subscribe picker's currency list.
+from fxtracker import digest_variants  # noqa: E402
+
+
 _HTML_DEFAULTS = {
     "TITLE": "WanderGrade — Where Should I Travel to Next?",
     "DESC": "Decide where — and when — to go. Every country graded A+ to F on "
@@ -169,8 +173,12 @@ _HTML_DEFAULTS = {
     "JSONLD": _WEBSITE_JSONLD,
     "ANALYTICS": _analytics_tag(),
     # Lets the page hide every trace of sign-in until accounts are provisioned.
-    "ACCOUNTS": "<script>window.__WGACCT__=%s</script>" % (
-        "true" if accounts.enabled() else "false"),
+    # __WGDIGEST__: the newsletter currencies a reader can pick (the digest's
+    # "send"-stage editions, fxtracker/digest_variants.ROLLOUT); just ["USD"]
+    # shows no picker at all.
+    "ACCOUNTS": "<script>window.__WGACCT__=%s;window.__WGDIGEST__=%s</script>" % (
+        "true" if accounts.enabled() else "false",
+        json.dumps(list(digest_variants.picker_codes()))),
 }
 _html_tpl = None
 
@@ -1010,7 +1018,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth/sync":
             user = accounts.sync_map(email, body.get("visited"), body.get("wishlist"))
         else:
-            user = accounts.set_prefs(email, body.get("subscribed"), body.get("cadence"))
+            user = accounts.set_prefs(email, body.get("subscribed"), body.get("cadence"),
+                                      body.get("currency"))
         self._send_json({"user": accounts.public_user(user)})
 
     def _send_not_found(self, message="Page not found"):

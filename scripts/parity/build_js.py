@@ -96,7 +96,9 @@ const $ = () => null;
 const localStorage = { _m: {}, getItem(k) { return this._m[k] ?? null; }, setItem(k, v) { this._m[k] = String(v); } };
 const esc = (s) => String(s == null ? "" : s);
 let homeBase = FIX.home_currency || "USD";
-let lastRates = FIX.rates, dataRates = null, homeRates = null;
+// homeRates: the home currency's own rates (/api/rates?base=CUR) for a non-USD
+// home; null for USD, where homeRatesNow() falls back to lastRates.
+let lastRates = FIX.rates, dataRates = null, homeRates = FIX.home_rates || null;
 let ppp = FIX.ppp, climate = FIX.climate, worldGeo = FIX.world;
 let priorities = null, factors = null;
 let _centroids = null, _plFitFor, _plFitVal;

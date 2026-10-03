@@ -8,7 +8,8 @@ data and formulas the website uses, so the email matches what users see:
   Safety        = advisory level (1-3); unrated countries are not graded
   Weather       = Open-Meteo climate comfort score for the chosen month
                   (left out of the mean where a country has no climate data)
-  Flights       = the US fare vs the typical fare for that distance
+  Flights       = the home country's fare vs the typical fare for that
+                  distance (or the route's own typical for the month)
   Overall value = weighted mean (Affordability x3, Safety x2, Weather x2,
                   Flights x2) — the site's default priorities
 
@@ -21,10 +22,16 @@ had at all, Flights drops out — which is also what the site does then.
 Every sub-score is rounded at the same steps as app.js (its clamp100 rounds),
 so the letters in the email are the letters on the page it links to.
 
-Assumes a US traveler (home = USD, anchor price level = the US's), matching the
-site's default before any personalization.
+build() assumes a US traveler (home = USD, anchor price level = the US's),
+matching the site's default before any personalization. build_variant() scores
+the same data for another home currency (fxtracker/digest_variants.py): fares
+from that country, prices vs its price level, the currency's strength measured
+in it — what the site shows a visitor whose From and currency are set there.
+gather() fetches what every edition shares once, so a run building ten
+editions doesn't fetch the shared inputs ten times.
 """
 
+import copy
 import datetime
 import json
 import os
@@ -32,6 +39,7 @@ import urllib.parse
 import urllib.request
 
 from . import advisories, geo, popularity, pricelevel, rates
+from .digest_variants import VARIANTS
 
 # Wikimedia blocks the default urllib UA; identify ourselves.
 _UA = "Wandergrade/1.0 (https://wandergrade.com; hello@newsletter.wandergrade.com)"
@@ -239,23 +247,24 @@ def _price_level(iso, ppp, rate_by_code, fit=None):
     return pricelevel.price_level(iso, ppp, rate_by_code, CUR_BY_ISO, fit)
 
 
-def _us_fares():
-    """US-origin fare data, exactly what the site's Top Picks load. The digest
-    job has no Travelpayouts token, so it reads the live site's cached copy."""
+def _fares_raw(origin=HOME_ISO):
+    """Fare data from `origin` (ISO-2), exactly what the site's Top Picks load
+    for a visitor travelling from there. The digest job has no Travelpayouts
+    token, so it reads the live site's cached copy."""
     try:
         from . import flights
         if flights.is_configured():
-            return flights.get_flights(HOME_ISO)
+            return flights.get_flights(origin)
     except Exception:
         pass
     try:
-        return rates.fetch_json(SITE + "/api/flights?origin=" + HOME_ISO)
+        return rates.fetch_json(SITE + "/api/flights?origin=" + origin)
     except Exception as e:
         print("WARNING: no fare data ({0}); Flights left out of the grade.".format(e))
         return None
 
 
-def _us_flight_value(fares):
+def _flight_value(origin, fares):
     """The Flights tab's per-route month curves and typical ranges for the
     same origin — flightvalue.serve() with a token (the site's own cache),
     else the live site's copy. None when unavailable: the grade then falls
@@ -263,11 +272,11 @@ def _us_flight_value(fares):
     try:
         from . import flights, flightvalue
         if flights.is_configured():
-            return flightvalue.serve(HOME_ISO, fares)
+            return flightvalue.serve(origin, fares)
     except Exception:
         pass
     try:
-        return rates.fetch_json(SITE + "/api/flight-value?origin=" + HOME_ISO)
+        return rates.fetch_json(SITE + "/api/flight-value?origin=" + origin)
     except Exception:
         return None
 
@@ -343,9 +352,13 @@ def fare_context(data, centroids=None):
 
 
 def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
-           fit=None, fares=None, anchor_pl=1.0):
+           fit=None, fares=None, anchor_pl=1.0, home_iso=HOME_ISO, home_cur="USD"):
     """One destination's scores for `month` (1-12). Returns None if unscorable,
-    unrated, or excluded (Level 4 / Do Not Travel). Mirrors app.js valueScores."""
+    unrated, or excluded (Level 4 / Do Not Travel). Mirrors app.js valueScores.
+
+    `strength_by_code` is each currency's move measured in `home_cur` (the
+    site's homeRates rows); `rate_by_code` stays USD-based, because price
+    levels are vs the US and `anchor_pl` (the home's own) rebases them."""
     pl_us = _price_level(iso, ppp, rate_by_code, fit)
     if pl_us is None:
         return None
@@ -363,8 +376,8 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     aff = clamp100(((1.3 - pl) / 0.95) * 100)
     # The dollar's move vs its 1-yr average, net of the inflation gap: a steadily
     # depreciating high-inflation currency always sits above its own average.
-    nominal = strength_by_code.get(cur) if cur and cur != "USD" else None
-    real = pricelevel.real_fx_pct(nominal, iso, HOME_ISO, ppp)
+    nominal = strength_by_code.get(cur) if cur and cur != home_cur else None
+    real = pricelevel.real_fx_pct(nominal, iso, home_iso, ppp)
     fx = clamp100(50 + real * 6.25) if real is not None else 50
     comps = {
         "afford": clamp100(aff * 0.7 + fx * 0.3),
@@ -413,11 +426,22 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     }
 
 
-def _advisory_items():
+def _advisory_items(source="us"):
     """US advisories for the digest. The feed fetch retries, but one bad morning
     at travel.state.gov used to abort the whole month's issue, so fall back to
     the live site's cached copy (which is also exactly what readers will see),
-    then to Canada's feed, before giving up."""
+    then to Canada's feed, before giving up.
+
+    Another `source` ("ca", "de": an edition graded on its home government's
+    advisories) reads that feed, else the site's copy of it. Every edition
+    uses "us" today (digest_variants.adv_source)."""
+    if source != "us":
+        try:
+            return advisories.get_advisories(source)["items"]
+        except Exception as e:
+            print("WARNING: {0} advisory feed failed ({1}); using the site's copy.".format(
+                source, e))
+        return rates.fetch_json(SITE + "/api/advisories?source=" + source)["items"]
     try:
         return advisories.get_advisories()["items"]
     except Exception as e:
@@ -454,26 +478,33 @@ def _popular_set():
     return set(FALLBACK_POPULAR)
 
 
-def _enrich(s, acts, with_photo):
-    """Attach flag, things-to-do, and (optionally) a resolved cover photo."""
+def _enrich(s, acts, with_photo, memo=None):
+    """Attach flag, things-to-do, and (optionally) a resolved cover photo.
+    `memo` caches cover lookups across editions (the same country's photo is
+    one lookup, not ten); it calls the module-level cover() at call time."""
     a = acts.get(s["iso"], {})
     s["flag"] = flag(s["iso"])
     s["activities"] = a.get("activities", [])[:2]
-    c = cover(a.get("photo")) if with_photo else None
+    c = _cover_memo(a.get("photo"), memo) if with_photo else None
     s["photo"] = c and c["url"]
     s["photo_credit"] = c and c["credit"]
     return s
 
 
-def build(month=None, n_picks=5, n_gems=3):
-    """Fetch live data, score every destination, return the digest payload:
-    {month, month_name, year, as_of, picks: [...], gems: [...]}.
+def _cover_memo(query, memo):
+    if memo is None:
+        return cover(query)
+    if query not in memo:
+        memo[query] = cover(query)
+    return memo[query]
 
-    `picks` are the most-popular destinations (by tourism receipts) ranked by
-    value; `gems` are off-the-beaten-path high-value ones. Both exclude Level 3
-    (Reconsider Travel) and Level 4, matching the site's default "safe" floor.
-    Picks are enriched with a cover photo + things-to-do; gems stay compact.
-    """
+
+def gather(month=None):
+    """Fetch what every edition of the digest shares, once: the month, the
+    static data, the USD rates, the US advisories and the popular set. Fares,
+    flight values, other bases' rates and other advisory sources are fetched
+    lazily by build_variant() and memoized here, so a USD-only run makes
+    exactly the outside calls build() always made, in the same order."""
     today = datetime.date.today()
     if month is None:
         # Feature ~2 months out so readers have booking lead time.
@@ -486,20 +517,92 @@ def build(month=None, n_picks=5, n_gems=3):
 
     fav = rates.compute_favorability()
     rate_by_code = {r["code"]: r["rate_now"] for r in fav["rows"]}
-    strength_by_code = {r["code"]: r["strength_pct"] for r in fav["rows"]}
-    adv_by_iso = advisory_levels(_advisory_items())
+    adv = {"us": advisory_levels(_advisory_items())}
     popular = _popular_set()
     fit = pricelevel.plausibility_fit(ppp, rate_by_code, CUR_BY_ISO)
-    anchor = _price_level(HOME_ISO, ppp, rate_by_code, fit) or 1
-    us_fares = _us_fares()
-    fares = fare_context(us_fares)
-    if fares:
-        fares["fv"] = _us_flight_value(us_fares)
+    return {
+        "month": month, "year": year, "ppp": ppp, "climate": climate, "acts": acts,
+        "rate_by_code": rate_by_code, "fit": fit, "popular": popular,
+        "adv": adv, "fav_by_base": {"USD": fav}, "fares_by_origin": {}, "cover_memo": {},
+    }
+
+
+def _fav_for(shared, code):
+    """compute_favorability() in `code`, memoized (USD is gather()'s).
+
+    Every base re-fetches the same USD-based currency list, latest rates and
+    year of history from the provider and rebases them locally, so nine
+    editions would be 27 identical requests to a keyless API that answers a
+    burst with 429. The provider fetches are shared across the non-USD bases
+    of one run instead (deep copies, as compute_favorability may rebase in
+    place); gather()'s USD call is left exactly as it always was."""
+    memo = shared["fav_by_base"]
+    if code not in memo:
+        up = shared.setdefault("upstream", {})
+        saved = rates.get_currencies, rates.get_latest, rates.get_timeseries
+
+        def once(name, fn):
+            def wrapped(*args):
+                if (name,) + args not in up:
+                    up[(name,) + args] = fn(*args)
+                return copy.deepcopy(up[(name,) + args])
+            return wrapped
+        rates.get_currencies, rates.get_latest, rates.get_timeseries = (
+            once("currencies", saved[0]), once("latest", saved[1]), once("timeseries", saved[2]))
+        try:
+            memo[code] = rates.compute_favorability(base=code)
+        finally:
+            rates.get_currencies, rates.get_latest, rates.get_timeseries = saved
+    return memo[code]
+
+
+def fares_for(shared, origin):
+    """fare_context() for `origin` with its flight values attached, memoized.
+    None when there is no fare data (Flights then drops out, as on the site)."""
+    memo = shared["fares_by_origin"]
+    if origin not in memo:
+        raw = _fares_raw(origin)
+        fares = fare_context(raw)
+        if fares:
+            fares["fv"] = _flight_value(origin, raw)
+        memo[origin] = fares
+    return memo[origin]
+
+
+def _adv_for(shared, source):
+    memo = shared["adv"]
+    if source not in memo:
+        memo[source] = advisory_levels(_advisory_items(source))
+    return memo[source]
+
+
+def build_variant(shared, v, n_picks=5, n_gems=3):
+    """Score every destination for edition `v` (a digest_variants.Variant)
+    from gather()'s shared data and return the digest payload:
+    {month, month_name, year, as_of, picks: [...], gems: [...], variant, home_iso}.
+
+    `picks` are the most-popular destinations (by tourism receipts) ranked by
+    value; `gems` are off-the-beaten-path high-value ones. Both exclude Level 3
+    (Reconsider Travel) and Level 4, matching the site's default "safe" floor.
+    Picks are enriched with a cover photo + things-to-do; gems stay compact.
+    A non-USD edition leaves its own home country out (v.exclude_home).
+    """
+    month = shared["month"]
+    ppp, climate, acts = shared["ppp"], shared["climate"], shared["acts"]
+    rate_by_code, fit = shared["rate_by_code"], shared["fit"]
+    fav = _fav_for(shared, v.code)
+    strength_by_code = {r["code"]: r["strength_pct"] for r in fav["rows"]}
+    adv_by_iso = _adv_for(shared, v.adv_source)
+    popular = shared["popular"]
+    anchor = _price_level(v.home_iso, ppp, rate_by_code, fit) or 1
+    fares = fares_for(shared, v.home_iso)
 
     scored = []
     for iso in CUR_BY_ISO:
+        if v.exclude_home and iso == v.home_iso:
+            continue
         s = _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
-                   fit, fares, anchor)
+                   fit, fares, anchor, home_iso=v.home_iso, home_cur=v.code)
         if s and s["advLvl"] != 3:   # default "safe" floor: drop Level 3 (4 already gone)
             scored.append(s)
 
@@ -507,10 +610,18 @@ def build(month=None, n_picks=5, n_gems=3):
     picks = [s for s in scored if s["iso"] in popular][:n_picks]
     gems = [s for s in scored if s["iso"] not in popular][:n_gems]
 
-    picks = [_enrich(s, acts, with_photo=True) for s in picks]
-    gems = [_enrich(s, acts, with_photo=False) for s in gems]
+    memo = shared["cover_memo"]
+    picks = [_enrich(s, acts, with_photo=True, memo=memo) for s in picks]
+    gems = [_enrich(s, acts, with_photo=False, memo=memo) for s in gems]
 
     return {
-        "month": month, "month_name": MONTHS[month - 1], "year": year,
+        "month": month, "month_name": MONTHS[month - 1], "year": shared["year"],
         "as_of": fav["as_of"], "picks": picks, "gems": gems,
+        "variant": v.code, "home_iso": v.home_iso,
     }
+
+
+def build(month=None, n_picks=5, n_gems=3):
+    """The USD edition: build_variant(gather(month), VARIANTS["USD"]) — the
+    digest exactly as it was before editions existed."""
+    return build_variant(gather(month), VARIANTS["USD"], n_picks, n_gems)

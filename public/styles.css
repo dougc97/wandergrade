@@ -725,6 +725,18 @@ tr.favorable { background: var(--green-bg); }
 .subform { display: flex; gap: 8px; }
 .subform input { padding: 8px 10px; border: 1px solid var(--border-input); border-radius: 7px; font-size: 14px; min-width: 200px; }
 .subform button { background: var(--green-fill); color: #fff; border: none; border-radius: 7px; padding: 8px 16px; font-size: 14px; cursor: pointer; }
+/* Newsletter currency picker (only when the digest has editions beyond USD):
+   a fixed width, so the default changing under the geo seed can't shift the
+   row, and its ⓘ wraps with it. On a phone the email field takes the row and
+   the picker and button sit centred under it; in one row they'd need ~385px
+   of a 343px box. */
+.subform .subcurwrap { display: inline-flex; align-items: center; gap: 5px; flex: none; }
+.subform .subcur { width: 5.6em; flex: none; }
+.subform .subcurtip { cursor: help; }
+@media (max-width: 420px) {
+  .subscribe .subform { flex-wrap: wrap; justify-content: center; }
+  .subscribe .subform input[type=email] { flex: 1 1 100%; min-width: 0; }
+}
 
 footer { color: var(--gray); font-size: 12px; padding: 20px; text-align: center; }
 footer a { color: var(--gray); }

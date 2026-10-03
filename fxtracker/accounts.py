@@ -58,6 +58,7 @@ import urllib.parse
 import urllib.request
 
 from . import rates  # reuse the project's verifying SSL context (see _ssl_context)
+from .digest_variants import TAG_PREFIX, VARIANTS
 
 MAGIC_TTL = 15 * 60          # a link is good for 15 minutes
 SESSION_TTL = 90 * 24 * 3600  # then you sign in again
@@ -273,7 +274,8 @@ def save_user(email, data):
 
 def _blank_user():
     return {"visited": [], "wishlist": [], "cadence": "monthly",
-            "subscribed": False, "created": int(time.time()), "updated": int(time.time())}
+            "subscribed": False, "currency": None,
+            "created": int(time.time()), "updated": int(time.time())}
 
 
 # ---- the flow ---------------------------------------------------------------
@@ -360,15 +362,30 @@ def _wants_mail(user):
     return bool(user.get("subscribed")) and _cadence(user.get("cadence")) != "off"
 
 
-def set_prefs(email, subscribed=None, cadence=None):
+def _currency(value):
+    """A requested newsletter currency -> its code (digest_variants), else None."""
+    if isinstance(value, str) and value.strip().upper() in VARIANTS:
+        return value.strip().upper()
+    return None
+
+
+def set_prefs(email, subscribed=None, cadence=None, currency=None):
     user = get_user(email) or _blank_user()
     was = _wants_mail(user)
     if subscribed is not None:
         user["subscribed"] = bool(subscribed)
     if cadence in CADENCES or cadence == "quarterly":
         user["cadence"] = _cadence(cadence)
+    code = _currency(currency)
+    changed = code is not None and code != user.get("currency")
+    if code is not None:
+        user["currency"] = code
     save_user(email, user)
-    _sync_newsletter(email, user, was)
+    # A currency-only change re-tags without the subscribe upsert, so picking
+    # a currency never spends the list's daily subscriber-create allowance.
+    touch_list = subscribed is not None or cadence is not None
+    retag = changed or (touch_list and bool(user.get("currency")))
+    _sync_newsletter(email, user, was, post=touch_list, retag=retag)
     return user
 
 
@@ -379,6 +396,7 @@ def public_user(user):
         "wishlist": user.get("wishlist", []),
         "cadence": _cadence(user.get("cadence", "monthly")),
         "subscribed": bool(user.get("subscribed")),
+        "currency": user.get("currency"),
     }
 
 
@@ -409,7 +427,7 @@ def _buttondown(method, url, key, payload=None, extra=None):
         return e.code
 
 
-def _sync_newsletter(email, user, was_subscribed=False):
+def _sync_newsletter(email, user, was_subscribed=False, post=True, retag=False):
     """Mirror the account's newsletter choice into Buttondown.
 
     The digest goes to the whole Buttondown list every month, so the list IS
@@ -423,6 +441,11 @@ def _sync_newsletter(email, user, was_subscribed=False):
     prefs only when its box is ticked, so the account panel is the one place
     an opt-out comes from.
 
+    The newsletter's home currency (the digest edition they get) rides on a
+    currency-* tag: `retag` sets it to the stored one, replacing any other
+    currency tag, after the upsert (`post`) when there is one. Only for an
+    address that wants mail; a stored currency waits until they subscribe.
+
     Best-effort: a newsletter hiccup must never break sign-in or the prefs
     save, so failures are logged, not raised.
     """
@@ -431,17 +454,38 @@ def _sync_newsletter(email, user, was_subscribed=False):
         return
     try:
         if _wants_mail(user):
-            # "add" upserts: creates a new subscriber, merges the tag into an
-            # existing one, and re-activates an address that unsubscribed
-            # earlier — this is that person explicitly opting back in.
-            _buttondown("POST", _BD_API, key,
-                        {"email_address": email, "tags": ["cadence-monthly"]},
-                        {"X-Buttondown-Collision-Behavior": "add"})
+            if post:
+                # "add" upserts: creates a new subscriber, merges the tag into
+                # an existing one, and re-activates an address that
+                # unsubscribed earlier — this is that person explicitly
+                # opting back in.
+                _buttondown("POST", _BD_API, key,
+                            {"email_address": email, "tags": ["cadence-monthly"]},
+                            {"X-Buttondown-Collision-Behavior": "add"})
+            if retag and user.get("currency") in VARIANTS:
+                _set_currency_tag(email, key, user["currency"])
         elif was_subscribed:
             _buttondown("PATCH", _BD_API + "/" + urllib.parse.quote(email, safe="@"), key,
                         {"type": "unsubscribed"})
     except Exception as e:
         print("[accounts] buttondown sync failed: %s" % e, flush=True)
+
+
+def _set_currency_tag(email, key, code):
+    """Make `code`'s tag the subscriber's only currency-* tag. PATCH replaces
+    the tag list, so it sends the current tags minus other currency tags
+    (any case) plus this one: cadence-monthly and anything the owner added
+    stay. No PATCH when nothing would change."""
+    status, sub = _bd_subscriber(email, key)
+    if status != 200 or not isinstance(sub, dict):
+        print("[accounts] currency tag: lookup of %s -> HTTP %s" % (_mask(email), status), flush=True)
+        return
+    tags = list(sub.get("tags") or [])
+    want = [t for t in tags if not (isinstance(t, str) and t.lower().startswith(TAG_PREFIX))]
+    want.append(VARIANTS[code].tag)
+    if sorted(map(str, want)) != sorted(map(str, tags)):
+        _buttondown("PATCH", _BD_API + "/" + urllib.parse.quote(email, safe="@"), key,
+                    {"tags": want})
 
 
 # ---- one-off: opt-outs from before they reached Buttondown -------------------
