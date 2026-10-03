@@ -711,7 +711,7 @@
                offering the choice. -->
           <span class="pickgroup" data-tip="which government's travel advice — advisories reflect each country's own foreign policy" title="">
             <span class="picklabel">🏛️ Per</span>
-            <select id="advSource">
+            <select id="advSource" aria-label="Whose travel advice">
               <option value="us">U.S. State Department</option>
               <option value="ca">Global Affairs Canada</option>
               <option value="de">German Foreign Office</option>
@@ -742,6 +742,8 @@
           <option value="2">L2 — Increased caution</option>
           <option value="3">L3 — Reconsider travel</option>
           <option value="4">L4 — Do not travel</option>
+          <!-- Germany only: the gaps other governments fill (renderAdvisories). -->
+          <option value="via" hidden disabled>Rated by others</option>
         </select>
       </div>
       <section class="tablewrap">
