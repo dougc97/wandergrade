@@ -9398,10 +9398,11 @@ async function activateTab(name, push) {
         // Level 3-4 marks and no booking links at Level 4 (advisories), and
         // each row's Flights link (the origin's fares: not awaited — a cold
         // origin can take seconds; loadValueFlights redraws the list when
-        // they land). A Top Picks session already has all four.
+        // they land). A Top Picks session has all four (its own fares
+        // request may still be out: a second would only be discarded).
         await Promise.all([ensureClimate(), ensureAdvisories().catch(() => {}),
                            ensureActivities().catch(() => {})]);
-        if (!flightsData) loadValueFlights(true);
+        if (!flightsData && !loaded.value) loadValueFlights(true);
         loaded.trip = true;
         renderTripBar();
       });
