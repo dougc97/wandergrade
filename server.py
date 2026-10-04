@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
-    flightvalue, health, mailer, popularity, rates, render_guide, store, watchouts
+    flightvalue, guide_facts, health, mailer, popularity, rates, render_guide, store, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -143,6 +143,8 @@ def _analytics_tag():
 from fxtracker import digest_variants  # noqa: E402
 
 
+# TITLE / DESC / OGTITLE are mirrored in app.js _DEFAULT_META (restored when the
+# reader leaves a guide in-app): change them together.
 _HTML_DEFAULTS = {
     "TITLE": "WanderGrade — Where Should I Travel to Next?",
     "DESC": "Decide where — and when — to go. Every country graded A+ to F on "
@@ -158,6 +160,11 @@ _HTML_DEFAULTS = {
     # meant every guide's first and strongest heading said nothing about the
     # country it was for. Same pixels either way — .sitetitle carries the style.
     "SITE_HEADING": '<h1 class="sitetitle">Where Should I Travel to Next?</h1>',
+    # The guide tab's own h1 (#guideH1). Off a guide it waits hidden for app.js
+    # to fill it; on /guide/<slug> it is the country's h1 from the first byte
+    # (render_guide.h1_html), and hydration writes the same markup or nothing.
+    "GUIDE_H1_HIDDEN": " hidden",
+    "GUIDE_H1": "Travel Guide",
     "GUIDE_LINKS": "",
     "GUIDE_COUNT": "",
     # Which tab the served HTML shows before (or without) JS: Top Picks here,
@@ -202,6 +209,49 @@ def _index_template():
         tpl = re.sub(r"/styles\.css(\?v=\d+)?", "/styles.css?v=" + _asset_version("styles.css"), tpl)
         _html_tpl = tpl
     return _html_tpl
+
+
+# A guide page carries the whole single-page app, and every static h2/h3 in it
+# belongs to another tab (Top Picks, Trip, Wander List, Data: "Where the dollar
+# is strong…", "Travel advisories", "Fares by month"…) — 16 headings telling a
+# crawler the Colombia page is about something else. On /guide/* only, they are
+# served as <div data-h="2|3"> (ids kept, so app.js finds them as before) and
+# app.js promoteShellHeadings() turns them back into h2/h3 the moment a reader
+# opens one of those tabs — before it is revealed, so nothing moves. The tabs
+# are also data-nosnippet: Google builds no snippet from the SMTP tip.
+# Only inside those four tab sections: a heading added to the header, the guide
+# tab or the footer stays a real heading (promoteShellHeadings never runs while
+# the guide is showing, so a demoted one there would stay a div).
+_SHELL_H = re.compile(r"<(/?)h([23])(?=[\s>])")
+_SHELL_TABS = ("tab-value", "tab-trip", "tab-visited", "tab-data")
+_SECTION_TAG = re.compile(r"<(/?)section(?=[\s>])")
+_guide_tpl = None
+
+
+def _section_end(tpl, a):
+    """Index just past the </section> that closes the <section> at a (tabs nest
+    sections of their own)."""
+    depth = 0
+    for m in _SECTION_TAG.finditer(tpl, a):
+        depth += -1 if m.group(1) else 1
+        if depth == 0:
+            return tpl.index(">", m.end()) + 1
+    raise ValueError("unclosed <section> at %d" % a)
+
+
+def _guide_template():
+    global _guide_tpl
+    if _guide_tpl is None:
+        tpl = _index_template()
+        for t in _SHELL_TABS:
+            a = tpl.index('<section class="tab" id="%s"' % t)
+            b = _section_end(tpl, a)
+            sec = _SHELL_H.sub(lambda m: "</div" if m.group(1) else '<div data-h="%s"' % m.group(2),
+                               tpl[a:b])
+            sec = sec.replace('id="%s"' % t, 'id="%s" data-nosnippet' % t, 1)
+            tpl = tpl[:a] + sec + tpl[b:]
+        _guide_tpl = tpl
+    return _guide_tpl
 
 
 _SITE = "https://wandergrade.com"   # canonical origin for sitemap URLs
@@ -420,7 +470,15 @@ def _sitemap():
     # the deploy time and all 178 lastmods moved on every template tweak —
     # exactly the fabricated freshness this block documents avoiding. The
     # stamp is a committed file, bumped only when the content JSONs
-    # (slugs/climate/activities/country-names/visa) actually change.
+    # (slugs/climate/activities/country-names/visa) actually change — every
+    # page shares it.
+    # A guide's own snapshot (its title, description, price figure and advisory
+    # level — the guide-facts document the server recomputes daily,
+    # fxtracker/guide_facts.py) moves only that guide: each entry records the
+    # day it last changed as "m", so the daily recompute re-dates only the
+    # guides whose figure or level moved, never "/" and "/data", whose content
+    # it doesn't touch. And the day the snapshot passes render_guide.STALE_DAYS
+    # every guide drops its figures — a real change, dated as one.
     try:
         with open(os.path.join(PUBLIC, "content-stamp.txt"), encoding="utf-8") as f:
             stamp = f.read().strip()[:10]
@@ -432,9 +490,12 @@ def _sitemap():
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
            '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
            '  <url><loc>%s/data</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp)]
-    for slug, _iso in render_guide.all_slugs():
+    doc = guide_facts.get_doc() or {}  # one document for all 190 lastmods
+    expired = render_guide.snapshot_expired_on(doc=doc)
+    for slug, iso in render_guide.all_slugs():
+        days = [stamp, render_guide.snapshot_changed(iso, doc), expired.isoformat() if expired else ""]
         out.append('  <url><loc>%s/guide/%s</loc><lastmod>%s</lastmod></url>'
-                   % (_SITE, slug, stamp))
+                   % (_SITE, slug, max(x for x in days if re.fullmatch(r"\d{4}-\d{2}-\d{2}", x))))
     out.append('</urlset>')
     return ("\n".join(out) + "\n").encode("utf-8")   # _send_body takes bytes
 
@@ -646,6 +707,8 @@ def _render_index(gc_iso=None):
             DESC=html.escape(r["desc"], quote=True),
             OGTITLE=html.escape(r["og_title"], quote=True),
             URL=html.escape(r["url"], quote=True),
+            GUIDE_H1_HIDDEN="",
+            GUIDE_H1=r["h1_html"],                    # already-safe HTML
             SSR_BODY=r["body"],                       # already-safe HTML
             GC_JS="<script>window.__WGGC__=%s;</script>" % json.dumps(gc_iso),
             JSONLD=r.get("jsonld", ""),               # FAQPage schema (raw JSON-LD)
@@ -660,7 +723,7 @@ def _render_index(gc_iso=None):
         )
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
-    out = _index_template()
+    out = _guide_template() if gc_iso else _index_template()
     for k, v in vals.items():
         out = out.replace("{{%s}}" % k, v)
     return out.encode("utf-8")
@@ -720,6 +783,14 @@ def _cached(name, cache, key, ttl, compute, stale_max=None):
                 cache.pop(k, None)
     cache[key] = (now, data)
     return data
+
+
+def _advisories_payload(source):
+    """The cached list /api/advisories serves for `source` (stale-on-error,
+    see _cached) — also what the guide-facts refresher reads."""
+    # No stale_max: a days-old advisory list beats a 500 that blanks Top
+    # Picks, and the payload says it is stale.
+    return _cached("advisories", _adv_cache, source, ADV_TTL, lambda: _advisories_fresh(source))
 
 
 def _advisories_fresh(source):
@@ -1372,6 +1443,22 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_file(os.path.join(PUBLIC, "health.json"))
             return
+        if path == "/guide-facts.json":
+            # The guide-facts document in force — the server's daily recompute,
+            # or the committed file until there is one (fxtracker/guide_facts.py)
+            # — so in-app navigation sets the same titles the server renders.
+            # Ten minutes, as before: it changes once a day.
+            try:
+                body = guide_facts.get_json_bytes()
+            except Exception as e:
+                print("[guide-facts] serving the static file: %s" % e, flush=True)
+                body = None
+            if body:
+                self._send_body(body, "application/json; charset=utf-8",
+                                cache="public, max-age=600")
+            else:
+                self._send_file(os.path.join(PUBLIC, "guide-facts.json"))
+            return
         if path in ("/data/price-levels.json", "/data/price-levels.csv"):
             try:
                 data = _dataset()
@@ -1523,10 +1610,7 @@ class Handler(BaseHTTPRequestHandler):
         if source not in advisories.SOURCES:
             source = "us"
         try:
-            # No stale_max: a days-old advisory list beats a 500 that blanks
-            # Top Picks, and the payload says it is stale.
-            data = _cached("advisories", _adv_cache, source, ADV_TTL,
-                           lambda: _advisories_fresh(source))
+            data = _advisories_payload(source)
         except Exception as e:
             # Nothing cached yet and the chosen feed is down (cold start):
             # another government's list, still labelled by its own
@@ -1704,6 +1788,21 @@ def main():
     # once it's a week old (fxtracker/health.py). Render only, unless
     # HEALTH_REFRESH=1 — never from a laptop by accident.
     health.start_refresher()
+    # The guide pages' titles, descriptions and lastmods quote a dated price
+    # level and advisory; the server recomputes them daily from the same
+    # cached rates, advisories and PPP table /api/rates, /api/advisories and
+    # /ppp.json serve (fxtracker/guide_facts.py) — in-process, never over
+    # HTTP to itself. Render only, unless GUIDE_FACTS_REFRESH=1.
+    # The live World Bank table, not the committed one: start its refresh now
+    # and hand the refresher nothing until that first attempt has finished
+    # ("at" moves on success and failure alike), so a check that comes first
+    # is kept and retried within the hour instead of moving figures twice on
+    # every restart day.
+    _ppp_data()
+    guide_facts.start_refresher(
+        get_rates=lambda: _rates_payload(store.load_config(), "USD"),
+        get_advisories=lambda: _advisories_payload("us"),
+        get_ppp=lambda: _ppp_data() if _ppp_cache["at"] else None)
     # One-off after deploy: opt-outs from before they reached Buttondown (see
     # accounts.reconcile_optouts). Background, and a no-op without the
     # Buttondown/Upstash keys or once its done-marker is set.

@@ -6,12 +6,24 @@ with country-specific <title>/meta/canonical and a crawlable content block
 visa). The SPA then hydrates on top — app.js removes the SSR block (#ssrGuide)
 once it renders the interactive guide, so users never see it twice.
 
-All content is read from the same JSON the frontend uses; no new data.
+All content is read from the same JSON the frontend uses, plus one dated
+snapshot (the guide-facts document, fxtracker/guide_facts.py) for the two
+figures only WanderGrade answers — the price level against the US and the US
+State Dept advisory — so a guide's title and snippet can say what the page is
+actually for. The server recomputes that document once a day from its own
+cached rates and advisories, and render() reads whichever copy is current via
+guide_facts.get_doc(): it never calls a live API itself, so the HTML (which is
+edge-cached) moves once a day, not with every rates blip.
 """
 
+import datetime
 import html
 import json
 import os
+import re
+import sys
+
+from . import guide_facts
 
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public")
 SITE = "https://wandergrade.com"
@@ -48,6 +60,8 @@ def _load():
         og = j("og-images.json")       # iso -> hero photo URL (optional)
     except OSError:
         og = {}
+    # No guide-facts here: this cache lives as long as the process, and that
+    # document is replaced daily (see _doc()).
     _data = {
         "slugs": slugs,
         "iso2slug": {iso: s for s, iso in slugs.items()},
@@ -60,9 +74,361 @@ def _load():
     return _data
 
 
+# Names that read wrong bare inside a sentence or question ("Is Bahamas cheap to
+# visit?", "Things to do in United States"). app.js NAME_THE is the same set:
+# change them together (scripts/test_guide_meta.py holds the two equal). Labels
+# ("Bahamas: local prices…", "Bahamas Travel Guide") and the h1 keep the bare name.
+THE = {"BS", "PH", "NL", "AE", "GB", "US", "DO", "GM", "SB", "FO", "FK", "CF", "CG", "IM", "TF"}
+
+
+def name_in_text(iso):
+    """The country's name as it sits inside a sentence: "the Bahamas", "Japan"."""
+    n = _load()["names"].get(iso, iso)
+    return "the " + n if iso in THE else n
+
+
 def iso_for_slug(slug):
     """ISO-2 for a URL slug, or None if it isn't a known country."""
     return _load()["slugs"].get(slug)
+
+
+# ---- the guide's h1 ------------------------------------------------------------
+# app.js flagEmoji/SPECIAL_FLAGS: England, Scotland and Wales are Unicode tag
+# sequences, every other guide a regional-indicator pair.
+_SUBDIV = {"GB-ENG": "gbeng", "GB-SCT": "gbsct", "GB-WLS": "gbwls"}
+
+
+def flag_emoji(iso):
+    if iso in _SUBDIV:
+        return "\U0001F3F4" + "".join(chr(0xE0000 + ord(c)) for c in _SUBDIV[iso]) + "\U000E007F"
+    if re.fullmatch(r"[A-Z]{2}", iso or ""):
+        return "".join(chr(0x1F1E6 + ord(c) - 65) for c in iso)
+    return "\U0001F30D"
+
+
+def h1_topics(iso, doc=None):
+    """'cost, safety & when to go' — only the topics this guide has data for:
+    cost where the snapshot has a price figure (not Taiwan, Cuba, the US
+    itself…), safety where it has an advisory (not Western Sahara or the French
+    Southern Territories). app.js guideH1Text() reads the same two fields of
+    guide-facts.json. Topics, never figures, so a stale snapshot claims nothing."""
+    f = _facts(iso, doc)
+    t = (["cost"] if f.get("pct") is not None else []) + (["safety"] if f.get("adv") else []) + ["when to go"]
+    return t[0] if len(t) == 1 else "%s & %s" % (", ".join(t[:-1]), t[-1])
+
+
+def h1_html(iso, doc=None):
+    """The guide's one h1, the same markup as app.js guideH1Html(): it is served
+    as #guideH1 itself and hydration leaves it alone (renderGuide compares
+    textContent, so html.escape's &#x27; vs esc()'s &#39; doesn't matter). No
+    figures — the client never waits on live data to draw it, and it can never
+    contradict any. "<Country> travel" keeps the page's strongest heading on
+    the query the titles no longer lead with; the name is green (.gname), as
+    the country was in the old "Travel Guide — Japan" heading."""
+    name = _load()["names"].get(iso, iso)
+    return '<span aria-hidden="true">%s</span> <span class="gname">%s</span> travel: %s' % (
+        flag_emoji(iso), html.escape(name), html.escape(h1_topics(iso, doc)))
+
+
+# ---- the price level / advisory snapshot (fxtracker/guide_facts.py) -------------
+# Each government's own words for its levels: app.js ADV_LVL_WORDS / DE_LVL_LABEL.
+ADV_LVL_WORDS = {
+    "us": ["Normal precautions", "Increased caution", "Reconsider travel", "Do not travel"],
+    "ca": ["Normal security precautions", "High degree of caution",
+           "Avoid non-essential travel", "Avoid all travel"],
+}
+DE_LVL_LABEL = {1: "No warning", 2: "Some regions", 4: "Travel warning"}
+# app.js ADV_SRC_SHORT. Puerto Rico, the US itself, Guam and the Falklands are
+# rated by Canada in the US feed's gaps: they are never called a US advisory.
+ADV_SRC_SHORT = {"us": "US State Dept", "ca": "Global Affairs Canada", "de": "German Foreign Office"}
+_ADV_SRC_PROSE = {"us": "the US State Department", "ca": "Global Affairs Canada",
+                  "de": "the German Foreign Office"}
+# Still guarded although the server recomputes the snapshot daily: if that
+# stops landing (a feed down for months, the refresher off), the figures age
+# out rather than being presented as current.
+STALE_DAYS = 90
+_stale_warned = None      # the snapshot date last warned about
+
+
+def lvl_words(src, lvl):
+    if src == "de":
+        return DE_LVL_LABEL.get(lvl, "")
+    w = ADV_LVL_WORDS.get(src) or ADV_LVL_WORDS["us"]
+    return w[lvl - 1] if lvl and 1 <= lvl <= 4 else ""
+
+
+def _doc():
+    """The guide-facts document in force: the freshest of the server's daily
+    recompute and the committed public/guide-facts.json (guide_facts.get_doc).
+    Fetched per call and never cached here — the refresher replaces it in
+    place, and a copy pinned in this module would keep yesterday's titles
+    until a restart. A render takes it once and passes it down (doc=), so one
+    page never mixes two documents."""
+    return guide_facts.get_doc() or {}
+
+
+def snapshot_asof(doc=None):
+    """The snapshot's date, or None."""
+    try:
+        return datetime.date.fromisoformat(str((_doc() if doc is None else doc).get("_asof") or ""))
+    except ValueError:
+        return None
+
+
+def snapshot_fresh(today=None, doc=None):
+    """False once the snapshot is more than STALE_DAYS old: from then on every
+    number and advisory clause drops out of the description, FAQ and SSR lines
+    (the title only ever asks a question, so it keeps its variant)."""
+    global _stale_warned
+    doc = _doc() if doc is None else doc
+    a = snapshot_asof(doc)
+    ok = bool(a) and ((today or datetime.date.today()) - a).days <= STALE_DAYS
+    if not ok and doc and _stale_warned != a:
+        _stale_warned = a
+        print("WARNING: the guide facts are from %s (over %d days old) — guide pages dropped "
+              "their price and advisory figures. The server's daily recompute isn't landing "
+              "(see its [guide-facts] log lines; DEPLOY.md has the manual fallback)"
+              % (a, STALE_DAYS), file=sys.stderr)
+    return ok
+
+
+def snapshot_expired_on(today=None, doc=None):
+    """The first day past STALE_DAYS (the day every guide dropped its figures),
+    once that day has come; else None. The sitemap dates that change."""
+    a = snapshot_asof(doc)
+    if not a:
+        return None
+    d = a + datetime.timedelta(days=STALE_DAYS + 1)
+    return d if d <= (today or datetime.date.today()) else None
+
+
+def snapshot_changed(iso, doc=None):
+    """The day this guide's snapshot entry last changed ("m", kept by
+    guide_facts.date_entries), or "" — the guide's sitemap <lastmod>."""
+    return str(_facts(iso, doc).get("m") or "")[:10]
+
+
+def _facts(iso, doc=None):
+    return (_doc() if doc is None else doc).get(iso) or {}
+
+
+def _mon_year(d, full=False):
+    return ("%s %d" % ((MON_FULL if full else MON)[d.month - 1], d.year)) if d else ""
+
+
+def _band_q(f):
+    """"Cheap" or "Expensive": which question the title asks."""
+    return "Cheap" if f.get("band") in ("cheap", "very cheap") else "Expensive"
+
+
+def _months_ranges(best):
+    """December–February and July: runs of 3+ months as a range (wrapping
+    December into January). Description only — it is a length rung."""
+    s = sorted(set(m for m in best if 1 <= m <= 12))
+    runs = []
+    for m in s:
+        if runs and m == runs[-1][-1] + 1:
+            runs[-1].append(m)
+        else:
+            runs.append([m])
+    if len(runs) > 1 and runs[0][0] == 1 and runs[-1][-1] == 12:
+        runs[0] = runs.pop() + runs[0]
+    out = []
+    for r in runs:
+        if len(r) >= 3:
+            out.append("%s–%s" % (MON_FULL[r[0] - 1], MON_FULL[r[-1] - 1]))
+        else:
+            out.extend(MON_FULL[m - 1] for m in r)
+    return _join_and(out)
+
+
+TITLE_MAX = 60
+DESC_MAX = 155
+
+
+# The cost clause after the question, longest first. "Costs", not "Prices":
+# "<country> travel cost" is the query, and it is a character shorter. "Travel"
+# is added only where it fits without dropping a clause the shorter rung keeps
+# — never at the price of "vs US", the comparison only this site makes.
+_COST_TAILS = [" Travel Costs vs US, Safety & Best Time", " Costs vs US, Safety & Best Time",
+               " Travel Costs vs US & Best Time", " Costs vs US & Best Time",
+               " Travel Costs vs US", " Costs vs US", ""]
+
+
+def _title(iso, f):
+    """A question nobody else's page answers. Never a number or a level: a stale
+    snapshot can only change which question is asked, and a question claims
+    nothing. Level 3 and 4 countries are asked "safe?" (the query people type
+    about them); Level 4 is never asked "cheap?". The first rung that fits
+    TITLE_MAX wins; long names drop clauses, never letters."""
+    n = _load()["names"].get(iso, iso)
+    nt = name_in_text(iso)
+    adv, has_p = f.get("adv"), f.get("pct") is not None
+    if adv == 4 or (adv == 3 and not has_p):
+        rest = " Travel Advisory, Costs & Weather" if has_p else " Travel Advisory & Weather"
+        ladder = ["Is %s Safe to Visit?%s" % (nt, rest),
+                  "Is %s Safe to Visit? Travel Advisory" % nt,
+                  "Is %s Safe to Visit?" % nt]
+    elif has_p:
+        if adv == 3:
+            head = ("Is %s Safe & Cheap to Visit?" if _band_q(f) == "Cheap" else "Is %s Safe to Visit?") % nt
+            tails = [t for t in _COST_TAILS if "Safety" not in t]   # the question asks it
+        else:
+            head = "Is %s %s to Visit?" % (nt, _band_q(f))
+            tails = _COST_TAILS
+        ladder = [head + t for t in tails]
+    else:
+        ladder = ["%s Travel Guide: Best Time to Visit & Things to Do" % n,
+                  "%s Travel Guide: Best Time to Visit" % n,
+                  "%s Travel Guide" % n]
+    for t in ladder:
+        if len(t) <= TITLE_MAX:
+            return t
+    return ladder[-1]
+
+
+def _adv_src(f):
+    """'US State Dept' / 'US State Dept (United Kingdom advisory)'."""
+    src = ADV_SRC_SHORT.get(f.get("src"), ADV_SRC_SHORT["us"])
+    if f.get("advof"):
+        src += " (%s advisory)" % _load()["names"].get(f["advof"], f["advof"])
+    return src
+
+
+def _desc(iso, f, asof):
+    """The snippet: price level vs the US, the best months, the advisory —
+    attributed and dated — then the curated summary if room is left. No letter
+    grade: the overall grade moves with the month and the reader's priorities,
+    so a meta letter would contradict the page most of the year."""
+    d = _load()
+    n = d["names"].get(iso, iso)            # the leading label: "Bahamas: local prices…"
+    nt = name_in_text(iso)                  # inside a sentence: "Best weather in the Bahamas"
+    c = d["clim"].get(iso) or {}
+    curated = bool(c.get("curated"))
+    best = [m for m in (c.get("best") or []) if 1 <= m <= 12]
+    summary = " ".join(((d["acts"].get(iso) or {}).get("summary") or "").split())
+    lvl = f.get("adv")
+    src = f.get("src")
+    has_p = f.get("pct") is not None
+
+    def build(ranges=False, words=True, band=True):
+        # No "(very cheap)" beside "Do not travel": a bargain verdict is the
+        # wrong thing to say about a place the government says to stay out of.
+        band = band and lvl != 4
+        P = None
+        if has_p:
+            extra = ([f["band"]] if band and f.get("band") else []) + (
+                ["%s-wide figure" % ("UK" if f.get("plof") == "GB" else d["names"].get(f["plof"], f["plof"]))]
+                if f.get("plof") else [])
+            P = "%s: local prices ≈ %d%% of the US%s." % (
+                n, f["pct"], (" (%s)" % "; ".join(extra)) if extra else "")
+        B = None
+        if best:
+            mt = _months_ranges(best) if ranges else _join_and(MON_FULL[m - 1] for m in best)
+            if P:
+                B = ("Best months to visit: %s." if curated else "Best weather: %s.") % mt
+            else:
+                B = ("Best months to visit %s: %s." if curated else "Best weather in %s: %s.") % (nt, mt)
+        S = None
+        if lvl:
+            if src == "de":
+                S = "%s: “%s”." % (_adv_src(f), lvl_words(src, lvl))
+            else:
+                S = "%s: Level %d%s." % (_adv_src(f), lvl, (", " + lvl_words(src, lvl)) if words else "")
+        core = [S, P, B] if lvl == 4 else [P, B, S]
+        core = [x for x in core if x]
+        if (P or S) and asof:
+            core.append("As of %s." % _mon_year(asof))
+        return " ".join(core)
+
+    # Cumulative rungs until it fits: month ranges, then the level words for
+    # Levels 1-2, then the band, then Level 3's words. "Do not travel" stays.
+    lv = lvl or 0
+    s = ""
+    for opts in (dict(), dict(ranges=True), dict(ranges=True, words=lv >= 3 or src == "de"),
+                 dict(ranges=True, words=lv >= 3 or src == "de", band=False),
+                 dict(ranges=True, words=lv >= 4 or src == "de", band=False)):
+        s = build(**opts)
+        if len(s) <= DESC_MAX:
+            break
+    if not s:
+        return _clip(summary or generic_desc(iso), DESC_MAX)
+    fill = _summary_fit(summary, DESC_MAX - len(s) - 1)
+    return s + " " + fill if fill else s
+
+
+def generic_desc(iso):
+    """The number-free last resort — app.js guideMeta() shows the same sentence
+    when guide-facts.json can't be loaded."""
+    return ("What to do in %s, when to go, and what's in season — "
+            "graded on prices, weather, safety and flights." % name_in_text(iso))
+
+
+def _summary_fit(summary, room):
+    """The curated summary in what room is left: whole; else up to its " — "
+    (the clause before it stands alone, so it ends with a full stop); else up
+    to a ", " with an ellipsis; else nothing. Never a cut mid-phrase ("…a long
+    Indian Ocean coast and…"). Under 25 characters isn't worth the space."""
+    if not summary or room < 25:
+        return ""
+    if len(summary) <= room:
+        return summary
+    for sep, end in ((" — ", "."), (", ", "…")):
+        cuts = [i for i in range(len(summary)) if summary.startswith(sep, i)]
+        for i in reversed(cuts):
+            head = summary[:i].rstrip(".,;: ")
+            if 25 <= len(head) + len(end) <= room:
+                return head + end
+    return ""
+
+
+def meta(iso, f=None, asof=None, doc=None):
+    """{"title", "desc"} for a guide — the ONE implementation: render() uses it,
+    and guide_facts.compute stores its output in the document (t, d, and dn =
+    the number-free description) for app.js to set on in-app navigation.
+
+    f/asof default to the document in force (doc, else _doc()). Past
+    STALE_DAYS the description falls back to its number-free variant; the
+    title keeps its question."""
+    if f is None:
+        doc = _doc() if doc is None else doc
+        f = _facts(iso, doc)
+        fresh = snapshot_fresh(doc=doc)
+        asof = snapshot_asof(doc) if fresh else None
+        nums = f if fresh else {}
+    else:
+        nums = f
+    return {"title": _title(iso, f), "desc": _desc(iso, nums, asof)}
+
+
+def meta_numberfree(iso):
+    """The description with every number and advisory clause dropped."""
+    return _desc(iso, {}, None)
+
+
+def _cost_line(iso, f, asof):
+    """'Local prices ≈ 47% of the US (Sep 2026)' — the hydrated 💰 line's words."""
+    if f.get("pct") is None:
+        return ""
+    tag = _mon_year(asof)
+    if f.get("plof"):
+        tag = "%s figure, %s" % ("UK-wide" if f["plof"] == "GB" else
+                                 _load()["names"].get(f["plof"], f["plof"]) + "-wide", tag)
+    return "Local prices ≈ %d%% of the US (%s)" % (f["pct"], tag)
+
+
+def _safety_line(iso, f, asof):
+    """'Level 3 · Reconsider travel — Safety · per US State Dept (Sep 2026)' —
+    the hydrated 🛡️ badge, attributed to whoever set it."""
+    lvl, src = f.get("adv"), f.get("src")
+    if not lvl:
+        return ""
+    badge = lvl_words(src, lvl) if src == "de" else "Level %d · %s" % (lvl, lvl_words(src, lvl))
+    who = ADV_SRC_SHORT.get(src, ADV_SRC_SHORT["us"])
+    tag = _mon_year(asof)
+    if f.get("advof"):
+        tag = "%s advisory, %s" % (_load()["names"].get(f["advof"], f["advof"]), tag)
+    return "%s — Safety · per %s (%s)" % (badge, who, tag)
 
 
 # app.js VISA_META `long` text, so the crawlable line reads like the hydrated
@@ -135,20 +501,68 @@ def _insurance_link(slug):
             "at no extra cost to you.</span></p>" % html.escape(_EKTA % slug, quote=True))
 
 
-def _faq_jsonld(name, best_txt, acts, seasonal, summary, curated=False):
+def _value_qas(iso, f, asof):
+    """The two questions only WanderGrade answers, from the snapshot — each
+    backed by a block the page shows (the 💰 cost line and the 🛡️ badge, or
+    their dated snapshot fallbacks). Dated, and the advisory attributed to the
+    government that set it: this site does not author safety claims. Google
+    shows FAQ rich results only for government/health sites since 2023, so this
+    is for understanding the page, not for a SERP feature."""
+    d = _load()
+    n = name_in_text(iso)                   # "local prices in the Bahamas"
+    when = _mon_year(asof, full=True)
+    qas = []
+    if f.get("pct") is not None and when:
+        # No bargain verdict beside "Do not travel" (as in the description).
+        extra = (f.get("band") or "") if f.get("adv") != 4 else ""
+        if f.get("plof"):
+            extra += (", " if extra else "") + ("UK-wide figure" if f["plof"] == "GB"
+                                                else d["names"].get(f["plof"], f["plof"]) + "-wide figure")
+        # Level 4 places are not asked "cheap?" anywhere: a neutral question.
+        q = ("How do prices in %s compare to the US?" % n if f.get("adv") == 4
+             else "Is %s %s to visit?" % (n, _band_q(f).lower()))
+        qas.append((q, "As of %s, local prices in %s are about %d%% of US prices%s. This is "
+                       "WanderGrade's price level: the World Bank price level for residents, carried "
+                       "to that month's exchange rate. It is a national average, and tourist areas "
+                       "cost more." % (when, n, f["pct"], (" (%s)" % extra) if extra else "")))
+    lvl, src = f.get("adv"), f.get("src")
+    if lvl and when:
+        who = _ADV_SRC_PROSE.get(src, _ADV_SRC_PROSE["us"])
+        words = lvl_words(src, lvl)
+        if f.get("advof"):
+            pn = d["names"].get(f["advof"], f["advof"])
+            poss = who + "'s"
+            call = ("“%s”" % words) if src == "de" else "Level %d: %s" % (lvl, words)
+            a = "As of %s, %s %s advisory, which WanderGrade shows for %s, is %s." % (
+                when, poss, pn, n, call)
+        elif src == "de":
+            a = "As of %s, %s's call for %s is “%s”." % (when, who, n, words)
+        else:
+            a = "As of %s, %s rates %s Level %d: %s." % (when, who, n, lvl, words)
+        a = a[0].upper() + a[1:] if a else a
+        qas.append(("Is %s safe to visit?" % n,
+                    a + " Advisories change, so check the current one before booking."))
+    return qas
+
+
+def _faq_jsonld(name, best_txt, acts, seasonal, summary, curated=False, value_qas=()):
     """FAQPage schema for the questions people actually search — 'best time to
     visit X', 'things to do in X', 'what's in season' — so the page can win
     Google rich results. Data-backed answers only (no invented facts) — which
     includes the curated distinction: the "best months to visit" claim only
-    where months were hand-curated, a weather statement everywhere else."""
+    where months were hand-curated, a weather statement everywhere else.
+    `name` is the in-sentence form (render_guide.name_in_text: "the Bahamas")."""
     qas = []
     if best_txt:
-        a = ("The best months to visit %s are %s, based on weather and seasonality."
+        a = ("The best months to visit %s are %s, based on weather and seasonality." % (name, best_txt)
              if curated else
-             "%s has its best weather in %s.") % (name, best_txt)
+             # Starts the sentence: "The Bahamas has…" (eSwatini keeps its lower-case e).
+             "%s has its best weather in %s." % (
+                 "The " + name[4:] if name.startswith("the ") else name, best_txt))
         if summary:
             a += " " + summary
         qas.append(("When is the best time to visit %s?" % name, a))
+    qas.extend(value_qas)                 # cost, then safety
     top = [_label(x) for x in acts[:4] if _label(x)]
     if top:
         qas.append(("What are the top things to do in %s?" % name,
@@ -177,9 +591,9 @@ def _faq_jsonld(name, best_txt, acts, seasonal, summary, curated=False):
 
 def render(iso):
     """Return the token values for a country page: title, description, og title,
-    canonical URL, and the crawlable body HTML."""
+    canonical URL, the h1 (served as #guideH1 itself) and the crawlable body."""
     d = _load()
-    name = d["names"].get(iso, iso)
+    name = name_in_text(iso)          # every use below sits inside a sentence or heading
     slug = d["iso2slug"].get(iso, iso.lower())
     a = d["acts"].get(iso, {}) or {}
     c = d["clim"].get(iso, {}) or {}
@@ -197,28 +611,35 @@ def render(iso):
     acts = a.get("activities") or []
     seasonal = a.get("seasonal") or []
 
-    # Meta description: prefer the curated summary; always lead with best months.
-    desc = summary or ("What to do in %s, when to go, and what's in season — "
-                       "graded on prices, weather, safety and flights." % name)
-    if best_txt:
-        desc = ("Best time to visit %s: %s. %s" if curated
-                else "Best weather in %s: %s. %s") % (name, best_txt, desc)
-    desc = _clip(desc)
-
-    title = "%s Travel Guide — Best Time to Visit & What to Do | WanderGrade" % name
-    og_title = "%s Travel Guide — WanderGrade" % name
+    # Title and description come from meta() — the same strings guide-facts.json
+    # hands app.js for in-app navigation. Past the staleness guard the figures
+    # (and their date) drop out of the description, FAQ and fact lines alike.
+    # One document for the whole page: the daily recompute can land mid-render.
+    doc = _doc()
+    mt = meta(iso, doc=doc)
+    fresh = snapshot_fresh(doc=doc)
+    f = _facts(iso, doc) if fresh else {}
+    asof = snapshot_asof(doc) if fresh else None
     url = "%s/guide/%s" % (SITE, slug)
 
-    p = ["<h1>%s Travel Guide</h1>" % html.escape(name)]
+    # No <h1> here: #guideH1 is the page's h1 on the server and after hydration.
+    p = []
     if summary:
         p.append("<p>%s</p>" % html.escape(summary))
+    # The two fact lines the hydrated page shows as 💰 and 🛡️, from the dated
+    # snapshot — and what the description and FAQ claim, said on the page.
+    cost = _cost_line(iso, f, asof)
+    if cost:
+        p.append("<p>💰 %s</p>" % html.escape(cost))
+    safety = _safety_line(iso, f, asof)
+    if safety:
+        p.append("<p>🛡️ %s</p>" % html.escape(safety))
     if best_txt:
         # Every query landing here is "best time to visit <country>", and that
         # phrase used to appear only in the <title> — the body answered it under
         # the heading "What's in season", which is a different question, and in
         # abbreviated months nobody searches for. Heading and prose now say the
         # thing people actually typed.
-        best_full = _join_and(MON_FULL[m - 1] for m in best if 1 <= m <= 12)
         p.append("<h2>🌤️ Best time to visit %s</h2>" % html.escape(name))
         # Same sentence the hydrated page shows: the strong "best months to
         # visit" claim only where months are hand-curated; a weather statement
@@ -227,9 +648,13 @@ def render(iso):
         p.append(("<p>The best months to visit %s are <strong>%s</strong>, "
                   "judged on weather and seasonality.</p>" if curated else
                   "<p>The best weather in %s is in <strong>%s</strong>.</p>")
-                 % (html.escape(name), html.escape(best_full)))
+                 % (html.escape(name), html.escape(best_txt)))
+    # The hydrated outline (renderActivity): one h2, two h3s — h3, not h4, so
+    # the outline skips no level. 1em: the size the h4s had.
+    if acts or seasonal:
+        p.append("<h2>Things to do in %s</h2>" % html.escape(name))
     if acts:
-        p.append("<h2>Top things to do in %s</h2><ul>" % html.escape(name))
+        p.append('<h3 style="font-size:1em">🎒 Top things to do</h3><ul>')
         for x in acts:
             t, ins = _label(x), _insight(x)
             li = "<li><strong>%s</strong>" % html.escape(t or "")
@@ -238,7 +663,7 @@ def render(iso):
             p.append(li + "</li>")
         p.append("</ul>")
     if seasonal:
-        p.append("<h2>What's in season in %s</h2><ul>" % html.escape(name))
+        p.append('<h3 style="font-size:1em">🗓️ What\'s in season</h3><ul>')
         for s in seasonal:
             months = [MON[m - 1] for m in (s.get("months") or []) if 1 <= m <= 12]
             li = "<li><strong>%s</strong>" % html.escape(s.get("what", ""))
@@ -255,12 +680,15 @@ def render(iso):
 
     return {
         "iso": iso,
-        "title": title,
-        "desc": desc,
-        "og_title": og_title,
+        "title": mt["title"],
+        "desc": mt["desc"],
+        # og:title and twitter:title say what the <title> says.
+        "og_title": mt["title"],
         "url": url,
+        "h1_html": h1_html(iso, doc),
         "body": "\n".join(p),
-        "jsonld": _faq_jsonld(name, best_txt, acts, seasonal, summary, curated),
+        "jsonld": _faq_jsonld(name, best_txt, acts, seasonal, summary, curated,
+                              _value_qas(iso, f, asof)),
         # og:image is the site's own card, NOT the Wikimedia hero: Wikimedia
         # returns 403 to Meta's crawlers, so a hotlinked og:image meant every
         # Facebook/Messenger share of every guide rendered imageless. The
