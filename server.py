@@ -1784,10 +1784,16 @@ def main():
     # cached rates, advisories and PPP table /api/rates, /api/advisories and
     # /ppp.json serve (fxtracker/guide_facts.py) — in-process, never over
     # HTTP to itself. Render only, unless GUIDE_FACTS_REFRESH=1.
+    # The live World Bank table, not the committed one: start its refresh now
+    # and hand the refresher nothing until that first attempt has finished
+    # ("at" moves on success and failure alike), so a check that comes first
+    # is kept and retried within the hour instead of moving figures twice on
+    # every restart day.
+    _ppp_data()
     guide_facts.start_refresher(
         get_rates=lambda: _rates_payload(store.load_config(), "USD"),
         get_advisories=lambda: _advisories_payload("us"),
-        get_ppp=_ppp_data)
+        get_ppp=lambda: _ppp_data() if _ppp_cache["at"] else None)
     # One-off after deploy: opt-outs from before they reached Buttondown (see
     # accounts.reconcile_optouts). Background, and a no-op without the
     # Buttondown/Upstash keys or once its done-marker is set.

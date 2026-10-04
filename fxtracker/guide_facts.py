@@ -194,6 +194,51 @@ def date_entries(data, prev, guides, today):
     return changed
 
 
+def _utc_today():
+    """The day the refresher works in. Render runs in UTC; a laptop may not,
+    and "once a day" and the sitemap dates mean the UTC day either way."""
+    return datetime.datetime.now(datetime.timezone.utc).date()
+
+
+def hold_home_levels(data, prev, advisories, guides):
+    """The US feed drops rows between fetches (CO, KP and BM for ~10 minutes
+    on 2026-10-04, and Canada's fill rated Colombia Level 2 where the US says
+    Level 3). Live, that lasts one cache cycle; frozen into the daily document
+    it sat in titles ("Is Colombia Cheap…" lost its "Safe"), snippets and FAQ
+    answers for a day, and re-dated the guide twice. So a guide whose previous
+    copy had the home source's own level keeps it while the feed omits it, up
+    to PARTIAL_GRACE_DAYS ("held" records since when); after that the fill
+    stands. Returns the held guides."""
+    from . import render_guide
+    home = (advisories or {}).get("source") or "us"
+    asof = _date(data)
+    held = []
+    for iso in guides:
+        p, f = prev.get(iso) or {}, data[iso]
+        if not (p.get("adv") and p.get("src") == home) or f.get("src") == home:
+            continue
+        since = p.get("held") or data["_asof"]
+        try:
+            if (asof - datetime.date.fromisoformat(str(since)[:10])).days > PARTIAL_GRACE_DAYS:
+                continue
+        except ValueError:
+            continue
+        for k in ("adv", "src", "advof"):
+            f.pop(k, None)
+        f.update(adv=p["adv"], src=home, held=since)
+        if p.get("advof"):
+            f["advof"] = p["advof"]
+        m = render_guide.meta(iso, f, asof)
+        f["t"], f["d"] = m["title"], m["desc"]
+        dn = render_guide.meta_numberfree(iso)
+        if dn != f["d"]:
+            f["dn"] = dn
+        else:
+            f.pop("dn", None)
+        held.append(iso)
+    return held
+
+
 def build(rates, advisories, ppp, prev=None, guides=None, today=None):
     """compute() + vet() + date_entries(): (document, changed guides, guides
     that lost a figure). The one implementation the CLI and the refresher
@@ -201,8 +246,11 @@ def build(rates, advisories, ppp, prev=None, guides=None, today=None):
     guides = guides or all_guides()
     prev = prev or {}
     data = compute(rates, advisories, ppp, guides)
+    # vet() first, on the feed as it came: a truncated feed must still be
+    # refused as truncated, not quietly held for two weeks.
     lost = vet(data, prev, guides)
-    changed = date_entries(data, prev, guides, (today or datetime.date.today()).isoformat())
+    hold_home_levels(data, prev, advisories, guides)
+    changed = date_entries(data, prev, guides, (today or _utc_today()).isoformat())
     return data, changed, lost
 
 
@@ -284,14 +332,47 @@ def _load_stored():
     if isinstance(env, dict) and env.get("code") == CODE and _usable(env.get("doc")):
         _kv.update(doc=env["doc"], other=None)
         return
+    other_doc = env["doc"] if isinstance(env, dict) and _usable(env.get("doc")) else None
+    _kv["other"] = other_doc
+    # A deploy that changes CODE used to serve the committed file (which may
+    # be weeks older) until the first check — pages went from "As of Oct" back
+    # to "As of Sep". Only t/d/dn depend on the code, so re-word the stored
+    # figures with this code and serve that; the first check still recomputes
+    # (no _built). Memoized per stored copy, so a later reload re-dates nothing.
     _kv["doc"] = None
-    _kv["other"] = env["doc"] if isinstance(env, dict) and _usable(env.get("doc")) else None
+    if other_doc is not None:
+        memo = (other_doc.get("_asof"), other_doc.get("_built"))
+        if _kv.get("restrung_from") != memo:
+            try:
+                _kv["restrung"] = _restring(other_doc)
+                _kv["restrung_from"] = memo
+            except Exception as e:
+                print("[guide-facts] couldn't re-word the stored copy (%s)" % e, flush=True)
+                _kv["restrung"], _kv["restrung_from"] = None, None
+        _kv["doc"] = _kv.get("restrung")
     if env is not None:
         other = env.get("code") if isinstance(env, dict) else None
         if _kv["ignored"] != (other or "untagged"):
             _kv["ignored"] = other or "untagged"
             print("[guide-facts] stored copy ignored: computed by other code (%s, this is %s)"
                   % (_kv["ignored"], CODE), flush=True)
+
+
+def _restring(doc):
+    """`doc`'s figures, with titles and descriptions worded by this code."""
+    from . import render_guide
+    guides, asof = all_guides(), _date(doc)
+    out = {"_asof": doc["_asof"]}
+    for iso in guides:
+        f = {k: v for k, v in (doc.get(iso) or {}).items() if k not in ("t", "d", "dn", "m")}
+        m = render_guide.meta(iso, f, asof)
+        f["t"], f["d"] = m["title"], m["desc"]
+        dn = render_guide.meta_numberfree(iso)
+        if dn != f["d"]:
+            f["dn"] = dn
+        out[iso] = f
+    date_entries(out, doc, guides, _utc_today().isoformat())
+    return out
 
 
 def get_doc():
@@ -359,7 +440,7 @@ def refresh(get_rates, get_advisories, get_ppp, force=False, today=None):
     if not _running.acquire(blocking=False):
         return "busy"          # one recompute at a time
     try:
-        today = today or datetime.date.today()
+        today = today or _utc_today()
         cur = get_doc() or {}
         if not force and str(cur.get("_built") or "") >= today.isoformat():
             return "fresh"
@@ -396,6 +477,10 @@ def refresh(get_rates, get_advisories, get_ppp, force=False, today=None):
                   sum(1 for i in guides if doc[i].get("adv")), len(changed),
                   (" (" + ", ".join(changed[:8]) + (" …" if len(changed) > 8 else "") + ")") if changed else "",
                   ("; lost a figure: " + ", ".join(lost)) if lost else ""), flush=True)
+        held = [i for i in guides if doc[i].get("held")]
+        if held:
+            print("[guide-facts] home-source level held while the feed omits it: %s" % ", ".join(held),
+                  flush=True)
         return "built"
     finally:
         _running.release()

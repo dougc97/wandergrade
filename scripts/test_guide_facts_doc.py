@@ -118,6 +118,38 @@ results.append(ok(doc["_asof"] == "2026-09-29" and set(changed) == set(guides) -
                   "the rates' date moving a day re-dates nothing by itself (%d of %d unchanged keep m; "
                   "%d whose inflation carry moved a figure are re-dated)" % (len(same), len(guides), len(changed))))
 
+# --- a US-feed dropout never reaches the titles -----------------------------------------------
+print("Feed dropouts (hold_home_levels):")
+def adv_drop(fill=None, drop=()):
+    a = copy.deepcopy(ADV)
+    a["items"] = [it for it in a["items"] if it.get("iso") not in drop]
+    for it in a["items"]:
+        if fill and it.get("iso") in fill:
+            it.update(level=fill[it["iso"]], via="ca", via_name="Global Affairs Canada")
+    return a
+co = COMMITTED["CO"]
+if co.get("adv") and co.get("src") == "us":
+    doc, changed, _ = GF.build(RATES, adv_drop(fill={"CO": 2}), PPP, COMMITTED, guides, today=D)
+    results.append(ok(doc["CO"]["adv"] == co["adv"] and doc["CO"]["src"] == "us" and doc["CO"]["t"] == co["t"]
+                      and doc["CO"].get("held") and "CO" not in changed,
+                      "Colombia missing from the US feed, Canada's Level 2 filling in: the US Level %s is held, "
+                      "the title is unchanged and nothing is re-dated" % co["adv"]))
+    prev = copy.deepcopy(COMMITTED)
+    # The grace runs on the data's own date (the rates' as-of), not the clock.
+    prev["CO"]["held"] = (GF._date(COMMITTED) - datetime.timedelta(days=GF.PARTIAL_GRACE_DAYS + 6)).isoformat()
+    doc, changed, _ = GF.build(RATES, adv_drop(fill={"CO": 2}), PPP, prev, guides, today=D)
+    results.append(ok(doc["CO"]["adv"] == 2 and doc["CO"]["src"] == "ca" and "CO" in changed
+                      and doc["CO"]["m"] == D.isoformat(),
+                      "...held for %d days at most: after that Canada's level stands and Colombia is re-dated"
+                      % GF.PARTIAL_GRACE_DAYS))
+else:
+    results.append(ok(False, "fixture: Colombia should carry the US's own level"))
+kp = COMMITTED.get("KP") or {}
+if kp.get("adv") and kp.get("src") == "us":
+    doc, changed, _ = GF.build(RATES, adv_drop(drop=("KP",)), PPP, COMMITTED, guides, today=D)
+    results.append(ok(doc["KP"]["adv"] == kp["adv"] and "KP" not in changed,
+                      "North Korea dropped with no fill: its US level is held too"))
+
 # --- against the mock store -----------------------------------------------------------------
 port = int(os.environ.get("MOCK_UPSTASH_PORT", "8955"))
 try:
@@ -179,9 +211,12 @@ results.append(ok(GF._kv["doc"] is None and GF.get_doc()["_asof"] == "2026-09-28
                   "a bare stored document (no code tag) is ignored, however new, and the log says why"))
 stored(future, "0123456789")
 _, out = quiet(GF._load_stored)
-results.append(ok(GF._kv["doc"] is None and GF.get_doc()["_asof"] == "2026-09-28" and "0123456789" in out
-                  and GF._kv["other"]["_marker"] == "future",
-                  "a copy stored by other code is not served (kept aside only to date against)"))
+srv = GF.get_doc()
+results.append(ok(GF._kv["other"]["_marker"] == "future" and "0123456789" in out
+                  and srv["_asof"] == "2099-01-01" and "_built" not in srv and "_marker" not in srv
+                  and srv["TH"]["t"] == rg.meta("TH", srv["TH"], GF._date(srv))["title"],
+                  "a copy stored by other code: its figures re-worded by this code are served (no _built, "
+                  "so the first check still recomputes) — not the older committed file"))
 _, out = quiet(GF._load_stored)
 results.append(ok(out == "", "...logged once, not on every check"))
 stored(future, GF.CODE)
