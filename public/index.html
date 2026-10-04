@@ -144,7 +144,15 @@
        keeps it in sync after that. -->
   <script>(function(){var t=document.documentElement.getAttribute("data-tab");
     document.querySelectorAll("#tabs button").forEach(function(b){var on=b.dataset.tab===t;
-      b.classList.toggle("active",on);if(on)b.setAttribute("aria-current","true");else b.removeAttribute("aria-current");});})();</script>
+      b.classList.toggle("active",on);if(on)b.setAttribute("aria-current","true");else b.removeAttribute("aria-current");});
+    // The Trip tab's count badge too (renderTripBadge's markup, the trip
+    // loadTrip reads: a link's tp=, else this browser's): drawn by app.js, it
+    // widened the tab and stood the row up 3px after first paint (0.04 of a
+    // Trip landing's shift at 390). The trip's skeleton below reads it.
+    var n=0,q=new URLSearchParams(location.search).get("tp"),seen={};
+    try{(q?q.split(","):JSON.parse(localStorage.getItem("fx_trip")||"[]")).forEach(function(s){
+      s=String(s).trim().toUpperCase();if(/^[A-Z]{2}(-[A-Z]{3})?$/.test(s)&&!seen[s]){seen[s]=1;n++;}});}catch(e){}
+    if(n)document.getElementById("tripTabLabel").innerHTML='Trip<span class="tripcount">'+n+"</span>";})();</script>
 
   <div id="status" class="status" role="status" aria-live="polite" hidden></div>
   <!-- Sign-in results live in their own slot: #status is a transient line that
@@ -537,7 +545,27 @@
         <h2>Your trip</h2>
         <span class="muted" data-tip="Countries you're considering, how long you have, and when — or pick “I'm flexible” and let the AI work out when." title="">ⓘ</span>
       </div>
-      <div id="tripBar" class="tripbar"></div>
+      <!-- What renderTripBar draws, there at first paint: on a cold load the
+           list arrived after it and grew the card 109px (empty, 390) to 419px
+           (three countries), taking the AI button, newsletter box and footer
+           with it. Empty, the real words; with a trip, an invisible stand-in
+           of the same rows (the script below). renderTripBar replaces both. -->
+      <div id="tripBar" class="tripbar"><span class="triphint">🧳 <strong>Your trip is empty.</strong> Find a country and hit “Add to my trip” — every country you add gets booking links for flights, stays and things to do.</span><div class="tripstart"><button type="button" class="tripgo" id="tripGoPicks">🧭 Browse Top Picks</button><button type="button" class="tripgo" id="tripGoGuide">📅 Open the Travel Guide</button></div></div>
+      <script>(function(){var b=document.getElementById("tripBar"),c=document.querySelector("#tripTabLabel .tripcount"),n=c?+c.textContent:0;
+        if(!n){try{if(JSON.parse(localStorage.getItem("fx_wishlist")||"[]").length)
+          b.querySelector(".tripstart").insertAdjacentHTML("beforeend",'<button type="button" class="tripseed" id="tripSeed">★ Use my wishlist</button>');}catch(e){}return;}
+        // One row as renderTripBook draws it before its fares land: name,
+        // weather pill, the strip's fixed slot, Stays and Things to do, ×.
+        var row='<div class="tbrow"><span class="tbn"><a class="tbdest">🇵🇹 Portugal</a></span><span class="tbwx"><span class="gr">A</span></span>'
+          +'<span class="tbfare"><span class="farestrip empty"></span></span><span class="tblinks"><a class="triplink">🏨 Stays ↗</a>'
+          +'<a class="triplink">🎟️ Things to do ↗</a></span><button type="button" class="tbx">×</button></div>',rows="";
+        for(var i=0;i<n;i++)rows+=row;
+        b.innerHTML='<div aria-hidden="true" style="visibility:hidden"><div class="triphead"><label class="tripdays">for <input type="number" value="14"> days</label>'
+          +'<label class="tripmonth">in <select><option>I\'m flexible</option><option>September</option></select></label></div>'
+          +'<div class="tripbook"><div class="tbrow tbhdr"><span class="tbn">'+n+' countries</span><span class="tbwx">🌤️</span>'
+          +'<span class="tbfare">✈️<span class="thw"> Fares by month</span><span class="muted"> ⓘ</span></span><span class="tbacts"><button type="button" class="tripseed">Clear</button></span></div>'
+          +rows+'<div class="tbrow tbins"><span class="tbn">🧳 The whole trip</span><span class="tblinks"><a class="triplink">Travel insurance (EKTA) ↗</a></span></div>'
+          +'<p class="affnote">These earn us a commission at no extra cost to you — it’s what keeps the site free.</p></div></div>';})();</script>
       <div class="aibar">
         <button id="tripPlanBtn" class="aibtn" type="button" title="Build a planning prompt for these countries">✨ Plan this trip with AI →</button>
         <!-- The hint sentence repeated its own ⓘ tip; the ⓘ alone carries it. -->

@@ -5670,7 +5670,10 @@ async function loadValueFlights(silent) {
     if (seq !== _vfSeq) return;
     if (say) status("Could not load flights: " + e.message, "err");
   }
+  // renderValue redraws the trip list too; a Trip-only session has no Top
+  // Picks to render, but its rows' Flights links come from these fares.
   if (loaded.value) renderValue();
+  else if (loaded.trip) renderTripBar();
 }
 
 // ---- searchable dropdowns (custom combobox over a native <select>) ---------
@@ -5968,10 +5971,11 @@ function bindTripActions() {
   const seed = $("tripSeed");
   if (seed) seed.onclick = () => {
     loadWishlist().forEach((i) => loadTrip().add(i));
-    saveTrip(); renderTripBar(); renderValue();
+    // Top Picks only once it exists: a Trip landing never builds it.
+    saveTrip(); renderTripBar(); if (loaded.value) renderValue();
   };
   const clr = $("tripClear");
-  if (clr) clr.onclick = () => { loadTrip().clear(); saveTrip(); renderTripBar(); renderValue(); };
+  if (clr) clr.onclick = () => { loadTrip().clear(); saveTrip(); renderTripBar(); if (loaded.value) renderValue(); };
 }
 // A month's next occurrence as "YYYY-MM" — fareStripHTML's rule, so the price
 // on a row is the cell its strip ticks.
@@ -6079,7 +6083,7 @@ function renderTripBook(isos) {
     const all = [...host.querySelectorAll(".tbx")];
     const at = all.indexOf(b);
     tripToggle(b.dataset.iso);
-    renderValue();
+    if (loaded.value) renderValue();
     // Focus goes to the next row's ×, not to <body>.
     const next = [...document.querySelectorAll("#tripBook .tbx")];
     const f = next[Math.min(at, next.length - 1)] || $("tripDays") || $("tripGoPicks");
@@ -6744,8 +6748,16 @@ function initBudgetCur() {
 }
 
 function budgetOf() {
-  const t = parseFloat(($("budgetTotal") || {}).value);
-  const d = parseInt(($("budgetDays") || {}).value, 10);
+  // The boxes are filled from storage when Top Picks builds; a Trip or guide
+  // landing never builds it, and its AI prompt then dropped the budget the
+  // reader had set. Storage holds what the boxes would (a cleared box is "").
+  const saved = (id, key) => {
+    const v = ($(id) || {}).value;
+    if (v || loaded.value) return v;
+    try { return localStorage.getItem(key) || ""; } catch (e) { return ""; }
+  };
+  const t = parseFloat(saved("budgetTotal", "wg_budget"));
+  const d = parseInt(saved("budgetDays", "wg_budgetdays"), 10);
   const r = budgetRate();
   // No conversion rate yet (rates still loading) -> treat as unset rather than
   // filter every country on a wrong number.
@@ -9350,6 +9362,20 @@ async function activateTab(name, push) {
         await Promise.all([ensureWorld(), ensurePPP().catch(() => {}), ensureClimate()]);
         buildVisited(); loaded.visited = true;
       });
+    } else if (name === "trip" && !loaded.trip) {
+      await buildTabOnce("trip", async () => {
+        // What the rows read, without building Top Picks: the month's
+        // weather pill (climate, its tip's hazards from activities), the
+        // Level 3-4 marks and no booking links at Level 4 (advisories), and
+        // each row's Flights link (the origin's fares: not awaited — a cold
+        // origin can take seconds; loadValueFlights redraws the list when
+        // they land). A Top Picks session already has all four.
+        await Promise.all([ensureClimate(), ensureAdvisories().catch(() => {}),
+                           ensureActivities().catch(() => {})]);
+        if (!flightsData) loadValueFlights(true);
+        loaded.trip = true;
+        renderTripBar();
+      });
     } else if (name === "data") {
       setDataMode(dataMode);   // initialize the active sub-view (incl. currency)
     }
@@ -11384,7 +11410,10 @@ $("visitedImage").addEventListener("click", () => downloadVisitedImage("story"))
 // there, which is the ranked list — two buttons, two clearly different subjects.
 if ($("tripPlanBtn")) $("tripPlanBtn").addEventListener("click", async () => {
   if (!loadTrip().size) { status("Add a country to your trip first — open any country and hit “Add to my trip”.", "err"); return; }
+  // Each country's visa line: a US passport reads visa.json, which Top Picks
+  // and the guide load — a Trip landing has neither.
   if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
+  else await ensureVisa().catch(() => {});
   renderAIPanel($("tripPanel"), buildTripAIPrompt());
 });
 
@@ -11718,6 +11747,12 @@ document.addEventListener("scroll", _hideTip, true);
   renderSubscribe();
   renderFeedback();
   preApplyShared();
+  // A Trip landing draws its list now, from this browser's storage (or the
+  // link's tp=), not after the rates, map and climate below: until then the
+  // tab was an empty card that grew 109px at 390 when the list arrived,
+  // taking the newsletter box and footer with it. The rows' pills, marks
+  // and booking links fill in once their data lands (activateTab).
+  if (document.documentElement.getAttribute("data-tab") === "trip") renderTripBar();
   // Settings + manual email exist only off a public deployment: the group
   // ships hidden and is shown here when the server isn't read-only. Hiding it
   // on the answer instead (the public case) let the two buttons wrap the Data
@@ -11753,13 +11788,15 @@ document.addEventListener("scroll", _hideTip, true);
   // a reader already scrolling, and the whole Top Picks build (activities.json
   // and eleven fare fetches) paid for a tab nobody opened. A ?tab=guide&gc=
   // link is left to postApplyShared, which opens that country after the month.
-  // So is Trip: it builds nothing of its own and draws its rows from the
-  // climate and advisories the Top Picks build loads.
+  // Trip too now: it used to go through Top Picks for the climate and
+  // advisories its rows read, so /?tab=trip painted Trip, Top Picks, Trip
+  // (two shifts of 0.50 and 0.37 on a 4x-slowed 390 phone). activateTab loads
+  // what Trip reads itself.
   const boot = sharedTab();
   if (bootIso) await openGuideFor(bootIso);
   else if (boot.tab === "guide" && boot.gcOk) _bootTab = null;
   else {
-    _bootTab = boot.tab && boot.tab !== "trip" ? boot.tab : "value";
+    _bootTab = boot.tab || "value";
     if (_bootTab === "data" && DATA_SUBS[boot.dm]) dataMode = boot.dm;
     await activateTab(_bootTab);
   }
