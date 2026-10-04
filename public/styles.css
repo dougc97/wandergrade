@@ -420,6 +420,16 @@ small { color: var(--gray); font-weight: 400; }
 .govtable th { position: sticky; top: 0; background: var(--card); text-align: left; font-size: 11px;
   font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: .03em; padding: 6px; z-index: 1; }
 .govtable td { padding: 6px; border-top: 1px solid var(--line); }
+/* Each government's header on one line: beside the map at 761-800 and on a
+   360 phone, "🇺🇸 US" and "🇨🇦 Canada" broke after the flag (45px headers,
+   the flag over the word) while "🇩🇪 Germany" held. The Country column gives
+   up the width; a long name wraps under itself there. */
+.govtable thead th { white-space: nowrap; }
+/* Under 375 there is no width to give: "Turkmenistan" (104px) and "some
+   regions" (83) are single runs, and with the flags the one-line headers made
+   the table 303px in a 298px box at 360. The words alone fit (~284); the
+   flags are decoration beside them. */
+@media (max-width: 374px) { .govtable thead .thflag { display: none; } }
 .govtable th.mine, .govtable td.mine { background: var(--soft); }
 .govtable tbody tr { cursor: pointer; }
 /* The country is a real button: keyboard and screen readers open it too. */
@@ -442,6 +452,10 @@ small { color: var(--gray); font-weight: 400; }
 @media (min-width: 761px) and (max-width: 999px) {
   .govtable td, .govtable th { padding-left: 4px; padding-right: 4px; }
   .govtable td { font-size: 13px; }
+  /* With the headers on one line (above), 761 needed 320.5px in its 318 box
+     ("Turkmenistan" 113 + "🇨🇦 Canada" 75 + "some regions" 93). The phone
+     list's smaller "no warning"/"some regions" gives it back. */
+  .govtable .none { font-size: 11.5px; }
 }
 /* The phone list's "Show all" (≤560 only, below). */
 .showmore.govmore { display: none; }

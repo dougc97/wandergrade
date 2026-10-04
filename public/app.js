@@ -4588,7 +4588,9 @@ async function renderGov(focus) {
     const more = rows.length > GOV_SHORT
       ? `<button type="button" class="showmore govmore" aria-expanded="${govAll}">${govAll ? "Show fewer ↑" : "Show all " + rows.length + " ↓"}</button>` : "";
     box.innerHTML = `<table class="govtable${govAll ? "" : " short"}"><thead><tr><th>Country</th>`
-      + GOV.map(([src, flag, short]) => `<th class="${src === mine ? "mine" : ""}">${flag} ${short}</th>`).join("")
+      // The flag in its own span: a phone under 375 drops it to keep the
+      // three headers on one line each (styles.css, .govtable .thflag).
+      + GOV.map(([src, flag, short]) => `<th class="${src === mine ? "mine" : ""}"><span class="thflag" aria-hidden="true">${flag} </span>${short}</th>`).join("")
       + `</tr></thead><tbody>`
       + rows.map((r) => `<tr data-iso="${esc(r.iso)}"><td><button type="button" class="govpick" data-iso="${esc(r.iso)}"`
         + ` title="All three advisories for ${esc(countryName(r.iso))}"><span class="govflag" aria-hidden="true">${flagEmoji(r.iso)}</span>`
