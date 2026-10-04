@@ -289,6 +289,11 @@ h1, .sitetitle { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spac
    one will and its box is its final size from first paint. The real text
    replaces them. */
 .skeltext { visibility: hidden; }
+/* A "Loading…" laid over such a stand-in instead of in front of it, where
+   the real line starts with other words ("Below 1.00 =", "Equal-weighted"):
+   out of the flow, it leaves the stand-in alone to set where the line
+   wraps (the Cost line was one line, then two, at 1024: 0.004). */
+.skelover { position: absolute; }
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .actions[hidden] { display: none; }
@@ -624,9 +629,16 @@ html[data-tab="guide"] header .sub { display: none; }
 #colCard .bignum { min-width: 174px; }
 /* Fares by month's number is empty until the fare ranges land, then a
    306px box ("−7%" over "October 2026 · cheaper than usual · 45 routes")
-   that wraps under the title. Held open while empty; its note's line too. */
-#fbmNow:empty::before, #fbmChg:empty::before, #fbmNote:empty::before { content: "\00a0"; }
-#fbmChg:empty { min-width: 306px; }
+   that wraps under the title. Held open while empty, its note's line too —
+   while the ranges may still come: data-nofig (renderFbm) when they won't,
+   or the box stayed a blank 306px beside the title. */
+#fbmCard:not([data-nofig]) :is(#fbmNow, #fbmChg, #fbmNote):empty::before { content: "\00a0"; }
+#fbmCard:not([data-nofig]) #fbmChg:empty { min-width: 306px; }
+/* Narrower than that box (a 360px phone's card is 298), the line wraps to
+   two when it lands (48 -> 64px). */
+@media (max-width: 374px) {
+  #fbmCard:not([data-nofig]) #fbmChg:empty::before { content: "\00a0\A\00a0"; white-space: pre; }
+}
 .bignum small.pos { color: var(--green); }
 .bignum small.neg { color: var(--red); }
 .chart { margin-top: 12px; }
@@ -635,6 +647,11 @@ html[data-tab="guide"] header .sub { display: none; }
    table under it down a card-height. Reserve that box until the SVG exists
    (max-width: the 190px floor alone made the ratio 475px wide on a phone). */
 .chart:not(:has(svg)) { aspect-ratio: 5 / 2; min-height: 190px; max-height: 300px; max-width: 100%; }
+/* Fares by month draws its bars into whatever its card leaves it beside the
+   map (monthBars fills the box), not at that ratio: held at the ratio's
+   300px, it then filled 313 at 768 and the note under it dropped 13px.
+   Its box fills the same way while it waits. */
+.toprow .chartcard > #fbmChart:not(:has(svg)) { aspect-ratio: auto; max-height: none; }
 .chart svg { width: 100%; height: auto; display: block; }
 /* The charts scrub under a finger sideways; vertical drags still scroll the
    page. */
@@ -695,6 +712,22 @@ html[data-tab="guide"] header .sub { display: none; }
   #affTable th:nth-child(4) { width: 12.8%; }
   #affTable th:nth-child(5) { width: 16%; }
 }
+/* Flights the same, where it shows six columns (the 6th is hidden up to
+   1120, the 5th below 761): at 768 its header was 38px over the Loading…
+   row and 56 once the rows set the columns, dropping the rows and all under
+   them 17px (0.012 for a reader already scrolling). Shares as the filled
+   table measures them from 800 to 1120 (at 768 its rows still widen the
+   second column a little, as before). Narrower, the five columns' shares
+   swing with the width (34-25% for the first), so they are left to the
+   rows. */
+@media (min-width: 761px) and (max-width: 1120px) {
+  #flightTable th:nth-child(1) { width: 30.4%; }
+  #flightTable th:nth-child(2) { width: 17.3%; }
+  #flightTable th:nth-child(3) { width: 11.4%; }
+  #flightTable th:nth-child(4) { width: 17.9%; }
+  #flightTable th:nth-child(5) { width: 12%; }
+  #flightTable th:nth-child(7) { width: 11%; }
+}
 @media (max-width: 560px) {
   #affTable th:nth-child(1) { width: 49.6%; }
   #affTable th:nth-child(2) { width: 18.5%; }
@@ -735,12 +768,17 @@ tr.favorable { background: var(--green-bg); }
 /* The newsletter box under every tab is empty until app.js builds its form
    (renderSubscribe). Out of view on a normal landing, but a reader who had
    already scrolled to the page foot saw it open from 30px to 135-227 and
-   push the guide index and the footer down. Held at what it measures. */
-.subscribe:empty { min-height: 135px; }
-@media (max-width: 839px) { .subscribe:empty { min-height: 167px; } }
-@media (max-width: 560px) { .subscribe:empty { min-height: 169px; } }
-@media (max-width: 500px) { .subscribe:empty { min-height: 208px; } }
-@media (max-width: 340px) { .subscribe:empty { min-height: 227px; } }
+   push the guide index and the footer down. Held at what it measures, at
+   the widths where the built form re-wraps (not the stylesheet's own
+   breakpoints: at 501-513 it is still 186-206px, at 838 one row), 2px more
+   with a touch screen's 16px input. Measured with the USD-only form; a
+   currency picker in it (digest_variants.ROLLOUT) needs these re-measured. */
+.subscribe:empty { --sub-h: 135px; min-height: var(--sub-h); }
+@media (max-width: 837px) { .subscribe:empty { --sub-h: 167px; } }
+@media (max-width: 513px) { .subscribe:empty { --sub-h: 186px; } }
+@media (max-width: 510px) { .subscribe:empty { --sub-h: 206px; } }
+@media (max-width: 345px) { .subscribe:empty { --sub-h: 225px; } }
+@media (pointer: coarse) { .subscribe:empty { min-height: calc(var(--sub-h) + 2px); } }
 .subscribe .sublabel { font-size: 14px; font-weight: 600; }
 /* The "US dollars, US point of view" line: its own row under the pitch and
    form, in the box and in the modal alike. */
@@ -1203,11 +1241,12 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 
 /* Budget in the hero row: two small inputs reading "$N for N days". */
 .budgethero .numin { width: 78px; }
-/* Filled by initBudgetCur once the rates land: empty it was 42px, then 80
-   (82 in the 16px touch font), and the box beside it moved — at 768 the
-   whole budget group re-wrapped. Sized for its three-letter codes. */
-#budgetCur { width: 80px; }
-@media (pointer: coarse) { #budgetCur { width: 82px; } }
+/* Filled by initBudgetCur once the rates land: empty it was 42px, then 76
+   (78 in the 16px touch font), and the box beside it moved — at 768 the
+   whole budget group re-wrapped. Held at the width Chrome draws it filled
+   with its three-letter codes. */
+#budgetCur { width: 76px; }
+@media (pointer: coarse) { #budgetCur { width: 78px; } }
 .budgethero .bdays { width: 54px; }
 .bdgtsep { font-size: 12px; color: var(--gray); margin: 0 2px; white-space: nowrap; }
 
@@ -1766,7 +1805,7 @@ button.chip2 { border: 0; }
   /* Stacked under the Safety map, the "where governments disagree" list
      grew from nothing to its 336px (38 rows) after the advisories loaded,
      taking the table under it out of view (0.041 at 412). Held at that. */
-  #govScroll:empty { min-height: 336px; }
+  #govScroll:empty:not([data-failed]) { min-height: 336px; }
   /* A country's three advisories are read whole, not scrolled in a box. */
   .toprow .chartcard > .panelbody > .panelscroll.detail { max-height: none; }
 }
@@ -2580,36 +2619,125 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    0.45). The empty line is held at its usual width (428-445 measured), so
    the picker wraps or not from the first frame as it will after. On a phone
    the block always fills the row (the grades wrap to two lines), so the
-   picker always starts on its own row. */
-@media (min-width: 561px) { #guideGrades:empty { min-width: 440px; } }
+   picker always starts on its own row. Not on a Level 4 guide (data-level,
+   from the server): its line is a lone "—", and held at 440px the picker
+   sat under the title and then rose beside it, taking the hero and grid up
+   49px (CLS 0.32 at 768-785). */
+@media (min-width: 561px) { #tab-guide:not([data-level="4"]) #guideGrades:empty { min-width: 440px; } }
 @media (max-width: 560px) { #tab-guide .charthead > div:first-child { flex-basis: 100%; } }
 /* The guide's first blocks are empty until app.js fills them (the weather
    chart says Loading…), so the grid under the hero was 70px tall at first
    paint and 600-950 after, and everything below it went down in one frame:
    at 768 a 600px move that made the whole viewport count (0.45), at 390 one
-   shift of 0.48. Each is held at its usual height (the median of six guides,
-   from Japan to Nigeria): the visa line 40px (59 on a phone), the advisory
-   168 (250), the AI block 45 (100), the chart 247-302, the stays 115 (154)
-   and the insurance line 67 (84). From 900px the stays and insurance sit
-   beside the advisory and set that row's height (228), so they matter most
-   there: the chart under them is the row after. */
+   shift of 0.48. Each is held at its usual height: the median of 55 graded
+   guides (the popular ones, from Thailand to Guatemala) with the fares
+   production serves, at 390, 768, 960, 1024, 1100, 1180 and 1280. Below
+   900px the blocks stack, one under the other: the visa line 40px (59 on a
+   phone), the advisory 168 (250), the AI block 45 (100), the stays 115 (154)
+   and the insurance line 67 (84). The weather chart is 222px (302) plus 25
+   (26) for each month-hazard line under it ("⚠️ Jun–Oct: monsoon…"), which
+   the server counts for its own guide (data-hz: 1, or 2 for two or more):
+   one size for all, it was 62px short for Thailand and 25 too tall for
+   Austria. */
 #guideVisa:empty { min-height: 40px; }
 #guideSafety:is(:empty, .filling) { min-height: 168px; }
 #guideAI:empty { min-height: 45px; }
-#bestDetail.loading { min-height: 247px; }
+#bestDetail.loading { min-height: 222px; }
+#tab-guide[data-hz="1"] #bestDetail.loading { min-height: 247px; }
+#tab-guide[data-hz="2"] #bestDetail.loading { min-height: 272px; }
 #guideStay:empty { min-height: 115px; }
 #guideInsurance:empty { min-height: 67px; }
-@media (min-width: 900px) {
-  #guideSafety:is(:empty, .filling) { min-height: 140px; }
-  #bestDetail.loading { min-height: 266px; }
-}
 @media (max-width: 560px) {
   #guideVisa:empty { min-height: 59px; }
   #guideSafety:is(:empty, .filling) { min-height: 250px; }
   #guideAI:empty { min-height: 100px; }
   #bestDetail.loading { min-height: 302px; }
+  #tab-guide[data-hz="1"] #bestDetail.loading { min-height: 328px; }
+  #tab-guide[data-hz="2"] #bestDetail.loading { min-height: 353px; }
   #guideStay:empty { min-height: 154px; }
   #guideInsurance:empty { min-height: 84px; }
+}
+/* The fare column's three blocks (fares by month, local prices, FX) fill
+   from three fetches in any order, and the fares strip, arriving last, sat
+   on top and pushed the other two down 154px. Until all three have settled
+   (.farecol.loading, renderGuide) each one not yet drawn keeps its own place,
+   invisibly, at its usual height — 250px for the column at 768 (288 on a
+   phone): the strip 142 (161), the prices line 18, the FX chart 68, 86 where
+   its heading wraps (a phone, and the half-width column below ~1150px).
+   Those that never come go with the class. */
+.farecol.loading > [hidden] { display: block; visibility: hidden; }
+.farecol.loading > #guideFares[hidden] { min-height: 142px; }
+.farecol.loading > #guideCost[hidden] { min-height: 18px; }
+.farecol.loading > #guideFx[hidden] { min-height: 68px; }
+@media (max-width: 560px) {
+  .farecol.loading > #guideFares[hidden] { min-height: 161px; }
+  .farecol.loading > #guideFx[hidden] { min-height: 86px; }
+}
+@media (min-width: 900px) and (max-width: 1149px) {
+  .farecol.loading > #guideFx[hidden] { min-height: 86px; }
+}
+/* From 900px they pair up in rows (index.html .guidegrid), and only a row's
+   height moves what is under it: visa | AI, advisory | stays + insurance,
+   chart | fare column. The advisory is held at its row's usual height (the
+   stays and insurance set it unless the advisory runs longer), and the
+   half-width column wraps more below ~1150px: the visa line takes two lines
+   up to ~1060, the stays up to ~1000, the insurance note up to ~1150. */
+@media (min-width: 900px) {
+  #guideSafety:is(:empty, .filling) { min-height: 228px; }
+  #tab-guide[data-hz="1"] #bestDetail.loading { min-height: 266px; }
+  #tab-guide[data-hz="2"] #bestDetail.loading { min-height: 290px; }
+}
+@media (min-width: 900px) and (max-width: 1149px) {
+  #guideInsurance:empty { min-height: 84px; }
+  #guideSafety:is(:empty, .filling) { min-height: 284px; }
+  #bestDetail.loading { min-height: 241px; }
+}
+@media (min-width: 900px) and (max-width: 1059px) {
+  #guideVisa:empty { min-height: 60px; }
+}
+@media (min-width: 900px) and (max-width: 999px) {
+  #guideStay:empty { min-height: 154px; }
+}
+/* The advisory block runs with its level (data-level, the server's snapshot
+   of it): at Level 1 it is mostly the badge and its links (133px at 768, 211
+   on a phone, and from 900px shorter than the stays beside it, which then
+   set the row), at Level 3 it quotes the government's reasons (317, 557, and
+   346-374 beside the stays). Held at Level 2's for all, it was 47-65px too
+   tall for Japan or Iceland. A Level 1 visa line is longer on a phone (78). */
+@media (max-width: 899px) {
+  #tab-guide[data-level="1"] #guideSafety:is(:empty, .filling) { min-height: 133px; }
+  #tab-guide[data-level="3"] #guideSafety:is(:empty, .filling) { min-height: 317px; }
+}
+@media (max-width: 560px) {
+  #tab-guide[data-level="1"] #guideSafety:is(:empty, .filling) { min-height: 211px; }
+  #tab-guide[data-level="1"] #guideVisa:empty { min-height: 78px; }
+  #tab-guide[data-level="3"] #guideSafety:is(:empty, .filling) { min-height: 557px; }
+}
+@media (min-width: 900px) {
+  #tab-guide[data-level="1"] #guideSafety:is(:empty, .filling) { min-height: 140px; }
+  #tab-guide[data-level="3"] #guideSafety:is(:empty, .filling) { min-height: 374px; }
+}
+@media (min-width: 900px) and (max-width: 1149px) {
+  #tab-guide[data-level="3"] #guideSafety:is(:empty, .filling) { min-height: 346px; }
+}
+/* A Level 4 guide (data-level="4", from the server) is another page below the
+   grades: no stays or insurance under "do not travel" (held anyway, they
+   were hidden late and the chart and fare column rode up 62px from 900px),
+   an advisory that runs longer and no fares by month (22 of the 24 have no
+   route the fares cover). Its own medians, of all 24. */
+#tab-guide[data-level="4"] :is(#guideStay, #guideInsurance):empty,
+#tab-guide[data-level="4"] .farecol.loading > #guideFares[hidden] { display: none; }
+#tab-guide[data-level="4"] #guideSafety:is(:empty, .filling) { min-height: 243px; }
+@media (max-width: 560px) {
+  #tab-guide[data-level="4"] #guideVisa:empty { min-height: 78px; }
+  #tab-guide[data-level="4"] #guideSafety:is(:empty, .filling) { min-height: 384px; }
+}
+@media (min-width: 900px) {
+  #tab-guide[data-level="4"] #guideSafety:is(:empty, .filling) { min-height: 276px; }
+}
+@media (min-width: 900px) and (max-width: 1149px) {
+  #tab-guide[data-level="4"] #guideSafety:is(:empty, .filling) { min-height: 288px; }
+  #tab-guide[data-level="4"]:not([data-hz]) #bestDetail.loading { min-height: 258px; }
 }
 
 /* Cost of living table (renderAfford): the Currency table's cell grammar. */

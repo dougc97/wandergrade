@@ -805,9 +805,18 @@ async function loadRates() {
 // their way (tr.loadingrow, styles.css). When they never come — a failed
 // fetch — it lets go, so the page doesn't keep a blank two screens under a
 // row that still says Loading…, exactly as it read before the reservation.
+// The same view's map list goes too if it is still the invisible stand-in
+// (index.html): with no data it would stay a blank two or three lines. So
+// does the room a phone holds for the Safety view's government list
+// (#govScroll, 336px), which renderGov never reaches without advisories.
+const LOADING_MAP = { rows: "map", affRows: "affMap", advRows: "advMap", flightRows: "flightMap" };
 function dropLoadingRow(tbodyId) {
   const tr = document.querySelector("#" + tbodyId + " > tr.loadingrow");
   if (tr) tr.classList.remove("loadingrow");
+  const sk = document.querySelector('.mappicksrow.skel[data-for="' + LOADING_MAP[tbodyId] + '"]');
+  if (sk) sk.remove();
+  const gov = tbodyId === "advRows" && $("govScroll");
+  if (gov && !gov.firstChild) gov.setAttribute("data-failed", "");
 }
 
 // "AED" and "ANG" mean nothing to most people, so the pickers spell the
@@ -2480,7 +2489,7 @@ function renderGuideInsurance(iso) {
 // show a figure its own page never shows): the same valueScores call, the
 // travel month, the reader's Top Picks priorities. Static host (#guideGrades,
 // height reserved in styles.css), so filling it moves nothing.
-let _guideAskedFares = false;
+let _guideAskedFares = false, _guideFarePend = null;
 async function renderGuideGrades(iso) {
   const host = $("guideGrades");
   if (!host) return;
@@ -2489,11 +2498,23 @@ async function renderGuideGrades(iso) {
   // The fares the ✈️ grade (and so the Overall) needs load with Top Picks; a
   // guide opened directly never asked for them, and graded flights as "—"
   // with an Overall the Top Picks table wouldn't show. Ask once; its arrival
-  // re-renders this line (loadValueFlights).
-  if (!flightsData && !_guideAskedFares) { _guideAskedFares = true; loadValueFlights(true); }
+  // re-renders this line (loadValueFlights), and so does its settling, once
+  // more if it failed.
+  if (!flightsData && !_guideAskedFares) {
+    _guideAskedFares = true;
+    _guideFarePend = loadValueFlights(true).finally(() => {
+      _guideFarePend = null;
+      if (ccGuideIso) renderGuideGrades(ccGuideIso);
+    });
+  }
   const month = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
   let s = null;
   try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), plAnchor(originIso()).pl); } catch (e) {}
+  // A graded line is drawn once, with its fares: drawn before them too, its
+  // "—" for flights made it 445px against 438 after, and on an 810px iPad
+  // the country picker beside the title wrapped under it and came back
+  // (CLS 0.32-0.64). The empty line holds its width meanwhile (styles.css).
+  if (s && _guideFarePend) return;
   const act = activities && activities[iso];
   const days = act && act.days ? '<span class="ggdays" data-tip="' + esc("Worth " + act.days[0] + "–" + act.days[1]
     + " days on a first visit") + '" title="">🧳 ' + act.days[0] + "–" + act.days[1] + " days</span>" : "";
@@ -2538,6 +2559,16 @@ function renderGuide(iso) {
   // Drop the server-rendered crawler block now that we're rendering the real,
   // interactive guide (prevents duplicate content).
   const ssr = $("ssrGuide"); if (ssr) ssr.remove();
+  // The advisory level, for styles.css's first-paint holds (the advisory
+  // block, and on Level 4 the grades line, stays and insurance): the server
+  // marks its own country (data-level); any other gets it from the advisories
+  // once they are in, and none before (the holds for Level 2, the usual).
+  const gtab = $("tab-guide");
+  if (gtab) {
+    const lvl = advisories ? guideAdvLevel(iso) : 0;
+    if (lvl) gtab.setAttribute("data-level", lvl);
+    else if (advisories || iso !== window.__WGGC__) gtab.removeAttribute("data-level");
+  }
   // The page's one h1. On /guide/<slug> the server already sent this exact
   // markup (render_guide.h1_html), so hydration writes nothing and nothing
   // swaps; other entries fill it and reveal it here.
@@ -2561,11 +2592,19 @@ function renderGuide(iso) {
   renderCountryClimate(iso);
   renderActivity(iso);
   renderGuideStay(iso);
-  renderGuideFares(iso);
-  renderGuideCost(iso);
-  renderGuideFx(iso);
+  // The fare column (fares by month, local prices, FX) fills in three
+  // fetches, 0 -> 19 -> 96px at 768 and 250 with the fares: each block keeps
+  // its place (.farecol.loading, styles.css) until all three have settled,
+  // then the ones that didn't come go at once — released as each landed, the
+  // column moved what is under it at every step.
+  const fc = document.querySelector("#tab-guide .farecol");
+  const fcSeq = ++_fareColSeq;
+  if (fc) fc.classList.add("loading");
+  Promise.allSettled([renderGuideFares(iso), renderGuideCost(iso), renderGuideFx(iso)])
+    .then(() => { if (fc && fcSeq === _fareColSeq) fc.classList.remove("loading"); });
   syncURL();
 }
+let _fareColSeq = 0;
 
 // ---- Fare-by-month strip ----------------------------------------------------
 // The flights answer to "when should I go": /api/flight-months serves the
@@ -4341,11 +4380,16 @@ async function renderGov(focus) {
   if (!box) return;
   await ensureAllAdvisories();
   const loadedSrc = GOV.filter(([src]) => _advBySource[src] && _advBySource[src].items);
+  // data-failed lets go of the room a phone holds for the list while it
+  // loads (styles.css #govScroll:empty): with nothing coming, it was 336px
+  // of blank under this line.
   if (!loadedSrc.length) {
     $("govSub").textContent = "Couldn't load the governments' advisories — try again later.";
     box.innerHTML = ""; $("govNote").textContent = ""; $("govNote").hidden = true;
+    box.setAttribute("data-failed", "");
     return;
   }
+  box.removeAttribute("data-failed");
   const own = {};
   for (const [src] of GOV) own[src] = govOwn(src);
   const ok = (src) => !!(_advBySource[src] && _advBySource[src].items);
@@ -7468,7 +7512,7 @@ async function loadFlights() {
   initFlightMonth();    // the picker shows the month while fares load
   clearTimeout(_fvTimer);
   flightValue = null;   // another origin's ranges must never band these fares
-  _fvFailed = false;
+  _fvFailed = false; _fvMissed = false;
   resetFbm($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin);
   // With the invisible rest of the line renderFlights writes, so the box is
   // already the height that line wraps to (index.html, the same padding).
@@ -7488,6 +7532,7 @@ async function loadFlights() {
     $("flightSub").innerHTML = "Flight prices need a free Travelpayouts token. Set <code>TRAVELPAYOUTS_TOKEN</code> on the server (Render → Environment), then redeploy.";
     $("flightMap").textContent = "Not configured.";
     $("flightRows").innerHTML = '<tr><td colspan="7">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
+    dropLoadingRow("flightRows");
     syncURL();
     return;
   }
@@ -7508,6 +7553,11 @@ let _fvPollEnd = 0;
 // Polling ended without one usable answer (every request failed): the cells
 // say so instead of "Loading…" forever.
 let _fvFailed = false;
+// The first ask came back with nothing: the room held for what the ranges
+// fill (the "Below typical" list, the month chart's note) is let go rather
+// than kept blank through up to 15 minutes of retries; a later answer
+// draws them as it arrives.
+let _fvMissed = false;
 // A cold fill of the default origin is at most 174 routes x 3 s of pacing
 // ≈ 8.7 min, plus 20 s after a boot and the fares fetch. Waiting 15, 30,
 // 45 s between asks, then 60 s, for up to 15 min covers it with room to
@@ -7515,7 +7565,7 @@ let _fvFailed = false;
 // instead of promising updates that won't come.
 const FV_POLL_MS = 15 * 60 * 1000;
 async function loadFlightValue(origin, seq, attempt) {
-  if (!attempt) { _fvPollEnd = Date.now() + FV_POLL_MS; _fvFailed = false; }
+  if (!attempt) { _fvPollEnd = Date.now() + FV_POLL_MS; _fvFailed = false; _fvMissed = false; }
   let data = null;
   try {
     data = await getJSON("/api/flight-value?origin=" + encodeURIComponent(origin));
@@ -7525,7 +7575,9 @@ async function loadFlightValue(origin, seq, attempt) {
   if (data && data.configured !== false && data.origin === origin) flightValue = data;
   if (flightValue) flightValue.gaveUp = !more && !!flightValue.filling;
   _fvFailed = !more && !flightValue;
-  if ((flightValue || _fvFailed) && flightsData && flightsData.configured) renderFlights();
+  const missed = !flightValue && !attempt;
+  if (missed) _fvMissed = true;
+  if ((flightValue || _fvFailed || missed) && flightsData && flightsData.configured) renderFlights();
   if (more)
     _fvTimer = setTimeout(() => loadFlightValue(origin, seq, attempt + 1),
                           Math.min(60, 15 * (attempt + 1)) * 1000);
@@ -7734,7 +7786,7 @@ function renderFlights() {
   // it rode up and back down (768, phones). If they never come, it goes.
   renderDimPicks("flightMap", "Below typical for " + monthName,
     best.map((d) => countryName(d.iso) + " " + fmtDevPct(d.v.dev)), best.map((d) => d.iso), empty,
-    null, fv ? fv.filling : !_fvFailed);
+    null, fv ? fv.filling : !_fvFailed && !_fvMissed);
 
   const gathering = fv && fv.filling ? fv.total - fv.ready : 0;
   const tip = "Like Google Flights' price insight, but across departure months: a route's typical range is "
@@ -7828,13 +7880,19 @@ function setFbmCountry(iso) {
 }
 const median = (a) => { const b = a.slice().sort((x, y) => x - y), n = b.length;
   return n ? (n % 2 ? b[(n - 1) / 2] : (b[n / 2 - 1] + b[n / 2]) / 2) : null; };
+// The note renderFbm writes under the month bars, invisibly, while they
+// load (index.html has the same): it wraps where the real one will — two
+// lines in a narrow column (768, phones), where a held single line grew to
+// two when it came (17 -> 35px).
+const FBM_NOTE_SKEL = '<span class="skeltext" aria-hidden="true">Best month: Feb (−12% vs typical). Tap a month to plan for it. <span class="muted">ⓘ</span></span>';
 // A new From: nothing of the old origin's chart may stay up while its fares load.
 function resetFbm(originName) {
   const host = $("fbmChart");
   if (!host) return;
   host.innerHTML = "<p class='hint'>" + esc("Loading fares" + (originName ? " from " + originName : "") + "…") + "</p>";
   host._redraw = null;
-  for (const id of ["fbmNow", "fbmChg", "fbmNote"]) $(id).textContent = "";
+  for (const id of ["fbmNow", "fbmChg"]) $(id).textContent = "";
+  $("fbmNote").innerHTML = FBM_NOTE_SKEL;
   $("fbmChg").className = "";
 }
 
@@ -7866,24 +7924,32 @@ function renderFbm() {
   }
   if (sel && sel.value !== fbmIso) { sel.value = fbmIso; if (sel._sync) sel._sync(); }
   const months = (fv && fv.months) || [];
-  const clear = (msg) => {
+  // `holding`: the bars are still on their way, so the note keeps its room,
+  // and so does the number box (styles.css, unless data-nofig: with no
+  // figure coming it would be a blank 306px beside the title).
+  const clear = (msg, holding) => {
     host.innerHTML = "<p class='hint'>" + esc(msg) + "</p>";
     host._redraw = null;
-    for (const id of ["fbmNow", "fbmChg", "fbmNote"]) $(id).textContent = "";
+    for (const id of ["fbmNow", "fbmChg"]) $(id).textContent = "";
+    $("fbmNote").innerHTML = holding ? FBM_NOTE_SKEL : "";
     $("fbmChg").className = "";
+    $("fbmCard").toggleAttribute("data-nofig", !holding);
   };
   const monthWord = (k) => MONTHS[+k.slice(5) - 1] + " " + k.slice(0, 4);
   // This month, late in it: what's left is last-minute fares (the tab bands it
   // apart the same way) — drawn faded, and never "the cheapest month".
   const partial = fv && fv.partial;
   const filling = fv && fv.filling ? ` · still gathering fares (${fv.ready} of ${fv.total} routes)` : "";
+  $("fbmCard").removeAttribute("data-nofig");
   if (!months.length) {
     // Invisible tails of the full title and sub-line (index.html's): this
-    // is the loading state, and the header keeps the size it will have.
-    $("fbmH2").innerHTML = 'Fares by month <span class="muted skeltext" aria-hidden="true">all destinations</span>';
-    $("fbmSub").innerHTML = esc("From " + origin)
-      + '<span class="skeltext" aria-hidden="true"> · each month vs each route\'s typical fare (median of up to 45 routes)</span>';
-    clear(_fvFailed ? "Couldn't load the fare ranges — try again later." : "Loading fares…");
+    // is the loading state, and the header keeps the size it will have —
+    // only while the ranges may still come, or it is blank space for good.
+    const holding = !_fvFailed && !_fvMissed;
+    $("fbmH2").innerHTML = 'Fares by month' + (holding ? ' <span class="muted skeltext" aria-hidden="true">all destinations</span>' : "");
+    $("fbmSub").innerHTML = esc("From " + origin) + (holding
+      ? '<span class="skeltext" aria-hidden="true"> · each month vs each route\'s typical fare (median of up to 45 routes)</span>' : "");
+    clear(_fvFailed ? "Couldn't load the fare ranges — try again later." : "Loading fares…", holding);
     return;
   }
   let items, band = null, mode;
@@ -7909,7 +7975,8 @@ function renderFbm() {
     $("fbmH2").innerHTML = `Fares by month <span class="muted">${esc(name)}</span>`;
     if (!c || c.pending) {
       $("fbmSub").textContent = `From ${origin} to ${name}`;
-      clear(c && c.pending && fv.filling ? `Still gathering fares to ${name}…` : `No cached fares to ${name} from ${origin} — pick another destination, or All destinations.`);
+      clear(c && c.pending && fv.filling ? `Still gathering fares to ${name}…` : `No cached fares to ${name} from ${origin} — pick another destination, or All destinations.`,
+            !!(c && c.pending && fv.filling));
       return;
     }
     // Charted in the display currency, so the axis steps are round in it
@@ -11788,12 +11855,18 @@ function acctPaintButton() {
   // before first paint (html[data-acct]): a signed-in visitor's button
   // otherwise painted "👤 Save map" and shrank to "👤" when /api/auth/me
   // answered, re-wrapping the header twice. Only once the answer is in — at
-  // parse time the state is still unknown, not signed out.
+  // parse time the state is still unknown, not signed out. With the session
+  // cookie's own expiry (accounts.SESSION_TTL, 90 days, rolled forward by
+  // this same answer): a flag outliving the session painted "👤" for a
+  // signed-out visitor and re-wrapped the header when it widened (+62px at
+  // 850).
   if (!acctKnown) return;
   const root = document.documentElement;
   try {
-    if (acctSignedIn()) { root.setAttribute("data-acct", "in"); localStorage.setItem("wg_acct", "in"); }
-    else { root.removeAttribute("data-acct"); localStorage.removeItem("wg_acct"); }
+    if (acctSignedIn()) {
+      root.setAttribute("data-acct", "in");
+      localStorage.setItem("wg_acct", "in:" + (Date.now() + 90 * 864e5));
+    } else { root.removeAttribute("data-acct"); localStorage.removeItem("wg_acct"); }
   } catch (e) {}
 }
 
@@ -12030,20 +12103,39 @@ if (ACCT_ON) {
   if (window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true)
     return;                                    // already running as the app
   let deferred = null;
+  const bipMiss = (v) => { try { if (v == null) localStorage.removeItem("wg_bipmiss"); else localStorage.setItem("wg_bipmiss", v); } catch (e) {} };
   if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
     btn.hidden = false;
   } else {
+    let offered = false, counted = false;
     window.addEventListener("beforeinstallprompt", (e) => {
       e.preventDefault();
       deferred = e;
       btn.hidden = false;
+      offered = true;
+      bipMiss(null);
     });
+    // The head script reserves the button's slot only while the prompt may
+    // still come here: a page view that ends without it counts once, and two
+    // in a row (already installed, a browser that won't offer it) stop the
+    // reservation, which was otherwise a taller header for good. An offer
+    // resets the count — also when it comes late, after a count.
+    const miss = () => {
+      if (offered || counted || !("onbeforeinstallprompt" in window)) return;
+      counted = true;
+      let n = 0;
+      try { n = +localStorage.getItem("wg_bipmiss") || 0; } catch (e) {}
+      bipMiss(String(n + 1));
+    };
+    window.addEventListener("pagehide", miss);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") miss(); });
   }
   // Drop the head script's flag too: it shows (iOS) or reserves the button
-  // over [hidden].
+  // over [hidden]. Installed, this browser won't be offered it again.
   window.addEventListener("appinstalled", () => {
     btn.hidden = true;
     document.documentElement.removeAttribute("data-inst");
+    bipMiss("9");
   });
   btn.addEventListener("click", () => {
     if (deferred) {                            // Chrome/Android: the real prompt

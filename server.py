@@ -175,6 +175,7 @@ _HTML_DEFAULTS = {
     "HTML_TAB": "",
     "VALUE_HIDDEN": "",
     "GUIDE_HIDDEN": " hidden",
+    "GUIDE_DATA": "",
     "VALUE_ACTIVE": ' class="active"',
     "GUIDE_ACTIVE": "",
     "JSONLD": _WEBSITE_JSONLD,
@@ -723,6 +724,11 @@ def _render_index(gc_iso=None):
             HTML_TAB=' data-tab="guide"',
             VALUE_HIDDEN=" hidden",
             GUIDE_HIDDEN="",
+            # render_guide's layout hints: styles.css holds the empty blocks
+            # at the sizes for the guide's advisory level (data-level) and the
+            # weather chart for its number of hazard lines (data-hz, 1 or 2+).
+            GUIDE_DATA=(' data-level="%d"' % r["adv"] if r.get("adv") in (1, 2, 3, 4) else "")
+            + (' data-hz="%d"' % min(r.get("hz") or 0, 2) if r.get("hz") else ""),
             VALUE_ACTIVE="",
             GUIDE_ACTIVE=' class="active"',
         )

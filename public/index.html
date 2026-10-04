@@ -63,17 +63,32 @@
     // already exists instead of pushing the whole tab down after JS loads.
     try{if(JSON.parse(localStorage.getItem("fx_trip")||"[]").length)
       document.documentElement.setAttribute("data-trip","1");}catch(e){}
+    // Top Picks' Top 10 / Top 20 (?pc=, else the saved choice, the order
+    // app.js applies them): the ranked table's placeholder gets that many
+    // rows (index.html, after #topCards). Five, it grew 850px when the rows
+    // came and took Hidden gems and the map row with it (CLS 0.057 at 768).
+    try{var pc=q.get("pc")||localStorage.getItem("fx_pickcount");
+      if(pc==="10"||pc==="20")document.documentElement.setAttribute("data-pc",pc);}catch(e){}
     // The header buttons app.js reveals, decided now so the header is its
     // final height at first paint (each late button re-wrapped the title and
     // moved the whole tab below: +62px at 768-895). A signed-in visitor's
-    // account button is the short "👤" (app.js remembers it, acctPaintButton).
+    // account button is the short "👤": app.js remembers it, with the expiry
+    // the session cookie has (acctPaintButton), so a session that lapsed
+    // since doesn't paint "👤" and then widen to "👤 Save map".
     // The 📲 install button: iOS always gets it (shown from here); a browser
-    // with an install prompt to wait for gets an invisible slot (styles.css);
-    // the rest (Safari on a Mac, Firefox) never show it, so reserve nothing.
-    try{if(localStorage.getItem("wg_acct")==="in")document.documentElement.setAttribute("data-acct","in");}catch(e){}
+    // with an install prompt to wait for gets an invisible slot (styles.css)
+    // — unless the prompt has stayed away twice running here (installed
+    // already, or not offered: app.js counts, wg_bipmiss), where the slot
+    // was only a taller header (+39-62px at 320-340 and 850-900); the rest
+    // (Safari on a Mac, Firefox) never show it, so reserve nothing.
+    try{var ac=localStorage.getItem("wg_acct")||"";
+      if(ac.slice(0,3)==="in:"&&+ac.slice(3)>Date.now())document.documentElement.setAttribute("data-acct","in");}catch(e){}
     if(!(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)&&navigator.standalone!==true){
       if(/iphone|ipad|ipod/i.test(navigator.userAgent))document.documentElement.setAttribute("data-inst","ios");
-      else if("onbeforeinstallprompt" in window)document.documentElement.setAttribute("data-inst","prompt");}
+      else if("onbeforeinstallprompt" in window){var bm=0;try{bm=+localStorage.getItem("wg_bipmiss")||0;}catch(e){}
+        if(bm<2)document.documentElement.setAttribute("data-inst","prompt");}}
+    // Running as the installed app: the browser's tabs won't be offered it.
+    else try{localStorage.setItem("wg_bipmiss","9");}catch(e){}
     // Theme too, same rule as initTheme (stored toggle, else the OS). Left to
     // app.js at the end of <body>, a dark-OS visitor saw the light page until
     // it arrived (a second or more on a first visit). Storage can throw; the
@@ -270,6 +285,16 @@
             <tr><td class="rank">#5</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span><span class="seasonstrip skel"></span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
           </tbody>
         </table>
+        <!-- As many placeholder rows as the Top N the table will show (the
+             head script's data-pc: Top 10 or 20); and on a weather-ranked
+             link the note's stand-in says what renderValue will (a line
+             longer at 768, where it wrapped to two when it came). -->
+        <script>(function(){var n=+document.documentElement.getAttribute("data-pc")||5,
+          b=document.querySelector("#topCards tbody"),r=b&&b.lastElementChild;
+          for(var i=6;i<=n&&r;i++){var c=r.cloneNode(true);c.querySelector(".rank").textContent="#"+i;b.appendChild(c);}
+          var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),k=document.querySelector("#picksNote > .skeltext");
+          if(k&&q.get("vmm")==="weather"){if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
+            k.textContent="🌤️ Popular destinations, ranked by weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]+" ⓘ — more finds under 💎 Hidden gems.";}})();</script>
       </div>
       <button id="showMore" class="showmore" type="button" hidden>Show top 10 ↓</button>
 
@@ -346,6 +371,13 @@
                typical names long like the default Top 5: created on the first
                render, it grew the card 28-52px. -->
           <div class="pickslot" data-picks-slot="valueMap"><div class="mappicksrow skel" data-for="valueMap" aria-hidden="true"><strong>Best value in October</strong><span style="width:5.4em"></span><span style="width:5.2em"></span><span style="width:4.2em"></span><span style="width:4.8em"></span><span style="width:4.4em"></span></div></div>
+          <!-- Its month is the map title's (the link's vmn, else this month);
+               the weather map has no list, so none is held. -->
+          <script>(function(){var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),
+            r=document.querySelector('.mappicksrow.skel[data-for="valueMap"]');if(!r)return;
+            if(q.get("vmm")==="weather"){r.remove();return;}
+            if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
+            r.firstChild.textContent="Best value in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1];})();</script>
         </section>
       </div>
 
@@ -380,7 +412,7 @@
   </section>
 
   <!-- ============ TAB: TRAVEL GUIDE ============ -->
-  <section class="tab" id="tab-guide"{{GUIDE_HIDDEN}}>
+  <section class="tab" id="tab-guide"{{GUIDE_HIDDEN}}{{GUIDE_DATA}}>
     <div class="cardwide">
       <div class="charthead">
         <div>
@@ -439,7 +471,9 @@
         <div id="guideSafety" class="guidevisa"></div>
         <div id="guideAI" class="guideai"></div>
         <div id="bestDetail" class="bestdetail loading">Loading…</div>
-        <div class="farecol">
+        <!-- .loading: its blocks hold their places until renderGuide's three
+             fills have settled (styles.css). -->
+        <div class="farecol loading">
           <!-- Fare-by-month strip: the flights answer to "when should I go".
                Static host (CLS rule); renderGuideFares fills or leaves hidden. -->
           <div id="guideFares" class="guidefares" hidden></div>
@@ -463,13 +497,17 @@
           <div id="guideInsurance" class="afflink"></div>
         </div>
       </div>
-      <!-- Server-rendered guide content for crawlers and readers without JS.
-           Below the grid, not above the hero: app.js removes it on hydration,
-           and above it that removal pulled the whole page up 365px on desktop
-           (CLS 0.11). Here nothing visible sits beneath it but the activities. -->
-      <div id="ssrGuide" class="ssrguide">{{SSR_BODY}}</div>
       <hr class="softrule">
       <div id="actDetail" class="bestdetail"></div>
+      <!-- Server-rendered guide content for crawlers and readers without JS.
+           Last in the card, not above the hero: app.js removes it on hydration,
+           and above it that removal pulled the whole page up 365px on desktop
+           (CLS 0.11). Not above the activities either: removed in the frame
+           they fill in, its 867px took the rule over them 790px up into view,
+           and Chrome scored every other move in that frame as that far (0.24
+           at 768 for a reader already scrolling). Here nothing sits under it
+           but the newsletter box and the footer. -->
+      <div id="ssrGuide" class="ssrguide">{{SSR_BODY}}</div>
     </div>
   </section>
 
@@ -595,7 +633,12 @@
           <div class="charthead">
             <div>
               <h2 id="chartH2">Overall dollar strength <span class="muted">vs rest of world</span></h2>
-              <p id="chartsub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> across 28 currencies · 3 Oct 2025 → 2 Oct 2026</span></p>
+              <p id="chartsub" class="chartsub"><span class="skelover">Loading…</span><span class="skeltext" aria-hidden="true">Equal-weighted across 28 currencies · 3 Oct 2025 → 2 Oct 2026</span></p>
+              <!-- The stand-in's dates, a year back from today as the chart's
+                   will be (fmtDay's format), so its width follows the month. -->
+              <script>(function(){var M=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+                e=new Date(),b=new Date(e.getTime()-364*864e5),f=function(d){return d.getDate()+" "+M[d.getMonth()]+" "+d.getFullYear();},
+                x=document.querySelector("#chartsub > .skeltext");if(x)x.textContent="Equal-weighted across 28 currencies · "+f(b)+" → "+f(e);})();</script>
             </div>
             <div class="bignum">
               <span id="indexnow">—</span>
@@ -694,7 +737,7 @@
         <div class="charthead">
           <div>
             <h2>Cost of living <span class="muted">how far your money goes</span></h2>
-            <p id="affSub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> cheaper than the US · 176 countries · 32 cheaper than usual <span class="muted">ⓘ</span></span></p>
+            <p id="affSub" class="chartsub"><span class="skelover">Loading…</span><span class="skeltext" aria-hidden="true">Below 1.00 = cheaper than the US · 176 countries · 32 cheaper than usual <span class="muted">ⓘ</span></span></p>
           </div>
           <!-- Same home-country state as the From selector on Top Picks —
                mirrored here so the reference is visible and changeable where
@@ -806,7 +849,7 @@
         <div class="charthead">
           <div>
             <h2 id="govH2">Where governments disagree</h2>
-            <p id="govSub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> 2+ levels apart · 37 one level apart <span class="muted">ⓘ</span></span></p>
+            <p id="govSub" class="chartsub"><span class="skelover">Loading…</span><span class="skeltext" aria-hidden="true">12 countries 2+ levels apart · 37 one level apart <span class="muted">ⓘ</span></span></p>
           </div>
         </div>
         <div class="panelbody"><div class="panelscroll" id="govScroll"></div></div>
@@ -883,6 +926,15 @@
         <div id="flightMap" class="map">Loading…</div>
         <!-- Stand-in for "Below typical for …" (see the Currency map's). -->
         <div class="mappicksrow skel" data-for="flightMap" aria-hidden="true"><strong>Below typical for October</strong><span style="width:7.8em"></span><span style="width:9.6em"></span><span style="width:7.9em"></span><span style="width:7.9em"></span><span style="width:9.1em"></span><span style="width:9.2em"></span><span style="width:9.5em"></span><span style="width:8.2em"></span></div>
+        <!-- The month in this list's stand-in and the key's, the one the tab
+             will band (flightMonthNum: the link's vmn, else this month, or
+             next month after the 15th), so their widths follow it. -->
+        <script>(function(){var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),d=new Date();
+          if(!(m>=1&&m<=12)){m=d.getMonth()+1;if(d.getDate()>15)m=m%12+1;}
+          var F=["January","February","March","April","May","June","July","August","September","October","November","December"],
+            r=document.querySelector('.mappicksrow.skel[data-for="flightMap"]'),k=document.querySelector("#flightLegend.skel > span");
+          if(r)r.firstChild.textContent="Below typical for "+F[m-1];
+          if(k)k.textContent=F[m-1].slice(0,3)+" vs typical:";})();</script>
       </section>
       <section class="chartcard" id="fbmCard">
         <div class="charthead">
@@ -892,7 +944,7 @@
                  header from 47px to 103-122 and the month bars went down
                  with it. -->
             <h2 id="fbmH2">Fares by month <span class="muted skeltext" aria-hidden="true">all destinations</span></h2>
-            <p id="fbmSub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> · each month vs each route's typical fare (median of up to 45 routes)</span></p>
+            <p id="fbmSub" class="chartsub"><span class="skelover">Loading…</span><span class="skeltext" aria-hidden="true">From United States · each month vs each route's typical fare (median of up to 45 routes)</span></p>
           </div>
           <div class="bignum" aria-live="polite">
             <span id="fbmNow"></span>
@@ -906,7 +958,7 @@
           </span>
         </div>
         <div id="fbmChart" class="chart"></div>
-        <p class="chartnote" id="fbmNote"></p>
+        <p class="chartnote" id="fbmNote"><span class="skeltext" aria-hidden="true">Best month: Feb (−12% vs typical). Tap a month to plan for it. <span class="muted">ⓘ</span></span></p>
       </section>
       </div>
       <div class="filterbar">

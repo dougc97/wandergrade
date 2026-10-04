@@ -694,6 +694,19 @@ def render(iso):
         # Facebook/Messenger share of every guide rendered imageless. The
         # photo still shows on the page itself.
         "ogimage": SITE + "/og.png",
+        # Layout hints for the page's first paint (server.py GUIDE_DATA),
+        # sizing the boxes app.js fills. The advisory level by the snapshot:
+        # the advisory block's height follows it (133px at 768 for Level 1,
+        # 317 for Level 3), and a Level 4 ("do not travel") guide's grades
+        # line is a lone "—", not the ~440px of grades the empty line is held
+        # at, and it shows no stays or insurance; held for them anyway, the
+        # country picker sat under the title and then jumped beside it (CLS
+        # 0.32 at 768-785). Taken even from a stale snapshot: it only sizes
+        # empty boxes.
+        "adv": _facts(iso, doc).get("adv"),
+        # The weather chart's month-hazard lines (monsoon, smoke season…):
+        # 25px each at 768, the chart's whole spread between countries.
+        "hz": len(a.get("hazards") or []),
     }
 
 
