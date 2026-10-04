@@ -38,7 +38,8 @@ RUNBOOK (the owner's steps; send_digest.py's docstring has the commands)
      Subscribe an address you control at
      https://buttondown.com/wandergrade?tag=currency-eur and confirm it.
   3. Actions -> Monthly travel digest -> Run workflow -> draft. The log must
-     show "EUR: draft ... (1 readers)": that line is the proof Buttondown
+     show "duplicate check OK (statuses incl. partially_sent)" — the check a
+     real send runs first — and "EUR: draft ... (1 readers)": the proof Buttondown
      counts readers by tag name; "skipped — no readers" with a WARNING means
      it doesn't, and the edition would silently go to nobody. In Buttondown
      the EUR draft shows 1 recipient and the USD draft excludes that address.

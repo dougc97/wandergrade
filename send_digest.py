@@ -268,6 +268,16 @@ def _send(codes, eds, failed, draft=False):
             print("Buttondown tags unreadable (%s): every non-USD edition is skipped" % e)
 
     if draft:
+        # The duplicate check a real currency-mode send runs first (with
+        # partially_sent among the statuses) is read-only, so the owner's
+        # draft run tries it too: the first real send must not be where we
+        # learn Buttondown rejects it (RUNBOOK step 3 looks for this line).
+        try:
+            _find(usd["subject"], "USD", hdr)
+            print("duplicate check OK (statuses incl. partially_sent)")
+        except Exception as e:
+            usd_error = True
+            print("duplicate check FAILED: %s" % e)
         drafted = set()
         for c in others:
             if c in failed:
@@ -451,15 +461,20 @@ def run_variants(codes, dry_run=False, month=None, draft=False, out=None):
 
 def main(argv):
     # A typo in the owner's switch (fxtracker/digest_variants.ROLLOUT) is
-    # ignored by the site, so it can't take the page down; here it stops the
-    # run, red, before anything is built or sent, rather than quietly sending
-    # fewer editions than the owner meant to.
+    # ignored by the site, so it can't take the page down. Here it can't cost
+    # anyone the month either: the run goes ahead with the valid entries
+    # (USD always among them; send_codes/draft_codes drop the bad ones) and
+    # ends red, so the owner sees the problem without readers paying for it.
     problems = rollout_problems()
+    for p in problems:
+        print(p)
     if problems:
-        for p in problems:
-            print(p)
-        print("Fix digest_variants.ROLLOUT and re-run; nothing was sent.")
-        return 2
+        print("Running with the valid ROLLOUT entries only; fix digest_variants.ROLLOUT.")
+    rc = _main(argv)
+    return max(rc, 1) if problems and rc != 2 else rc
+
+
+def _main(argv):
     try:
         a = _parse_argv(argv)
     except UsageError as e:

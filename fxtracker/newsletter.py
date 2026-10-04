@@ -102,6 +102,17 @@ def find_sent(subject, days=DUPLICATE_WINDOW_DAYS, headers=None, expected=None, 
                                  "creation_date__start": since,
                                  "excluded_fields": "body"}, doseq=True)
     status, page = _call("GET", API + "?" + qs, None, headers)
+    if status in (400, 422) and statuses is not None and sts != _OUT_STATUSES:
+        # partially_sent was documented on 2026-09-19; were the pinned API
+        # version to reject it, the duplicate check would raise and every
+        # reader, USD included, would miss the month. Ask again without it.
+        print("WARNING: Buttondown rejected the status list (HTTP %s); retrying without "
+              "partially_sent" % status)
+        sts = _OUT_STATUSES
+        qs = urllib.parse.urlencode({"status": sts, "subject": needle,
+                                     "creation_date__start": since,
+                                     "excluded_fields": "body"}, doseq=True)
+        status, page = _call("GET", API + "?" + qs, None, headers)
     if status != 200:
         raise RuntimeError("Buttondown email list returned HTTP %s" % status)
     for e in (page or {}).get("results") or []:

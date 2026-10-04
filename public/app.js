@@ -11242,9 +11242,17 @@ function openAccount() {
   const curPrefs = () => (curSel && curSel.value && (!keepOff || curSel.dataset.picked)
     ? { currency: curSel.value } : {});
   let curTimer = 0;
-  const push = () => {
+  // The select shows what the account kept: a pick that rode along with a
+  // subscribe/cadence change and wasn't saved snaps back, as a pick on its
+  // own does.
+  const showKept = () => {
+    const got = acctState && acctState.user ? acctState.user.currency : null;
+    if (curSel && curs.includes(got) && curSel.value !== got) curSel.value = got;
+  };
+  const push = async () => {
     clearTimeout(curTimer);                   // a pending pick rides along with this call
-    acctPrefs(Object.assign({ subscribed: sub.checked, cadence: cadSel.value }, curPrefs()));
+    await acctPrefs(Object.assign({ subscribed: sub.checked, cadence: cadSel.value }, curPrefs()));
+    showKept();
   };
   // A currency-only change re-tags the subscriber; nothing else is sent.
   // Debounced: arrowing through the closed select fires change per step,
@@ -11281,6 +11289,13 @@ function openAccount() {
   };
   cadSel.onchange = () => { sub.checked = cadSel.value !== "off"; optInCur(); push(); };
   m.querySelector("#acctOut").onclick = async () => {
+    // A currency picked under 800ms ago is still waiting on its debounce:
+    // send it before the session ends, or signing out drops it.
+    if (curTimer && curSel && curSel.value && curSel.dataset.picked) {
+      clearTimeout(curTimer);
+      curTimer = 0;
+      await acctPrefs({ currency: curSel.value });
+    }
     if (_syncTimer) await acctSync();   // a pending edit reaches the account first
     try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (e) {}
     acctSignedOut();

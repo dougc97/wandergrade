@@ -473,16 +473,20 @@ def main():
         results.append(ok(code == 1 and f.calls == [] and "share a subject" in out,
                           "aborted, no Buttondown call"))
 
-        # 15. --draft: drafts only; no publish, no duplicate-check GET.
+        # 15. --draft: drafts only; no publish. One read-only duplicate-check
+        # GET (with partially_sent), so the owner's draft run proves the check
+        # a real send starts with.
         print("15. --draft with editions")
         f = FakeButtondown(subs({"e@x": "currency-eur", "j@x": "currency-jpy", "u@x": ""}), tags10)
         code, out = H.run(["--draft"], f, {"USD": "send", "EUR": "draft", "JPY": "send"})
         lists = [c for c in f.calls if c[0] == "GET" and urllib.parse.urlsplit(c[1]).path.endswith("/emails")]
         usd = [c for c in f.creates() if is_usd(c)]
-        results.append(ok(code == 0 and not f.publishes() and not lists and len(f.creates()) == 3
+        results.append(ok(code == 0 and not f.publishes() and len(lists) == 1
+                          and "partially_sent" in urllib.parse.parse_qs(urllib.parse.urlsplit(lists[0][1]).query).get("status", [])
+                          and "duplicate check OK" in out and len(f.creates()) == 3
                           and ops(usd) == ["not_contains", "not_contains"]
                           and all(e["status"] == "draft" for e in f.emails),
-                          "3 drafts (EUR, JPY, USD excluding both), no publish, no duplicate check"))
+                          "3 drafts (EUR, JPY, USD excluding both), no publish, one read-only duplicate check"))
 
         # 16. The USD issue records whom it left out (wg_excluded), and a
         #     re-run reads that even when the list response has no `filters`:
@@ -561,12 +565,15 @@ def main():
                           {"USD": "send", "EUR": "draft"})
         results.append(ok("WARNING: the currency-eur tag exists" in out, "the draft run warns too"))
 
-        # 20. A ROLLOUT typo: the site ignores it, the send refuses to run.
+        # 20. A ROLLOUT typo: the site ignores it, and so does the send —
+        # the valid entries go out (USD always) and the run ends red, so
+        # a typo never costs readers the month.
         print("20. ROLLOUT typo")
         f = FakeButtondown(subs({"u@x": ""}), tags10)
         code, out = H.run([], f, {"USD": "send", "EUR": "Send"})
-        results.append(ok(code == 2 and f.calls == [] and "the stage must be" in out,
-                          "exit 2 before any build or call"))
+        results.append(ok(code == 1 and "the stage must be" in out and "valid ROLLOUT entries only" in out
+                          and f.received() == {"u@x": ["USD"]},
+                          "typo: USD still goes out, the run ends red (exit 1)"))
 
         # 21. Malformed arguments are usage errors, never a send with defaults.
         print("21. argument errors")
