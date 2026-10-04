@@ -2121,9 +2121,10 @@ function plHomeWord() { return plAnchor(guidePassport()).home ? "home" : "the US
 function plTag(pl) {
   const w = plWord(pl);
   const cls = plCls(pl);
-  // nowrap: "very cheap" is one phrase, and a narrow column split it across two
-  // lines under the number, making the row three deep to say two words.
-  return `<span class="${cls}" style="font-size:11px;white-space:nowrap">${w}</span>`;
+  // nowrap (.pltag): "very cheap" is one phrase, and a narrow column split it
+  // across two lines under the number, making the row three deep to say two
+  // words. A class, not an inline style, so a 320px phone can let it wrap.
+  return `<span class="pltag${cls ? " " + cls : ""}">${w}</span>`;
 }
 // Diverging around parity: 1.00 means $100 buys exactly $100 of what it buys at
 // home. That threshold is the only one a traveler cares about, so it gets a hard

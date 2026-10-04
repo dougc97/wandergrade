@@ -639,6 +639,10 @@ html[data-tab="guide"] header .sub { display: none; }
 @media (max-width: 374px) {
   #fbmCard:not([data-nofig]) #fbmChg:empty::before { content: "\00a0\A\00a0"; white-space: pre; }
 }
+/* At 320 the card's content is 260px, so the held 306px pushed the page to
+   337px; never hold more than the card has (100vw less the 28px of row and
+   32px of card padding). From 366px up this is still 306. */
+#fbmCard:not([data-nofig]) #fbmChg:empty { min-width: min(306px, 100vw - 60px); }
 .bignum small.pos { color: var(--green); }
 .bignum small.neg { color: var(--red); }
 .chart { margin-top: 12px; }
@@ -761,6 +765,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr:last-child td { border-bottom: none; }
 tr.favorable { background: var(--green-bg); }
 
+.pltag { font-size: 11px; white-space: nowrap; }
 .code { font-weight: 700; }
 .name { color: var(--gray); font-size: 12px; }
 /* Desktop: code and name on one line ("BOB Bolivian Boliviano"), so a row is
@@ -2061,6 +2066,29 @@ button.chip2 { border: 0; }
   .budgethero .numin { width: 64px; }
   .budgethero .bdays { width: 44px; }
 }
+/* The one-line budget row was measured to fit at 360 (312px in a 330px card);
+   at 320 the card is 290 and the row ran 22px past it, the second of the two
+   things making a 320 page 353px wide. Tighter gaps and padding (not narrower
+   boxes, which already hold just "25000" and "365") bring it to ~281px. */
+@media (max-width: 359px) {
+  .pickersmain .pickgroup.budgethero { gap: 4px; padding-left: 8px; padding-right: 8px; }
+  .budgethero .bdgtsep { margin: 0; }
+  /* Currency: four columns need 330px at their narrowest and the 320 card
+     has 292 — "about the same" held on one line made Price level 96px. Below
+     360 the word sits under its number, "about the same" (the band with no
+     colour class) may break after "the", the names' cap gives up 8px and the
+     cells 2px a side. "very cheap" stays one phrase, as above. */
+  #rates th, #rates td { padding-left: 5px; padding-right: 5px; }
+  #rates td:first-child { max-width: 96px; }
+  #rates .pltag { display: block; }
+  #rates .pltag:not(.pos, .neg) { white-space: normal; }
+  /* Cost: the names' 190px cap left 102px for three number columns that need
+     149, so the table was 340px in 292. 132 still shows "Turks and Caic…". */
+  #affTable td:first-child { max-width: 132px; }
+  /* The hero pair shares a 290px row: at 14-16px side padding "✨ Help me
+     choose" was cut off inside its 140px button. */
+  #tab-value .herobtns > button { padding-left: 8px; padding-right: 8px; }
+}
 
 .worow { margin-left: 8px; font-size: 11px; padding: 2px 8px; border: 1px solid var(--line);
   border-radius: 999px; background: none; color: var(--gray); cursor: pointer; }
@@ -2144,10 +2172,14 @@ button.chip2 { border: 0; }
    one extra row instead of two above the fold. Appended after the base rules
    above so it wins regardless of the media-query ordering elsewhere. */
 @media (max-width: 600px) {
-  /* #tab-value .charthead sets flex-wrap:nowrap (line ~869) to keep the heading
-     and the old single button on one row. An ID selector outranks a class one
-     whatever the source order, so this override has to match its specificity. */
-  #tab-value .charthead { flex-wrap: wrap; }
+  /* The 375-600 block above sets `#tab-value .charthead:not(.compact)` to
+     nowrap to keep the heading and the old single button on one row. :not()
+     adds its argument's class to the specificity, so a bare
+     `#tab-value .charthead` here lost to it despite coming later: at 390 the
+     two buttons stayed beside the heading, overflowed their own boxes and
+     pushed the page to 405px (sideways scroll on every phone 375-414). The
+     selector has to match exactly to win on source order. */
+  #tab-value .charthead:not(.compact) { flex-wrap: wrap; }
   /* The map card's Share keeps its icon only, so the heading row stays one
      row on a phone; title= still names it, and the word stays for screen
      readers (same clip as the header's Share above). */
@@ -2496,7 +2528,10 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
    320-356px between a label and its control on a desktop card. */
 .tunecard .prirow { justify-content: flex-start; }
 .tunecard .prilabel { flex: 0 0 124px; }
-.tunecard .rankby .picklabel { flex: 0 0 126px; }
+/* The label may give its spare width back (down to "RANK BY" itself): at 320
+   a fixed 126px plus the 204px toggle needed 338px of a 290px card and pushed
+   the page to 353px. Wider cards never shrink it, so the column holds there. */
+.tunecard .rankby .picklabel { flex: 0 1 126px; }
 /* A fixed box per emoji so the words line up (🌤️ runs wider than 💰). */
 .prilabel .pico { display: inline-block; width: 1.5em; }
 /* A factor Count leaves out weighs nothing: its row says so. */
