@@ -2855,6 +2855,11 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .rkchip.more { background: none; color: var(--gray); }
 .rkchip.cut { display: none; }
 .rkchip.notice { border-color: #d4730a; background: color-mix(in srgb, #d4730a 16%, transparent); }
+/* The gap after a notice's ⚠️ is a margin, not a trailing space: a chip
+   shortened to fit its cell is a flex box, which drops the space at the end
+   of its first item ("⚠️Dengue" at 768). .17em is the space it replaces
+   (2.05px at 12px), so a full-width chip keeps its width. */
+.rkchip .rkwarn { margin-right: .17em; }
 .rkmark { color: var(--gray); }
 /* "US" before the reasons when another government's level is the pick. */
 .rkus { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; color: var(--gray); margin-right: 2px; }

@@ -2401,7 +2401,7 @@ function healthTip(hz, wn) {
 // In a table cell (`fit`) every chip is written, with a hidden "+N" that
 // fitChips() fills once it knows how many the cell has room for.
 function chipHTML(n, kind) {
-  if (kind === "notice") return `<span class="rkchip${healthStale() ? "" : " notice"}" data-n="${esc(n)}"><span aria-hidden="true">⚠️ </span><span class="rkname">${esc(n)}</span>`
+  if (kind === "notice") return `<span class="rkchip${healthStale() ? "" : " notice"}" data-n="${esc(n)}"><span class="rkwarn" aria-hidden="true">⚠️</span><span class="rkname">${esc(n)}</span>`
     + `<span class="vh"> (${healthStale() ? "travel health notice as of " + esc(healthAsOf()) : "current travel health notice"})</span></span>`;
   if (kind === "area") return `<span class="rkchip" data-n="${esc(n)}"><span class="rkname">${esc(n)}</span><span class="rkmark" aria-hidden="true"> ◐</span>`
     + `<span class="vh"> (only in some areas, seasons or itineraries)</span></span>`;
