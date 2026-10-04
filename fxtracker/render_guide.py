@@ -87,6 +87,12 @@ def name_in_text(iso):
     return "the " + n if iso in THE else n
 
 
+def activities(iso):
+    """The country's activities.json entry (its hazards size the weather
+    chart's stand-in, guide_sizers.chart)."""
+    return _load()["acts"].get(iso) or {}
+
+
 def iso_for_slug(slug):
     """ISO-2 for a URL slug, or None if it isn't a known country."""
     return _load()["slugs"].get(slug)
@@ -707,6 +713,9 @@ def render(iso):
         # The weather chart's month-hazard lines (monsoon, smoke season…):
         # 25px each at 768, the chart's whole spread between countries.
         "hz": len(a.get("hazards") or []),
+        # The snapshot's price figure: without one the guide's local-prices
+        # line has nothing to say either (Taiwan, Cuba), so its room isn't held.
+        "pct": _facts(iso, doc).get("pct"),
     }
 
 

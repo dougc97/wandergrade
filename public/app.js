@@ -714,6 +714,19 @@ function renderRates(data) {
   if (plHead) plHead.title = `local prices vs ${A.name}; below 1.00 = cheaper than ${A.home ? "home" : "the US"}. `
     + "A currency several countries share shows the range across them.";
 
+  // A reader who leaves out Level 3-4 (the default) gets the rows once the
+  // advisories say which those are, 4s at most: drawn before them, Iran's
+  // rial (1,742,060, a Level 4 row) widened the rate column from 71px to 90
+  // (more than any header share can hold), and the redraw the advisories
+  // bring set it back, moving the header — sticky, so on screen for a reader
+  // already in the table — twice (CLS 0.056 at 768). The placeholder row
+  // keeps the table's room meanwhile.
+  if (!showRisky && !advisories && !_ratesRiskWait) {
+    _ratesRiskWait = true;
+    const go = () => { if (dataRates === data) renderRates(data); };
+    Promise.race([ensureAdvisories(), new Promise((r) => setTimeout(r, 4000))]).then(go, go);
+    return;
+  }
   const adv = advisoryByIso();
   const tbody = $("rows");
   tbody.innerHTML = "";
@@ -779,7 +792,7 @@ function renderRates(data) {
 // Newest request wins: a first fetch for a base is uncached server-side and
 // slow, so after a quick currency switch an earlier response could land last
 // and repaint the table in the old currency under the new picker.
-let _ratesSeq = 0;
+let _ratesSeq = 0, _ratesRiskWait = false;
 async function loadRates() {
   // Quiet: a polite live region would otherwise read this out on every load.
   status("Fetching rates…", "", false, true);
@@ -2477,7 +2490,9 @@ function renderGuideInsurance(iso) {
   // back until the level is known, so it never flashes on a Level 4 page.
   // Empty until then it holds its usual height (styles.css #guideInsurance:
   // empty), so a Level 4 page hides it outright rather than keep a blank.
-  host.innerHTML = "";
+  // The server's stand-in for it (.gsizer) stays instead until then: emptied,
+  // the note's bottom margin it carries went with it (12px at 1280).
+  if (!host.querySelector('.gsizer[data-for="' + iso + '"]')) host.innerHTML = "";
   const show = () => {
     if (ccGuideIso !== iso) return;
     host.hidden = guideAdvLevel(iso) === 4;
@@ -2489,7 +2504,7 @@ function renderGuideInsurance(iso) {
 // show a figure its own page never shows): the same valueScores call, the
 // travel month, the reader's Top Picks priorities. Static host (#guideGrades,
 // height reserved in styles.css), so filling it moves nothing.
-let _guideAskedFares = false, _guideFarePend = null;
+let _guideAskedFares = false, _guideFarePend = null, _guideFareLate = false;
 async function renderGuideGrades(iso) {
   const host = $("guideGrades");
   if (!host) return;
@@ -2506,6 +2521,8 @@ async function renderGuideGrades(iso) {
       _guideFarePend = null;
       if (ccGuideIso) renderGuideGrades(ccGuideIso);
     });
+    // Fares still out after 2.5s: the line is drawn without them (below).
+    setTimeout(() => { if (_guideFarePend) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); } }, 2500);
   }
   const month = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
   let s = null;
@@ -2514,7 +2531,18 @@ async function renderGuideGrades(iso) {
   // "—" for flights made it 445px against 438 after, and on an 810px iPad
   // the country picker beside the title wrapped under it and came back
   // (CLS 0.32-0.64). The empty line holds its width meanwhile (styles.css).
-  if (s && _guideFarePend) return;
+  // But fares 2.5s late left the line blank for seconds (7-10s with fares
+  // 5s slow), so then it is drawn with the three grades that don't need
+  // them, and the Overall, its number and ✈️ as grey pending boxes; the fares
+  // fill them in place, each keeping at least its box's width (_ggHold,
+  // below) so nothing beside it moves. The boxes are a one-letter grade's
+  // pill (the narrowest a grade draws) and the number the scores give
+  // without fares: sized by the grades these scores give without fares
+  // ("B+ 84" for Thailand against "A 85" with them), the line was 7px
+  // wider than its fares make it, and on an 810px iPad that wrapped the
+  // country picker under the title (CLS 0.32).
+  if (s && _guideFarePend && !_guideFareLate) return;
+  const pending = !!(s && _guideFarePend);
   const act = activities && activities[iso];
   const days = act && act.days ? '<span class="ggdays" data-tip="' + esc("Worth " + act.days[0] + "–" + act.days[1]
     + " days on a first visit") + '" title="">🧳 ' + act.days[0] + "–" + act.days[1] + " days</span>" : "";
@@ -2526,19 +2554,34 @@ async function renderGuideGrades(iso) {
     host.innerHTML = grey("—", why) + '<span class="vh"> ' + esc(why) + "</span>" + days;
     return;
   }
+  const wait = (k, cls, txt) => '<span class="' + cls + ' skel ggpend" data-gg="' + k + '" data-tip="Waiting for fares…" title="">'
+    + '<span class="ggph">' + txt + "</span></span>";
   const f = (emo, word, pill) => '<span class="ggf"><span aria-hidden="true">' + emo + '</span><span class="vh">' + word + " </span>" + pill + "</span>";
-  const fly = s.fare == null ? grey("—", "No fare data")
+  const fly = pending ? wait("fly", "gr", "A")
+    : s.fare == null ? grey("—", "No fare data")
     : (s.flyBasis !== "month" && s.fareEst) ? grey("~" + grade(s.fly), "Estimated — no cached fare yet, so flights count as a typical fare for the distance.")
     : gradePill(s.fly, s.flyBasis === "month" ? MONTHS[month - 1] + "'s fare vs this route's usual" : "Year-round fare vs the typical fare for this distance");
-  host.innerHTML = gradePill(s.value, "Overall " + grade(s.value) + " · " + s.value + "/100 for " + MONTHS[month - 1], "big")
-    + '<span class="ggnum">' + s.value + "</span>"
+  host.innerHTML = (pending ? wait("ov", "gr big", "A") + wait("num", "ggnum", s.value)
+      : gradePill(s.value, "Overall " + grade(s.value) + " · " + s.value + "/100 for " + MONTHS[month - 1], "big")
+        .replace('class="', 'data-gg="ov" class="') + '<span class="ggnum" data-gg="num">' + s.value + "</span>")
     + f("💰", "Affordability", gradePill(s.afford, affordTitle(s).replace(" · click for cost-of-living detail", "")))
     + f("🛡️", "Safety", safetyPill(s.advLvl, iso))
     + f("🌤️", "Weather", s.wx == null ? grey("—", "No weather data") : gradePill(s.wx, s.wx + "/100 weather comfort in " + MONTHS[month - 1]))
-    + f("✈️", "Flights", fly) + days
+    + f("✈️", "Flights", pending ? fly : fly.replace('class="', 'data-gg="fly" class="')) + days
     + '<span class="muted" data-tip="' + esc("Graded for " + MONTHS[month - 1] + " from " + originLabel()
       + ", weighted by your Top Picks priorities — the grades the Top Picks table and this page's 📸 share card show.") + '" title="">ⓘ</span>';
+  // The pending boxes' widths, kept for this guide: every later draw of it
+  // (the fares' own redraw, and their settling's) gives each grade at least
+  // its box's width.
+  if (pending) {
+    const w = {};
+    host.querySelectorAll(".ggpend").forEach((e) => { w[e.dataset.gg] = e.getBoundingClientRect().width; });
+    _ggHold = { iso, w };
+  } else if (_ggHold && _ggHold.iso === iso) {
+    for (const k in _ggHold.w) { const e = host.querySelector('[data-gg="' + k + '"]'); if (e) e.style.minWidth = _ggHold.w[k] + "px"; }
+  }
 }
+let _ggHold = null;
 function fillGuideInsurance(host, iso) {
   // Named, and styled like the stay buttons it sits beside. It used to read
   // "Compare travel insurance" as a bare text link, which was wrong twice: it
@@ -2557,8 +2600,17 @@ function fillGuideInsurance(host, iso) {
 // -- Tab: country guide (best time + things to do, one picker) ---------------
 function renderGuide(iso) {
   // Drop the server-rendered crawler block now that we're rendering the real,
-  // interactive guide (prevents duplicate content).
-  const ssr = $("ssrGuide"); if (ssr) ssr.remove();
+  // interactive guide (prevents duplicate content). Its words go now; what is
+  // left of its room after the activities above it fill (below) stays, blank,
+  // until they have settled — their photos add 17-19px a row, the tours
+  // button its line once the level is known. Removed outright, a guide whose
+  // activities fill shorter than this block ended inside a 1280px screen
+  // scrolled 700px down: the newsletter box rose into view, then the photos
+  // pushed it back out, an 864px move that made Chrome score every 12px move
+  // in that frame at full distance (CLS 0.044 on Iceland).
+  const ssr = $("ssrGuide"), ssrH = ssr ? ssr.offsetHeight : 0;
+  const actH0 = ssr ? $("actDetail").offsetHeight : 0;
+  if (ssr) { ssr.innerHTML = ""; ssr.id = ""; ssr.setAttribute("aria-hidden", "true"); }
   // The advisory level, for styles.css's first-paint holds (the advisory
   // block, and on Level 4 the grades line, stays and insurance): the server
   // marks its own country (data-level); any other gets it from the advisories
@@ -2568,6 +2620,27 @@ function renderGuide(iso) {
     const lvl = advisories ? guideAdvLevel(iso) : 0;
     if (lvl) gtab.setAttribute("data-level", lvl);
     else if (advisories || iso !== window.__WGGC__) gtab.removeAttribute("data-level");
+    // Whether the fares strip will come, so its room is held only then
+    // (data-fm, styles.css): the Flights data says, once it is in for this
+    // origin (renderGuideFares draws from 3 months of the same curve); before
+    // that the server's mark stands for its own guide and default origin,
+    // and nothing is held for another (held and given back, the lines under
+    // it jumped 154px).
+    const fvC = flightValue && flightValue.origin === originIso() && flightValue.countries
+      && flightValue.countries[iso];
+    const fm = fvC && !fvC.pending ? (fvC.n_curve || 0) >= 3
+      : iso === window.__WGGC__ && originIso() === "US" ? null : false;
+    if (fm) gtab.setAttribute("data-fm", "1");
+    else if (fm === false) gtab.removeAttribute("data-fm");
+    // The FX and local-prices lines likewise (data-fx, data-cost): none for
+    // a currency the reader holds or a country without one, none on the
+    // reader's own country; the server's marks stand for its own guide
+    // otherwise (it also knows which have no price figure or FX chart).
+    const fxIso = GUIDE_PARENT[iso] || iso, cur = CUR_BY_ISO[fxIso];
+    if (!cur || cur === (homeBase || "USD")) gtab.setAttribute("data-fx", cur ? "home" : "0");
+    else if (iso !== window.__WGGC__ || gtab.getAttribute("data-fx") === "home") gtab.removeAttribute("data-fx");
+    if (fxIso === originIso()) gtab.setAttribute("data-cost", "home");
+    else if (iso !== window.__WGGC__ || gtab.getAttribute("data-cost") === "home") gtab.removeAttribute("data-cost");
   }
   // The page's one h1. On /guide/<slug> the server already sent this exact
   // markup (render_guide.h1_html), so hydration writes nothing and nothing
@@ -2590,7 +2663,14 @@ function renderGuide(iso) {
   renderGuideSafety(iso);
   renderGuideAI(iso);
   renderCountryClimate(iso);
-  renderActivity(iso);
+  const acts = renderActivity(iso);
+  if (ssr) {
+    // Only what the activities didn't take: held whole, the newsletter box
+    // and the footer would drop by the activities' full height instead.
+    ssr.style.height = Math.max(0, ssrH - ($("actDetail").offsetHeight - actH0)) + "px";
+    Promise.race([Promise.allSettled([acts, ensureAdvisories()]), new Promise((r) => setTimeout(r, 8000))])
+      .then(() => ssr.remove());
+  }
   renderGuideStay(iso);
   // The fare column (fares by month, local prices, FX) fills in three
   // fetches, 0 -> 19 -> 96px at 768 and 250 with the fares: each block keeps
@@ -3030,8 +3110,9 @@ function renderGuideStay(iso) {
   // it keeps its held height (styles.css). Hidden, the stays column beside
   // the advisory collapsed to the insurance line and the weather chart under
   // both rode up 135px and back down when the stays came (1280).
+  holdSizer(host, iso);
   host.innerHTML = ""; host.hidden = false;
-  const none = () => { if (ccGuideIso === iso) host.hidden = true; };
+  const none = () => { if (ccGuideIso === iso) { host.hidden = true; host.style.minHeight = ""; } };
   Promise.all([ensureStayCoords(), ensureAdvisories().catch(() => null)]).then(([cc]) => {
     if (ccGuideIso !== iso) return;                    // user switched country
     if (guideAdvLevel(iso) === 4) return none();       // no bookings under "do not travel"
@@ -3072,7 +3153,7 @@ function renderGuideStay(iso) {
       _staySpotIdx = parseInt(b.dataset.si, 10) || 0;
       renderGuideStay(iso);
     }));
-    host.hidden = false;
+    host.hidden = false; host.style.minHeight = "";
   }).catch(() => { if (!host.firstChild) none(); });
 }
 
@@ -3109,13 +3190,16 @@ function renderGuideVisa(iso) {
   const passport = guidePassport();
   if (passport !== "US" && !visaMatrix) {       // need the matrix; load then redraw
     // Empty, not hidden, while it loads: empty it keeps the height styles.css
-    // holds for it, where hiding it collapsed the line and the guide under it
-    // jumped twice. Hidden only if the matrix never comes.
+    // holds for it (or the served stand-in's, holdSizer), where hiding it
+    // collapsed the line and the guide under it jumped twice. Hidden only if
+    // the matrix never comes.
+    holdSizer(host, iso);
     host.innerHTML = ""; host.hidden = false;
     ensureVisaMatrix().then(() => { if (ccGuideIso === iso) renderGuideVisa(iso); })
-      .catch(() => { if (ccGuideIso === iso && !host.firstChild) host.hidden = true; });
+      .catch(() => { if (ccGuideIso === iso && !host.firstChild) { host.hidden = true; host.style.minHeight = ""; } });
     return;
   }
+  host.style.minHeight = "";
   const info = visaInfo(iso, passport);
   if (info && info.home) {
     host.hidden = false;
@@ -3191,6 +3275,18 @@ function guideAdvLevel(iso) {
   const it = meta[iso] || (parent && meta[parent]);
   return it ? it.level : 0;
 }
+// A guide block about to be emptied and refilled for the country it already
+// shows — the server's invisible stand-in for it (.gsizer, fxtracker/
+// guide_sizers.py: the block as it will read, wrapped by the browser at this
+// width), or its own content drawn before (a new From, a new source) — keeps
+// that height as its min-height until the caller has filled it and lets go.
+// Another country's block starts from the stylesheet's per-level height.
+function holdSizer(host, iso) {
+  const sz = host.querySelector(".gsizer");
+  const mine = sz ? sz.dataset.for === iso : host.dataset.for === iso;
+  host.style.minHeight = mine && host.offsetHeight ? host.offsetHeight + "px" : "";
+  host.dataset.for = iso;
+}
 function renderGuideSafety(iso) {
   const host = $("guideSafety");
   if (!host) return;
@@ -3201,8 +3297,9 @@ function renderGuideSafety(iso) {
   // fetch — so .filling keeps that height until the last has landed: the
   // first step alone is ~70px, and the guide under it rode up 100px and back
   // down a frame later (768 and phones).
+  holdSizer(host, iso);
   host.innerHTML = ""; host.hidden = false; host.classList.add("filling");
-  const done = () => { if (ccGuideIso === iso) host.classList.remove("filling"); };
+  const done = () => { if (ccGuideIso === iso) { host.classList.remove("filling"); host.style.minHeight = ""; } };
   ensureAdvisories().then(() => {
     if (ccGuideIso !== iso) return;
     const meta = advisoryMetaByIso();
@@ -8561,7 +8658,7 @@ function renderActivity(iso) {
     };
     ensureAdvisories().then(settle, settle);
   }
-  loadActivityThumbs(iso);
+  return loadActivityThumbs(iso);   // settles once every row's photo is in or known missing
 }
 
 // ---- per-activity photo thumbnails ------------------------------------------
@@ -8589,7 +8686,7 @@ function loadActivityThumbs(iso) {
   const country = countryName(iso);
   const used = new Set();   // two rows resolving to the same image: first one wins
   const shown = [];         // [img, photo] — credited in one batch once all land
-  Promise.all([...document.querySelectorAll("#actDetail .actthumbslot[data-subj]")].map(async (slot) => {
+  const rows = Promise.all([...document.querySelectorAll("#actDetail .actthumbslot[data-subj]")].map(async (slot) => {
     const p = await actPhoto(slot.dataset.subj, country);
     if (!p || ccGuideIso !== iso || slot.childElementCount) return;
     const k = fileKey(p.full);
@@ -8613,13 +8710,15 @@ function loadActivityThumbs(iso) {
     });
     slot.appendChild(img);
     shown.push([img, p]);
-  })).then(() => loadPhotoCredits(shown.map((x) => x[1]))).then(() => {
+  }));
+  rows.then(() => loadPhotoCredits(shown.map((x) => x[1]))).then(() => {
     // Too small for a caption: the credit rides the tooltip (and the viewer).
     for (const [img, p] of shown) {
       const c = _photoCredit[p.file];
       if (c && (c.artist || c.lic)) img.title = "view photo · 📷 " + [c.artist, c.lic].filter(Boolean).join(" · ");
     }
   }).catch(() => {});
+  return rows;
 }
 
 // ===========================================================================

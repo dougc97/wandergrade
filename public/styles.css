@@ -694,24 +694,49 @@ html[data-tab="guide"] header .sub { display: none; }
 #tab-data tr.loadingrow > td { height: 200vh; vertical-align: top; }
 /* Over that one row, the Currency and Cost tables sized their columns by
    their own header labels, then by the rows when they landed: at 768 the
-   Currency headers re-wrapped to two lines and each moved 50-80px. They get
-   the shares the filled tables measure (the same at 1280 and 768, ±1%), so
-   the header is laid out for its rows from the start. Phones keep the
-   Currency table's own rules (four columns, a capped first one). */
-@media (min-width: 641px) {
+   Currency headers re-wrapped to two lines and each moved 50-80px. From
+   761px they get the shares the filled tables measure (the same at 1280 and
+   768, ±1%), so the header is laid out for its rows from the start, and it
+   keeps them through every redraw of the rows. Narrower, see below. */
+@media (min-width: 761px) {
   #rates th:nth-child(1) { width: 37.5%; }
   #rates th:nth-child(2) { width: 9.6%; }
   #rates th:nth-child(3) { width: 17%; }
   #rates th:nth-child(4) { width: 18.2%; }
   #rates th:nth-child(5) { width: 17.7%; }
-}
-@media (min-width: 561px) {
   #affTable th:nth-child(1) { width: 34.3%; }
   #affTable th:nth-child(2) { width: 19.2%; }
   #affTable th:nth-child(3) { width: 17.7%; }
   #affTable th:nth-child(4) { width: 12.8%; }
   #affTable th:nth-child(5) { width: 16%; }
 }
+/* Narrower, the rows' shares swing with the width (the Cost tab's first
+   column 30-31% at 561-760 with a step at 620, where its third header fits
+   on a line; on a phone its names are capped at 190px), and the 761px
+   shares set on the headers squeezed the first column: the finished tables
+   came out 20-340px taller at 600-740 (90 Cost rows of two lines at 620).
+   There the placeholder row's own cells (index.html: five, not one spanning
+   the row) carry the shares the filled tables measure, banded, and they go
+   with the row: the rows alone lay out the finished table, as before. The
+   Currency table shows four columns up to 640 (without its shares there its
+   header moved 58px when the rows came: CLS 0.010 at 620); under 561 its
+   own phone rules already lay it out alike, loading or not. */
+#tab-data tr.loadingrow > td:nth-child(1) { width: var(--c1); }
+#tab-data tr.loadingrow > td:nth-child(2) { width: var(--c2); }
+#tab-data tr.loadingrow > td:nth-child(3) { width: var(--c3); }
+#tab-data tr.loadingrow > td:nth-child(4) { width: var(--c4); }
+#tab-data tr.loadingrow > td:nth-child(5) { width: var(--c5); }
+@media (min-width: 561px) and (max-width: 640px) { #rates { --c1: 45.9%; --c2: 13.1%; --c3: 16.7%; --c4: 24.3%; } }
+@media (min-width: 620px) and (max-width: 640px) { #rates { --c1: 44.5%; --c2: 12%; --c3: 20.7%; --c4: 22.8%; } }
+@media (min-width: 641px) and (max-width: 760px) { #rates { --c1: 32.4%; --c2: 11.5%; --c3: 16.4%; --c4: 19.5%; --c5: 20.2%; } }
+@media (min-width: 680px) and (max-width: 760px) { #rates { --c1: 34%; --c2: 10.8%; --c3: 16.7%; --c4: 19.1%; --c5: 19.4%; } }
+@media (min-width: 720px) and (max-width: 760px) { #rates { --c1: 35.9%; --c2: 10.1%; --c3: 16.9%; --c4: 18.6%; --c5: 18.5%; } }
+@media (max-width: 760px) { #affTable { --c1: 55.3%; --c2: 14.8%; --c3: 15.6%; --c4: 14.3%; } }
+@media (min-width: 390px) and (max-width: 760px) { #affTable { --c1: 51%; --c2: 17.5%; --c3: 15.9%; --c4: 15.6%; } }
+@media (min-width: 440px) and (max-width: 760px) { #affTable { --c1: 43%; --c2: 22.5%; --c3: 16.4%; --c4: 18.1%; } }
+@media (min-width: 561px) and (max-width: 760px) { #affTable { --c1: 31.1%; --c2: 21.4%; --c3: 13.3%; --c4: 12.8%; --c5: 21.4%; } }
+@media (min-width: 620px) and (max-width: 760px) { #affTable { --c1: 30.8%; --c2: 20.5%; --c3: 16.9%; --c4: 12.9%; --c5: 18.9%; } }
+@media (min-width: 700px) and (max-width: 760px) { #affTable { --c1: 31.4%; --c2: 20%; --c3: 18.3%; --c4: 13.3%; --c5: 17%; } }
 /* Flights the same, where it shows six columns (the 6th is hidden up to
    1120, the 5th below 761): at 768 its header was 38px over the Loading…
    row and 56 once the rows set the columns, dropping the rows and all under
@@ -727,11 +752,6 @@ html[data-tab="guide"] header .sub { display: none; }
   #flightTable th:nth-child(4) { width: 17.9%; }
   #flightTable th:nth-child(5) { width: 12%; }
   #flightTable th:nth-child(7) { width: 11%; }
-}
-@media (max-width: 560px) {
-  #affTable th:nth-child(1) { width: 49.6%; }
-  #affTable th:nth-child(2) { width: 18.5%; }
-  #affTable th:nth-child(3), #affTable th:nth-child(4) { width: 15.9%; }
 }
 
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
@@ -1211,6 +1231,10 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
    smaller jump wherever it isn't Chrome on a Mac. */
 :root { --combo-w: 166px; }
 @media (pointer: coarse) { :root { --combo-w: 186px; } }
+/* The Top Picks When/From combos give 3px a side back on a touch screen
+   (the pointer: coarse block below), so they measure 180 there, not 186:
+   pinned at 186 they sat 6px wider than before at 360 and 700. */
+@media (pointer: coarse) { .pickersmain { --combo-w: 180px; } }
 :is(select.combosel, .combo-input) { width: var(--combo-w); }
 select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 @media (pointer: coarse) { select.combosel { height: 34px; } }
@@ -2606,6 +2630,9 @@ a.destlink:focus-visible { outline: 2px solid var(--green); outline-offset: 2px;
 .guidegrades .ggnum { font-weight: 800; font-size: 14px; margin-left: -6px; }
 .guidegrades .ggf { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; }
 .guidegrades .ggdays { font-size: 13px; color: var(--gray); }
+/* Fares late (renderGuideGrades): the Overall, its number and ✈️ wait as
+   grey boxes, sized by an invisible one-letter grade and number inside. */
+.guidegrades .ggph { visibility: hidden; }
 /* On a phone the line wraps to two (measured 56px at 390). */
 @media (max-width: 560px) { .guidegrades, .guidegrades:empty { min-height: 56px; } }
 /* The guide's h1 is hidden until hydration (one visible h1 at a time — the
@@ -2639,6 +2666,16 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    the server counts for its own guide (data-hz: 1, or 2 for two or more):
    one size for all, it was 62px short for Thailand and 25 too tall for
    Austria. */
+/* The server writes invisible stand-ins into the visa line, the advisory,
+   the AI buttons, the weather chart, the stays and the insurance line (index.html,
+   fxtracker/guide_sizers.py): the blocks as they will read, laid out as
+   their own children and wrapped at the reader's width, unseen. With one,
+   a block is its own height from the first paint and none of the holds
+   below apply; app.js keeps that height while it refills (holdSizer). The
+   holds below are for guides opened in the app and for blocks the server
+   has nothing cached for yet. */
+.gsizer { display: contents; visibility: hidden; }
+.besthead .gh2 { margin: 0; font-size: 18px; font-weight: 700; }   /* the chart stand-in's h2 */
 #guideVisa:empty { min-height: 40px; }
 #guideSafety:is(:empty, .filling) { min-height: 168px; }
 #guideAI:empty { min-height: 45px; }
@@ -2664,8 +2701,20 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    invisibly, at its usual height — 250px for the column at 768 (288 on a
    phone): the strip 142 (161), the prices line 18, the FX chart 68, 86 where
    its heading wraps (a phone, and the half-width column below ~1150px).
-   Those that never come go with the class. */
+   Those that never come go with the class. The strip only where the page
+   knows it will come (data-fm: the server's cached curves for the default
+   origin, or renderGuide's flight-value data): production draws it for
+   about half the graded guides, and held on the rest it was given back
+   when /api/flight-months came back empty, the two lines under it jumping
+   up 154px (CLS 0.14 at 1280 on Slovakia; 0.002 held only where it comes). */
 .farecol.loading > [hidden] { display: block; visibility: hidden; }
+#tab-guide:not([data-fm]) .farecol.loading > #guideFares[hidden] { display: none; }
+/* The same for the other two where the server knows they won't come
+   (data-fx, data-cost: no FX for a dollar country or one the feed doesn't
+   chart, no local prices on your own country's guide or without a figure):
+   held, Puerto Rico's column fell from 250px to 18 at 768 (CLS 0.12). */
+#tab-guide[data-fx] .farecol.loading > #guideFx[hidden],
+#tab-guide[data-cost] .farecol.loading > #guideCost[hidden] { display: none; }
 .farecol.loading > #guideFares[hidden] { min-height: 142px; }
 .farecol.loading > #guideCost[hidden] { min-height: 18px; }
 .farecol.loading > #guideFx[hidden] { min-height: 68px; }
@@ -2722,11 +2771,10 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 }
 /* A Level 4 guide (data-level="4", from the server) is another page below the
    grades: no stays or insurance under "do not travel" (held anyway, they
-   were hidden late and the chart and fare column rode up 62px from 900px),
-   an advisory that runs longer and no fares by month (22 of the 24 have no
-   route the fares cover). Its own medians, of all 24. */
-#tab-guide[data-level="4"] :is(#guideStay, #guideInsurance):empty,
-#tab-guide[data-level="4"] .farecol.loading > #guideFares[hidden] { display: none; }
+   were hidden late and the chart and fare column rode up 62px from 900px)
+   and an advisory that runs longer (fares by month go by data-fm, like any
+   guide's). Its own medians, of all 24. */
+#tab-guide[data-level="4"] :is(#guideStay, #guideInsurance):empty { display: none; }
 #tab-guide[data-level="4"] #guideSafety:is(:empty, .filling) { min-height: 243px; }
 @media (max-width: 560px) {
   #tab-guide[data-level="4"] #guideVisa:empty { min-height: 78px; }

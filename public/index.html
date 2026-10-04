@@ -413,6 +413,16 @@
 
   <!-- ============ TAB: TRAVEL GUIDE ============ -->
   <section class="tab" id="tab-guide"{{GUIDE_HIDDEN}}{{GUIDE_DATA}}>
+    <!-- The server's data-fm (a fares-by-month strip to hold room for) is for
+         the default origin, the US; a reader who set another From gets that
+         origin's curve or none, so nothing is held for it, and the FX and
+         local-prices lines a US reader doesn't get (data-fx="home",
+         data-cost="home") are theirs again (renderGuide decides from then
+         on). -->
+    <script>(function(){try{var o=localStorage.getItem("fx_origin"),t=document.getElementById("tab-guide");
+      if(o&&o!=="US"){t.removeAttribute("data-fm");
+        if(t.getAttribute("data-fx")==="home")t.removeAttribute("data-fx");
+        if(t.getAttribute("data-cost")==="home")t.removeAttribute("data-cost");}}catch(e){}})();</script>
     <div class="cardwide">
       <div class="charthead">
         <div>
@@ -461,16 +471,19 @@
            spanning a tall left-hand block across two rows would have spread its
            height between them and opened a gap between stays and insurance. -->
       <div class="guidegrid">
-        <!-- Visa, safety, the AI block and the weather chart start empty (the
-             chart as .loading) and are held at their usual heights until
-             filled (styles.css): arriving one by one, they pushed everything
-             under them down 600px in one frame on a tablet (CLS 0.45). Safety
-             is not [hidden] here for the same reason; renderGuideSafety hides
-             it when there is no advisory. -->
-        <div id="guideVisa" class="guidevisa"></div>
-        <div id="guideSafety" class="guidevisa"></div>
-        <div id="guideAI" class="guideai"></div>
-        <div id="bestDetail" class="bestdetail loading">Loading…</div>
+        <!-- Visa, safety, the AI block, the weather chart, the stays and the
+             insurance line are filled by app.js: arriving one by one, they
+             pushed everything under them down 600px in one frame on a tablet
+             (CLS 0.45). On /guide/<slug> the server writes each one's
+             invisible stand-in (the GUIDE_* tokens, fxtracker/guide_sizers.py), so
+             it is its own height from the first paint; otherwise they start
+             empty (the chart as .loading) and are held at their usual
+             heights (styles.css). Safety is not [hidden] here for the same
+             reason; renderGuideSafety hides it when there is no advisory. -->
+        <div id="guideVisa" class="guidevisa">{{GUIDE_VISA}}</div>
+        <div id="guideSafety" class="guidevisa">{{GUIDE_SAFETY}}</div>
+        <div id="guideAI" class="guideai">{{GUIDE_AI}}</div>
+        <div id="bestDetail" class="bestdetail{{CHART_LOADING}}">{{GUIDE_CHART}}</div>
         <!-- .loading: its blocks hold their places until renderGuide's three
              fills have settled (styles.css). -->
         <div class="farecol loading">
@@ -493,8 +506,8 @@
         <div class="staycol">
           <!-- Not [hidden] (the visa line's reason): renderGuideStay hides it
                when a country has no stays to show. -->
-          <div id="guideStay" class="guidestay"></div>
-          <div id="guideInsurance" class="afflink"></div>
+          <div id="guideStay" class="guidestay">{{GUIDE_STAY}}</div>
+          <div id="guideInsurance" class="afflink">{{GUIDE_INSURANCE}}</div>
         </div>
       </div>
       <hr class="softrule">
@@ -724,7 +737,7 @@
               <th class="num sortable" aria-sort="none" data-sk="range" title="where today's rate sits in its 1-year range — further right (greener) = your money is near its strongest, so it goes further"><button type="button" class="sortbtn">Range position</button></th>
             </tr>
           </thead>
-          <tbody id="rows"><tr class="loadingrow"><td colspan="5">Loading…</td></tr></tbody>
+          <tbody id="rows"><tr class="loadingrow"><td>Loading…</td><td></td><td></td><td></td><td></td></tr></tbody>
         </table>
       </section>
     </div>
@@ -806,7 +819,7 @@
             <th class="num sortable" aria-sort="none" data-sk="buys" title="what 100 in your home currency buys there, measured in at-home goods (100 ÷ price level)"><button type="button" class="sortbtn">100 buys</button></th>
             <th class="num sortable" aria-sort="none" data-sk="range" title="where today sits between its priciest and cheapest level of the last ten years — further right = cheaper than usual"><button type="button" class="sortbtn">10-yr range</button></th>
           </tr></thead>
-          <tbody id="affRows"><tr class="loadingrow"><td colspan="5">Loading…</td></tr></tbody>
+          <tbody id="affRows"><tr class="loadingrow"><td>Loading…</td><td></td><td></td><td></td><td></td></tr></tbody>
         </table>
       </section>
     </div>

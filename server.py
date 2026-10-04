@@ -30,7 +30,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
-    flightvalue, guide_facts, health, mailer, popularity, rates, render_guide, store, watchouts
+    flightvalue, guide_facts, guide_sizers, health, mailer, picks, popularity, rates, render_guide,
+    store, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -176,6 +177,13 @@ _HTML_DEFAULTS = {
     "VALUE_HIDDEN": "",
     "GUIDE_HIDDEN": " hidden",
     "GUIDE_DATA": "",
+    "GUIDE_VISA": "",
+    "GUIDE_CHART": "Loading…",
+    "CHART_LOADING": " loading",
+    "GUIDE_SAFETY": "",
+    "GUIDE_AI": "",
+    "GUIDE_STAY": "",
+    "GUIDE_INSURANCE": "",
     "VALUE_ACTIVE": ' class="active"',
     "GUIDE_ACTIVE": "",
     "JSONLD": _WEBSITE_JSONLD,
@@ -700,6 +708,89 @@ def _render_verify_page(token):
     return _shell_page("Sign in | WanderGrade", body, _NOINDEX, analytics=False)
 
 
+def _fare_strip_hint(iso):
+    """Whether this guide's fares-by-month strip will draw for the site's
+    default origin, from the caches alone (never an upstream call): the
+    country's row in the cached fares and its routes' cached curves, with the
+    3 months of the next 12 renderGuideFares needs. The page holds the strip's
+    142px only then (data-fm, styles.css): held for every guide, it was given
+    back on the half of graded guides production has no curve for, and the
+    prices and FX lines under it jumped up 154px (CLS 0.14 at 1280 on
+    Slovakia for a reader scrolling during a slow load; 0.002 held only
+    here). Not known (no token, fares not cached yet) is no hold."""
+    try:
+        if not flights.is_configured():
+            return False
+        hit = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
+        rows = (hit[1].get("countries") or []) if hit else []
+        row = next((r for r in rows if r.get("iso") == iso), None)
+        if not row:
+            return False
+        m = flights.get_country_monthly(flightvalue.DEFAULT_ORIGIN, row, lookup=flights.monthly_cached)
+        win = set(flightvalue.window_months())
+        return bool(m) and sum(1 for k in (m.get("months") or {}) if k in win) >= 3
+    except Exception:
+        return False
+
+
+def _fare_col_hints(iso, pct):
+    """The fare column's other two lines for a reader at home in the US (the
+    default), as data- marks styles.css reads to hold their room or not: FX
+    (data-fx) "0" when the country has no currency the FX feed charts — none
+    at all, or a trend shorter than the 6 months renderGuideFx needs, by the
+    server's own cached trends — and "home" when it uses the dollar (no FX
+    story for a dollar reader); local prices (data-cost) "home" on the US's
+    own guide and "0" with no price figure in the snapshot. Held anyway,
+    they were given back: Puerto Rico's column fell from 250px to 18 at 768
+    (CLS 0.12 for a reader scrolling during a slow load)."""
+    out = ""
+    home = guide_sizers.GUIDE_PARENT.get(iso, iso)
+    cur = picks.CUR_BY_ISO.get(home)
+    hit = rates._trend_cache.get("USD")
+    trend = hit[1] if hit else None
+    if not cur or (trend is not None and len((trend.get(cur) or {}).get("months") or []) < 6):
+        out += ' data-fx="0"'
+    elif cur == "USD":
+        out += ' data-fx="home"'
+    if home == "US":
+        out += ' data-cost="home"'
+    elif pct is None:
+        out += ' data-cost="0"'
+    return out
+
+
+def _guide_sizers(iso, level):
+    """Invisible stand-ins for the guide blocks app.js fills (the visa line,
+    the advisory, the AI buttons, the weather chart, the stays and the
+    insurance line; fxtracker/guide_sizers.py),
+    from the data files and what the caches hold right now — never an
+    upstream call. Nothing for a block whose content isn't cached yet: it
+    keeps its per-level height (styles.css)."""
+    out = {}
+    try:
+        out["GUIDE_VISA"] = guide_sizers.visa(iso)
+        out["GUIDE_AI"] = guide_sizers.ai(iso, render_guide.name_for_iso(iso) or iso)
+        ch = guide_sizers.chart(iso, render_guide.name_in_text(iso),
+                                (render_guide.activities(iso) or {}).get("hazards"))
+        if ch:   # the frame instead of "Loading…" and its per-hazard-count hold
+            out.update(GUIDE_CHART=ch, CHART_LOADING="")
+        hit = _adv_cache.get("us")
+        adv = hit[1] if hit else None
+        items = {it.get("iso"): it for it in (adv or {}).get("items") or [] if it.get("iso")}
+        out["GUIDE_SAFETY"] = guide_sizers.safety(
+            iso, items, (adv or {}).get("source_name"), watchouts.cached(iso), health.get_doc())
+        # No stays or insurance under "do not travel" (the server's level and
+        # the US list's agree on that, or styles.css's data-level="4" hides
+        # them).
+        lvl_now = int((items.get(iso) or {}).get("level") or 0)
+        if level != 4 and lvl_now != 4:
+            out["GUIDE_STAY"] = guide_sizers.stay(iso)
+            out["GUIDE_INSURANCE"] = guide_sizers.insurance(iso)
+    except Exception as e:   # a hint only: never the page
+        print("[guide-sizers] %s: %s" % (iso, e), file=sys.stderr, flush=True)
+    return out
+
+
 def _render_index(gc_iso=None):
     """Fill index.html's tokens. gc_iso=None -> homepage defaults; otherwise a
     country page with server-rendered <title>/meta/canonical and body."""
@@ -728,10 +819,13 @@ def _render_index(gc_iso=None):
             # at the sizes for the guide's advisory level (data-level) and the
             # weather chart for its number of hazard lines (data-hz, 1 or 2+).
             GUIDE_DATA=(' data-level="%d"' % r["adv"] if r.get("adv") in (1, 2, 3, 4) else "")
-            + (' data-hz="%d"' % min(r.get("hz") or 0, 2) if r.get("hz") else ""),
+            + (' data-hz="%d"' % min(r.get("hz") or 0, 2) if r.get("hz") else "")
+            + (' data-fm="1"' if _fare_strip_hint(gc_iso) else "")
+            + _fare_col_hints(gc_iso, r.get("pct")),
             VALUE_ACTIVE="",
             GUIDE_ACTIVE=' class="active"',
         )
+        vals.update(_guide_sizers(gc_iso, r.get("adv")))
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
     out = _guide_template() if gc_iso else _index_template()

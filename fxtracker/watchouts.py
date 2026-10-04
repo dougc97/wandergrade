@@ -95,6 +95,14 @@ def _top_level_items(fragment):
     return regions[:14]
 
 
+def cached(iso):
+    """What get_watchouts last answered for this country, or None — the
+    cache alone, never an upstream call (the guide page sizes its advisory
+    block from it while the browser fetches the real answer)."""
+    hit = _cache.get((iso or "").strip().lower()[:2])
+    return None if not hit or hit[1].get("_failed") else {k: v for k, v in hit[1].items() if k != "_failed"}
+
+
 def get_watchouts(iso):
     iso = (iso or "").strip().lower()[:2]
     if not re.fullmatch(r"[a-z]{2}", iso):
