@@ -3138,14 +3138,19 @@ function renderGuideSafety(iso) {
   if (!host) return;
   // Emptied, not hidden, while the advisories load (the visa line's rule):
   // empty it keeps its held height, and the line only goes when there is
-  // nothing to say.
-  host.innerHTML = ""; host.hidden = false;
+  // nothing to say. The block then fills in three steps — the level and its
+  // sentence, then Canada's safety notes and the health line, each its own
+  // fetch — so .filling keeps that height until the last has landed: the
+  // first step alone is ~70px, and the guide under it rode up 100px and back
+  // down a frame later (768 and phones).
+  host.innerHTML = ""; host.hidden = false; host.classList.add("filling");
+  const done = () => { if (ccGuideIso === iso) host.classList.remove("filling"); };
   ensureAdvisories().then(() => {
     if (ccGuideIso !== iso) return;
     const meta = advisoryMetaByIso();
     const parent = !meta[iso] && ADV_PARENT[iso] && meta[ADV_PARENT[iso]] ? ADV_PARENT[iso] : null;
     const it = meta[iso] || (parent && meta[parent]);
-    if (!it) { host.hidden = true; return; }
+    if (!it) { host.hidden = true; done(); return; }
     const lvl = it.level;
     const src = (it.via_name || advSrcName()) + (parent ? " (" + countryName(parent) + " advisory)" : "");
     const url = it.link || advisories.source_url || "#";
@@ -3185,9 +3190,10 @@ function renderGuideSafety(iso) {
       await activateTab("data", true);
       setDataMode("advisory");
     };
-    renderWatchouts(iso);
-    renderGuideHealth(iso);
-  }).catch(() => { if (ccGuideIso === iso && !host.firstChild) host.hidden = true; });
+    // The health line goes under the notes, so it waits for them: painted
+    // first, it was pushed down 48-84px when they arrived.
+    Promise.resolve(renderWatchouts(iso)).then(() => renderGuideHealth(iso)).catch(() => {}).then(done);
+  }).catch(() => { if (ccGuideIso === iso && !host.firstChild) host.hidden = true; done(); });
 }
 // Under the advisory: the diseases Canada's travel health advice calls a risk
 // there (the Safety table's Health column), the rest in the tip. Only a
@@ -3195,7 +3201,7 @@ function renderGuideSafety(iso) {
 // advisory above is the UK's too) — never a territory's parent, whose
 // climate can be another world (French Guiana is not France).
 function renderGuideHealth(iso) {
-  ensureHealth().then(() => {
+  return ensureHealth().then(() => {
     const host = $("guideSafety");
     if (ccGuideIso !== iso || !host || host.hidden) return;
     const parent = !healthOf(iso) && GUIDE_PARENT[iso] ? GUIDE_PARENT[iso] : null;
@@ -3288,7 +3294,7 @@ function renderWatchouts(iso) {
     };
   };
   if (_watchoutCache[iso]) { paint(_watchoutCache[iso]); return; }
-  getJSON("/api/watchouts?iso=" + encodeURIComponent(iso))
+  return getJSON("/api/watchouts?iso=" + encodeURIComponent(iso))   // settles when painted (renderGuideSafety waits)
     .then((w) => { _watchoutCache[iso] = w; paint(w); })
     .catch(() => {});
 }
@@ -6695,18 +6701,24 @@ function notScoredReason(iso) {
 // narrow layouts. Safety gets no list at all: ~100 countries tie at Level 1,
 // and ranking a tie is invention.
 // `empty`: a line to show instead when there are no items (else the row goes).
+// `hold`: with no items, keep the row's room instead (it turns back into an
+// invisible stand-in, .skel) — for a list that is only waiting on its data.
 // `marks`: an optional ⚠️ tip per item ("" for none), the same caveat its row
 // carries in the table under the map.
 // An item is text, or { html } for trusted markup the caller built and
 // escaped (Safety's coloured ▲/▼ — escaped, it printed as grey text).
 // dimPicksFromDom reads only the row's direct <span>s, so markup nested in
 // an item never becomes a pick of its own in the share image.
-function renderDimPicks(hostId, title, items, isos, empty, marks) {
+function renderDimPicks(hostId, title, items, isos, empty, marks, hold) {
   const host = $(hostId);
   if (!host) return;
   // Anywhere in the page: in full screen the map and its list sit apart.
   let row = document.querySelector('.mappicksrow[data-for="' + hostId + '"]');
-  if ((!items || !items.length) && !empty) { if (row) row.remove(); return; }
+  if ((!items || !items.length) && !empty) {
+    if (row && hold) { row.classList.add("skel"); row.setAttribute("aria-hidden", "true"); }
+    else if (row) row.remove();
+    return;
+  }
   if (!row) {
     row = document.createElement("div");
     row.className = "mappicksrow";
@@ -7665,8 +7677,13 @@ function renderFlights() {
                        : "Not enough fares to judge " + monthName + " yet")
       + (later ? " — try " + MONTHS[+later.slice(5) - 1] : "");
   }
+  // While the ranges are still on their way (or filling with nothing banded
+  // yet) the list is held, not dropped: dropped, the map card lost 91-115px
+  // for the moment between the fares and their ranges, and the table under
+  // it rode up and back down (768, phones). If they never come, it goes.
   renderDimPicks("flightMap", "Below typical for " + monthName,
-    best.map((d) => countryName(d.iso) + " " + fmtDevPct(d.v.dev)), best.map((d) => d.iso), empty);
+    best.map((d) => countryName(d.iso) + " " + fmtDevPct(d.v.dev)), best.map((d) => d.iso), empty,
+    null, fv ? fv.filling : !_fvFailed);
 
   const gathering = fv && fv.filling ? fv.total - fv.ready : 0;
   const tip = "Like Google Flights' price insight, but across departure months: a route's typical range is "

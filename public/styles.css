@@ -732,6 +732,15 @@ tr.favorable { background: var(--green-bg); }
 .subscribe { max-width: 1200px; margin: 22px auto 0; padding: 14px 20px; background: var(--card);
   border: 1px solid var(--line); border-radius: 10px; display: flex; align-items: center;
   gap: 12px; flex-wrap: wrap; justify-content: center; }
+/* The newsletter box under every tab is empty until app.js builds its form
+   (renderSubscribe). Out of view on a normal landing, but a reader who had
+   already scrolled to the page foot saw it open from 30px to 135-227 and
+   push the guide index and the footer down. Held at what it measures. */
+.subscribe:empty { min-height: 135px; }
+@media (max-width: 839px) { .subscribe:empty { min-height: 167px; } }
+@media (max-width: 560px) { .subscribe:empty { min-height: 169px; } }
+@media (max-width: 500px) { .subscribe:empty { min-height: 208px; } }
+@media (max-width: 340px) { .subscribe:empty { min-height: 227px; } }
 .subscribe .sublabel { font-size: 14px; font-weight: 600; }
 /* The "US dollars, US point of view" line: its own row under the pitch and
    form, in the box and in the modal alike. */
@@ -2564,18 +2573,18 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    beside the advisory and set that row's height (228), so they matter most
    there: the chart under them is the row after. */
 #guideVisa:empty { min-height: 40px; }
-#guideSafety:empty { min-height: 168px; }
+#guideSafety:is(:empty, .filling) { min-height: 168px; }
 #guideAI:empty { min-height: 45px; }
 #bestDetail.loading { min-height: 247px; }
 #guideStay:empty { min-height: 115px; }
 #guideInsurance:empty { min-height: 67px; }
 @media (min-width: 900px) {
-  #guideSafety:empty { min-height: 140px; }
+  #guideSafety:is(:empty, .filling) { min-height: 140px; }
   #bestDetail.loading { min-height: 266px; }
 }
 @media (max-width: 560px) {
   #guideVisa:empty { min-height: 59px; }
-  #guideSafety:empty { min-height: 250px; }
+  #guideSafety:is(:empty, .filling) { min-height: 250px; }
   #guideAI:empty { min-height: 100px; }
   #bestDetail.loading { min-height: 302px; }
   #guideStay:empty { min-height: 154px; }
