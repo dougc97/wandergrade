@@ -354,7 +354,7 @@
                after hydration. Demoting this to h2 (briefly tried) leaves the
                rendered page with no h1 at all, because the SSR h1 it replaces is
                deleted a moment earlier. -->
-          <h1 class="cardtitle" id="guideH1" hidden>Travel Guide<span id="guideH2Country"></span></h1>
+          <h1 class="cardtitle" id="guideH1"{{GUIDE_H1_HIDDEN}}>{{GUIDE_H1}}</h1>
           <!-- The grades the share card prints, on the page (renderGuideGrades).
                Static, height reserved in styles.css — the CLS rule. -->
           <div id="guideGrades" class="guidegrades"></div>

@@ -1468,7 +1468,7 @@ function syncFsButton(host) {
 function mapFsHeader(host) {
   for (let el = host; el && el !== document.body; el = el.parentElement) {
     for (let s = el.previousElementSibling; s; s = s.previousElementSibling) {
-      const h = s.matches("h2") ? s : s.querySelector("h2");
+      const h = s.matches("h2, [data-h='2']") ? s : s.querySelector("h2, [data-h='2']");
       if (h) return { h2: h, legend: s.querySelector(".legend") };
     }
   }
@@ -2517,21 +2517,21 @@ function renderGuide(iso) {
   // Drop the server-rendered crawler block now that we're rendering the real,
   // interactive guide (prevents duplicate content).
   const ssr = $("ssrGuide"); if (ssr) ssr.remove();
-  // The country is the answer — put it in the page title, not just mid-page.
-  const h2c = $("guideH2Country");
-  // The flag is decoration (the tables hide theirs too): the heading reads
-  // "Travel Guide — Japan", not "… — flag: Japan Japan".
-  if (h2c) h2c.innerHTML = ' — <span aria-hidden="true">' + flagEmoji(iso) + "</span> " + esc(countryName(iso));
-  // Reveal the real h1 only now: the SSR block it replaces has been removed just
-  // above, so exactly one h1 is visible before and after hydration.
-  const gh1 = $("guideH1"); if (gh1) gh1.hidden = false;
+  // The page's one h1. On /guide/<slug> the server already sent this exact
+  // markup (render_guide.h1_html), so hydration writes nothing and nothing
+  // swaps; other entries fill it and reveal it here.
+  const gh1 = $("guideH1");
+  if (gh1) {
+    if (gh1.textContent !== flagEmoji(iso) + " " + guideH1Text(iso)) gh1.innerHTML = guideH1Html(iso);
+    gh1.hidden = false;
+  }
   renderGuideInsurance(iso);
   renderGuideGrades(iso);
   // Title and canonical here, not only in openGuideFor: the country picker and a
   // plain return to the guide tab both re-render without going through it, which
   // left the h1 naming one country while the title still said another (or the
   // site default). Every path that draws a guide now describes that guide.
-  setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
+  setGuideMeta(iso);
   renderGuideHero(iso);
   renderGuideVisa(iso);
   renderGuideSafety(iso);
@@ -2848,7 +2848,23 @@ async function renderGuideCost(iso) {
   await ensurePPP().catch(() => {});
   if (ccGuideIso !== iso) return;
   const line = localPricesText(iso);
-  if (!line) return;
+  if (!line) {
+    // Live rates or ppp.json didn't load: the dated snapshot the title and
+    // snippet were written from (render_guide's SSR line, word for word), so
+    // the page still shows what its description claims. Never when live data
+    // loaded and found no honest figure.
+    if (ppp && lastRates) return;
+    const f = await ensureGuideFacts().then((d) => d[iso]).catch(() => null);
+    if (ccGuideIso !== iso || !f || f.pct == null || !guideFactsFresh()) return;
+    const when = guideFactsMonth();
+    host.innerHTML = `💰 <b>Local prices ≈ ${f.pct}% of the US (${esc(
+      f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b><span class="fxinfo" data-tip="${esc(
+      "World Bank price level for residents, carried to the " + when + " exchange rate (live rates"
+      + " didn't load) — what a local basket costs here against the same basket in the US. National"
+      + " averages: tourist areas and foreigner rent run well above this.")}" title="">ⓘ</span>`;
+    host.hidden = false;
+    return;
+  }
   host.innerHTML = `💰 <b>Local prices ${esc(line)}</b><span class="fxinfo" data-tip="${esc(
     "World Bank price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
@@ -3154,6 +3170,23 @@ function renderGuideSafety(iso) {
     };
     renderWatchouts(iso);
     renderGuideHealth(iso);
+  }, () => renderGuideSafetySnapshot(iso)).catch(() => {});
+}
+// Advisories didn't load: the dated badge the snippet and SSR state (the US
+// State Dept's level, or whoever filled its gap), attributed and dated, so
+// the page never silently drops what its description claims.
+function renderGuideSafetySnapshot(iso) {
+  ensureGuideFacts().then((d) => {
+    const host = $("guideSafety"), f = d[iso];
+    if (ccGuideIso !== iso || !host || !f || !f.adv || !guideFactsFresh()) return;
+    const de = f.src === "de";
+    const words = de ? DE_LVL_LABEL[f.adv] || "" : (ADV_LVL_WORDS[f.src] || ADV_LVL_WORDS.us)[f.adv - 1] || "";
+    const badge = de ? words : "Level " + f.adv + " · " + words;
+    const when = guideFactsMonth();
+    host.innerHTML = `<span class="advbadge ${de && f.adv === 1 ? "nowarn" : "advlvl" + f.adv}">🛡️ ${esc(badge)}</span>
+      <span class="guidevisa-txt"><b>Safety · per ${esc(ADV_SRC_SHORT[f.src] || ADV_SRC_SHORT.us)} (${esc(
+        f.advof ? countryName(f.advof) + " advisory, " + when : when)})</b></span>`;
+    host.hidden = false;
   }).catch(() => {});
 }
 // Under the advisory: the diseases Canada's travel health advice calls a risk
@@ -3625,7 +3658,7 @@ async function openGuideFor(iso, push) {
   if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
   if (ctry._sync) ctry._sync();
   if (!(fresh && ccGuideIso === iso)) renderGuide(iso);   // the build just drew it
-  setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
+  setGuideMeta(iso);
 }
 
 // Classify each month into peak / shoulder / off by weather comfort alone,
@@ -3716,11 +3749,14 @@ function renderCountryClimate(iso) {
   // that reason — same fact twice in adjacent lines, and chips match nothing
   // anyone types.
   const bestFull = joinAnd(c.best.filter((m) => m >= 1 && m <= 12).map((m) => MONTHS[m - 1]));
+  // country-names.json's name, as the h1 and the server say it — climate.json
+  // carries Natural Earth's abbreviations ("Bosnia and Herz.").
+  const cname = countryName(iso);
   const bestLine = !bestFull
     ? (c.curated ? "📅 Curated best months:" : "📅 Best weather:")
     : c.curated
-      ? `📅 The best months to visit ${esc(c.name)} are <strong>${bestFull}</strong> — judged on weather and seasonality.`
-      : `📅 The best weather in ${esc(c.name)} is in <strong>${bestFull}</strong>.`;
+      ? `📅 The best months to visit ${esc(cname)} are <strong>${bestFull}</strong> — judged on weather and seasonality.`
+      : `📅 The best weather in ${esc(cname)} is in <strong>${bestFull}</strong>.`;
   const temps = c.temps || [];
   const bars = c.scores.map((s, i) => {
     const h = s == null ? 0 : Math.round(s);
@@ -3775,7 +3811,7 @@ function renderCountryClimate(iso) {
   const rg = REGIONS[regionOf(iso)];
   $("bestDetail").innerHTML = `
     <div class="besthead">
-      <h2><span aria-hidden="true">🌤️</span> Best time to visit ${esc(c.name)}${rg ? ` <span class="muted">· ${rg}</span>` : ""}${
+      <h2><span aria-hidden="true">🌤️</span> Best time to visit ${esc(cname)}${rg ? ` <span class="muted">· ${rg}</span>` : ""}${
         hasTemps ? `<span class="legendinfo" data-tip="${esc(legend)}" title="">ⓘ</span>` : ""}</h2>
       ${unitToggle}
     </div>
@@ -8309,8 +8345,8 @@ function viatorURL(q) {
 
 function renderActivity(iso) {
   const a = activities[iso];
-  const name = (climate && climate[iso] && climate[iso].name) || (ppp && ppp[iso] && ppp[iso].name) || iso;
-  if (!a) { $("actDetail").innerHTML = `<h3>${esc(name)}</h3><p class="hint">No curated activity profile yet.</p>`; return; }
+  const name = countryName(iso);
+  if (!a) { $("actDetail").innerHTML = `<div class="besthead"><h2>Things to do in ${esc(name)}</h2></div><p class="hint">No curated activity profile yet.</p>`; return; }
   // The travel month the rest of the page plans for (?vmn=, a month-bar
   // click), not the calendar month: stays and the AI prompt already followed
   // it, and this list was the one block still saying "now".
@@ -8363,7 +8399,7 @@ function renderActivity(iso) {
   const seasHead = m === curMonth() ? "🗓️ What's in season now" : `🗓️ What's in season in ${MONTHS[m - 1]}`;
   // No "· Asia" on this heading: the weather heading just above already says it.
   $("actDetail").innerHTML = `
-    <div class="besthead"><h3>${esc(name)} ${vis}</h3></div>
+    <div class="besthead"><h2>Things to do in ${esc(name)} ${vis}</h2></div>
     ${summary ? `<p class="actsummary muted">${esc(summary)}</p>` : ""}
     <div class="chips">${tags}</div>
     ${seas ? `<div class="actgrid"><div>${todo}</div><div><h4 style="margin:.6em 0 .2em">${seasHead}</h4>${seas}</div></div>` : todo}`;
@@ -8496,7 +8532,8 @@ let _displayNames = null;
 // so a country is called the same thing everywhere on the site.
 const NAME_FIX = { US: "United States", BA: "Bosnia and Herzegovina", CD: "DR Congo",
   CG: "Republic of the Congo", CF: "Central African Republic", DO: "Dominican Republic",
-  GQ: "Equatorial Guinea", SS: "South Sudan", SB: "Solomon Islands" };
+  GQ: "Equatorial Guinea", SS: "South Sudan", SB: "Solomon Islands",
+  EH: "Western Sahara", TF: "French Southern Territories" };
 function countryName(iso) {
   if (EXTRA_PLACES[iso]) return EXTRA_PLACES[iso];   // flag-emoji places
   if (NAME_FIX[iso]) return NAME_FIX[iso];
@@ -8979,7 +9016,23 @@ function buildTabOnce(name, build) {
   }
   return _building[name];
 }
+// /guide/<slug> HTML carries the other tabs' 16 h2/h3 as <div data-h="2|3">
+// (server.py _guide_template) so they don't tell a crawler the page is about
+// dollar strength and fares. Restored, attributes and children intact, before
+// a reader can see any of them: the same CSS then applies, so nothing moves.
+// A no-op on every other page.
+function promoteShellHeadings() {
+  for (const el of document.querySelectorAll("[data-h]")) {
+    const h = document.createElement("h" + el.dataset.h);
+    for (const a of el.attributes) if (a.name !== "data-h") h.setAttribute(a.name, a.value);
+    h.append(...el.childNodes);
+    el.replaceWith(h);
+  }
+}
 async function activateTab(name, push) {
+  // A /guide/ page serves the other tabs' headings as <div data-h> (server.py
+  // _guide_template); they become h2/h3 again before their tab is revealed.
+  if (name !== "guide") promoteShellHeadings();
   clearTransientStatus();   // a note about the old tab shouldn't outlive it
   closeMapFullscreen();     // "Country guide →" from a full-screen map
   document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
@@ -8989,10 +9042,10 @@ async function activateTab(name, push) {
   // the country's back, because nothing re-renders it — which otherwise left the
   // h1 naming a country under the homepage title.
   if (name !== "guide") {
-    setDocMeta(_DEFAULT_TITLE, _DEFAULT_URL);
+    setDocMeta(_DEFAULT_META, _DEFAULT_URL);
   } else {
     const iso = _guideTarget || ($("bestCountry") || {}).value;
-    if (iso) setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
+    if (iso) setGuideMeta(iso);
   }
   for (const b of document.querySelectorAll("#tabs button")) {
     const on = b.dataset.tab === name;
@@ -9405,15 +9458,74 @@ function pathGuideIso() {
 // Keep <title>/canonical/og:url correct on client-side navigation too, so they
 // match what the server rendered (and update as the user browses countries).
 const SITE_ORIGIN = "https://wandergrade.com";
-const _DEFAULT_TITLE = "WanderGrade — Where Should I Travel to Next?";
+// server.py _HTML_DEFAULTS TITLE / DESC / OGTITLE — change them together.
+const _DEFAULT_META = {
+  title: "WanderGrade — Where Should I Travel to Next?",
+  desc: "Decide where — and when — to go. Every country graded A+ to F on "
+      + "prices, weather, safety, and flights. Free, no sign-up.",
+  og: "Where Should I Travel to Next?",
+};
 const _DEFAULT_URL = SITE_ORIGIN + "/";
-function setDocMeta(title, absURL) {
-  document.title = title;
+// The head the server sent with a /guide/<slug> page, read before anything
+// rewrites it: the boot country keeps exactly what the crawler saw.
+const _bootMeta = (() => {
+  const d = document.querySelector('meta[name="description"]');
+  return { iso: window.__WGGC__ || null, title: document.title, desc: d ? d.getAttribute("content") : "" };
+})();
+function setDocMeta(m, absURL) {
+  document.title = m.title;
+  const set = (sel, v) => { const e = document.querySelector(sel); if (e) e.setAttribute("content", v); };
+  set('meta[name="description"]', m.desc);
+  set('meta[property="og:description"]', m.desc);
+  set('meta[name="twitter:description"]', m.desc);
+  set('meta[property="og:title"]', m.og || m.title);
+  set('meta[name="twitter:title"]', m.og || m.title);
   const c = document.querySelector('link[rel="canonical"]'); if (c) c.setAttribute("href", absURL);
-  const o = document.querySelector('meta[property="og:url"]'); if (o) o.setAttribute("content", absURL);
+  set('meta[property="og:url"]', absURL);
 }
-function guideTitle(iso) {
-  return countryName(iso) + " Travel Guide — Best Time to Visit & What to Do | WanderGrade";
+// The guide's h1, byte for byte render_guide.h1_html(): data-free, so it is
+// drawn without waiting on anything and never contradicts a figure.
+function guideH1Text(iso) { return countryName(iso) + " travel: cost, safety & when to go"; }
+function guideH1Html(iso) {
+  return '<span aria-hidden="true">' + flagEmoji(iso) + "</span> " + esc(guideH1Text(iso));
+}
+// ---- guide-facts.json: the dated snapshot behind every guide's title/snippet --
+// Built by scripts/build_guide_facts.py from render_guide.meta(), so a guide
+// opened in-app gets the server's exact title and description. The client
+// never composes them from live data: a live band crossing would flip "Cheap"
+// to "Expensive" in the DOM a crawler renders.
+let _guideFacts = null, _guideFactsP = null;
+function ensureGuideFacts() {
+  if (_guideFacts) return Promise.resolve(_guideFacts);
+  if (!_guideFactsP) _guideFactsP = getJSON("/guide-facts.json").then((d) => (_guideFacts = d))
+    .catch((e) => { _guideFactsP = null; throw e; });
+  return _guideFactsP;
+}
+// Past 90 days (render_guide.STALE_DAYS) the server drops every figure; so does this.
+function guideFactsFresh() {
+  const a = _guideFacts && _guideFacts._asof;
+  return !!a && (Date.now() - Date.parse(a + "T00:00:00Z")) / 864e5 <= 90;
+}
+// "Sep 2026", the snapshot's month.
+function guideFactsMonth() {
+  const a = (_guideFacts && _guideFacts._asof) || "";
+  return MON_ABBR[+a.slice(5, 7) - 1] ? MON_ABBR[+a.slice(5, 7) - 1] + " " + a.slice(0, 4) : "";
+}
+function guideMeta(iso) {
+  if (iso === _bootMeta.iso) return { title: _bootMeta.title, desc: _bootMeta.desc };
+  const f = _guideFacts && _guideFacts[iso];
+  if (f) return { title: f.t, desc: (!guideFactsFresh() && f.dn) || f.d };
+  // Not loaded yet: render_guide's number-free "Travel Guide" title ladder.
+  const n = countryName(iso);
+  const title = [n + " Travel Guide: Best Time to Visit & Things to Do", n + " Travel Guide: Best Time to Visit",
+                 n + " Travel Guide"].find((t) => t.length <= 60) || n + " Travel Guide";
+  return { title, desc: _DEFAULT_META.desc };
+}
+function setGuideMeta(iso) {
+  setDocMeta(guideMeta(iso), SITE_ORIGIN + guidePath(iso));
+  if (!_guideFacts && iso !== _bootMeta.iso) ensureGuideFacts().then(() => {
+    if (currentTab() === "guide" && ccGuideIso === iso) setDocMeta(guideMeta(iso), SITE_ORIGIN + guidePath(iso));
+  }).catch(() => {});
 }
 
 function buildShareURL(forShare) {

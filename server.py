@@ -139,6 +139,8 @@ def _analytics_tag():
             "data-cf-beacon='%s'></script>" % beacon)
 
 
+# TITLE / DESC / OGTITLE are mirrored in app.js _DEFAULT_META (restored when the
+# reader leaves a guide in-app): change them together.
 _HTML_DEFAULTS = {
     "TITLE": "WanderGrade — Where Should I Travel to Next?",
     "DESC": "Decide where — and when — to go. Every country graded A+ to F on "
@@ -154,6 +156,11 @@ _HTML_DEFAULTS = {
     # meant every guide's first and strongest heading said nothing about the
     # country it was for. Same pixels either way — .sitetitle carries the style.
     "SITE_HEADING": '<h1 class="sitetitle">Where Should I Travel to Next?</h1>',
+    # The guide tab's own h1 (#guideH1). Off a guide it waits hidden for app.js
+    # to fill it; on /guide/<slug> it is the country's h1 from the first byte
+    # (render_guide.h1_html), and hydration writes the same markup or nothing.
+    "GUIDE_H1_HIDDEN": " hidden",
+    "GUIDE_H1": "Travel Guide",
     "GUIDE_LINKS": "",
     "GUIDE_COUNT": "",
     # Which tab the served HTML shows before (or without) JS: Top Picks here,
@@ -194,6 +201,30 @@ def _index_template():
         tpl = re.sub(r"/styles\.css(\?v=\d+)?", "/styles.css?v=" + _asset_version("styles.css"), tpl)
         _html_tpl = tpl
     return _html_tpl
+
+
+# A guide page carries the whole single-page app, and every static h2/h3 in it
+# belongs to another tab (Top Picks, Trip, Wander List, Data: "Where the dollar
+# is strong…", "Travel advisories", "Fares by month"…) — 16 headings telling a
+# crawler the Colombia page is about something else. On /guide/* only, they are
+# served as <div data-h="2|3"> (ids kept, so app.js finds them as before) and
+# app.js promoteShellHeadings() turns them back into h2/h3 the moment a reader
+# opens one of those tabs — before it is revealed, so nothing moves. The tabs
+# are also data-nosnippet: Google builds no snippet from the SMTP tip.
+_SHELL_H = re.compile(r"<(/?)h([23])(?=[\s>])")
+_SHELL_TABS = ("tab-value", "tab-trip", "tab-visited", "tab-data")
+_guide_tpl = None
+
+
+def _guide_template():
+    global _guide_tpl
+    if _guide_tpl is None:
+        tpl = _SHELL_H.sub(lambda m: "</div" if m.group(1) else '<div data-h="%s"' % m.group(2),
+                           _index_template())
+        for t in _SHELL_TABS:
+            tpl = tpl.replace('id="%s"' % t, 'id="%s" data-nosnippet' % t, 1)
+        _guide_tpl = tpl
+    return _guide_tpl
 
 
 _SITE = "https://wandergrade.com"   # canonical origin for sitemap URLs
@@ -412,7 +443,9 @@ def _sitemap():
     # the deploy time and all 178 lastmods moved on every template tweak —
     # exactly the fabricated freshness this block documents avoiding. The
     # stamp is a committed file, bumped only when the content JSONs
-    # (slugs/climate/activities/country-names/visa) actually change.
+    # (slugs/climate/activities/country-names/visa/guide-facts) actually
+    # change — scripts/build_guide_facts.py bumps it itself when a guide's
+    # title, description, price figure or advisory level moves.
     try:
         with open(os.path.join(PUBLIC, "content-stamp.txt"), encoding="utf-8") as f:
             stamp = f.read().strip()[:10]
@@ -638,6 +671,8 @@ def _render_index(gc_iso=None):
             DESC=html.escape(r["desc"], quote=True),
             OGTITLE=html.escape(r["og_title"], quote=True),
             URL=html.escape(r["url"], quote=True),
+            GUIDE_H1_HIDDEN="",
+            GUIDE_H1=r["h1_html"],                    # already-safe HTML
             SSR_BODY=r["body"],                       # already-safe HTML
             GC_JS="<script>window.__WGGC__=%s;</script>" % json.dumps(gc_iso),
             JSONLD=r.get("jsonld", ""),               # FAQPage schema (raw JSON-LD)
@@ -652,7 +687,7 @@ def _render_index(gc_iso=None):
         )
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
-    out = _index_template()
+    out = _guide_template() if gc_iso else _index_template()
     for k, v in vals.items():
         out = out.replace("{{%s}}" % k, v)
     return out.encode("utf-8")
