@@ -9323,6 +9323,17 @@ function promoteShellHeadings() {
     h.append(...el.childNodes);
     el.replaceWith(h);
   }
+  // The header's headline too: a guide page serves it as <p class="sitetitle">
+  // (the country's h1 is that page's one), so Top Picks reached in-app from a
+  // guide had no h1 at all. h1 and .sitetitle share one rule (styles.css), so
+  // the swap moves nothing; back on a guide the CSS hides it again.
+  const st = document.querySelector("header p.sitetitle");
+  if (st) {
+    const h1 = document.createElement("h1");
+    for (const a of st.attributes) h1.setAttribute(a.name, a.value);
+    h1.append(...st.childNodes);
+    st.replaceWith(h1);
+  }
 }
 async function activateTab(name, push) {
   // A /guide/ page serves the other tabs' headings as <div data-h> (server.py
