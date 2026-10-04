@@ -5111,6 +5111,7 @@ function setHomeCur(code, manual) {
   // display currency falls back to homeBase when unpinned; its fetch is
   // cached, so this only re-runs the conversion).
   if (changed && ccGuideIso) { renderGuideFx(ccGuideIso); renderGuideFares(ccGuideIso); }
+  syncSubCur();   // newsletter currency pickers the reader hasn't touched follow it
 }
 
 function initHomeCur() {
@@ -5191,8 +5192,13 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
     // Deal vs the typical fare for that distance: at baseline = 70 (B),
     // ~20% below = A, ~30% below = A+, ~20% above = D, ~40%+ above = F.
     // An estimate IS the baseline, so it scores a neutral 70 (flagged in the
-    // coverage mark). Falls back to min-max cheapness with no fitted baseline.
-    comps.fly = fareBase ? clamp100(70 + (1 - dealRatio) * 100)
+    // coverage mark). It used to be graded like a real fare, and the
+    // estimate's clamp to 1.4x the dearest known fare then read as a deal:
+    // from Beijing (10 cached fares) Argentina, Chile and El Salvador showed
+    // "~A+". Falls back to min-max cheapness with no fitted baseline.
+    // Mirrors picks.py _score.
+    comps.fly = fareEst ? 70
+      : fareBase ? clamp100(70 + (1 - dealRatio) * 100)
       : fares.max > fares.min
         ? clamp100(((fares.max - deal) / (fares.max - fares.min)) * 100) : 50;
   }
@@ -9176,6 +9182,36 @@ for (const b of document.querySelectorAll("#dataMode button"))
 // Set this to your public Buttondown newsletter username to enable signups.
 const BUTTONDOWN_USER = "wandergrade";
 
+// The digest's home-currency editions a reader can pick (server.py fills
+// window.__WGDIGEST__ from fxtracker/digest_variants.ROLLOUT). Just USD means
+// no picker anywhere, and the forms are exactly what they were. The choice
+// travels as a Buttondown tag (currency-eur, ...). Function declarations, not
+// consts: setHomeCur() calls syncSubCur() and can run before this line has.
+function digestCurs() {
+  const w = window.__WGDIGEST__;
+  const c = Array.isArray(w) ? w.filter((x) => /^[A-Z]{3}$/.test(x)) : [];
+  return c.length ? c : ["USD"];
+}
+function subCurDefault() { return digestCurs().includes(homeBase) ? homeBase : "USD"; }
+function subCurTag(code) { return "currency-" + code.toLowerCase(); }
+// <option>s for a picker: tag values for the embed form, codes for accounts.
+// blank adds a leading "—" (nothing chosen yet), selected when sel is empty.
+function subCurOptions(sel, asTag, blank) {
+  return (blank ? `<option value=""${sel ? "" : " selected"}>—</option>` : "")
+    + digestCurs().map((c) => `<option value="${asTag ? subCurTag(c) : c}"`
+    + `${c === sel ? " selected" : ""}>${c}</option>`).join("");
+}
+// The default follows the home currency until the reader picks one: the geo
+// seed lands after the footer box is drawn. Fixed width, so no shift.
+function syncSubCur() {
+  for (const s of document.querySelectorAll("select.subcur")) {
+    if (s.dataset.touched) continue;
+    const c = subCurDefault();
+    s.value = s.name === "tag" ? subCurTag(c) : c;
+  }
+}
+function touchSubCur(s) { if (s) s.addEventListener("change", () => { s.dataset.touched = "1"; }); }
+
 // ---- feedback form ----------------------------------------------------------
 // Google Form ("WanderGrade — Feedback", anonymous-friendly). Drives the line
 // under the newsletter box; set "" to hide it. (A second "Feedback" link in the
@@ -9199,6 +9235,29 @@ function subscribeFormHTML() {
   // unchanged; nothing here was ever going to reveal it, because the form posts
   // to a popup and the site never sees the response.
   // The hidden embed=1 is what Buttondown's own embed docs specify.
+  if (digestCurs().length > 1) {
+    // The currency rides as Buttondown's `tag` field. No "written in US
+    // dollars" line: the reader picks the edition written for them.
+    // Subscribing again through this form ADDS a tag (Buttondown never swaps
+    // it), so the tip says how switching really works: the account panel
+    // re-tags an existing subscriber even when the account itself isn't
+    // opted in (accounts._sync_newsletter), and a reply always reaches us.
+    const tip = "Each issue is graded for someone paying in this currency: prices compared with home,"
+      + " and how far your money goes right now. Subscribing again here adds a currency rather"
+      + " than switching. To switch, "
+      + (window.__WGACCT__ === true ? "sign in (👤) with the address you subscribed with and change it"
+        + " in your account, or reply to any issue." : "reply to any issue.");
+    // subform-cur: only the picker form changes shape on a phone (styles.css).
+    return `<span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
+    <form action="https://buttondown.com/api/emails/embed-subscribe/${BUTTONDOWN_USER}"
+          method="post" target="popupwindow"
+          onsubmit="window.open('${base}','popupwindow')" class="subform subform-cur">
+      <input type="email" name="email" placeholder="you@email.com" required>
+      <span class="subcurwrap"><select name="tag" class="subcur" aria-label="Newsletter currency">${subCurOptions(subCurDefault(), true)}</select><span class="muted subcurtip" data-tip="${esc(tip)}" title="">ⓘ</span></span>
+      <input type="hidden" name="embed" value="1">
+      <button type="submit">Subscribe</button>
+    </form>`;
+  }
   // One honest line under the pitch: the digest is written in US dollars from
   // a US point of view (newsletter.py), and a visitor from anywhere else
   // should know that before they type an email — so it is text, not a ⓘ.
@@ -9251,6 +9310,7 @@ function shouldAutoPrompt() {
 function wireSubForm(root) {
   const f = root && root.querySelector("form.subform");
   if (f) f.addEventListener("submit", markSubscribed);
+  if (f) touchSubCur(f.querySelector("select.subcur"));
 }
 
 function openSubscribeModal(opts) {
@@ -11505,10 +11565,14 @@ function openSignIn() {
     // Unticked by default: saving a map is not consent to a newsletter (a
     // pre-ticked box isn't valid consent under GDPR). Monthly is the only
     // cadence there is, so it's in the words rather than a one-option picker.
-    + '<label class="acctcheck"><input type="checkbox" id="acctSub"> Also send me the monthly newsletter</label>'
+    + '<label class="acctcheck"><input type="checkbox" id="acctSub"> Also send me the monthly newsletter'
+    + (digestCurs().length > 1 ? ' in <select id="acctCur" class="subcur" aria-label="Newsletter currency">'
+      + subCurOptions(subCurDefault(), false) + "</select>" : "")
+    + "</label>"
     );
   if (!m) return;
-  const sub = m.querySelector("#acctSub");
+  const sub = m.querySelector("#acctSub"), curSel = m.querySelector("#acctCur");
+  touchSubCur(curSel);
   m.querySelector("form").onsubmit = async (e) => {
     e.preventDefault();
     const email = m.querySelector('input[type="email"]').value.trim();
@@ -11519,7 +11583,8 @@ function openSignIn() {
     // existing subscriber — the account panel is the one place to opt out.
     try {
       if (sub.checked) {
-        localStorage.setItem("wg_pending_prefs", JSON.stringify({ subscribed: true, cadence: "monthly" }));
+        localStorage.setItem("wg_pending_prefs", JSON.stringify(Object.assign(
+          { subscribed: true, cadence: "monthly" }, curSel ? { currency: curSel.value } : {})));
       } else {
         localStorage.removeItem("wg_pending_prefs");
       }
@@ -11546,6 +11611,19 @@ function openAccount() {
   const u = (acctState && acctState.user) || {};
   // Any live cadence (incl. a legacy "quarterly") is monthly; unsubscribed is off.
   const cad = u.subscribed && u.cadence !== "off" ? "monthly" : "off";
+  // The currency select shows the account's choice. With none stored, a
+  // subscriber gets the USD issue, so that is what it says; an account that
+  // isn't opted in shows "—" (nothing chosen), so that ANY pick is a change:
+  // a reader on the list through the public form switches editions here
+  // (accounts._sync_newsletter re-tags them), and a pre-selected home
+  // currency could never be picked. A stored choice that has since been
+  // switched off (digest_variants.ROLLOUT) is kept for when it returns: the
+  // select shows what they get meanwhile (USD) and only a real pick, never a
+  // cadence toggle, replaces it.
+  const curs = digestCurs();
+  const stored = curs.includes(u.currency) ? u.currency : null;
+  const keepOff = !!u.currency && !stored;
+  const cur = stored || (cad !== "off" ? "USD" : "");
   const m = acctModal(
     '<span class="sublabel">👤 Your account</span>'
     + `<p class="hint"><b>${esc(acctState.email)}</b> — your map syncs automatically.</p>`
@@ -11553,18 +11631,73 @@ function openAccount() {
     + '> Newsletter <select id="acctCad2">'
     + ["monthly", "off"].map((c) =>
         `<option value="${c}"${c === cad ? " selected" : ""}>${CADENCE_LABEL[c]}</option>`).join("")
-    + "</select></label>"
+    + "</select>"
+    + (curs.length > 1 ? ' in <select id="acctCur2" class="subcur" aria-label="Newsletter currency">'
+      + subCurOptions(cur, false, !cur) + "</select>" : "")
+    + "</label>"
+    + (curs.length > 1 ? '<p class="hint" id="acctCurMsg" hidden></p>' : "")
     + '<div class="bulkfoot"><button type="button" class="bulkdone" id="acctOut">Sign out</button></div>');
   if (!m) return;
   const sub = m.querySelector("#acctSub2"), cadSel = m.querySelector("#acctCad2");
-  const push = () => acctPrefs({ subscribed: sub.checked, cadence: cadSel.value });
+  const curSel = m.querySelector("#acctCur2");
+  if (curSel) curSel.dataset.touched = "1";   // shows the account's choice: never re-defaulted
+  const curPrefs = () => (curSel && curSel.value && (!keepOff || curSel.dataset.picked)
+    ? { currency: curSel.value } : {});
+  let curTimer = 0;
+  // The select shows what the account kept: a pick that rode along with a
+  // subscribe/cadence change and wasn't saved snaps back, as a pick on its
+  // own does.
+  const showKept = () => {
+    const got = acctState && acctState.user ? acctState.user.currency : null;
+    if (curSel && curs.includes(got) && curSel.value !== got) curSel.value = got;
+  };
+  const push = async () => {
+    clearTimeout(curTimer);                   // a pending pick rides along with this call
+    await acctPrefs(Object.assign({ subscribed: sub.checked, cadence: cadSel.value }, curPrefs()));
+    showKept();
+  };
+  // A currency-only change re-tags the subscriber; nothing else is sent.
+  // Debounced: arrowing through the closed select fires change per step,
+  // and each call reads and rewrites the subscriber's Buttondown tags on its
+  // own server thread — the last write won, which could leave the tag on a
+  // currency the reader only passed over. Only the value they settle on is
+  // sent. If the server didn't keep it (Buttondown unreachable: the account
+  // reverts so it never disagrees with the list), the select snaps back.
+  if (curSel) curSel.onchange = () => {
+    curSel.dataset.picked = "1";
+    clearTimeout(curTimer);
+    curTimer = setTimeout(async () => {
+      const want = curSel.value, msg = m.querySelector("#acctCurMsg");
+      if (!want) return;
+      await acctPrefs({ currency: want });
+      const got = acctState && acctState.user ? acctState.user.currency : null;
+      if (got === want || curSel.value !== want) { if (msg) msg.hidden = true; return; }
+      curSel.value = curs.includes(got) ? got : cur;
+      if (msg) {
+        msg.textContent = "Couldn't switch the newsletter to " + want + " just now — try again in a minute.";
+        msg.hidden = false;
+      }
+    }, 800);
+  };
+  // Opting in from "—": the home currency is the suggestion, now shown and sent.
+  const optInCur = () => {
+    if (sub.checked && curSel && !curSel.value) { curSel.value = subCurDefault(); curSel.dataset.picked = "1"; }
+  };
   sub.onchange = () => {
     if (!sub.checked) cadSel.value = "off";
     else if (cadSel.value === "off") cadSel.value = "monthly";
+    optInCur();
     push();
   };
-  cadSel.onchange = () => { sub.checked = cadSel.value !== "off"; push(); };
+  cadSel.onchange = () => { sub.checked = cadSel.value !== "off"; optInCur(); push(); };
   m.querySelector("#acctOut").onclick = async () => {
+    // A currency picked under 800ms ago is still waiting on its debounce:
+    // send it before the session ends, or signing out drops it.
+    if (curTimer && curSel && curSel.value && curSel.dataset.picked) {
+      clearTimeout(curTimer);
+      curTimer = 0;
+      await acctPrefs({ currency: curSel.value });
+    }
     if (_syncTimer) await acctSync();   // a pending edit reaches the account first
     try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (e) {}
     acctSignedOut();
@@ -11605,7 +11738,10 @@ if (ACCT_ON) {
         localStorage.removeItem("wg_pending_prefs");
         // Opt-in only (see openSignIn): a {subscribed:false} left by an older
         // build must not unsubscribe anyone either.
-        if (pending.subscribed === true) await acctPrefs({ subscribed: true, cadence: "monthly" });
+        if (pending.subscribed === true) {
+          await acctPrefs(Object.assign({ subscribed: true, cadence: "monthly" },
+            /^[A-Z]{3}$/.test(pending.currency || "") ? { currency: pending.currency } : {}));
+        }
       }
       await acctSync();               // seed the account with this device's map
       acctNote("Signed in — your travel map is saved to " + acctState.email + " ✓", "ok");
