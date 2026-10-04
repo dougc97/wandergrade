@@ -26,9 +26,17 @@ editions already out are skipped.
                     currencies, a --draft "send"/"draft" ones, a --dry-run any.
                     Default: send -> the "send" stage; --draft/--dry-run ->
                     "send" + "draft".
+  --out DIR         with --dry-run only: also write DIR/<CODE>.html previews.
+
+Arguments are strict: anything unknown, "--variant=EUR" (write a space), a
+repeated flag, --month outside 1-12, or --out without --dry-run is a usage
+error, never a send with the defaults. So is a bad digest_variants.ROLLOUT
+entry (the site ignores one; this script refuses to run until it is fixed).
 
 Exit codes: 0 every edition sent, already out, covered or skipped for having no
-readers; 1 something failed (a re-run is safe); 2 usage error.
+readers; 1 something failed (a re-run is safe); 2 usage error or a ROLLOUT
+problem (nothing was built or sent). The owner's rollout steps are the
+RUNBOOK in fxtracker/digest_variants.py.
 
 Schedule monthly (GitHub Actions / cron). Distinct from check.py, which is the
 currency-favorability alert to your personal inbox.
@@ -39,8 +47,8 @@ import sys
 import traceback
 
 from fxtracker import newsletter, picks
-from fxtracker.digest_variants import (SEND_ORDER, VARIANTS, draft_codes, send_codes,
-                                       stage)
+from fxtracker.digest_variants import (SEND_ORDER, VARIANTS, draft_codes, rollout_problems,
+                                       send_codes, stage)
 
 
 def run(dry_run=False, month=None, draft=False):
@@ -196,9 +204,21 @@ def _dry_run(codes, eds, failed, out=None):
 
 
 def _excluded_by(rec, tag_ids):
-    """Codes whose tag the USD issue `rec` excluded (its not_contains filters).
-    When the tag ids can't be read, any exclusion counts as all of them: each
-    is then checked on its own instead of assumed covered."""
+    """Codes whose readers the USD issue `rec` left out.
+
+    A variant-mode USD send records them in its metadata (wg_excluded, a
+    comma list of codes): that is our own data, so it comes back in the list
+    response whatever Buttondown does with `filters`. Nothing here shows that
+    the email list returns `filters` at all, and when it didn't, a re-run
+    after "USD went out excluding GBP, whose own outcome was unknown" read
+    "no exclusions", called GBP covered, exited 0, and GBP's readers got no
+    issue. The filters are the fallback for a record without the metadata.
+    A record with neither (today's single issue, sent to the whole list)
+    excluded nobody: every edition is covered by it."""
+    md = rec.get("metadata")
+    if isinstance(md, dict) and isinstance(md.get("wg_excluded"), str):
+        return {c.strip() for c in md["wg_excluded"].split(",")
+                if c.strip() in VARIANTS and c.strip() != "USD"}
     f = rec.get("filters")
     rows = (f.get("filters") or []) if isinstance(f, dict) else []
     vals = {str(x.get("value")) for x in rows
@@ -208,6 +228,28 @@ def _excluded_by(rec, tag_ids):
     if tag_ids is None:
         return set(VARIANTS) - {"USD"}
     return {c for c, ids in tag_ids.items() if any(str(i) in vals for i in ids)}
+
+
+def _find(subject, code, hdr):
+    """find_sent for one edition in variant mode. partially_sent counts as
+    out here: Buttondown documents it (a paused send that then went to part
+    of the list), and missing it would send that edition again to readers
+    who already had it. The USD-only path keeps today's exact status list."""
+    return newsletter.find_sent(subject, headers=hdr, expected=code,
+                                statuses=newsletter.VARIANT_OUT_STATUSES)
+
+
+def _no_readers(c, tag_ids):
+    """The log line for an edition whose tag exists but Buttondown counts no
+    regular reader holding it. That is normal after a test subscriber left;
+    it is also what a reader count that doesn't match tags by name looks
+    like (newsletter.tag_readers passes the name; Buttondown's docs show a
+    name but don't say), and then real readers silently get USD. Loud, so
+    the owner's draft run (digest_variants RUNBOOK step 3) catches it."""
+    print("%s: skipped — no readers. WARNING: the %s tag exists (id %s) but Buttondown "
+          "counts 0 regular subscribers holding it; if anyone picked %s, the reader count "
+          "isn't matching the tag and they get the USD issue instead."
+          % (c, VARIANTS[c].tag, (tag_ids.get(c) or ["?"])[0], c))
 
 
 def _send(codes, eds, failed, draft=False):
@@ -244,7 +286,7 @@ def _send(codes, eds, failed, draft=False):
             try:
                 n = newsletter.tag_readers(VARIANTS[c].tag, hdr)
                 if n == 0:
-                    print("%s: skipped — no readers" % c)
+                    _no_readers(c, tag_ids)
                     continue
                 eid = newsletter.send_variant(eds[c]["subject"], eds[c]["body"],
                                               newsletter.audience(c, tag_ids, drafted), draft=True,
@@ -264,9 +306,14 @@ def _send(codes, eds, failed, draft=False):
                 newsletter.send(usd["subject"], usd["body"], draft=True)
                 print("USD: draft created (everyone; today's single-issue draft)")
             else:
+                # The same metadata as a real variant-mode USD send, so a
+                # draft the owner sends by hand from the dashboard still
+                # tells a later run whom it left out.
                 eid = newsletter.send_variant(usd["subject"], usd["body"],
                                               newsletter.audience("USD", tag_ids, drafted),
-                                              draft=True, headers=hdr)
+                                              draft=True, headers=hdr,
+                                              metadata={"wg_variant": "USD", "wg_excluded": ",".join(
+                                                  c for c in SEND_ORDER if c in drafted)})
                 print("USD: draft %s for %s" % (eid, newsletter.describe_audience("USD", drafted)))
         except Exception as e:
             usd_error = True
@@ -275,7 +322,7 @@ def _send(codes, eds, failed, draft=False):
         return 1 if (failed or usd_error) else 0
 
     try:
-        usd_rec = newsletter.find_sent(usd["subject"], headers=hdr, expected="USD")
+        usd_rec = _find(usd["subject"], "USD", hdr)
     except Exception as e:
         # Fails closed, as the single-issue send always has.
         print("Couldn't ask Buttondown what already went out (%s); nothing sent." % e)
@@ -289,7 +336,7 @@ def _send(codes, eds, failed, draft=False):
             print("%s: covered by the USD issue already out (%s)" % (c, usd_rec.get("id") or "?"))
             continue
         try:
-            rec = newsletter.find_sent(subjects[c], headers=hdr, expected=c)
+            rec = _find(subjects[c], c, hdr)
         except Exception as e:
             # Can't tell whether it went: keep its readers out of USD (nobody
             # gets two); the red run and a re-run sort it out.
@@ -321,7 +368,7 @@ def _send(codes, eds, failed, draft=False):
             print("%s: %s — its readers get the USD issue" % (c, failed[c]))
             continue
         if n == 0:
-            print("%s: skipped — no readers" % c)
+            _no_readers(c, tag_ids)
             continue
         aud = newsletter.audience(c, tag_ids, delivered | unknown)
         try:
@@ -338,7 +385,7 @@ def _send(codes, eds, failed, draft=False):
                 continue
             # The publish call itself erred (a timeout, say): it may have gone.
             try:
-                went = newsletter.find_sent(subjects[c], headers=hdr, expected=c)
+                went = _find(subjects[c], c, hdr)
             except Exception as e2:
                 unknown.add(c)
                 failed[c] = "publish failed (%s); re-check failed (%s)" % (e, e2)
@@ -368,10 +415,16 @@ def _send(codes, eds, failed, draft=False):
             try:
                 if tag_ids is None:
                     raise RuntimeError("can't exclude %s without the tag ids" % ", ".join(sorted(ex)))
+                left_out = ",".join(c for c in SEND_ORDER if c in ex)
+                # wg_excluded: who this USD issue left out, in our own
+                # metadata, so a re-run knows which editions it did NOT
+                # cover even if the list response omits `filters`
+                # (_excluded_by). Variant mode only: a USD issue to everyone
+                # is still today's legacy call above.
                 eid = newsletter.send_variant(usd["subject"], usd["body"],
-                                              newsletter.audience("USD", tag_ids, ex), headers=hdr)
-                print("USD: sent (excluding %s), id %s" % (", ".join(c for c in SEND_ORDER if c in ex),
-                                                           eid))
+                                              newsletter.audience("USD", tag_ids, ex), headers=hdr,
+                                              metadata={"wg_variant": "USD", "wg_excluded": left_out})
+                print("USD: sent (excluding %s), id %s" % (left_out.replace(",", ", "), eid))
             except Exception as e:
                 usd_error = True
                 print("USD: send failed: %s" % e)
@@ -397,41 +450,91 @@ def run_variants(codes, dry_run=False, month=None, draft=False, out=None):
 
 
 def main(argv):
-    dry, month, draft = _parse_args(argv)
-    variant = _opt(argv, "--variant")
-    out = _opt(argv, "--out")
+    # A typo in the owner's switch (fxtracker/digest_variants.ROLLOUT) is
+    # ignored by the site, so it can't take the page down; here it stops the
+    # run, red, before anything is built or sent, rather than quietly sending
+    # fewer editions than the owner meant to.
+    problems = rollout_problems()
+    if problems:
+        for p in problems:
+            print(p)
+        print("Fix digest_variants.ROLLOUT and re-run; nothing was sent.")
+        return 2
     try:
-        codes = select_codes(variant, dry_run=dry, draft=draft)
+        a = _parse_argv(argv)
+    except UsageError as e:
+        print(e)
+        return 2
+    try:
+        codes = select_codes(a["variant"], dry_run=a["dry"], draft=a["draft"])
     except ValueError as e:
         print(e)
         return 2
-    if codes == ("USD",) and out is None:
+    if codes == ("USD",) and a["out"] is None:
         # USD only: today's run, unchanged — same calls, same output.
-        return run(dry_run=dry, month=month, draft=draft)
-    return run_variants(codes, dry_run=dry, month=month, draft=draft, out=out)
+        return run(dry_run=a["dry"], month=a["month"], draft=a["draft"])
+    return run_variants(codes, dry_run=a["dry"], month=a["month"], draft=a["draft"], out=a["out"])
 
 
-def _opt(argv, name):
-    if name not in argv:
-        return None
-    i = argv.index(name)
-    if i + 1 >= len(argv) or argv[i + 1].startswith("--"):
-        print("%s needs a value" % name)
-        sys.exit(2)
-    return argv[i + 1]
+class UsageError(ValueError):
+    pass
+
+
+_FLAGS = ("--dry-run", "--draft")
+_VALUED = ("--month", "--variant", "--out")
+
+
+def _parse_argv(argv):
+    """{"dry", "draft", "month", "variant", "out"}, or UsageError. Strict on
+    purpose: `--variant=EUR` (with "=") used to be ignored, so a send meant
+    for EUR alone went out with the default editions; `--out` without
+    --dry-run was ignored on a real send. Anything unknown is an error now."""
+    a = {"dry": False, "draft": False, "month": None, "variant": None, "out": None}
+    seen = set()
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        name = arg.split("=", 1)[0]
+        if name in seen:
+            raise UsageError("%s given twice" % name)
+        if arg in _FLAGS:
+            seen.add(arg)
+            a["dry" if arg == "--dry-run" else "draft"] = True
+            i += 1
+            continue
+        if arg in _VALUED:
+            seen.add(arg)
+            val = argv[i + 1] if i + 1 < len(argv) else None
+            if arg == "--month":
+                try:
+                    a["month"] = int(val)
+                except (TypeError, ValueError):
+                    raise UsageError("--month needs a number 1-12")
+                if not 1 <= a["month"] <= 12:
+                    raise UsageError("--month needs a number 1-12")
+            elif val is None or val.startswith("--"):
+                raise UsageError("%s needs a value" % arg)
+            else:
+                a[arg[2:]] = val
+            i += 2
+            continue
+        if name in _VALUED:
+            raise UsageError("write %s %s (a space, not \"=\")" % (name, arg.split("=", 1)[1]))
+        raise UsageError("unknown argument %r (see the top of send_digest.py)" % arg)
+    if a["out"] is not None and not a["dry"]:
+        raise UsageError("--out only writes preview pages: use it with --dry-run")
+    return a
 
 
 def _parse_args(argv):
-    dry = "--dry-run" in argv
-    draft = "--draft" in argv
-    month = None
-    if "--month" in argv:
-        try:
-            month = int(argv[argv.index("--month") + 1])
-        except (ValueError, IndexError):
-            print("--month needs a number 1-12")
-            sys.exit(2)
-    return dry, month, draft
+    """(dry_run, month, draft), exiting 2 on a usage error. Kept for callers
+    of the old interface; main() is the entry point."""
+    try:
+        a = _parse_argv(argv)
+    except UsageError as e:
+        print(e)
+        sys.exit(2)
+    return a["dry"], a["month"], a["draft"]
 
 
 if __name__ == "__main__":

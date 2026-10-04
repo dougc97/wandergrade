@@ -22,6 +22,47 @@ picker_codes()). Stages:
 
 Stdlib only and no imports from fxtracker, so server.py, the tests and the
 send script can all read it without pulling in the scorer.
+
+A typo in ROLLOUT must never take the site down: server.py and accounts.py
+import this module, so only the fixed VARIANTS facts below are asserted. A
+bad ROLLOUT entry ({"EUR": "Send"}, {"XYZ": "send"}) is ignored by stage() and
+the *_codes() lists, which always keep USD at "send"; rollout_problems()
+names it, send_digest.py refuses to run (exit 2) until it is fixed, and
+scripts/test_digest_variants.py fails.
+
+RUNBOOK (the owner's steps; send_digest.py's docstring has the commands)
+  1. Buttondown -> Billing: tags and segmentation must be in the plan.
+     Without them stay USD-only. Don't pre-create the currency-* tags, don't
+     make them subscriber-editable, leave the API version pin alone.
+  2. Trial a currency: commit ROLLOUT = {"USD": "send", "EUR": "draft"}.
+     Subscribe an address you control at
+     https://buttondown.com/wandergrade?tag=currency-eur and confirm it.
+  3. Actions -> Monthly travel digest -> Run workflow -> draft. The log must
+     show "EUR: draft ... (1 readers)": that line is the proof Buttondown
+     counts readers by tag name; "skipped — no readers" with a WARNING means
+     it doesn't, and the edition would silently go to nobody. In Buttondown
+     the EUR draft shows 1 recipient and the USD draft excludes that address.
+     Delete both drafts.
+  4. Commit EUR -> "send" (the picker appears within ~5 minutes, the
+     Cloudflare HTML cache). Remove the test subscriber.
+  - Change ROLLOUT only between monthly sends, never between the 1st and a
+    re-run of that month's send: a re-run with fewer editions (USD-only
+    especially) doesn't look for editions already out and re-sends USD to
+    their readers; with more, the new edition's readers already had USD.
+  - Readers with two currency tags (re-subscribing through the public form
+    ADDS a tag; Buttondown never swaps it) get the first edition in
+    SEND_ORDER, which may not be their latest pick. When one writes in to
+    switch, or before a send: Buttondown -> Subscribers, filter by each
+    currency-* tag, and on anyone holding two remove the one they no longer
+    want. Signed-in readers can switch in their account panel, which
+    replaces the tag.
+  - EUR is graded for Germany (Frankfurt fares, German price levels) for
+    every euro reader, French or Finnish alike; its footer says so ("a
+    traveler from Germany (paying in euros)"). A per-country euro edition
+    would need its own tag and noun.
+  - A draft whose audience filter Buttondown dropped or changed is renamed
+    "[DO NOT SEND — audience dropped] ..." (deleted if the rename fails):
+    sending it would mail the whole list. Delete it once you've looked.
 """
 
 import collections
@@ -69,17 +110,18 @@ SEND_ORDER = ("EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR", "KRW", "CHF", "US
 PICKER_ORDER = ("USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR", "KRW", "CHF")
 
 # The switch. CNY and INR should go through "draft" and a --dry-run review
-# first (CNY has fares to ~10 countries; INR grades nearly everything F on
-# affordability).
+# first: CNY has cached fares to only ~10 countries, so nearly every
+# destination's Flights grade is the neutral estimate (no longer inflated: an
+# estimated fare grades 70, see picks._score), and INR grades nearly
+# everything F on affordability, so its picks are mostly C overall.
 ROLLOUT = {"USD": "send"}
 
 STAGES = ("send", "draft")
 
-# USD is the fallback every other edition leans on; it can never be off.
-assert ROLLOUT.get("USD") == "send", "digest_variants.ROLLOUT must keep USD at 'send'"
-assert all(c in VARIANTS and s in STAGES for c, s in ROLLOUT.items()), \
-    "digest_variants.ROLLOUT: unknown currency or stage"
+# Fixed facts about the editions (a code change, never an owner's switch):
+# these may assert at import, because a test run catches them before deploy.
 assert sorted(SEND_ORDER) == sorted(VARIANTS) == sorted(PICKER_ORDER)
+assert SEND_ORDER[-1] == "USD"       # USD is everyone's fallback, so it goes last
 assert len(set(v.tag for v in VARIANTS.values())) == len(VARIANTS)
 # The subject names only the noun and the month, and it is how a re-run finds
 # what already went out: two editions with one noun would be mistaken for each other.
@@ -87,28 +129,64 @@ assert len(set(v.noun for v in VARIANTS.values())) == len(VARIANTS)
 # accounts.py's opt-out reconcile reads the cadence- prefix; never collide.
 assert not any(v.tag.startswith("cadence-") for v in VARIANTS.values())
 
+
+def rollout_problems(rollout=None):
+    """What's wrong with ROLLOUT, as sentences ([] when it's fine). Nothing
+    here raises: server.py and accounts.py import this module, and a typo in
+    the owner's switch must not stop the site. send_digest.py exits 2 on any
+    problem and the tests assert there are none."""
+    r = ROLLOUT if rollout is None else rollout
+    out = []
+    if not isinstance(r, dict):
+        return ["digest_variants.ROLLOUT must be a dict like {\"USD\": \"send\"}, not %r" % (r,)]
+    for c, s in r.items():
+        if c not in VARIANTS:
+            hint = (" (codes are upper case: %r)" % c.upper()) if isinstance(c, str) \
+                and c.upper() in VARIANTS else ""
+            out.append("digest_variants.ROLLOUT: unknown currency %r%s; it is ignored" % (c, hint))
+        elif s not in STAGES:
+            out.append("digest_variants.ROLLOUT[%r] = %r: the stage must be \"send\" or \"draft\"; "
+                       "%s is treated as off" % (c, s, c))
+    if r.get("USD") != "send":
+        out.append("digest_variants.ROLLOUT must keep USD at \"send\" (everyone's fallback); "
+                   "it is treated as \"send\" regardless")
+    return out
+
+
+def _rollout():
+    """ROLLOUT with every invalid entry dropped and USD forced to "send"."""
+    r = ROLLOUT if isinstance(ROLLOUT, dict) else {}
+    ok = {c: s for c, s in r.items() if c in VARIANTS and s in STAGES}
+    ok["USD"] = "send"
+    return ok
+
+
 TAG_PREFIX = "currency-"
 
 
 def stage(code):
-    """"send", "draft" or None (off) for a currency code."""
-    return ROLLOUT.get(code)
+    """"send", "draft" or None (off) for a currency code. USD is always
+    "send"; an invalid ROLLOUT entry reads as off."""
+    return _rollout().get(code)
 
 
 def send_codes():
-    """Currencies in the monthly send, in SEND_ORDER (USD last)."""
-    return tuple(c for c in SEND_ORDER if ROLLOUT.get(c) == "send")
+    """Currencies in the monthly send, in SEND_ORDER (USD last, always)."""
+    r = _rollout()
+    return tuple(c for c in SEND_ORDER if r.get(c) == "send")
 
 
 def draft_codes():
     """Currencies a --draft run builds ("send" + "draft"), in SEND_ORDER."""
-    return tuple(c for c in SEND_ORDER if ROLLOUT.get(c) in STAGES)
+    r = _rollout()
+    return tuple(c for c in SEND_ORDER if r.get(c) in STAGES)
 
 
 def picker_codes():
     """Currencies readers can choose in the subscribe box, in PICKER_ORDER.
     Just ("USD",) means no picker: the form is exactly today's."""
-    return tuple(c for c in PICKER_ORDER if ROLLOUT.get(c) == "send")
+    r = _rollout()
+    return tuple(c for c in PICKER_ORDER if r.get(c) == "send")
 
 
 def by_tag(tag):

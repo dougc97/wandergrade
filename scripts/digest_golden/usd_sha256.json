@@ -1,4 +1,5 @@
 {
+ "note": "Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
  "sha256": {
   "1": "62a5eac839a40457fac944c8e20551b79f25e9208e9dbd324b9d287fb2d65b01",
   "10": "16ea9523485eb16ca1d16ab8488c11c9886696aca542d4de82a44ed037cd34ca",

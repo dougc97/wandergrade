@@ -26,6 +26,13 @@ fixtures must not move the golden output.
 
 Writes {"USD": {"1": [subject, body], ...}, ...}. Without build_variant (an
 old tree) only USD can be rendered, through picks.build().
+
+--graft-cost-line <newtree> swaps <newtree>'s cost line (newsletter._cost_line
+and the helpers it calls, GRAFT below) into <tree> before rendering. The
+2026-10 cost-band change (the site's ±10% "about the same" band on the two
+printed decimals) is the one deliberate change to the USD text; an old tree
+with only that function grafted in must render byte for byte what the new
+tree renders, which proves nothing else in USD moved.
 """
 
 import argparse
@@ -125,8 +132,45 @@ def install(root):
     return picks, newsletter, digest_variants
 
 
-def snapshot(root, codes=("USD",), months=range(1, 13), keep_data=False):
+# newsletter.py names the cost line is built from, taken from the new tree.
+GRAFT = ("PL_SAME", "_pl_shown", "_pl_band", "_cost_line")
+
+
+def graft_cost_line(newsletter, new_root):
+    """Replace `newsletter`'s _cost_line (an old tree's module) with
+    new_root's, plus the helpers and constant it uses. The new function's
+    default edition is USD from new_root's digest_variants (stdlib only), and
+    `decimal` is imported into the old module's namespace for it."""
+    import ast
+    import importlib.util
+    src_path = os.path.join(new_root, "fxtracker", "newsletter.py")
+    with open(src_path, encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    keep = []
+    for node in tree.body:
+        names = ([node.name] if isinstance(node, ast.FunctionDef)
+                 else [t.id for t in node.targets if isinstance(t, ast.Name)]
+                 if isinstance(node, ast.Assign) else [])
+        if any(n in GRAFT for n in names):
+            keep.append(node)
+    found = {n.name if isinstance(n, ast.FunctionDef) else n.targets[0].id for n in keep}
+    assert found == set(GRAFT), "graft: %s lacks %s" % (src_path, set(GRAFT) - found)
+    spec = importlib.util.spec_from_file_location(
+        "_graft_dv", os.path.join(new_root, "fxtracker", "digest_variants.py"))
+    dv = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(dv)
+    ns = newsletter.__dict__
+    import decimal
+    ns.setdefault("decimal", decimal)
+    ns["USD"] = dv.VARIANTS["USD"]      # the new code's default edition (old trees have none)
+    mod = ast.Module(body=keep, type_ignores=[])
+    exec(compile(mod, src_path, "exec"), ns)
+
+
+def snapshot(root, codes=("USD",), months=range(1, 13), keep_data=False, graft=None):
     picks, newsletter, dv = install(root)
+    if graft:
+        graft_cost_line(newsletter, graft)
     out = {}
     datas = {}
     for m in months:
@@ -167,6 +211,8 @@ def main():
     ap.add_argument("--variants", default="USD", help="USD, all, or a comma list")
     ap.add_argument("--month", type=int, default=None)
     ap.add_argument("--html-dir", default=None, help="also write <CODE>-<month>.html pages")
+    ap.add_argument("--graft-cost-line", default=None, metavar="NEWTREE",
+                    help="render with NEWTREE's newsletter._cost_line (see the docstring)")
     a = ap.parse_args()
     root = os.path.abspath(a.root)
     if a.variants == "all":
@@ -176,7 +222,8 @@ def main():
     else:
         codes = tuple(c.strip().upper() for c in a.variants.split(",") if c.strip())
     months = [a.month] if a.month else range(1, 13)
-    snap = snapshot(root, codes, months)
+    snap = snapshot(root, codes, months,
+                    graft=os.path.abspath(a.graft_cost_line) if a.graft_cost_line else None)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(snap, f, ensure_ascii=False, indent=0, sort_keys=True)
     if a.html_dir:

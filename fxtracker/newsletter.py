@@ -11,6 +11,7 @@ token is filled by Buttondown on send; the sample-to-self flow substitutes it.
 """
 
 import datetime
+import decimal
 import html
 import json
 import os
@@ -66,10 +67,15 @@ def _call(method, url, payload=None, headers=None):
 # and so is errored (a failed publish should be retryable).
 _OUT_STATUSES = ("sent", "about_to_send", "scheduled", "in_flight",
                  "throttled", "resending", "paused")
+# Variant mode also counts partially_sent (documented: a paused send that then
+# reached part of the list). Re-sending such an edition would give its readers
+# two copies. The USD-only send keeps the list above, byte for byte, so its
+# request stays exactly the one the digest has always made.
+VARIANT_OUT_STATUSES = _OUT_STATUSES + ("partially_sent",)
 DUPLICATE_WINDOW_DAYS = 25
 
 
-def find_sent(subject, days=DUPLICATE_WINDOW_DAYS, headers=None, expected=None):
+def find_sent(subject, days=DUPLICATE_WINDOW_DAYS, headers=None, expected=None, statuses=None):
     """The record (a dict: id, subject, status, metadata, filters, ...) of an
     email with this exact subject that was sent (or queued) in the last
     `days` days, else None. Raises if Buttondown can't be asked.
@@ -83,14 +89,16 @@ def find_sent(subject, days=DUPLICATE_WINDOW_DAYS, headers=None, expected=None):
 
     `expected` (a currency code, from send_digest's per-currency run) skips a
     record whose metadata.wg_variant names a different edition. `headers`
-    adds the API-version pin those runs send; without either this is the
-    exact request the digest has always made."""
+    adds the API-version pin those runs send, and `statuses` replaces the
+    out-statuses (VARIANT_OUT_STATUSES); without them this is the exact
+    request the digest has always made."""
+    sts = _OUT_STATUSES if statuses is None else tuple(statuses)
     since = (datetime.date.today() - datetime.timedelta(days=days)).isoformat()
     # Filter on the plain-text part (the subject leads with an emoji, which a
     # server-side contains-match may normalise differently); the exact
     # comparison below does the real matching.
     needle = subject.encode("ascii", "ignore").decode("ascii").strip() or subject
-    qs = urllib.parse.urlencode({"status": _OUT_STATUSES, "subject": needle,
+    qs = urllib.parse.urlencode({"status": sts, "subject": needle,
                                  "creation_date__start": since,
                                  "excluded_fields": "body"}, doseq=True)
     status, page = _call("GET", API + "?" + qs, None, headers)
@@ -98,7 +106,7 @@ def find_sent(subject, days=DUPLICATE_WINDOW_DAYS, headers=None, expected=None):
         raise RuntimeError("Buttondown email list returned HTTP %s" % status)
     for e in (page or {}).get("results") or []:
         # subject= is a contains-match server side; insist on the exact one.
-        if e.get("subject") == subject and e.get("status") in _OUT_STATUSES:
+        if e.get("subject") == subject and e.get("status") in sts:
             md = e.get("metadata")
             wg = md.get("wg_variant") if isinstance(md, dict) else None
             if expected is not None and wg is not None and wg != expected:
@@ -276,9 +284,10 @@ def send_variant(subject, body, filters, draft=False, metadata=None, archival_mo
     if not email_id:
         raise SendError("Buttondown created the draft but returned no id: %r" % created)
     if _norm_filters((created or {}).get("filters")) != _norm_filters(filters):
-        raise SendError("audience filter dropped/changed by Buttondown (draft %s kept, "
+        fate = _defuse_draft(email_id, subject, hdr)
+        raise SendError("audience filter dropped/changed by Buttondown (draft %s %s, "
                         "not publishing): sent %r, got %r"
-                        % (email_id, filters, (created or {}).get("filters")), email_id=email_id)
+                        % (email_id, fate, filters, (created or {}).get("filters")), email_id=email_id)
     if draft:
         return email_id
     try:
@@ -290,6 +299,33 @@ def send_variant(subject, body, filters, draft=False, metadata=None, archival_mo
         raise SendError("Buttondown publish returned HTTP %s" % status, at_publish=True,
                         email_id=email_id)
     return email_id
+
+
+DEFUSED_PREFIX = "[DO NOT SEND — audience dropped] "
+
+
+def _defuse_draft(email_id, subject, headers):
+    """Make a draft whose audience filter Buttondown didn't keep impossible to
+    send by mistake, and say what happened to it. Such a draft goes to
+    whatever audience Buttondown stored, possibly the whole list, and it sits
+    in the dashboard with a normal-looking subject one click from Send. It is
+    renamed (kept, so the owner can see what Buttondown did with the filter);
+    if the rename fails it is deleted; if that fails too, the log says to
+    delete it by hand. Never raises."""
+    url = API.rstrip("/") + "/" + email_id
+    try:
+        status, _ = _call("PATCH", url, {"subject": DEFUSED_PREFIX + subject}, headers)
+        if status in (200, 201):
+            return "renamed '%s...'" % DEFUSED_PREFIX.strip()
+    except Exception:
+        pass
+    try:
+        status, _ = _call("DELETE", url, None, headers)
+        if status in (200, 202, 204):
+            return "deleted"
+    except Exception:
+        pass
+    return "kept AS IS: couldn't rename or delete it — DELETE IT IN BUTTONDOWN, it may mail everyone"
 
 
 def _span_words(days):
@@ -335,8 +371,20 @@ def _grade(score):
             else "F")
 
 
-def _guide_url(iso, month):
-    return "{0}/?tab=guide&gc={1}&vmn={2}".format(SITE, iso, month)
+def _vo(v):
+    """The link parameter that makes the site grade for this edition's home
+    (vo = the "traveling from" country; postApplyShared applies it on any
+    page). Only non-USD editions carry it: a euro reader who opens a guide
+    link in their mail app's browser (no saved fx_origin there) otherwise
+    lands on US-graded letters, and the email's letters stop matching the
+    page they link to. It also saves that origin on the site, so a French
+    reader's own setting becomes Germany's, the home the EUR edition grades
+    for. USD links stay exactly as they were."""
+    return "" if v.code == "USD" else "&vo=" + v.home_iso
+
+
+def _guide_url(iso, month, v=USD):
+    return "{0}/?tab=guide&gc={1}&vmn={2}{3}".format(SITE, iso, month, _vo(v))
 
 
 def _flag_img(iso):
@@ -370,16 +418,47 @@ def _fx_line(s, compact=False, v=USD):
             "</div>" % (GREEN, v.fx_emoji, _esc(v.noun), pct))
 
 
+# "About the same as home" is one band on the site: within ±10%, judged on the
+# two decimals the price level prints with (app.js PL_SAME / plShown / plBand).
+# This line used < 0.95 / > 1.1 on the raw value, so a pick at 0.93 said
+# "about 7% below US levels" here while the site's Cost table said "about the
+# same", and one at 1.104 (printed 1.10) said "pricier" here and "about the
+# same" there.
+PL_SAME = 0.1
+
+
+def _pl_shown(pl):
+    """The price level as the site prints it: JS rel.toFixed(2), as a number.
+    toFixed rounds the float's exact binary value half-up, which is what
+    Decimal(pl) + ROUND_HALF_UP does (1.105 is stored a hair under, so it
+    prints 1.10 on both sides); '%.2f' would send an exact half to even."""
+    return float(decimal.Decimal(pl).quantize(decimal.Decimal("0.01"), rounding=decimal.ROUND_HALF_UP))
+
+
+def _pl_band(pl):
+    """app.js plBand: -1 cheaper, 0 about the same, 1 pricier."""
+    r = _pl_shown(pl)
+    return -1 if r <= 1 - PL_SAME else 0 if r <= 1 + PL_SAME else 1
+
+
 def _cost_line(s, compact=False, v=USD):
     """Concrete, data-backed affordability (from the price level vs home: the
-    US in the USD edition)."""
+    US in the USD edition), in the site's bands and with its rounding
+    (plPhrase's Math.round of the raw value)."""
     pl = s.get("pl")
     if not pl:
         return ""
-    if pl < 0.95:
-        txt = "prices run about %d%% below %s levels" % (int(round((1 - pl) * 100)), _esc(v.levels_adj))
-    elif pl > 1.1:
-        txt = "pricier than %s, but graded worth it" % _esc(v.vs_place)
+    band = _pl_band(pl)
+    if band < 0:
+        txt = "prices run about %d%% below %s levels" % (js_round((1 - pl) * 100), _esc(v.levels_adj))
+    elif band > 0:
+        # "but graded worth it" claims the Overall makes up for the prices.
+        # In the INR edition every pick is Affordability F and C overall, so
+        # the hero read "Everyday pricier than India, but graded worth it"
+        # over a C. Other editions say it only at B or better (68+); USD
+        # keeps its wording exactly.
+        worth = v.code == "USD" or (s.get("value") or 0) >= 68
+        txt = "pricier than %s%s" % (_esc(v.vs_place), ", but graded worth it" if worth else "")
     else:
         txt = "prices about on par with %s" % _esc(v.vs_place)
     if compact:
@@ -428,7 +507,7 @@ def _fly(s, compact=False):
 
 
 def _hero_card(s, month, v=USD):
-    g = _guide_url(s["iso"], month)
+    g = _guide_url(s["iso"], month, v)
     photo = ("<a href='%s'><img src='%s' width='560' alt='%s' style='width:100%%;max-width:560px;"
              "height:220px;object-fit:cover;display:block'></a>" % (g, s["photo"], _esc(s["name"]))
              ) if s.get("photo") else ""
@@ -448,7 +527,7 @@ def _hero_card(s, month, v=USD):
 
 
 def _compact_card(s, month, v=USD):
-    g = _guide_url(s["iso"], month)
+    g = _guide_url(s["iso"], month, v)
     thumb = ("<td width='110' valign='top'><a href='%s'><img src='%s' width='110' alt='%s' "
              "style='width:110px;height:84px;object-fit:cover;border-radius:8px;display:block'></a></td>"
              % (g, s["photo"], _esc(s["name"]))) if s.get("photo") else ""
@@ -467,8 +546,8 @@ def _compact_card(s, month, v=USD):
                    _fly(s, compact=True), _value_line(s, compact=True, v=v), _credit(s), g, GREEN)
 
 
-def _gem_line(s, month):
-    g = _guide_url(s["iso"], month)
+def _gem_line(s, month, v=USD):
+    g = _guide_url(s["iso"], month, v)
     return ("<div style='font-size:14px;margin:0 0 9px;color:#111'>%s<a href='%s' "
             "style='color:%s;text-decoration:none;font-weight:700'>%s</a> "
             "<span style='color:#666'>— %s &middot; \U0001f4b0 %s &middot; \U0001f6e1️ %s "
@@ -528,7 +607,14 @@ def render_digest(data):
     v = VARIANTS[data.get("variant", "USD")]
     mn, yr, m = data["month_name"], data["year"], data["month"]
     picks, gems = data["picks"], data["gems"]
-    month_link = "%s/?vmn=%s" % (SITE, m)
+    month_link = "%s/?vmn=%s%s" % (SITE, m, _vo(v))
+    # "Pick your travel month" opens Top Picks too: graded for this home.
+    pick_link = SITE if v.code == "USD" else "%s/?vo=%s" % (SITE, v.home_iso)
+    # Only non-USD editions say how to switch: USD's text is frozen, and the
+    # public form can't switch anyone (a second subscribe ADDS a tag).
+    switch = "" if v.code == "USD" else (
+        " Want another currency’s edition? Reply and say which, or change it in your account"
+        " on wandergrade.com (sign in with this address).")
     nstrong = sum(1 for s in picks if (s.get("fx") or 0) >= 3)
 
     subject = digest_subject(v, mn)
@@ -549,7 +635,7 @@ def render_digest(data):
     if gems:
         gems_block = ("<h2 style='font-size:18px;margin:20px 0 4px;color:#111'>\U0001f48e Hidden gems</h2>"
                       "<p style='font-size:13px;color:#555;margin:0 0 12px'>Under-the-radar, high-value "
-                      "spots the crowds miss:</p>" + "".join(_gem_line(s, m) for s in gems))
+                      "spots the crowds miss:</p>" + "".join(_gem_line(s, m, v) for s in gems))
 
     body = """<div style="display:none;font-size:1px;color:#f4f5f6;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">%s&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;</div>
 <div style="max-width:600px;margin:0 auto;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;background:#f4f5f6;padding:20px">
@@ -570,11 +656,11 @@ def render_digest(data):
   <p style="font-size:13px;color:#555;margin:16px 0 0">\U0001f4ac Tell me where you’re headed — just hit reply, or write to <a href="mailto:hello@wandergrade.com" style="color:#555"><b>hello@wandergrade.com</b></a>. I read every message.</p>
   %s
   <p style="font-size:12px;color:#888;line-height:1.6;border-top:1px solid #e0e0e0;margin-top:14px;padding-top:14px">
-    Grades are for %s planning %s travel; set your home country on the site to re-grade for you. Currency data as of %s. Photos via Wikimedia Commons.<br>
+    Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s Currency data as of %s. Photos via Wikimedia Commons.<br>
     <b>WanderGrade</b> · once a month, no spam · <a href="%s" style="color:#888">wandergrade.com</a> · <a href="%s" style="color:#888">unsubscribe</a>
   </p>
-</div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), SITE, GREEN, hero, rest,
+</div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), pick_link, GREEN, hero, rest,
              ai_callout, gems_block, month_link, GREEN, _quote_for(yr, m),
-             _esc(v.traveler), _esc(mn), _esc(data["as_of"]), SITE, UNSUB)
+             _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]), SITE, UNSUB)
 
     return subject, body

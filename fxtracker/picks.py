@@ -406,7 +406,15 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
         fare = fares["prices"][iso]
         deal = fares.get("deal", fares["prices"]).get(iso, fare)
         base = fares["expected"](iso) if fares["expected"] else None
-        comps["fly"] = (clamp100(70 + (1 - deal / base) * 100) if base
+        # An estimated fare IS the distance baseline, so it grades the neutral
+        # 70 — what the site's "~" mark has always said ("flights count as a
+        # typical fare for the distance"). Grading it against the baseline
+        # read the 1.4x-max-known cap as a bargain: from Beijing (10 cached
+        # fares) Argentina, Chile and El Salvador got Flights A+ and filled the
+        # CNY picks. Mirrors app.js valueScores; US-origin estimates already
+        # sat at 70, so the USD digest is unchanged.
+        comps["fly"] = (70 if iso in fares["est"]
+                        else clamp100(70 + (1 - deal / base) * 100) if base
                         else clamp100((fares["max"] - deal) / (fares["max"] - fares["min"]) * 100)
                         if fares["max"] > fares["min"] else 50)
         fly_basis = "distance"

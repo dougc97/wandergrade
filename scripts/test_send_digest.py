@@ -31,8 +31,15 @@ class FakeButtondown:
     V1 = "https://api.buttondown.email/v1"
 
     def __init__(self, subscribers=None, tag_names=(), drop_filters=False, publish_fail=None,
-                 break_list_after_publish_fail=False, tag_page=3, emails=None, today="2026-10-03"):
+                 break_list_after_publish_fail=False, tag_page=3, emails=None, today="2026-10-03",
+                 list_omits_filters=False, patch_fail=False, delete_fail=False, count_zero=()):
         self.calls, self.subs = [], dict(subscribers or {})
+        # The email list's records lacking `filters` (nothing shows Buttondown
+        # returns them); PATCH/DELETE of an email failing; tags whose reader
+        # count comes back 0 although readers hold them.
+        self.list_omits_filters = list_omits_filters
+        self.patch_fail, self.delete_fail = patch_fail, delete_fail
+        self.count_zero = set(count_zero)
         self.tags = [{"id": "tag%02d" % i, "name": n} for i, n in enumerate(tag_names)]
         self.emails = list(emails or [])
         self.drop_filters = drop_filters
@@ -82,11 +89,23 @@ class FakeButtondown:
                 raise RuntimeError("Buttondown 503: list unavailable")
             sts, needle = q.get("status", []), q.get("subject", [""])[0]
             start = q.get("creation_date__start", ["0000"])[0]
-            res = [{k: e.get(k) for k in ("id", "subject", "status", "metadata", "filters",
-                                          "creation_date")}
+            keys = ("id", "subject", "status", "metadata", "creation_date") + (
+                () if self.list_omits_filters else ("filters",))
+            res = [{k: e.get(k) for k in keys}
                    for e in self.emails if e["status"] in sts and needle in e["subject"]
                    and e["creation_date"] >= start]
             return 200, {"results": res, "count": len(res)}
+        if method == "PATCH" and path.startswith("/emails/"):
+            if self.patch_fail:
+                raise RuntimeError("Buttondown 500: update failed")
+            e = next(x for x in self.emails if x["id"] == path.split("/")[2])
+            e.update(payload)
+            return 200, {k: v for k, v in e.items() if k != "body"}
+        if method == "DELETE" and path.startswith("/emails/"):
+            if self.delete_fail:
+                raise RuntimeError("Buttondown 500: delete failed")
+            self.emails = [x for x in self.emails if x["id"] != path.split("/")[2]]
+            return 204, {}
         if method == "POST" and path == "/emails":
             eid = "em%03d" % (len(self.emails) + 1)
             e = {"id": eid, "subject": payload["subject"], "body": payload["body"],
@@ -122,7 +141,8 @@ class FakeButtondown:
             return 200, {"results": chunk, "next": nxt, "count": len(self.tags)}
         if method == "GET" and path == "/subscribers":
             name, typ = q["tag"][0], q.get("type", [""])[0]
-            n = sum(1 for s in self.subs.values() if name in s["tags"] and s["type"] == typ)
+            n = 0 if name in self.count_zero else sum(
+                1 for s in self.subs.values() if name in s["tags"] and s["type"] == typ)
             return 200, {"results": [], "count": n}
         raise AssertionError("fake Buttondown: unexpected %s %s" % (method, url))
 
@@ -136,6 +156,10 @@ def _child(root, scenario):
     os.environ["BUTTONDOWN_API_KEY"] = "test-key-not-real"
     import send_digest as sd
     assert os.path.realpath(sd.__file__).startswith(os.path.realpath(root))
+    if scenario.get("graft"):
+        # An old tree with only the new tree's cost line (digest_snapshot):
+        # its calls must then equal the new tree's call for call.
+        ds.graft_cost_line(newsletter, scenario["graft"])
     fake = FakeButtondown(**scenario.get("fake", {}))
     newsletter._call = fake.call
     buf = io.StringIO()
@@ -213,6 +237,12 @@ def filt(call):
     return (call[2] or {}).get("filters")
 
 
+def is_usd(call):
+    """A create of the USD edition: the legacy call (no metadata) or a
+    variant-mode one (wg_variant USD, with wg_excluded)."""
+    return ((call[2] or {}).get("metadata") or {}).get("wg_variant") in (None, "USD")
+
+
 def ops(calls):
     """The filter operators of the first call in `calls` ([] when none)."""
     return [x.get("operator") for x in ((filt(calls[0]) or {}).get("filters") or [])] if calls else []
@@ -234,7 +264,7 @@ def main():
 
         # 1. USD-only: the same calls (and output) as the old code, for a send,
         #    a draft, and a send whose issue is already out.
-        print("1. USD-only run == %s, call for call" % against)
+        print("1. USD-only run == %s (+ this tree's cost line), call for call" % against)
         base_subs = subs({"a@x.test": "", "b@x.test": "currency-eur", "c@x.test": "cadence-monthly"})
         sent_before = [{"id": "em900", "subject": "\U0001f9ed Where your dollar goes furthest this December",
                         "status": "sent", "creation_date": "2026-10-01", "metadata": {},
@@ -245,11 +275,15 @@ def main():
                 ("--draft", ["--draft"], {"subscribers": base_subs}),
                 ("already sent", [], {"subscribers": base_subs, "emails": sent_before})):
             sc = {"argv": argv, "fake": fake}
-            old, new = run_tree(tmp, sc), run_tree(ROOT, sc)
+            new = run_tree(ROOT, sc)
+            raw = run_tree(tmp, sc)
+            old = run_tree(tmp, dict(sc, graft=ROOT))
+            same_raw = raw["calls"] == new["calls"] and raw["out"] == new["out"]
             results.append(ok(old["calls"] == new["calls"] and old["out"] == new["out"]
                               and old["code"] == new["code"],
-                              "%s: %d identical calls, identical output, exit %s"
-                              % (name, len(new["calls"]), new["code"])))
+                              "%s: %d identical calls, identical output, exit %s (ungrafted: %s)"
+                              % (name, len(new["calls"]), new["code"],
+                                 "identical too" if same_raw else "differs in the cost line only")))
             if old["calls"] != new["calls"]:
                 print("    old:", json.dumps(old["calls"])[:600])
                 print("    new:", json.dumps(new["calls"])[:600])
@@ -268,7 +302,7 @@ def main():
         code, out = H.run([], f, {"USD": "send", "EUR": "send", "GBP": "send"})
         cr = f.creates()
         eur = [c for c in cr if (c[2].get("metadata") or {}).get("wg_variant") == "EUR"]
-        usd = [c for c in cr if not c[2].get("metadata")]
+        usd = [c for c in cr if is_usd(c)]
         tid = {t["name"]: t["id"] for t in f.tags}
         results.append(ok(code == 0 and len(cr) == 2 and len(eur) == 1 and len(usd) == 1,
                           "exit 0, two issues created (EUR, USD) -> %s" % code))
@@ -311,7 +345,7 @@ def main():
         print("5. EUR publish raises, re-check finds it out")
         f = FakeButtondown(subs({"e@x": "currency-eur", "u@x": ""}), tags10, publish_fail={"EUR": "after"})
         code, out = H.run([], f, {"USD": "send", "EUR": "send"})
-        usd = [c for c in f.creates() if not c[2].get("metadata")]
+        usd = [c for c in f.creates() if is_usd(c)]
         results.append(ok(code == 0 and ops(usd) == ["not_contains"] and f.received() == {"e@x": ["EUR"], "u@x": ["USD"]},
                           "USD excludes EUR, each reader one issue, exit %s" % code))
 
@@ -321,7 +355,7 @@ def main():
         f = FakeButtondown(subs({"e@x": "currency-eur", "u@x": ""}), tags10, publish_fail={"EUR": "before"},
                            break_list_after_publish_fail=True)
         code, out = H.run([], f, {"USD": "send", "EUR": "send"})
-        usd = [c for c in f.creates() if not c[2].get("metadata")]
+        usd = [c for c in f.creates() if is_usd(c)]
         results.append(ok(code == 1 and ops(usd) == ["not_contains"]
                           and f.received() == {"u@x": ["USD"]},
                           "EUR unknown: excluded from USD (nobody gets two), exit 1"))
@@ -444,11 +478,112 @@ def main():
         f = FakeButtondown(subs({"e@x": "currency-eur", "j@x": "currency-jpy", "u@x": ""}), tags10)
         code, out = H.run(["--draft"], f, {"USD": "send", "EUR": "draft", "JPY": "send"})
         lists = [c for c in f.calls if c[0] == "GET" and urllib.parse.urlsplit(c[1]).path.endswith("/emails")]
-        usd = [c for c in f.creates() if not c[2].get("metadata")]
+        usd = [c for c in f.creates() if is_usd(c)]
         results.append(ok(code == 0 and not f.publishes() and not lists and len(f.creates()) == 3
                           and ops(usd) == ["not_contains", "not_contains"]
                           and all(e["status"] == "draft" for e in f.emails),
                           "3 drafts (EUR, JPY, USD excluding both), no publish, no duplicate check"))
+
+        # 16. The USD issue records whom it left out (wg_excluded), and a
+        #     re-run reads that even when the list response has no `filters`:
+        #     Review 0's S13, where GBP's readers silently got nothing.
+        print("16. USD out excluding GBP; the list response omits filters")
+        f = FakeButtondown(subs({"g@x": "currency-gbp", "u@x": ""}), tags10,
+                           publish_fail={"GBP": "before"}, break_list_after_publish_fail=True,
+                           list_omits_filters=True)
+        code, out = H.run([], f, {"USD": "send", "GBP": "send"})
+        usd = [c for c in f.creates() if is_usd(c)]
+        md = (usd[0][2].get("metadata") if usd else None) or {}
+        results.append(ok(code == 1 and md == {"wg_variant": "USD", "wg_excluded": "GBP"}
+                          and f.received() == {"u@x": ["USD"]},
+                          "GBP unknown: USD sent excluding it, metadata %s" % md))
+        f.broken = False
+        code, out = H.run([], f, {"USD": "send", "GBP": "send"})
+        results.append(ok(code == 0 and f.received() == {"u@x": ["USD"], "g@x": ["GBP"]}
+                          and "covered by the USD issue" not in out,
+                          "the re-run sends GBP (not 'covered'), USD not resent"))
+        f = FakeButtondown(subs({"g@x": "currency-gbp", "u@x": ""}), tags10, list_omits_filters=True)
+        H.run([], f, {"USD": "send"})
+        code, out = H.run([], f, {"USD": "send", "GBP": "send"})
+        results.append(ok(code == 0 and len(f.creates()) == 1 and "GBP: covered by the USD issue" in out,
+                          "a legacy USD issue (no wg_ metadata) still covers every edition"))
+
+        # 17. partially_sent counts as out in variant mode only.
+        print("17. an edition partially_sent")
+        eur_subj = "\U0001f9ed Where your euro goes furthest this December"
+        f = FakeButtondown(subs({"e@x": "currency-eur", "u@x": ""}), tags10, emails=[
+            {"id": "em700", "subject": eur_subj, "status": "partially_sent", "creation_date": "2026-10-02",
+             "metadata": {"wg_variant": "EUR"}, "filters": None, "recipients": ["e@x"]}])
+        code, out = H.run([], f, {"USD": "send", "EUR": "send"})
+        lists = [urllib.parse.parse_qs(urllib.parse.urlsplit(c[1]).query)["status"]
+                 for c in f.calls if c[0] == "GET" and urllib.parse.urlsplit(c[1]).path.endswith("/emails")]
+        results.append(ok(code == 0 and "EUR: already out (em700)" in out
+                          and f.received() == {"e@x": ["EUR"], "u@x": ["USD"]}
+                          and all("partially_sent" in st for st in lists) and lists,
+                          "EUR found out (partially_sent), not re-sent; USD excludes it"))
+        f = FakeButtondown(subs({"u@x": ""}), tags10)
+        H.run([], f)
+        lists = [urllib.parse.parse_qs(urllib.parse.urlsplit(c[1]).query)["status"]
+                 for c in f.calls if c[0] == "GET"]
+        results.append(ok(lists and all("partially_sent" not in st for st in lists),
+                          "the USD-only send's duplicate check keeps today's status list"))
+
+        # 18. A draft whose audience filter Buttondown dropped is defused.
+        print("18. dropped filter: the kept draft")
+        f = FakeButtondown(subs({"e@x": "currency-eur", "u@x": ""}), tags10, drop_filters=True)
+        code, out = H.run([], f, {"USD": "send", "EUR": "send"})
+        eur_e = [e for e in f.emails if (e.get("metadata") or {}).get("wg_variant") == "EUR"]
+        results.append(ok(code == 1 and len(eur_e) == 1 and eur_e[0]["status"] == "draft"
+                          and eur_e[0]["subject"] == "[DO NOT SEND — audience dropped] " + eur_subj
+                          and "renamed" in out,
+                          "EUR draft renamed '[DO NOT SEND — audience dropped] …', never published"))
+        f = FakeButtondown(subs({"e@x": "currency-eur", "u@x": ""}), tags10, drop_filters=True,
+                           patch_fail=True)
+        code, out = H.run([], f, {"USD": "send", "EUR": "send"})
+        results.append(ok(code == 1 and not any((e.get("metadata") or {}).get("wg_variant") == "EUR"
+                                                for e in f.emails) and "deleted" in out,
+                          "rename fails: the draft is deleted instead"))
+        f = FakeButtondown(subs({"e@x": "currency-eur", "u@x": ""}), tags10, drop_filters=True,
+                           patch_fail=True, delete_fail=True)
+        code, out = H.run([], f, {"USD": "send", "EUR": "send"})
+        results.append(ok(code == 1 and "DELETE IT IN BUTTONDOWN" in out,
+                          "both fail: the log says to delete it by hand"))
+
+        # 19. A tag that exists but counts 0 readers is skipped LOUDLY.
+        print("19. tag exists, reader count 0")
+        f = FakeButtondown(subs({"e@x": "currency-eur", "u@x": ""}), tags10, count_zero=("currency-eur",))
+        code, out = H.run([], f, {"USD": "send", "EUR": "send"})
+        results.append(ok(code == 0 and "EUR: skipped — no readers. WARNING: the currency-eur tag exists" in out
+                          and f.received() == {"e@x": ["USD"], "u@x": ["USD"]},
+                          "warning logged; its readers get USD"))
+        code, out = H.run(["--draft"], FakeButtondown(subs({"e@x": "currency-eur"}), tags10,
+                                                      count_zero=("currency-eur",)),
+                          {"USD": "send", "EUR": "draft"})
+        results.append(ok("WARNING: the currency-eur tag exists" in out, "the draft run warns too"))
+
+        # 20. A ROLLOUT typo: the site ignores it, the send refuses to run.
+        print("20. ROLLOUT typo")
+        f = FakeButtondown(subs({"u@x": ""}), tags10)
+        code, out = H.run([], f, {"USD": "send", "EUR": "Send"})
+        results.append(ok(code == 2 and f.calls == [] and "the stage must be" in out,
+                          "exit 2 before any build or call"))
+
+        # 21. Malformed arguments are usage errors, never a send with defaults.
+        print("21. argument errors")
+        bad = []
+        for argv in (["--variant=EUR"], ["--out", "/tmp/x"], ["--foo"], ["--month", "13"],
+                     ["--month"], ["--month", "x"], ["extra"], ["--dry-run", "--dry-run"],
+                     ["--variant"], ["--variant", "--dry-run"]):
+            f = FakeButtondown(subs({"u@x": ""}), tags10)
+            code, out = H.run(argv, f, ALL_SEND)
+            if code != 2 or f.calls:
+                bad.append((argv, code, out[-80:]))
+        results.append(ok(not bad, "10 malformed command lines: exit 2, no Buttondown call%s"
+                          % ("" if not bad else " -> %r" % bad[:2])))
+        f = FakeButtondown(subs({"u@x": ""}), tags10)
+        code, out = H.run(["--month", "x"], f)
+        results.append(ok(code == 2 and out.strip() == "--month needs a number 1-12",
+                          "a bad --month says what it always said"))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))

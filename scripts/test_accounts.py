@@ -112,19 +112,56 @@ results.append(ok(BD == [], "subscribed but cadence off still sends nothing (alr
 # PATCH replaces Buttondown's tag list, so the account flow reads the current
 # tags and swaps every currency tag (any case) for the chosen one, keeping
 # cadence-monthly and anything the owner added.
+from fxtracker import digest_variants as DV
 LOOK = []
 CUR_SUB = {"type": "regular", "tags": ["cadence-monthly", "vip", "currency-eur", "Currency-JPY"]}
 _real_lookup = accounts._bd_subscriber
-accounts._bd_subscriber = lambda addr, key: (LOOK.append(addr), (200, dict(CUR_SUB, email_address=addr)))[1]
+accounts.TAG_RETRY_PAUSE = 0
 cemail = "currency@example.com"
 accounts._kv_del("user:" + cemail)
+
+# Shipping state (USD only): there is no choice to store, and no tag is ever
+# written. Any of the ten used to be accepted: currency="CNY" wrote a
+# currency-cny tag, creating it in Buttondown.
+accounts._bd_subscriber = lambda addr, key: (LOOK.append(addr), (200, dict(CUR_SUB, email_address=addr)))[1]
 BD.clear()
+for c in ("CNY", "USD", "eur"):
+    u = accounts.set_prefs(cemail, currency=c)
+results.append(ok(u.get("currency") is None and BD == [] and LOOK == [],
+                  "USD-only: no currency is stored and Buttondown is never called"))
+DV_SAVED = dict(DV.ROLLOUT)
+DV.ROLLOUT.clear()
+DV.ROLLOUT.update({c: "send" for c in DV.PICKER_ORDER if c != "CNY"})
+DV.ROLLOUT["CNY"] = "draft"
+u = accounts.set_prefs(cemail, currency="CNY")
+results.append(ok(u.get("currency") is None and BD == [] and LOOK == [],
+                  "a currency that isn't in the picker (CNY at 'draft') is refused"))
+
+# Not opted in here, and not on the list at all: stored, nothing written.
+accounts._bd_subscriber = lambda addr, key: (LOOK.append(addr), (404, None))[1]
 u = accounts.set_prefs(cemail, currency="eur")
-results.append(ok(u["currency"] == "EUR" and BD == [] and LOOK == [],
-                  "a currency chosen while not subscribed is stored; no Buttondown call"))
+results.append(ok(u["currency"] == "EUR" and BD == [] and LOOK == [cemail],
+                  "not opted in, not on the list: the choice is stored, nothing written"))
 for junk in ("XYZ", "<script>", ["GBP"], 7, ""):
     u = accounts.set_prefs(cemail, currency=junk)
 results.append(ok(u["currency"] == "EUR" and BD == [], "invalid currencies ignored (kept EUR)"))
+
+# Not opted in here but on the list through the public form (Review 1 S2):
+# the pick re-tags that subscriber, and nothing else — never a subscribe.
+for typ, want_patch in (("regular", True), ("unactivated", True), ("unsubscribed", False)):
+    BD.clear(); LOOK.clear()
+    accounts._bd_subscriber = lambda addr, key, typ=typ: (LOOK.append(addr), (200, {
+        "type": typ, "tags": ["currency-eur"], "email_address": addr}))[1]
+    accounts._kv_set("user:" + cemail, json.dumps(dict(accounts.get_user(cemail), currency="EUR")))
+    u = accounts.set_prefs(cemail, currency="GBP")
+    results.append(ok(u["currency"] == "GBP" and LOOK == [cemail]
+                      and [b[0] for b in BD] == (["PATCH"] if want_patch else [])
+                      and (not want_patch or BD[0][2] == {"tags": ["currency-gbp"]}),
+                      "form subscriber (%s), account not opted in: %s"
+                      % (typ, "currency tag replaced, no POST" if want_patch else "left alone")))
+accounts._kv_set("user:" + cemail, json.dumps(dict(accounts.get_user(cemail), currency="EUR")))
+
+accounts._bd_subscriber = lambda addr, key: (LOOK.append(addr), (200, dict(CUR_SUB, email_address=addr)))[1]
 BD.clear(); LOOK.clear()
 u = accounts.set_prefs(cemail, subscribed=True, cadence="monthly")
 results.append(ok([b[0] for b in BD] == ["POST", "PATCH"] and LOOK == [cemail]
@@ -147,11 +184,57 @@ BD.clear(); LOOK.clear()
 accounts.set_prefs(cemail, subscribed=True, cadence="monthly")
 results.append(ok([b[0] for b in BD] == ["POST"] and LOOK == [cemail],
                   "tags already right: the upsert only, no PATCH"))
-accounts._bd_subscriber = lambda addr, key: (LOOK.append(addr), (503, None))[1]
+
+# Two quick picks race (Review 1 S3): the write uses the account's currency
+# re-read just before it, not the one this request saved.
+def racing_lookup(addr, key):
+    LOOK.append(addr)
+    accounts._kv_set("user:" + addr, json.dumps(dict(accounts.get_user(addr), currency="KRW")))
+    return 200, {"type": "regular", "tags": ["cadence-monthly", "currency-gbp"]}
+accounts._bd_subscriber = racing_lookup
 BD.clear(); LOOK.clear()
+accounts.set_prefs(cemail, currency="AUD")
+results.append(ok([b[2] for b in BD] == [{"tags": ["cadence-monthly", "currency-krw"]}]
+                  and accounts.get_user(cemail)["currency"] == "KRW",
+                  "a later pick saved mid-request wins the tag write (currency-krw, not -aud)"))
+
+# Buttondown unreachable: one retry, then the account reverts so the two
+# never disagree (the panel snaps back).
+FAILS = []
+def flaky(addr, key):
+    LOOK.append(addr)
+    return (503, None) if FAILS.pop(0) else (200, {"type": "regular", "tags": ["cadence-monthly", "currency-krw"]})
+accounts._bd_subscriber = flaky
+BD.clear(); LOOK.clear(); FAILS[:] = [True, False]
 u = accounts.set_prefs(cemail, currency="CHF")
-results.append(ok(u["currency"] == "CHF" and BD == [] and LOOK == [cemail],
-                  "a failed lookup is logged and skipped (best-effort), the choice still saved"))
+results.append(ok(u["currency"] == "CHF" and LOOK == [cemail, cemail]
+                  and [b[2] for b in BD] == [{"tags": ["cadence-monthly", "currency-chf"]}],
+                  "a failed lookup is retried once; the retry tags CHF"))
+BD.clear(); LOOK.clear(); FAILS[:] = [True, True]
+u = accounts.set_prefs(cemail, currency="JPY")
+results.append(ok(u["currency"] == "CHF" and accounts.get_user(cemail)["currency"] == "CHF"
+                  and LOOK == [cemail, cemail] and BD == [],
+                  "two failed lookups: the account goes back to CHF (what Buttondown still has)"))
+accounts._bd_subscriber = lambda addr, key: (LOOK.append(addr), (200, {
+    "type": "regular", "tags": ["cadence-monthly", "currency-chf"]}))[1]
+_bd_ok = accounts._buttondown
+accounts._buttondown = lambda method, url, key, payload=None, extra=None: (
+    BD.append((method, url, payload, extra or {})), 500)[1]
+BD.clear(); LOOK.clear()
+u = accounts.set_prefs(cemail, currency="JPY")
+results.append(ok(u["currency"] == "CHF" and [b[0] for b in BD] == ["PATCH", "PATCH"],
+                  "a failed tag write is retried once, then the account reverts too"))
+accounts._buttondown = _bd_ok
+
+# A stored currency switched off since (ROLLOUT): kept, and never written.
+DV.ROLLOUT["CHF"] = "draft"
+BD.clear(); LOOK.clear()
+u = accounts.set_prefs(cemail, subscribed=True, cadence="monthly")
+results.append(ok(u["currency"] == "CHF" and [b[0] for b in BD] == ["POST"] and LOOK == [],
+                  "switched-off CHF: kept on the account, the upsert only, its tag left alone"))
+DV.ROLLOUT["CHF"] = "send"
+
+accounts._bd_subscriber = lambda addr, key: (LOOK.append(addr), (200, dict(CUR_SUB, email_address=addr)))[1]
 BD.clear(); LOOK.clear()
 u = accounts.set_prefs(cemail, subscribed=False, cadence="off", currency="JPY")
 results.append(ok(u["currency"] == "JPY" and [b[0] for b in BD] == ["PATCH"]
@@ -162,6 +245,8 @@ results.append(ok(accounts.public_user(u)["currency"] == "JPY"
                   and accounts.public_user({"subscribed": True})["currency"] is None,
                   "public_user carries the currency (None when never chosen)"))
 accounts._kv_del("user:" + cemail)
+DV.ROLLOUT.clear()
+DV.ROLLOUT.update(DV_SAVED)
 os.environ.pop("BUTTONDOWN_API_KEY")
 results.append(ok(accounts.public_user({"cadence": "quarterly", "subscribed": True})["cadence"] == "monthly",
                   "legacy quarterly records show as monthly"))
@@ -397,9 +482,19 @@ results.append(ok(st == 303 and hd.get("Location") == "/?signin=expired", "secon
 sess = hd_ok.get("Set-Cookie", "").split(";", 1)[0]
 st, _, bd = http("POST", "/api/auth/prefs", json.dumps({"currency": "gbp"}).encode(),
                  {"Content-Type": "application/json", "Origin": SITE, "Cookie": sess})
+results.append(ok(st == 200 and json.loads(bd)["user"]["currency"] is None,
+                  "/api/auth/prefs: USD-only (the shipping state) stores no currency"))
+DV_SAVED = dict(DV.ROLLOUT)
+DV.ROLLOUT.update({"EUR": "send", "GBP": "send"})
+try:
+    st, _, bd = http("POST", "/api/auth/prefs", json.dumps({"currency": "gbp"}).encode(),
+                     {"Content-Type": "application/json", "Origin": SITE, "Cookie": sess})
+finally:
+    DV.ROLLOUT.clear()
+    DV.ROLLOUT.update(DV_SAVED)
 results.append(ok(st == 200 and json.loads(bd)["user"]["currency"] == "GBP"
                   and accounts.get_user("http@example.com")["currency"] == "GBP",
-                  "/api/auth/prefs stores the newsletter currency"))
+                  "/api/auth/prefs stores the newsletter currency once it can be picked"))
 st, _, bd = http("GET", "/")
 results.append(ok(st == 200 and b'window.__WGDIGEST__=["USD"]' in bd,
                   "the page carries the subscribe picker's currencies (USD only: no picker)"))
