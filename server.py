@@ -171,6 +171,11 @@ _HTML_DEFAULTS = {
     # Lets the page hide every trace of sign-in until accounts are provisioned.
     "ACCOUNTS": "<script>window.__WGACCT__=%s</script>" % (
         "true" if accounts.enabled() else "false"),
+    # The header's account button, shown in the served HTML when accounts are
+    # on. Un-hidden by app.js instead, it arrived after first paint and grew
+    # the header: +62px at 768-895 (the title and tagline re-wrapped around
+    # it), the whole tab below moving with it (CLS 0.26 at 768).
+    "ACCT_HIDDEN": "" if accounts.enabled() else " hidden",
 }
 _html_tpl = None
 

@@ -2186,13 +2186,16 @@ function setRegion(r) {
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
   syncURL();
 }
-// Filled here, after REGIONS and regionSel exist; Top Picks fills its own
-// select when that tab is built.
+// Bound here, after REGIONS and regionSel exist; Top Picks fills its own
+// select when that tab is built. The Data tab's four arrive filled from
+// index.html (their width from first paint) — only an empty one is filled.
 DATA_REGION_IDS.forEach((id) => fillRegionSelect($(id), "🌍 All regions"));
 function fillRegionSelect(sel, allLabel) {
-  if (!sel || sel.options.length) return;
-  sel.innerHTML = '<option value="all">' + (allLabel || "All regions") + '</option>'
-    + Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
+  if (!sel || sel._regionBound) return;
+  sel._regionBound = true;
+  if (!sel.options.length)
+    sel.innerHTML = '<option value="all">' + (allLabel || "All regions") + '</option>'
+      + Object.keys(REGIONS).map((r) => `<option value="${r}">${REGIONS[r]}</option>`).join("");
   sel.value = regionSel;
   sel.addEventListener("change", () => setRegion(sel.value));
 }
@@ -6678,6 +6681,9 @@ function renderDimPicks(hostId, title, items, isos, empty, marks) {
     const slot = document.querySelector('[data-picks-slot="' + hostId + '"]');
     if (slot) slot.appendChild(row); else host.insertAdjacentElement("afterend", row);
   }
+  // The markup's invisible stand-in (index.html) holds the space until now.
+  row.classList.remove("skel");
+  row.removeAttribute("aria-hidden");
   // The note is a <strong>, not a <span>: dimPicksFromDom reads the spans as
   // picks, and the share image must not list "Nothing below…" as #1.
   if (!items || !items.length) { row.innerHTML = "<strong>" + esc(empty) + "</strong>"; return; }
@@ -6703,7 +6709,7 @@ function renderDimPicks(hostId, title, items, isos, empty, marks) {
 // and Gambia as "Gambia $420⚠️".
 function dimPicksFromDom(hostId) {
   const row = document.querySelector('.mappicksrow[data-for="' + hostId + '"]');
-  if (!row) return { picks: null, title: null };
+  if (!row || row.classList.contains("skel")) return { picks: null, title: null };
   const pickText = (x) => [...x.childNodes].filter((c) => !(c.classList && c.classList.contains("hzmark")))
     .map((c) => c.textContent).join("").replace(/^\d+\.\s*/, "").trim();
   return { picks: [...row.querySelectorAll(":scope > span")].map(pickText),
@@ -9129,6 +9135,9 @@ async function setDataMode(mode) {
   if (!DATA_SUBS[mode]) mode = "currency";
   closeMapFullscreen();
   dataMode = mode;
+  // Keep the head script's pre-paint flag in step (CSS shows the sub-view
+  // html[data-dm] names, so a stale one would override the [hidden] below).
+  document.documentElement.setAttribute("data-dm", mode);
   for (const x of document.querySelectorAll("#dataMode button"))
     x.classList.toggle("active", x.dataset.dm === mode);
   for (const m in DATA_SUBS) $(DATA_SUBS[m]).hidden = m !== mode;
@@ -9597,8 +9606,10 @@ function preApplyShared() {
   }
 }
 
-async function postApplyShared() {
-  if (![...sharedQ.keys()].length) return;
+// The tab (and Data sub-view) a landing URL names. Read by init, which opens
+// it directly, and by postApplyShared; the <head> script applies the same
+// mapping before first paint (html[data-tab], html[data-dm]).
+function sharedTab() {
   let tab = sharedQ.get("tab");
   if (tab && !/^[a-z]+$/.test(tab)) tab = null;   // goes into a CSS selector below
   let dm = sharedQ.get("dm");
@@ -9609,15 +9620,23 @@ async function postApplyShared() {
     dm = dm || (sharedQ.get("mmode") === "afford" ? "afford" : legacyTabs[tab]);
     tab = "data";
   }
+  if (tab && !document.querySelector(`#tabs button[data-tab="${tab}"]`)) tab = null;
   const gc = sharedQ.get("gc");
   const gcOk = !!gc && GC_RE.test(gc);   // a code, never markup: it reaches the guide's renderers
+  return { tab, dm, gc, gcOk };
+}
+let _bootTab = null;   // the tab init opened (postApplyShared doesn't reopen it)
+
+async function postApplyShared() {
+  if (![...sharedQ.keys()].length) return;
+  const { tab, dm, gc, gcOk } = sharedTab();
   // A guide link opens its own country below (after the month is applied);
   // opening the tab bare first drew a default country for nothing.
-  if (tab && tab !== "value" && !(tab === "guide" && gcOk)
-      && document.querySelector(`#tabs button[data-tab="${tab}"]`)) {
+  if (tab && tab !== "value" && tab !== _bootTab && !(tab === "guide" && gcOk)) {
     await activateTab(tab);
   }
-  if (tab === "data" && dm) await setDataMode(dm);
+  // init already opened this sub-view when it opened the tab.
+  if (tab === "data" && dm && dm !== dataMode) await setDataMode(dm);
   let rerender = false;
   if (sharedQ.get("vr") && [...$("valueRegion").options].some((o) => o.value === sharedQ.get("vr"))) {
     $("valueRegion").value = sharedQ.get("vr"); rerender = true;
@@ -11258,11 +11277,15 @@ document.addEventListener("scroll", _hideTip, true);
   renderSubscribe();
   renderFeedback();
   preApplyShared();
-  // On a public deployment the server disables settings + manual email; hide them.
+  // Settings + manual email exist only off a public deployment: the group
+  // ships hidden and is shown here when the server isn't read-only. Hiding it
+  // on the answer instead (the public case) let the two buttons wrap the Data
+  // bar to a second row on every phone until /api/config returned, then pulled
+  // the whole Currency view up 46px (CLS 0.034 per phone load). And the group
+  // as a whole, not just its buttons: an empty .actions still took a slot in
+  // the bar's space-between row and parked the Region picker mid-page.
   getJSON("/api/config").then((c) => {
-    // The group goes too: an empty .actions still took a slot in the Data bar's
-    // space-between row and parked the Region picker mid-page.
-    if (c.readonly) { $("toggleSettings").hidden = true; $("check").hidden = true; $("check").parentElement.hidden = true; }
+    if (!c.readonly) $("check").parentElement.hidden = false;
   }).catch(() => {});
   // Load the currency data (the "Where to go" score needs live rates + PPP),
   // render the currency tab in the background, then open the verdict tab.
@@ -11276,8 +11299,23 @@ document.addEventListener("scroll", _hideTip, true);
   await ensureSlugs();
   const bootIso = (window.__WGGC__ && /^[A-Z]{2}(-[A-Z]{3})?$/.test(window.__WGGC__))
     ? window.__WGGC__ : pathGuideIso();
+  // Every other landing opens the tab its URL names, straight away. This used
+  // to open Top Picks first and leave the switch to postApplyShared: a
+  // ?tab=data link painted Data (the head script), then Top Picks, then Data
+  // again — 2.8s / 3.4s / 4.1s on slow 4G, two 0.30 layout shifts at 1280 for
+  // a reader already scrolling, and the whole Top Picks build (activities.json
+  // and eleven fare fetches) paid for a tab nobody opened. A ?tab=guide&gc=
+  // link is left to postApplyShared, which opens that country after the month.
+  // So is Trip: it builds nothing of its own and draws its rows from the
+  // climate and advisories the Top Picks build loads.
+  const boot = sharedTab();
   if (bootIso) await openGuideFor(bootIso);
-  else await activateTab("value");
+  else if (boot.tab === "guide" && boot.gcOk) _bootTab = null;
+  else {
+    _bootTab = boot.tab && boot.tab !== "trip" ? boot.tab : "value";
+    if (_bootTab === "data" && DATA_SUBS[boot.dm]) dataMode = boot.dm;
+    await activateTab(_bootTab);
+  }
   await postApplyShared().catch(() => {});
   appReady = true;          // from here on, user navigation is mirrored to the URL
   syncURL();
@@ -11301,10 +11339,12 @@ const ACCT_ON = window.__WGACCT__ === true;
 const CADENCE_LABEL = { monthly: "Monthly", off: "No emails" };
 let acctState = null;              // { email, user } once signed in
 
+let acctKnown = false;              // the server has answered (or a 401 has)
+
 function acctSignedIn() { return !!(acctState && acctState.email); }
 // A 401 means the session is gone: show it, instead of silently dropping
 // every later sync.
-function acctSignedOut() { acctState = null; acctPaintButton(); }
+function acctSignedOut() { acctState = null; acctKnown = true; acctPaintButton(); }
 
 async function acctLoad() {
   if (!ACCT_ON) return;
@@ -11312,6 +11352,7 @@ async function acctLoad() {
     const r = await fetch("/api/auth/me", { credentials: "same-origin" });
     const d = await r.json();
     acctState = d && d.email ? d : null;
+    acctKnown = true;
   } catch (e) { acctState = null; }
   acctPaintButton();
   if (acctSignedIn() && acctState.user) await acctMergeDown(acctState.user);
@@ -11473,6 +11514,17 @@ function acctPaintButton() {
   b.title = acctSignedIn()
     ? "Your account — " + acctState.email
     : "Save your travel map to an account (works in private tabs)";
+  // Remembered for the next page's <head> script, which hides the label
+  // before first paint (html[data-acct]): a signed-in visitor's button
+  // otherwise painted "👤 Save map" and shrank to "👤" when /api/auth/me
+  // answered, re-wrapping the header twice. Only once the answer is in — at
+  // parse time the state is still unknown, not signed out.
+  if (!acctKnown) return;
+  const root = document.documentElement;
+  try {
+    if (acctSignedIn()) { root.setAttribute("data-acct", "in"); localStorage.setItem("wg_acct", "in"); }
+    else { root.removeAttribute("data-acct"); localStorage.removeItem("wg_acct"); }
+  } catch (e) {}
 }
 
 function acctModal(inner) {
@@ -11641,7 +11693,12 @@ if (ACCT_ON) {
       btn.hidden = false;
     });
   }
-  window.addEventListener("appinstalled", () => { btn.hidden = true; });
+  // Drop the head script's flag too: it shows (iOS) or reserves the button
+  // over [hidden].
+  window.addEventListener("appinstalled", () => {
+    btn.hidden = true;
+    document.documentElement.removeAttribute("data-inst");
+  });
   btn.addEventListener("click", () => {
     if (deferred) {                            // Chrome/Android: the real prompt
       deferred.prompt();

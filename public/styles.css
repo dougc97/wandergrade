@@ -81,6 +81,14 @@ html[data-tab="guide"]   #tab-guide,
 html[data-tab="visited"] #tab-visited,
 html[data-tab="trip"]    #tab-trip,
 html[data-tab="data"]    #tab-data { display: block; }
+/* The Data tab's sub-view the same way (html[data-dm], set by the head script
+   on a Data landing and by setDataMode after): the markup shows Currency, so
+   a ?dm=afford link painted Currency first and swapped once app.js ran. */
+html[data-dm] #tab-data > [id^="dataSub"] { display: none; }
+html[data-dm="currency"] #tab-data > #dataSubCurrency,
+html[data-dm="afford"]   #tab-data > #dataSubAfford,
+html[data-dm="advisory"] #tab-data > #dataSubAdvisory,
+html[data-dm="flights"]  #tab-data > #dataSubFlights { display: block; }
 /* Long/short label pairs. This sits ABOVE the media queries on purpose: they add
    no specificity of their own, so a base rule further down the file would beat
    the overrides below and hide both halves, leaving the control unlabelled. */
@@ -275,6 +283,21 @@ h1, .sitetitle { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spac
 .meta { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
 .meta #asof { font-weight: 600; }
 .meta #summary { color: var(--gray); }
+/* Invisible stand-ins in the served HTML for a line app.js writes (the
+   Currency bar's summary, the map's sub-line): the same words the line
+   usually reads, so they wrap where it will and the box is its final height
+   from first paint. The real text replaces them. */
+.skeltext { visibility: hidden; }
+/* The Currency bar's picker is an empty <select> until the rates arrive and
+   enhanceSelect swaps in its combobox: 82px wide on a phone and 176 on
+   desktop, then 172 and 300, re-wrapping "As of…" beside it. Both are given
+   the combobox's measured width from the first frame (the phone rule below
+   pins the group instead). */
+#dataSubCurrency > .bar .pickgroup :is(select, .combo-input) { width: 166px; }
+#dataSubCurrency > .bar .pickgroup select { padding: 6px 10px; }
+@media (pointer: coarse) {
+  #dataSubCurrency > .bar .pickgroup :is(select, .combo-input) { width: 186px; }
+}
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .actions[hidden] { display: none; }
@@ -449,6 +472,9 @@ small { color: var(--gray); font-weight: 400; }
 .mappicksrow { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline;
   margin-top: 8px; font-size: 12.5px; color: var(--gray); }
 .mappicksrow strong { color: var(--ink); font-size: 12.5px; }
+/* The served stand-in (index.html): invisible, one line tall per pick. */
+.mappicksrow.skel { visibility: hidden; }
+.mappicksrow.skel > span::before { content: "\00a0"; }
 .mappicksrow .chup { color: #b3261e; }
 .mappicksrow .chdown { color: #1e7c3a; }
 /* Guide safety line: the advisory's latest move, riding beside the level chip.
@@ -590,6 +616,13 @@ html[data-tab="guide"] header .sub { display: none; }
 #fbmChart svg:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 6px; }
 .bignum #indexnow, .bignum #colNow, .bignum #fbmNow { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .bignum small { display: block; font-size: 14px; font-weight: 600; }
+/* The headline number arrives with the data: "—" over an empty change line
+   was 30x38px, then 118x53. Beside the chart title that re-wrapped the
+   header, and on a phone the number dropped 320px onto a line of its own
+   (CLS 0.047 at 1024, 0.06 at 412). The box is held at its usual size;
+   only the two charts that always show a number. */
+#indexchg:empty::before, #colChg:empty::before { content: "\00a0"; }
+#dataSubCurrency .bignum, #colCard .bignum { min-width: 118px; }
 .bignum small.pos { color: var(--green); }
 .bignum small.neg { color: var(--red); }
 .chart { margin-top: 12px; }
@@ -627,6 +660,17 @@ html[data-tab="guide"] header .sub { display: none; }
 #tab-data .tablewrap { overflow-x: visible; }
 #tab-data .tablewrap table { overflow: clip; }
 #tab-data .tablewrap thead th { position: sticky; top: 0; z-index: 2; }
+/* A loading Data table is one "Loading…" row (tr.loadingrow), which left the
+   newsletter box, the guide index and the footer inside the first screen —
+   then 139+ rows landed in one frame and threw them 5,700-7,600px down. Chrome
+   caps a shift's distance at the viewport, so that frame also scored every
+   other element moving in it (even 20px) at its full visible area: CLS 1.09
+   at 412px for a reader who had scrolled, 0.20 with this alone. Two screens
+   is less than any of these tables fills, so the space is only ever taken by
+   real rows; it goes with the placeholder row. On the row itself, not as a
+   .tablewrap:has(tr.loadingrow) rule: :has() re-matched on every chip
+   fitChips touches in the Safety table and froze that tab for seconds. */
+#tab-data tr.loadingrow > td { height: 200vh; vertical-align: top; }
 
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
@@ -766,6 +810,16 @@ footer a { color: var(--gray); }
    defaults to nowrap, and flex-shrink:0 keeps each button at full width. */
 .headbtns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
 .themebtn { font-size: 14px; padding: 7px 11px; border-radius: 8px; line-height: 1.2; white-space: nowrap; }
+/* Late header buttons, settled before first paint (flags from the <head>
+   script). The 📲 waits on beforeinstallprompt, which can fire seconds after
+   load; un-reserved, it re-wrapped the title (+39-62px at 768-911 and under
+   352). Its slot sits at the cluster's far end while empty — blank space
+   beside the title, not a hole between two buttons — for browsers that may
+   never fire it (incognito, already installed). When it fires, the button
+   takes its own place and only the three buttons left of it slide over. */
+html[data-inst="prompt"] #installBtn[hidden] { display: inline-block; visibility: hidden; order: -1; }
+html[data-inst="ios"] #installBtn[hidden] { display: inline-block; }
+html[data-acct="in"] #acctBtn .btxt { display: none; }
 /* music toggle: gentle pulse while playing */
 #musicBtn.playing { animation: wgpulse 2.2s ease-in-out infinite; }
 @keyframes wgpulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
@@ -1676,9 +1730,9 @@ button.chip2 { border: 0; }
   #dataSubCurrency > .bar .meta { flex: 1 1 0; min-width: 0; }
   /* 172, not 140: the dollar is now named like every other currency ("USD (US
      Dollar)"), and at 140 the closed box showed "USD (US D". */
-  #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 172px; }
+  #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 172px; width: 172px; }
   #dataSubCurrency > .bar .pickgroup .combo { min-width: 0; flex: 1; }
-  #dataSubCurrency > .bar .pickgroup .combo-input { width: 100%; min-width: 0; }
+  #dataSubCurrency > .bar .pickgroup :is(select, .combo-input) { width: 100%; min-width: 0; }
   /* That picker is pinned to the right edge here, and ~100px wide: hang its
      list from the right and let it be as wide as the screen allows, so the
      long currency names read on one or two lines instead of five. */

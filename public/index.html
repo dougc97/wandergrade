@@ -44,17 +44,36 @@
   <!-- Set the active tab from the URL before first paint, so refreshing inside a
        tab doesn't flash Top Picks before app.js switches. CSS (html[data-tab])
        reveals only that tab; activateTab keeps data-tab in sync afterwards. -->
-  <script>(function(){var t;
+  <script>(function(){var t,q=new URLSearchParams(location.search),dm=q.get("dm"),
+    legacy={money:"currency",advisory:"advisory",flights:"flights"};
     if(/^\/guide\//.test(location.pathname))t="guide";
-    else t=(new URLSearchParams(location.search).get("tab")||"value");
+    else t=(q.get("tab")||"value");
+    // Pre-consolidation links (?tab=money|advisory|flights) open the Data tab,
+    // the mapping postApplyShared applies (sharedTab in app.js).
+    if(legacy.hasOwnProperty(t)){dm=dm||(q.get("mmode")==="afford"?"afford":legacy[t]);t="data";}
     if(!/^(value|guide|visited|data|trip)$/.test(t))t="value";
     document.documentElement.setAttribute("data-tab",t);
+    // The Data tab's sub-view too: the markup shows Currency, so a ?dm=afford
+    // link painted the Currency view until app.js swapped it (CSS keys off
+    // data-dm; setDataMode keeps it in sync).
+    if(t==="data")document.documentElement.setAttribute("data-dm",/^(afford|advisory|flights)$/.test(dm)?dm:"currency");
     // Returning visitors with a trip get the "N countries in your trip" peek
     // bar on Top Picks. Its height is known NOW, from localStorage — reserving
     // it here (CSS keys off data-trip) means renderTripBadge fills a box that
     // already exists instead of pushing the whole tab down after JS loads.
     try{if(JSON.parse(localStorage.getItem("fx_trip")||"[]").length)
       document.documentElement.setAttribute("data-trip","1");}catch(e){}
+    // The header buttons app.js reveals, decided now so the header is its
+    // final height at first paint (each late button re-wrapped the title and
+    // moved the whole tab below: +62px at 768-895). A signed-in visitor's
+    // account button is the short "👤" (app.js remembers it, acctPaintButton).
+    // The 📲 install button: iOS always gets it (shown from here); a browser
+    // with an install prompt to wait for gets an invisible slot (styles.css);
+    // the rest (Safari on a Mac, Firefox) never show it, so reserve nothing.
+    try{if(localStorage.getItem("wg_acct")==="in")document.documentElement.setAttribute("data-acct","in");}catch(e){}
+    if(!(window.matchMedia&&matchMedia("(display-mode: standalone)").matches)&&navigator.standalone!==true){
+      if(/iphone|ipad|ipod/i.test(navigator.userAgent))document.documentElement.setAttribute("data-inst","ios");
+      else if("onbeforeinstallprompt" in window)document.documentElement.setAttribute("data-inst","prompt");}
     // Theme too, same rule as initTheme (stored toggle, else the OS). Left to
     // app.js at the end of <body>, a dark-OS visitor saw the light page until
     // it arrived (a second or more on a first visit). Storage can throw; the
@@ -85,7 +104,7 @@
              a benefit, not a gate. -->
         <button id="subscribeBtn" class="themebtn" title="Monthly newsletter — the best-value places to travel, in your inbox">📬 Subscribe</button>
         <button id="shareBtn" class="themebtn" title="copy a link to this view &amp; settings">🔗 <span class="btxt">Share</span></button>
-        <button id="acctBtn" class="themebtn" hidden title="Save your travel map to an account">👤 <span class="btxt">Save map</span></button>
+        <button id="acctBtn" class="themebtn"{{ACCT_HIDDEN}} title="Save your travel map to an account">👤 <span class="btxt">Save map</span></button>
         <button id="installBtn" class="themebtn" hidden title="Install WanderGrade as an app" aria-label="Install WanderGrade as an app">📲</button>
         <button id="musicBtn" class="themebtn" title="Soundtrack — off (click to turn on)" aria-label="Toggle soundtrack" aria-pressed="false">🎵</button>
         <button id="themeBtn" class="themebtn" title="toggle light/dark mode" aria-label="Toggle light or dark mode">🌙</button>
@@ -489,7 +508,13 @@
         <button data-dm="advisory">🛡️ Safety</button>
         <button data-dm="flights">✈️ Flights</button>
       </div>
-      <div class="actions">
+      <!-- The sub-view's pill from first paint, like the tabs' underline above;
+           setDataMode keeps it in sync after that. -->
+      <script>(function(){var d=document.documentElement.getAttribute("data-dm");if(!d)return;
+        document.querySelectorAll("#dataMode button").forEach(function(b){b.classList.toggle("active",b.dataset.dm===d);});})();</script>
+      <!-- Hidden until app.js hears the server isn't read-only (the public site
+           always is): see the /api/config call in init(). -->
+      <div class="actions" hidden>
         <!-- No Refresh button: it refetched only the currency data, which the
              server caches for ten minutes on a feed that updates daily, and
              sat on every sub-tab, three of which it didn't redraw. "As of …"
@@ -503,7 +528,10 @@
       <div class="bar">
         <div class="meta">
           <span id="asof">Loading…</span>
-          <span id="summary"></span>
+          <!-- Held by an invisible copy of the line renderRates writes, which
+               wraps where the real one will: "As of…" grew 22 -> 43px on
+               desktop and 63-83px on phones when it arrived. -->
+          <span id="summary"><span class="skeltext" aria-hidden="true">139 currencies · 12 stronger than usual after inflation ⓘ</span></span>
         </div>
         <span class="pickgroup" data-tip="see everything from another home currency's point of view" title="">
           <span class="picklabel">💱 <span class="lbl-lg">My currency</span></span>
@@ -516,7 +544,7 @@
           <div class="charthead">
             <div>
               <h2 id="mapH2">Where the dollar is strong <span class="muted">vs each currency's 1-year average</span></h2>
-              <p id="mapsub" class="chartsub">Loading map…</p>
+              <p id="mapsub" class="chartsub"><span class="skeltext" aria-hidden="true">Greener = the dollar above its 1-year average there · 195 countries ⓘ</span></p>
             </div>
             <div class="legend" id="legend"></div>
             <!-- The first map built, and the only one that never got the share
@@ -524,13 +552,20 @@
             <button id="fxShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
           </div>
           <div id="map" class="map">Loading map…</div>
+          <!-- The list under the map, static so its lines are held from first
+               paint: created on the first render, it dropped the card 35px on
+               desktop and 90-120px on a phone. An invisible stand-in of the
+               usual title and eight picks (.skel), each as wide as a typical
+               pick, wraps into the rows the real list will; renderDimPicks
+               replaces it. -->
+          <div class="mappicksrow skel" data-for="map" aria-hidden="true"><strong>Your dollar's biggest gains, after inflation</strong><span style="width:7.8em"></span><span style="width:12.6em"></span><span style="width:8.7em"></span><span style="width:8em"></span><span style="width:8em"></span><span style="width:8.4em"></span><span style="width:6.5em"></span><span style="width:6.9em"></span></div>
         </section>
 
         <section class="chartcard">
           <div class="charthead">
             <div>
               <h2 id="chartH2">Overall dollar strength <span class="muted">vs rest of world</span></h2>
-              <p id="chartsub" class="chartsub">Loading…</p>
+              <p id="chartsub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> across 28 currencies · 3 Oct 2025 → 2 Oct 2026</span></p>
             </div>
             <div class="bignum">
               <span id="indexnow">—</span>
@@ -549,7 +584,7 @@
             <button type="button" data-range="all" aria-pressed="false">All</button>
           </div>
           <div id="chart" class="chart"></div>
-          <p class="chartnote" id="chartnote">Index: Jan 1999 = 100. Higher = your currency buys more of the others (before inflation).</p>
+          <p class="chartnote" id="chartnote">Index: Jan 1999 = 100. Higher = the dollar buys more of 28 other currencies (before inflation).<span class="skeltext" aria-hidden="true"> ⓘ</span></p>
         </section>
       </div>
 
@@ -593,7 +628,11 @@
 
       <div class="filterbar">
         <input id="curFilter" class="tablefilter" type="search" placeholder="🔍 Filter by currency or country…">
-        <select id="curRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"></select>
+        <!-- The four Data Region pickers carry their options in the markup
+             (REGIONS in app.js, which only binds them): filled by app.js, each
+             grew 144px when it arrived and pushed the checkbox beside it along.
+             Keep the two lists in step. -->
+        <select id="curRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"><option value="all">🌍 All regions</option><option value="AMER">Americas</option><option value="EUR">Europe</option><option value="MENA">Middle East &amp; N. Africa</option><option value="ASIA">Asia</option><option value="AFRICA">Africa (Sub-Saharan)</option><option value="OCEANIA">Oceania</option></select>
         <label class="chk"><input type="checkbox" id="curRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>
       </div>
       <section class="tablewrap">
@@ -612,7 +651,7 @@
               <th class="num sortable" aria-sort="none" data-sk="range" title="where today's rate sits in its 1-year range — further right (greener) = your money is near its strongest, so it goes further"><button type="button" class="sortbtn">Range position</button></th>
             </tr>
           </thead>
-          <tbody id="rows"><tr><td colspan="5">Loading…</td></tr></tbody>
+          <tbody id="rows"><tr class="loadingrow"><td colspan="5">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>
@@ -625,19 +664,20 @@
         <div class="charthead">
           <div>
             <h2>Cost of living <span class="muted">how far your money goes</span></h2>
-            <p id="affSub" class="chartsub">Loading…</p>
+            <p id="affSub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> cheaper than the US · 176 countries · 32 cheaper than usual ⓘ</span></p>
           </div>
           <!-- Same home-country state as the From selector on Top Picks —
                mirrored here so the reference is visible and changeable where
                the comparison is actually read. -->
           <span class="pickgroup" data-tip="compare prices against this home country — same setting as the From selector" title="">
             <span class="picklabel">🏠 Vs home</span>
-            <select id="affAnchor"></select>
+            <select id="affAnchor" class="combosel"></select>
           </span>
           <div class="legend" id="affLegend2"></div>
           <button id="affShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
         </div>
         <div id="affMap" class="map">Loading…</div>
+        <div class="mappicksrow skel" data-for="affMap" aria-hidden="true"><strong>Where $100 goes furthest</strong><span style="width:11.4em"></span><span style="width:6em"></span><span style="width:7em"></span><span style="width:7.7em"></span><span style="width:6.6em"></span><span style="width:9.6em"></span><span style="width:11.1em"></span><span style="width:7.7em"></span></div>
       </section>
       <!-- Cost over time: the map's price level, per year since 1990 and then
            today (renderCol). Follows the Vs home picker; a country clicked on
@@ -656,7 +696,7 @@
         <div class="colbar">
           <span class="pickgroup">
             <span class="picklabel">📍 Country</span>
-            <select id="colPick" aria-label="Country"></select>
+            <select id="colPick" class="combosel" aria-label="Country"></select>
           </span>
           <div class="windowtoggle" id="colRange" role="group" aria-label="Time range">
             <button type="button" data-range="10" aria-pressed="true" class="active">10Y</button>
@@ -670,7 +710,7 @@
       </div>
       <div class="filterbar">
         <input id="affFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
-        <select id="affRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"></select>
+        <select id="affRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"><option value="all">🌍 All regions</option><option value="AMER">Americas</option><option value="EUR">Europe</option><option value="MENA">Middle East &amp; N. Africa</option><option value="ASIA">Asia</option><option value="AFRICA">Africa (Sub-Saharan)</option><option value="OCEANIA">Oceania</option></select>
         <label class="chk"><input type="checkbox" id="affRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>
       </div>
       <section class="tablewrap">
@@ -687,7 +727,7 @@
             <th class="num sortable" aria-sort="none" data-sk="buys" title="what 100 in your home currency buys there, measured in at-home goods (100 ÷ price level)"><button type="button" class="sortbtn">100 buys</button></th>
             <th class="num sortable" aria-sort="none" data-sk="range" title="where today sits between its priciest and cheapest level of the last ten years — further right = cheaper than usual"><button type="button" class="sortbtn">10-yr range</button></th>
           </tr></thead>
-          <tbody id="affRows"><tr><td colspan="5">Loading…</td></tr></tbody>
+          <tbody id="affRows"><tr class="loadingrow"><td colspan="5">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>
@@ -721,6 +761,8 @@
           <button id="advShare" class="themebtn shareimg" type="button" title="Download this map as an image">📸 <span class="btxt">Share image</span></button>
         </div>
         <div id="advMap" class="map">Loading…</div>
+        <!-- Stand-in for "Recently changed" (see the Currency map's). -->
+        <div class="mappicksrow skel" data-for="advMap" aria-hidden="true"><strong>Recently changed</strong><span style="width:9.3em"></span><span style="width:14.2em"></span><span style="width:9.6em"></span></div>
       </section>
       <section class="chartcard" id="govCard">
         <div class="charthead">
@@ -735,7 +777,7 @@
       </div>
       <div class="filterbar">
         <input id="advFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
-        <select id="advRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"></select>
+        <select id="advRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"><option value="all">🌍 All regions</option><option value="AMER">Americas</option><option value="EUR">Europe</option><option value="MENA">Middle East &amp; N. Africa</option><option value="ASIA">Asia</option><option value="AFRICA">Africa (Sub-Saharan)</option><option value="OCEANIA">Oceania</option></select>
         <select id="advLevel" title="filter by advisory level">
           <option value="all">All levels</option>
           <option value="1">L1 — Normal precautions</option>
@@ -756,7 +798,7 @@
                calls a risk (💉), as chips; both in full in the notes row. The ⓘ marks sit
                beside the sort buttons, not in them, so they're keyboard stops. -->
           <thead><tr><th class="sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th><th class="sortable" aria-sort="none" data-sk="level"><button type="button" class="sortbtn">Level</button></th><th class="sortable" aria-sort="none" data-sk="risks"><button type="button" class="sortbtn"><span aria-hidden="true">🚨 </span><span id="riskLabel">Risks</span></button><span class="muted thinfo" id="riskInfo" data-tip="The reasons the U.S. State Department gives for its level." title="">ⓘ</span></th><th class="sortable" aria-sort="none" data-sk="health"><button type="button" class="sortbtn"><span aria-hidden="true">💉 </span>Health</button><span class="muted thinfo" id="healthInfo" data-tip="Diseases the Government of Canada's travel health advice calls a risk to travellers there." title="">ⓘ</span></th><th><span class="vh">Notes and source</span></th></tr></thead>
-          <tbody id="advRows"><tr><td colspan="5">Loading…</td></tr></tbody>
+          <tbody id="advRows"><tr class="loadingrow"><td colspan="5">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>
@@ -775,13 +817,13 @@
           <div class="pickers">
             <span class="pickgroup" data-tip="your home country — fares are averaged from its main hub" title="">
               <span class="picklabel">✈️ From</span>
-              <select id="flightOrigin"></select>
+              <select id="flightOrigin" class="combosel"></select>
             </span>
             <!-- The site's one travel month (#valueMonth), mirrored both ways
                  like From: fares here are banded for this departure month. -->
             <span class="pickgroup" data-tip="the departure month the fares are for — picking one also sets your travel month on Top Picks" title="">
               <span class="picklabel"><span class="lbl-lg">📅 Departing in</span><span class="lbl-sm">📅 Departs</span></span>
-              <select id="flightMonth" aria-label="Departing in"></select>
+              <select id="flightMonth" class="combosel" aria-label="Departing in"></select>
             </span>
             <!-- Display currency is its own choice, not the origin's: a German
                  flying home from the US wants EUR fares. Conversion is today's
@@ -789,7 +831,7 @@
                  in USD. Defaults to the "My currency" choice. -->
             <span class="pickgroup" data-tip="show fares in this currency — converted at today's rate. Fares are cached in USD; other currencies are approximate." title="">
               <span class="picklabel">💱 In</span>
-              <select id="flightCur"></select>
+              <select id="flightCur" class="combosel"></select>
             </span>
             <div class="legend" id="flightLegend"></div>
             <button id="flightShare" class="themebtn shareimg" type="button" title="Download this map as an image">📸 <span class="btxt">Share image</span></button>
@@ -820,7 +862,7 @@
       </div>
       <div class="filterbar">
         <input id="flightFilter" class="tablefilter" type="search" placeholder="🔍 Filter by destination…">
-        <select id="flightRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"></select>
+        <select id="flightRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"><option value="all">🌍 All regions</option><option value="AMER">Americas</option><option value="EUR">Europe</option><option value="MENA">Middle East &amp; N. Africa</option><option value="ASIA">Asia</option><option value="AFRICA">Africa (Sub-Saharan)</option><option value="OCEANIA">Oceania</option></select>
         <label class="chk"><input type="checkbox" id="flightRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>
       </div>
       <section class="tablewrap">
@@ -837,7 +879,7 @@
             <th class="num sortable" aria-sort="none" data-sk="dur" title="one way, layovers included, on the most direct cached flight"><button type="button" class="sortbtn">Flight time</button></th>
             <th class="num sortable" aria-sort="none" data-sk="stops" title="fewest stops on any cached flight"><button type="button" class="sortbtn">Stops</button></th>
           </tr></thead>
-          <tbody id="flightRows"><tr><td colspan="7">Loading…</td></tr></tbody>
+          <tbody id="flightRows"><tr class="loadingrow"><td colspan="7">Loading…</td></tr></tbody>
         </table>
       </section>
     </div>
