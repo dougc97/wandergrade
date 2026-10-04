@@ -4801,7 +4801,6 @@ function pppAgeNote(iso) {
 // Every price-data caveat for a country, one per line, for a single ⚠️.
 function pppNotes(iso) { return [pppDriftNote(iso), pppAgeNote(iso)].filter(Boolean).join("\n"); }
 function renderAfford() {
-  let n = 0;
   // The trend columns read the yearly history; its arrival re-renders.
   // (Not gated on loaded.afford: on a direct /?dm=afford load the history can
   // land before that flag is set, and the columns stayed "—".)
@@ -4819,7 +4818,6 @@ function renderAfford() {
   drawMap("affMap", (f) => {
     const pl = priceLevel(f.properties.iso);
     if (pl == null) return { fill: NODATA, title: f.properties.name + " — no price data" };
-    n++;
     const rel = pl / anchorPl;
     const notes = pppNotes(f.properties.iso);
     return { fill: affordColor(rel),
@@ -4862,8 +4860,12 @@ function renderAfford() {
     const name = (ppp[iso] && ppp[iso].name) || (climate && climate[iso] && climate[iso].name) || iso;
     rows.push({ iso, name, cur: CUR_BY_ISO[iso], pl, tr: iso === anchorIso ? null : affTrend(iso, anchorObj, pl / anchorPl) });
   }
-  const cheaperNow = rows.filter((r) => r.tr && affPct(r.tr) <= -AFF_CHEAP_PCT && inRegion(r.iso)
-    && (showRisky || (adv[r.iso] || 0) < 3)).length;
+  // Both counts on the line are the table's rows as shown (its region and its
+  // Level 3–4 filter). The country count used to be the map's — every price,
+  // risky or not — so a US home read "176 countries · 32 cheaper than usual"
+  // over 135 rows, and Americas "31 countries · 6 cheaper" over 25.
+  const shown = rows.filter((r) => inRegion(r.iso) && (showRisky || (adv[r.iso] || 0) < 3));
+  const cheaperNow = shown.filter((r) => r.tr && affPct(r.tr) <= -AFF_CHEAP_PCT).length;
   const ai = $("affInfo");
   if (ai) ai.dataset.tip = `Green rows: prices there, measured against ${anchorName}, are at least ${AFF_CHEAP_PCT}% below `
     + "their own average of the last ten years — cheaper than usual, whether from a weaker currency or slower price rises. "
@@ -4873,7 +4875,7 @@ function renderAfford() {
   // Until the history lands, an invisible stand-in for the count it adds
   // holds the line's length: without it the line was a line shorter on a
   // tablet or phone for that moment, and the map and table rode up and back.
-  $("affSub").innerHTML = esc(`Below 1.00 = cheaper than ${anchorName} · ${n} countries`
+  $("affSub").innerHTML = esc(`Below 1.00 = cheaper than ${anchorName} · ${shown.length} countries`
     + (plHist ? ` · ${cheaperNow} cheaper than usual` : ""))
     + ` <span class="muted" data-tip="${esc(`World Bank PPP (${pppYear()} for most countries), brought up to date by inflation, ÷ today's exchange rate. `
       + "National averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.")}" title="">ⓘ</span>`
