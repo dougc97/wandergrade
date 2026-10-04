@@ -211,18 +211,37 @@ def _index_template():
 # app.js promoteShellHeadings() turns them back into h2/h3 the moment a reader
 # opens one of those tabs — before it is revealed, so nothing moves. The tabs
 # are also data-nosnippet: Google builds no snippet from the SMTP tip.
+# Only inside those four tab sections: a heading added to the header, the guide
+# tab or the footer stays a real heading (promoteShellHeadings never runs while
+# the guide is showing, so a demoted one there would stay a div).
 _SHELL_H = re.compile(r"<(/?)h([23])(?=[\s>])")
 _SHELL_TABS = ("tab-value", "tab-trip", "tab-visited", "tab-data")
+_SECTION_TAG = re.compile(r"<(/?)section(?=[\s>])")
 _guide_tpl = None
+
+
+def _section_end(tpl, a):
+    """Index just past the </section> that closes the <section> at a (tabs nest
+    sections of their own)."""
+    depth = 0
+    for m in _SECTION_TAG.finditer(tpl, a):
+        depth += -1 if m.group(1) else 1
+        if depth == 0:
+            return tpl.index(">", m.end()) + 1
+    raise ValueError("unclosed <section> at %d" % a)
 
 
 def _guide_template():
     global _guide_tpl
     if _guide_tpl is None:
-        tpl = _SHELL_H.sub(lambda m: "</div" if m.group(1) else '<div data-h="%s"' % m.group(2),
-                           _index_template())
+        tpl = _index_template()
         for t in _SHELL_TABS:
-            tpl = tpl.replace('id="%s"' % t, 'id="%s" data-nosnippet' % t, 1)
+            a = tpl.index('<section class="tab" id="%s"' % t)
+            b = _section_end(tpl, a)
+            sec = _SHELL_H.sub(lambda m: "</div" if m.group(1) else '<div data-h="%s"' % m.group(2),
+                               tpl[a:b])
+            sec = sec.replace('id="%s"' % t, 'id="%s" data-nosnippet' % t, 1)
+            tpl = tpl[:a] + sec + tpl[b:]
         _guide_tpl = tpl
     return _guide_tpl
 
@@ -443,9 +462,14 @@ def _sitemap():
     # the deploy time and all 178 lastmods moved on every template tweak —
     # exactly the fabricated freshness this block documents avoiding. The
     # stamp is a committed file, bumped only when the content JSONs
-    # (slugs/climate/activities/country-names/visa/guide-facts) actually
-    # change — scripts/build_guide_facts.py bumps it itself when a guide's
-    # title, description, price figure or advisory level moves.
+    # (slugs/climate/activities/country-names/visa) actually change — every
+    # page shares it.
+    # A guide's own snapshot (its title, description, price figure and advisory
+    # level, public/guide-facts.json) moves only that guide: build_guide_facts.py
+    # records the day it last changed as "m", so the monthly rebuild doesn't
+    # re-date "/" and "/data", whose content it never touches. And the day the
+    # snapshot passes render_guide.STALE_DAYS every guide drops its figures —
+    # a real change, dated as one.
     try:
         with open(os.path.join(PUBLIC, "content-stamp.txt"), encoding="utf-8") as f:
             stamp = f.read().strip()[:10]
@@ -457,9 +481,11 @@ def _sitemap():
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
            '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
            '  <url><loc>%s/data</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp)]
-    for slug, _iso in render_guide.all_slugs():
+    expired = render_guide.snapshot_expired_on()
+    for slug, iso in render_guide.all_slugs():
+        days = [stamp, render_guide.snapshot_changed(iso), expired.isoformat() if expired else ""]
         out.append('  <url><loc>%s/guide/%s</loc><lastmod>%s</lastmod></url>'
-                   % (_SITE, slug, stamp))
+                   % (_SITE, slug, max(x for x in days if re.fullmatch(r"\d{4}-\d{2}-\d{2}", x))))
     out.append('</urlset>')
     return ("\n".join(out) + "\n").encode("utf-8")   # _send_body takes bytes
 

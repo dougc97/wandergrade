@@ -133,3 +133,22 @@ the tunnel window to take it offline. (`cloudflared`/`cf.tgz` are gitignored.)
 | Local dashboard  | your Mac (`./run.sh`)| only when running | free |
 
 \* free web tiers sleep when idle and wake on request.
+
+## Monthly: refresh the guide snapshot (by hand — nothing automates it)
+
+Every guide's title, meta description, FAQ answers and server-rendered 💰/🛡️
+lines come from `public/guide-facts.json`: price level vs the US and the advisory
+level, dated ("As of Sep 2026"). It never updates itself. At 45 days
+`scripts/test_guide_meta.py` fails; at 90 days every figure, level and date
+silently drops out of all 190 guide pages. Early each month:
+
+```bash
+/usr/bin/python3 scripts/parity/parity.py --refresh   # GET-only: production /api fixtures
+/usr/bin/python3 scripts/build_guide_facts.py         # rewrites guide-facts.json, dates changed guides
+/usr/bin/python3 scripts/test_guide_meta.py           # lengths, lockstep, attribution, age
+```
+
+Commit `public/guide-facts.json` and `scripts/parity/fixture_*.json`, deploy
+(the server reads the snapshot once at startup), and allow ≤5 min for the
+Cloudflare HTML edge cache. Each changed guide's sitemap `<lastmod>` moves on
+its own; `/` and `/data` keep `public/content-stamp.txt`.

@@ -20,13 +20,20 @@ Each entry: pct (js_round(100*pl); never for the US), band (app.js plWord on
 the two printed decimals), plof (the UK for England/Scotland/Wales), adv, src
 (us/ca/de), advof (the parent whose advisory a territory shows), and t/d/dn —
 render_guide.meta()'s title, description and number-free description, so app.js
-sets exactly what the server would on in-app navigation.
+sets exactly what the server would on in-app navigation — and m, the day that
+guide's entry last changed (a title, description, figure or level), which is
+its sitemap <lastmod>. public/content-stamp.txt is NOT touched: it dates the
+content every page shares, and a snapshot rebuild changes none of it.
 
-public/content-stamp.txt (the sitemap's <lastmod>) is bumped to today only
-when a title, description, figure or level actually changed.
+Monthly (the descriptions are dated, and past render_guide.STALE_DAYS = 90 days
+every figure drops out; scripts/test_guide_meta.py fails from day 45):
+    /usr/bin/python3 scripts/parity/parity.py --refresh     # GET-only production fixtures
+    /usr/bin/python3 scripts/build_guide_facts.py
+    /usr/bin/python3 scripts/test_guide_meta.py
+then commit public/guide-facts.json + the fixtures, and restart server.py
+(render_guide reads the file once per process).
 
 Run:  /usr/bin/python3 scripts/build_guide_facts.py [--rates F] [--advisories F]
-Then restart server.py (render_guide reads the file once per process).
 """
 
 import argparse
@@ -44,13 +51,12 @@ from fxtracker import picks, pricelevel, render_guide  # noqa: E402
 
 PUBLIC = os.path.join(ROOT, "public")
 OUT = os.path.join(PUBLIC, "guide-facts.json")
-STAMP = os.path.join(PUBLIC, "content-stamp.txt")
 
 # app.js GUIDE_PARENT (price level, always) and ADV_PARENT (advisory, only when
 # the place has no row of its own).
 GUIDE_PARENT = {"GB-ENG": "GB", "GB-SCT": "GB", "GB-WLS": "GB"}
 ADV_PARENT = dict(GUIDE_PARENT, GG="GB", IM="GB", JE="GB", FO="DK")
-CHANGE_KEYS = ("t", "d", "pct", "adv")
+CHANGE_KEYS = ("t", "d", "dn", "pct", "adv")
 
 
 def band(pl):
@@ -133,18 +139,19 @@ def main():
         old = json.load(open(OUT, encoding="utf-8"))
     except (OSError, ValueError):
         old = {}
+    # A guide with no "m" yet counts as changed: it has never been dated.
     changed = [iso for iso in guides
-               if any((old.get(iso) or {}).get(k) != data[iso].get(k) for k in CHANGE_KEYS)]
+               if not (old.get(iso) or {}).get("m")
+               or any((old.get(iso) or {}).get(k) != data[iso].get(k) for k in CHANGE_KEYS)]
+    today = datetime.date.today().isoformat()
+    for iso in guides:
+        data[iso]["m"] = today if iso in changed else old[iso]["m"]
     with open(OUT, "w", encoding="utf-8") as fh:
         fh.write(dump(data))
     print("guide-facts.json: %d guides as of %s · %d with a price level · %d with an advisory · %d changed"
           % (len(guides), data["_asof"], n_pct, n_adv, len(changed)))
     if changed:
-        today = datetime.date.today().isoformat()
-        with open(STAMP, "w", encoding="utf-8") as fh:
-            fh.write(today + "\n")
-        print("content-stamp.txt -> %s (%s%s)" % (today, ", ".join(changed[:8]),
-                                                   " …" if len(changed) > 8 else ""))
+        print("lastmod -> %s for %s%s" % (today, ", ".join(changed[:8]), " …" if len(changed) > 8 else ""))
 
 
 if __name__ == "__main__":

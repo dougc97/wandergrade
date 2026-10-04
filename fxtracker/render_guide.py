@@ -73,6 +73,19 @@ def _load():
     return _data
 
 
+# Names that read wrong bare inside a sentence or question ("Is Bahamas cheap to
+# visit?", "Things to do in United States"). app.js NAME_THE is the same set:
+# change them together (scripts/test_guide_meta.py holds the two equal). Labels
+# ("Bahamas: local prices…", "Bahamas Travel Guide") and the h1 keep the bare name.
+THE = {"BS", "PH", "NL", "AE", "GB", "US", "DO", "GM", "SB", "FO", "FK", "CF", "CG", "IM", "TF"}
+
+
+def name_in_text(iso):
+    """The country's name as it sits inside a sentence: "the Bahamas", "Japan"."""
+    n = _load()["names"].get(iso, iso)
+    return "the " + n if iso in THE else n
+
+
 def iso_for_slug(slug):
     """ISO-2 for a URL slug, or None if it isn't a known country."""
     return _load()["slugs"].get(slug)
@@ -92,16 +105,28 @@ def flag_emoji(iso):
     return "\U0001F30D"
 
 
+def h1_topics(iso):
+    """'cost, safety & when to go' — only the topics this guide has data for:
+    cost where the snapshot has a price figure (not Taiwan, Cuba, the US
+    itself…), safety where it has an advisory (not Western Sahara or the French
+    Southern Territories). app.js guideH1Text() reads the same two fields of
+    guide-facts.json. Topics, never figures, so a stale snapshot claims nothing."""
+    f = _facts(iso)
+    t = (["cost"] if f.get("pct") is not None else []) + (["safety"] if f.get("adv") else []) + ["when to go"]
+    return t[0] if len(t) == 1 else "%s & %s" % (", ".join(t[:-1]), t[-1])
+
+
 def h1_html(iso):
-    """The guide's one h1, the same text as app.js guideH1Html(): it is served
+    """The guide's one h1, the same markup as app.js guideH1Html(): it is served
     as #guideH1 itself and hydration leaves it alone (renderGuide compares
-    textContent, so html.escape's &#x27; vs esc()'s &#39; doesn't matter). Data-free on purpose — the
-    client never waits on a fetch to draw it, and it can never contradict one.
-    "<Country> travel" keeps the page's strongest heading on the query the
-    titles no longer lead with."""
+    textContent, so html.escape's &#x27; vs esc()'s &#39; doesn't matter). No
+    figures — the client never waits on live data to draw it, and it can never
+    contradict any. "<Country> travel" keeps the page's strongest heading on
+    the query the titles no longer lead with; the name is green (.gname), as
+    the country was in the old "Travel Guide — Japan" heading."""
     name = _load()["names"].get(iso, iso)
-    return '<span aria-hidden="true">%s</span> %s travel: cost, safety &amp; when to go' % (
-        flag_emoji(iso), html.escape(name))
+    return '<span aria-hidden="true">%s</span> <span class="gname">%s</span> travel: %s' % (
+        flag_emoji(iso), html.escape(name), html.escape(h1_topics(iso)))
 
 
 # ---- the price level / advisory snapshot (public/guide-facts.json) --------------
@@ -151,6 +176,22 @@ def snapshot_fresh(today=None):
     return ok
 
 
+def snapshot_expired_on(today=None):
+    """The first day past STALE_DAYS (the day every guide dropped its figures),
+    once that day has come; else None. The sitemap dates that change."""
+    a = snapshot_asof()
+    if not a:
+        return None
+    d = a + datetime.timedelta(days=STALE_DAYS + 1)
+    return d if d <= (today or datetime.date.today()) else None
+
+
+def snapshot_changed(iso):
+    """The day this guide's snapshot entry last changed ("m", kept by
+    scripts/build_guide_facts.py), or "" — the guide's sitemap <lastmod>."""
+    return str(_facts(iso).get("m") or "")[:10]
+
+
 def _facts(iso):
     return _load()["facts"].get(iso) or {}
 
@@ -189,23 +230,37 @@ TITLE_MAX = 60
 DESC_MAX = 155
 
 
+# The cost clause after the question, longest first. "Costs", not "Prices":
+# "<country> travel cost" is the query, and it is a character shorter. "Travel"
+# is added only where it fits without dropping a clause the shorter rung keeps
+# — never at the price of "vs US", the comparison only this site makes.
+_COST_TAILS = [" Travel Costs vs US, Safety & Best Time", " Costs vs US, Safety & Best Time",
+               " Travel Costs vs US & Best Time", " Costs vs US & Best Time",
+               " Travel Costs vs US", " Costs vs US", ""]
+
+
 def _title(iso, f):
     """A question nobody else's page answers. Never a number or a level: a stale
     snapshot can only change which question is asked, and a question claims
-    nothing. Level 4 countries are never asked "cheap?". The first rung that
-    fits TITLE_MAX wins; long names drop clauses, never letters."""
+    nothing. Level 3 and 4 countries are asked "safe?" (the query people type
+    about them); Level 4 is never asked "cheap?". The first rung that fits
+    TITLE_MAX wins; long names drop clauses, never letters."""
     n = _load()["names"].get(iso, iso)
-    if f.get("adv") == 4:
-        rest = " Travel Advisory, Prices & Weather" if f.get("pct") is not None else " Travel Advisory & Weather"
-        ladder = ["Is %s Safe to Visit?%s" % (n, rest),
-                  "Is %s Safe to Visit? Travel Advisory" % n,
-                  "Is %s Safe to Visit?" % n]
-    elif f.get("pct") is not None:
-        q = _band_q(f)
-        ladder = ["Is %s %s to Visit? Prices vs US, Safety & Best Time" % (n, q),
-                  "Is %s %s to Visit? Prices vs US & Best Time" % (n, q),
-                  "Is %s %s to Visit? Prices vs US" % (n, q),
-                  "Is %s %s to Visit?" % (n, q)]
+    nt = name_in_text(iso)
+    adv, has_p = f.get("adv"), f.get("pct") is not None
+    if adv == 4 or (adv == 3 and not has_p):
+        rest = " Travel Advisory, Costs & Weather" if has_p else " Travel Advisory & Weather"
+        ladder = ["Is %s Safe to Visit?%s" % (nt, rest),
+                  "Is %s Safe to Visit? Travel Advisory" % nt,
+                  "Is %s Safe to Visit?" % nt]
+    elif has_p:
+        if adv == 3:
+            head = ("Is %s Safe & Cheap to Visit?" if _band_q(f) == "Cheap" else "Is %s Safe to Visit?") % nt
+            tails = [t for t in _COST_TAILS if "Safety" not in t]   # the question asks it
+        else:
+            head = "Is %s %s to Visit?" % (nt, _band_q(f))
+            tails = _COST_TAILS
+        ladder = [head + t for t in tails]
     else:
         ladder = ["%s Travel Guide: Best Time to Visit & Things to Do" % n,
                   "%s Travel Guide: Best Time to Visit" % n,
@@ -230,7 +285,8 @@ def _desc(iso, f, asof):
     grade: the overall grade moves with the month and the reader's priorities,
     so a meta letter would contradict the page most of the year."""
     d = _load()
-    n = d["names"].get(iso, iso)
+    n = d["names"].get(iso, iso)            # the leading label: "Bahamas: local prices…"
+    nt = name_in_text(iso)                  # inside a sentence: "Best weather in the Bahamas"
     c = d["clim"].get(iso) or {}
     curated = bool(c.get("curated"))
     best = [m for m in (c.get("best") or []) if 1 <= m <= 12]
@@ -240,6 +296,9 @@ def _desc(iso, f, asof):
     has_p = f.get("pct") is not None
 
     def build(ranges=False, words=True, band=True):
+        # No "(very cheap)" beside "Do not travel": a bargain verdict is the
+        # wrong thing to say about a place the government says to stay out of.
+        band = band and lvl != 4
         P = None
         if has_p:
             extra = ([f["band"]] if band and f.get("band") else []) + (
@@ -253,7 +312,7 @@ def _desc(iso, f, asof):
             if P:
                 B = ("Best months to visit: %s." if curated else "Best weather: %s.") % mt
             else:
-                B = ("Best months to visit %s: %s." if curated else "Best weather in %s: %s.") % (n, mt)
+                B = ("Best months to visit %s: %s." if curated else "Best weather in %s: %s.") % (nt, mt)
         S = None
         if lvl:
             if src == "de":
@@ -277,14 +336,34 @@ def _desc(iso, f, asof):
         if len(s) <= DESC_MAX:
             break
     if not s:
-        return _clip(summary or ("What to do in %s, when to go, and what's in season — "
-                                 "graded on prices, weather, safety and flights." % n), DESC_MAX)
-    room = DESC_MAX - len(s) - 1
-    if summary and room >= 40:
-        fill = summary if len(summary) <= room else (
-            summary[:room - 1].rsplit(" ", 1)[0].rstrip(",;:—–- ") + "…")
-        s += " " + fill
-    return s
+        return _clip(summary or generic_desc(iso), DESC_MAX)
+    fill = _summary_fit(summary, DESC_MAX - len(s) - 1)
+    return s + " " + fill if fill else s
+
+
+def generic_desc(iso):
+    """The number-free last resort — app.js guideMeta() shows the same sentence
+    when guide-facts.json can't be loaded."""
+    return ("What to do in %s, when to go, and what's in season — "
+            "graded on prices, weather, safety and flights." % name_in_text(iso))
+
+
+def _summary_fit(summary, room):
+    """The curated summary in what room is left: whole; else up to its " — "
+    (the clause before it stands alone, so it ends with a full stop); else up
+    to a ", " with an ellipsis; else nothing. Never a cut mid-phrase ("…a long
+    Indian Ocean coast and…"). Under 25 characters isn't worth the space."""
+    if not summary or room < 25:
+        return ""
+    if len(summary) <= room:
+        return summary
+    for sep, end in ((" — ", "."), (", ", "…")):
+        cuts = [i for i in range(len(summary)) if summary.startswith(sep, i)]
+        for i in reversed(cuts):
+            head = summary[:i].rstrip(".,;: ")
+            if 25 <= len(head) + len(end) <= room:
+                return head + end
+    return ""
 
 
 def meta(iso, f=None, asof=None):
@@ -412,11 +491,12 @@ def _value_qas(iso, f, asof):
     shows FAQ rich results only for government/health sites since 2023, so this
     is for understanding the page, not for a SERP feature."""
     d = _load()
-    n = d["names"].get(iso, iso)
+    n = name_in_text(iso)                   # "local prices in the Bahamas"
     when = _mon_year(asof, full=True)
     qas = []
     if f.get("pct") is not None and when:
-        extra = f.get("band") or ""
+        # No bargain verdict beside "Do not travel" (as in the description).
+        extra = (f.get("band") or "") if f.get("adv") != 4 else ""
         if f.get("plof"):
             extra += (", " if extra else "") + ("UK-wide figure" if f["plof"] == "GB"
                                                 else d["names"].get(f["plof"], f["plof"]) + "-wide figure")
@@ -452,12 +532,15 @@ def _faq_jsonld(name, best_txt, acts, seasonal, summary, curated=False, value_qa
     visit X', 'things to do in X', 'what's in season' — so the page can win
     Google rich results. Data-backed answers only (no invented facts) — which
     includes the curated distinction: the "best months to visit" claim only
-    where months were hand-curated, a weather statement everywhere else."""
+    where months were hand-curated, a weather statement everywhere else.
+    `name` is the in-sentence form (render_guide.name_in_text: "the Bahamas")."""
     qas = []
     if best_txt:
-        a = ("The best months to visit %s are %s, based on weather and seasonality."
+        a = ("The best months to visit %s are %s, based on weather and seasonality." % (name, best_txt)
              if curated else
-             "%s has its best weather in %s.") % (name, best_txt)
+             # Starts the sentence: "The Bahamas has…" (eSwatini keeps its lower-case e).
+             "%s has its best weather in %s." % (
+                 "The " + name[4:] if name.startswith("the ") else name, best_txt))
         if summary:
             a += " " + summary
         qas.append(("When is the best time to visit %s?" % name, a))
@@ -492,7 +575,7 @@ def render(iso):
     """Return the token values for a country page: title, description, og title,
     canonical URL, the h1 (served as #guideH1 itself) and the crawlable body."""
     d = _load()
-    name = d["names"].get(iso, iso)
+    name = name_in_text(iso)          # every use below sits inside a sentence or heading
     slug = d["iso2slug"].get(iso, iso.lower())
     a = d["acts"].get(iso, {}) or {}
     c = d["clim"].get(iso, {}) or {}
@@ -546,11 +629,12 @@ def render(iso):
                   "judged on weather and seasonality.</p>" if curated else
                   "<p>The best weather in %s is in <strong>%s</strong>.</p>")
                  % (html.escape(name), html.escape(best_txt)))
-    # The hydrated outline (renderActivity): one h2, two h4s.
+    # The hydrated outline (renderActivity): one h2, two h3s — h3, not h4, so
+    # the outline skips no level. 1em: the size the h4s had.
     if acts or seasonal:
         p.append("<h2>Things to do in %s</h2>" % html.escape(name))
     if acts:
-        p.append("<h4>🎒 Top things to do</h4><ul>")
+        p.append('<h3 style="font-size:1em">🎒 Top things to do</h3><ul>')
         for x in acts:
             t, ins = _label(x), _insight(x)
             li = "<li><strong>%s</strong>" % html.escape(t or "")
@@ -559,7 +643,7 @@ def render(iso):
             p.append(li + "</li>")
         p.append("</ul>")
     if seasonal:
-        p.append("<h4>🗓️ What's in season</h4><ul>")
+        p.append('<h3 style="font-size:1em">🗓️ What\'s in season</h3><ul>')
         for s in seasonal:
             months = [MON[m - 1] for m in (s.get("months") or []) if 1 <= m <= 12]
             li = "<li><strong>%s</strong>" % html.escape(s.get("what", ""))

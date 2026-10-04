@@ -2520,11 +2520,12 @@ function renderGuide(iso) {
   // The page's one h1. On /guide/<slug> the server already sent this exact
   // markup (render_guide.h1_html), so hydration writes nothing and nothing
   // swaps; other entries fill it and reveal it here.
+  syncGuideH1(iso);
   const gh1 = $("guideH1");
-  if (gh1) {
-    if (gh1.textContent !== flagEmoji(iso) + " " + guideH1Text(iso)) gh1.innerHTML = guideH1Html(iso);
-    gh1.hidden = false;
-  }
+  if (gh1) gh1.hidden = false;
+  // Its topics come from guide-facts.json; fetched now, so a guide opened
+  // in-app later already has them (and this one is corrected if it had to guess).
+  if (!_guideFacts) ensureGuideFacts().then(() => { if (ccGuideIso === iso) syncGuideH1(iso); }).catch(() => {});
   renderGuideInsurance(iso);
   renderGuideGrades(iso);
   // Title and canonical here, not only in openGuideFor: the country picker and a
@@ -2847,6 +2848,8 @@ async function renderGuideCost(iso) {
   host.hidden = true;
   await ensurePPP().catch(() => {});
   if (ccGuideIso !== iso) return;
+  // The reader's own country: "≈ 100% of the US" tells them nothing.
+  if ((GUIDE_PARENT[iso] || iso) === originIso()) return;
   const line = localPricesText(iso);
   if (!line) {
     // Live rates or ppp.json didn't load: the dated snapshot the title and
@@ -3176,6 +3179,9 @@ function renderGuideSafety(iso) {
 // State Dept's level, or whoever filled its gap), attributed and dated, so
 // the page never silently drops what its description claims.
 function renderGuideSafetySnapshot(iso) {
+  // The snapshot is the US State Dept's view (gaps filled as its feed fills
+  // them); a reader who picked Canada or Germany asked for another government.
+  if (advisorySource() !== "us") return;
   ensureGuideFacts().then((d) => {
     const host = $("guideSafety"), f = d[iso];
     if (ccGuideIso !== iso || !host || !f || !f.adv || !guideFactsFresh()) return;
@@ -3749,9 +3755,9 @@ function renderCountryClimate(iso) {
   // that reason — same fact twice in adjacent lines, and chips match nothing
   // anyone types.
   const bestFull = joinAnd(c.best.filter((m) => m >= 1 && m <= 12).map((m) => MONTHS[m - 1]));
-  // country-names.json's name, as the h1 and the server say it — climate.json
-  // carries Natural Earth's abbreviations ("Bosnia and Herz.").
-  const cname = countryName(iso);
+  // country-names.json's name, as the server says it — climate.json carries
+  // Natural Earth's abbreviations ("Bosnia and Herz."); "the Bahamas" mid-sentence.
+  const cname = countryNameInText(iso);
   const bestLine = !bestFull
     ? (c.curated ? "📅 Curated best months:" : "📅 Best weather:")
     : c.curated
@@ -8345,8 +8351,8 @@ function viatorURL(q) {
 
 function renderActivity(iso) {
   const a = activities[iso];
-  const name = countryName(iso);
-  if (!a) { $("actDetail").innerHTML = `<div class="besthead"><h2>Things to do in ${esc(name)}</h2></div><p class="hint">No curated activity profile yet.</p>`; return; }
+  const name = countryName(iso), nameT = countryNameInText(iso);   // nameT: "in the Bahamas"
+  if (!a) { $("actDetail").innerHTML = `<div class="besthead"><h2>Things to do in ${esc(nameT)}</h2></div><p class="hint">No curated activity profile yet.</p>`; return; }
   // The travel month the rest of the page plans for (?vmn=, a month-bar
   // click), not the calendar month: stays and the AI prompt already followed
   // it, and this list was the one block still saying "now".
@@ -8389,9 +8395,10 @@ function renderActivity(iso) {
   const lv = guideAdvLevel(iso);
   const tours = lv === 4 ? "" : `<div class="guidetours"${lv == null ? " hidden" : ""}>
     <a class="viatorbtn" href="${viatorURL(name)}" target="_blank" rel="sponsored nofollow noopener"
-       title="Browse bookable tours & experiences in ${esc(name)} on Viator">🎟️ Book tours &amp; activities in ${esc(name)} <span class="muted">on Viator</span> <span class="ext">↗</span></a>
+       title="Browse bookable tours & experiences in ${esc(nameT)} on Viator">🎟️ Book tours &amp; activities in ${esc(nameT)} <span class="muted">on Viator</span> <span class="ext">↗</span></a>
     <p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p></div>`;
-  const todo = `<h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
+  // h3 under the h2 (an h4 skipped a level); 1em keeps the h4's size.
+  const todo = `<h3 style="font-size:1em;margin:.6em 0 .2em">🎒 Top things to do</h3>
     <ul class="actlist">${acts}</ul>${tours}`;
   // Things to do beside what's in season on a desktop (.actgrid, styles.css);
   // the season rows were each a card-wide line with the months a thousand
@@ -8399,10 +8406,10 @@ function renderActivity(iso) {
   const seasHead = m === curMonth() ? "🗓️ What's in season now" : `🗓️ What's in season in ${MONTHS[m - 1]}`;
   // No "· Asia" on this heading: the weather heading just above already says it.
   $("actDetail").innerHTML = `
-    <div class="besthead"><h2>Things to do in ${esc(name)} ${vis}</h2></div>
+    <div class="besthead"><h2>Things to do in ${esc(nameT)} ${vis}</h2></div>
     ${summary ? `<p class="actsummary muted">${esc(summary)}</p>` : ""}
     <div class="chips">${tags}</div>
-    ${seas ? `<div class="actgrid"><div>${todo}</div><div><h4 style="margin:.6em 0 .2em">${seasHead}</h4>${seas}</div></div>` : todo}`;
+    ${seas ? `<div class="actgrid"><div>${todo}</div><div><h3 style="font-size:1em;margin:.6em 0 .2em">${seasHead}</h3>${seas}</div></div>` : todo}`;
   if (lv == null) {
     const settle = () => {
       const t = $("actDetail").querySelector(".guidetours");
@@ -8549,6 +8556,11 @@ function countryName(iso) {
     return iso;
   }
 }
+// The name inside a sentence or heading: "Things to do in the Bahamas". The
+// same set as render_guide.THE (scripts/test_guide_meta.py holds them equal);
+// labels and the h1 keep the bare name.
+const NAME_THE = new Set(["BS", "PH", "NL", "AE", "GB", "US", "DO", "GM", "SB", "FO", "FK", "CF", "CG", "IM", "TF"]);
+function countryNameInText(iso) { return (NAME_THE.has(iso) ? "the " : "") + countryName(iso); }
 
 // ---- paste-a-list importer ---------------------------------------------------
 // Travelers keep their history in Google Docs / Keep / random notes, mixing
@@ -9483,11 +9495,24 @@ function setDocMeta(m, absURL) {
   const c = document.querySelector('link[rel="canonical"]'); if (c) c.setAttribute("href", absURL);
   set('meta[property="og:url"]', absURL);
 }
-// The guide's h1, byte for byte render_guide.h1_html(): data-free, so it is
-// drawn without waiting on anything and never contradicts a figure.
-function guideH1Text(iso) { return countryName(iso) + " travel: cost, safety & when to go"; }
+// The guide's h1, byte for byte render_guide.h1_html(): no figures, so it never
+// contradicts one. Its topics are render_guide.h1_topics(): "cost" only where
+// guide-facts.json has a price figure, "safety" only where it has an advisory.
+// Until the file is in, every topic (the boot guide keeps the server's h1).
+function guideH1Text(iso) {
+  const f = _guideFacts && _guideFacts[iso];
+  const t = [...(!f || f.pct != null ? ["cost"] : []), ...(!f || f.adv ? ["safety"] : []), "when to go"];
+  return countryName(iso) + " travel: " + (t.length === 1 ? t[0] : t.slice(0, -1).join(", ") + " & " + t[t.length - 1]);
+}
 function guideH1Html(iso) {
-  return '<span aria-hidden="true">' + flagEmoji(iso) + "</span> " + esc(guideH1Text(iso));
+  const n = countryName(iso);
+  return '<span aria-hidden="true">' + flagEmoji(iso) + '</span> <span class="gname">' + esc(n) + "</span>"
+    + esc(guideH1Text(iso).slice(n.length));
+}
+function syncGuideH1(iso) {
+  const gh1 = $("guideH1");
+  if (!gh1 || (!_guideFacts && iso === _bootMeta.iso)) return;   // the server's own h1
+  if (gh1.textContent !== flagEmoji(iso) + " " + guideH1Text(iso)) gh1.innerHTML = guideH1Html(iso);
 }
 // ---- guide-facts.json: the dated snapshot behind every guide's title/snippet --
 // Built by scripts/build_guide_facts.py from render_guide.meta(), so a guide
@@ -9515,11 +9540,14 @@ function guideMeta(iso) {
   if (iso === _bootMeta.iso) return { title: _bootMeta.title, desc: _bootMeta.desc };
   const f = _guideFacts && _guideFacts[iso];
   if (f) return { title: f.t, desc: (!guideFactsFresh() && f.dn) || f.d };
-  // Not loaded yet: render_guide's number-free "Travel Guide" title ladder.
+  // Not loaded yet: render_guide's number-free "Travel Guide" title ladder and
+  // its last-resort description (render_guide.generic_desc) — never the
+  // homepage's, which describes another page.
   const n = countryName(iso);
   const title = [n + " Travel Guide: Best Time to Visit & Things to Do", n + " Travel Guide: Best Time to Visit",
                  n + " Travel Guide"].find((t) => t.length <= 60) || n + " Travel Guide";
-  return { title, desc: _DEFAULT_META.desc };
+  return { title, desc: "What to do in " + countryNameInText(iso)
+    + ", when to go, and what's in season — graded on prices, weather, safety and flights." };
 }
 function setGuideMeta(iso) {
   setDocMeta(guideMeta(iso), SITE_ORIGIN + guidePath(iso));
