@@ -319,7 +319,11 @@ def _us_advisories():
             # state" is the nuance a traveler actually needs, and quoting the
             # feed keeps us out of the business of authoring safety claims.
             "summary": _summary(desc, level, iso, name_iso),
-            "risks": _risks(_summary(desc, level, iso, name_iso, full=True), level),
+            # The reasons may come from a lead of another level naming this
+            # place (any_level): it still says what the State Department
+            # names as the risks. Quoted as the summary, it would contradict
+            # the pill beside it (see _summary).
+            "risks": _risks(_summary(desc, level, iso, name_iso, full=True, any_level=True), level),
             # The bookkeeping sentences _summary discards ("The advisory level
             # was decreased to 1") are exactly the change signal — captured
             # here with the item's publish date so the UI can show what moved.
@@ -358,7 +362,8 @@ def _us_advisories():
 # row's own level is quoting a different advisory: Macau's item (Level 3) opens
 # with the shared China/Hong Kong text, so its tooltip read "Exercise increased
 # caution in Hong Kong..." — a lower level for a different place.
-LEVEL_LEAD = {1: r"exercise normal precaution", 2: r"exercise (increased|a high degree of) caution",
+# "increased?": Comoros's Level 2 item opens "Exercise increase caution".
+LEVEL_LEAD = {1: r"exercise normal precaution", 2: r"exercise (increased?|a high degree of) caution",
               3: r"reconsider travel", 4: r"do not travel"}
 
 
@@ -379,7 +384,7 @@ def _names(sentence, iso, name_iso):
     return any(i == iso for _, i in hits), any(i != iso for _, i in hits)
 
 
-def _summary(desc, level=None, iso=None, name_iso=None, full=False):
+def _summary(desc, level=None, iso=None, name_iso=None, full=False, any_level=False):
     """First two meaningful sentences of the advisory description, plain text.
     The description opens by restating the level ("Exercise increased caution
     in Mexico due to...") — that first sentence carries the WHY (due to
@@ -389,9 +394,12 @@ def _summary(desc, level=None, iso=None, name_iso=None, full=False):
 
     With `level`/`iso`/`name_iso`, the lead must be this row's own: in order of
     preference, this level's phrase naming this place; this level's phrase
-    naming no other place; any level's phrase naming only this place. Failing
-    all three, lead sentences are dropped and the plain sentences quoted, so a
-    summary never opens with another place's (or another level's) advisory."""
+    naming no other place; with `any_level` (the risk chips only), any level's
+    phrase naming only this place. Failing those, lead sentences are dropped
+    and the plain sentences quoted, so a summary never opens with another
+    place's or another level's advisory: Rwanda's Level 3 item carried the
+    Level 2 lead "Exercise increased caution in Rwanda due to crime and
+    unrest", quoted as the reason beside a "Reconsider travel" pill."""
     if not desc:
         return ""
     text = re.sub(r"<!\[CDATA\[|\]\]>", "", desc)
@@ -449,7 +457,7 @@ def _summary(desc, level=None, iso=None, name_iso=None, full=False):
     # not the country — and the read-more boilerplate.
     BOILER = re.compile(r"reissued|periodic review|advisory level was|no changes to the risk"
                         r"|there (was|were) no changes? to the advisory level"
-                        r"|risk indicators|updated? to reflect|was (added|updated|removed)"
+                        r"|risk indicators|updated? to reflect|w(as|ere) (added|updated|removed|combined)"
                         r"|country information page|travel guidance for"
                         r"|always exercise caution when traveling"
                         r"|smart traveler enrollment|general tips to stay safe", re.I)
@@ -473,7 +481,7 @@ def _summary(desc, level=None, iso=None, name_iso=None, full=False):
         pick = next((i for i, t in enumerate(tags) if t[1] and t[2] and not t[3]), None)
         if pick is None:
             pick = next((i for i, t in enumerate(tags) if t[1] and not t[3]), None)
-        if pick is None:
+        if pick is None and any_level:
             pick = next((i for i, t in enumerate(tags) if t[0] and t[2] and not t[3]), None)
         if pick is not None:
             keep = keep[pick:]
