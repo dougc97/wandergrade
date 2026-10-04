@@ -817,7 +817,10 @@ def _render_index(gc_iso=None):
             GUIDE_H1=r["h1_html"],                    # already-safe HTML
             SSR_BODY=r["body"],                       # already-safe HTML
             GC_JS="<script>window.__WGGC__=%s;</script>" % json.dumps(gc_iso),
-            JSONLD=r.get("jsonld", ""),               # FAQPage schema (raw JSON-LD)
+            # No JSON-LD: the WebSite block is the homepage's (Google reads the
+            # site name from there only), and the guides' FAQPage went with
+            # its invisible questions (render_guide.render says why).
+            JSONLD="",
             # Demoted so the country's own <h1> is the only one on the page.
             SITE_HEADING='<p class="sitetitle">Where Should I Travel to Next?</p>',
             # The guide is the page: shown and underlined without JS.

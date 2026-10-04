@@ -136,7 +136,7 @@ the tunnel window to take it offline. (`cloudflared`/`cf.tgz` are gitignored.)
 
 ## Guide snapshot: refreshes itself daily (manual rebuild is the fallback)
 
-Every guide's title, meta description, FAQ answers and server-rendered 💰/🛡️
+Every guide's title, meta description and server-rendered 💰/🛡️
 lines quote two dated figures — the price level vs the US and the advisory
 level ("As of Oct 2026") — from one document, served at `/guide-facts.json`.
 The server keeps it current itself (`fxtracker/guide_facts.py`):

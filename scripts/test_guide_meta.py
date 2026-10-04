@@ -16,8 +16,10 @@ What it holds the code to:
   * names that take "the" have it inside every sentence, on both sides;
   * Level 3/4 titles ask "safe?", Level 4 never "cheap?" or "(very cheap)";
   * descriptions never end mid-phrase;
-  * JSON-LD parses and has the expected types; the staleness guard drops every
-    figure and advisory clause;
+  * no guide carries FAQPage JSON-LD (its questions were never visible on the
+    page, which Google requires; FAQ rich results are gov/health-only since
+    2023) and the homepage keeps its WebSite block; the staleness guard drops
+    every figure and advisory clause;
   * the COMMITTED snapshot is younger than STALE_DAYS - 15. It is only the
     fallback now — the server recomputes the document daily
     (fxtracker/guide_facts.py) — but it is what a fresh deploy serves until
@@ -69,8 +71,8 @@ results.append(ok(not unsafe and not l3_cheap and sum(1 for i in guides if facts
                   "every Level 3/4 title asks \"Is X Safe…\"; Level 3 cheap ones \"Safe & Cheap\" %s"
                   % ((unsafe + l3_cheap) or "")))
 l4_band = [i for i in guides if facts[i].get("adv") == 4
-           and re.search(r"\((very cheap|cheap|about the same|pricey)", R[i]["desc"] + R[i]["jsonld"])]
-results.append(ok(not l4_band, "no Level 4 description or FAQ gives a bargain band %s" % (l4_band or "")))
+           and re.search(r"\((very cheap|cheap|about the same|pricey)", R[i]["desc"] + R[i]["body"])]
+results.append(ok(not l4_band, "no Level 4 description or fact line gives a bargain band %s" % (l4_band or "")))
 no_cost_t = [i for i in guides if "pct" in facts[i] and facts[i].get("adv") in (None, 1, 2)
              and "Costs vs US" not in R[i]["title"]
              and len("Is %s %s to Visit? Costs vs US" % (rg.name_in_text(i), rg._band_q(facts[i]))) <= rg.TITLE_MAX]
@@ -113,7 +115,7 @@ for iso in rg.THE:
     if iso not in R:
         continue
     n = names[iso]
-    blob = " ".join([R[iso]["title"], R[iso]["desc"], R[iso]["body"], R[iso]["jsonld"], facts[iso].get("dn", "")])
+    blob = " ".join([R[iso]["title"], R[iso]["desc"], R[iso]["body"], facts[iso].get("dn", "")])
     if re.search(r"\b(Is|is|in|to|visit|for|rates) %s\b" % re.escape(n), blob):
         bare.append(iso)
 results.append(ok(not bare, "\"the\" names never sit bare in a sentence (Is/in/visit/for X) %s" % (bare or "")))
@@ -152,31 +154,30 @@ home = server._render_index(None).decode("utf-8")
 results.append(ok(home.count("<h2") >= 14 and "data-h=" not in home and "data-nosnippet" not in home
                   and '<h1 class="cardtitle" id="guideH1" hidden>Travel Guide</h1>' in home,
                   "the homepage keeps its real headings and the hidden guide h1"))
+LD = lambda page: re.findall(r'<script type="application/ld\+json">(.*?)</script>', page, re.S)
+home_ld = [json.loads(b) for b in LD(home)]
+results.append(ok([d.get("@type") for d in home_ld] == ["WebSite"]
+                  and home_ld[0].get("url") == "https://wandergrade.com/",
+                  "the homepage keeps its one WebSite JSON-LD block"))
 one_h1, ld_bad = [], []
 for iso in guides:
     page = server._render_index(iso).decode("utf-8")
     h1s = re.findall(r"<h1\b[^>]*>", page)
     if len(h1s) != 1 or "hidden" in h1s[0] or 'id="guideH1"' not in h1s[0] or rg.h1_html(iso) not in page:
         one_h1.append(iso)
-    for blob in re.findall(r'<script type="application/ld\+json">(.*?)</script>', page, re.S):
-        try:
-            d = json.loads(blob)
-            if d.get("@type") != "FAQPage" or not all(q.get("@type") == "Question"
-                                                      and q["acceptedAnswer"].get("@type") == "Answer"
-                                                      for q in d["mainEntity"]):
-                ld_bad.append(iso)
-        except ValueError:
-            ld_bad.append(iso)
+    # None at all: the WebSite block is the homepage's, and FAQPage is gone.
+    if LD(page) or "FAQPage" in page or "jsonld" in rg.render(iso):
+        ld_bad.append(iso)
 results.append(ok(not one_h1, "every raw guide page: exactly one h1, visible, = render_guide.h1_html %s"
                   % (one_h1[:5] or "")))
-results.append(ok(not ld_bad, "every guide's JSON-LD parses as a FAQPage of Questions/Answers %s" % (ld_bad[:5] or "")))
+results.append(ok(not ld_bad, "no guide page carries JSON-LD (no FAQPage of invisible questions) %s" % (ld_bad[:5] or "")))
 
 # --- curated vs weather wording ----------------------------------------------------
 claim = []
 for iso in guides:
     if (clim.get(iso) or {}).get("curated"):
         continue
-    blob = " ".join([R[iso]["title"], R[iso]["desc"], R[iso]["body"], R[iso]["jsonld"],
+    blob = " ".join([R[iso]["title"], R[iso]["desc"], R[iso]["body"],
                      facts[iso]["t"], facts[iso]["d"], facts[iso].get("dn", "")]).lower()
     if "best months to visit" in blob:
         claim.append(iso)
@@ -187,9 +188,8 @@ ca_us = [i for i in guides if facts[i].get("src") == "ca" and "US State" in R[i]
 results.append(ok(not ca_us, "Canada-rated guides (PR, US, GU, FK…) are never called a US advisory %s" % (ca_us or "")))
 co = R["CO"]
 results.append(ok("💰 Local prices ≈ %d%% of the US (%s %d)" % (facts["CO"]["pct"], rg.MON[asof.month - 1], asof.year)
-                  in co["body"] and "Safety · per US State Dept" in co["body"]
-                  and "Is Colombia safe to visit?" in co["jsonld"],
-                  "Colombia: dated cost line, attributed safety line, safety FAQ"))
+                  in co["body"] and "Safety · per US State Dept" in co["body"],
+                  "Colombia: dated cost line, attributed safety line"))
 
 # --- the client h1, run under jsc against the same snapshot --------------------------
 def js_fn(name):
@@ -241,7 +241,7 @@ try:
     rg._stale_warned = old_asof                   # keep the test output quiet
     stale = {iso: rg.render(iso) for iso in ("CO", "PR", "GB-ENG", "SO")}
     leaks = [i for i, r in stale.items()
-             if re.search(r"\d+%|Level \d|As of", r["desc"] + r["body"] + r["jsonld"]) or "💰" in r["body"]
+             if re.search(r"\d+%|Level \d|As of", r["desc"] + r["body"]) or "💰" in r["body"]
              or "🛡️ Level" in r["body"]]
     results.append(ok(not leaks and stale["CO"]["desc"] == rg.meta_numberfree("CO")
                       and stale["CO"]["title"] == facts["CO"]["t"],

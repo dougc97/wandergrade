@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build public/guide-facts.json — the COMMITTED copy of the per-guide
-snapshot behind each country page's title, meta description, FAQ answers,
-SSR fact lines and sitemap <lastmod>.
+snapshot behind each country page's title, meta description, SSR fact lines
+and sitemap <lastmod>.
 
 Two figures only WanderGrade puts side by side — the price level against the
 US (the hydrated page's 💰 "Local prices ≈ N% of the US") and the advisory

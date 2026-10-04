@@ -1,5 +1,5 @@
 """/guide-facts.json — the per-guide price level and advisory snapshot behind
-every guide's <title>, meta description, FAQ answers, server-rendered 💰/🛡️
+every guide's <title>, meta description, server-rendered 💰/🛡️
 lines and sitemap <lastmod> — served from the freshest copy the server has,
 and kept fresh by the server itself (the pattern of fxtracker/health.py).
 
@@ -204,8 +204,8 @@ def hold_home_levels(data, prev, advisories, guides):
     """The US feed drops rows between fetches (CO, KP and BM for ~10 minutes
     on 2026-10-04, and Canada's fill rated Colombia Level 2 where the US says
     Level 3). Live, that lasts one cache cycle; frozen into the daily document
-    it sat in titles ("Is Colombia Cheap…" lost its "Safe"), snippets and FAQ
-    answers for a day, and re-dated the guide twice. So a guide whose previous
+    it sat in titles ("Is Colombia Cheap…" lost its "Safe") and snippets
+    for a day, and re-dated the guide twice. So a guide whose previous
     copy had the home source's own level keeps it while the feed omits it, up
     to PARTIAL_GRACE_DAYS ("held" records since when); after that the fill
     stands. Returns the held guides."""

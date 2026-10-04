@@ -147,8 +147,6 @@ DE_LVL_LABEL = {1: "No warning", 2: "Some regions", 4: "Travel warning"}
 # app.js ADV_SRC_SHORT. Puerto Rico, the US itself, Guam and the Falklands are
 # rated by Canada in the US feed's gaps: they are never called a US advisory.
 ADV_SRC_SHORT = {"us": "US State Dept", "ca": "Global Affairs Canada", "de": "German Foreign Office"}
-_ADV_SRC_PROSE = {"us": "the US State Department", "ca": "Global Affairs Canada",
-                  "de": "the German Foreign Office"}
 # Still guarded although the server recomputes the snapshot daily: if that
 # stops landing (a feed down for months, the refresher off), the figures age
 # out rather than being presented as current.
@@ -183,7 +181,7 @@ def snapshot_asof(doc=None):
 
 def snapshot_fresh(today=None, doc=None):
     """False once the snapshot is more than STALE_DAYS old: from then on every
-    number and advisory clause drops out of the description, FAQ and SSR lines
+    number and advisory clause drops out of the description and SSR lines
     (the title only ever asks a question, so it keeps its variant)."""
     global _stale_warned
     doc = _doc() if doc is None else doc
@@ -507,94 +505,6 @@ def _insurance_link(slug):
             "at no extra cost to you.</span></p>" % html.escape(_EKTA % slug, quote=True))
 
 
-def _value_qas(iso, f, asof):
-    """The two questions only WanderGrade answers, from the snapshot — each
-    backed by a block the page shows (the 💰 cost line and the 🛡️ badge, or
-    their dated snapshot fallbacks). Dated, and the advisory attributed to the
-    government that set it: this site does not author safety claims. Google
-    shows FAQ rich results only for government/health sites since 2023, so this
-    is for understanding the page, not for a SERP feature."""
-    d = _load()
-    n = name_in_text(iso)                   # "local prices in the Bahamas"
-    when = _mon_year(asof, full=True)
-    qas = []
-    if f.get("pct") is not None and when:
-        # No bargain verdict beside "Do not travel" (as in the description).
-        extra = (f.get("band") or "") if f.get("adv") != 4 else ""
-        if f.get("plof"):
-            extra += (", " if extra else "") + ("UK-wide figure" if f["plof"] == "GB"
-                                                else d["names"].get(f["plof"], f["plof"]) + "-wide figure")
-        # Level 4 places are not asked "cheap?" anywhere: a neutral question.
-        q = ("How do prices in %s compare to the US?" % n if f.get("adv") == 4
-             else "Is %s %s to visit?" % (n, _band_q(f).lower()))
-        qas.append((q, "As of %s, local prices in %s are about %d%% of US prices%s. This is "
-                       "WanderGrade's price level: the World Bank price level for residents, carried "
-                       "to that month's exchange rate. It is a national average, and tourist areas "
-                       "cost more." % (when, n, f["pct"], (" (%s)" % extra) if extra else "")))
-    lvl, src = f.get("adv"), f.get("src")
-    if lvl and when:
-        who = _ADV_SRC_PROSE.get(src, _ADV_SRC_PROSE["us"])
-        words = lvl_words(src, lvl)
-        if f.get("advof"):
-            pn = d["names"].get(f["advof"], f["advof"])
-            poss = who + "'s"
-            call = ("“%s”" % words) if src == "de" else "Level %d: %s" % (lvl, words)
-            a = "As of %s, %s %s advisory, which WanderGrade shows for %s, is %s." % (
-                when, poss, pn, n, call)
-        elif src == "de":
-            a = "As of %s, %s's call for %s is “%s”." % (when, who, n, words)
-        else:
-            a = "As of %s, %s rates %s Level %d: %s." % (when, who, n, lvl, words)
-        a = a[0].upper() + a[1:] if a else a
-        qas.append(("Is %s safe to visit?" % n,
-                    a + " Advisories change, so check the current one before booking."))
-    return qas
-
-
-def _faq_jsonld(name, best_txt, acts, seasonal, summary, curated=False, value_qas=()):
-    """FAQPage schema for the questions people actually search — 'best time to
-    visit X', 'things to do in X', 'what's in season' — so the page can win
-    Google rich results. Data-backed answers only (no invented facts) — which
-    includes the curated distinction: the "best months to visit" claim only
-    where months were hand-curated, a weather statement everywhere else.
-    `name` is the in-sentence form (render_guide.name_in_text: "the Bahamas")."""
-    qas = []
-    if best_txt:
-        a = ("The best months to visit %s are %s, based on weather and seasonality." % (name, best_txt)
-             if curated else
-             # Starts the sentence: "The Bahamas has…" (eSwatini keeps its lower-case e).
-             "%s has its best weather in %s." % (
-                 "The " + name[4:] if name.startswith("the ") else name, best_txt))
-        if summary:
-            a += " " + summary
-        qas.append(("When is the best time to visit %s?" % name, a))
-    qas.extend(value_qas)                 # cost, then safety
-    top = [_label(x) for x in acts[:4] if _label(x)]
-    if top:
-        qas.append(("What are the top things to do in %s?" % name,
-                    "Top experiences in %s include %s." % (name, ", ".join(top))))
-    if seasonal:
-        s = seasonal[0]
-        months = [MON[m - 1] for m in (s.get("months") or []) if 1 <= m <= 12]
-        if s.get("what"):
-            a = s["what"] + ((" (%s)" % ", ".join(months)) if months else "")
-            if s.get("d"):
-                a += " — " + s["d"]
-            qas.append(("What's in season in %s?" % name, a))
-    if not qas:
-        return ""
-    data = {
-        "@context": "https://schema.org",
-        "@type": "FAQPage",
-        "mainEntity": [
-            {"@type": "Question", "name": q,
-             "acceptedAnswer": {"@type": "Answer", "text": a}}
-            for q, a in qas
-        ],
-    }
-    return '<script type="application/ld+json">%s</script>' % json.dumps(data, ensure_ascii=False)
-
-
 def render(iso):
     """Return the token values for a country page: title, description, og title,
     canonical URL, the h1 (served as #guideH1 itself) and the crawlable body."""
@@ -619,7 +529,7 @@ def render(iso):
 
     # Title and description come from meta() — the same strings guide-facts.json
     # hands app.js for in-app navigation. Past the staleness guard the figures
-    # (and their date) drop out of the description, FAQ and fact lines alike.
+    # (and their date) drop out of the description and fact lines alike.
     # One document for the whole page: the daily recompute can land mid-render.
     doc = _doc()
     mt = meta(iso, doc=doc)
@@ -633,7 +543,7 @@ def render(iso):
     if summary:
         p.append("<p>%s</p>" % html.escape(summary))
     # The two fact lines the hydrated page shows as 💰 and 🛡️, from the dated
-    # snapshot — and what the description and FAQ claim, said on the page.
+    # snapshot — and what the description claims, said on the page.
     cost = _cost_line(iso, f, asof)
     if cost:
         p.append("<p>💰 %s</p>" % html.escape(cost))
@@ -693,8 +603,12 @@ def render(iso):
         "url": url,
         "h1_html": h1_html(iso, doc),
         "body": "\n".join(p),
-        "jsonld": _faq_jsonld(name, best_txt, acts, seasonal, summary, curated,
-                              _value_qas(iso, f, asof)),
+        # No FAQPage JSON-LD (it was here until Oct 2026): Google requires an
+        # FAQ's questions to be visible on the page, and these 926 were only in
+        # the markup (the page shows the facts as the 💰/🛡️/best-time lines,
+        # not as Q&A). FAQ rich results are shown only for government and
+        # health sites since 2023, so the markup could only ever count against
+        # the page as structured-data spam, never earn a result.
         # og:image is the site's own card, NOT the Wikimedia hero: Wikimedia
         # returns 403 to Meta's crawlers, so a hotlinked og:image meant every
         # Facebook/Messenger share of every guide rendered imageless. The

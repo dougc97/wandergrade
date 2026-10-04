@@ -285,9 +285,8 @@ th = rg.render("TH")
 pct = doc["TH"]["pct"]
 results.append(ok(th["title"] == doc["TH"]["t"] and th["desc"] == doc["TH"]["d"]
                   and ("≈ %d%%" % pct) in th["desc"] and "As of Oct 2026" in th["desc"]
-                  and ("Local prices ≈ %d%% of the US (Oct 2026)" % pct) in th["body"]
-                  and ("As of October 2026, local prices in Thailand are about %d%%" % pct) in th["jsonld"],
-                  "Thailand's title, description, SSR cost line and FAQ say %d%% as of Oct 2026" % pct))
+                  and ("Local prices ≈ %d%% of the US (Oct 2026)" % pct) in th["body"],
+                  "Thailand's title, description and SSR cost line say %d%% as of Oct 2026" % pct))
 page = server._render_index("TH").decode("utf-8")
 results.append(ok("<title>%s</title>" % html.escape(th["title"]) in page
                   and 'content="%s"' % html.escape(th["desc"], quote=True) in page,
