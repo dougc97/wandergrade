@@ -444,7 +444,10 @@ def _summary(desc, level=None, iso=None, name_iso=None, full=False, any_level=Fa
     # colon used to survive too: "...due to terrorism. : Terrorist groups...");
     # "Summary not available" is the feed's placeholder, glued onto the lead
     # ("Exercise normal precautionSummary not available").
-    text = re.sub(r"\s*Read the entire Travel Advisory\.?", "", text, flags=re.I)
+    # A bare "Read the entire" also turns up before a link to another level's
+    # area (Rwanda, Oct 2026: "Read the entire <a>Do not travel</a> to within
+    # 10 kilometers..."), and was quoted as the row's summary.
+    text = re.sub(r"\s*Read the entire(?:\s+Travel Advisory\.?)?", "", text, flags=re.I)
     text = re.sub(r"\bAdvisory summary\b\s*:?", "", text, flags=re.I)
     text = re.sub(r"\s*Summary not available\.?", " \x01 ", text, flags=re.I)
     # Shield abbreviations the sentence splitter would break on ("...travel to

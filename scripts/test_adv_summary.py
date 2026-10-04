@@ -54,5 +54,22 @@ results.append(ok(km.get("summary", "").startswith("Exercise increase caution in
 results.append(ok(mx.get("summary") == "Exercise increased caution in Mexico due to terrorism, crime, and kidnapping."
                   " Some areas have increased risk.",
                   "Mexico's ordinary two-sentence summary is unchanged"))
+
+# Rwanda in the live feed's shape (Oct 2026): a bare "Read the entire" sits
+# before the link to the Level 4 border area, and only the full "Read the
+# entire Travel Advisory" was stripped, so the guide quoted "Some areas have
+# increased risk. Read the entire Do not travel to within 10 kilometers...".
+A._fetch_text = lambda url, retries=3: "<rss><channel>%s</channel></rss>" % item(
+    "Rwanda", 3, "rwanda",
+    "<p>Exercise increased caution in Rwanda due to crime and unrest.</p>"
+    "<p>Some areas have increased risk. Read the entire Travel Advisory.</p>"
+    "<p>Read the entire <a href=\"#x\">Do not travel</a> to within 10 kilometers of Rwanda\u2019s border"
+    " with the Democratic Republic of the Congo due to unrest.</p>"
+    "<p>Petty crime like pickpocketing is a risk in urban areas.</p>")
+rw2 = {i["iso"]: i for i in A._us_advisories()["items"]}.get("RW", {})
+results.append(ok("Read the entire" not in rw2.get("summary", ""),
+                  "Rwanda's stray \"Read the entire\" is never quoted: %r" % rw2.get("summary")))
+results.append(ok(rw2.get("risks") == ["Crime", "Unrest"],
+                  "...and its chips stay Crime, Unrest: %r" % rw2.get("risks")))
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

@@ -5848,6 +5848,10 @@ function buildValueTab() {
 // Bridges the exploratory phase (this tool) to planning (the user's LLM):
 // copies their preferences + shortlist as a ready-to-paste prompt.
 let lastPicks = [], lastPicksMonth = null;
+// The month Top Picks ranked by, else the travel month itself: a Trip landing
+// never builds Top Picks, and /?tab=trip&vmn=3 showed October weather without
+// this (#valueMonth already holds the link's vmn= by then).
+function picksMonth() { return lastPicksMonth || parseInt(($("valueMonth") || {}).value, 10) || curMonth(); }
 let lastGems = [];   // current hidden-gems list, for the 💎 surprise button
 
 // ---- Trip builder -----------------------------------------------------------
@@ -5900,7 +5904,7 @@ function tripMonth() {
   if (raw === "0") return { month: null, flexible: true };
   const n = parseInt(raw, 10);
   if (n >= 1 && n <= 12) return { month: n, flexible: false };
-  return { month: lastPicksMonth || curMonth(), flexible: false };
+  return { month: picksMonth(), flexible: false };
 }
 
 // The cart badge and the Top Picks pointer. The basket itself lives in its own
@@ -5962,7 +5966,7 @@ function renderTripBar() {
       + '<label class="tripmonth">in <select id="tripMonth" aria-label="Trip month">'
       + '<option value="0"' + (savedM === "0" ? " selected" : "") + ">I'm flexible</option>"
       + MONTHS.map((m, i) => '<option value="' + (i + 1) + '"'
-        + ((savedM === "0" ? false : (parseInt(savedM, 10) || (lastPicksMonth || curMonth())) === i + 1)
+        + ((savedM === "0" ? false : (parseInt(savedM, 10) || picksMonth()) === i + 1)
           ? " selected" : "") + ">" + m + "</option>").join("")
       + "</select></label></div>"
       + '<div class="tripbook" id="tripBook"></div>';
@@ -6009,7 +6013,7 @@ function nextMonthKey(m) {
 // this only changes where they appear, not what they are. Dates come from the
 // trip's own month, not the Top Picks slider.
 function tripStayDates() {
-  const month = tripMonth().month || lastPicksMonth || curMonth();
+  const month = tripMonth().month || picksMonth();
   const now = new Date();
   let y = now.getFullYear();
   if (month < now.getMonth() + 1) y++;
@@ -6163,7 +6167,7 @@ function buildTripAIPrompt() {
   const t = [...loadTrip()];
   const tm = tripMonth();
   const flexible = tm.flexible;
-  const month = tm.month || lastPicksMonth || curMonth();
+  const month = tm.month || picksMonth();
   const monthName = MONTHS[month - 1];
   const days = tripDays() || 14;
   const originName = originLabel();
@@ -11444,6 +11448,10 @@ if ($("tripPlanBtn")) $("tripPlanBtn").addEventListener("click", async () => {
   // and the guide load — a Trip landing has neither.
   if (guidePassport() !== "US") await ensureVisaMatrix().catch(() => {});
   else await ensureVisa().catch(() => {});
+  // Centroids (world.geojson) and price levels (ppp.json) too: Top Picks loaded
+  // both, and without them a Trip landing's prompt lost every country's
+  // "approx 15°N, 101°E" and "prices ~71% cheaper" lines.
+  await Promise.all([ensureWorld().catch(() => {}), ensurePPP().catch(() => {})]);
   renderAIPanel($("tripPanel"), buildTripAIPrompt());
 });
 
