@@ -2651,7 +2651,11 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    sat under the title and then rose beside it, taking the hero and grid up
    49px (CLS 0.32 at 768-785). */
 @media (min-width: 561px) { #tab-guide:not([data-level="4"]) #guideGrades:empty { min-width: 440px; } }
-@media (max-width: 560px) { #tab-guide .charthead > div:first-child { flex-basis: 100%; } }
+/* Below 820px the title takes its own row and the picker sits under it, always.
+   Beside it or not used to depend on the grades line's width: held at 440px
+   while empty, drawn at 294–452px, so on ~1 guide in 6 at 761–797px the
+   picker jumped beside the title on every load (CLS 0.32, Denmark at 768). */
+@media (max-width: 819px) { #tab-guide .charthead > div:first-child { flex-basis: 100%; } }
 /* The guide's first blocks are empty until app.js fills them (the weather
    chart says Loading…), so the grid under the hero was 70px tall at first
    paint and 600-950 after, and everything below it went down in one frame:

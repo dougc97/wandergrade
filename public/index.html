@@ -413,14 +413,14 @@
 
   <!-- ============ TAB: TRAVEL GUIDE ============ -->
   <section class="tab" id="tab-guide"{{GUIDE_HIDDEN}}{{GUIDE_DATA}}>
-    <!-- The server's data-fm (a fares-by-month strip to hold room for) is for
-         the default origin, the US; a reader who set another From gets that
-         origin's curve or none, so nothing is held for it, and the FX and
-         local-prices lines a US reader doesn't get (data-fx="home",
-         data-cost="home") are theirs again (renderGuide decides from then
-         on). -->
+    <!-- The server's data-fm (a fares-by-month strip to hold room for) stands
+         until the reader's own origin's curve says otherwise (renderGuide,
+         loadFlightValue): the UK, German and Canadian curves cover the same
+         popular guides. The FX and local-prices lines a US reader doesn't get
+         (data-fx="home", data-cost="home") are theirs again for a reader with
+         another From. -->
     <script>(function(){try{var o=localStorage.getItem("fx_origin"),t=document.getElementById("tab-guide");
-      if(o&&o!=="US"){t.removeAttribute("data-fm");
+      if(o&&o!=="US"){
         if(t.getAttribute("data-fx")==="home")t.removeAttribute("data-fx");
         if(t.getAttribute("data-cost")==="home")t.removeAttribute("data-cost");}}catch(e){}})();</script>
     <div class="cardwide">

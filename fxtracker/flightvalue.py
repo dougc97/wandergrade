@@ -245,6 +245,12 @@ def _pace(first=False):
             _pace_cv.notify_all()
 
 
+def has_warmed(origin_iso):
+    """True once a warm pass for this origin has finished (aborted or not)."""
+    with _warm_lock:
+        return origin_iso in _warm_done
+
+
 def is_warming(origin_iso):
     with _warm_lock:
         return origin_iso in _warming

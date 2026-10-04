@@ -777,8 +777,17 @@ def _guide_sizers(iso, level):
         hit = _adv_cache.get("us")
         adv = hit[1] if hit else None
         items = {it.get("iso"): it for it in (adv or {}).get("items") or [] if it.get("iso")}
-        out["GUIDE_SAFETY"] = guide_sizers.safety(
-            iso, items, (adv or {}).get("source_name"), watchouts.cached(iso), health.get_doc())
+        # Only with Canada's notes in hand: without them the copy came out
+        # short (745px total error on 10 guides vs 1,150 for the per-level
+        # heights in styles.css), and the first render after every deploy is
+        # the one the edge then serves for 5 minutes. A miss fetches the
+        # notes in the background so the next render is exact.
+        notes = watchouts.cached(iso)
+        if notes is not None:
+            out["GUIDE_SAFETY"] = guide_sizers.safety(
+                iso, items, (adv or {}).get("source_name"), notes, health.get_doc())
+        else:
+            _warm_watchouts(iso)
         # No stays or insurance under "do not travel" (the server's level and
         # the US list's agree on that, or styles.css's data-level="4" hides
         # them).
@@ -1503,8 +1512,13 @@ class Handler(BaseHTTPRequestHandler):
             raw = path[len("/guide/"):]
             iso = render_guide.iso_for_slug(raw)
             if iso:
+                # Until the default origin's flight-value pass has run once
+                # (~9 minutes after a deploy), a render has no fares-strip
+                # marks; cached at the edge it would serve that for 5 minutes.
+                warm = (not flights.is_configured()
+                        or flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN))
                 self._send_body(_render_index(iso), "text/html; charset=utf-8",
-                                cache="public, max-age=300")
+                                cache="public, max-age=300" if warm else "no-store")
                 return
             # Only the exact lowercase slug is served. Everything else that
             # names a guide — /guide/Japan, a trailing slash, an alternate
@@ -1822,6 +1836,31 @@ def _redact_email(email_cfg):
     if out.get("password"):
         out["password"] = REDACTED
     return out
+
+
+_watchouts_warming = set()
+_watchouts_lock = threading.Lock()
+
+
+def _warm_watchouts(iso):
+    """Fetch one country's Canada notes in the background (once at a time),
+    so the guide's advisory block can be sized on its next render."""
+    key = (iso or "").upper()
+    with _watchouts_lock:
+        if not key or key in _watchouts_warming:
+            return
+        _watchouts_warming.add(key)
+
+    def run():
+        try:
+            watchouts.get_watchouts(key)
+        except Exception:
+            pass
+        finally:
+            with _watchouts_lock:
+                _watchouts_warming.discard(key)
+
+    threading.Thread(target=run, daemon=True).start()
 
 
 def _keep_warm():

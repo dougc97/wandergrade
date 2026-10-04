@@ -724,7 +724,7 @@ function renderRates(data) {
   if (!showRisky && !advisories && !_ratesRiskWait) {
     _ratesRiskWait = true;
     const go = () => { if (dataRates === data) renderRates(data); };
-    Promise.race([ensureAdvisories(), new Promise((r) => setTimeout(r, 4000))]).then(go, go);
+    Promise.race([ensureAdvisories(), new Promise((r) => setTimeout(r, 2000))]).then(go, go);
     return;
   }
   const adv = advisoryByIso();
@@ -2623,13 +2623,15 @@ function renderGuide(iso) {
     // Whether the fares strip will come, so its room is held only then
     // (data-fm, styles.css): the Flights data says, once it is in for this
     // origin (renderGuideFares draws from 3 months of the same curve); before
-    // that the server's mark stands for its own guide and default origin,
-    // and nothing is held for another (held and given back, the lines under
-    // it jumped 154px).
+    // that the server's mark stands for its own guide whatever the origin
+    // (UK, German and Canadian curves cover the same popular guides, and a
+    // first visit learns its origin from location only after this runs),
+    // and nothing is held for another guide (held and given back, the lines
+    // under it jumped 154px). loadFlightValue settles it when the data lands.
     const fvC = flightValue && flightValue.origin === originIso() && flightValue.countries
       && flightValue.countries[iso];
     const fm = fvC && !fvC.pending ? (fvC.n_curve || 0) >= 3
-      : iso === window.__WGGC__ && originIso() === "US" ? null : false;
+      : iso === window.__WGGC__ ? null : false;
     if (fm) gtab.setAttribute("data-fm", "1");
     else if (fm === false) gtab.removeAttribute("data-fm");
     // The FX and local-prices lines likewise (data-fx, data-cost): none for
@@ -7670,6 +7672,14 @@ async function loadFlightValue(origin, seq, attempt) {
   if (seq !== _flSeq) return;   // origin changed while this was in flight
   const more = (!data || !!data.filling) && Date.now() < _fvPollEnd;
   if (data && data.configured !== false && data.origin === origin) flightValue = data;
+  // A guide whose fares strip is still loading: the room held for it
+  // (data-fm) now follows this origin's own curve.
+  if (flightValue && flightValue.origin === originIso() && ccGuideIso) {
+    const gtab = $("tab-guide"), c = flightValue.countries && flightValue.countries[ccGuideIso];
+    if (gtab && c && !c.pending && gtab.querySelector(".farecol.loading")) {
+      if ((c.n_curve || 0) >= 3) gtab.setAttribute("data-fm", "1"); else gtab.removeAttribute("data-fm");
+    }
+  }
   if (flightValue) flightValue.gaveUp = !more && !!flightValue.filling;
   _fvFailed = !more && !flightValue;
   const missed = !flightValue && !attempt;
