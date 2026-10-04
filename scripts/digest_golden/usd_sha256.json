@@ -1,0 +1,18 @@
+{
+ "note": "Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
+ "sha256": {
+  "1": "62a5eac839a40457fac944c8e20551b79f25e9208e9dbd324b9d287fb2d65b01",
+  "10": "16ea9523485eb16ca1d16ab8488c11c9886696aca542d4de82a44ed037cd34ca",
+  "11": "a269ea0e60077992b0b521a1034a9a7b78e379310b97d63ac3b8a359458bd1ec",
+  "12": "3bdc2524098a28778455f595dbb7418cde353cb0e17728b0a652736f99fb29fd",
+  "2": "bfa29d4cac6ddd9f20c21047d47e0301504e1becfefe5d4435fccefd37775094",
+  "3": "5e7aba2f5543d3ea6ae12e79e52785816a88342aedcc5053dca0a45da5220633",
+  "4": "3f807e00df41d1498d23693575d149c9b10cdc9fa6a3aaa31875e69bdcbc0160",
+  "5": "307f0782dca3e220f868c41a33171c63a074ddc746dbfd34233c0538b392dcdf",
+  "6": "483f2cb55699c1c1da59cdc3cc1a517cf755c83660a642b799074dcba0dcac68",
+  "7": "3f708e8d2ad629b41063edd72ace6ed8a113dfa41a4f43e42cc96dbc8ebb72ac",
+  "8": "e58d8a8338efdd7e0309e572ea9123f377558268b508a1d490607fa243904bd0",
+  "9": "3fc0379c8d42f66efee511860eccc655646931967d1ea9cd694af3c54c2a79fe"
+ },
+ "source": "git archive 4788fd2 fxtracker public | tar -x (scripts/digest_snapshot.py, frozen fixtures, today 2026-10-03)"
+}

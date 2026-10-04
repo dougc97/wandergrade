@@ -386,15 +386,13 @@
         <div>
           <!-- h1, not h2: this is the page's subject. The generic site h1 steps
                aside on guide routes (see styles.css), so each of the 176 country
-               pages finally has its own heading instead of all sharing one.
-               Starts hidden — until app.js hydrates, the SSR block below carries
-               the visible h1, and two would be worse than none. -->
-          <!-- Stays an h1, and stays hidden until renderGuide() removes the SSR
-               block: that swap is what keeps exactly one h1 on screen before and
-               after hydration. Demoting this to h2 (briefly tried) leaves the
-               rendered page with no h1 at all, because the SSR h1 it replaces is
-               deleted a moment earlier. -->
-          <h1 class="cardtitle" id="guideH1" hidden>Travel Guide<span id="guideH2Country"></span></h1>
+               pages has its own heading instead of all sharing one.
+               The page's one h1. On /guide/<slug> server.py fills it from
+               render_guide.h1_html() and it is visible from the first byte (the
+               SSR block has no h1 — never add one there); renderGuide() rewrites
+               it only when the text differs. Off a guide it is served hidden as
+               "Travel Guide" and renderGuide() fills and reveals it. -->
+          <h1 class="cardtitle" id="guideH1"{{GUIDE_H1_HIDDEN}}>{{GUIDE_H1}}</h1>
           <!-- The grades the share card prints, on the page (renderGuideGrades).
                Static, height reserved in styles.css — the CLS rule. -->
           <div id="guideGrades" class="guidegrades"></div>

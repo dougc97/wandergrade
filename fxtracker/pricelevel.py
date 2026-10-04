@@ -107,13 +107,18 @@ def carry_factor(iso, ppp, now_y=None):
 
 def real_fx_pct(nominal_pct, iso, home_iso, ppp):
     """Nominal "vs the 1-yr average" move -> real (inflation-adjusted) move, in %.
-    None when the destination's high inflation isn't current (no honest answer).
+    None when high inflation at either end isn't current (no honest answer).
     0.5 is the mean age in years of the samples in a 364-day average.
 
     Rounded to 2 decimals exactly as app.js realFxPct() rounds, BEFORE anyone
     scores it: fx = 50 + real*6.25 then rounds again, so Hungary's -0.880365
     gave fx 44 here and 45 (-0.88) on the site, and a 1-point affordability gap."""
     if nominal_pct is None:
+        return None
+    # The home end first, as app.js fxInflBasis checks it: a home currency
+    # with high inflation we can't date claims no direction either. Only the
+    # digest's non-US editions can reach this; the US never trips it.
+    if high_infl_unknown(home_iso, ppp):
         return None
     r_b = infl_rate(home_iso, ppp)
     if r_b is None:

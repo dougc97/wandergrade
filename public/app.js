@@ -1477,7 +1477,7 @@ function syncFsButton(host) {
 function mapFsHeader(host) {
   for (let el = host; el && el !== document.body; el = el.parentElement) {
     for (let s = el.previousElementSibling; s; s = s.previousElementSibling) {
-      const h = s.matches("h2") ? s : s.querySelector("h2");
+      const h = s.matches("h2, [data-h='2']") ? s : s.querySelector("h2, [data-h='2']");
       if (h) return { h2: h, legend: s.querySelector(".legend") };
     }
   }
@@ -2538,21 +2538,22 @@ function renderGuide(iso) {
   // Drop the server-rendered crawler block now that we're rendering the real,
   // interactive guide (prevents duplicate content).
   const ssr = $("ssrGuide"); if (ssr) ssr.remove();
-  // The country is the answer — put it in the page title, not just mid-page.
-  const h2c = $("guideH2Country");
-  // The flag is decoration (the tables hide theirs too): the heading reads
-  // "Travel Guide — Japan", not "… — flag: Japan Japan".
-  if (h2c) h2c.innerHTML = ' — <span aria-hidden="true">' + flagEmoji(iso) + "</span> " + esc(countryName(iso));
-  // Reveal the real h1 only now: the SSR block it replaces has been removed just
-  // above, so exactly one h1 is visible before and after hydration.
-  const gh1 = $("guideH1"); if (gh1) gh1.hidden = false;
+  // The page's one h1. On /guide/<slug> the server already sent this exact
+  // markup (render_guide.h1_html), so hydration writes nothing and nothing
+  // swaps; other entries fill it and reveal it here.
+  syncGuideH1(iso);
+  const gh1 = $("guideH1");
+  if (gh1) gh1.hidden = false;
+  // Its topics come from guide-facts.json; fetched now, so a guide opened
+  // in-app later already has them (and this one is corrected if it had to guess).
+  if (!_guideFacts) ensureGuideFacts().then(() => { if (ccGuideIso === iso) syncGuideH1(iso); }).catch(() => {});
   renderGuideInsurance(iso);
   renderGuideGrades(iso);
   // Title and canonical here, not only in openGuideFor: the country picker and a
   // plain return to the guide tab both re-render without going through it, which
   // left the h1 naming one country while the title still said another (or the
   // site default). Every path that draws a guide now describes that guide.
-  setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
+  setGuideMeta(iso);
   renderGuideHero(iso);
   renderGuideVisa(iso);
   renderGuideSafety(iso);
@@ -2868,8 +2869,26 @@ async function renderGuideCost(iso) {
   host.hidden = true;
   await ensurePPP().catch(() => {});
   if (ccGuideIso !== iso) return;
+  // The reader's own country: "≈ 100% of the US" tells them nothing.
+  if ((GUIDE_PARENT[iso] || iso) === originIso()) return;
   const line = localPricesText(iso);
-  if (!line) return;
+  if (!line) {
+    // Live rates or ppp.json didn't load: the dated snapshot the title and
+    // snippet were written from (render_guide's SSR line, word for word), so
+    // the page still shows what its description claims. Never when live data
+    // loaded and found no honest figure.
+    if (ppp && lastRates) return;
+    const f = await ensureGuideFacts().then((d) => d[iso]).catch(() => null);
+    if (ccGuideIso !== iso || !f || f.pct == null || !guideFactsFresh()) return;
+    const when = guideFactsMonth();
+    host.innerHTML = `💰 <b>Local prices ≈ ${f.pct}% of the US (${esc(
+      f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b><span class="fxinfo" data-tip="${esc(
+      "World Bank price level for residents, carried to the " + when + " exchange rate (live rates"
+      + " didn't load) — what a local basket costs here against the same basket in the US. National"
+      + " averages: tourist areas and foreigner rent run well above this.")}" title="">ⓘ</span>`;
+    host.hidden = false;
+    return;
+  }
   host.innerHTML = `💰 <b>Local prices ${esc(line)}</b><span class="fxinfo" data-tip="${esc(
     "World Bank price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
@@ -3193,7 +3212,30 @@ function renderGuideSafety(iso) {
     // The health line goes under the notes, so it waits for them: painted
     // first, it was pushed down 48-84px when they arrived.
     Promise.resolve(renderWatchouts(iso)).then(() => renderGuideHealth(iso)).catch(() => {}).then(done);
-  }).catch(() => { if (ccGuideIso === iso && !host.firstChild) host.hidden = true; done(); });
+  }, () => renderGuideSafetySnapshot(iso).then(() => { if (ccGuideIso === iso && !host.firstChild) host.hidden = true; done(); }))
+    .catch(() => { if (ccGuideIso === iso && !host.firstChild) host.hidden = true; done(); });
+}
+// Advisories didn't load: the dated badge the snippet and SSR state (the US
+// State Dept's level, or whoever filled its gap), attributed and dated, so
+// the page never silently drops what its description claims.
+function renderGuideSafetySnapshot(iso) {
+  // The snapshot is the US State Dept's view (gaps filled as its feed fills
+  // them); a reader who picked Canada or Germany asked for another government.
+  // Settles either way (renderGuideSafety then releases the block's held
+  // height, or hides it when nothing was drawn).
+  if (advisorySource() !== "us") return Promise.resolve();
+  return ensureGuideFacts().then((d) => {
+    const host = $("guideSafety"), f = d[iso];
+    if (ccGuideIso !== iso || !host || !f || !f.adv || !guideFactsFresh()) return;
+    const de = f.src === "de";
+    const words = de ? DE_LVL_LABEL[f.adv] || "" : (ADV_LVL_WORDS[f.src] || ADV_LVL_WORDS.us)[f.adv - 1] || "";
+    const badge = de ? words : "Level " + f.adv + " · " + words;
+    const when = guideFactsMonth();
+    host.innerHTML = `<span class="advbadge ${de && f.adv === 1 ? "nowarn" : "advlvl" + f.adv}">🛡️ ${esc(badge)}</span>
+      <span class="guidevisa-txt"><b>Safety · per ${esc(ADV_SRC_SHORT[f.src] || ADV_SRC_SHORT.us)} (${esc(
+        f.advof ? countryName(f.advof) + " advisory, " + when : when)})</b></span>`;
+    host.hidden = false;
+  }).catch(() => {});
 }
 // Under the advisory: the diseases Canada's travel health advice calls a risk
 // there (the Safety table's Health column), the rest in the tip. Only a
@@ -3664,7 +3706,7 @@ async function openGuideFor(iso, push) {
   if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
   if (ctry._sync) ctry._sync();
   if (!(fresh && ccGuideIso === iso)) renderGuide(iso);   // the build just drew it
-  setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
+  setGuideMeta(iso);
 }
 
 // Classify each month into peak / shoulder / off by weather comfort alone,
@@ -3756,11 +3798,14 @@ function renderCountryClimate(iso) {
   // that reason — same fact twice in adjacent lines, and chips match nothing
   // anyone types.
   const bestFull = joinAnd(c.best.filter((m) => m >= 1 && m <= 12).map((m) => MONTHS[m - 1]));
+  // country-names.json's name, as the server says it — climate.json carries
+  // Natural Earth's abbreviations ("Bosnia and Herz."); "the Bahamas" mid-sentence.
+  const cname = countryNameInText(iso);
   const bestLine = !bestFull
     ? (c.curated ? "📅 Curated best months:" : "📅 Best weather:")
     : c.curated
-      ? `📅 The best months to visit ${esc(c.name)} are <strong>${bestFull}</strong> — judged on weather and seasonality.`
-      : `📅 The best weather in ${esc(c.name)} is in <strong>${bestFull}</strong>.`;
+      ? `📅 The best months to visit ${esc(cname)} are <strong>${bestFull}</strong> — judged on weather and seasonality.`
+      : `📅 The best weather in ${esc(cname)} is in <strong>${bestFull}</strong>.`;
   const temps = c.temps || [];
   const bars = c.scores.map((s, i) => {
     const h = s == null ? 0 : Math.round(s);
@@ -3815,7 +3860,7 @@ function renderCountryClimate(iso) {
   const rg = REGIONS[regionOf(iso)];
   $("bestDetail").innerHTML = `
     <div class="besthead">
-      <h2><span aria-hidden="true">🌤️</span> Best time to visit ${esc(c.name)}${rg ? ` <span class="muted">· ${rg}</span>` : ""}${
+      <h2><span aria-hidden="true">🌤️</span> Best time to visit ${esc(cname)}${rg ? ` <span class="muted">· ${rg}</span>` : ""}${
         hasTemps ? `<span class="legendinfo" data-tip="${esc(legend)}" title="">ⓘ</span>` : ""}</h2>
       ${unitToggle}
     </div>
@@ -5155,6 +5200,7 @@ function setHomeCur(code, manual) {
   // display currency falls back to homeBase when unpinned; its fetch is
   // cached, so this only re-runs the conversion).
   if (changed && ccGuideIso) { renderGuideFx(ccGuideIso); renderGuideFares(ccGuideIso); }
+  syncSubCur();   // newsletter currency pickers the reader hasn't touched follow it
 }
 
 function initHomeCur() {
@@ -5235,8 +5281,13 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
     // Deal vs the typical fare for that distance: at baseline = 70 (B),
     // ~20% below = A, ~30% below = A+, ~20% above = D, ~40%+ above = F.
     // An estimate IS the baseline, so it scores a neutral 70 (flagged in the
-    // coverage mark). Falls back to min-max cheapness with no fitted baseline.
-    comps.fly = fareBase ? clamp100(70 + (1 - dealRatio) * 100)
+    // coverage mark). It used to be graded like a real fare, and the
+    // estimate's clamp to 1.4x the dearest known fare then read as a deal:
+    // from Beijing (10 cached fares) Argentina, Chile and El Salvador showed
+    // "~A+". Falls back to min-max cheapness with no fitted baseline.
+    // Mirrors picks.py _score.
+    comps.fly = fareEst ? 70
+      : fareBase ? clamp100(70 + (1 - dealRatio) * 100)
       : fares.max > fares.min
         ? clamp100(((fares.max - deal) / (fares.max - fares.min)) * 100) : 50;
   }
@@ -8376,8 +8427,8 @@ function viatorURL(q) {
 
 function renderActivity(iso) {
   const a = activities[iso];
-  const name = (climate && climate[iso] && climate[iso].name) || (ppp && ppp[iso] && ppp[iso].name) || iso;
-  if (!a) { $("actDetail").innerHTML = `<h3>${esc(name)}</h3><p class="hint">No curated activity profile yet.</p>`; return; }
+  const name = countryName(iso), nameT = countryNameInText(iso);   // nameT: "in the Bahamas"
+  if (!a) { $("actDetail").innerHTML = `<div class="besthead"><h2>Things to do in ${esc(nameT)}</h2></div><p class="hint">No curated activity profile yet.</p>`; return; }
   // The travel month the rest of the page plans for (?vmn=, a month-bar
   // click), not the calendar month: stays and the AI prompt already followed
   // it, and this list was the one block still saying "now".
@@ -8420,9 +8471,10 @@ function renderActivity(iso) {
   const lv = guideAdvLevel(iso);
   const tours = lv === 4 ? "" : `<div class="guidetours"${lv == null ? " hidden" : ""}>
     <a class="viatorbtn" href="${viatorURL(name)}" target="_blank" rel="sponsored nofollow noopener"
-       title="Browse bookable tours & experiences in ${esc(name)} on Viator">🎟️ Book tours &amp; activities in ${esc(name)} <span class="muted">on Viator</span> <span class="ext">↗</span></a>
+       title="Browse bookable tours & experiences in ${esc(nameT)} on Viator">🎟️ Book tours &amp; activities in ${esc(nameT)} <span class="muted">on Viator</span> <span class="ext">↗</span></a>
     <p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p></div>`;
-  const todo = `<h4 style="margin:.6em 0 .2em">🎒 Top things to do</h4>
+  // h3 under the h2 (an h4 skipped a level); 1em keeps the h4's size.
+  const todo = `<h3 style="font-size:1em;margin:.6em 0 .2em">🎒 Top things to do</h3>
     <ul class="actlist">${acts}</ul>${tours}`;
   // Things to do beside what's in season on a desktop (.actgrid, styles.css);
   // the season rows were each a card-wide line with the months a thousand
@@ -8430,10 +8482,10 @@ function renderActivity(iso) {
   const seasHead = m === curMonth() ? "🗓️ What's in season now" : `🗓️ What's in season in ${MONTHS[m - 1]}`;
   // No "· Asia" on this heading: the weather heading just above already says it.
   $("actDetail").innerHTML = `
-    <div class="besthead"><h3>${esc(name)} ${vis}</h3></div>
+    <div class="besthead"><h2>Things to do in ${esc(nameT)} ${vis}</h2></div>
     ${summary ? `<p class="actsummary muted">${esc(summary)}</p>` : ""}
     <div class="chips">${tags}</div>
-    ${seas ? `<div class="actgrid"><div>${todo}</div><div><h4 style="margin:.6em 0 .2em">${seasHead}</h4>${seas}</div></div>` : todo}`;
+    ${seas ? `<div class="actgrid"><div>${todo}</div><div><h3 style="font-size:1em;margin:.6em 0 .2em">${seasHead}</h3>${seas}</div></div>` : todo}`;
   if (lv == null) {
     const settle = () => {
       const t = $("actDetail").querySelector(".guidetours");
@@ -8563,7 +8615,8 @@ let _displayNames = null;
 // so a country is called the same thing everywhere on the site.
 const NAME_FIX = { US: "United States", BA: "Bosnia and Herzegovina", CD: "DR Congo",
   CG: "Republic of the Congo", CF: "Central African Republic", DO: "Dominican Republic",
-  GQ: "Equatorial Guinea", SS: "South Sudan", SB: "Solomon Islands" };
+  GQ: "Equatorial Guinea", SS: "South Sudan", SB: "Solomon Islands",
+  EH: "Western Sahara", TF: "French Southern Territories" };
 function countryName(iso) {
   if (EXTRA_PLACES[iso]) return EXTRA_PLACES[iso];   // flag-emoji places
   if (NAME_FIX[iso]) return NAME_FIX[iso];
@@ -8579,6 +8632,11 @@ function countryName(iso) {
     return iso;
   }
 }
+// The name inside a sentence or heading: "Things to do in the Bahamas". The
+// same set as render_guide.THE (scripts/test_guide_meta.py holds them equal);
+// labels and the h1 keep the bare name.
+const NAME_THE = new Set(["BS", "PH", "NL", "AE", "GB", "US", "DO", "GM", "SB", "FO", "FK", "CF", "CG", "IM", "TF"]);
+function countryNameInText(iso) { return (NAME_THE.has(iso) ? "the " : "") + countryName(iso); }
 
 // ---- paste-a-list importer ---------------------------------------------------
 // Travelers keep their history in Google Docs / Keep / random notes, mixing
@@ -9046,7 +9104,23 @@ function buildTabOnce(name, build) {
   }
   return _building[name];
 }
+// /guide/<slug> HTML carries the other tabs' 16 h2/h3 as <div data-h="2|3">
+// (server.py _guide_template) so they don't tell a crawler the page is about
+// dollar strength and fares. Restored, attributes and children intact, before
+// a reader can see any of them: the same CSS then applies, so nothing moves.
+// A no-op on every other page.
+function promoteShellHeadings() {
+  for (const el of document.querySelectorAll("[data-h]")) {
+    const h = document.createElement("h" + el.dataset.h);
+    for (const a of el.attributes) if (a.name !== "data-h") h.setAttribute(a.name, a.value);
+    h.append(...el.childNodes);
+    el.replaceWith(h);
+  }
+}
 async function activateTab(name, push) {
+  // A /guide/ page serves the other tabs' headings as <div data-h> (server.py
+  // _guide_template); they become h2/h3 again before their tab is revealed.
+  if (name !== "guide") promoteShellHeadings();
   clearTransientStatus();   // a note about the old tab shouldn't outlive it
   closeMapFullscreen();     // "Country guide →" from a full-screen map
   document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
@@ -9056,10 +9130,10 @@ async function activateTab(name, push) {
   // the country's back, because nothing re-renders it — which otherwise left the
   // h1 naming a country under the homepage title.
   if (name !== "guide") {
-    setDocMeta(_DEFAULT_TITLE, _DEFAULT_URL);
+    setDocMeta(_DEFAULT_META, _DEFAULT_URL);
   } else {
     const iso = _guideTarget || ($("bestCountry") || {}).value;
-    if (iso) setDocMeta(guideTitle(iso), SITE_ORIGIN + guidePath(iso));
+    if (iso) setGuideMeta(iso);
   }
   for (const b of document.querySelectorAll("#tabs button")) {
     const on = b.dataset.tab === name;
@@ -9246,6 +9320,36 @@ for (const b of document.querySelectorAll("#dataMode button"))
 // Set this to your public Buttondown newsletter username to enable signups.
 const BUTTONDOWN_USER = "wandergrade";
 
+// The digest's home-currency editions a reader can pick (server.py fills
+// window.__WGDIGEST__ from fxtracker/digest_variants.ROLLOUT). Just USD means
+// no picker anywhere, and the forms are exactly what they were. The choice
+// travels as a Buttondown tag (currency-eur, ...). Function declarations, not
+// consts: setHomeCur() calls syncSubCur() and can run before this line has.
+function digestCurs() {
+  const w = window.__WGDIGEST__;
+  const c = Array.isArray(w) ? w.filter((x) => /^[A-Z]{3}$/.test(x)) : [];
+  return c.length ? c : ["USD"];
+}
+function subCurDefault() { return digestCurs().includes(homeBase) ? homeBase : "USD"; }
+function subCurTag(code) { return "currency-" + code.toLowerCase(); }
+// <option>s for a picker: tag values for the embed form, codes for accounts.
+// blank adds a leading "—" (nothing chosen yet), selected when sel is empty.
+function subCurOptions(sel, asTag, blank) {
+  return (blank ? `<option value=""${sel ? "" : " selected"}>—</option>` : "")
+    + digestCurs().map((c) => `<option value="${asTag ? subCurTag(c) : c}"`
+    + `${c === sel ? " selected" : ""}>${c}</option>`).join("");
+}
+// The default follows the home currency until the reader picks one: the geo
+// seed lands after the footer box is drawn. Fixed width, so no shift.
+function syncSubCur() {
+  for (const s of document.querySelectorAll("select.subcur")) {
+    if (s.dataset.touched) continue;
+    const c = subCurDefault();
+    s.value = s.name === "tag" ? subCurTag(c) : c;
+  }
+}
+function touchSubCur(s) { if (s) s.addEventListener("change", () => { s.dataset.touched = "1"; }); }
+
 // ---- feedback form ----------------------------------------------------------
 // Google Form ("WanderGrade — Feedback", anonymous-friendly). Drives the line
 // under the newsletter box; set "" to hide it. (A second "Feedback" link in the
@@ -9269,6 +9373,29 @@ function subscribeFormHTML() {
   // unchanged; nothing here was ever going to reveal it, because the form posts
   // to a popup and the site never sees the response.
   // The hidden embed=1 is what Buttondown's own embed docs specify.
+  if (digestCurs().length > 1) {
+    // The currency rides as Buttondown's `tag` field. No "written in US
+    // dollars" line: the reader picks the edition written for them.
+    // Subscribing again through this form ADDS a tag (Buttondown never swaps
+    // it), so the tip says how switching really works: the account panel
+    // re-tags an existing subscriber even when the account itself isn't
+    // opted in (accounts._sync_newsletter), and a reply always reaches us.
+    const tip = "Each issue is graded for someone paying in this currency: prices compared with home,"
+      + " and how far your money goes right now. Subscribing again here adds a currency rather"
+      + " than switching. To switch, "
+      + (window.__WGACCT__ === true ? "sign in (👤) with the address you subscribed with and change it"
+        + " in your account, or reply to any issue." : "reply to any issue.");
+    // subform-cur: only the picker form changes shape on a phone (styles.css).
+    return `<span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
+    <form action="https://buttondown.com/api/emails/embed-subscribe/${BUTTONDOWN_USER}"
+          method="post" target="popupwindow"
+          onsubmit="window.open('${base}','popupwindow')" class="subform subform-cur">
+      <input type="email" name="email" placeholder="you@email.com" required>
+      <span class="subcurwrap"><select name="tag" class="subcur" aria-label="Newsletter currency">${subCurOptions(subCurDefault(), true)}</select><span class="muted subcurtip" data-tip="${esc(tip)}" title="">ⓘ</span></span>
+      <input type="hidden" name="embed" value="1">
+      <button type="submit">Subscribe</button>
+    </form>`;
+  }
   // One honest line under the pitch: the digest is written in US dollars from
   // a US point of view (newsletter.py), and a visitor from anywhere else
   // should know that before they type an email — so it is text, not a ⓘ.
@@ -9321,6 +9448,7 @@ function shouldAutoPrompt() {
 function wireSubForm(root) {
   const f = root && root.querySelector("form.subform");
   if (f) f.addEventListener("submit", markSubscribed);
+  if (f) touchSubCur(f.querySelector("select.subcur"));
 }
 
 function openSubscribeModal(opts) {
@@ -9475,15 +9603,90 @@ function pathGuideIso() {
 // Keep <title>/canonical/og:url correct on client-side navigation too, so they
 // match what the server rendered (and update as the user browses countries).
 const SITE_ORIGIN = "https://wandergrade.com";
-const _DEFAULT_TITLE = "WanderGrade — Where Should I Travel to Next?";
+// server.py _HTML_DEFAULTS TITLE / DESC / OGTITLE — change them together.
+const _DEFAULT_META = {
+  title: "WanderGrade — Where Should I Travel to Next?",
+  desc: "Decide where — and when — to go. Every country graded A+ to F on "
+      + "prices, weather, safety, and flights. Free, no sign-up.",
+  og: "Where Should I Travel to Next?",
+};
 const _DEFAULT_URL = SITE_ORIGIN + "/";
-function setDocMeta(title, absURL) {
-  document.title = title;
+// The head the server sent with a /guide/<slug> page, read before anything
+// rewrites it: the boot country keeps exactly what the crawler saw.
+const _bootMeta = (() => {
+  const d = document.querySelector('meta[name="description"]');
+  return { iso: window.__WGGC__ || null, title: document.title, desc: d ? d.getAttribute("content") : "" };
+})();
+function setDocMeta(m, absURL) {
+  document.title = m.title;
+  const set = (sel, v) => { const e = document.querySelector(sel); if (e) e.setAttribute("content", v); };
+  set('meta[name="description"]', m.desc);
+  set('meta[property="og:description"]', m.desc);
+  set('meta[name="twitter:description"]', m.desc);
+  set('meta[property="og:title"]', m.og || m.title);
+  set('meta[name="twitter:title"]', m.og || m.title);
   const c = document.querySelector('link[rel="canonical"]'); if (c) c.setAttribute("href", absURL);
-  const o = document.querySelector('meta[property="og:url"]'); if (o) o.setAttribute("content", absURL);
+  set('meta[property="og:url"]', absURL);
 }
-function guideTitle(iso) {
-  return countryName(iso) + " Travel Guide — Best Time to Visit & What to Do | WanderGrade";
+// The guide's h1, byte for byte render_guide.h1_html(): no figures, so it never
+// contradicts one. Its topics are render_guide.h1_topics(): "cost" only where
+// guide-facts.json has a price figure, "safety" only where it has an advisory.
+// Until the file is in, every topic (the boot guide keeps the server's h1).
+function guideH1Text(iso) {
+  const f = _guideFacts && _guideFacts[iso];
+  const t = [...(!f || f.pct != null ? ["cost"] : []), ...(!f || f.adv ? ["safety"] : []), "when to go"];
+  return countryName(iso) + " travel: " + (t.length === 1 ? t[0] : t.slice(0, -1).join(", ") + " & " + t[t.length - 1]);
+}
+function guideH1Html(iso) {
+  const n = countryName(iso);
+  return '<span aria-hidden="true">' + flagEmoji(iso) + '</span> <span class="gname">' + esc(n) + "</span>"
+    + esc(guideH1Text(iso).slice(n.length));
+}
+function syncGuideH1(iso) {
+  const gh1 = $("guideH1");
+  if (!gh1 || (!_guideFacts && iso === _bootMeta.iso)) return;   // the server's own h1
+  if (gh1.textContent !== flagEmoji(iso) + " " + guideH1Text(iso)) gh1.innerHTML = guideH1Html(iso);
+}
+// ---- guide-facts.json: the dated snapshot behind every guide's title/snippet --
+// Built by scripts/build_guide_facts.py from render_guide.meta(), so a guide
+// opened in-app gets the server's exact title and description. The client
+// never composes them from live data: a live band crossing would flip "Cheap"
+// to "Expensive" in the DOM a crawler renders.
+let _guideFacts = null, _guideFactsP = null;
+function ensureGuideFacts() {
+  if (_guideFacts) return Promise.resolve(_guideFacts);
+  if (!_guideFactsP) _guideFactsP = getJSON("/guide-facts.json").then((d) => (_guideFacts = d))
+    .catch((e) => { _guideFactsP = null; throw e; });
+  return _guideFactsP;
+}
+// Past 90 days (render_guide.STALE_DAYS) the server drops every figure; so does this.
+function guideFactsFresh() {
+  const a = _guideFacts && _guideFacts._asof;
+  return !!a && (Date.now() - Date.parse(a + "T00:00:00Z")) / 864e5 <= 90;
+}
+// "Sep 2026", the snapshot's month.
+function guideFactsMonth() {
+  const a = (_guideFacts && _guideFacts._asof) || "";
+  return MON_ABBR[+a.slice(5, 7) - 1] ? MON_ABBR[+a.slice(5, 7) - 1] + " " + a.slice(0, 4) : "";
+}
+function guideMeta(iso) {
+  if (iso === _bootMeta.iso) return { title: _bootMeta.title, desc: _bootMeta.desc };
+  const f = _guideFacts && _guideFacts[iso];
+  if (f) return { title: f.t, desc: (!guideFactsFresh() && f.dn) || f.d };
+  // Not loaded yet: render_guide's number-free "Travel Guide" title ladder and
+  // its last-resort description (render_guide.generic_desc) — never the
+  // homepage's, which describes another page.
+  const n = countryName(iso);
+  const title = [n + " Travel Guide: Best Time to Visit & Things to Do", n + " Travel Guide: Best Time to Visit",
+                 n + " Travel Guide"].find((t) => t.length <= 60) || n + " Travel Guide";
+  return { title, desc: "What to do in " + countryNameInText(iso)
+    + ", when to go, and what's in season — graded on prices, weather, safety and flights." };
+}
+function setGuideMeta(iso) {
+  setDocMeta(guideMeta(iso), SITE_ORIGIN + guidePath(iso));
+  if (!_guideFacts && iso !== _bootMeta.iso) ensureGuideFacts().then(() => {
+    if (currentTab() === "guide" && ccGuideIso === iso) setDocMeta(guideMeta(iso), SITE_ORIGIN + guidePath(iso));
+  }).catch(() => {});
 }
 
 function buildShareURL(forShare) {
@@ -11624,10 +11827,14 @@ function openSignIn() {
     // Unticked by default: saving a map is not consent to a newsletter (a
     // pre-ticked box isn't valid consent under GDPR). Monthly is the only
     // cadence there is, so it's in the words rather than a one-option picker.
-    + '<label class="acctcheck"><input type="checkbox" id="acctSub"> Also send me the monthly newsletter</label>'
+    + '<label class="acctcheck"><input type="checkbox" id="acctSub"> Also send me the monthly newsletter'
+    + (digestCurs().length > 1 ? ' in <select id="acctCur" class="subcur" aria-label="Newsletter currency">'
+      + subCurOptions(subCurDefault(), false) + "</select>" : "")
+    + "</label>"
     );
   if (!m) return;
-  const sub = m.querySelector("#acctSub");
+  const sub = m.querySelector("#acctSub"), curSel = m.querySelector("#acctCur");
+  touchSubCur(curSel);
   m.querySelector("form").onsubmit = async (e) => {
     e.preventDefault();
     const email = m.querySelector('input[type="email"]').value.trim();
@@ -11638,7 +11845,8 @@ function openSignIn() {
     // existing subscriber — the account panel is the one place to opt out.
     try {
       if (sub.checked) {
-        localStorage.setItem("wg_pending_prefs", JSON.stringify({ subscribed: true, cadence: "monthly" }));
+        localStorage.setItem("wg_pending_prefs", JSON.stringify(Object.assign(
+          { subscribed: true, cadence: "monthly" }, curSel ? { currency: curSel.value } : {})));
       } else {
         localStorage.removeItem("wg_pending_prefs");
       }
@@ -11665,6 +11873,19 @@ function openAccount() {
   const u = (acctState && acctState.user) || {};
   // Any live cadence (incl. a legacy "quarterly") is monthly; unsubscribed is off.
   const cad = u.subscribed && u.cadence !== "off" ? "monthly" : "off";
+  // The currency select shows the account's choice. With none stored, a
+  // subscriber gets the USD issue, so that is what it says; an account that
+  // isn't opted in shows "—" (nothing chosen), so that ANY pick is a change:
+  // a reader on the list through the public form switches editions here
+  // (accounts._sync_newsletter re-tags them), and a pre-selected home
+  // currency could never be picked. A stored choice that has since been
+  // switched off (digest_variants.ROLLOUT) is kept for when it returns: the
+  // select shows what they get meanwhile (USD) and only a real pick, never a
+  // cadence toggle, replaces it.
+  const curs = digestCurs();
+  const stored = curs.includes(u.currency) ? u.currency : null;
+  const keepOff = !!u.currency && !stored;
+  const cur = stored || (cad !== "off" ? "USD" : "");
   const m = acctModal(
     '<span class="sublabel">👤 Your account</span>'
     + `<p class="hint"><b>${esc(acctState.email)}</b> — your map syncs automatically.</p>`
@@ -11672,18 +11893,73 @@ function openAccount() {
     + '> Newsletter <select id="acctCad2">'
     + ["monthly", "off"].map((c) =>
         `<option value="${c}"${c === cad ? " selected" : ""}>${CADENCE_LABEL[c]}</option>`).join("")
-    + "</select></label>"
+    + "</select>"
+    + (curs.length > 1 ? ' in <select id="acctCur2" class="subcur" aria-label="Newsletter currency">'
+      + subCurOptions(cur, false, !cur) + "</select>" : "")
+    + "</label>"
+    + (curs.length > 1 ? '<p class="hint" id="acctCurMsg" hidden></p>' : "")
     + '<div class="bulkfoot"><button type="button" class="bulkdone" id="acctOut">Sign out</button></div>');
   if (!m) return;
   const sub = m.querySelector("#acctSub2"), cadSel = m.querySelector("#acctCad2");
-  const push = () => acctPrefs({ subscribed: sub.checked, cadence: cadSel.value });
+  const curSel = m.querySelector("#acctCur2");
+  if (curSel) curSel.dataset.touched = "1";   // shows the account's choice: never re-defaulted
+  const curPrefs = () => (curSel && curSel.value && (!keepOff || curSel.dataset.picked)
+    ? { currency: curSel.value } : {});
+  let curTimer = 0;
+  // The select shows what the account kept: a pick that rode along with a
+  // subscribe/cadence change and wasn't saved snaps back, as a pick on its
+  // own does.
+  const showKept = () => {
+    const got = acctState && acctState.user ? acctState.user.currency : null;
+    if (curSel && curs.includes(got) && curSel.value !== got) curSel.value = got;
+  };
+  const push = async () => {
+    clearTimeout(curTimer);                   // a pending pick rides along with this call
+    await acctPrefs(Object.assign({ subscribed: sub.checked, cadence: cadSel.value }, curPrefs()));
+    showKept();
+  };
+  // A currency-only change re-tags the subscriber; nothing else is sent.
+  // Debounced: arrowing through the closed select fires change per step,
+  // and each call reads and rewrites the subscriber's Buttondown tags on its
+  // own server thread — the last write won, which could leave the tag on a
+  // currency the reader only passed over. Only the value they settle on is
+  // sent. If the server didn't keep it (Buttondown unreachable: the account
+  // reverts so it never disagrees with the list), the select snaps back.
+  if (curSel) curSel.onchange = () => {
+    curSel.dataset.picked = "1";
+    clearTimeout(curTimer);
+    curTimer = setTimeout(async () => {
+      const want = curSel.value, msg = m.querySelector("#acctCurMsg");
+      if (!want) return;
+      await acctPrefs({ currency: want });
+      const got = acctState && acctState.user ? acctState.user.currency : null;
+      if (got === want || curSel.value !== want) { if (msg) msg.hidden = true; return; }
+      curSel.value = curs.includes(got) ? got : cur;
+      if (msg) {
+        msg.textContent = "Couldn't switch the newsletter to " + want + " just now — try again in a minute.";
+        msg.hidden = false;
+      }
+    }, 800);
+  };
+  // Opting in from "—": the home currency is the suggestion, now shown and sent.
+  const optInCur = () => {
+    if (sub.checked && curSel && !curSel.value) { curSel.value = subCurDefault(); curSel.dataset.picked = "1"; }
+  };
   sub.onchange = () => {
     if (!sub.checked) cadSel.value = "off";
     else if (cadSel.value === "off") cadSel.value = "monthly";
+    optInCur();
     push();
   };
-  cadSel.onchange = () => { sub.checked = cadSel.value !== "off"; push(); };
+  cadSel.onchange = () => { sub.checked = cadSel.value !== "off"; optInCur(); push(); };
   m.querySelector("#acctOut").onclick = async () => {
+    // A currency picked under 800ms ago is still waiting on its debounce:
+    // send it before the session ends, or signing out drops it.
+    if (curTimer && curSel && curSel.value && curSel.dataset.picked) {
+      clearTimeout(curTimer);
+      curTimer = 0;
+      await acctPrefs({ currency: curSel.value });
+    }
     if (_syncTimer) await acctSync();   // a pending edit reaches the account first
     try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (e) {}
     acctSignedOut();
@@ -11724,7 +12000,10 @@ if (ACCT_ON) {
         localStorage.removeItem("wg_pending_prefs");
         // Opt-in only (see openSignIn): a {subscribed:false} left by an older
         // build must not unsubscribe anyone either.
-        if (pending.subscribed === true) await acctPrefs({ subscribed: true, cadence: "monthly" });
+        if (pending.subscribed === true) {
+          await acctPrefs(Object.assign({ subscribed: true, cadence: "monthly" },
+            /^[A-Z]{3}$/.test(pending.currency || "") ? { currency: pending.currency } : {}));
+        }
       }
       await acctSync();               // seed the account with this device's map
       acctNote("Signed in — your travel map is saved to " + acctState.email + " ✓", "ok");
