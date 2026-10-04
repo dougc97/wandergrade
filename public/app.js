@@ -797,8 +797,17 @@ async function loadRates() {
     renderRates(data);
     status("");
   } catch (e) {
-    if (seq === _ratesSeq) status("Could not load rates: " + e.message, "err");
+    if (seq === _ratesSeq) { status("Could not load rates: " + e.message, "err"); dropLoadingRow("rows"); }
   }
+}
+
+// A Data table's "Loading…" row holds two screens of room for the rows on
+// their way (tr.loadingrow, styles.css). When they never come — a failed
+// fetch — it lets go, so the page doesn't keep a blank two screens under a
+// row that still says Loading…, exactly as it read before the reservation.
+function dropLoadingRow(tbodyId) {
+  const tr = document.querySelector("#" + tbodyId + " > tr.loadingrow");
+  if (tr) tr.classList.remove("loadingrow");
 }
 
 // "AED" and "ANG" mean nothing to most people, so the pickers spell the
@@ -1725,6 +1734,7 @@ function renderMap(rows, base) {
 }
 
 function renderLegend(base) {
+  $("legend").classList.remove("skel"); $("legend").removeAttribute("aria-hidden");   // index.html's stand-in
   $("legend").innerHTML =
     '<span>Weaker</span><span class="scale"></span><span>Stronger</span>' +
     `<span style="margin-left:8px"><span class="swatch" style="background:#bcd0e6"></span>${esc(base || "USD")}-linked</span>` +
@@ -2117,6 +2127,8 @@ $("toggleSettings").addEventListener("click", async () => {
 // ===========================================================================
 //  Region grouping (ISO -> region) for the travel tabs
 // ===========================================================================
+// index.html repeats these in the Data tab's four Region pickers (filled in
+// the markup so they are their final width at first paint): keep in step.
 const REGIONS = {
   AMER: "Americas", EUR: "Europe", MENA: "Middle East & N. Africa",
   ASIA: "Asia", AFRICA: "Africa (Sub-Saharan)", OCEANIA: "Oceania",
@@ -2454,8 +2466,14 @@ function renderGuideInsurance(iso) {
   // are the product, and a booking button beneath "do not travel for any
   // reason" makes the badge look like it is there to sell the booking. Held
   // back until the level is known, so it never flashes on a Level 4 page.
+  // Empty until then it holds its usual height (styles.css #guideInsurance:
+  // empty), so a Level 4 page hides it outright rather than keep a blank.
   host.innerHTML = "";
-  const show = () => { if (ccGuideIso === iso && guideAdvLevel(iso) !== 4) fillGuideInsurance(host, iso); };
+  const show = () => {
+    if (ccGuideIso !== iso) return;
+    host.hidden = guideAdvLevel(iso) === 4;
+    if (!host.hidden) fillGuideInsurance(host, iso);
+  };
   ensureAdvisories().then(show, show);
 }
 // The grades the 📸 share card prints, on the page itself (an export must not
@@ -2950,17 +2968,22 @@ let _staySpotIdx = 0, _staySpotIso = null;   // chip selection, reset per countr
 function renderGuideStay(iso) {
   const host = $("guideStay");
   if (!host) return;
-  host.hidden = true; host.innerHTML = "";
+  // Emptied, not hidden, until the spots load (the visa line's rule): empty
+  // it keeps its held height (styles.css). Hidden, the stays column beside
+  // the advisory collapsed to the insurance line and the weather chart under
+  // both rode up 135px and back down when the stays came (1280).
+  host.innerHTML = ""; host.hidden = false;
+  const none = () => { if (ccGuideIso === iso) host.hidden = true; };
   Promise.all([ensureStayCoords(), ensureAdvisories().catch(() => null)]).then(([cc]) => {
     if (ccGuideIso !== iso) return;                    // user switched country
-    if (guideAdvLevel(iso) === 4) return;              // no bookings under "do not travel"
+    if (guideAdvLevel(iso) === 4) return none();       // no bookings under "do not travel"
     // Spots = the country's top places (from the curated gallery), each a
     // stay-search anchor. Tolerate the old single-anchor shape from cache.
     let spots = cc[iso];
-    if (!spots) return;
+    if (!spots) return none();
     if (!Array.isArray(spots)) spots = [{ n: spots.near, ll: spots.ll }];
     spots = spots.filter((s) => s && s.ll && s.n);
-    if (!spots.length) return;
+    if (!spots.length) return none();
     if (_staySpotIso !== iso) { _staySpotIso = iso; _staySpotIdx = 0; }
     if (_staySpotIdx >= spots.length) _staySpotIdx = 0;
     const sp = spots[_staySpotIdx];
@@ -2992,7 +3015,7 @@ function renderGuideStay(iso) {
       renderGuideStay(iso);
     }));
     host.hidden = false;
-  }).catch(() => {});
+  }).catch(() => { if (!host.firstChild) none(); });
 }
 
 // Passport used for visa info = the traveller's home ("From") country.
@@ -3027,8 +3050,12 @@ function renderGuideVisa(iso) {
   if (!host) return;
   const passport = guidePassport();
   if (passport !== "US" && !visaMatrix) {       // need the matrix; load then redraw
-    host.hidden = true;
-    ensureVisaMatrix().then(() => { if (ccGuideIso === iso) renderGuideVisa(iso); }).catch(() => {});
+    // Empty, not hidden, while it loads: empty it keeps the height styles.css
+    // holds for it, where hiding it collapsed the line and the guide under it
+    // jumped twice. Hidden only if the matrix never comes.
+    host.innerHTML = ""; host.hidden = false;
+    ensureVisaMatrix().then(() => { if (ccGuideIso === iso) renderGuideVisa(iso); })
+      .catch(() => { if (ccGuideIso === iso && !host.firstChild) host.hidden = true; });
     return;
   }
   const info = visaInfo(iso, passport);
@@ -3109,13 +3136,16 @@ function guideAdvLevel(iso) {
 function renderGuideSafety(iso) {
   const host = $("guideSafety");
   if (!host) return;
-  host.hidden = true;
+  // Emptied, not hidden, while the advisories load (the visa line's rule):
+  // empty it keeps its held height, and the line only goes when there is
+  // nothing to say.
+  host.innerHTML = ""; host.hidden = false;
   ensureAdvisories().then(() => {
     if (ccGuideIso !== iso) return;
     const meta = advisoryMetaByIso();
     const parent = !meta[iso] && ADV_PARENT[iso] && meta[ADV_PARENT[iso]] ? ADV_PARENT[iso] : null;
     const it = meta[iso] || (parent && meta[parent]);
-    if (!it) return;
+    if (!it) { host.hidden = true; return; }
     const lvl = it.level;
     const src = (it.via_name || advSrcName()) + (parent ? " (" + countryName(parent) + " advisory)" : "");
     const url = it.link || advisories.source_url || "#";
@@ -3157,7 +3187,7 @@ function renderGuideSafety(iso) {
     };
     renderWatchouts(iso);
     renderGuideHealth(iso);
-  }).catch(() => {});
+  }).catch(() => { if (ccGuideIso === iso && !host.firstChild) host.hidden = true; });
 }
 // Under the advisory: the diseases Canada's travel health advice calls a risk
 // there (the Safety table's Health column), the rest in the tip. Only a
@@ -3700,6 +3730,7 @@ function tempColor(c) {
 
 function renderCountryClimate(iso) {
   const c = climate[iso];
+  $("bestDetail").classList.remove("loading");   // the first-paint height it held (styles.css)
   if (!c) { $("bestDetail").textContent = "No data."; return; }
   const bestSet = new Set(c.best);
   const seas = seasons(c.scores);
@@ -4628,10 +4659,14 @@ function renderAfford() {
     + "From the World Bank's yearly price levels behind the Cost over time chart. The bar shows where today sits in that "
     + "decade: further right = nearer its cheapest.";
   // After the rows: the count comes from them.
+  // Until the history lands, an invisible stand-in for the count it adds
+  // holds the line's length: without it the line was a line shorter on a
+  // tablet or phone for that moment, and the map and table rode up and back.
   $("affSub").innerHTML = esc(`Below 1.00 = cheaper than ${anchorName} · ${n} countries`
     + (plHist ? ` · ${cheaperNow} cheaper than usual` : ""))
     + ` <span class="muted" data-tip="${esc(`World Bank PPP (${pppYear()} for most countries), brought up to date by inflation, ÷ today's exchange rate. `
-      + "National averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.")}" title="">ⓘ</span>`;
+      + "National averages: neighbourhoods popular with visitors, and rent paid by foreigners, run well above them.")}" title="">ⓘ</span>`
+    + (plHist ? "" : '<span class="skeltext" aria-hidden="true"> · 32 cheaper than usual</span>');
   markSort("#affTable", affSort);
   // The header carries the currency ("€100 buys"), so the cells needn't
   // repeat "of at-home goods" 176 times — the th title still says it.
@@ -7109,6 +7144,8 @@ function renderValue() {
   // Short labels ("Lower"/"Higher", as the share image has them; the title
   // says of what): the key then fits one row under the title in a half-width
   // card, where "Lower value … your top picks" wrapped to two.
+  // The markup's invisible copy of this key (index.html) held its room until now.
+  if (vLeg) { vLeg.classList.remove("skel"); vLeg.removeAttribute("aria-hidden"); }
   if (vLeg) vLeg.innerHTML = valueMapMode === "weather"
     ? '<span>Harsh</span><span class="scale"></span><span>Comfortable</span>'
       + '<span><span class="swatch"></span>No data</span>'
@@ -7370,13 +7407,16 @@ async function loadFlights() {
   flightValue = null;   // another origin's ranges must never band these fares
   _fvFailed = false;
   resetFbm($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin);
-  $("flightSub").textContent = "Loading fares from " +
-    ($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin) + "…";
+  // With the invisible rest of the line renderFlights writes, so the box is
+  // already the height that line wraps to (index.html, the same padding).
+  $("flightSub").innerHTML = esc("Loading fares from " +
+    ($("flightOrigin").selectedOptions[0] ? $("flightOrigin").selectedOptions[0].textContent : origin) + "…")
+    + '<span class="skeltext" aria-hidden="true"> vs each route\'s typical <span class="muted">ⓘ</span> · cached by Aviasales, not live</span>';
   let data;
   try {
     data = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
   } catch (e) {
-    if (seq === _flSeq) $("flightSub").textContent = "Could not load flights: " + e.message;
+    if (seq === _flSeq) { $("flightSub").textContent = "Could not load flights: " + e.message; dropLoadingRow("flightRows"); }
     return;
   }
   if (seq !== _flSeq) return;   // an earlier origin's slow reply must not win
@@ -7648,6 +7688,7 @@ function renderFlights() {
       + (fv.gaveUp ? " — reload in a few minutes to see them." : "…") + "</span>" : "");
   // Legend names the month and the comparison — green isn't "cheap", it's
   // "cheaper than this route usually is".
+  $("flightLegend").classList.remove("skel"); $("flightLegend").removeAttribute("aria-hidden");
   $("flightLegend").innerHTML =
     `<span>${esc(MON_ABBR[m - 1])} vs typical:</span><span>Low</span>`
     + '<span class="scale" style="background:linear-gradient(90deg,#0a7d28,#eef0f1 35%,#eef0f1 65%,#b00020)"></span><span>High</span>'
@@ -7769,8 +7810,11 @@ function renderFbm() {
   const partial = fv && fv.partial;
   const filling = fv && fv.filling ? ` · still gathering fares (${fv.ready} of ${fv.total} routes)` : "";
   if (!months.length) {
-    $("fbmH2").innerHTML = 'Fares by month';
-    $("fbmSub").textContent = "From " + origin;
+    // Invisible tails of the full title and sub-line (index.html's): this
+    // is the loading state, and the header keeps the size it will have.
+    $("fbmH2").innerHTML = 'Fares by month <span class="muted skeltext" aria-hidden="true">all destinations</span>';
+    $("fbmSub").innerHTML = esc("From " + origin)
+      + '<span class="skeltext" aria-hidden="true"> · each month vs each route\'s typical fare (median of up to 45 routes)</span>';
     clear(_fvFailed ? "Couldn't load the fare ranges — try again later." : "Loading fares…");
     return;
   }
@@ -9166,7 +9210,6 @@ async function setDataMode(mode) {
     } else if (mode === "flights" && loaded.flights) {
       refitChart($("fbmChart"));
     } else if (mode === "advisory" && !loaded.advisory) {
-      $("advSub").textContent = "Loading advisories…";
       await Promise.all([ensureWorld(), ensureAdvisories()]);
       renderAdvisories(); loaded.advisory = true;
     } else if (mode === "flights" && !loaded.flights) {
@@ -9175,6 +9218,7 @@ async function setDataMode(mode) {
     }
   } catch (e) {
     status("Could not load " + mode + ": " + e.message, "err");
+    dropLoadingRow({ currency: "rows", afford: "affRows", advisory: "advRows", flights: "flightRows" }[mode]);
   }
   syncURL();
 }
@@ -11289,7 +11333,13 @@ document.addEventListener("scroll", _hideTip, true);
   }).catch(() => {});
   // Load the currency data (the "Where to go" score needs live rates + PPP),
   // render the currency tab in the background, then open the verdict tab.
-  await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates()]);
+  // climate.json too: it is where countryName gets the names people use
+  // ("Iran", "Laos"), and without it the maps' lists fall back to ppp.json's
+  // World Bank ones ("Iran, Islamic Rep.", "Lao PDR"). Every landing used to
+  // load it with Top Picks; a Data landing no longer builds Top Picks (init
+  // below), so it comes here, before the first list is drawn.
+  await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates(),
+                     ensureClimate().catch(() => {})]);
   renderMapSafe();
   // The 1-year index chart lives in the Explore-the-Data tab; it loads there
   // on first open (setDataMode) instead of costing every landing visit.

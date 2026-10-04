@@ -160,13 +160,13 @@
           <!-- "I'm going in" costs 81px of a 169px group on a phone, squeezing the
                month itself down to 55px. "When" says the same thing in 39px. -->
           <span class="picklabel"><span class="lbl-lg">I'm going in</span><span class="lbl-sm">When</span></span>
-          <select id="valueMonth" title="travel month"></select>
+          <select id="valueMonth" class="combosel" title="travel month"></select>
         </span>
         <span class="pickgroup" data-tip="your home country — sets flight prices, visas and what 'cheap' is compared to" title="">
           <!-- The plane alone carries "from where" on a phone, and the 33px it
                saves is what lets "United Kingdom" render without clipping. -->
           <span class="picklabel"><span class="lbl-lg">✈️ From</span><span class="lbl-sm">✈️</span></span>
-          <select id="valueOrigin"></select>
+          <select id="valueOrigin" class="combosel"></select>
         </span>
         <!-- Budget lives up here, not in the fold: it is the site's sharpest
              differentiator and it was invisible until a click. Drops countries
@@ -236,7 +236,11 @@
            One row with the note: alone, the button took a 57px band for a
            single 133px control. -->
       <div class="picksrow">
-        <p class="picksnote" id="picksNote"></p>
+        <!-- Held by an invisible copy of the line renderValue writes (the
+             usual one), so it wraps where the real one will: empty, it took
+             no room beside the button and then grew to two lines on a phone
+             (41 -> 77px), dropping the table and everything under it. -->
+        <p class="picksnote" id="picksNote"><span class="skeltext" aria-hidden="true">🌍 Popular destinations, ranked by value ⓘ — more finds under 💎 Hidden gems.</span></p>
         <button id="rankShare" class="themebtn shareimg" type="button"
           title="Download the ranked list as an image — grades, fares and sourcing included">📸 <span class="btxt">Share ranking</span></button>
       </div>
@@ -281,7 +285,10 @@
            "which of these should I pick" better than a prompt would. Planning
            lives in the Trip tab, on countries you actually chose. -->
 
-      <details class="foldable" id="gemsBox" hidden>
+      <!-- Not [hidden] in the markup: renderValue shows it on nearly every
+           render, and arriving then it pushed the map row 52px down. It hides
+           it in the rare case there are no gems. -->
+      <details class="foldable" id="gemsBox">
         <summary>💎 Hidden gems <span class="muted">— off the beaten path</span>
           <button id="gemSurprise" class="gembtn" type="button" title="Spin the globe across the hidden gems only">🎲 Surprise gem</button></summary>
         <div id="gemRows" class="gradewrap"></div>
@@ -298,10 +305,21 @@
         <section class="mapcard">
           <div class="charthead compact">
             <h2 id="valueMapTitle">Best value destinations</h2>
+            <!-- The month renderValue adds to the title, added before first
+                 paint (the same month: the link's vmn, else this month), so
+                 a phone doesn't re-wrap the heading to two lines when it
+                 lands. -->
+            <script>(function(){var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),
+              M=["January","February","March","April","May","June","July","August","September","October","November","December"];
+              if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
+              document.getElementById("valueMapTitle").textContent=(q.get("vmm")==="weather"?"Weather comfort in ":"Best value destinations in ")+M[m-1];})();</script>
             <span class="muted" id="valueMapSub" data-tip="Greener = better overall value this month." title="">ⓘ</span>
             <button id="valueShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
             <span class="brk" aria-hidden="true"></span>
-            <div class="legend" id="valueLegend"></div>
+            <!-- An invisible copy of the key renderValue writes (styles.css
+                 .legend.skel), so the header is its final height: filled late,
+                 it added 40px above the map on a phone. -->
+            <div class="legend skel" id="valueLegend" aria-hidden="true"><span>Lower</span><span class="scale"></span><span>Higher</span><span class="keypulse"><span class="swatch pulsekey"></span>Pulsing = top picks</span><span><span class="swatch"></span>No data</span><span><span class="swatch"></span>Do Not Travel</span></div>
           </div>
           <div id="valueMap" class="map">Loading…</div>
         </section>
@@ -324,7 +342,10 @@
             </div>
           </div>
           <div class="weightrows" id="weightRows"></div>
-          <div class="pickslot" data-picks-slot="valueMap"></div>
+          <!-- The ranked list's invisible stand-in (see the Data maps'), five
+               typical names long like the default Top 5: created on the first
+               render, it grew the card 28-52px. -->
+          <div class="pickslot" data-picks-slot="valueMap"><div class="mappicksrow skel" data-for="valueMap" aria-hidden="true"><strong>Best value in October</strong><span style="width:5.4em"></span><span style="width:5.2em"></span><span style="width:4.2em"></span><span style="width:4.8em"></span><span style="width:4.4em"></span></div></div>
         </section>
       </div>
 
@@ -387,7 +408,7 @@
              on Top Picks, where the same filters come with grades attached; the
              Guide is for reading the country you picked. -->
         <div class="pickers">
-          <select id="bestCountry" aria-label="Country" title="Country"></select>
+          <select id="bestCountry" class="combosel" aria-label="Country" title="Country"></select>
           <!-- Every other surface exports; the guide was the one share-less
                page. Static, not injected — the CLS rule. -->
           <button id="guideShare" class="themebtn shareimg" type="button" title="Download this country as a shareable card — grade, months, prices, safety">📸 <span class="btxt">Share card</span></button>
@@ -410,10 +431,16 @@
            spanning a tall left-hand block across two rows would have spread its
            height between them and opened a gap between stays and insurance. -->
       <div class="guidegrid">
+        <!-- Visa, safety, the AI block and the weather chart start empty (the
+             chart as .loading) and are held at their usual heights until
+             filled (styles.css): arriving one by one, they pushed everything
+             under them down 600px in one frame on a tablet (CLS 0.45). Safety
+             is not [hidden] here for the same reason; renderGuideSafety hides
+             it when there is no advisory. -->
         <div id="guideVisa" class="guidevisa"></div>
-        <div id="guideSafety" class="guidevisa" hidden></div>
+        <div id="guideSafety" class="guidevisa"></div>
         <div id="guideAI" class="guideai"></div>
-        <div id="bestDetail" class="bestdetail">Loading…</div>
+        <div id="bestDetail" class="bestdetail loading">Loading…</div>
         <div class="farecol">
           <!-- Fare-by-month strip: the flights answer to "when should I go".
                Static host (CLS rule); renderGuideFares fills or leaves hidden. -->
@@ -432,7 +459,9 @@
              the insurance. The grades are the product; nothing gets to cast doubt
              on them for affiliate revenue. -->
         <div class="staycol">
-          <div id="guideStay" class="guidestay" hidden></div>
+          <!-- Not [hidden] (the visa line's reason): renderGuideStay hides it
+               when a country has no stays to show. -->
+          <div id="guideStay" class="guidestay"></div>
           <div id="guideInsurance" class="afflink"></div>
         </div>
       </div>
@@ -535,7 +564,7 @@
         </div>
         <span class="pickgroup" data-tip="see everything from another home currency's point of view" title="">
           <span class="picklabel">💱 <span class="lbl-lg">My currency</span></span>
-          <select id="dataBase"></select>
+          <select id="dataBase" class="combosel"></select>
         </span>
       </div>
 
@@ -544,9 +573,12 @@
           <div class="charthead">
             <div>
               <h2 id="mapH2">Where the dollar is strong <span class="muted">vs each currency's 1-year average</span></h2>
-              <p id="mapsub" class="chartsub"><span class="skeltext" aria-hidden="true">Greener = the dollar above its 1-year average there · 195 countries ⓘ</span></p>
+              <p id="mapsub" class="chartsub"><span class="skeltext" aria-hidden="true">Greener = the dollar above its 1-year average there · 195 countries <span class="muted">ⓘ</span></span></p>
             </div>
-            <div class="legend" id="legend"></div>
+            <!-- Invisible copy of the key renderLegend writes (.legend.skel): at
+                 768 and on phones it is two lines, and filled late it moved
+                 the map and the list under it 11px. -->
+            <div class="legend skel" id="legend" aria-hidden="true"><span>Weaker</span><span class="scale"></span><span>Stronger</span><span style="margin-left:8px"><span class="swatch"></span>USD-linked</span><span style="margin-left:6px"><span class="swatch"></span>No data</span></div>
             <!-- The first map built, and the only one that never got the share
                  button the later maps shipped with — an omission, not a choice. -->
             <button id="fxShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
@@ -664,7 +696,7 @@
         <div class="charthead">
           <div>
             <h2>Cost of living <span class="muted">how far your money goes</span></h2>
-            <p id="affSub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> cheaper than the US · 176 countries · 32 cheaper than usual ⓘ</span></p>
+            <p id="affSub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> cheaper than the US · 176 countries · 32 cheaper than usual <span class="muted">ⓘ</span></span></p>
           </div>
           <!-- Same home-country state as the From selector on Top Picks —
                mirrored here so the reference is visible and changeable where
@@ -685,7 +717,10 @@
       <section class="chartcard" id="colCard">
         <div class="charthead">
           <div>
-            <h2 id="colH2">Cost over time</h2>
+            <!-- The comparison renderCol adds, held invisibly: the title block
+                 was 127px wide until it arrived and 303 after, so at 768 the
+                 number beside it wrapped under it then (+55px). -->
+            <h2 id="colH2">Cost over time <span class="muted skeltext" aria-hidden="true">A typical country vs the US</span></h2>
             <p id="colSub" class="chartsub">Loading…</p>
           </div>
           <div class="bignum">
@@ -705,7 +740,10 @@
           </div>
         </div>
         <div id="colChart" class="chart"></div>
-        <p class="chartnote" id="colNote"></p>
+        <!-- Invisibly the note renderCol writes, so the card is its final
+             height: filled late it grew 35-52px and the table under the row
+             moved with it. -->
+        <p class="chartnote" id="colNote"><span class="skeltext" aria-hidden="true">Lower = your money buys more there. Yearly averages from the World Bank, then today's figure from the map. <span class="muted">ⓘ</span></span></p>
       </section>
       </div>
       <div class="filterbar">
@@ -741,7 +779,9 @@
         <div class="charthead">
           <div>
             <h2 id="advH2">Travel advisories</h2>
-            <p id="advSub" class="chartsub">Loading…</p>
+            <!-- The invisible tail ends in the ⓘ the real line carries (14px in a
+                 13px line, so the line is 2px taller with it). -->
+            <p id="advSub" class="chartsub">Loading advisories…<span class="skeltext" aria-hidden="true"> · 18 filled in by others <span class="muted">ⓘ</span></span></p>
           </div>
           <!-- Whose judgement you're reading: one explicit pick, US by default
                for everyone (the owner's call — it no longer follows the From
@@ -768,7 +808,7 @@
         <div class="charthead">
           <div>
             <h2 id="govH2">Where governments disagree</h2>
-            <p id="govSub" class="chartsub">Loading…</p>
+            <p id="govSub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> 2+ levels apart · 37 one level apart <span class="muted">ⓘ</span></span></p>
           </div>
         </div>
         <div class="panelbody"><div class="panelscroll" id="govScroll"></div></div>
@@ -812,7 +852,11 @@
         <div class="charthead">
           <div>
             <h2>Flight prices by country <span class="muted">low, typical or high for your month</span></h2>
-            <p id="flightSub" class="chartsub">Pick where you're flying from and when.</p>
+            <!-- Padded to the length of the line renderFlights writes ("October
+                 fares from United States vs each route's typical ⓘ · cached by
+                 Aviasales, not live"), which wraps to more lines than this one
+                 did; the loading line in loadFlights carries the same padding. -->
+            <p id="flightSub" class="chartsub">Pick where you're flying from and when.<span class="skeltext" aria-hidden="true"> vs each route's typical <span class="muted">ⓘ</span> · cached by Aviasales, not live</span></p>
           </div>
           <div class="pickers">
             <span class="pickgroup" data-tip="your home country — fares are averaged from its main hub" title="">
@@ -833,17 +877,24 @@
               <span class="picklabel">💱 In</span>
               <select id="flightCur" class="combosel"></select>
             </span>
-            <div class="legend" id="flightLegend"></div>
+            <!-- The key's invisible stand-in (.legend.skel), as on the Currency map. -->
+            <div class="legend skel" id="flightLegend" aria-hidden="true"><span>Oct vs typical:</span><span>Low</span><span class="scale"></span><span>High</span><span style="margin-left:6px"><span class="swatch"></span>Not enough fare data</span></div>
             <button id="flightShare" class="themebtn shareimg" type="button" title="Download this map as an image">📸 <span class="btxt">Share image</span></button>
           </div>
         </div>
         <div id="flightMap" class="map">Loading…</div>
+        <!-- Stand-in for "Below typical for …" (see the Currency map's). -->
+        <div class="mappicksrow skel" data-for="flightMap" aria-hidden="true"><strong>Below typical for October</strong><span style="width:7.4em"></span><span style="width:8.6em"></span><span style="width:6.8em"></span><span style="width:7.1em"></span><span style="width:7.9em"></span><span style="width:8.2em"></span><span style="width:8.2em"></span><span style="width:7.4em"></span></div>
       </section>
       <section class="chartcard" id="fbmCard">
         <div class="charthead">
           <div>
-            <h2 id="fbmH2">Fares by month</h2>
-            <p id="fbmSub" class="chartsub">Loading…</p>
+            <!-- Invisible tails of what renderFbm writes here, and the number
+                 box below held open (styles.css): arriving, they took the
+                 header from 47px to 103-122 and the month bars went down
+                 with it. -->
+            <h2 id="fbmH2">Fares by month <span class="muted skeltext" aria-hidden="true">all destinations</span></h2>
+            <p id="fbmSub" class="chartsub">Loading…<span class="skeltext" aria-hidden="true"> · each month vs each route's typical fare (median of up to 45 routes)</span></p>
           </div>
           <div class="bignum" aria-live="polite">
             <span id="fbmNow"></span>
@@ -853,7 +904,7 @@
         <div class="colbar">
           <span class="pickgroup">
             <span class="picklabel">📍 To</span>
-            <select id="fbmPick" aria-label="Destination"></select>
+            <select id="fbmPick" class="combosel" aria-label="Destination"></select>
           </span>
         </div>
         <div id="fbmChart" class="chart"></div>

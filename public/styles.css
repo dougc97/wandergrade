@@ -283,21 +283,12 @@ h1, .sitetitle { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spac
 .meta { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
 .meta #asof { font-weight: 600; }
 .meta #summary { color: var(--gray); }
-/* Invisible stand-ins in the served HTML for a line app.js writes (the
-   Currency bar's summary, the map's sub-line): the same words the line
-   usually reads, so they wrap where it will and the box is its final height
-   from first paint. The real text replaces them. */
+/* Invisible stand-ins for text app.js writes later (the Currency bar's
+   summary, the maps' sub-lines, the rest of a "Loading…" line, the Top
+   Picks note): the words the line usually reads, so it wraps where the real
+   one will and its box is its final size from first paint. The real text
+   replaces them. */
 .skeltext { visibility: hidden; }
-/* The Currency bar's picker is an empty <select> until the rates arrive and
-   enhanceSelect swaps in its combobox: 82px wide on a phone and 176 on
-   desktop, then 172 and 300, re-wrapping "As of…" beside it. Both are given
-   the combobox's measured width from the first frame (the phone rule below
-   pins the group instead). */
-#dataSubCurrency > .bar .pickgroup :is(select, .combo-input) { width: 166px; }
-#dataSubCurrency > .bar .pickgroup select { padding: 6px 10px; }
-@media (pointer: coarse) {
-  #dataSubCurrency > .bar .pickgroup :is(select, .combo-input) { width: 186px; }
-}
 
 .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .actions[hidden] { display: none; }
@@ -475,6 +466,11 @@ small { color: var(--gray); font-weight: 400; }
 /* The served stand-in (index.html): invisible, one line tall per pick. */
 .mappicksrow.skel { visibility: hidden; }
 .mappicksrow.skel > span::before { content: "\00a0"; }
+/* Same for the Top Picks and Currency map keys (renderValue and renderLegend
+   drop .skel as they write the real one), less the pulse entry Top Picks
+   leaves out under reduced motion. */
+.legend.skel { visibility: hidden; }
+@media (prefers-reduced-motion: reduce) { .legend.skel .keypulse { display: none; } }
 .mappicksrow .chup { color: #b3261e; }
 .mappicksrow .chdown { color: #1e7c3a; }
 /* Guide safety line: the advisory's latest move, riding beside the level chip.
@@ -620,9 +616,17 @@ html[data-tab="guide"] header .sub { display: none; }
    was 30x38px, then 118x53. Beside the chart title that re-wrapped the
    header, and on a phone the number dropped 320px onto a line of its own
    (CLS 0.047 at 1024, 0.06 at 412). The box is held at its usual size;
-   only the two charts that always show a number. */
+   only the two charts that always show a number. Cost over time's change
+   line is the longer one ("▼ 6.7% cheaper than 2016", 174px): narrower, the
+   box sat beside the title at 768 and then wrapped under it (+55px). */
 #indexchg:empty::before, #colChg:empty::before { content: "\00a0"; }
-#dataSubCurrency .bignum, #colCard .bignum { min-width: 118px; }
+#dataSubCurrency .bignum { min-width: 118px; }
+#colCard .bignum { min-width: 174px; }
+/* Fares by month's number is empty until the fare ranges land, then a
+   306px box ("−7%" over "October 2026 · cheaper than usual · 45 routes")
+   that wraps under the title. Held open while empty; its note's line too. */
+#fbmNow:empty::before, #fbmChg:empty::before, #fbmNote:empty::before { content: "\00a0"; }
+#fbmChg:empty { min-width: 306px; }
 .bignum small.pos { color: var(--green); }
 .bignum small.neg { color: var(--red); }
 .chart { margin-top: 12px; }
@@ -671,6 +675,31 @@ html[data-tab="guide"] header .sub { display: none; }
    .tablewrap:has(tr.loadingrow) rule: :has() re-matched on every chip
    fitChips touches in the Safety table and froze that tab for seconds. */
 #tab-data tr.loadingrow > td { height: 200vh; vertical-align: top; }
+/* Over that one row, the Currency and Cost tables sized their columns by
+   their own header labels, then by the rows when they landed: at 768 the
+   Currency headers re-wrapped to two lines and each moved 50-80px. They get
+   the shares the filled tables measure (the same at 1280 and 768, ±1%), so
+   the header is laid out for its rows from the start. Phones keep the
+   Currency table's own rules (four columns, a capped first one). */
+@media (min-width: 641px) {
+  #rates th:nth-child(1) { width: 37.5%; }
+  #rates th:nth-child(2) { width: 9.6%; }
+  #rates th:nth-child(3) { width: 17%; }
+  #rates th:nth-child(4) { width: 18.2%; }
+  #rates th:nth-child(5) { width: 17.7%; }
+}
+@media (min-width: 561px) {
+  #affTable th:nth-child(1) { width: 34.3%; }
+  #affTable th:nth-child(2) { width: 19.2%; }
+  #affTable th:nth-child(3) { width: 17.7%; }
+  #affTable th:nth-child(4) { width: 12.8%; }
+  #affTable th:nth-child(5) { width: 16%; }
+}
+@media (max-width: 560px) {
+  #affTable th:nth-child(1) { width: 49.6%; }
+  #affTable th:nth-child(2) { width: 18.5%; }
+  #affTable th:nth-child(3), #affTable th:nth-child(4) { width: 15.9%; }
+}
 
 table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
 th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
@@ -1102,6 +1131,22 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
   /* A name longer than the box ("BAM (Bosnia-Herzegovina Convertible Mark)")
      ends in "…" rather than mid-word. */
   text-overflow: ellipsis; }
+/* Every select app.js turns into a combobox (class="combosel" in index.html)
+   is an EMPTY <select> until its data arrives: 42px wide, then the combobox's
+   166. Each one re-wrapped the row it sits in when it grew — the Cost map's
+   "Vs home" dropped under its title and pushed the map and table down (CLS
+   0.117 at 1280), Flights' three pickers took a third row (68px), the Top
+   Picks budget box wrapped under When/From at 768 (59px), the guide's
+   country picker wrapped under the h1 (0.45 at 768). So the select starts at
+   the combobox's size, and the combobox's width is pinned to the 166px (186
+   with the 16px touch font) it measured on its own — the browser default for
+   a text input, which differs a few px by platform font and would leave a
+   smaller jump wherever it isn't Chrome on a Mac. */
+:root { --combo-w: 166px; }
+@media (pointer: coarse) { :root { --combo-w: 186px; } }
+:is(select.combosel, .combo-input) { width: var(--combo-w); }
+select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
+@media (pointer: coarse) { select.combosel { height: 34px; } }
 /* The list is as wide as the combo (min-width:100%) and its options WRAP:
    nowrap (set here, and inherited from .pickgroup) made it as wide as the
    longest label ("BAM (Bosnia-Herzegovina Convertible Mark)", ~320px), which
@@ -1129,6 +1174,11 @@ a.visa:hover { filter: brightness(0.95); text-decoration: underline; }
 
 /* Budget in the hero row: two small inputs reading "$N for N days". */
 .budgethero .numin { width: 78px; }
+/* Filled by initBudgetCur once the rates land: empty it was 42px, then 80
+   (82 in the 16px touch font), and the box beside it moved — at 768 the
+   whole budget group re-wrapped. Sized for its three-letter codes. */
+#budgetCur { width: 80px; }
+@media (pointer: coarse) { #budgetCur { width: 82px; } }
 .budgethero .bdays { width: 54px; }
 .bdgtsep { font-size: 12px; color: var(--gray); margin: 0 2px; white-space: nowrap; }
 
@@ -1613,6 +1663,9 @@ button.chip2 { border: 0; }
      be allowed to shrink — min-width:auto on a flex item would refuse. */
   .pickersmain .combo { min-width: 0; flex: 1; }
   .pickersmain .combo-input { width: 100%; min-width: 0; }
+  /* The select the combo replaces takes the same share of its group, so it
+     doesn't wrap under the label (73px) before shrinking back to one line. */
+  .pickersmain select.combosel { flex: 1 1 0; min-width: 0; width: auto; }
   /* Surprise me wrapped to its own line, spending 33px to say what fits beside
      the heading. The subtitle takes the second line instead. */
   #tab-value .charthead:not(.compact) { flex-wrap: nowrap; gap: 10px; }
@@ -1636,6 +1689,10 @@ button.chip2 { border: 0; }
   #tab-guide .pickers > * { flex: 1 1 100px; min-width: 100px; }
   #tab-guide .pickers .combo-input { width: 100%; min-width: 0; }
   #tab-guide .pickers select { width: 100%; }
+  /* Until app.js swaps it for the combo, the empty select is held at the
+     combo's width (the .combosel rule), not squeezed to the 100px floor:
+     the row it sits on otherwise widened by 86px under the Share button. */
+  #tab-guide .pickers select.combosel { width: var(--combo-w); }
   /* The three jump chips needed 357 against 345 — twelve pixels short, and paid a
      whole second row for it (70px). A hair smaller: one row, 31px. */
   /* (the jump chips moved to the max-width:600 block — they wrap at every phone
@@ -1676,6 +1733,10 @@ button.chip2 { border: 0; }
   .cardwide > .toprow > .chartcard { padding-top: 10px; }
   .toprow .chartcard > .panelbody { min-height: 0; }
   .toprow .chartcard > .panelbody > .panelscroll { position: static; max-height: 420px; }
+  /* Stacked under the Safety map, the "where governments disagree" list
+     grew from nothing to its 336px (38 rows) after the advisories loaded,
+     taking the table under it out of view (0.041 at 412). Held at that. */
+  #govScroll:empty { min-height: 336px; }
   /* A country's three advisories are read whole, not scrolled in a box. */
   .toprow .chartcard > .panelbody > .panelscroll.detail { max-height: none; }
 }
@@ -1733,6 +1794,9 @@ button.chip2 { border: 0; }
   #dataSubCurrency > .bar .pickgroup { flex-shrink: 0; max-width: 172px; width: 172px; }
   #dataSubCurrency > .bar .pickgroup .combo { min-width: 0; flex: 1; }
   #dataSubCurrency > .bar .pickgroup :is(select, .combo-input) { width: 100%; min-width: 0; }
+  /* The select it replaces shares the group the same way, rather than
+     wrapping under the 💱 (a 66px bar until the combo came). */
+  #dataSubCurrency > .bar .pickgroup select.combosel { flex: 1 1 0; }
   /* That picker is pinned to the right edge here, and ~100px wide: hang its
      list from the right and let it be as wide as the screen allows, so the
      long currency names read on one or two lines instead of five. */
@@ -2480,6 +2544,43 @@ a.destlink:focus-visible { outline: 2px solid var(--green); outline-offset: 2px;
    under it down a line: 0.069 of the desktop layout shift. Its line is held
    from the first frame, invisible (and so still absent for screen readers). */
 html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
+/* The title block beside the country picker is as wide as its grades line,
+   which is empty until app.js fills it: the picker sat beside a 107px block,
+   then wrapped under a 445px one (+49px for the whole guide at 768, CLS
+   0.45). The empty line is held at its usual width (428-445 measured), so
+   the picker wraps or not from the first frame as it will after. On a phone
+   the block always fills the row (the grades wrap to two lines), so the
+   picker always starts on its own row. */
+@media (min-width: 561px) { #guideGrades:empty { min-width: 440px; } }
+@media (max-width: 560px) { #tab-guide .charthead > div:first-child { flex-basis: 100%; } }
+/* The guide's first blocks are empty until app.js fills them (the weather
+   chart says Loading…), so the grid under the hero was 70px tall at first
+   paint and 600-950 after, and everything below it went down in one frame:
+   at 768 a 600px move that made the whole viewport count (0.45), at 390 one
+   shift of 0.48. Each is held at its usual height (the median of six guides,
+   from Japan to Nigeria): the visa line 40px (59 on a phone), the advisory
+   168 (250), the AI block 45 (100), the chart 247-302, the stays 115 (154)
+   and the insurance line 67 (84). From 900px the stays and insurance sit
+   beside the advisory and set that row's height (228), so they matter most
+   there: the chart under them is the row after. */
+#guideVisa:empty { min-height: 40px; }
+#guideSafety:empty { min-height: 168px; }
+#guideAI:empty { min-height: 45px; }
+#bestDetail.loading { min-height: 247px; }
+#guideStay:empty { min-height: 115px; }
+#guideInsurance:empty { min-height: 67px; }
+@media (min-width: 900px) {
+  #guideSafety:empty { min-height: 140px; }
+  #bestDetail.loading { min-height: 266px; }
+}
+@media (max-width: 560px) {
+  #guideVisa:empty { min-height: 59px; }
+  #guideSafety:empty { min-height: 250px; }
+  #guideAI:empty { min-height: 100px; }
+  #bestDetail.loading { min-height: 302px; }
+  #guideStay:empty { min-height: 154px; }
+  #guideInsurance:empty { min-height: 84px; }
+}
 
 /* Cost of living table (renderAfford): the Currency table's cell grammar. */
 #affTable .curcell > div { min-width: 0; }
