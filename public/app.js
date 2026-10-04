@@ -203,6 +203,20 @@ const RANGE_SPAN = { "1m": "past month", "3m": "past 3 months", "6m": "past 6 mo
                      "1y": "past year", "2y": "past 2 years", "5y": "past 5 years", "10y": "past 10 years" };
 const fmtIdx = (v) => (Math.abs(v) >= 10 ? v.toFixed(1) : v.toPrecision(3));
 const fmtPct = (p) => (p >= 0 ? "+" : "−") + Math.abs(p).toFixed(Math.abs(p) >= 10 ? 1 : 2) + "%";
+// A signed percentage as the Cost table prints it: a true minus (U+2212) —
+// toFixed's "-0.6%" is a hyphen, shorter and higher than the "+" beside it in
+// the Currency table — and no sign on a figure that rounds to nothing (never
+// "−0.0%" or "+0.0%"). `dp` decimals, by toFixed as the callers always
+// printed them; a caller that printed Math.round(x) passes that (toFixed(0)
+// rounds -2.5 to -3, Math.round to -2).
+function signedPct(p, dp) {
+  const s = Number(p).toFixed(dp || 0);
+  if (/^-?[0.]+$/.test(s)) return s.replace("-", "") + "%";
+  return (s[0] === "-" ? "−" + s.slice(1) : "+" + s) + "%";
+}
+// The same minus for a figure that only sometimes goes below zero (an
+// inflation rate in deflation: "−1% in 2024", not "-1%").
+const trueMinus = (v) => String(v).replace(/^-/, "−");
 // "2026-09-25" -> "25 Sep 2026" (day-month-year reads the same to everyone;
 // month-first was the one US-only habit left in the copy); "Jan 1999" for
 // the base
@@ -781,7 +795,7 @@ function renderRates(data) {
     tr.innerHTML = `
       <td><div class="curcell"><span class="curflag">${flag}</span><div>${identCell}${peg}</div></div></td>
       <td class="num">${fmt(r.rate_now)}</td>
-      <td class="num ${sign}">${r.strength_pct >= 0 ? "+" : ""}${r.strength_pct.toFixed(1)}%</td>
+      <td class="num ${sign}">${signedPct(r.strength_pct, 1)}</td>
       <td class="num">${plCell}</td>
       <td class="num">${rangeMarker(r)}</td>`;
     tbody.appendChild(tr);
@@ -1899,7 +1913,7 @@ function inflGapText(iso, homeIso) {
   const b = fxInflBasis(iso, homeIso);
   if (b.stale || !b.adj) return "";
   const nm = (i) => (i === "US" ? "the US" : countryName(i));
-  const pc = (r) => "~" + Math.round(r * 100) + "%/yr";
+  const pc = (r) => "~" + trueMinus(Math.round(r * 100)) + "%/yr";
   return nm(iso) + " " + pc(b.rL) + " vs "
     + (b.stand ? "the US " + pc(b.rB) + ", used as a stand-in for " + countryName(b.hIso)
                : nm(b.hIso) + " " + pc(b.rB));
@@ -1950,7 +1964,7 @@ function pppDriftNote(iso) {
   // No current inflation figure: the price level couldn't be carried forward.
   if (highInflUnknown(iso)) {
     const e = ppp[iso];
-    return `⚠️ ${countryName(iso)}'s latest inflation figure (${Math.round(e.infl)}% in ${e.infl_year}) `
+    return `⚠️ ${countryName(iso)}'s latest inflation figure (${trueMinus(Math.round(e.infl))}% in ${e.infl_year}) `
       + `is older than its ${e.year} price data, so we can't bring prices up to date — `
       + "this likely reads cheaper than it currently feels.";
   }
@@ -2944,7 +2958,7 @@ async function renderGuideFx(iso) {
       : nominal
       ? `Nominal — ${countryName(b.stale)}'s inflation data isn't current, so we can't say whether your money goes further. `
       : gap ? `After inflation: the exchange-rate move minus the inflation gap (${gap}, World Bank)`
-          + (Math.abs(t.pct - pct) >= 0.1 ? `; the plain rate moved ${t.pct > 0 ? "+" : ""}${Number(t.pct).toFixed(1)}%` : "") + ". "
+          + (Math.abs(t.pct - pct) >= 0.1 ? `; the plain rate moved ${signedPct(Number(t.pct), 1)}` : "") + ". "
         : `No current inflation figure for ${countryName(fxIso)}, so this is the plain exchange-rate move. `)
     + `Monthly averages of the daily ${base}→${dest} rate, ${mLabel(months[0].m)} to ${mLabel(months[months.length - 1].m)}`
     + (nominal || !gap ? "" : ", in today's prices")
@@ -2961,7 +2975,7 @@ async function renderGuideFx(iso) {
     : nominal ? " (nominal — inflation data isn't current)"
     : gap ? ", after inflation" : " (exchange rate only)";
   host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b>: `
-    + `<b style="color:${col}">${pct > 0 ? "+" : ""}${pct.toFixed(1)}%</b> vs its 12-month average${basis}`
+    + `<b style="color:${col}">${signedPct(pct, 1)}</b> vs its 12-month average${basis}`
     + (noInfl || nominal || !gap ? "" : ` <span class="muted">— ${verdict}</span>`)
     + `<span class="fxinfo" data-tip="${esc(tip)}" title="">ⓘ</span></span>`
     + `<svg class="fxspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
@@ -6303,7 +6317,7 @@ function buildAIPrompt() {
     let aff = "";
     if (s.pl != null) aff = "prices " + plPhrase(s.pl, plHomeWord());
     if (s.fx != null && Math.abs(s.fx) >= 2)
-      aff += ` (${homeBase} ${s.fx >= 0 ? "+" : ""}${Math.round(s.fx)}% vs its 1-yr avg${s.fxAdj ? ", after inflation" : ""})`;
+      aff += ` (${homeBase} ${signedPct(Math.round(s.fx))} vs its 1-yr avg${s.fxAdj ? ", after inflation" : ""})`;
     // The same basis as the Flights pill, so the words can't disagree with it:
     // the month's fare vs the route's usual, or the year-round fare for the
     // distance where a route has too few cached months.
@@ -7136,8 +7150,8 @@ function fxMark(iso) {
   const tip = f.adj
     ? "After inflation, your " + homeBase + " buys " + Math.abs(Math.round(pct)) + "% " + (up ? "more" : "less")
       + " in " + cn + " than its 1-yr average — your money goes " + (up ? "further" : "less far")
-      + " there than usual right now. Exchange-rate move " + (f.nom >= 0 ? "+" : "") + Math.round(f.nom)
-      + "%; inflation " + inflGapText(iso, f.homeIso) + " (World Bank)."
+      + " there than usual right now. Exchange-rate move " + signedPct(Math.round(f.nom))
+      + "; inflation " + inflGapText(iso, f.homeIso) + " (World Bank)."
     : "Your " + homeBase + " is " + Math.abs(Math.round(pct)) + "% " + (up ? "stronger" : "weaker")
       + " in " + cn + " than its 1-yr average. Exchange rate only — no inflation figure for " + cn
       + ", so rising local prices aren't netted out.";
@@ -7233,7 +7247,7 @@ function affordTitle(s) {
   // Whole percentages: two decimals on a cached 1-yr average claimed a
   // precision the figure doesn't have.
   if (s.fx != null && Math.abs(s.fx) >= 1)
-    parts.push(`your ${homeBase} is ${s.fx >= 0 ? "+" : ""}${Math.round(s.fx)}% vs its 1-yr average${s.fxAdj ? ", after inflation" : ""}`);
+    parts.push(`your ${homeBase} is ${signedPct(Math.round(s.fx))} vs its 1-yr average${s.fxAdj ? ", after inflation" : ""}`);
   // Repeatedly the sharpest critique this gets: PPP is a national consumption
   // basket, so it under-weights the one cost a visitor most feels — rent in the
   // few neighbourhoods foreigners actually stay in. Say so where the number is
