@@ -17,8 +17,13 @@ What it holds the code to:
   * Level 3/4 titles ask "safe?", Level 4 never "cheap?" or "(very cheap)";
   * descriptions never end mid-phrase;
   * JSON-LD parses and has the expected types; the staleness guard drops every
-    figure and advisory clause; the snapshot is under 45 days old (rebuild it
-    monthly: see scripts/build_guide_facts.py);
+    figure and advisory clause;
+  * the COMMITTED snapshot is younger than STALE_DAYS - 15. It is only the
+    fallback now — the server recomputes the document daily
+    (fxtracker/guide_facts.py) — but it is what a fresh deploy serves until
+    its first check and what a server whose inputs are down keeps serving, so
+    it must not be close to dropping every figure itself. Past 45 days the
+    test says so without failing;
   * every guide's sitemap <lastmod> is its own snapshot date; "/" and "/data"
     keep content-stamp.txt.
 """
@@ -32,7 +37,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from fxtracker import render_guide as rg  # noqa: E402
+from fxtracker import guide_facts as GF, render_guide as rg  # noqa: E402
 import server  # noqa: E402
 
 ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or c
@@ -221,11 +226,19 @@ results.append(ok(dm == {"title": D["TITLE"], "desc": D["DESC"], "og": D["OGTITL
                   "app.js _DEFAULT_META == server _HTML_DEFAULTS TITLE/DESC/OGTITLE"))
 
 # --- staleness guard -----------------------------------------------------------------
-data = rg._load()
-saved = data["facts"].get("_asof")
+# render_guide reads the document through guide_facts.get_doc() on every call,
+# so swapping that function in is how a test serves it a different document.
+real_get_doc = GF.get_doc
+
+
+def serve(doc):
+    GF.get_doc = lambda: doc
+
+
 try:
-    data["facts"]["_asof"] = (datetime.date.today() - datetime.timedelta(days=rg.STALE_DAYS + 1)).isoformat()
-    rg._stale_warned = True                       # keep the test output quiet
+    old_asof = datetime.date.today() - datetime.timedelta(days=rg.STALE_DAYS + 1)
+    serve(dict(facts, _asof=old_asof.isoformat()))
+    rg._stale_warned = old_asof                   # keep the test output quiet
     stale = {iso: rg.render(iso) for iso in ("CO", "PR", "GB-ENG", "SO")}
     leaks = [i for i, r in stale.items()
              if re.search(r"\d+%|Level \d|As of", r["desc"] + r["body"] + r["jsonld"]) or "💰" in r["body"]
@@ -235,12 +248,20 @@ try:
                       "past 90 days: no figure, level or date anywhere; the title keeps its question %s"
                       % (leaks or "")))
 finally:
-    data["facts"]["_asof"] = saved
+    GF.get_doc = real_get_doc
 
 # --- snapshot age and per-guide lastmod ---------------------------------------------
+# The committed file is the fallback (see the docstring): a healthy server
+# serves its own daily recompute, so only an old fallback fails here.
 age = (datetime.date.today() - asof).days
-results.append(ok(age <= 45, "guide-facts.json is %d days old (rebuild by day 45: parity.py --refresh, "
-                  "then build_guide_facts.py — figures drop out at day %d)" % (age, rg.STALE_DAYS)))
+FALLBACK_MAX = rg.STALE_DAYS - 15
+results.append(ok(age <= FALLBACK_MAX,
+                  "the committed guide-facts.json (the fallback a deploy serves until its first daily "
+                  "recompute) is %d days old, at most %d (figures drop out at day %d; to rebuild: "
+                  "parity.py --refresh, then build_guide_facts.py)" % (age, FALLBACK_MAX, rg.STALE_DAYS)))
+if 45 < age <= FALLBACK_MAX:
+    print("  NOTE  the committed fallback is %d days old: rebuild it with the next deploy "
+          "(fails from day %d)" % (age, FALLBACK_MAX + 1))
 results.append(ok(all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", facts[i].get("m", "")) for i in guides),
                   "every guide's snapshot entry carries its change date m"))
 sm = server._sitemap().decode("utf-8")
@@ -250,17 +271,17 @@ slug_of = {iso: s for s, iso in rg.all_slugs()}
 results.append(ok(lm.get("/") == stamp and lm.get("/data") == stamp
                   and all(lm.get("/guide/" + slug_of[i]) == max(stamp, facts[i]["m"]) for i in guides),
                   "sitemap: \"/\" and \"/data\" at content-stamp %s, each guide at max(stamp, its m)" % stamp))
-saved, saved_m = data["facts"].get("_asof"), data["facts"]["CO"].get("m")
 try:
     old = datetime.date.today() - datetime.timedelta(days=rg.STALE_DAYS + 5)
-    data["facts"]["_asof"] = data["facts"]["CO"]["m"] = old.isoformat()
+    serve(dict(facts, _asof=old.isoformat(), CO=dict(facts["CO"], m=old.isoformat())))
+    rg._stale_warned = old
     exp = rg.snapshot_expired_on()
     sm2 = server._sitemap().decode("utf-8")
     results.append(ok(exp == old + datetime.timedelta(days=rg.STALE_DAYS + 1)
                       and ("/guide/%s</loc><lastmod>%s<" % (slug_of["CO"], max(stamp, exp.isoformat()))) in sm2,
                       "past 90 days a guide's lastmod moves to the day its figures dropped out"))
 finally:
-    data["facts"]["_asof"], data["facts"]["CO"]["m"] = saved, saved_m
+    GF.get_doc = real_get_doc
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)

@@ -134,21 +134,44 @@ the tunnel window to take it offline. (`cloudflared`/`cf.tgz` are gitignored.)
 
 \* free web tiers sleep when idle and wake on request.
 
-## Monthly: refresh the guide snapshot (by hand — nothing automates it)
+## Guide snapshot: refreshes itself daily (manual rebuild is the fallback)
 
 Every guide's title, meta description, FAQ answers and server-rendered 💰/🛡️
-lines come from `public/guide-facts.json`: price level vs the US and the advisory
-level, dated ("As of Sep 2026"). It never updates itself. At 45 days
-`scripts/test_guide_meta.py` fails; at 90 days every figure, level and date
-silently drops out of all 190 guide pages. Early each month:
+lines quote two dated figures — the price level vs the US and the advisory
+level ("As of Oct 2026") — from one document, served at `/guide-facts.json`.
+The server keeps it current itself (`fxtracker/guide_facts.py`):
+
+- **Daily recompute.** On Render (or locally with `GUIDE_FACTS_REFRESH=1`;
+  `GUIDE_FACTS_REFRESH_DELAY` sets the first check, default 120 s after boot) a
+  background thread checks every 6 h and, once a UTC day, recomputes the
+  document from the server's own cached rates and advisories (what
+  `/api/rates` and `/api/advisories` serve — in-process, never over HTTP) and
+  the PPP table `/ppp.json` serves. It is stored in Upstash
+  (`guidefacts:doc`, tagged with a hash of the code and content that make its
+  strings), so a restart serves it at once. Log lines start `[guide-facts]`.
+- **Previous copy kept** when an input failed (a rates 429 with nothing
+  cached), is the cache's stale copy, is dated before the served copy, or
+  looks truncated (under 75% of guides with a price figure or 90% with an
+  advisory, or more than 3 guides losing one); it retries hourly.
+- **Lastmods.** Each guide's sitemap `<lastmod>` is the day its own entry last
+  changed (a figure, level, title or description) — a month boundary changes
+  every "As of" and so re-dates the guides that print one. `/` and `/data`
+  keep `public/content-stamp.txt`.
+- **Edge cache.** Guide HTML is edge-cached 5 min, `/guide-facts.json` 10 min
+  in browsers: a recompute shows within that.
+
+**Fallback (rare): rebuild the committed copy.** `public/guide-facts.json` is
+what a fresh deploy serves until its first check, what any deploy that changes
+the title rules or content serves until then (a stored copy from other code is
+ignored), and what a server whose inputs stay down keeps serving. Past 90
+days its figures drop out, so `scripts/test_guide_meta.py` fails once it is 75
+days old (and notes it from day 46). Rebuild it then, or if the logs show
+`[guide-facts] … keeping the copy` for days:
 
 ```bash
 /usr/bin/python3 scripts/parity/parity.py --refresh   # GET-only: production /api fixtures
-/usr/bin/python3 scripts/build_guide_facts.py         # rewrites guide-facts.json, dates changed guides
-/usr/bin/python3 scripts/test_guide_meta.py           # lengths, lockstep, attribution, age
+/usr/bin/python3 scripts/build_guide_facts.py         # same compute as the server, on the fixtures
+/usr/bin/python3 scripts/test_guide_meta.py           # lengths, lockstep, attribution, fallback age
 ```
 
-Commit `public/guide-facts.json` and `scripts/parity/fixture_*.json`, deploy
-(the server reads the snapshot once at startup), and allow ≤5 min for the
-Cloudflare HTML edge cache. Each changed guide's sitemap `<lastmod>` moves on
-its own; `/` and `/data` keep `public/content-stamp.txt`.
+Commit `public/guide-facts.json` and `scripts/parity/fixture_*.json`, deploy.

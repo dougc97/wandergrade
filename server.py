@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
-    flightvalue, health, mailer, popularity, rates, render_guide, store, watchouts
+    flightvalue, guide_facts, health, mailer, popularity, rates, render_guide, store, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -465,11 +465,12 @@ def _sitemap():
     # (slugs/climate/activities/country-names/visa) actually change — every
     # page shares it.
     # A guide's own snapshot (its title, description, price figure and advisory
-    # level, public/guide-facts.json) moves only that guide: build_guide_facts.py
-    # records the day it last changed as "m", so the monthly rebuild doesn't
-    # re-date "/" and "/data", whose content it never touches. And the day the
-    # snapshot passes render_guide.STALE_DAYS every guide drops its figures —
-    # a real change, dated as one.
+    # level — the guide-facts document the server recomputes daily,
+    # fxtracker/guide_facts.py) moves only that guide: each entry records the
+    # day it last changed as "m", so the daily recompute re-dates only the
+    # guides whose figure or level moved, never "/" and "/data", whose content
+    # it doesn't touch. And the day the snapshot passes render_guide.STALE_DAYS
+    # every guide drops its figures — a real change, dated as one.
     try:
         with open(os.path.join(PUBLIC, "content-stamp.txt"), encoding="utf-8") as f:
             stamp = f.read().strip()[:10]
@@ -481,9 +482,10 @@ def _sitemap():
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
            '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
            '  <url><loc>%s/data</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp)]
-    expired = render_guide.snapshot_expired_on()
+    doc = guide_facts.get_doc() or {}  # one document for all 190 lastmods
+    expired = render_guide.snapshot_expired_on(doc=doc)
     for slug, iso in render_guide.all_slugs():
-        days = [stamp, render_guide.snapshot_changed(iso), expired.isoformat() if expired else ""]
+        days = [stamp, render_guide.snapshot_changed(iso, doc), expired.isoformat() if expired else ""]
         out.append('  <url><loc>%s/guide/%s</loc><lastmod>%s</lastmod></url>'
                    % (_SITE, slug, max(x for x in days if re.fullmatch(r"\d{4}-\d{2}-\d{2}", x))))
     out.append('</urlset>')
@@ -773,6 +775,14 @@ def _cached(name, cache, key, ttl, compute, stale_max=None):
                 cache.pop(k, None)
     cache[key] = (now, data)
     return data
+
+
+def _advisories_payload(source):
+    """The cached list /api/advisories serves for `source` (stale-on-error,
+    see _cached) — also what the guide-facts refresher reads."""
+    # No stale_max: a days-old advisory list beats a 500 that blanks Top
+    # Picks, and the payload says it is stale.
+    return _cached("advisories", _adv_cache, source, ADV_TTL, lambda: _advisories_fresh(source))
 
 
 def _advisories_fresh(source):
@@ -1424,6 +1434,22 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_file(os.path.join(PUBLIC, "health.json"))
             return
+        if path == "/guide-facts.json":
+            # The guide-facts document in force — the server's daily recompute,
+            # or the committed file until there is one (fxtracker/guide_facts.py)
+            # — so in-app navigation sets the same titles the server renders.
+            # Ten minutes, as before: it changes once a day.
+            try:
+                body = guide_facts.get_json_bytes()
+            except Exception as e:
+                print("[guide-facts] serving the static file: %s" % e, flush=True)
+                body = None
+            if body:
+                self._send_body(body, "application/json; charset=utf-8",
+                                cache="public, max-age=600")
+            else:
+                self._send_file(os.path.join(PUBLIC, "guide-facts.json"))
+            return
         if path in ("/data/price-levels.json", "/data/price-levels.csv"):
             try:
                 data = _dataset()
@@ -1575,10 +1601,7 @@ class Handler(BaseHTTPRequestHandler):
         if source not in advisories.SOURCES:
             source = "us"
         try:
-            # No stale_max: a days-old advisory list beats a 500 that blanks
-            # Top Picks, and the payload says it is stale.
-            data = _cached("advisories", _adv_cache, source, ADV_TTL,
-                           lambda: _advisories_fresh(source))
+            data = _advisories_payload(source)
         except Exception as e:
             # Nothing cached yet and the chosen feed is down (cold start):
             # another government's list, still labelled by its own
@@ -1756,6 +1779,15 @@ def main():
     # once it's a week old (fxtracker/health.py). Render only, unless
     # HEALTH_REFRESH=1 — never from a laptop by accident.
     health.start_refresher()
+    # The guide pages' titles, descriptions and lastmods quote a dated price
+    # level and advisory; the server recomputes them daily from the same
+    # cached rates, advisories and PPP table /api/rates, /api/advisories and
+    # /ppp.json serve (fxtracker/guide_facts.py) — in-process, never over
+    # HTTP to itself. Render only, unless GUIDE_FACTS_REFRESH=1.
+    guide_facts.start_refresher(
+        get_rates=lambda: _rates_payload(store.load_config(), "USD"),
+        get_advisories=lambda: _advisories_payload("us"),
+        get_ppp=_ppp_data)
     # One-off after deploy: opt-outs from before they reached Buttondown (see
     # accounts.reconcile_optouts). Background, and a no-op without the
     # Buttondown/Upstash keys or once its done-marker is set.

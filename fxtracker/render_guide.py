@@ -6,12 +6,14 @@ with country-specific <title>/meta/canonical and a crawlable content block
 visa). The SPA then hydrates on top — app.js removes the SSR block (#ssrGuide)
 once it renders the interactive guide, so users never see it twice.
 
-All content is read from the same JSON the frontend uses, plus one committed
-snapshot (public/guide-facts.json, built by scripts/build_guide_facts.py) for the
-two figures only WanderGrade answers — the price level against the US and the
-US State Dept advisory — so a guide's title and snippet can say what the page
-is actually for. render() never calls a live API: the HTML is edge-cached and
-must not change with a rates blip.
+All content is read from the same JSON the frontend uses, plus one dated
+snapshot (the guide-facts document, fxtracker/guide_facts.py) for the two
+figures only WanderGrade answers — the price level against the US and the US
+State Dept advisory — so a guide's title and snippet can say what the page is
+actually for. The server recomputes that document once a day from its own
+cached rates and advisories, and render() reads whichever copy is current via
+guide_facts.get_doc(): it never calls a live API itself, so the HTML (which is
+edge-cached) moves once a day, not with every rates blip.
 """
 
 import datetime
@@ -20,6 +22,8 @@ import json
 import os
 import re
 import sys
+
+from . import guide_facts
 
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public")
 SITE = "https://wandergrade.com"
@@ -56,12 +60,9 @@ def _load():
         og = j("og-images.json")       # iso -> hero photo URL (optional)
     except OSError:
         og = {}
-    try:
-        facts = j("guide-facts.json")  # iso -> price level / advisory snapshot
-    except (OSError, ValueError):
-        facts = {}
+    # No guide-facts here: this cache lives as long as the process, and that
+    # document is replaced daily (see _doc()).
     _data = {
-        "facts": facts,
         "slugs": slugs,
         "iso2slug": {iso: s for s, iso in slugs.items()},
         "names": j("country-names.json"),  # iso -> name
@@ -105,18 +106,18 @@ def flag_emoji(iso):
     return "\U0001F30D"
 
 
-def h1_topics(iso):
+def h1_topics(iso, doc=None):
     """'cost, safety & when to go' — only the topics this guide has data for:
     cost where the snapshot has a price figure (not Taiwan, Cuba, the US
     itself…), safety where it has an advisory (not Western Sahara or the French
     Southern Territories). app.js guideH1Text() reads the same two fields of
     guide-facts.json. Topics, never figures, so a stale snapshot claims nothing."""
-    f = _facts(iso)
+    f = _facts(iso, doc)
     t = (["cost"] if f.get("pct") is not None else []) + (["safety"] if f.get("adv") else []) + ["when to go"]
     return t[0] if len(t) == 1 else "%s & %s" % (", ".join(t[:-1]), t[-1])
 
 
-def h1_html(iso):
+def h1_html(iso, doc=None):
     """The guide's one h1, the same markup as app.js guideH1Html(): it is served
     as #guideH1 itself and hydration leaves it alone (renderGuide compares
     textContent, so html.escape's &#x27; vs esc()'s &#39; doesn't matter). No
@@ -126,10 +127,10 @@ def h1_html(iso):
     the country was in the old "Travel Guide — Japan" heading."""
     name = _load()["names"].get(iso, iso)
     return '<span aria-hidden="true">%s</span> <span class="gname">%s</span> travel: %s' % (
-        flag_emoji(iso), html.escape(name), html.escape(h1_topics(iso)))
+        flag_emoji(iso), html.escape(name), html.escape(h1_topics(iso, doc)))
 
 
-# ---- the price level / advisory snapshot (public/guide-facts.json) --------------
+# ---- the price level / advisory snapshot (fxtracker/guide_facts.py) -------------
 # Each government's own words for its levels: app.js ADV_LVL_WORDS / DE_LVL_LABEL.
 ADV_LVL_WORDS = {
     "us": ["Normal precautions", "Increased caution", "Reconsider travel", "Do not travel"],
@@ -142,8 +143,11 @@ DE_LVL_LABEL = {1: "No warning", 2: "Some regions", 4: "Travel warning"}
 ADV_SRC_SHORT = {"us": "US State Dept", "ca": "Global Affairs Canada", "de": "German Foreign Office"}
 _ADV_SRC_PROSE = {"us": "the US State Department", "ca": "Global Affairs Canada",
                   "de": "the German Foreign Office"}
+# Still guarded although the server recomputes the snapshot daily: if that
+# stops landing (a feed down for months, the refresher off), the figures age
+# out rather than being presented as current.
 STALE_DAYS = 90
-_stale_warned = False
+_stale_warned = None      # the snapshot date last warned about
 
 
 def lvl_words(src, lvl):
@@ -153,47 +157,59 @@ def lvl_words(src, lvl):
     return w[lvl - 1] if lvl and 1 <= lvl <= 4 else ""
 
 
-def snapshot_asof():
+def _doc():
+    """The guide-facts document in force: the freshest of the server's daily
+    recompute and the committed public/guide-facts.json (guide_facts.get_doc).
+    Fetched per call and never cached here — the refresher replaces it in
+    place, and a copy pinned in this module would keep yesterday's titles
+    until a restart. A render takes it once and passes it down (doc=), so one
+    page never mixes two documents."""
+    return guide_facts.get_doc() or {}
+
+
+def snapshot_asof(doc=None):
     """The snapshot's date, or None."""
     try:
-        return datetime.date.fromisoformat(str(_load()["facts"].get("_asof") or ""))
+        return datetime.date.fromisoformat(str((_doc() if doc is None else doc).get("_asof") or ""))
     except ValueError:
         return None
 
 
-def snapshot_fresh(today=None):
+def snapshot_fresh(today=None, doc=None):
     """False once the snapshot is more than STALE_DAYS old: from then on every
     number and advisory clause drops out of the description, FAQ and SSR lines
     (the title only ever asks a question, so it keeps its variant)."""
     global _stale_warned
-    a = snapshot_asof()
+    doc = _doc() if doc is None else doc
+    a = snapshot_asof(doc)
     ok = bool(a) and ((today or datetime.date.today()) - a).days <= STALE_DAYS
-    if not ok and not _stale_warned and _load()["facts"]:
-        _stale_warned = True
-        print("WARNING: public/guide-facts.json is from %s (over %d days old) — guide pages "
-              "dropped their price and advisory figures; rerun scripts/build_guide_facts.py"
+    if not ok and doc and _stale_warned != a:
+        _stale_warned = a
+        print("WARNING: the guide facts are from %s (over %d days old) — guide pages dropped "
+              "their price and advisory figures. The server's daily recompute isn't landing "
+              "(see its [guide-facts] log lines; DEPLOY.md has the manual fallback)"
               % (a, STALE_DAYS), file=sys.stderr)
     return ok
 
 
-def snapshot_expired_on(today=None):
+def snapshot_expired_on(today=None, doc=None):
     """The first day past STALE_DAYS (the day every guide dropped its figures),
     once that day has come; else None. The sitemap dates that change."""
-    a = snapshot_asof()
+    a = snapshot_asof(doc)
     if not a:
         return None
     d = a + datetime.timedelta(days=STALE_DAYS + 1)
     return d if d <= (today or datetime.date.today()) else None
 
 
-def snapshot_changed(iso):
+def snapshot_changed(iso, doc=None):
     """The day this guide's snapshot entry last changed ("m", kept by
-    scripts/build_guide_facts.py), or "" — the guide's sitemap <lastmod>."""
-    return str(_facts(iso).get("m") or "")[:10]
+    guide_facts.date_entries), or "" — the guide's sitemap <lastmod>."""
+    return str(_facts(iso, doc).get("m") or "")[:10]
 
 
-def _facts(iso):
-    return _load()["facts"].get(iso) or {}
+def _facts(iso, doc=None):
+    return (_doc() if doc is None else doc).get(iso) or {}
 
 
 def _mon_year(d, full=False):
@@ -366,17 +382,19 @@ def _summary_fit(summary, room):
     return ""
 
 
-def meta(iso, f=None, asof=None):
+def meta(iso, f=None, asof=None, doc=None):
     """{"title", "desc"} for a guide — the ONE implementation: render() uses it,
-    and scripts/build_guide_facts.py stores its output in guide-facts.json (t, d,
-    and dn = the number-free description) for app.js to set on in-app navigation.
+    and guide_facts.compute stores its output in the document (t, d, and dn =
+    the number-free description) for app.js to set on in-app navigation.
 
-    f/asof default to the committed snapshot. Past STALE_DAYS the description
-    falls back to its number-free variant; the title keeps its question."""
+    f/asof default to the document in force (doc, else _doc()). Past
+    STALE_DAYS the description falls back to its number-free variant; the
+    title keeps its question."""
     if f is None:
-        f = _facts(iso)
-        fresh = snapshot_fresh()
-        asof = snapshot_asof() if fresh else None
+        doc = _doc() if doc is None else doc
+        f = _facts(iso, doc)
+        fresh = snapshot_fresh(doc=doc)
+        asof = snapshot_asof(doc) if fresh else None
         nums = f if fresh else {}
     else:
         nums = f
@@ -596,10 +614,12 @@ def render(iso):
     # Title and description come from meta() — the same strings guide-facts.json
     # hands app.js for in-app navigation. Past the staleness guard the figures
     # (and their date) drop out of the description, FAQ and fact lines alike.
-    mt = meta(iso)
-    fresh = snapshot_fresh()
-    f = _facts(iso) if fresh else {}
-    asof = snapshot_asof() if fresh else None
+    # One document for the whole page: the daily recompute can land mid-render.
+    doc = _doc()
+    mt = meta(iso, doc=doc)
+    fresh = snapshot_fresh(doc=doc)
+    f = _facts(iso, doc) if fresh else {}
+    asof = snapshot_asof(doc) if fresh else None
     url = "%s/guide/%s" % (SITE, slug)
 
     # No <h1> here: #guideH1 is the page's h1 on the server and after hydration.
@@ -665,7 +685,7 @@ def render(iso):
         # og:title and twitter:title say what the <title> says.
         "og_title": mt["title"],
         "url": url,
-        "h1_html": h1_html(iso),
+        "h1_html": h1_html(iso, doc),
         "body": "\n".join(p),
         "jsonld": _faq_jsonld(name, best_txt, acts, seasonal, summary, curated,
                               _value_qas(iso, f, asof)),
