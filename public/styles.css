@@ -2989,11 +2989,13 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .listtable td.name { display: block; font-weight: 800; font-size: 15.5px; padding-bottom: 4px; }
 .listtable td.name::before { content: none; }
 .listtable td.num { display: none; }
-@media (min-width: 520px) and (max-width: 899px) {
+@media (min-width: 520px) and (max-width: 1023px) {
   .listtable tbody tr { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
   .listtable td.name { grid-column: 1 / -1; }
 }
-@media (min-width: 900px) {
+/* 1024, not 900: at 900-1023 the nine-column safe-and-cheap table only fits by
+   scrolling inside its box, and overlay scrollbars never show that it can. */
+@media (min-width: 1024px) {
   .listtable thead { display: table-header-group; }
   .listtable tbody tr { display: table-row; padding: 0; }
   .listtable tbody tr:nth-child(even) td { background: var(--zebra); }
