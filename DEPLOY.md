@@ -175,3 +175,18 @@ days old (and notes it from day 46). Rebuild it then, or if the logs show
 ```
 
 Commit `public/guide-facts.json` and `scripts/parity/fixture_*.json`, deploy.
+
+## The list pages: `/safe-and-cheap` and `/do-not-travel`
+
+Two server-rendered, JavaScript-free pages (`fxtracker/render_lists.py`;
+routes, memo and sitemap entries in `server.py`) built from what the server
+already caches: the three advisory feeds, the guide-facts snapshot, climate,
+health, the price-level history and, for the dollar column, the cached
+`/api/rates` rows (the column is left out until the first `/api/rates` of the
+process). Every count, row and as-of date is computed at render time; the
+render is memoized on the input documents' identity, so a request is a dict
+lookup. When an advisory feed is down with nothing cached the page still
+renders, says which column is "not loaded", and goes out with
+`Cache-Control: no-store` so Cloudflare never keeps the thin copy. Trailing
+slashes 301; anything deeper 404s. Tests, no network:
+`/usr/bin/python3 scripts/test_list_pages.py`.
