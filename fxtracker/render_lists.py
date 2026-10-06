@@ -231,14 +231,32 @@ def _page(h1, lede, body, notes, sources):
 def _missing_note(missing):
     if not missing:
         return ""
-    return ("%s %s not available right now, so its column reads “not loaded”: "
-            "this page is served uncached until it is back."
+    one = len(missing) == 1
+    return ("%s %s not available right now, so %s “not loaded”: "
+            "this page is served uncached until %s back."
             % (" and ".join(html.escape(SOURCES[s]) for s in missing),
-               "feed is" if len(missing) == 1 else "feeds are"))
+               "feed is" if one else "feeds are",
+               "its column reads" if one else "their columns read",
+               "it is" if one else "they are"))
 
 
-def _sources_line(fetched, own, facts_asof=None, health_built=None):
+def _age(seconds):
+    """'7h' / '3d' for a cache age: hours under two days, else days — the
+    granularity the server's memo keys the stale note on, so the text and
+    the key can't disagree."""
+    try:
+        s = int(seconds)
+    except (TypeError, ValueError):
+        return ""
+    return ("%dd" % (s // 86400)) if s >= 2 * 86400 else ("%dh" % (s // 3600))
+
+
+def _sources_line(fetched, own, facts_asof=None, health_built=None, stale=None):
+    """`stale` {source: seconds}: feeds whose refresh is failing and whose
+    last good copy is being served (the server's stale-on-error), said next
+    to the fetched time — the printed data is honest, the silence wasn't."""
     parts = []
+    stale = stale or {}
     if facts_asof:
         parts.append("Prices: WanderGrade's daily snapshot as of %s (World Bank PPP carried "
                      "forward for inflation, at that day's exchange rates)" % html.escape(_day(facts_asof)))
@@ -252,6 +270,8 @@ def _sources_line(fetched, own, facts_asof=None, health_built=None):
         f = _fetched(fetched, src)
         if f:
             bits.append("fetched " + html.escape(f))
+        if stale.get(src):
+            bits.append("refresh failing, showing the copy from %s ago" % _age(stale[src]))
         if newest:
             bits.append("newest advisory dated " + html.escape(_day(newest)))
         parts.append(": ".join(bits[:1] + [", ".join(bits[1:])]) if len(bits) > 1 else bits[0])
@@ -331,14 +351,16 @@ def near_rows(us, facts):
 
 
 def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx=None, ppp=None,
-                   today=None):
+                   stale=None, today=None):
     """The /safe-and-cheap page. `us`/`ca`/`de` are /api/advisories payloads
     (None when that feed is unavailable); `facts` the guide-facts document;
     `clim` climate.json; `health` the health document; `pl_history` the
     price-level history (its "alt" list is the alternative-rate footnote);
     `fetched` {source: epoch} cache times; `fx` {currency: strength_pct} from
     the cached /api/rates rows and `ppp` the PPP table, both optional (the
-    column is left out without them, never shown as a row of dashes).
+    column is left out without them, never shown as a row of dashes);
+    `stale` {source: seconds} the feeds whose refresh is failing (noted by
+    the fetch time; the page counts as degraded, so it goes out uncached).
 
     Without the US feed there is no rule to apply: the US level in the facts
     document (the daily snapshot, src "us") stands in, dated as such."""
@@ -378,9 +400,14 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
         if iso in alt:
             alt_used = True
             pct_txt += '<sup class="fn">†</sup>'
-        cells = [_country_cell(iso, _name(iso), mark),
-                 _cell("Prices vs US", pct_txt,
-                       ' title="%s"' % html.escape((f.get("band") or "").capitalize(), quote=True))]
+        band = f.get("band") or ""
+        if band:
+            # The band is a fact the brief lists per row: visible text, not
+            # a tooltip (the page's only copy of it was a title attribute).
+            # The space is for the text alone ("21% very cheap" copied or
+            # crawled); the CSS draws a dot on phones and a new line from 900px.
+            pct_txt += ' <span class="band">%s</span>' % html.escape(band)
+        cells = [_country_cell(iso, _name(iso), mark), _cell("Prices vs US", pct_txt)]
         if nearly:
             it = us_own.get(iso) or {}
             cells.append(_cell("US", _pill("us", it) + _chips(it.get("risks") or [], title=it.get("summary") or None)))
@@ -438,7 +465,8 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
     notes.append(_missing_note(missing))
     body += ('<p class="xlink">See also: <a href="/do-not-travel">the Do Not Travel list, US, Canada and '
              'Germany compared</a> · <a href="/data">the price-level dataset</a>.</p>')
-    sources = _sources_line(fetched, own, facts.get("_asof"), (health or {}).get("built"))
+    stale = {s: a for s, a in (stale or {}).items() if a and s not in missing}
+    sources = _sources_line(fetched, own, facts.get("_asof"), (health or {}).get("built"), stale)
     h1 = "Safest cheap countries to visit in %s" % year
     title = _fit(["Safest Cheap Countries to Visit in %s (Data, Not Opinion)" % year,
                   "Safest Cheap Countries to Visit in %s (Data)" % year], TITLE_MAX)
@@ -454,7 +482,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
         "html": _page(html.escape(h1), lede, body, notes, sources),
         # The day the page's data last changed: the snapshot's own date.
         "lastmod": lastmod_of(facts.get("_asof")),
-        "degraded": bool(missing),
+        "degraded": bool(missing or stale),
         "counts": {"safe": len(rows), "agree": len(agree), "near": len(near)},
         "isos": {"safe": [i for _p, i in rows], "agree": agree, "near": [i for _p, i in near]},
     }
@@ -498,10 +526,11 @@ def level4_sets(own):
     return all3, some, sorted(set(three))
 
 
-def do_not_travel(us, ca, de, fetched=None, today=None):
+def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
     """The /do-not-travel page from the three /api/advisories payloads (None
     for a feed that is unavailable: its column reads "not loaded", the page
-    says so and reports `degraded`)."""
+    says so and reports `degraded`; `stale` {source: seconds} for a feed
+    whose refresh is failing: noted by its fetch time, degraded too)."""
     today = today or datetime.date.today().isoformat()
     year = _year(today)
     missing = [s for s, p in (("us", us), ("ca", ca), ("de", de)) if p is None]
@@ -561,7 +590,8 @@ def do_not_travel(us, ca, de, fetched=None, today=None):
              "date where it publishes one, and “since” when WanderGrade's record saw the level change "
              "(↑ raised, ↓ lowered). US reasons are the State Department's “due to” clause.",
              _missing_note(missing)]
-    sources = _sources_line(fetched, own)
+    stale = {s: a for s, a in (stale or {}).items() if a and s not in missing}
+    sources = _sources_line(fetched, own, stale=stale)
     h1 = "Do not travel list %s: US, Canada and Germany compared" % year
     title = _fit(["Do Not Travel List %s: US, Canada & Germany Compared" % year], TITLE_MAX)
     desc = _fit(["%d countries rated do not travel by the US, Canada or Germany, %d by all three, each in "
@@ -576,7 +606,7 @@ def do_not_travel(us, ca, de, fetched=None, today=None):
         # The newest change the payloads carry (never today): a feed-reported
         # or recorded level change. The server floors it at the content stamp.
         "lastmod": lastmod_of(*[c[0] for c in recent_changes(own)]),
-        "degraded": bool(missing),
+        "degraded": bool(missing or stale),
         "counts": {"any4": n_any, "all3": len(all3), "some4": len(some), "l3": len(three),
                    "changes": len(changes)},
         "isos": {"all3": all3, "some4": some, "l3": three},

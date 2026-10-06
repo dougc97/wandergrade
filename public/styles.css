@@ -2959,6 +2959,10 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .listpage .name a:hover { text-decoration: underline; }
 .listpage .lvl { font-size: 11.5px; padding: 1px 8px; vertical-align: middle; }
 .listpage .when { display: block; color: var(--gray); font-size: 11.5px; margin-top: 3px; }
+/* The price band beside its number on a phone ("21% · very cheap"), under it
+   from 900px, where the column must stay narrow. */
+.listpage .band { color: var(--gray); font-size: 11.5px; }
+.listpage .band::before { content: "· "; }
 .listpage .agree { display: inline-block; color: var(--green); background: var(--green-bg); border-radius: 999px;
   padding: 1px 8px; font-size: 11.5px; font-weight: 700; vertical-align: middle; margin-left: 4px; }
 .listpage .chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 0; vertical-align: middle; }
@@ -2995,11 +2999,19 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
   .listtable tbody tr:nth-child(even) td { background: var(--zebra); }
   .listtable td, .listtable td.name, .listtable td.num { display: table-cell; padding: 8px 8px; border-top: 1px solid var(--line);
     vertical-align: top; font-size: 13.5px; font-weight: 400; }
-  .listtable td.name { font-weight: 700; white-space: nowrap; }
+  .listtable td.name { font-weight: 700; }
   .listtable td.num { color: var(--gray); font-variant-numeric: tabular-nums; }
   .listtable td::before { content: none; }
   .listtable tbody tr:first-child td { border-top: none; }
   .listtable th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .02em;
-    color: var(--gray); padding: 9px 8px; background: var(--tablehead); white-space: nowrap; }
+    color: var(--gray); padding: 9px 8px; background: var(--tablehead); }
   .listtable .chips { display: flex; }
+  /* Nine columns (once the dollar column is cached) ran to 1285px inside a
+     box of at most 1158px, and the base overflow: hidden cut the Health notes
+     off at every desktop width. Headers and names wrap (no nowrap above) so
+     the table fits at 1200; where it still can't, 900-1100px, it scrolls
+     inside its box — radius kept, the page itself never sideways. */
+  .listbox { overflow-x: auto; overflow-y: hidden; }
+  .listpage .band { display: block; margin-top: 3px; }
+  .listpage .band::before { content: none; }
 }

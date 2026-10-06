@@ -723,26 +723,35 @@ def _adv_cached(source):
 
 def _adv_inputs():
     """The three payloads — None where a feed is down with nothing cached, so
-    the page says so and goes out uncached — and when each was fetched."""
-    payloads, fetched = {}, {}
+    the page says so and goes out uncached — when each was fetched, and
+    {source: seconds} for a feed whose refresh is failing (the copy's age)."""
+    payloads, fetched, stale = {}, {}, {}
     for src in _ADV_SRCS:
         try:
-            payloads[src] = _advisories_payload(src)
+            p = _advisories_payload(src)
         except Exception as e:
             print("[lists] %s advisories unavailable: %s" % (src, e), flush=True)
             payloads[src] = None
+            continue
         hit = _adv_cache.get(src)
+        # The cache's own object, not what _cached hands out while a refresh
+        # fails: that is a new dict per request (the copy plus stale flags),
+        # which missed the memo every time. Same content; the flags are read
+        # off it here so the page can say the refresh is failing.
+        payloads[src] = hit[1] if hit else p
         if hit:
             fetched[src] = hit[0]
-    return payloads, fetched
+        if p.get("stale_age"):
+            stale[src] = int(p["stale_age"])
+    return payloads, fetched, stale
 
 
 def _fx_inputs():
     """{currency: strength_pct} from the rates the server already caches, and
     the PPP table, for the dollar column. Read, never computed: a cold rates
     cache would cost the page three upstream fetches, so the column waits for
-    the first /api/rates (the homepage's first visitor or the daily recompute)
-    and is left out until then."""
+    the rates to be cached (_warm_rates shortly after boot, else the first
+    /api/rates or the daily recompute) and is left out until then."""
     try:
         cfg = store.load_config()
         hit = _rates_cache.get((cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]), "USD"))
@@ -783,17 +792,20 @@ def _list_page(path):
     the year in the title). The inputs are kept beside the result so none of
     their ids can be recycled while it is the key. Every other request is a
     dict lookup, which is what Render's free tier can afford."""
-    payloads, fetched = _adv_inputs()
+    payloads, fetched, stale = _adv_inputs()
     today = time.strftime("%Y-%m-%d", time.gmtime())
     docs = (payloads["us"], payloads["ca"], payloads["de"])
     if path == "/safe-and-cheap":
         rp, ppp = _fx_inputs()
         docs += (guide_facts.get_doc() or {}, render_lists.climate(), health.get_doc(), _pl_history(), rp, ppp)
         render = lambda: render_lists.safe_and_cheap(*docs[:7], fetched=fetched, fx=_fx_map(rp), ppp=ppp,
-                                                     today=today)
+                                                     stale=stale, today=today)
     else:
-        render = lambda: render_lists.do_not_travel(*docs, fetched=fetched, today=today)
-    key = tuple(id(x) for x in docs) + (today,)
+        render = lambda: render_lists.do_not_travel(*docs, fetched=fetched, stale=stale, today=today)
+    # A failing refresh is printed to the hour ("copy from 7h ago",
+    # render_lists._age), so the memo keys on the hour: the text moves once
+    # an hour, not every request.
+    key = tuple(id(x) for x in docs) + (today,) + tuple(stale.get(s, 0) // 3600 for s in _ADV_SRCS)
     hit = _list_memo.get(path)
     if hit and hit[0] == key:
         return hit[2]
@@ -2052,6 +2064,23 @@ def _warm_flight_value(origin=flightvalue.DEFAULT_ORIGIN, delay=20):
     threading.Thread(target=run, daemon=True).start()
 
 
+def _warm_rates(delay=15):
+    # /safe-and-cheap's dollar column reads the cached /api/rates rows and is
+    # left out until some request has computed them (_fx_inputs: a page must
+    # never wait on three upstream fetches). Nothing computes them for the
+    # first visitor after a restart — the keep-warm only pings /healthz, the
+    # daily recompute runs two minutes in — so one background fetch after
+    # boot, the call the homepage's first visitor makes, fills the column.
+    def run():
+        time.sleep(delay)
+        try:
+            _rates_payload(store.load_config(), "USD")
+        except Exception as e:
+            print("[rates] warm-up skipped: %s" % e, flush=True)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def _warm_fx_history(delay=25):
     # The strength chart's 27 years of ECB rates (~2.7 MB, a few seconds):
     # fetched once after boot so the first Data-tab visitor doesn't wait on it.
@@ -2074,6 +2103,7 @@ def main():
     if os.environ.get("RENDER"):   # set by Render; never self-ping from a laptop
         _keep_warm()
     _warm_flight_value()
+    _warm_rates()
     _warm_fx_history()
     # Canada's health advice ages; the server rebuilds /health.json itself
     # once it's a week old (fxtracker/health.py). Render only, unless

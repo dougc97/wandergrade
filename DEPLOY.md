@@ -182,11 +182,13 @@ Two server-rendered, JavaScript-free pages (`fxtracker/render_lists.py`;
 routes, memo and sitemap entries in `server.py`) built from what the server
 already caches: the three advisory feeds, the guide-facts snapshot, climate,
 health, the price-level history and, for the dollar column, the cached
-`/api/rates` rows (the column is left out until the first `/api/rates` of the
-process). Every count, row and as-of date is computed at render time; the
-render is memoized on the input documents' identity, so a request is a dict
-lookup. When an advisory feed is down with nothing cached the page still
-renders, says which column is "not loaded", and goes out with
-`Cache-Control: no-store` so Cloudflare never keeps the thin copy. Trailing
-slashes 301; anything deeper 404s. Tests, no network:
+`/api/rates` rows (never computed for the page: the server warms them once
+~15 s after boot, and the column is left out until they are there). Every
+count, row and as-of date is computed at render time; the render is memoized
+on the input documents' identity, so a request is a dict lookup. When an
+advisory feed is down with nothing cached the page still renders, says which
+column is "not loaded", and goes out with `Cache-Control: no-store` so
+Cloudflare never keeps the thin copy; a feed whose refresh is failing (the
+last good copy served) is noted by its fetch time and sent `no-store` too.
+Trailing slashes 301; anything deeper 404s. Tests, no network:
 `/usr/bin/python3 scripts/test_list_pages.py`.

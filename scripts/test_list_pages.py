@@ -10,12 +10,15 @@ What it holds the code to:
     Germany are at their lowest level; a gap-fill ("via") never counts as a
     US rating; subdivisions (GB-ENG) never appear;
   * "Nearly made it" is US Level 2 and pct < 50, with the US risk chips;
-  * an ISO on pl_history's "alt" list is footnoted, not dropped;
+  * an ISO on pl_history's "alt" list is footnoted, not dropped; the price
+    band is visible text on the row, not a tooltip;
   * /do-not-travel sorts the three groups right (all three / one or two /
     Level 3), counts them in the intro, dates the recent changes from the
     advhistory stamps and the US feed's own words, and prints each feed's
     date;
-  * a missing feed still renders, says so, and reports `degraded`;
+  * a missing feed still renders, says so (grammar right for two), and
+    reports `degraded`; a feed whose refresh is failing (`stale`) is noted by
+    its fetch time, to the hour, and degrades the page too;
   * titles <= 60 characters, descriptions <= 157, exactly one h1, no class
     or id an ad blocker would hide, every /guide/ link a real slug, HTML
     that html.parser accepts, no "None" in the text, the as-of dates on the
@@ -194,6 +197,10 @@ results.append(ok(S["isos"]["near"] == ["AL"] and "Nearly made it" in S["html"]
 tm = re.search(r'<tr>.*?/guide/turkmenistan.*?</tr>', S["html"], re.S).group(0)
 results.append(ok('45%<sup class="fn">†</sup>' in tm and "† priced on the alternative rate basis" in text,
                   "Turkmenistan: on the list, footnoted as priced on the alternative rate basis"))
+bt = re.search(r'<tr>.*?/guide/bhutan.*?</tr>', S["html"], re.S).group(0)
+results.append(ok('21% <span class="band">very cheap</span>' in bt and 'title="Very cheap"' not in S["html"]
+                  and '60% <span class="band">cheap</span>' in re.search(r'<tr>.*?/guide/portugal.*?</tr>', S["html"], re.S).group(0),
+                  "the price band is visible text beside the number, not a tooltip"))
 vn = re.search(r'<tr>.*?/guide/vietnam.*?</tr>', S["html"], re.S).group(0)
 results.append(ok("Normal precautions" in vn and "High degree of caution" in vn and "No warning" in vn,
                   "each government's level in its own words on the row"))
@@ -223,6 +230,27 @@ S4 = RL.safe_and_cheap(None, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, 
 results.append(ok(S4["degraded"] and S4["isos"]["safe"] == ["BT", "VN", "TM", "PT"]
                   and "daily snapshot of 28 Sep 2026" in S4["html"],
                   "US down: the snapshot's US levels stand in, dated, and the page is degraded"))
+S5 = RL.safe_and_cheap(US, None, None, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+results.append(ok("Global Affairs Canada and German Federal Foreign Office (Auswärtiges Amt) feeds are not available right now, "
+                  "so their columns read “not loaded”: this page is served uncached until they are back." in S5["html"]
+                  and "feed is not available right now, so its column reads" in S3["html"],
+                  "the missing-feed note reads right for one feed and for two"))
+# A feed whose refresh is failing: the last good copy is served, the page
+# says so by the fetch time (to the hour) and counts as degraded; a stale
+# age for a feed that is missing altogether is ignored (nothing is served).
+S6 = RL.safe_and_cheap(US, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, fx=fx, ppp=ppp,
+                       stale={"us": 7 * 3600 + 100}, today=TODAY)
+results.append(ok(S6["degraded"] and S6["counts"] == S["counts"]
+                  and "U.S. State Department: fetched 6 Oct 2026 15:20 UTC, refresh failing, showing the copy from "
+                      "7h ago, newest advisory dated 21 Sep 2026" in S6["html"]
+                  and "refresh failing" not in S["html"],
+                  "a failing refresh is noted next to the fetched time and degrades the page; absent otherwise"))
+S7 = RL.safe_and_cheap(US, None, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, stale={"ca": 99999}, today=TODAY)
+results.append(ok("refresh failing" not in S7["html"] and "Global Affairs Canada feed is not available" in S7["html"],
+                  "a stale age for a feed that is missing is ignored: the missing note stands alone"))
+results.append(ok([RL._age(a) for a in (6 * 3600, 7 * 3600 + 3599, 47 * 3600, 2 * 86400, 3 * 86400 + 5, "x")]
+                  == ["6h", "7h", "47h", "2d", "3d", ""],
+                  "_age: hours under two days, then days, '' for junk"))
 
 # --- /do-not-travel -----------------------------------------------------------------
 D = RL.do_not_travel(US, CA, DE, fetched=FETCHED, today=TODAY)
@@ -253,6 +281,11 @@ D2 = RL.do_not_travel(US, CA, None, fetched=FETCHED, today=TODAY)
 results.append(ok(D2["degraded"] and "German Federal Foreign Office" in D2["html"] and "not loaded" in D2["html"]
                   and D2["isos"]["all3"] == [] and "AF" in D2["isos"]["some4"],
                   "Germany down: renders, degraded, nothing can be \"all three\""))
+D4 = RL.do_not_travel(US, CA, DE, fetched=FETCHED, stale={"de": 6 * 3600 + 1}, today=TODAY)
+results.append(ok(D4["degraded"] and D4["counts"] == D["counts"]
+                  and "German Federal Foreign Office (Auswärtiges Amt): fetched 6 Oct 2026 15:23 UTC, refresh failing, showing the "
+                      "copy from 6h ago" in D4["html"] and "refresh failing" not in D["html"],
+                  "/do-not-travel: a failing refresh is noted and degrades the page too"))
 D3 = RL.do_not_travel(US, CA, DE, fetched=FETCHED, today="2027-06-01")
 results.append(ok(D3["counts"]["changes"] == 0 and "No level changes in the last 180 days" in D3["html"]
                   and D3["title"].startswith("Do Not Travel List 2027"),
@@ -262,7 +295,7 @@ results.append(ok(RL.newest_change({"us": US, "ca": CA, "de": DE}) == "2026-09-3
                   "newest_change: the sitemap's date, '' with nothing cached"))
 
 # --- no "None", no forbidden names, on both pages' full output --------------------------
-results.append(ok(all(" None" not in p["html"] and ">None<" not in p["html"] for p in (S, S3, S4, D, D2, D3)),
+results.append(ok(all(" None" not in p["html"] and ">None<" not in p["html"] for p in (S, S3, S4, S5, S6, S7, D, D2, D3, D4)),
                   "no None leaks on any degraded variant either"))
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
