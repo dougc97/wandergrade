@@ -31,7 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
     flightvalue, guide_facts, guide_sizers, health, mailer, picks, popularity, rates, render_guide,
-    store, watchouts
+    render_lists, store, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -500,11 +500,19 @@ def _sitemap():
         stamp = ""
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", stamp or ""):
         stamp = time.strftime("%Y-%m-%d", time.gmtime())
+    doc = guide_facts.get_doc() or {}  # one document for all 190 lastmods
+    # The list pages are dated by their data, floored at the stamp:
+    # /safe-and-cheap by the snapshot its prices come from, /do-not-travel by
+    # the newest level change the cached feeds carry (none cached: the
+    # stamp). Never today — the same fabricated freshness as above.
+    safe_lm = max(stamp, render_lists.lastmod_of(doc.get("_asof")))
+    dnt_lm = max(stamp, render_lists.newest_change({s: _adv_cached(s) for s in _ADV_SRCS}))
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
            '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
-           '  <url><loc>%s/data</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp)]
-    doc = guide_facts.get_doc() or {}  # one document for all 190 lastmods
+           '  <url><loc>%s/data</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
+           '  <url><loc>%s/safe-and-cheap</loc><lastmod>%s</lastmod></url>' % (_SITE, safe_lm),
+           '  <url><loc>%s/do-not-travel</loc><lastmod>%s</lastmod></url>' % (_SITE, dnt_lm)]
     expired = render_guide.snapshot_expired_on(doc=doc)
     for slug, iso in render_guide.all_slugs():
         days = [stamp, render_guide.snapshot_changed(iso, doc), expired.isoformat() if expired else ""]
@@ -621,9 +629,13 @@ _SHELL_ICON = ('<link rel="icon" href="data:image/svg+xml,<svg xmlns=\'http://ww
 
 def _shell_page(title, body, head="", analytics=True, credits=True):
     """A whole, self-contained HTML document in the site's header/footer —
-    no app.js. /data, the 404 page and the sign-in confirmation use it.
-    credits=False drops the data sources from the footer, for a page that
-    shows no data."""
+    no app.js. /data, the 404 page, the sign-in confirmation and the two list
+    pages use it. credits=False drops the data sources from the footer, for a
+    page that shows no data; a string is that page's own credit line (HTML)."""
+    default_credits = ('Data: <a href="https://data.worldbank.org" rel="noopener" '
+                       'target="_blank">World Bank</a> &amp; '
+                       '<a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
+                       "&middot; ")
     return (
         "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
@@ -648,13 +660,15 @@ def _shell_page(title, body, head="", analytics=True, credits=True):
         # <main> ran edge to edge, with no side padding at all on a phone.
         '<main class="shellmain">%s</main>'
         "<footer>%s"
+        # The two list pages, as index.html's footer carries them: an internal
+        # link from every page, not just a sitemap entry (which earns no
+        # crawl priority — see _guide_links).
+        'Lists: <a href="/safe-and-cheap">Safest cheap countries</a> &middot; '
+        '<a href="/do-not-travel">Do Not Travel list</a> &middot; '
         '<a href="/">Back to WanderGrade</a></footer></body></html>'
         % (html.escape(title), _SHELL_ICON, head, _asset_version("styles.css"),
            _analytics_tag() if analytics else "", body,
-           ('Data: <a href="https://data.worldbank.org" rel="noopener" '
-            'target="_blank">World Bank</a> &amp; '
-            '<a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
-            "&middot; ") if credits else "")
+           credits if isinstance(credits, str) else (default_credits if credits else ""))
     ).encode("utf-8")
 
 
@@ -675,6 +689,120 @@ def _render_data_page():
         '<meta name="twitter:card" content="summary_large_image">'
         % (desc, _SITE, desc, _SITE, _SITE))
     return _shell_page(_DATA_TITLE, _data_page_body(), head)
+
+
+# ---- the list pages: /safe-and-cheap and /do-not-travel -----------------------
+# Rendered by fxtracker/render_lists.py from the documents the server already
+# holds — the three advisory caches, the guide-facts snapshot, climate, health,
+# the price-level history, the cached rates — so a request costs a dict lookup
+# (memoized below) and never an upstream fetch of its own.
+_LIST_PATHS = ("/safe-and-cheap", "/do-not-travel")
+_ADV_SRCS = ("us", "ca", "de")
+_ADV_LINKS = ('<a href="https://travel.state.gov" rel="noopener" target="_blank">US State Dept</a>, '
+              '<a href="https://travel.gc.ca/travelling/advisories" rel="noopener" target="_blank">'
+              'Global Affairs Canada</a> &amp; '
+              '<a href="https://www.auswaertiges-amt.de/de/ReiseUndSicherheit/reise-und-sicherheitshinweise" '
+              'rel="noopener" target="_blank">German Foreign Office</a>')
+_LIST_CREDITS = {
+    "/safe-and-cheap": ('Data: <a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
+                        "(PPP) &middot; Advisories: " + _ADV_LINKS + " &middot; Health notes: Global Affairs "
+                        'Canada &middot; Climate: <a href="https://open-meteo.com" rel="noopener" target="_blank">'
+                        "Open-Meteo</a> &middot; "),
+    "/do-not-travel": "Advisories: " + _ADV_LINKS + " &middot; ",
+}
+_list_memo = {}
+
+
+def _adv_cached(source):
+    """The advisory payload for `source` if the cache holds one (any age),
+    else None — never a fetch. The sitemap reads these: it must not wait on
+    three feeds after a cold start."""
+    hit = _adv_cache.get(source)
+    return hit[1] if hit else None
+
+
+def _adv_inputs():
+    """The three payloads — None where a feed is down with nothing cached, so
+    the page says so and goes out uncached — and when each was fetched."""
+    payloads, fetched = {}, {}
+    for src in _ADV_SRCS:
+        try:
+            payloads[src] = _advisories_payload(src)
+        except Exception as e:
+            print("[lists] %s advisories unavailable: %s" % (src, e), flush=True)
+            payloads[src] = None
+        hit = _adv_cache.get(src)
+        if hit:
+            fetched[src] = hit[0]
+    return payloads, fetched
+
+
+def _fx_inputs():
+    """{currency: strength_pct} from the rates the server already caches, and
+    the PPP table, for the dollar column. Read, never computed: a cold rates
+    cache would cost the page three upstream fetches, so the column waits for
+    the first /api/rates (the homepage's first visitor or the daily recompute)
+    and is left out until then."""
+    try:
+        cfg = store.load_config()
+        hit = _rates_cache.get((cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]), "USD"))
+        return (hit[1] if hit else None), (_ppp_data() if _ppp_cache["at"] else None)
+    except Exception as e:
+        print("[lists] no dollar column: %s" % e, flush=True)
+        return None, None
+
+
+def _fx_map(rates_payload):
+    """{currency: strength_pct} from a cached /api/rates payload. Built only
+    on a memo miss: the payload object is the memo key, not this dict."""
+    if not rates_payload:
+        return None
+    return {r["code"]: r["strength_pct"] for r in rates_payload.get("rows") or []
+            if "code" in r and "strength_pct" in r}
+
+
+def _list_head(path, title, desc):
+    """description, canonical and the share card, as _render_data_page has them."""
+    d, u = html.escape(desc, quote=True), _SITE + path
+    return ('<meta name="description" content="%s">'
+            '<link rel="canonical" href="%s">'
+            '<meta property="og:type" content="website">'
+            '<meta property="og:title" content="%s">'
+            '<meta property="og:description" content="%s">'
+            '<meta property="og:url" content="%s">'
+            '<meta property="og:site_name" content="WanderGrade">'
+            '<meta property="og:image" content="%s/og.png">'
+            '<meta name="twitter:card" content="summary_large_image">'
+            % (d, u, html.escape(title, quote=True), d, u, _SITE))
+
+
+def _list_page(path):
+    """{bytes, degraded} for a list page, memoized on the identity of its
+    inputs: a refreshed feed, snapshot, health document or rates entry is a
+    new object and re-renders; so does a new UTC day (the "recent" window and
+    the year in the title). The inputs are kept beside the result so none of
+    their ids can be recycled while it is the key. Every other request is a
+    dict lookup, which is what Render's free tier can afford."""
+    payloads, fetched = _adv_inputs()
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    docs = (payloads["us"], payloads["ca"], payloads["de"])
+    if path == "/safe-and-cheap":
+        rp, ppp = _fx_inputs()
+        docs += (guide_facts.get_doc() or {}, render_lists.climate(), health.get_doc(), _pl_history(), rp, ppp)
+        render = lambda: render_lists.safe_and_cheap(*docs[:7], fetched=fetched, fx=_fx_map(rp), ppp=ppp,
+                                                     today=today)
+    else:
+        render = lambda: render_lists.do_not_travel(*docs, fetched=fetched, today=today)
+    key = tuple(id(x) for x in docs) + (today,)
+    hit = _list_memo.get(path)
+    if hit and hit[0] == key:
+        return hit[2]
+    page = render()
+    out = {"bytes": _shell_page(page["title"], page["html"], _list_head(path, page["title"], page["desc"]),
+                                credits=_LIST_CREDITS[path]),
+           "degraded": page["degraded"]}
+    _list_memo[path] = (key, docs, out)
+    return out
 
 
 _NOINDEX = '<meta name="robots" content="noindex">'
@@ -1540,6 +1668,22 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/sitemap.xml":
             self._send_body(_sitemap(), "application/xml; charset=utf-8",
                             cache="public, max-age=3600")
+            return
+        if path in _LIST_PATHS:
+            page = _list_page(path)
+            # no-store while a feed is down: Cloudflare must never hold a copy
+            # whose column reads "not loaded" for its five minutes.
+            self._send_body(page["bytes"], "text/html; charset=utf-8",
+                            cache="no-store" if page["degraded"] else "public, max-age=300")
+            return
+        if path.endswith("/") and path.rstrip("/") in _LIST_PATHS:
+            # One canonical URL each: the slash variant 301s to it, query and
+            # all; anything deeper is a real 404, not a soft duplicate.
+            query = self.path.split("?", 1)[1] if "?" in self.path else ""
+            self._redirect(path.rstrip("/") + ("?" + query if query else ""))
+            return
+        if path.startswith(tuple(p + "/" for p in _LIST_PATHS)):
+            self._send_not_found()
             return
         if path in ("/data", "/data/"):
             self._send_body(_render_data_page(), "text/html; charset=utf-8",
