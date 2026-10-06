@@ -103,6 +103,11 @@ SAMPLE_POINTS = {
     "TR": (41.008, 28.978, "Istanbul"),
     "AU": (-33.869, 151.209, "Sydney"),
     "IS": (64.146, -21.942, "Reykjavík"),
+    # Greenland's geometric point is on the ice sheet (-38 °C in January, every
+    # month scoring 0, so "best months" fell back to January-March on the live
+    # guide). Nuuk is where visitors arrive and the only town with a climate
+    # anyone plans around.
+    "GL": (64.175, -51.738, "Nuuk"),
     "PE": (-13.532, -71.967, "Cusco"),
     "KE": (-1.286, 36.817, "Nairobi"),
     "BR": (-22.907, -43.173, "Rio de Janeiro"),
