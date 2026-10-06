@@ -2937,3 +2937,69 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .guidehealth > a { font-size: 12px; }
 #advRows tr.advup, #advRows tr.advup:nth-child(even) { background: color-mix(in srgb, var(--red) 9%, transparent); }
 #advRows tr.advdown, #advRows tr.advdown:nth-child(even) { background: var(--green-bg); }
+
+/* ---- the list pages: /safe-and-cheap and /do-not-travel (fxtracker/render_lists.py) ----
+   Server-rendered text with no app.js, in the shell's <main class="shellmain">.
+   Phones first: below 900px each table row is a card and each cell a
+   labelled line (the label is the cell's data-l, drawn by ::before), so a
+   nine-column table never scrolls the page sideways at 320px; from 520px the
+   card's cells sit two abreast; from 900px it is the table it is. The level
+   pills are the site's .lvl/.lvlN. No class here starts ad/adv/sponsor/
+   banner/promo (EasyList hid the advisory text on such names once). */
+.listpage { margin-top: 18px; }
+.listpage h1 { font-size: 26px; font-weight: 800; line-height: 1.2; letter-spacing: -.01em; margin: 4px 0 10px; }
+.listpage h2 { font-size: 19px; font-weight: 800; margin: 28px 0 8px; }
+.listpage p { line-height: 1.5; margin: 0 0 10px; }
+.listpage .lede { font-size: 15px; max-width: 72ch; }
+.listpage .sub { color: var(--gray); font-size: 13.5px; max-width: 72ch; }
+.listpage .note, .listpage .asof { color: var(--gray); font-size: 12.5px; max-width: 80ch; margin-top: 12px; }
+.listpage .xlink { margin-top: 18px; font-size: 14px; }
+.listpage a { color: var(--green); }
+.listpage .name a { color: var(--ink); text-decoration: none; }
+.listpage .name a:hover { text-decoration: underline; }
+.listpage .lvl { font-size: 11.5px; padding: 1px 8px; vertical-align: middle; }
+.listpage .when { display: block; color: var(--gray); font-size: 11.5px; margin-top: 3px; }
+.listpage .agree { display: inline-block; color: var(--green); background: var(--green-bg); border-radius: 999px;
+  padding: 1px 8px; font-size: 11.5px; font-weight: 700; vertical-align: middle; margin-left: 4px; }
+.listpage .chips { display: inline-flex; flex-wrap: wrap; gap: 4px; margin: 2px 0 0; vertical-align: middle; }
+.listpage .risk, .listpage .hnote { background: var(--soft); color: var(--ink); border-radius: 999px;
+  padding: 1px 8px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.listpage .fn { font-size: 10px; margin-left: 1px; }
+.listpage .changes { list-style: none; padding: 0; margin: 0 0 8px; }
+.listpage .changes li { padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; line-height: 1.5; }
+.listpage .changes li:first-child { border-top: none; }
+.listpage .changes .when { display: inline; margin: 0 6px 0 0; font-weight: 700; }
+.listpage .changes .name { font-weight: 700; }
+.listbox { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 10px 0 0; }
+.listtable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.listtable thead { display: none; }
+.listtable tbody tr { display: block; padding: 10px 12px; border-top: 1px solid var(--line); }
+.listtable tbody tr:first-child { border-top: none; }
+.listtable td { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; min-width: 0; }
+.listtable td::before { content: attr(data-l); flex: 0 0 6.2em; color: var(--gray); font-size: 11px;
+  font-weight: 700; text-transform: uppercase; letter-spacing: .02em; }
+/* The cell's value is one flex item (render_lists._cell): a pill, its date
+   and a row of chips wrap inside it. As separate items they sat side by
+   side and the "Nearly made it" rows pushed the table 30px past its box at 320. */
+.listtable td .v { flex: 1 1 auto; min-width: 0; }
+.listtable td.name { display: block; font-weight: 800; font-size: 15.5px; padding-bottom: 4px; }
+.listtable td.name::before { content: none; }
+.listtable td.num { display: none; }
+@media (min-width: 520px) and (max-width: 899px) {
+  .listtable tbody tr { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
+  .listtable td.name { grid-column: 1 / -1; }
+}
+@media (min-width: 900px) {
+  .listtable thead { display: table-header-group; }
+  .listtable tbody tr { display: table-row; padding: 0; }
+  .listtable tbody tr:nth-child(even) td { background: var(--zebra); }
+  .listtable td, .listtable td.name, .listtable td.num { display: table-cell; padding: 8px 8px; border-top: 1px solid var(--line);
+    vertical-align: top; font-size: 13.5px; font-weight: 400; }
+  .listtable td.name { font-weight: 700; white-space: nowrap; }
+  .listtable td.num { color: var(--gray); font-variant-numeric: tabular-nums; }
+  .listtable td::before { content: none; }
+  .listtable tbody tr:first-child td { border-top: none; }
+  .listtable th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .02em;
+    color: var(--gray); padding: 9px 8px; background: var(--tablehead); white-space: nowrap; }
+  .listtable .chips { display: flex; }
+}
