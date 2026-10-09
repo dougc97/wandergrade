@@ -205,6 +205,31 @@ _HTML_DEFAULTS = {
     # which on a private server grew the bar 46px after first paint (CLS
     # 0.034-0.041 at 390). Served visible exactly where init() would show it.
     "ACTIONS_HIDDEN": " hidden" if PUBLIC_MODE else "",
+    # Wander List first paint. VISITED_STATS is the empty-state line
+    # renderVisitedStats writes for a first visit (app.js MILESTONE_TIERS[0]:
+    # change them together) — the tab grew 29px into it when app.js arrived
+    # (CLS 0.095 at 390, 0.044 at 768). VISITED_PICK is the first option
+    # buildVisited writes, so the select is sized like the combo that replaces
+    # it instead of a 42px stub. VISITED_HOLD sets html[data-vis] for a
+    # visitor whose lists are already in localStorage — "v" been, "w" want
+    # to go, "s" when the save prompt (.vsave) will join them: accounts on
+    # and not signed in, the head script's data-acct — the floor styles.css
+    # holds under the stats and chips they will fill; the served empty-state
+    # line gives way to it. It belongs in the head script with the other
+    # pre-paint flags and will move there: index.html itself can't change
+    # a byte while /guide/* is under its Search Console measurement
+    # (until November 2026), so the three are filled here and empty on a
+    # guide (which never paints this tab first anyway; see _render_index).
+    "VISITED_STATS": '<div class="vstats-line vstand"><span class="hint">Nothing marked yet</span>'
+                     '<span class="awardtag locked" data-tip="Visit 5 countries to earn 🧭 Explorer" '
+                     'title="">🔒 5 to 🧭 Explorer</span></div>',
+    "VISITED_PICK": '<option value="">+ add a country…</option>',
+    "VISITED_HOLD": '<script>(function(){try{var d=document.documentElement,'
+                    'v=JSON.parse(localStorage.getItem("fx_visited")||"[]").length>0,'
+                    'w=JSON.parse(localStorage.getItem("fx_wishlist")||"[]").length>0;'
+                    'if(v||w)d.setAttribute("data-vis",(v?"v":"")+(w?"w":"")'
+                    '+(%s&&d.getAttribute("data-acct")!=="in"?"s":""));}catch(e){}})();</script>'
+                    % ("true" if accounts.enabled() else "false"),
 }
 _html_tpl = None
 
@@ -984,6 +1009,7 @@ def _render_index(gc_iso=None):
             # No first-paint stand-ins for tabs a guide never shows first —
             # and the guides' HTML stays byte-identical to before them.
             ACTIONS_HIDDEN=" hidden",
+            VISITED_STATS="", VISITED_PICK="", VISITED_HOLD="",
         )
         vals.update(_guide_sizers(gc_iso, r.get("adv")))
         if r.get("ogimage"):                          # country hero photo

@@ -575,7 +575,7 @@
     </div>
   </section>
 
-  <section class="tab" id="tab-visited" hidden>
+  {{VISITED_HOLD}}<section class="tab" id="tab-visited" hidden>
     <div class="cardwide">
       <!-- One header row: the title with its ⓘ, and the controls beside it (they
            drop under it when the card is narrow). The how-to lives in the tip,
@@ -587,7 +587,7 @@
             <button data-vm="visited" class="active" aria-pressed="true">✓ Been</button>
             <button data-vm="wishlist" aria-pressed="false">★ Want to go</button>
           </div>
-          <select id="visitedPick" aria-label="Add a country"></select>
+          <select id="visitedPick" aria-label="Add a country">{{VISITED_PICK}}</select>
           <button id="visitedBulk" title="add many countries at once">➕ Bulk add</button>
           <button id="visitedImage" title="vertical image sized for phones — Stories, TikTok, or any share">📸 <span class="lbl-lg">Share image</span><span class="lbl-sm">Share</span></button>
           <button id="visitedClear">Clear all</button>
@@ -599,7 +599,7 @@
            the row's height, so nothing under it moves as marks are added. -->
       <div class="vrow">
         <div id="visitedMap" class="map">Loading…</div>
-        <div id="visitedStats" class="visitedstats"></div>
+        <div id="visitedStats" class="visitedstats">{{VISITED_STATS}}</div>
       </div>
       <div id="visitedChips" class="chips"></div>
     </div>

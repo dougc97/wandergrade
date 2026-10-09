@@ -1643,6 +1643,30 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
 }
 #visitedChips { margin: 12px 0 0; }
 #visitedChips:empty { display: none; }
+/* First paint, cold visit: #visitedStats is served holding the empty-state
+   line renderVisitedStats will write (server.py VISITED_STATS), 29px that the
+   tab used to grow into when app.js landed (CLS 0.095 at 390, 0.044 at 768,
+   #subscribe and the footer moving under it). A returning visitor's lists
+   are in localStorage, so html[data-vis] is set before the tab is parsed
+   (VISITED_HOLD): the served line stands down for a floor the real content
+   can't go under — the count line plus the continent row with ✓ been (29 +
+   9 + 25, measured 63 at 768), the hint line alone with only ★ want to go
+   (22), each plus the save prompt where one will show ("s": its 62px box
+   and 14px margin), one chip row either way (8 + 25 + 8 = 41). Floors, not
+   estimates: a long list still grows past them, but nothing is left hollow —
+   renderVisited drops the flag once the real content stands. */
+html[data-vis] #visitedStats .vstand { display: none; }
+html[data-vis*="v"] #visitedStats { min-height: 63px; }
+html[data-vis^="w"] #visitedStats { min-height: 22px; }
+html[data-vis*="v"][data-vis*="s"] #visitedStats { min-height: 139px; }
+html[data-vis^="w"][data-vis*="s"] #visitedStats { min-height: 98px; }
+html[data-vis] #visitedChips:empty { display: flex; min-height: 41px; }
+/* The add-a-country select, until buildVisited lists the countries and
+   enhanceSelect wraps it in a .combo: the combo's width (the base rule here,
+   its flex share at 375-600 below), so the swap changes the text and not the
+   row. Empty, it was a 42px stub; the 166px box that replaced it re-wrapped
+   the controls (Bulk add dropped a line at 390, the row slid left on desktop). */
+#visitedPick { width: var(--combo-w); }
 
 /* Wanderlist on-page stats (mirrors the shareable card) */
 .visitedstats { margin-top: 12px; }
@@ -1788,6 +1812,9 @@ button.chip2 { border: 0; }
      drop to Share) fits them in two. */
   #tab-visited .pickers .combo { flex: 1 1 120px; min-width: 0; }
   #tab-visited .pickers .combo-input { width: 100%; min-width: 0; }
+  /* ...and the served select the combo replaces, so the row is laid out the
+     same before app.js (see #visitedPick above). */
+  #tab-visited .pickers #visitedPick { flex: 1 1 120px; min-width: 0; width: auto; }
   /* Interests, regions and country each claimed a full row (115px) because none
      of them would shrink. Two across, country below: 74px.
      The 140px floor is load-bearing: with min-width:0 all three crammed onto one

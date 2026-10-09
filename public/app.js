@@ -9161,6 +9161,11 @@ function clearActiveList() {
 
 const VISITED_COLOR = "#0a7d28", WISH_COLOR = "#2b6cb0";
 function renderVisited() {
+  // The first-paint floor under the stats and chips (html[data-vis], set
+  // from localStorage before this tab was parsed; styles.css) has done its
+  // job once the real content stands. Kept, it would hold 63px under a list
+  // the reader then clears.
+  document.documentElement.removeAttribute("data-vis");
   // Exporting an empty map would render a blank "0 countries" card — keep the
   // share buttons off until at least one country is marked.
   const canShare = visited.size > 0;
@@ -10276,6 +10281,8 @@ function continentProgress() {
 // talk — nobody brags in percentages). The ladder has a rule, not vibes:
 // each tier is roughly double the last, then the summit tiers close in on
 // 193 (every UN member). 100 nods to the Travelers' Century Club.
+// The first tier is also served in the Wander List's empty-state line
+// (server.py VISITED_STATS): change them together.
 const MILESTONE_TIERS = [
   [5, "🧭 Explorer"], [10, "🌍 Globetrotter"], [25, "🌟 Seasoned Traveler"],
   [50, "⭐ Globe Master"], [100, "💯 Century Club"], [150, "🏆 World Elite"],
