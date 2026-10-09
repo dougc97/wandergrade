@@ -14,9 +14,11 @@ fxtracker/advisories._us_advisories. The cases are real ones:
     caution": still its own level's lead, so still quoted;
   * Mexico (Level 2): an ordinary lead, unchanged.
 The risk labels themselves (RISK_WORDS / label_reasons, shared with Canada's
-pages and the /do-not-travel lists): the medical-care reason is "Medical care",
+pages and the /do-not-travel lists): the medical-care reason is "Medical",
 never "Health care" — in the Safety table the Risks column sits beside the
-Health column, and a "Health care" chip read as that column's word twice.
+Health column, and a "Health care" chip read as that column's word twice —
+and one word, not "Medical care", which was wide enough to fold Ghana's
+fourth chip into a "+1" at 1280.
 """
 import os
 import sys
@@ -76,7 +78,7 @@ results.append(ok("Read the entire" not in rw2.get("summary", ""),
 results.append(ok(rw2.get("risks") == ["Crime", "Unrest"],
                   "...and its chips stay Crime, Unrest: %r" % rw2.get("risks")))
 # The labels: "Health" is the State Department's own indicator (disease,
-# outbreaks); the care itself is "Medical care". Comoros's US lead ("crime,
+# outbreaks); the care itself is "Medical". Comoros's US lead ("crime,
 # unrest, and health") and Canada's ("the limited availability of emergency
 # services and inadequate medical facilities") are the two real cases, and
 # no label may begin with another one — that is what made the pair look
@@ -84,13 +86,13 @@ results.append(ok(rw2.get("risks") == ["Crime", "Unrest"],
 results.append(ok(km.get("risks") == ["Crime", "Unrest", "Health"],
                   "Comoros's US reasons end in Health: %r" % km.get("risks")))
 results.append(ok(A.label_reasons("the limited availability of emergency services and inadequate medical facilities")
-                  == ["Limited help", "Medical care"],
-                  "Canada's Comoros lead labels the care as Medical care"))
-results.append(ok(A.label_reasons("the outbreak of Ebola disease and poor health care") == ["Health", "Medical care"],
-                  "...and a disease beside the care is Health, Medical care"))
+                  == ["Limited help", "Medical"],
+                  "Canada's Comoros lead labels the care as Medical"))
+results.append(ok(A.label_reasons("the outbreak of Ebola disease and poor health care") == ["Health", "Medical"],
+                  "...and a disease beside the care is Health, Medical"))
 labels = [lab for lab, _ in A.RISK_WORDS]
-results.append(ok("Health care" not in labels
+results.append(ok("Health care" not in labels and "Medical care" not in labels
                   and not any(a != b and b.startswith(a) for a in labels for b in labels),
-                  "no risk label begins with another (Health / Health care)"))
+                  "no risk label begins with another (Health / Health care), none is \"Medical care\""))
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

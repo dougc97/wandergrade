@@ -569,12 +569,14 @@ RISK_WORDS = [
     ("Explosives", r"unexploded(?! land ?mines?)|ordnance|\bUXO\b|\bIEDs?\b|improvised explosive"),
     ("Detention", r"\bdetention|\barrest|exit bans?|detain"),
     ("Arbitrary laws", r"arbitrary enforcement"),
-    # "Medical care", not "Health care": in the Safety table the 🚨 Risks
-    # column sits beside the 💉 Health column, and Comoros's "Limited help ·
-    # Health care" chip read as the Health column's word said twice. The
-    # advisories mean the care itself ("inadequate medical facilities",
-    # "limited health care"), which is what the label now says.
-    ("Medical care", r"health ?care|health (infrastructure|services|system|facilit)|medical"),
+    # "Medical", not "Health care": in the Safety table the 🚨 Risks column
+    # sits beside the 💉 Health column, and Comoros's "Limited help · Health
+    # care" chip read as the Health column's word said twice. The advisories
+    # mean the care itself ("inadequate medical facilities", "limited health
+    # care"). One word, not "Medical care": that was 7px wider than "Health
+    # care" and at 1280 Ghana's fourth chip (Anti-LGBTQI+, 303px of a 297px
+    # cell) folded into a "+1" that "Health care" had left standing.
+    ("Medical", r"health ?care|health (infrastructure|services|system|facilit)|medical"),
     ("Health", r"\bhealth\b(?! ?care| infrastructure| services| system| facilit)|ebola|disease|outbreak"),
     ("Limited help", r"consular|emergency services|ability to (help|assist|provide)"),
     ("Natural disasters", r"natural disaster|weather|environmental hazard|hurricane|earthquake|volcan"),
