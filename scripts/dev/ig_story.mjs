@@ -71,22 +71,26 @@ export default async (t) => {
   const html = `
     <style>
       #igstory { position: fixed; inset: 0; width: 1080px; height: 1920px; z-index: 99999; box-sizing: border-box;
-        padding: 96px 72px 80px; background: var(--bg); color: var(--fg, var(--text, #e8eaed));
+        /* Instagram's own UI covers roughly the top 250px (progress bars, name) and the bottom 280px
+           (reply bar): nothing of ours goes there, and the clear band between the last card and the
+           footer line is where the link sticker goes. */
+        padding: 250px 72px 240px; background: var(--bg); color: var(--fg, var(--text, #e8eaed));
         font-family: "Plus Jakarta Sans", system-ui, sans-serif; display: flex; flex-direction: column; }
       #igstory .igbrand { font-weight: 800; font-size: 40px; color: #2bb24c; letter-spacing: -.01em; }
-      #igstory .igh1 { font-weight: 800; font-size: 92px; line-height: 1.02; letter-spacing: -.025em; margin: 26px 0 18px; }
-      #igstory .igsub { font-size: 32px; line-height: 1.35; opacity: .72; margin-bottom: 54px; max-width: 900px; }
+      #igstory .igh1 { font-weight: 800; font-size: 82px; line-height: 1.02; letter-spacing: -.025em; margin: 22px 0 14px; }
+      #igstory .igsub { font-size: 29px; line-height: 1.35; opacity: .72; margin-bottom: 36px; max-width: 900px; }
       #igstory .igc { display: flex; align-items: center; gap: 26px; background: var(--card); border: 1px solid var(--line, rgba(255,255,255,.08));
-        border-radius: 28px; padding: 30px 34px; margin-bottom: 22px; }
+        border-radius: 26px; padding: 24px 30px; margin-bottom: 16px; }
       #igstory .igrank { font-weight: 800; font-size: 34px; opacity: .45; width: 64px; }
       #igstory .igflag { font-size: 64px; line-height: 1; }
       #igstory .igmain { flex: 1; min-width: 0; }
-      #igstory .igname { font-weight: 800; font-size: 50px; line-height: 1.1; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      #igstory .igwhy { font-size: 27px; line-height: 1.3; opacity: .72; margin-top: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+      #igstory .igname { font-weight: 800; font-size: 46px; line-height: 1.1; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #igstory .igwhy { font-size: 25px; line-height: 1.3; opacity: .72; margin-top: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
       #igstory .igpill { display: flex; align-items: center; gap: 14px; }
-      #igstory .igpill .gr { font-size: 44px; min-width: 110px; height: 88px; line-height: 88px; border-radius: 22px; padding: 0 18px; font-weight: 800; }
+      #igstory .igpill .gr { font-size: 40px; min-width: 100px; height: 80px; line-height: 80px; border-radius: 20px; padding: 0 16px; font-weight: 800; }
       #igstory .igscore { font-weight: 800; font-size: 34px; opacity: .6; width: 56px; text-align: right; }
-      #igstory .igfoot { margin-top: auto; display: flex; justify-content: space-between; align-items: flex-end; font-size: 28px; opacity: .72; }
+      #igstory .igsticker { margin-top: auto; height: 130px; flex-shrink: 0; }  /* the link sticker's spot: kept clear on purpose */
+      #igstory .igfoot { display: flex; justify-content: space-between; align-items: flex-end; font-size: 26px; opacity: .72; }
       #igstory .igfoot b { font-weight: 800; opacity: 1; color: #2bb24c; font-size: 34px; }
       #igstory .igfoot small { font-size: 24px; }
     </style>
@@ -94,7 +98,8 @@ export default async (t) => {
     <div class="igh1">Where to go in ${esc(MONTHS[MONTH - 1])}</div>
     <div class="igsub">Top value picks for travelers from the US — prices vs home, safety, weather and flights, graded A+ to F.</div>
     ${cards}
-    <div class="igfoot"><div><b>wandergrade.com</b><br><small>Every country, graded. Free, no sign-up.</small></div><div><small>As of ${esc(asOf)}</small></div></div>`;
+    <div class="igsticker"></div>
+    <div class="igfoot"><div><b>wandergrade.com</b><br><small>Tap the link for the full ranking · free, no sign-up</small></div><div><small>As of ${esc(asOf)}</small></div></div>`;
   await evaluate(`(() => {
     document.documentElement.setAttribute('data-theme', 'dark');
     const d = document.createElement('div'); d.id = 'igstory'; d.innerHTML = ${JSON.stringify(html)};
@@ -102,7 +107,7 @@ export default async (t) => {
   })()`);
   await setSize(1080, 1920, false);
   await sleep(1200);   // font + pill styles settle
-  const fits = await evaluate(`(() => { const s = document.getElementById('igstory'); const f = s.querySelector('.igfoot'); return { h: s.scrollHeight, footBottom: f.getBoundingClientRect().bottom }; })()`);
+  const fits = await evaluate(`(() => { const s = document.getElementById('igstory'); const f = s.querySelector('.igfoot'); const st = s.querySelector('.igsticker'); const c = [...s.querySelectorAll('.igc')].pop(); return { h: s.scrollHeight, lastCardBottom: Math.round(c.getBoundingClientRect().bottom), stickerZone: [Math.round(st.getBoundingClientRect().top), Math.round(st.getBoundingClientRect().bottom)], footBottom: Math.round(f.getBoundingClientRect().bottom) }; })()`);
   console.log('panel', JSON.stringify(fits));
   const shot = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 1080, height: 1920, scale: 1 }, captureBeyondViewport: true });
   fs.writeFileSync(OUT, Buffer.from(shot.result.data, 'base64'));
