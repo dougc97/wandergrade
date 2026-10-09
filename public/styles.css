@@ -738,17 +738,21 @@ html[data-tab="guide"] header .sub { display: none; }
    with the row: the rows alone lay out the finished table, as before. The
    Currency table shows four columns up to 640 (without its shares there its
    header moved 58px when the rows came: CLS 0.010 at 620); under 561 its
-   own phone rules already lay it out alike, loading or not. */
+   own phone rules already lay it out alike, loading or not. Its step is at
+   601, where the "vs avg" header grows its "1-yr" (.lbl-lg) and the third
+   column with it, 16.6% to 20.5%. Measured at each band's middle width with
+   the price-level word on its number's line (td:nth-child(4) nowrap), which
+   is 1-3% more fourth column than before it. */
 #tab-data tr.loadingrow > td:nth-child(1) { width: var(--c1); }
 #tab-data tr.loadingrow > td:nth-child(2) { width: var(--c2); }
 #tab-data tr.loadingrow > td:nth-child(3) { width: var(--c3); }
 #tab-data tr.loadingrow > td:nth-child(4) { width: var(--c4); }
 #tab-data tr.loadingrow > td:nth-child(5) { width: var(--c5); }
-@media (min-width: 561px) and (max-width: 640px) { #rates { --c1: 45.9%; --c2: 13.1%; --c3: 16.7%; --c4: 24.3%; } }
-@media (min-width: 620px) and (max-width: 640px) { #rates { --c1: 44.5%; --c2: 12%; --c3: 20.7%; --c4: 22.8%; } }
-@media (min-width: 641px) and (max-width: 760px) { #rates { --c1: 32.4%; --c2: 11.5%; --c3: 16.4%; --c4: 19.5%; --c5: 20.2%; } }
-@media (min-width: 680px) and (max-width: 760px) { #rates { --c1: 34%; --c2: 10.8%; --c3: 16.7%; --c4: 19.1%; --c5: 19.4%; } }
-@media (min-width: 720px) and (max-width: 760px) { #rates { --c1: 35.9%; --c2: 10.1%; --c3: 16.9%; --c4: 18.6%; --c5: 18.5%; } }
+@media (min-width: 561px) and (max-width: 640px) { #rates { --c1: 44.6%; --c2: 13.2%; --c3: 16.6%; --c4: 25.4%; } }
+@media (min-width: 601px) and (max-width: 640px) { #rates { --c1: 43.5%; --c2: 12.3%; --c3: 20.4%; --c4: 23.7%; } }
+@media (min-width: 641px) and (max-width: 760px) { #rates { --c1: 30.9%; --c2: 11.5%; --c3: 15.8%; --c4: 22.1%; --c5: 19.6%; } }
+@media (min-width: 680px) and (max-width: 760px) { #rates { --c1: 33.2%; --c2: 10.8%; --c3: 16.2%; --c4: 20.7%; --c5: 18.9%; } }
+@media (min-width: 720px) and (max-width: 760px) { #rates { --c1: 35.2%; --c2: 10.2%; --c3: 16.6%; --c4: 19.5%; --c5: 18.3%; } }
 @media (max-width: 760px) { #affTable { --c1: 55.3%; --c2: 14.8%; --c3: 15.6%; --c4: 14.3%; } }
 @media (min-width: 390px) and (max-width: 760px) { #affTable { --c1: 51%; --c2: 17.5%; --c3: 15.9%; --c4: 15.6%; } }
 @media (min-width: 440px) and (max-width: 760px) { #affTable { --c1: 43%; --c2: 22.5%; --c3: 16.4%; --c4: 18.1%; } }
@@ -780,6 +784,26 @@ tr:last-child td { border-bottom: none; }
 tr.favorable { background: var(--green-bg); }
 
 .pltag { font-size: 11px; white-space: nowrap; }
+/* "1 USD =" is 47px of 12px capitals in a column of 69-71px: with the 12px
+   sides the th had 45-47 for it, and at 600-768 it broke as "1 USD" over
+   "=" (a 56px header, the "=" alone on its line; a phone's 7px sides had
+   the same at 320-560). One line at every width: the column is laid out at
+   the words' width, and the table's own auto layout finds the 1-2px in the
+   wider columns, never past its box. From 561 the th keeps its sort arrow
+   on the line too (sorted by rate at 761-768 the ▲ dropped under the
+   words, a 73px header); on a phone the arrow still may wrap — there the
+   names' ellipsis is what gives, and the column is 61px. */
+#rateColHead .sortbtn { white-space: nowrap; }
+@media (min-width: 561px) { #rateColHead { white-space: nowrap; } }
+/* The number and its word stay on one line from 561 up: "0.98 about the
+   same" is 115px and the column had 108-111 at 600-768, so the word sat
+   under the number in the CHF, BBD, AUD and NOK rows alone — 62px rows in
+   a table of 59s (and of 41s at 761-768, where the names go on one line).
+   The column takes the 4-7px it is short from the names, which wrap by
+   word there. On a phone the word is meant to sit under the number: the
+   rows are two lines for the name stack anyway, and under 360 .pltag is a
+   block. */
+@media (min-width: 561px) { #rates td:nth-child(4) { white-space: nowrap; } }
 .code { font-weight: 700; }
 .name { color: var(--gray); font-size: 12px; }
 /* Desktop: code and name on one line ("BOB Bolivian Boliviano"), so a row is
@@ -1970,8 +1994,6 @@ button.chip2 { border: 0; }
      Here it is a count; the list is in the tip, which a tap shows. */
   #rates .peglong { display: none; }
   #rates .pegshort { display: inline; }
-  /* "1 USD =" wrapped into two header lines at this width. */
-  #rateColHead .sortbtn { white-space: nowrap; }
   /* Cost of living had the same 560px pin: 213px hidden, and "$1163 of US goods"
      broke across two lines. Unpinned it wants 404. The Currency column is 94px
      to show a 3-letter code — its own header is what makes it that wide — and it
@@ -2565,7 +2587,7 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
 
 /* ---- Top Picks: Tune the ranking ---------------------------------------- */
 /* Each High/Med/Low beside its label, on one column with the Rank-by toggle
-   (124 + 10 gap = 126 + 8 gap = 134px), instead of space-between leaving
+   (126px of label + an 8px gap = 134px), instead of space-between leaving
    320-356px between a label and its control on a desktop card. */
 .tunecard .prirow { justify-content: flex-start; }
 .tunecard .prilabel { flex: 0 0 124px; }
@@ -2697,6 +2719,20 @@ a.destlink:focus-visible { outline: 2px solid var(--green); outline-offset: 2px;
    ::after, outside the button, so the header broke before it (52px thead
    at 390). nowrap on the th keeps "VS AVG ⓘ ▼" together. */
 @media (min-width: 375px) and (max-width: 560px) { #vsAvgHead { white-space: nowrap; } }
+/* From 561 to 760 the header is the long "VS 1-YR AVG ⓘ" on two lines, and
+   the column is 92-123px: with the ▼ (the default sort) outside the button it
+   dropped to a third line wherever the column was under ~119px — 641-740,
+   and 619-620 once the price-level column keeps its word on the number's
+   line — a 73px header over a 56px one. The th keeps the arrow on the
+   button's last line; the button still wraps its own words. */
+@media (min-width: 561px) and (max-width: 760px) {
+  #vsAvgHead { white-space: nowrap; }
+  /* The button is sized before the arrow after it is placed, so at 760 its
+     one-line 95px filled the 97px cell and the ▼ ran into the padding:
+     capped at the cell less the arrow's 14px, it wraps and the arrow sits
+     beside its last line. */
+  #vsAvgHead .sortbtn { white-space: normal; max-width: calc(100% - 14px); }
+}
 
 /* The guide's grade line (renderGuideGrades): the overall pill and its number,
    then 💰 🛡️ 🌤️ ✈️, the trip length and an ⓘ. A static host with its height
