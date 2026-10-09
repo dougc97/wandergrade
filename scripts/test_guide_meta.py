@@ -27,7 +27,12 @@ What it holds the code to:
     it must not be close to dropping every figure itself. Past 45 days the
     test says so without failing;
   * every guide's sitemap <lastmod> is its own snapshot date; "/" and "/data"
-    keep content-stamp.txt.
+    keep content-stamp.txt;
+  * the Wander List's served empty-state line (server.py VISITED_STATS, the
+    homepage's first paint) is byte-for-byte what app.js renderVisitedStats
+    writes for MILESTONE_TIERS[0], run under jsc — the two are kept by hand,
+    and a drift would move the tab when app.js lands (CLS 0.095 at 390
+    before the line was served); a guide serves no such line.
 """
 import datetime
 import html
@@ -195,6 +200,9 @@ results.append(ok("💰 Local prices ≈ %d%% of the US (%s %d)" % (facts["CO"][
 def js_fn(name):
     m = re.search(r"^function %s\(.*?^\}" % name, APP, re.M | re.S)
     return m.group(0) if m else ""
+def js_fn_const(name):   # `const name = (...) => ...;` — the statement, up to its line-ending ";"
+    m = re.search(r"^const %s = .*?;$" % name, APP, re.M | re.S)
+    return m.group(0) if m else ""
 JSC = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc"
 prog = ("const _guideFacts = %s; const NAMES = %s; function countryName(i) { return NAMES[i]; }\n%s\n"
         "const out = {}; for (const i of Object.keys(NAMES)) out[i] = guideH1Text(i); print(JSON.stringify(out));"
@@ -224,6 +232,25 @@ except Exception:
 D = server._HTML_DEFAULTS
 results.append(ok(dm == {"title": D["TITLE"], "desc": D["DESC"], "og": D["OGTITLE"]},
                   "app.js _DEFAULT_META == server _HTML_DEFAULTS TITLE/DESC/OGTITLE"))
+# The Wander List's empty-state line: served in #visitedStats (VISITED_STATS)
+# so the tab's first paint holds the 29px renderVisitedStats then writes.
+# The real function runs under jsc with empty lists; the served copy differs
+# by the "vstand" class only (styles.css stands it down for a returning
+# visitor's floor), and a guide page serves none (its HTML is fixed).
+tiers = re.search(r"^const MILESTONE_TIERS = \[.*?\];", APP, re.M | re.S)
+try:
+    out = subprocess.run([JSC, "-e", "const host = {}; const $ = () => host; const visited = new Set(), wishlist = new Set();\n"
+                          "%s\n%s\n%s\nrenderVisitedStats(); print(host.innerHTML);"
+                          % (js_fn_const("esc"), tiers.group(0) if tiers else "", js_fn("renderVisitedStats"))],
+                         capture_output=True, text=True, timeout=30).stdout.strip()
+except Exception:
+    out = ""
+served = D["VISITED_STATS"]
+results.append(ok(out and 'class="vstats-line vstand"' in served and served.replace(' vstand"', '"') == out,
+                  "server VISITED_STATS == app.js renderVisitedStats() for an empty list (%s)"
+                  % (re.sub(r"<[^>]+>", " ", out).split() and " ".join(re.sub(r"<[^>]+>", " ", out).split()) or "jsc gave nothing")))
+results.append(ok(b"vstand" in server._render_index(None) and b"vstand" not in server._render_index("TH"),
+                  "the served line is on the homepage and not in a guide"))
 
 # --- staleness guard -----------------------------------------------------------------
 # render_guide reads the document through guide_facts.get_doc() on every call,
