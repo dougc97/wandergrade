@@ -620,7 +620,7 @@
         document.querySelectorAll("#dataMode button").forEach(function(b){b.classList.toggle("active",b.dataset.dm===d);});})();</script>
       <!-- Hidden until app.js hears the server isn't read-only (the public site
            always is): see the /api/config call in init(). -->
-      <div class="actions" hidden>
+      <div class="actions"{{ACTIONS_HIDDEN}}>
         <!-- No Refresh button: it refetched only the currency data, which the
              server caches for ten minutes on a feed that updates daily, and
              sat on every sub-tab, three of which it didn't redraw. "As of …"
