@@ -3527,6 +3527,17 @@ function photoSubjects(iso) {
   }
   return [...new Set(subs.filter(Boolean))].slice(0, 6);
 }
+// The sweep's rejected lead images (public/photo-skip.json), fetched once and
+// shared by every wikiIconic call; a failed fetch means an empty set, never a
+// missing hero.
+let _photoSkip = null;
+function photoSkip() {
+  if (!_photoSkip) {
+    _photoSkip = fetch("/photo-skip.json").then((r) => (r.ok ? r.json() : null))
+      .then((j) => new Set((j && j.files) || [])).catch(() => new Set());
+  }
+  return _photoSkip;
+}
 async function wikiIconic(subject, minW, minH) {
   // Wikimedia's pageimages API renders a crisp thumbnail server-side and is
   // reliable (CORS-enabled, no proxy/rate-limit). thumbnail = the hero/carousel
@@ -3541,6 +3552,7 @@ async function wikiIconic(subject, minW, minH) {
     const api = "https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*" +
       "&prop=pageimages&piprop=thumbnail|original|name&pithumbsize=1600&redirects=1&titles=" +
       encodeURIComponent(subject);
+    const skipP = photoSkip();            // in flight alongside the API call, never before it
     const r = await fetch(api);
     if (!r.ok) return null;
     const j = await r.json();
@@ -3548,6 +3560,13 @@ async function wikiIconic(subject, minW, minH) {
     const t = page && page.thumbnail;
     const thumb = t && t.source;
     if (!thumb || PHOTO_BAD.test(thumb)) return null;
+    // A lead image Wikipedia's editors chose can be a soft phone snapshot or a
+    // hazy aerial (Sri Lanka's Galle Fort and Adam's Peak were). The October
+    // 2026 sweep looked at every gallery photo and listed the rejects by file
+    // name in photo-skip.json. When editors swap a page's image the new file
+    // is unknown to the list and shows — the accepted trade-off for galleries
+    // that stay free and self-updating.
+    if (page.pageimage && (await skipP).has(page.pageimage)) return null;
     // A small delivered thumb means the source itself is tiny (we asked for
     // 1600px). Reject unless at least one dimension clears its bar.
     if ((t.width || 0) < minW && (t.height || 0) < minH) return null;

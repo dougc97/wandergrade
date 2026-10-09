@@ -192,3 +192,21 @@ Cloudflare never keeps the thin copy; a feed whose refresh is failing (the
 last good copy served) is noted by its fetch time and sent `no-store` too.
 Trailing slashes 301; anything deeper 404s. Tests, no network:
 `/usr/bin/python3 scripts/test_list_pages.py`.
+
+## Hero photos: Wikipedia titles, a skip list, and the sweep
+
+A guide's hero carousel shows the lead image of each title in
+`activities.json[iso].gallery` (up to six), resolved in the browser through
+Wikipedia's pageimages API (`wikiIconic` in app.js). Wikipedia's editors
+pick those images, so a gallery can quietly acquire a soft phone snapshot.
+`public/photo-skip.json` lists file names a review rejected (2026-10: 895
+photos viewed, 315 rejected); `wikiIconic` and `scripts/gen_og_images.py`
+skip them. When editors swap an image the new file is unknown to the list
+and shows.
+
+- Re-run the review tooling with `scripts/photo_sweep.py` (`resolve`,
+  `sweep`, `batches`, `skip-check`; usage in its docstring; PIL only).
+- `scripts/test_photo_skip.py` checks the list and every gallery offline.
+- `scripts/dev/cdp.mjs` is the headless-Chrome driver the checks use
+  (`CDP_TIMEOUT=50 node cdp.mjs ./script.mjs`); `scripts/dev/ig_story.mjs`
+  renders the monthly Instagram-story graphic from the live Top Picks.

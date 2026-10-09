@@ -26,15 +26,30 @@ PHOTO_BAD = re.compile(
     r"|\.svg|location|adm[_ ]|administrative|emblem|wikidata|collage|montage", re.I)
 
 
+def _skip():
+    """Lead images the 2026-10 photo sweep rejected (public/photo-skip.json);
+    the hero carousel skips them too (app.js photoSkip)."""
+    try:
+        with open(os.path.join(PUBLIC, "photo-skip.json"), encoding="utf-8") as f:
+            return set(json.load(f).get("files") or [])
+    except (OSError, ValueError):
+        return set()
+
+
+SKIP = _skip()
+
+
 def thumb(subject):
     api = ("https://en.wikipedia.org/w/api.php?action=query&format=json"
-           "&prop=pageimages&piprop=thumbnail&pithumbsize=1200&redirects=1"
+           "&prop=pageimages&piprop=thumbnail|name&pithumbsize=1200&redirects=1"
            "&titles=" + urllib.parse.quote(subject))
     try:
         req = urllib.request.Request(
             api, headers={"User-Agent": "wandergrade-og/1.0 (+https://wandergrade.com)"})
         j = json.load(urllib.request.urlopen(req, timeout=20))
         page = next(iter(j.get("query", {}).get("pages", {}).values()))
+        if page.get("pageimage") in SKIP:
+            return None
         th = page.get("thumbnail", {})
         # The API now tacks utm_* tracking params onto thumb URLs; store it clean.
         t = (th.get("source") or "").split("?")[0] or None
