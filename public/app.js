@@ -9447,6 +9447,18 @@ async function activateTab(name, push) {
     }
   } catch (e) {
     status("Could not load " + name + ": " + e.message, "err");
+    // A returning visitor's Wander List that failed to build (world.geojson
+    // down on a bad link: seen in 1 of 6 throttled loads) has nothing to put
+    // on its first-paint floor — only renderVisited drops html[data-vis], and
+    // it never ran, so 63 + 41px stood hollow over the served "Nothing marked
+    // yet" line. The floor goes, and that line with it: the reader's list
+    // exists, it just didn't render — an empty card beside the error, as
+    // before the floor. A first visit (no flag) keeps its served line.
+    const root = document.documentElement;
+    if (name === "visited" && root.hasAttribute("data-vis")) {
+      root.removeAttribute("data-vis");
+      for (const el of document.querySelectorAll("#visitedStats .vstand")) el.remove();
+    }
   }
   syncURL();
 }
