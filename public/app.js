@@ -3862,7 +3862,15 @@ function buildBestPickers(initialIso) {
   // (first option) and Japan first fired their fare, FX and photo requests on
   // every guide landing, and each render's syncURL rewrote the history entry.
   ctry.value = has(initialIso) ? initialIso : has("JP") ? "JP" : ((ctry.options[0] || {}).value || "");
-  ctry.onchange = () => renderGuide(ctry.value);
+  // A pick in the box is a navigation (Thailand -> Japan), so it gets its own
+  // history entry first: every render ends in a replacing syncURL(), which
+  // rewrote the entry of the guide being left, and Back from Japan went to
+  // whatever came before Thailand. Pushed before the render (the value is
+  // already the new country), as activateTab does for a tab. The first
+  // render above and openGuideFor's own value set never fire change, so a
+  // direct load's canonicalising replace and popstate's restore stay as
+  // they are (syncURL is a no-op while restoringHistory).
+  ctry.onchange = () => { syncURL(true); renderGuide(ctry.value); };
   enhanceSelect(ctry);
   if (ctry.value) renderGuide(ctry.value);
 }
