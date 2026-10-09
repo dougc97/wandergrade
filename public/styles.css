@@ -2589,12 +2589,24 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
 /* Each High/Med/Low beside its label, on one column with the Rank-by toggle
    (126px of label + an 8px gap = 134px), instead of space-between leaving
    320-356px between a label and its control on a desktop card. */
-.tunecard .prirow { justify-content: flex-start; }
-.tunecard .prilabel { flex: 0 0 124px; }
-/* The label may give its spare width back (down to "RANK BY" itself): at 320
-   a fixed 126px plus the 204px toggle needed 338px of a 290px card and pushed
-   the page to 353px. Wider cards never shrink it, so the column holds there. */
-.tunecard .rankby .picklabel { flex: 0 1 126px; }
+.tunecard .prirow { justify-content: flex-start; gap: 8px; }
+/* The column is one width for both rows, and gives its spare width back
+   where the card is short: at 320 a fixed 126px plus the 204px toggle
+   needed 338px of a 290px card and pushed the page to 353px. Letting the
+   Rank-by label alone shrink (flex: 0 1 126px) kept the page but put the
+   toggle 8-48px left of the sliders at 320-360 and 2-22px at 761-800 (the
+   card beside the map is 317-336 inside). Both labels now take what the
+   toggle leaves (100% is the row, which is the card's inside), up to the
+   126px, and never under the widest label's own word ("💰 Affordability",
+   99px) — so the toggle and the sliders share a left edge at every width,
+   and the row never runs past the card: under 375 the toggle's buttons
+   lose 6px of padding a side (180px) so 99 + 8 + 180 fits the 290. */
+.tunecard { --tune-tog: 212px; }
+.tunecard .prilabel, .tunecard .rankby .picklabel { flex: 0 0 clamp(99px, 100% - var(--tune-tog), 126px); }
+@media (max-width: 374px) {
+  .tunecard { --tune-tog: 188px; }
+  .tunecard .rankby .windowtoggle button { padding-left: 6px; padding-right: 6px; }
+}
 /* A fixed box per emoji so the words line up (🌤️ runs wider than 💰). */
 .prilabel .pico { display: inline-block; width: 1.5em; }
 /* A factor Count leaves out weighs nothing: its row says so. */
