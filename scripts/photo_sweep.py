@@ -20,6 +20,15 @@ above ~1200, with overlap both ways).
     /usr/bin/python3 scripts/photo_sweep.py batches [--out DIR] [--n 8]
         merge DIR/index*.json into DIR/index.json and DIR/batches/batch<k>.json
         (countries + photos, the manifests a reviewer rates from)
+    /usr/bin/python3 scripts/photo_sweep.py sweep --changed [--out DIR] [ISO ...]
+        the incremental re-run: resolve every subject but download and index
+        only lead images absent from scripts/photo_verdicts.json (keep + skip),
+        i.e. the ones Wikipedia's editors have changed since the last review;
+        a subject now resolving to a rejected file is printed as KNOWN-SKIP
+        (give that country a new subject). Then `batches` as usual, rate, and
+    /usr/bin/python3 scripts/photo_sweep.py record --keep F... --skip F...
+        add verdicts to scripts/photo_verdicts.json and regenerate
+        public/photo-skip.json (the list the site reads) from its skip side
     /usr/bin/python3 scripts/photo_sweep.py skip-check [ISO ...]
         list gallery subjects whose CURRENT lead image is on public/photo-skip.json:
         a gallery that now resolves to a rejected photo and needs a new subject
@@ -140,10 +149,24 @@ def _opt(argv, flag, default):
     return default
 
 
+VERDICTS = os.path.join(ROOT, "scripts", "photo_verdicts.json")
+
+
+def _verdicts():
+    try:
+        with open(VERDICTS, encoding="utf-8") as f:
+            v = json.load(f)
+        return set(v.get("keep") or []), set(v.get("skip") or [])
+    except (OSError, ValueError):
+        return set(), set()
+
+
 def cmd_sweep(argv):
     out = _opt(argv, "--out", os.path.join("/tmp", "photo-sweep"))
     shard = _opt(argv, "--shard", "0/1")
     k, n = (int(x) for x in shard.split("/"))
+    changed = "--changed" in argv
+    keep, skip = _verdicts() if changed else (set(), set())
     os.makedirs(os.path.join(out, "img"), exist_ok=True)
     acts, names = _acts(), _names()
     isos = sorted(acts)
@@ -154,12 +177,24 @@ def cmd_sweep(argv):
         for i, subject in enumerate((acts[iso].get("gallery") or [])[:6]):
             row = {"iso": iso, "country": names.get(iso, iso), "idx": i, "subject": subject}
             try:
-                row.update(resolve(subject, os.path.join(out, "img", "%s_%d.jpg" % (iso, i))))
+                if changed:
+                    # One API call decides: a file already judged needs no download.
+                    f = page_image(subject).get("pageimage")
+                    row["file"] = f
+                    if f in keep:
+                        row["status"] = "known-keep"
+                    elif f in skip:
+                        row["status"] = "known-skip"
+                    else:
+                        row.update(resolve(subject, os.path.join(out, "img", "%s_%d.jpg" % (iso, i))))
+                else:
+                    row.update(resolve(subject, os.path.join(out, "img", "%s_%d.jpg" % (iso, i))))
             except Exception as e:
                 row["status"] = "error"
                 row["error"] = str(e)[:120]
             rows.append(row)
-            print(iso, i, row.get("status"), row.get("file"), row.get("lapvar"), flush=True)
+            print(iso, i, row.get("status").upper() if row.get("status", "").startswith("known") else row.get("status"),
+                  row.get("file"), row.get("lapvar"), flush=True)
             time.sleep(PAUSE)
     with open(os.path.join(out, "index%d.json" % k), "w", encoding="utf-8") as f:
         json.dump(rows, f, indent=0, ensure_ascii=False)
@@ -228,8 +263,31 @@ def cmd_skip_check(argv):
     print(hits, "gallery subjects resolve to a skipped file")
 
 
+def cmd_record(argv):
+    """Fold new verdicts into photo_verdicts.json; the site's skip list follows."""
+    keep, skip = _verdicts()
+    mode = None
+    for a in argv:
+        if a in ("--keep", "--skip"):
+            mode = a
+        elif mode == "--keep":
+            keep.add(a); skip.discard(a)
+        elif mode == "--skip":
+            skip.add(a); keep.discard(a)
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    with open(VERDICTS, "w", encoding="utf-8") as f:
+        json.dump({"asof": today, "note": "Every lead image a reviewer has judged: keep = fine for the hero, skip = rejected "
+                   "(mirrored to public/photo-skip.json, which the site reads). scripts/photo_sweep.py sweep --changed "
+                   "rates only files absent from both lists.", "keep": sorted(keep), "skip": sorted(skip)},
+                  f, ensure_ascii=False, indent=0)
+    with open(os.path.join(PUBLIC, "photo-skip.json"), "w", encoding="utf-8") as f:
+        json.dump({"asof": today, "files": sorted(skip)}, f, ensure_ascii=False, indent=0)
+    print("verdicts: %d keep, %d skip; public/photo-skip.json rewritten" % (len(keep), len(skip)))
+
+
 if __name__ == "__main__":
-    cmds = {"resolve": cmd_resolve, "sweep": cmd_sweep, "batches": cmd_batches, "skip-check": cmd_skip_check}
+    cmds = {"resolve": cmd_resolve, "sweep": cmd_sweep, "batches": cmd_batches, "skip-check": cmd_skip_check,
+            "record": cmd_record}
     if len(sys.argv) < 2 or sys.argv[1] not in cmds:
         print(__doc__)
         sys.exit(2)

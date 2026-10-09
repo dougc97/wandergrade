@@ -50,5 +50,9 @@ results.append(ok("photo-skip.json" in og and "in SKIP" in og, "gen_og_images.py
 results.append(ok(acts["PH"]["gallery"][0] == "El Nido, Palawan" and acts["PH"]["gallery"][1] == "Mayon",
                   "the Philippines keeps Doug's order: El Nido, then Mayon"))
 
+with open(os.path.join(ROOT, "scripts", "photo_verdicts.json"), encoding="utf-8") as f:
+    verdicts = json.load(f)
+results.append(ok(sorted(verdicts.get("skip") or []) == sorted(files) and not (set(verdicts.get("keep") or []) & set(files)),
+                  "photo_verdicts.json mirrors the skip list and keeps nothing it rejects (%d keep)" % len(verdicts.get("keep") or [])))
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)
