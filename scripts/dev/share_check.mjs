@@ -11,6 +11,9 @@
 //   GEO=DE             CF-IPCountry header on every request — what /api/geo answers (a non-US first visit)
 //   ACT='<js>'         run after the poll window (the reader changing From by hand), then 3 s settle;
 //                      `after` repeats ls + page and counts only the /api requests ACT caused
+//   DEBUG=1            phase timestamps on stderr (nav, loaded, polls done, readouts done): a run that
+//                      hits cdp.mjs's cap with sane polls had slept — the Mac idle-slept mid-run (seen
+//                      as "polls done" at 939 s of wall clock under a 50 s cap)
 // Output: { url, loadMs, api: {"/api/flights?origin=GB": 1, ...}, polls, stalls, maxPollMs,
 //           longtasks: [{start, dur}], ls: {fx_origin, fx_homecur, fx_homecur_manual},
 //           page: {valueOrigin, homeCur, flightOrigin, homeBase, originIso, travelOrigin, sharedOriginView, href}, errs, after }
@@ -24,6 +27,7 @@ const PAGE = `(() => { const v = (id) => { const e = document.getElementById(id)
     sharedOriginView: typeof sharedOriginView === 'undefined' ? 'n/a' : sharedOriginView, href: location.href }; })()`;
 
 export default async function ({ send, on, evaluate, nav, sleep, errs }) {
+  const T0 = Date.now(), dbg = (m) => { if (process.env.DEBUG) console.error(`[${Date.now() - T0}ms] ${m}`); };
   const url = process.env.URL;
   if (!url) { console.log('URL= is required'); return; }
   const secs = +process.env.SECS || 20;
@@ -51,7 +55,7 @@ export default async function ({ send, on, evaluate, nav, sleep, errs }) {
     api = {}; loadedAt = 0;   // robots.txt's own load event is not the page's (loadMs read -102ms)
   }
   const t0 = Date.now();
-  await nav(url, 0);
+  dbg('nav'); await nav(url, 0); dbg('loaded');
   const loadMs = (loadedAt || Date.now()) - t0;
   const polls = [];
   const until = Date.now() + secs * 1000;
@@ -61,12 +65,14 @@ export default async function ({ send, on, evaluate, nav, sleep, errs }) {
     polls.push(Date.now() - s);
     await sleep(500);
   }
+  dbg('polls done, max ' + Math.max(...polls));
   const out = {
     url, loadMs, api,
     polls: polls.length, stalls: polls.filter((p) => p > STALL_MS).length, maxPollMs: Math.max(...polls),
     longtasks: await evaluate('window.__lt || []'),
     ls: await evaluate(LS), page: await evaluate(PAGE), errs: errs.slice(), after: null,
   };
+  dbg('readouts done');
   if (process.env.ACT) {
     const before = { ...api };
     await evaluate(`(() => { ${process.env.ACT} })()`);
