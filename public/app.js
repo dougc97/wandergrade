@@ -5702,13 +5702,24 @@ function buildFareContext() {
 }
 
 let _vfSeq = 0;
+let _vfReq = null;   // {origin, p}: the /api/flights fetch in flight
 async function loadValueFlights(silent) {
   const origin = originIso();
   const seq = ++_vfSeq;
   // The toasts talk about the Top Picks score — noise on a guide-first session.
   const say = !silent && loaded.value;
   try {
-    const data = await getJSON("/api/flights?origin=" + encodeURIComponent(origin));
+    // One fetch per origin at a time: buildValueTab's first load and the geo
+    // seed's setTravelOrigin both asked for the seeded origin (flights?origin=DE
+    // x2 measured on a non-US first visit; GB x2 on a ?vo=GB link once the
+    // origins list was one shared promise). The later caller takes over the
+    // same response through seq below; the earlier one steps back as it did.
+    if (!_vfReq || _vfReq.origin !== origin) {
+      const req = { origin, p: getJSON("/api/flights?origin=" + encodeURIComponent(origin)) };
+      _vfReq = req;
+      req.p.then(() => { if (_vfReq === req) _vfReq = null; }, () => { if (_vfReq === req) _vfReq = null; });
+    }
+    const data = await _vfReq.p;
     // A slower response for an earlier origin (cold origins take longer) must
     // not land last and overwrite the current origin's fares.
     if (seq !== _vfSeq) return;
