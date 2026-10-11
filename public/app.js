@@ -5328,7 +5328,19 @@ function homeCurAuto() { return CUR_BY_ISO[originIso()] || "USD"; }
 // One source of truth: Top Picks "From", Explore-the-Data flights "From", the
 // Travel Guide passport (visa), and the AI prompts all read it — so changing it
 // in any tab carries everywhere. Persisted so it sticks across tabs and reloads.
-function travelOrigin() { return localStorage.getItem("fx_origin") || "US"; }
+// While a shared link's From (vo=) or currency (hc=, db=) is on screen:
+// {iso} is the link's origin (null for a currency-only link). Like
+// sharedVisitedView and sharedTripView, nothing reaches localStorage until the
+// reader changes From or the currency by hand, which adopts what is on screen
+// as their own (fx_origin, fx_homecur, fx_homecur_manual — what the open
+// itself used to write: a fresh visitor opening ?vo=GB left with fx_origin=GB
+// and fx_homecur=GBP for good). The address bar carries vo/hc/db only for
+// one's own home (buildShareURL), so a reload drops back to it; a Share link
+// made from the view carries the viewed From and currency, what the page shows.
+let sharedOriginView = null;
+function travelOrigin() {
+  return (sharedOriginView && sharedOriginView.iso) || localStorage.getItem("fx_origin") || "US";
+}
 
 // The home country every "from" question reads (fares, price anchor, currency,
 // passport, AI prompts): the Top Picks select once built, else the persisted
@@ -5340,9 +5352,16 @@ function originIso() {
 }
 function originLabel() { const o = originIso(); return o === "US" ? "the US" : countryName(o); }
 
-function setTravelOrigin(iso) {
+// viewOnly: a shared link's From, on screen for this session (sharedOriginView).
+function setTravelOrigin(iso, viewOnly) {
   if (!iso || !/^[A-Z]{2}$/.test(iso)) return;
-  localStorage.setItem("fx_origin", iso);
+  if (viewOnly) sharedOriginView = { iso };
+  else {
+    const adopt = !!sharedOriginView;
+    sharedOriginView = null;
+    localStorage.setItem("fx_origin", iso);
+    if (adopt) saveHomeCur();   // the currency the link pinned becomes theirs with it
+  }
   // Mirror into both origin selects (each only if it carries that option) and
   // refresh their comboboxes — programmatic, so this doesn't re-fire change.
   for (const id of ["valueOrigin", "flightOrigin", "affAnchor"]) {
@@ -5352,7 +5371,7 @@ function setTravelOrigin(iso) {
       if (sel._sync) sel._sync();
     }
   }
-  if (!homeManual) setHomeCur(homeCurAuto(), false);   // currency follows unless pinned
+  if (!homeManual) setHomeCur(homeCurAuto(), false, viewOnly);   // currency follows unless pinned
   loadValueFlights(false);                             // Top Picks fares (re-renders)
   if (loaded.value) renderValue();                     // immediate: new affordability anchor
   if (loaded.afford) renderAfford();                   // cost-of-living anchor
@@ -5381,12 +5400,24 @@ async function loadHomeRates() {
   if (homeBase === base && data && data.base === base) homeRates = data;   // ignore stale responses
 }
 
-function setHomeCur(code, manual) {
+function saveHomeCur() {
+  localStorage.setItem("fx_homecur", homeBase);
+  localStorage.setItem("fx_homecur_manual", homeManual ? "1" : "0");
+}
+// viewOnly: a shared link's currency (hc=, db=), or the one that follows its
+// From — on screen for this session only (sharedOriginView). Without it the
+// change is the reader's own: saved, and a shared From on screen is adopted
+// with it (the Visited/Trip rule: an edit makes the view theirs).
+function setHomeCur(code, manual, viewOnly) {
   const changed = homeBase !== code;
   homeBase = code;
   homeManual = manual;
-  localStorage.setItem("fx_homecur", code);
-  localStorage.setItem("fx_homecur_manual", manual ? "1" : "0");
+  if (viewOnly) { if (!sharedOriginView) sharedOriginView = { iso: null }; }
+  else {
+    if (sharedOriginView && sharedOriginView.iso) localStorage.setItem("fx_origin", sharedOriginView.iso);
+    sharedOriginView = null;
+    saveHomeCur();
+  }
   // Mirror into both pickers — Top Picks' "In" and the Data tab's "My currency"
   // are two views of one value, so neither may be left showing the other's.
   // Programmatic assignment doesn't re-fire change, so this can't loop.
@@ -5417,11 +5448,12 @@ function initHomeCur() {
   if (!sel || sel.options.length > 1 || !lastRates) return;
   const codes = pickerCurrencies();
   sel.innerHTML = codes.map((c) => `<option value="${esc(c)}">${esc(curLabel(c))}</option>`).join("");
-  const stored = localStorage.getItem("fx_homecur");
-  const start = homeManual && codes.includes(stored) ? stored : homeCurAuto();
+  // homeBase, not localStorage: a shared link's hc= is in memory only
+  // (preApplyShared), and the geo seed may have moved it since boot.
+  const start = homeManual && codes.includes(homeBase) ? homeBase : homeCurAuto();
   sel.value = start;
   sel.onchange = () => setHomeCur(sel.value, sel.value !== homeCurAuto());
-  setHomeCur(start, homeManual);
+  setHomeCur(start, homeManual, !!sharedOriginView);   // a view on screen stays a view
   enhanceSelect(sel);
 }
 
@@ -7679,7 +7711,10 @@ async function ensureOrigins() {
 async function fillOriginSelect(sel) {
   if (sel.options.length > 1) return;
   const list = await ensureOrigins();
-  const cur = travelOrigin();   // default to the shared "traveling from", not always US
+  // The shared "traveling from", not always US; one the fares don't know (a
+  // hand-edited ?vo=) shows the US, not the first name in the list.
+  const want = travelOrigin();
+  const cur = list.some((o) => o.iso === want) ? want : "US";
   sel.innerHTML = list.map((o) =>
     `<option value="${esc(o.iso)}"${o.iso === cur ? " selected" : ""}>${esc(o.name)}</option>`).join("");
   enhanceSelect(sel);
@@ -9823,6 +9858,11 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
 (async function seedGeoDefaults() {
   try {
     if (localStorage.getItem("fx_origin")) return;      // they've already chosen
+    // A shared link's From is on screen (preApplyShared, view-only): seeding
+    // over it would fight the link and save a home over a page the reader may
+    // only be looking at. A reload without the link seeds as usual.
+    const q = new URLSearchParams(location.search);
+    if (/^[A-Z]{2}$/.test(q.get("vo") || q.get("fo") || "")) return;
     const g = await getJSON("/api/geo");
     const iso = (g.country || "").toUpperCase();
     if (!/^[A-Z]{2}$/.test(iso) || iso === "US") return;
@@ -10025,6 +10065,11 @@ function buildShareURL(forShare) {
   const q = new URLSearchParams();
   const tab = currentTab();
   q.set("tab", tab);
+  // A shared From/currency on screen (sharedOriginView) stays out of the
+  // address bar, so a reload drops back to the reader's own home — the
+  // Visited/Trip rule (v=, tp= only for an explicit Share). A Share link made
+  // from the view carries what the page shows.
+  const own = forShare || !sharedOriginView;
   if (tab === "value") {
     // Read before Top Picks builds too (activateTab pushes first): an empty
     // region select is "all", not vr=.
@@ -10036,8 +10081,8 @@ function buildShareURL(forShare) {
     if (safetyFloor() !== "b") q.set("sf", safetyFloor());
     const fac = loadFactors();
     if (fac.length !== WEIGHT_DEFS.length) q.set("fac", fac.join("."));
-    if (originIso() !== "US") q.set("vo", originIso());
-    if (homeManual && homeBase !== homeCurAuto()) q.set("hc", homeBase);
+    if (own && originIso() !== "US") q.set("vo", originIso());
+    if (own && homeManual && homeBase !== homeCurAuto()) q.set("hc", homeBase);
     if (valueMapMode === "weather") q.set("vmm", "weather");
     const p = loadPriorities();
     const compact = WEIGHT_DEFS.map((w) => p[w.key][0]).join(".");   // e.g. h.m.m.m.m
@@ -10049,8 +10094,8 @@ function buildShareURL(forShare) {
     // screen — same rule as Top Picks for the address bar.
     if (dataMode === "flights" && (forShare || travelMonthChosen)) q.set("vmn", String(flightMonthNum()));
     if (dataMode === "currency" && activeRange !== "1y") q.set("win", activeRange);
-    if (dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
-    if (dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
+    if (own && dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
+    if (own && dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
     if (dataMode === "afford" && colIso !== "world") q.set("cc", colIso);
     if (dataMode === "advisory" && govIso) q.set("sc", govIso);
     if (dataMode === "flights" && fbmIso !== "all") q.set("fc", fbmIso);
@@ -10172,6 +10217,24 @@ function preApplyShared() {
     WEIGHT_DEFS.forEach((w, i) => { if (lv[parts[i]]) priorities[w.key] = lv[parts[i]]; });
     savePriorities();
   }
+  // Shared From and currency: on screen for this session (sharedOriginView),
+  // and applied here, before anything builds, so Top Picks' select, its first
+  // fares fetch, initHomeCur and the boot rates all start from them. Applied
+  // after the build (postApplyShared, until now) the page graded for the US
+  // first and flipped: a wasted /api/flights?origin=US and its fare polls, a
+  // second rates fetch, an index fetch and two or three extra renderValue per
+  // open. Nothing to view when the link's From is already the reader's own.
+  const vo = sharedQ.get("vo") || sharedQ.get("fo");   // vo is canonical; fo a legacy flights link
+  if (vo && /^[A-Z]{2}$/.test(vo) && vo !== travelOrigin()) {
+    sharedOriginView = { iso: vo };
+    if (!homeManual) homeBase = homeCurAuto();   // the currency follows, as setTravelOrigin's would
+  }
+  // hc (Top Picks' "In") and db (the Data tab's "My currency") are one value, pinned.
+  const hc = sharedQ.get("hc") || sharedQ.get("db");
+  if (hc && /^[A-Z]{3}$/.test(hc) && !(hc === homeBase && homeManual)) {
+    homeBase = hc; homeManual = true;
+    if (!sharedOriginView) sharedOriginView = { iso: null };
+  }
   const v = sharedQ.get("v");
   if (v) {
     // On screen only (sharedVisitedView): storage and the account keep the
@@ -10260,27 +10323,29 @@ async function postApplyShared() {
     syncRankSort();
     markRankBy();
   }
-  // Shared origin: vo is canonical; fall back to a legacy fo-only link. Either
-  // way it drives the one global "traveling from" — unless it already is the
-  // one on screen: a ?vo=US link (or a GB reader's own GB link) re-ran the
-  // whole setTravelOrigin pipeline for nothing, measured as a second
-  // /api/flights?origin=US and two or three extra renderValue per open.
-  const sharedOrigin = sharedQ.get("vo") || sharedQ.get("fo");
-  if (sharedOrigin && /^[A-Z]{2}$/.test(sharedOrigin) && sharedOrigin !== originIso()) {
-    ensureOrigins().then(() => { if (sharedOrigin !== originIso()) setTravelOrigin(sharedOrigin); }).catch(() => {});
+  // The shared From and currency were applied before anything built
+  // (preApplyShared, view-only), so there is no pipeline to re-run: this used
+  // to call setTravelOrigin and setHomeCur over a page already showing them.
+  // Left to do: the From must be one the fares know (a hand-edited vo= isn't;
+  // fillOriginSelect shows the US for it and the view is dropped so
+  // travelOrigin agrees), homeRates for the FX lines comes from the cache the
+  // boot fetch filled, and the newsletter box, drawn before the link was
+  // read, follows the currency on screen.
+  if (sharedOriginView) {
+    if (sharedOriginView.iso) {
+      ensureOrigins().then((list) => {
+        if (sharedOriginView && sharedOriginView.iso && !list.some((o) => o.iso === sharedOriginView.iso)) sharedOriginView = null;
+      }).catch(() => {});
+    }
+    loadHomeRates().catch(() => {});
+    syncSubCur();
   }
-  const hc = sharedQ.get("hc");
-  if (hc && /^[A-Z]{3}$/.test(hc)) setHomeCur(hc, true);
   if (rerender && loaded.value) renderValue();
   if (gcOk) {
     await openGuideFor(gc);
     if (sharedQ.get("ai")) openGuideAI(gc);   // email "Plan with AI" deep link
   }
   if (sharedQ.get("win")) loadIndex(rangeFromParam(sharedQ.get("win")));
-  const db = sharedQ.get("db");
-  // A currency carried on a shared link is an explicit choice: pin it, and let
-  // setHomeCur mirror both pickers and refresh whatever has loaded.
-  if (db && /^[A-Z]{3}$/.test(db) && db !== homeBase) setHomeCur(db, true);
   if (sharedQ.get("v") && tab === "visited") {
     renderVisited();
     status(`Viewing a shared map of ${visited.size} ${visited.size === 1 ? "country" : "countries"} — editing it will overwrite your own saved list.`, "ok", true);

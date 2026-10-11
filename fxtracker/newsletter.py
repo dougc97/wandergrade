@@ -388,9 +388,9 @@ def _vo(v):
     page). Only non-USD editions carry it: a euro reader who opens a guide
     link in their mail app's browser (no saved fx_origin there) otherwise
     lands on US-graded letters, and the email's letters stop matching the
-    page they link to. It also saves that origin on the site, so a French
-    reader's own setting becomes Germany's, the home the EUR edition grades
-    for. USD links stay exactly as they were."""
+    page they link to. On the site it is view-only (app.js sharedOriginView,
+    the shared-Visited rule): a French reader sees the EUR edition's home,
+    Germany, and keeps their own setting. USD links stay exactly as they were."""
     return "" if v.code == "USD" else "&vo=" + v.home_iso
 
 
