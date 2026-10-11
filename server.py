@@ -30,8 +30,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
-    flightvalue, guide_facts, guide_sizers, health, mailer, picks, popularity, rates, render_guide,
-    render_lists, store, watchouts
+    flightvalue, guide_facts, guide_sizers, health, mailer, map_picks, picks, popularity, rates,
+    render_guide, render_lists, store, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -230,6 +230,24 @@ _HTML_DEFAULTS = {
                     'if(v||w)d.setAttribute("data-vis",(v?"v":"")+(w?"w":"")'
                     '+(%s&&d.getAttribute("data-acct")!=="in"?"s":""));}catch(e){}})();</script>'
                     % ("true" if accounts.enabled() else "false"),
+    # The pick-list rows under the Safety and Flights maps as index.html holds
+    # them, blank spans of widths measured from one day's lists (a guide's
+    # shell keeps these bytes). The homepage serves the lists' real words in
+    # their place (_home_sizers, fxtracker/map_picks.py): three spans wrapped
+    # to a line the one real move didn't take, eight to one its shorter
+    # names didn't, and the table under each map rode up 24px at 768 when
+    # the list landed. FLIGHTS_OFF marks the Flights view of a server with no
+    # fares to serve (no Travelpayouts token), so nothing is held for them.
+    "ADV_PICKS": '<div class="mappicksrow skel" data-for="advMap" aria-hidden="true">'
+                 '<strong>Recently changed</strong><span style="width:9.3em"></span>'
+                 '<span style="width:14.2em"></span><span style="width:9.6em"></span></div>',
+    "FLIGHT_PICKS": '<div class="mappicksrow skel" data-for="flightMap" aria-hidden="true">'
+                    '<strong>Below typical for October</strong><span style="width:7.8em"></span>'
+                    '<span style="width:9.6em"></span><span style="width:7.9em"></span>'
+                    '<span style="width:7.9em"></span><span style="width:9.1em"></span>'
+                    '<span style="width:9.2em"></span><span style="width:9.5em"></span>'
+                    '<span style="width:8.2em"></span></div>',
+    "FLIGHTS_OFF": "",
 }
 _html_tpl = None
 
@@ -970,12 +988,47 @@ def _guide_sizers(iso, level):
     return out
 
 
+def _home_sizers():
+    """The homepage's served pick lists under the Safety and Flights maps
+    (fxtracker/map_picks.py) with the words the lists will carry, from the
+    caches alone — never an upstream call: the US advisory list, and the
+    default origin's fares and curves once its warm pass has run (before
+    that, build() is mostly `pending` and the list would be short). A cold
+    cache keeps index.html's own spans. On a server with no Travelpayouts
+    token the fares fetch answers "not configured": data-nofares tells
+    styles.css to hold nothing for them (the list, the key, the table's two
+    screens went when that answer landed — the table rode up 103px at 768,
+    CLS 0.37 on a local checkout; production has the token)."""
+    out = {}
+    try:
+        hit = _adv_cache.get("us")
+        adv = hit[1] if hit else None
+        if adv:
+            out["ADV_PICKS"] = map_picks.advisory_row(adv, render_guide.name_for_iso)
+        if not flights.is_configured():
+            out["FLIGHTS_OFF"] = " data-nofares"
+        elif adv and flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN):
+            # The list leaves out Level 3-4 destinations by that same US list
+            # (flightLows): without it in hand the row would name them too.
+            hit = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
+            fares = hit[1] if hit else None
+            if fares and fares.get("countries"):
+                fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares)
+                levels = {it.get("iso"): it.get("level") for it in adv.get("items") or [] if it.get("iso")}
+                out["FLIGHT_PICKS"] = map_picks.flights_row(fv, levels, render_guide.name_for_iso)
+    except Exception as e:   # a hint only: never the page
+        print("[home-sizers] %s" % e, file=sys.stderr, flush=True)
+    return out
+
+
 def _render_index(gc_iso=None):
     """Fill index.html's tokens. gc_iso=None -> homepage defaults; otherwise a
     country page with server-rendered <title>/meta/canonical and body."""
     vals = dict(_HTML_DEFAULTS)
     vals["GUIDE_LINKS"] = _guide_links()
     vals["GUIDE_COUNT"] = str(_guide_count())
+    if not gc_iso:
+        vals.update(_home_sizers())
     if gc_iso:
         r = render_guide.render(gc_iso)
         vals.update(

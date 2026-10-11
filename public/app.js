@@ -7690,9 +7690,14 @@ async function loadFlights() {
   if (seq !== _flSeq) return;   // an earlier origin's slow reply must not win
   flightsData = data;
   if (!flightsData.configured) {
-    $("flightSub").innerHTML = "Flight prices need a free Travelpayouts token. Set <code>TRAVELPAYOUTS_TOKEN</code> on the server (Render → Environment), then redeploy.";
+    // One line here and one in the table, where "Loading…" was: the server
+    // served this view without its holds (data-nofares, styles.css), the
+    // three-line version of the message grew the sub-line 18px when it landed
+    // (768 and phones), moving the map and the pickers under it, and a
+    // two-line table row moved the newsletter box 21px at 768.
+    $("flightSub").textContent = "Flight prices aren't set up on this server.";
     $("flightMap").textContent = "Not configured.";
-    $("flightRows").innerHTML = '<tr><td colspan="7">Add TRAVELPAYOUTS_TOKEN to enable.</td></tr>';
+    $("flightRows").innerHTML = '<tr><td colspan="7">Set <code>TRAVELPAYOUTS_TOKEN</code> (a free Travelpayouts token) in the server\'s environment and redeploy.</td></tr>';
     dropLoadingRow("flightRows");
     syncURL();
     return;

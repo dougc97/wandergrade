@@ -482,9 +482,22 @@ small { color: var(--gray); font-weight: 400; }
 .mappicksrow { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline;
   margin-top: 8px; font-size: 12.5px; color: var(--gray); }
 .mappicksrow strong { color: var(--ink); font-size: 12.5px; }
-/* The served stand-in (index.html): invisible, one line tall per pick. */
+/* The served stand-in (index.html): invisible, one line tall per pick. The
+   homepage's Safety and Flights rows carry the list's real words instead
+   (server.py _home_sizers) and wrap on them — their spans aren't empty,
+   and a space in front would widen each by 3px. */
 .mappicksrow.skel { visibility: hidden; }
-.mappicksrow.skel > span::before { content: "\00a0"; }
+.mappicksrow.skel > span:empty::before { content: "\00a0"; }
+/* A server with no fares to serve (no Travelpayouts token; server.py marks
+   the view data-nofares) answers the fares fetch with "not configured": the
+   list, the key, the table's two screens and the sub-line's invisible tail
+   went when that answer landed — the table rode up 103px at 768 (CLS 0.37
+   on a local checkout) — so they are never held there. The fares-by-month
+   card keeps its boxes: it stays "Loading…". */
+#dataSubFlights[data-nofares] .mappicksrow.skel,
+#dataSubFlights[data-nofares] .legend.skel,
+#dataSubFlights[data-nofares] #flightSub .skeltext { display: none; }
+#dataSubFlights[data-nofares] tr.loadingrow > td { height: auto; }
 /* Same for the Top Picks and Currency map keys (renderValue and renderLegend
    drop .skel as they write the real one), less the pulse entry Top Picks
    leaves out under reduced motion. */

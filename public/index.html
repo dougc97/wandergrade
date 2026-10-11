@@ -884,7 +884,7 @@
         </div>
         <div id="advMap" class="map">Loading…</div>
         <!-- Stand-in for "Recently changed" (see the Currency map's). -->
-        <div class="mappicksrow skel" data-for="advMap" aria-hidden="true"><strong>Recently changed</strong><span style="width:9.3em"></span><span style="width:14.2em"></span><span style="width:9.6em"></span></div>
+        {{ADV_PICKS}}
       </section>
       <section class="chartcard" id="govCard">
         <div class="charthead">
@@ -925,7 +925,7 @@
       </section>
     </div>
 
-    <div id="dataSubFlights" hidden>
+    <div id="dataSubFlights" hidden{{FLIGHTS_OFF}}>
       <!-- Map beside "Fares by month" (renderFbm): each departure month's fare
            for the destination clicked on the map, or for all destinations vs
            their own typical; a month bar sets the travel month. -->
@@ -966,7 +966,7 @@
         </div>
         <div id="flightMap" class="map">Loading…</div>
         <!-- Stand-in for "Below typical for …" (see the Currency map's). -->
-        <div class="mappicksrow skel" data-for="flightMap" aria-hidden="true"><strong>Below typical for October</strong><span style="width:7.8em"></span><span style="width:9.6em"></span><span style="width:7.9em"></span><span style="width:7.9em"></span><span style="width:9.1em"></span><span style="width:9.2em"></span><span style="width:9.5em"></span><span style="width:8.2em"></span></div>
+        {{FLIGHT_PICKS}}
         <!-- The month in this list's stand-in and the key's, the one the tab
              will band (flightMonthNum: the link's vmn, else this month, or
              next month after the 15th), so their widths follow it. -->
