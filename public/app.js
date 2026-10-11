@@ -937,6 +937,10 @@ async function saveConfig() {
   try {
     await postJSON("/api/config", body);
     status("Settings saved. Reloading rates…", "ok");
+    // The server keys its rates on baseline_days, threshold and the watchlist
+    // just saved; fetchBaseRates answers a currency from _baseRatesCache for
+    // the whole session, so a non-USD Data table would reload the old dataset.
+    for (const k in _baseRatesCache) delete _baseRatesCache[k];
     await loadRates();
     status("Settings saved.", "ok");
   } catch (e) {
@@ -5329,7 +5333,8 @@ function homeCurAuto() { return CUR_BY_ISO[originIso()] || "USD"; }
 // Travel Guide passport (visa), and the AI prompts all read it — so changing it
 // in any tab carries everywhere. Persisted so it sticks across tabs and reloads.
 // While a shared link's From (vo=) or currency (hc=, db=) is on screen:
-// {iso} is the link's origin (null for a currency-only link). Like
+// {iso} is the link's origin (null for a currency-only link), cur set when
+// the link pinned the currency (hc=, db=). Like
 // sharedVisitedView and sharedTripView, nothing reaches localStorage until the
 // reader changes From or the currency by hand, which adopts what is on screen
 // as their own (fx_origin, fx_homecur, fx_homecur_manual — what the open
@@ -5434,7 +5439,11 @@ function setHomeCur(code, manual, viewOnly) {
   // The Data tab reasons in this currency too, so refetch it in the new base.
   // Guarded on lastRates, not a loaded.* flag: the rates table isn't lazy — it
   // loads at boot — so there is no flag for it, and there was never one to check.
-  if (changed && lastRates) { loadRates(); loadIndex(activeRange); }
+  // The index only once the chart has data: unopened, it loads in the new
+  // currency when the Currency view first shows (a first visit from DE fetched
+  // /api/index?base=EUR for a chart nobody opened, 1 run in 3). One in flight
+  // refetches itself when homeBase moved under it.
+  if (changed && lastRates) { loadRates(); if (lastIndexData) loadIndex(activeRange); }
   // The guide's FX trend AND fare chart are anchored to the home currency —
   // an open guide must not keep showing the previous one (the fare chart's
   // display currency falls back to homeBase when unpinned; its fetch is
@@ -5734,22 +5743,26 @@ function buildFareContext() {
 }
 
 let _vfSeq = 0;
-let _vfReq = null;   // {origin, p}: the /api/flights fetch in flight
+let _vfReq = null;   // {origin, p}: the latest /api/flights fetch, in flight or done
 async function loadValueFlights(silent) {
   const origin = originIso();
   const seq = ++_vfSeq;
   // The toasts talk about the Top Picks score — noise on a guide-first session.
   const say = !silent && loaded.value;
   try {
-    // One fetch per origin at a time: buildValueTab's first load and the geo
-    // seed's setTravelOrigin both asked for the seeded origin (flights?origin=DE
-    // x2 measured on a non-US first visit; GB x2 on a ?vo=GB link once the
-    // origins list was one shared promise). The later caller takes over the
-    // same response through seq below; the earlier one steps back as it did.
+    // One fetch per origin back to back: buildValueTab's first load and the
+    // geo seed's setTravelOrigin both asked for the seeded origin
+    // (flights?origin=DE x2 measured on a non-US first visit; GB x2 on a
+    // ?vo=GB link once the origins list was one shared promise). The later
+    // caller takes over the same response through seq below; the earlier one
+    // steps back as it did. A finished request is kept until another origin
+    // is asked for: cleared on success, the seed's DE answer (98-100 ms) was
+    // gone before buildValueTab asked at 177 ms and DE went out twice anyway.
+    // US -> DE -> US still refetches; a failed fetch clears so a retry asks.
     if (!_vfReq || _vfReq.origin !== origin) {
       const req = { origin, p: getJSON("/api/flights?origin=" + encodeURIComponent(origin)) };
       _vfReq = req;
-      req.p.then(() => { if (_vfReq === req) _vfReq = null; }, () => { if (_vfReq === req) _vfReq = null; });
+      req.p.catch(() => { if (_vfReq === req) _vfReq = null; });
     }
     const data = await _vfReq.p;
     // A slower response for an earlier origin (cold origins take longer) must
@@ -9864,6 +9877,14 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
     const q = new URLSearchParams(location.search);
     if (/^[A-Z]{2}$/.test(q.get("vo") || q.get("fo") || "")) return;
     const g = await getJSON("/api/geo");
+    // A currency-only link (hc=, db=) is on screen too, and this seed runs
+    // before preApplyShared, so the check waits for the await. Seeding over it
+    // went through setTravelOrigin's by-hand path, which adopts the view: a
+    // fresh visitor from DE opening /?tab=value&hc=GBP left with fx_origin=DE,
+    // fx_homecur=GBP pinned and ?vo=DE&hc=GBP in the bar. The link shows the
+    // US From it was made from (buildShareURL leaves vo out for the US); a
+    // reload without it seeds DE as usual.
+    if (sharedOriginView) return;
     const iso = (g.country || "").toUpperCase();
     if (!/^[A-Z]{2}$/.test(iso) || iso === "US") return;
     const list = await ensureOrigins();
@@ -10234,6 +10255,7 @@ function preApplyShared() {
   if (hc && /^[A-Z]{3}$/.test(hc) && !(hc === homeBase && homeManual)) {
     homeBase = hc; homeManual = true;
     if (!sharedOriginView) sharedOriginView = { iso: null };
+    sharedOriginView.cur = true;   // outlives a From postApplyShared drops
   }
   const v = sharedQ.get("v");
   if (v) {
@@ -10334,7 +10356,10 @@ async function postApplyShared() {
   if (sharedOriginView) {
     if (sharedOriginView.iso) {
       ensureOrigins().then((list) => {
-        if (sharedOriginView && sharedOriginView.iso && !list.some((o) => o.iso === sharedOriginView.iso)) sharedOriginView = null;
+        // The link's currency stays a view: dropping the whole view saved it —
+        // a hand-edited ?vo=ZZ&hc=GBP left fx_homecur=GBP pinned, hc in the bar.
+        if (sharedOriginView && sharedOriginView.iso && !list.some((o) => o.iso === sharedOriginView.iso))
+          sharedOriginView = sharedOriginView.cur ? { iso: null, cur: true } : null;
       }).catch(() => {});
     }
     loadHomeRates().catch(() => {});

@@ -71,6 +71,9 @@ const nav = async (url, settleMs = 3000) => {
   navExpected++;   // this one is ours; the frameNavigated listener lets it through
   await send('Page.navigate', { url });
   await Promise.race([loaded, sleep(20000)]);
+  // A nav() with no top-frame navigation (hash-only change, 204, failed load)
+  // left navExpected at 1, and the next real unrequested one went unreported.
+  navExpected = 0;
   await sleep(settleMs);
 };
 const shot = async (name) => {
