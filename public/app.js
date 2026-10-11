@@ -7694,10 +7694,14 @@ async function loadFlights() {
     // served this view without its holds (data-nofares, styles.css), the
     // three-line version of the message grew the sub-line 18px when it landed
     // (768 and phones), moving the map and the pickers under it, and a
-    // two-line table row moved the newsletter box 21px at 768.
+    // two-line table row moved the newsletter box 21px at 768. The row is
+    // the token name and the two verbs, nothing more: with "(a free
+    // Travelpayouts token) in the server's environment" it took two lines at
+    // 390 (55.7px where the Loading… row it replaces is 35.8; 36.8 now, the
+    // <code> line box), and "free" anywhere in it wraps the same way.
     $("flightSub").textContent = "Flight prices aren't set up on this server.";
     $("flightMap").textContent = "Not configured.";
-    $("flightRows").innerHTML = '<tr><td colspan="7">Set <code>TRAVELPAYOUTS_TOKEN</code> (a free Travelpayouts token) in the server\'s environment and redeploy.</td></tr>';
+    $("flightRows").innerHTML = '<tr><td colspan="7">Set <code>TRAVELPAYOUTS_TOKEN</code> on the server and redeploy.</td></tr>';
     dropLoadingRow("flightRows");
     syncURL();
     return;
@@ -12347,6 +12351,14 @@ if (ACCT_ON) {
     window.addEventListener("beforeinstallprompt", (e) => {
       e.preventDefault();
       deferred = e;
+      // The held slot is first in the cluster on screen (order:-1 in
+      // styles.css) but fourth in the markup, which is the Tab order. Moved
+      // to the front of the markup before it shows — where it already is on
+      // screen, so nothing moves (📲 871, 📬 921 at 1280 before and after) —
+      // and Tab reaches it where the eye does. Under the flag only: without
+      // it the button shows at its place in the markup, as before.
+      if (document.documentElement.getAttribute("data-inst") === "prompt" && btn.parentNode)
+        btn.parentNode.prepend(btn);
       btn.hidden = false;
       offered = true;
       bipMiss(null);

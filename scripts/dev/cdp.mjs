@@ -3,8 +3,10 @@
 // The script's default export gets { send, evaluate, setSize, scheme, nav, shot, sleep, errs }.
 // Wrap EVERY evaluate body in an IIFE: a top-level const redeclared across calls throws silently.
 import { spawn } from 'node:child_process';
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-const D = path.dirname(new URL(import.meta.url).pathname) + '/';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
+// fileURLToPath, not URL.pathname: that keeps the %20 of "Claude Workspace", and
+// shots/ was being created in a parallel /Users/doug/Desktop/Claude%20Workspace tree.
+const D = path.dirname(fileURLToPath(import.meta.url)) + '/';
 fs.mkdirSync(D + 'shots', { recursive: true });
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cdp-'));

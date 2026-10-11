@@ -990,7 +990,9 @@ footer a { color: var(--gray); }
    never fire it (incognito, already installed). When it fires, the button
    shows where the slot is: moved to its place in the markup instead, the
    three buttons left of it slid 50px (#subscribeBtn 921 → 871 at 1280, 2.7s
-   into every page: 0.0003-0.0009 that the held header still scored). */
+   into every page: 0.0003-0.0009 that the held header still scored). As it
+   shows, app.js also moves it to the front of the markup, so Tab reaches it
+   where the eye does. */
 html[data-inst="prompt"] #installBtn { order: -1; }
 html[data-inst="prompt"] #installBtn[hidden] { display: inline-block; visibility: hidden; }
 html[data-inst="ios"] #installBtn[hidden] { display: inline-block; }

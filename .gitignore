@@ -15,3 +15,6 @@ __pycache__/
 cloudflared
 cf.tgz
 .tools/
+
+# Headless-driver screenshots (scripts/dev/cdp.mjs shot()) — local checks, not the site
+scripts/dev/shots/
