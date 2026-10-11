@@ -815,7 +815,7 @@ async function loadRates() {
     // Top Picks scoring always needs the USD dataset, even when the data tab
     // is viewing the world through another home currency.
     if (base !== "USD" && !lastRates) lastRates = await getJSON("/api/rates");
-    const data = await getJSON("/api/rates" + (base !== "USD" ? "?base=" + base : ""));
+    const data = base === "USD" ? await getJSON("/api/rates") : await fetchBaseRates(base);
     if (base === "USD") lastRates = data;   // scoring needs it even if stale here
     if (seq !== _ratesSeq) return;
     // The currency moved without a newer request (setHomeCur skips its refetch
@@ -5300,6 +5300,27 @@ function advisoryMetaByIso() {
 let homeRates = null;        // /api/rates dataset for that base (= lastRates for USD)
 let homeManual = localStorage.getItem("fx_homecur_manual") === "1";
 const _baseRatesCache = {};
+// One /api/rates?base= fetch per currency: setHomeCur sends loadHomeRates and
+// loadRates for the same base in the same tick, and each fetched its own copy
+// (rates?base=GBP x2 measured on a ?vo=GB link, x3 with hc=GBP, x4 on a
+// geo-seeded first visit). A dataset already in the cache answers without a
+// request, a fetch in flight is shared, a failed one clears its slot so the
+// next asker retries. Callers keep their own staleness guards (_ratesSeq,
+// homeBase === base): sharing the promise only decides how many requests leave.
+const _baseRatesReq = {};
+function fetchBaseRates(base) {
+  if (_baseRatesCache[base]) return Promise.resolve(_baseRatesCache[base]);
+  if (!_baseRatesReq[base]) {
+    _baseRatesReq[base] = getJSON("/api/rates?base=" + base).then((data) => {
+      // Cache under the base REQUESTED — keyed by homeBase after the await, a
+      // late response filed one currency's rates under another's name.
+      if (data && data.base === base) _baseRatesCache[base] = data;
+      delete _baseRatesReq[base];
+      return data;
+    }, (e) => { delete _baseRatesReq[base]; throw e; });
+  }
+  return _baseRatesReq[base];
+}
 
 function homeCurAuto() { return CUR_BY_ISO[originIso()] || "USD"; }
 
@@ -5356,10 +5377,7 @@ async function loadHomeRates() {
   if (base === "USD") { homeRates = lastRates; return; }
   if (_baseRatesCache[base]) { homeRates = _baseRatesCache[base]; return; }
   homeRates = null;   // FX column shows neutral until the dataset lands
-  const data = await getJSON("/api/rates?base=" + base);
-  // Cache under the base REQUESTED — keyed by homeBase after the await, a
-  // late response filed one currency's rates under another's name.
-  if (data && data.base === base) _baseRatesCache[base] = data;
+  const data = await fetchBaseRates(base);
   if (homeBase === base && data && data.base === base) homeRates = data;   // ignore stale responses
 }
 
