@@ -1,7 +1,11 @@
 // cdp.mjs — minimal headless Chrome driver with a hard time cap.
 // Usage: CDP_TIMEOUT=50 node cdp.mjs ./script.mjs
-// The script's default export gets { send, evaluate, setSize, scheme, nav, shot, sleep, errs }.
+// The script's default export gets { send, on, evaluate, setSize, scheme, nav, shot, sleep, errs }.
 // Wrap EVERY evaluate body in an IIFE: a top-level const redeclared across calls throws silently.
+// errs collects exceptions, console.error, error log entries, dialogs, a crashed target and any
+// top-frame navigation nav() didn't ask for (a page that reloads itself, a redirect loop) — so
+// navigate with nav(), not a raw Page.navigate. on(fn) subscribes fn to every CDP event (returns
+// an unsubscribe); enable the domain yourself (send('Network.enable')) before counting its events.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
 // fileURLToPath, not URL.pathname: that keeps the %20 of "Claude Workspace", and
@@ -30,10 +34,19 @@ ws.onmessage = (ev) => {
   if (d.method === 'Runtime.exceptionThrown') errs.push('exception ' + ((d.params.exceptionDetails.exception || {}).description || d.params.exceptionDetails.text));
   if (d.method === 'Runtime.consoleAPICalled' && d.params.type === 'error') errs.push('console.error ' + d.params.args.map((a) => a.value || a.description).join(' '));
   if (d.method === 'Log.entryAdded' && d.params.entry.level === 'error') errs.push('log ' + d.params.entry.text + ' ' + (d.params.entry.url || ''));
+  // A renderer crash used to look like every evaluate timing out at 20s; a page
+  // that navigated itself (reload loop, redirect) used to look like a stall.
+  if (d.method === 'Inspector.targetCrashed') errs.push('crashed: the page target crashed');
+  if (d.method === 'Page.frameNavigated' && !d.params.frame.parentId) {
+    if (navExpected > 0) navExpected--;
+    else errs.push('navigated (not by nav()) ' + d.params.frame.url);
+  }
   listeners.slice().forEach((f) => f(d));
 };
+let navExpected = 0;   // top-frame navigations nav() has asked for and not yet seen
+const on = (f) => { listeners.push(f); return () => { const i = listeners.indexOf(f); if (i >= 0) listeners.splice(i, 1); }; };
 const send = (method, params = {}) => new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
-await send('Page.enable'); await send('Runtime.enable'); await send('Log.enable');
+await send('Page.enable'); await send('Runtime.enable'); await send('Log.enable'); await send('Inspector.enable');
 await send('Emulation.setFocusEmulationEnabled', { enabled: true });
 // A JS dialog (alert/confirm/prompt) blocks Runtime.evaluate until handled: dismiss them.
 listeners.push((d) => { if (d.method === 'Page.javascriptDialogOpening') { errs.push('dialog ' + (d.params.message || '').slice(0, 80)); send('Page.handleJavaScriptDialog', { accept: false }); } });
@@ -55,6 +68,7 @@ const scheme = (dark) => send('Emulation.setEmulatedMedia', { features: [{ name:
 // nav(url, settleMs): navigate, wait for load, then settle.
 const nav = async (url, settleMs = 3000) => {
   const loaded = new Promise((r) => { const f = (d) => { if (d.method === 'Page.loadEventFired') { listeners.splice(listeners.indexOf(f), 1); r(); } }; listeners.push(f); });
+  navExpected++;   // this one is ours; the frameNavigated listener lets it through
   await send('Page.navigate', { url });
   await Promise.race([loaded, sleep(20000)]);
   await sleep(settleMs);
@@ -68,7 +82,7 @@ const shot = async (name) => {
 const scriptPath = path.resolve(process.argv[2]);
 try {
   const mod = await import(scriptPath);
-  await mod.default({ send, evaluate, setSize, scheme, nav, shot, sleep, errs });
+  await mod.default({ send, on, evaluate, setSize, scheme, nav, shot, sleep, errs });
 } catch (e) { console.log('script error', e && e.stack || e); }
 console.log(`--- errors (${errs.length}) ---`); errs.slice(0, 10).forEach((e) => console.log(e));
 finish(0);
