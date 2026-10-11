@@ -3519,6 +3519,10 @@ function renderGuideHero(iso) {
 // that surfaced junk (e.g. Buenos Aires "Comuna" street-name signs) and low-res
 // montage leads. A country can hand-pick its shots via activities[iso].gallery;
 // otherwise subjects are the curated `photo` + the place in each activity label.
+// A gallery entry is a page title, or {file, label} where no page leads with a
+// good photo: one Commons file pinned by name, label = the place it shows
+// (for the scripts; the page names the country, not the place). Entries go to
+// wikiIconic as they are.
 function photoSubjects(iso) {
   const a = activities && activities[iso];
   if (a && Array.isArray(a.gallery) && a.gallery.length) return a.gallery.slice(0, 6);
@@ -3552,6 +3556,8 @@ async function wikiIconic(subject, minW, minH) {
   // 84px activity thumbs pass a lower bar (700x500, via actPhoto).
   if (minW === undefined) minW = 800;
   if (minH === undefined) minH = 1000;
+  // A gallery's pinned Commons file has no page to ask: same gates, own lookup.
+  if (subject && typeof subject === "object") return commonsPhoto(subject.file, minW, minH);
   try {
     const api = "https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*" +
       "&prop=pageimages&piprop=thumbnail|original|name&pithumbsize=1600&redirects=1&titles=" +
@@ -3577,6 +3583,51 @@ async function wikiIconic(subject, minW, minH) {
     const orig = page.original && page.original.source;
     // file = the File: page name, for the author/licence credit.
     return { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb, file: page.pageimage || "" };
+  } catch (e) { return null; }
+}
+// A gallery's pinned Commons file ({file, label}): wikiIconic's result and
+// gates, read from Commons imageinfo instead of a page's lead image. The
+// 1600px thumb (iiurlwidth) carries the size gate, the original goes to the
+// lightbox. A pinned file is our pick rather than an editor's, so its licence
+// is checked too (PHOTO_LICENCE_OK); a refusal says so once in the console,
+// where whoever pinned it will look.
+const _licenceRefused = new Set();
+async function commonsPhoto(name, minW, minH) {
+  name = String(name || "").trim();
+  if (!name || PHOTO_BAD.test(name)) return null;
+  try {
+    const api = "https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*" +
+      "&prop=imageinfo&iiprop=url|size|extmetadata&iiurlwidth=1600" +
+      "&iiextmetadatafilter=Artist|LicenseShortName|LicenseUrl|License&titles=" +
+      encodeURIComponent("File:" + name);
+    const skipP = photoSkip();
+    const r = await fetch(api);
+    if (!r.ok) return null;
+    const page = Object.values(((await r.json()).query || {}).pages || {})[0];
+    const ii = page && (page.imageinfo || [])[0];
+    const thumb = ii && ii.thumburl;
+    if (!thumb) return null;
+    // The canonical name (underscores, first letter capitalised), the form
+    // page.pageimage takes: the key of the skip list and of the credits.
+    const file = page.title.replace(/^File:/, "").replace(/ /g, "_");
+    if ((await skipP).has(file)) return null;
+    const credit = _creditFrom(ii), code = ((ii.extmetadata || {}).License || {}).value || "";
+    if (!PHOTO_LICENCE_OK.test(credit.lic) && !PHOTO_LICENCE_OK.test(code.trim())) {
+      if (!_licenceRefused.has(file)) {
+        _licenceRefused.add(file);
+        console.info("gallery photo File:" + file + " left out: licence '" + (credit.lic || code || "none")
+          + "' is not CC BY, CC BY-SA, CC0 or public domain");
+      }
+      return null;
+    }
+    // thumbwidth is the size ASKED for (1600 even for a 448px original, which
+    // Commons serves unscaled), so the real thumb is capped by the original.
+    const tw = Math.min(ii.thumbwidth || 0, ii.width || 0), th = Math.min(ii.thumbheight || 0, ii.height || 0);
+    if (tw < minW && th < minH) return null;
+    // The credit came with the photo: loadPhotoCredits finds it known and
+    // asks nothing more.
+    _photoCredit[file] = credit;
+    return { thumb, full: (ii.url && !PHOTO_BAD.test(ii.url)) ? ii.url : thumb, file };
   } catch (e) { return null; }
 }
 
@@ -3622,13 +3673,18 @@ async function _fetchPhotoCredits(want) {
     for (const pg of Object.values(q.pages || {})) {
       const f = back[pg.title], ii = (pg.imageinfo || [])[0];
       if (!f || !ii) continue;
-      const md = ii.extmetadata || {}, val = (k) => (md[k] && md[k].value) || "";
-      _photoCredit[f] = { artist: _plainText(val("Artist")), lic: _plainText(val("LicenseShortName")),
-                          licUrl: val("LicenseUrl"), page: ii.descriptionurl || "" };
+      _photoCredit[f] = _creditFrom(ii);
     }
   } catch (e) {
     want.forEach((f) => { if (_photoCredit[f] === null) delete _photoCredit[f]; });
   }
+}
+// One imageinfo record's credit: the batch above and commonsPhoto (whose
+// Commons answer already carries it) both read it here.
+function _creditFrom(ii) {
+  const md = ii.extmetadata || {}, val = (k) => (md[k] && md[k].value) || "";
+  return { artist: _plainText(val("Artist")), lic: _plainText(val("LicenseShortName")),
+           licUrl: val("LicenseUrl"), page: ii.descriptionurl || "" };
 }
 // "📷 Author · CC BY-SA 4.0": author links to the file page, licence to its
 // deed. Before (or without) metadata it still links the file page.
@@ -3650,7 +3706,7 @@ async function iconicPhotos(iso) {
   // and switched the size gate off.
   const settled = await Promise.all(photoSubjects(iso).map((s) => wikiIconic(s)));
   const out = [], seen = new Set();
-  for (const p of settled) if (p && !seen.has(p.full)) { seen.add(p.full); out.push(p); }
+  for (const p of settled) if (p && !seen.has(fileKey(p.full))) { seen.add(fileKey(p.full)); out.push(p); }
   if (out.length) _heroCache[iso] = out;
   return out;
 }
@@ -3843,13 +3899,23 @@ function lbKey(e) {
 }
 let ccGuideIso = null;   // guards against a slow gallery landing after the user switched country
 
-// Filename key for de-duping photos across the two image sources.
+// Filename key for de-duping photos across the two image sources. Thumb or
+// original, and whatever utm_* tail the API added: a pinned Commons file
+// (commonsPhoto) comes back tagged utm_source=commons.wikimedia.org, the same
+// file as a page's lead image utm_source=en.wikipedia.org.
 const fileKey = (u) => {
-  const m = u && u.match(/\/thumb\/[^/]+\/[^/]+\/([^/]+)/);
+  const m = u && u.match(/\/wikipedia\/[^/]+\/(?:thumb\/)?[0-9a-f]\/[0-9a-f]{2}\/([^/?]+)/);
   return m ? decodeURIComponent(m[1]) : u;
 };
 // Reject non-scenic files (flags, coats of arms, maps, diagrams) by filename.
 const PHOTO_BAD = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram|\.svg|location|adm[_ ]|administrative|emblem|wikidata|collage|montage/i;
+// The licences a pinned Commons file (commonsPhoto) may carry: CC BY and
+// CC BY-SA in any version or port, which the credit line's author + licence +
+// link satisfies, and CC0 / public domain, which ask for nothing. Matched
+// against extmetadata's short name ("CC BY-SA 4.0") and its code
+// ("cc-by-sa-4.0"); NC, ND, GFDL-only, FAL and anything unrecognised fail.
+// scripts/gallery_entry.py LICENCE_OK mirrors it.
+const PHOTO_LICENCE_OK = /^(?:cc[- ]by(?:-sa)?(?:[- ]\d(?:\.\d)?(?:[- ](?:[a-z]{2}|igo))?)?|cc0(?:[- ]1\.0)?|pd(?:[- ][a-z0-9.-]+)?|public domain(?: mark(?: 1\.0)?)?)$/i;
 const INTERESTS = ["Beach & islands", "Nature", "City", "Culture", "Adventure", "Food", "Shopping"];
 function buildBestPickers(initialIso) {
   const ctry = $("bestCountry");
