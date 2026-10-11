@@ -10222,10 +10222,13 @@ async function postApplyShared() {
     markRankBy();
   }
   // Shared origin: vo is canonical; fall back to a legacy fo-only link. Either
-  // way it drives the one global "traveling from".
+  // way it drives the one global "traveling from" — unless it already is the
+  // one on screen: a ?vo=US link (or a GB reader's own GB link) re-ran the
+  // whole setTravelOrigin pipeline for nothing, measured as a second
+  // /api/flights?origin=US and two or three extra renderValue per open.
   const sharedOrigin = sharedQ.get("vo") || sharedQ.get("fo");
-  if (sharedOrigin && /^[A-Z]{2}$/.test(sharedOrigin)) {
-    ensureOrigins().then(() => setTravelOrigin(sharedOrigin)).catch(() => {});
+  if (sharedOrigin && /^[A-Z]{2}$/.test(sharedOrigin) && sharedOrigin !== originIso()) {
+    ensureOrigins().then(() => { if (sharedOrigin !== originIso()) setTravelOrigin(sharedOrigin); }).catch(() => {});
   }
   const hc = sharedQ.get("hc");
   if (hc && /^[A-Z]{3}$/.test(hc)) setHomeCur(hc, true);
