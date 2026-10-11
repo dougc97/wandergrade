@@ -142,5 +142,18 @@ results.append(ok((' data-nofares' in home) == (not srv.flights.is_configured())
 srv._adv_cache.pop("us", None)
 
 n = sum(1 for r in results if r)
+# The served words must be the browser's: for every ISO climate.json or ppp.json
+# names, map_picks' name is that name (app.js countryName reads them first).
+_dn = {}
+for _f in ("ppp.json", "climate.json"):
+    with open(os.path.join(ROOT, "public", _f), encoding="utf-8") as f:
+        for _k, _v in json.load(f).items():
+            if isinstance(_v, dict) and _v.get("name"):
+                _dn[_k] = _v["name"]
+_bad = [i for i in sorted(_dn) if map_picks._name(lambda x: None, i) != _dn[i]]
+results.append(ok(not _bad, "served names match climate/ppp names for all %d ISOs (%s)" % (len(_dn), ", ".join(_bad[:5]) or "none differ")))
+for _iso, _want in (("AG", "Antigua and Barbuda"), ("KN", "St. Kitts and Nevis"), ("VC", "St. Vincent and the Grenadines")):
+    results.append(ok(map_picks._name(lambda x: None, _iso) == _want, "%s is served as %r" % (_iso, _want)))
+n = sum(1 for r in results if r)
 print("\n%d/%d passed" % (n, len(results)))
 sys.exit(0 if n == len(results) else 1)

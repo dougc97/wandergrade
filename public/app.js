@@ -4206,7 +4206,9 @@ function renderAdvisories() {
   const cutoff = advMoveCutoff();
   const changed = advisories.items
     .filter((it) => it.change && advChangedOn(it) >= cutoff && (!it.iso || inRegion(it.iso)))
-    .sort((a, b) => (advChangedOn(a) < advChangedOn(b) ? 1 : -1)).slice(0, 8);
+    // 0 on a tie: V8's sort is stable, so two moves on one day keep feed order,
+    // the order the server's served copy of this list (map_picks) uses too.
+    .sort((a, b) => (advChangedOn(a) < advChangedOn(b) ? 1 : advChangedOn(a) > advChangedOn(b) ? -1 : 0)).slice(0, 8);
   // "New Caledonia ▼ L2 · 21 May": the arrow in its colour (a <b>, which the
   // share image reads as text, not as a pick of its own), named for a screen
   // reader; Germany's own calls in its words.

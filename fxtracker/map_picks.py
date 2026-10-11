@@ -34,8 +34,8 @@ DE_LVL_LABEL = {1: "No warning", 2: "Some regions", 4: "Travel warning"}
 # no guide for: EXTRA_PLACES (VI, SX), else Chrome's Intl.DisplayNames.
 EXTRA_NAMES = {
     "BM": "Bermuda", "VI": "U.S. Virgin Islands", "SX": "Sint Maarten", "KY": "Cayman Islands",
-    "AG": "Antigua & Barbuda", "KN": "St. Kitts & Nevis", "GD": "Grenada", "DM": "Dominica",
-    "VC": "St. Vincent & Grenadines", "MF": "St. Martin", "MV": "Maldives",
+    "AG": "Antigua and Barbuda", "KN": "St. Kitts and Nevis", "GD": "Grenada", "DM": "Dominica",
+    "VC": "St. Vincent and the Grenadines", "MF": "St. Martin", "MV": "Maldives",
     "PF": "French Polynesia", "PW": "Palau",
 }
 
@@ -44,9 +44,36 @@ def _e(s):
     return html.escape(str(s or ""), quote=True)
 
 
+_DATA_NAMES = None
+
+
+def _data_name(iso):
+    """The name climate.json, then ppp.json, carries for `iso` — app.js
+    countryName's order before it falls back to Intl.DisplayNames. The three
+    Caribbean fare destinations with no guide (AG, KN, VC) came out as
+    "Antigua & Barbuda" here and "Antigua and Barbuda" in the browser; a
+    served span 2-6 characters short can wrap the row differently from the
+    rendered one, the shift this module exists to remove."""
+    global _DATA_NAMES
+    if _DATA_NAMES is None:
+        import json
+        import os
+        public = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public")
+        _DATA_NAMES = {}
+        for fname in ("ppp.json", "climate.json"):   # climate wins, so it is read last
+            try:
+                with open(os.path.join(public, fname), encoding="utf-8") as f:
+                    for k, v in json.load(f).items():
+                        if isinstance(v, dict) and v.get("name"):
+                            _DATA_NAMES[k] = v["name"]
+            except (OSError, ValueError):
+                pass
+    return _DATA_NAMES.get(iso)
+
+
 def _name(names, iso):
     """`names`: ISO -> name (render_guide.name_for_iso), or None."""
-    return (names(iso) if iso else None) or EXTRA_NAMES.get(iso)
+    return (names(iso) if iso else None) or _data_name(iso) or EXTRA_NAMES.get(iso)
 
 
 def _day_short(d, today):
