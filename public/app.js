@@ -5439,11 +5439,13 @@ function setHomeCur(code, manual, viewOnly) {
   // The Data tab reasons in this currency too, so refetch it in the new base.
   // Guarded on lastRates, not a loaded.* flag: the rates table isn't lazy — it
   // loads at boot — so there is no flag for it, and there was never one to check.
-  // The index only once the chart has data: unopened, it loads in the new
-  // currency when the Currency view first shows (a first visit from DE fetched
-  // /api/index?base=EUR for a chart nobody opened, 1 run in 3). One in flight
-  // refetches itself when homeBase moved under it.
-  if (changed && lastRates) { loadRates(); if (lastIndexData) loadIndex(activeRange); }
+  // The index only once the chart has been asked for (_indexSeq > 0, a failed or
+  // in-flight load included): unopened, it loads in the new currency when the
+  // Currency view first shows (a first visit from DE fetched /api/index?base=EUR
+  // for a chart nobody opened, 1 run in 3). Gating on lastIndexData instead left
+  // a chart whose first load failed at "Could not load chart" after a currency
+  // change, where it used to retry.
+  if (changed && lastRates) { loadRates(); if (_indexSeq) loadIndex(activeRange); }
   // The guide's FX trend AND fare chart are anchored to the home currency —
   // an open guide must not keep showing the previous one (the fare chart's
   // display currency falls back to homeBase when unpinned; its fetch is
@@ -7726,8 +7728,10 @@ async function fillOriginSelect(sel) {
   const list = await ensureOrigins();
   // The shared "traveling from", not always US; one the fares don't know (a
   // hand-edited ?vo=) shows the US, not the first name in the list.
-  const want = travelOrigin();
-  const cur = list.some((o) => o.iso === want) ? want : "US";
+  // A view the fares don't serve (?vo=MN: a country, not an origin) falls back
+  // to the reader's own From, not to the US.
+  const own = localStorage.getItem("fx_origin") || "US";
+  const cur = [travelOrigin(), own].find((iso) => list.some((o) => o.iso === iso)) || "US";
   sel.innerHTML = list.map((o) =>
     `<option value="${esc(o.iso)}"${o.iso === cur ? " selected" : ""}>${esc(o.name)}</option>`).join("");
   enhanceSelect(sel);
@@ -10245,8 +10249,11 @@ function preApplyShared() {
   // first and flipped: a wasted /api/flights?origin=US and its fare polls, a
   // second rates fetch, an index fetch and two or three extra renderValue per
   // open. Nothing to view when the link's From is already the reader's own.
-  const vo = sharedQ.get("vo") || sharedQ.get("fo");   // vo is canonical; fo a legacy flights link
-  if (vo && /^[A-Z]{2}$/.test(vo) && vo !== travelOrigin()) {
+  const vo = sharedQ.get("vo") || sharedQ.get("fo");   // vo: Top Picks; fo: the Flights tab's share link
+  // CUR_BY_ISO holds every origin the fares know (59); a hand-edited ?vo=ZZ
+  // used to start a view of nowhere: From showed the US, fx_homecur was
+  // rewritten to USD and ~16 flight-months?origin=ZZ requests went out.
+  if (vo && /^[A-Z]{2}$/.test(vo) && CUR_BY_ISO[vo] && vo !== travelOrigin()) {
     sharedOriginView = { iso: vo };
     if (!homeManual) homeBase = homeCurAuto();   // the currency follows, as setTravelOrigin's would
   }
