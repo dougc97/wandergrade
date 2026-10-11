@@ -11,8 +11,16 @@ focus hint (higher = more edge energy; texture inflates it, so it is a hint,
 not a verdict — the 2026-10 sweep's rejects sat below ~900, keepers mostly
 above ~1200, with overlap both ways).
 
-    /usr/bin/python3 scripts/photo_sweep.py resolve "Galle Fort" "Sigiriya"
-        one JSON line per title: status, file, original size, lapvar, img path
+A gallery entry can also be {"file": <Commons name>, "label": <place>}, a
+Commons photo pinned by name (scripts/gallery_entry.py): it resolves through
+Commons imageinfo as app.js commonsPhoto() does, with the same metrics and
+800px copy, and its row carries the licence (licence_ok false = the site
+leaves it out). On the command line a file entry is "File:<name>" or the
+entry's JSON.
+
+    /usr/bin/python3 scripts/photo_sweep.py resolve "Galle Fort" "Sigiriya" "File:Lumley Beach Freetown.JPG"
+        one JSON line per title or file: status, file, original size, lapvar,
+        img path (and licence for a file)
     /usr/bin/python3 scripts/photo_sweep.py sweep [--out DIR] [--shard k/n] [ISO ...]
         every gallery subject (or the given ISOs); writes DIR/index<k>.json;
         run the shards in parallel from separate shells (4 at 0.25s between
@@ -47,6 +55,8 @@ import urllib.request
 
 from PIL import Image, ImageFilter, ImageStat
 
+import gallery_entry
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PUBLIC = os.path.join(ROOT, "public")
 UA = {"User-Agent": "wandergrade-photo-sweep/1.0 (+https://wandergrade.com)"}
@@ -72,6 +82,12 @@ def page_image(subject):
 
 def metrics(data):
     im = Image.open(io.BytesIO(data)).convert("RGB")
+    # Wikimedia now serves thumbs in fixed steps (a 1600px ask comes back
+    # 1920px from thumb.wikimedia.org), so resolve()'s /800px- rewrite misses:
+    # scale here, keeping the copy and its metrics 800px wide like the 2026-10
+    # sweep's.
+    if im.width > 800:
+        im = im.resize((800, round(im.height * 800 / im.width)), Image.LANCZOS)
     w, h = im.size
     g = im.convert("L")
     g.thumbnail((512, 512))
@@ -84,18 +100,36 @@ def metrics(data):
                 "bytes": len(data)}
 
 
+def _file_image(entry):
+    """A pinned file's imageinfo in page_image()'s shape, plus its licence."""
+    info = gallery_entry.commons_file(entry.get("file"), 1600, UA["User-Agent"])
+    return {"title": info["title"], "pageimage": info["file"] if info["thumb"] else None,
+            "thumbnail": {"source": info["thumb"], "width": info["tw"], "height": info["th"]},
+            "original": {"source": info["url"], "width": info["ow"], "height": info["oh"]},
+            "licence": info["lic"] or info["code"], "licence_ok": gallery_entry.licence_ok(info["lic"], info["code"])}
+
+
 def resolve(subject, img_path=None):
-    """status + the fields the reviewer needs; saves an 800px JPEG when asked."""
-    page = page_image(subject)
+    """status + the fields the reviewer needs; saves an 800px JPEG when asked.
+    subject is a gallery entry: a page title or a pinned {file, label}."""
+    pinned = gallery_entry.is_file(subject)
+    if pinned and PHOTO_BAD.search(subject.get("file") or ""):
+        return {"subject": gallery_entry.label(subject), "file": gallery_entry.file_key(subject.get("file")),
+                "status": "filtered"}
+    page = _file_image(subject) if pinned else page_image(subject)
     t = page.get("thumbnail") or {}
     thumb = (t.get("source") or "").split("?")[0]
     orig = page.get("original") or {}
-    row = {"subject": subject, "title": page.get("title"), "file": page.get("pageimage"),
+    row = {"subject": gallery_entry.label(subject), "title": page.get("title"), "file": page.get("pageimage"),
            "ow": orig.get("width"), "oh": orig.get("height")}
+    if pinned:
+        row["licence"], row["licence_ok"] = page["licence"], page["licence_ok"]
     if not thumb:
         row["status"] = "no-image"
     elif PHOTO_BAD.search(thumb):
         row["status"] = "filtered"
+    elif pinned and not page["licence_ok"]:
+        row["status"] = "bad-licence"
     elif (t.get("width") or 0) < 800 and (t.get("height") or 0) < 1000:
         row["status"] = "too-small"
     else:
@@ -121,6 +155,15 @@ def _names():
         return json.load(f)
 
 
+def _entry_arg(a):
+    """A command-line subject: a title, "File:<name>", or an entry's JSON."""
+    if a.startswith("{"):
+        return json.loads(a)
+    if a[:5].lower() == "file:":
+        return {"file": a[5:], "label": re.sub(r"\.[A-Za-z]+$", "", a[5:])}
+    return a
+
+
 def _places(a):
     """The activity places the hero de-duplicates against (app.js photoSubjects)."""
     out = []
@@ -136,8 +179,10 @@ def cmd_resolve(argv):
     os.makedirs(out, exist_ok=True)
     for s in [a for a in argv if not a.startswith("--") and a != _opt(argv, "--out", None)]:
         try:
-            path = os.path.join(out, re.sub(r"[^A-Za-z0-9]+", "_", s)[:60] + ".jpg")
-            print(json.dumps(resolve(s, path), ensure_ascii=False), flush=True)
+            e = _entry_arg(s)
+            name = e["file"] if gallery_entry.is_file(e) else e
+            path = os.path.join(out, re.sub(r"[^A-Za-z0-9]+", "_", name)[:60] + ".jpg")
+            print(json.dumps(resolve(e, path), ensure_ascii=False), flush=True)
         except Exception as e:  # one bad title must not stop the list
             print(json.dumps({"subject": s, "status": "error", "error": str(e)[:120]}), flush=True)
         time.sleep(PAUSE)
@@ -175,11 +220,15 @@ def cmd_sweep(argv):
     rows = []
     for iso in isos:
         for i, subject in enumerate((acts[iso].get("gallery") or [])[:6]):
-            row = {"iso": iso, "country": names.get(iso, iso), "idx": i, "subject": subject}
+            row = {"iso": iso, "country": names.get(iso, iso), "idx": i, "subject": gallery_entry.label(subject)}
+            if gallery_entry.is_file(subject):
+                row["pinned"] = subject.get("file")
             try:
                 if changed:
-                    # One API call decides: a file already judged needs no download.
-                    f = page_image(subject).get("pageimage")
+                    # One API call decides: a file already judged needs no
+                    # download. A pinned file names itself and needs none.
+                    f = (gallery_entry.file_key(subject["file"]) if gallery_entry.is_file(subject)
+                         else page_image(subject).get("pageimage"))
                     row["file"] = f
                     if f in keep:
                         row["status"] = "known-keep"
@@ -194,7 +243,8 @@ def cmd_sweep(argv):
                 row["error"] = str(e)[:120]
             rows.append(row)
             print(iso, i, row.get("status").upper() if row.get("status", "").startswith("known") else row.get("status"),
-                  row.get("file"), row.get("lapvar"), flush=True)
+                  row.get("file"), row.get("lapvar"), *(["licence:", row.get("licence")] if "licence" in row else []),
+                  flush=True)
             time.sleep(PAUSE)
     with open(os.path.join(out, "index%d.json" % k), "w", encoding="utf-8") as f:
         json.dump(rows, f, indent=0, ensure_ascii=False)
@@ -223,13 +273,20 @@ def cmd_batches(argv):
     os.makedirs(os.path.join(out, "batches"), exist_ok=True)
     for k in range(n):
         part = isos[k::n]
-        countries = [{"iso": iso, "n": names.get(iso, iso), "g": (acts[iso].get("gallery") or [])[:6],
+        # g: each gallery entry's label (a title is its own); pinned: the
+        # Commons files a gallery names directly, which the reviewer may
+        # want to tell apart from editors' lead images.
+        countries = [{"iso": iso, "n": names.get(iso, iso),
+                      "g": [gallery_entry.label(e) for e in (acts[iso].get("gallery") or [])[:6]],
+                      "pinned": [e.get("file") for e in (acts[iso].get("gallery") or [])[:6]
+                                 if gallery_entry.is_file(e)],
                       "p": _places(acts[iso]),
                       "unresolved": [{"idx": r["idx"], "subject": r["subject"], "status": r["status"]}
                                      for r in by[iso] if r["status"] != "ok"]} for iso in part]
         photos = [{"iso": r["iso"], "country": r["country"], "idx": r["idx"], "subject": r["subject"],
-                   "file": r.get("file"), "img": r["img"], "orig": "%sx%s" % (r.get("ow"), r.get("oh")),
-                   "lapvar": r.get("lapvar"), "sat": r.get("sat")}
+                   "label": r["subject"], "file": r.get("file"), "img": r["img"],
+                   "orig": "%sx%s" % (r.get("ow"), r.get("oh")),
+                   "lapvar": r.get("lapvar"), "sat": r.get("sat"), "licence": r.get("licence")}
                   for iso in part for r in by[iso] if r["status"] == "ok"]
         with open(os.path.join(out, "batches", "batch%d.json" % k), "w", encoding="utf-8") as f:
             json.dump({"countries": countries, "photos": photos}, f, indent=0, ensure_ascii=False)
@@ -251,15 +308,20 @@ def cmd_skip_check(argv):
         if only and iso not in only:
             continue
         for subject in (acts[iso].get("gallery") or [])[:6]:
-            try:
-                f = page_image(subject).get("pageimage")
-            except Exception as e:
-                print(iso, subject, "error", str(e)[:80])
-                continue
+            name = gallery_entry.label(subject)
+            if gallery_entry.is_file(subject):
+                # A pinned file can't drift: check its own name, no request.
+                f = gallery_entry.file_key(subject.get("file"))
+            else:
+                try:
+                    f = page_image(subject).get("pageimage")
+                except Exception as e:
+                    print(iso, name, "error", str(e)[:80])
+                    continue
+                time.sleep(PAUSE)
             if f in skip:
                 hits += 1
-                print(iso, subject, "-> SKIPPED FILE", f)
-            time.sleep(PAUSE)
+                print(iso, name, "-> SKIPPED FILE", f)
     print(hits, "gallery subjects resolve to a skipped file")
 
 

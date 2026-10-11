@@ -35,6 +35,7 @@ PUBLIC = os.path.join(ROOT, "public")
 MAX_SPOTS = 5
 sys.path.insert(0, ROOT)
 from fxtracker import geo  # noqa: E402
+import gallery_entry  # noqa: E402
 
 # The world map is coarse (Natural Earth 110m): Iguazú, Everest and Victoria
 # Falls all fall a few km inside the neighbour. Within NEAR_KM of the country's
@@ -201,7 +202,9 @@ def _build_country(args):
     country = names.get(iso, iso)
     aliases = ALIASES.get(iso, {})
     act_cands = [p for x in (act.get("activities") or []) for p in act_places(x)]
-    gal_cands = act.get("gallery") or []
+    # A pinned Commons file's place is its label; a label that isn't a
+    # Wikipedia title finds no coordinates and simply adds no spot.
+    gal_cands = [gallery_entry.label(e) for e in act.get("gallery") or []]
     spots = []
 
     def add(subject, cap):

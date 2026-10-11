@@ -204,6 +204,23 @@ photos viewed, 315 rejected); `wikiIconic` and `scripts/gen_og_images.py`
 skip them. When editors swap an image the new file is unknown to the list
 and shows.
 
+Where no Wikipedia page leads with a good photo of a place, a gallery entry
+can pin one Commons file instead of naming a title:
+`{"file": "Lumley Beach Freetown.JPG", "label": "Lumley Beach"}` (the bare
+Commons name, no `File:` prefix; `label` is the place, which the scripts use
+wherever a title would be read as a name, e.g. the stay spots). `wikiIconic`
+hands it to `commonsPhoto`, which reads Commons imageinfo (1600px thumb for
+the hero and its size gate, the original for the lightbox) and applies
+PHOTO_BAD and the skip list as for a title. A pinned file is our choice
+rather than an editor's, so its licence is checked as well: only CC BY or
+CC BY-SA (any version or port), CC0 or public domain show, matched on
+extmetadata's LicenseShortName/License (`PHOTO_LICENCE_OK`, mirrored by
+`scripts/gallery_entry.py`); anything else is left out with one
+`console.info` naming the file. The author and licence for the credit line
+come back in the same answer, so the credit costs no extra request.
+`photo_sweep.py resolve "File:<name>"` shows a candidate with its licence,
+and its verdict is recorded like any other file's.
+
 - Re-run the review tooling with `scripts/photo_sweep.py` (`resolve`,
   `sweep`, `batches`, `skip-check`; usage in its docstring; PIL only).
 - `scripts/test_photo_skip.py` checks the list and every gallery offline.
