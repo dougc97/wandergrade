@@ -975,8 +975,11 @@ footer a { color: var(--gray); }
    352). Its slot sits at the cluster's far end while empty — blank space
    beside the title, not a hole between two buttons — for browsers that may
    never fire it (incognito, already installed). When it fires, the button
-   takes its own place and only the three buttons left of it slide over. */
-html[data-inst="prompt"] #installBtn[hidden] { display: inline-block; visibility: hidden; order: -1; }
+   shows where the slot is: moved to its place in the markup instead, the
+   three buttons left of it slid 50px (#subscribeBtn 921 → 871 at 1280, 2.7s
+   into every page: 0.0003-0.0009 that the held header still scored). */
+html[data-inst="prompt"] #installBtn { order: -1; }
+html[data-inst="prompt"] #installBtn[hidden] { display: inline-block; visibility: hidden; }
 html[data-inst="ios"] #installBtn[hidden] { display: inline-block; }
 html[data-acct="in"] #acctBtn .btxt { display: none; }
 /* music toggle: gentle pulse while playing */
