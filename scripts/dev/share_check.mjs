@@ -13,13 +13,14 @@
 //                      `after` repeats ls + page and counts only the /api requests ACT caused
 // Output: { url, loadMs, api: {"/api/flights?origin=GB": 1, ...}, polls, stalls, maxPollMs,
 //           longtasks: [{start, dur}], ls: {fx_origin, fx_homecur, fx_homecur_manual},
-//           page: {valueOrigin, homeCur, flightOrigin, homeBase, sharedOriginView, href}, errs, after }
+//           page: {valueOrigin, homeCur, flightOrigin, homeBase, originIso, travelOrigin, sharedOriginView, href}, errs, after }
 const STALL_MS = 1000;
 const LS = `(() => ({ fx_origin: localStorage.getItem('fx_origin'), fx_homecur: localStorage.getItem('fx_homecur'),
   fx_homecur_manual: localStorage.getItem('fx_homecur_manual') }))()`;
 const PAGE = `(() => { const v = (id) => { const e = document.getElementById(id); return e ? e.value : null; };
   return { valueOrigin: v('valueOrigin'), homeCur: v('homeCur'), flightOrigin: v('flightOrigin'),
     homeBase: typeof homeBase === 'string' ? homeBase : null,
+    originIso: typeof originIso === 'function' ? originIso() : null, travelOrigin: typeof travelOrigin === 'function' ? travelOrigin() : null,
     sharedOriginView: typeof sharedOriginView === 'undefined' ? 'n/a' : sharedOriginView, href: location.href }; })()`;
 
 export default async function ({ send, on, evaluate, nav, sleep, errs }) {
@@ -47,7 +48,7 @@ export default async function ({ send, on, evaluate, nav, sleep, errs }) {
     // Same origin, a page with no script: storage set here is what the real load reads.
     await nav(new URL(url).origin + '/robots.txt', 100);
     await evaluate(`(() => { const s = ${process.env.SEED}; for (const k in s) localStorage.setItem(k, s[k]); return Object.keys(s).length; })()`);
-    api = {};
+    api = {}; loadedAt = 0;   // robots.txt's own load event is not the page's (loadMs read -102ms)
   }
   const t0 = Date.now();
   await nav(url, 0);
