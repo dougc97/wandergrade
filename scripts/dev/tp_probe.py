@@ -38,9 +38,15 @@ MIN_MONTHS = 6
 PACE = 3.0
 TOKEN = os.environ.get("TRAVELPAYOUTS_TOKEN", "")
 QUICK = "--quick" in sys.argv
-if not TOKEN:
-    print("TRAVELPAYOUTS_TOKEN is not set; nothing to probe.")
+if not TOKEN or "paste" in TOKEN.lower() or "your" in TOKEN.lower():
+    print("TRAVELPAYOUTS_TOKEN is not set to the real token (Render -> the service -> Environment); nothing to probe.")
     sys.exit(2)
+# wandergrade.com's Cloudflare answers 403 to Python's default User-Agent.
+UA = {"User-Agent": "wandergrade-probe/1.0 (+https://wandergrade.com)"}
+
+
+def get_public(url):
+    return json.load(urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60))
 
 _calls = 0
 
@@ -55,7 +61,7 @@ def get(url, params=None, token=True):
     if _calls:
         time.sleep(PACE)
     _calls += 1
-    req = urllib.request.Request(full, headers={"User-Agent": "wandergrade-probe/1.0"})
+    req = urllib.request.Request(full, headers=UA)
     try:
         with urllib.request.urlopen(req, timeout=40) as r:
             body = json.loads(r.read().decode("utf-8"))
@@ -90,26 +96,17 @@ def window_months(today=None):
 
 print("loading city -> country map (public, no token)...")
 cities = {}
-for c in rows_of({"data": json.load(urllib.request.urlopen(API + "/data/en/cities.json", timeout=60))}):
+for c in rows_of({"data": get_public(API + "/data/en/cities.json")}):
     if c.get("code"):
         cities[c["code"]] = c.get("country_code", "")
 print("  %d cities" % len(cities))
 
 print("loading the live site's current curves...")
-live = json.load(urllib.request.urlopen(SITE + "/api/flight-value?origin=US", timeout=60))
-# Accept either {iso: {...}} or {"countries": [{"iso":..}]}; count months per ISO.
-cur_months = {}
-entries = live.get("countries") if isinstance(live.get("countries"), list) else None
-if entries:
-    for e in entries:
-        iso = e.get("iso")
-        n = e.get("n_months") or len(e.get("months") or {})
-        if iso:
-            cur_months[iso] = n
-else:
-    for iso, e in live.items():
-        if isinstance(e, dict) and len(iso) == 2:
-            cur_months[iso] = e.get("n_months") or len(e.get("months") or {})
+live = get_public(SITE + "/api/flight-value?origin=US")
+# {"countries": {iso: {"curve": {"YYYY-MM": price}, "n_months": n}}, "months": [...]}
+WINDOW = set(live.get("months") or [])
+cur_curve = {iso: set((e.get("curve") or {}).keys()) for iso, e in (live.get("countries") or {}).items()}
+cur_months = {iso: (e.get("n_months") or 0) for iso, e in (live.get("countries") or {}).items()}
 banded_now = sum(1 for n in cur_months.values() if n >= MIN_MONTHS)
 print("  %d destinations, %d banded today (>= %d months)" % (len(cur_months), banded_now, MIN_MONTHS))
 
@@ -141,14 +138,14 @@ def by_country_month(rows):
 
 
 def merged_banded(extra):
-    """Fill-only merge of `extra` months into the live curves; banded count."""
+    """Fill-only merge of `extra` months into the live curves (union of month
+    keys inside the window); the banded count the Flights tab would show, and
+    how many destinations it would list at all."""
     n = 0
-    for iso in set(cur_months) | set(extra):
-        have = cur_months.get(iso, 0)
-        new = len(extra.get(iso, {}))
-        # fill-only: the live curve's months plus any extra month it lacks —
-        # without the live month keys we can only bound it: max(have, new).
-        if max(have, new) >= MIN_MONTHS:
+    listed = set(cur_curve) | set(extra)
+    for iso in listed:
+        months_now = cur_curve.get(iso, set()) | {m for m in extra.get(iso, {}) if not WINDOW or m in WINDOW}
+        if len(months_now) >= MIN_MONTHS:
             n += 1
     return n
 
@@ -184,7 +181,7 @@ for m in months:
         r.setdefault("depart_date", m + "-15")
     matrix_rows += rows
 mm = by_country_month(matrix_rows)
-print("  matrix alone: %d countries, %d with >= %d months; merged with live curves (upper bound): %d banded (today %d)"
+print("  matrix alone: %d countries, %d with >= %d months; merged fill-only with the live curves: %d banded (today %d)"
       % (len(mm), sum(1 for v in mm.values() if len(v) >= MIN_MONTHS), MIN_MONTHS, merged_banded(mm), banded_now))
 
 # 3. fallback prices_for_dates
@@ -200,7 +197,7 @@ for m in months:
     print("  %s: %4d rows" % (m, len(rows)))
     pfd_rows += rows
 pm = by_country_month(pfd_rows)
-print("  prices_for_dates alone: %d countries, %d with >= %d months; merged upper bound: %d banded"
+print("  prices_for_dates alone: %d countries, %d with >= %d months; merged fill-only: %d banded"
       % (len(pm), sum(1 for v in pm.values() if len(v) >= MIN_MONTHS), MIN_MONTHS, merged_banded(pm)))
 
 # 4. market=us
