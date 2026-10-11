@@ -7631,9 +7631,19 @@ function flightSearchURL(dest, monthKey) {
          "?marker=" + TP_MARKER;
 }
 
+let _originsReq = null;   // the /api/flight-origins fetch in flight, shared by everyone asking during it
 async function ensureOrigins() {
-  if (!flightOrigins) flightOrigins = (await getJSON("/api/flight-origins")).origins;
-  return flightOrigins;
+  if (flightOrigins) return flightOrigins;
+  // One request however many ask at once: buildValueTab's fillOriginSelect,
+  // the geo seed and postApplyShared all ask at boot, and each fetched its own
+  // copy — /api/flight-origins x2 measured on every ?vo= link and every non-US
+  // first visit. A failed fetch clears the slot, so the next caller retries.
+  if (!_originsReq) {
+    _originsReq = getJSON("/api/flight-origins")
+      .then((d) => (flightOrigins = d.origins))
+      .catch((e) => { _originsReq = null; throw e; });
+  }
+  return _originsReq;
 }
 
 // Populate an origin-country <select>, defaulting to the US.
