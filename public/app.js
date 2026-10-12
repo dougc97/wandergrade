@@ -7857,7 +7857,13 @@ function renderValue() {
     const toGems = !more && popular.length > 0 && picks.length < cap && gems.length > 0;
     sm.hidden = !more && !toGems;
     sm.dataset.go = toGems ? "gems" : "";
-    sm.textContent = toGems ? `💎 ${gems.length} more in Hidden gems ↓`
+    // The gems fold lists as many as the Show count, so "5 more" at Top 5
+    // read as five left where the Americas had thirteen (all thirteen at Top
+    // 20). Say which: the top N, or every gem there is.
+    const gemWord = gems.length === 1 ? "hidden gem" : "hidden gems";
+    sm.textContent = toGems
+      ? (gems.length < offbeat.length ? `💎 Top ${gems.length} ${gemWord} ↓`
+         : gems.length === 1 ? `💎 1 ${gemWord} ↓` : `💎 All ${gems.length} ${gemWord} ↓`)
       : cap === 5 ? "Show top 10 ↓" : "Show top 20 ↓";
   }
   const ranked = sortRows(rankedAll, fullSort, FULL_GET).slice(0, 40);
