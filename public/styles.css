@@ -2375,26 +2375,59 @@ button.chip2 { border: 0; }
 .seastag.seasbest { box-shadow: inset 0 0 0 1px currentColor; }
 .seastag.seasfly { background: var(--soft); color: var(--gray); }
 /* Phones hide the tags, but not the month an "Any time" row is scored on. The
-   name takes the first line and the month shares the second with the budget
-   line, so the row stays the height its pills already set: 52.4px at 375,
-   46.8 for a country with no season strip (30.8px inside; these two lines
-   take 29). As a line of its own the month grew every row 2px, and with a budget
-   set 17px. */
+   name takes the first line and the month the second, so the row stays the
+   height its pills already set: 52.4px at 375, 46.8 for a country with no
+   season strip (30.8px inside; these two lines take 29). */
 @media (max-width: 600px) {
   .gradetable tr.flexrow td.dest { line-height: 13px; }
   .gradetable tr.flexrow td.dest a.destlink { display: block; line-height: 16px;
     overflow: hidden; text-overflow: ellipsis; }
   .gradetable tr.flexrow td.dest .seastag.seasbest { display: inline-block; margin: 0 4px 0 0;
     padding: 0 5px; font-size: 10px; line-height: 13px; vertical-align: top; }
-  .gradetable tr.flexrow td.dest .budline { display: inline; margin: 0; }
-  /* With the budget line beside it the chip is the month alone ("Jan"):
-     "Best in Jan" left the line "💵 …" at 375, the per-day figure all cut. */
-  .gradetable tr.flexrow td.dest:has(.budline) .seasbest .sbw { display: none; }
+  /* With a budget the per-day figure gets a third line, as month mode gives it
+     its second, and the three lines are set tighter to stay in month mode's
+     row (54px against 55.2 at 375, 53 against 53.8 at 360). Sharing the
+     month's line, it was cut at "Jan 💵 USD 22…" on every row at 375. */
+  .gradetable tr.flexrow td.dest:has(.budline) { line-height: 11px; }
+  .gradetable tr.flexrow td.dest:has(.budline) a.destlink { line-height: 15px; }
+  .gradetable tr.flexrow td.dest:has(.budline) .seastag.seasbest { line-height: 11px; }
+  .gradetable tr.flexrow td.dest .budline { margin: 0; line-height: 11px; }
 }
-/* Where the name cell is capped hardest (601-899: 188px at 768), the chip is
-   the month alone: "Dominican Rep. Best in J…" lost the one word it is for. */
+@media (max-width: 374px) {
+  .gradetable tr.flexrow td.dest:has(.budline) a.destlink { line-height: 14px; }   /* 13px name */
+}
+/* Where the name cell is capped (601-1179) the cell's ellipsis cut from the
+   end, so a long name took the chips a flexible traveller came for: at 768
+   North Macedonia's month and every "✈️ cheapest" month were cut away. Here
+   the name gives first: it stops short of the chips' widest width (every
+   month measured, margin included). A seasonal tag after them is left to the
+   cell's ellipsis, which lands after the last glyph that fits with it, so the
+   tag gets room for its emoji and the "…" (40px): with less, the "…" fell
+   back onto the chip before it ("Jan…", "✈️ Oct…"). A percentage, so it
+   follows each width's cap. */
+@media (min-width: 601px) and (max-width: 1179px) {
+  .gradetable tr.flexrow td.dest { --chipw: 82px; --flyw: 112px; --seenw: 0px; --tagw: 40px; }
+  .gradetable tr.flexrow td.dest:has(.visited-tag) { --seenw: 66px; }
+  .gradetable tr.flexrow td.dest:not(:has(.seastag:not(.seasbest):not(.seasfly))) { --tagw: 0px; }
+  .gradetable tr.flexrow td.dest a.destlink { display: inline-block; vertical-align: bottom;
+    max-width: calc(100% - var(--chipw) - var(--seenw) - var(--tagw));
+    overflow: hidden; text-overflow: ellipsis; }
+  /* Beside both chips the tag would take the name's room ("🇺🇿 Uzbek…" at
+     900 for a "🏔️…"); the why-line and the weather tip still name it. */
+  .gradetable tr.flexrow td.dest:has(.seasfly) a.destlink {
+    max-width: calc(100% - var(--chipw) - var(--flyw) - var(--seenw)); }
+  .gradetable tr.flexrow td.dest:has(.seasfly) .seastag:not(.seasbest):not(.seasfly) { display: none; }
+}
+/* Capped hardest (601-899: 188px at 768), the chips are the months alone,
+   "Jan" and "✈️ Feb" ("Dominican Rep. Best in J…" and "✈️ cheap…" each lost
+   the one word they are for), and the seasonal tag goes: here it showed as
+   "Pata…" or "Dry …" at best. */
 @media (min-width: 601px) and (max-width: 899px) {
-  .gradetable tr.flexrow td.dest .seasbest .sbw { display: none; }
+  .gradetable tr.flexrow td.dest .seasbest .sbw,
+  .gradetable tr.flexrow td.dest .seasfly .sfw,
+  .gradetable tr.flexrow td.dest .seastag:not(.seasbest):not(.seasfly) { display: none; }
+  .gradetable tr.flexrow td.dest { --chipw: 44px; --flyw: 60px; }
+  .gradetable tr.flexrow td.dest a.destlink { max-width: calc(100% - var(--chipw) - var(--seenw)); }
 }
 /* The Full ranking's month, after the name. */
 #valueTable td.dest .vmon { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--gray); }

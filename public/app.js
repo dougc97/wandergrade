@@ -6020,7 +6020,10 @@ function buildValueTab() {
 // ---- export shortlist as an AI prompt --------------------------------------
 // Bridges the exploratory phase (this tool) to planning (the user's LLM):
 // copies their preferences + shortlist as a ready-to-paste prompt.
-let lastPicks = [], lastPicksMonth = null, lastPicksFlex = false;
+// lastPicksWx: ranked by Best weather, so an "Any time" pick's month is its
+// best-weather month, which the exports must not call its best month (Egypt:
+// November for weather, March for value).
+let lastPicks = [], lastPicksMonth = null, lastPicksFlex = false, lastPicksWx = false;
 // The month Top Picks ranked by, else the travel month itself: a Trip landing
 // never builds Top Picks, and /?tab=trip&vmn=3 showed October weather without
 // this (#valueMonth already holds the link's vmn= by then).
@@ -6476,12 +6479,13 @@ function buildAIPrompt() {
   // "Any time": every pick is graded on its own best month of the window,
   // and the prompt says which, line by line.
   const flexWin = lastPicksFlex ? flexWindow() : null;
+  const flexBest = lastPicksWx ? "best-weather month" : "best month";
   const passport = guidePassport();
   const lines = [];
   lines.push("I'm in the early, exploratory phase of planning a trip and used a travel-value tool to shortlist destinations. Below is everything it already gave me — use it (don't re-derive it) to help me turn this into a plan.");
   lines.push("");
   lines.push("WHEN: " + (flexWin ? "any time in the next 6 months (" + flexSpan(flexWin)
-    + ") — each pick below is graded on its best month in that window" : monthName));
+    + ") — each pick below is graded on its " + flexBest + " in that window" : monthName));
   lines.push("FROM: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
   if (region !== "all") lines.push("REGION: " + (REGIONS[region] || region));
   if (cares.length) lines.push("I CARE MOST ABOUT: " + cares.join(", "));
@@ -6490,7 +6494,7 @@ function buildAIPrompt() {
   const beenOwn = ownVisited();
   if (beenOwn.size) lines.push("ALREADY BEEN (skip): " + [...beenOwn].map(countryName).join(", "));
   lines.push("");
-  lines.push("SHORTLIST (best value first; grades are A+ to F):");
+  lines.push("SHORTLIST (" + (flexWin && lastPicksWx ? "best weather" : "best value") + " first; grades are A+ to F):");
   lastPicks.forEach((s, i) => {
     const pm = s.month || month, pmName = MONTHS[pm - 1];
     const cl = climate && climate[s.iso];
@@ -6514,7 +6518,7 @@ function buildAIPrompt() {
       ? (s.dealRatio <= 0.95 ? "cheaper than usual for the distance"
          : s.dealRatio >= 1.05 ? "pricier than usual for the distance" : "about average for the distance")
       : null;
-    lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)}${s.month ? " in " + pmName + ", its best month" : ""}`);
+    lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)}${s.month ? " in " + pmName + ", its " + (lastPicksWx ? "best month for weather" : "best month") : ""}`);
     if (aff) lines.push(`   - Affordability ${grade(s.afford)}: ${aff}`);
     // Whose words they are, too: "“No warning”" alone doesn't say it's Germany's.
     lines.push(`   - Safety: ${s.advLvl ? advLevelText(s.iso, s.advLvl) + advVia(s.iso) : "no current advisory"}`);
@@ -7267,14 +7271,15 @@ function flexChips(s) {
   const others = ws.filter((x) => x.m !== s.month && x[key] != null);
   const same = others.filter((x) => x[key] === s[key]).map((x) => MON_ABBR[x.m - 1]);
   const vals = others.map((x) => x[key]), lo = Math.min(...vals), hi = Math.max(...vals);
+  const byValue = flexTieOnValue(s, others, wxRank), tie = byValue ? "so the best value of them" : "so the soonest";
   const tip = "Best " + (wxRank ? "weather" : "value") + (span ? " of " + span : "") + ": "
     + MONTHS[s.month - 1] + (s[key] != null ? ", " + s[key] + "/100" : "")
     + (!others.length ? "."
-      : same.length ? " — " + (same.length === others.length ? "the same every month, so the soonest."
-                                : same.join(", ") + " the same.")
+      : same.length ? " — " + (same.length === others.length ? "the same every month, " + tie + "."
+                                : same.join(", ") + " the same" + (byValue ? ", " + tie : "") + ".")
       : " — the other months " + (lo === hi ? lo : lo + "–" + hi) + ".");
-  // "Best in " in a span of its own: a phone with a budget line beside the
-  // chip drops it (styles.css), leaving the month.
+  // "Best in " in a span of its own: where the name cell is capped hardest
+  // (601-899px, styles.css) the chip is the month alone.
   let html = `<span class="seastag seasbest" data-tip="${esc(tip)}" title=""><span class="sbw">Best in </span>${MON_ABBR[s.month - 1]}</span>`;
   const ch = s.cheapFly;
   if (ch) {
@@ -7286,9 +7291,22 @@ function flexChips(s) {
       + ", from " + fm(ch.price) + " round-trip"
       + (s.flyBasis === "month" && s.fare != null ? " (" + fm(s.fare) + " in " + MONTHS[s.month - 1] + ")" : "")
       + " — Aviasales' cached fare, not a live price.";
-    html += `<span class="seastag seasfly" data-tip="${esc(ftip)}" title="">✈️ cheapest ${MON_ABBR[ch.month - 1]}</span>`;
+    // "cheapest " in a span of its own, like "Best in ": where the name cell
+    // is capped hardest (styles.css) the chip is "✈️ Feb", the month being
+    // the one word it is for — "✈️ cheap…" at 768 had lost it.
+    html += `<span class="seastag seasfly" data-tip="${esc(ftip)}" title="">✈️ <span class="sfw">cheapest </span>${MON_ABBR[ch.month - 1]}</span>`;
   }
   return html;
+}
+// Whether a row's month won its tie with other months of the window on
+// value, for the chip's tip. Value ties go to the sooner month (bestOfWindow);
+// Best weather breaks a comfort tie on value first, so only a tie on both is
+// "the soonest": Cabo Verde, 100 every month Jan-Jun, takes its best-value
+// month where its route is banded (that month's fare sets its flight grade),
+// and the tip called April "the same every month, so the soonest". others:
+// the window's other months' { m, value, wx }.
+function flexTieOnValue(s, others, wxRank) {
+  return !!wxRank && others.some((x) => x.wx === s.wx && x.value !== s.value);
 }
 // flex: an "Any time" row, led by its "Best in" chip — so no "+N" and no
 // "🗓️ Best in" fallback beside it, which named the weather's best months
@@ -7790,7 +7808,7 @@ function renderValue() {
     : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + budNote;
   // lastPicksMonth stays a real month (the Trip tab and the stays plan for
   // one); lastPicksFlex tells the exports to word "the next 6 months".
-  lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex;   // for the AI export + re-sort
+  lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex; lastPicksWx = weatherMode;   // for the AI export + re-sort
   renderGradeTable($("topCards"), picks, month, false, true);
   // "Show more" reveals 10 then 20; hides when maxed out or nothing left.
   const sm = $("showMore");
@@ -10363,12 +10381,12 @@ function buildShareURL(forShare) {
     if (dataMode !== "currency") q.set("dm", dataMode);
     if (regionSel !== "all") q.set("vr", regionSel);
     // The Flights tab bands fares for a month, so its link keeps the one on
-    // screen — same rule as Top Picks for the address bar.
-    // In "Any time" that month is the window's first, which moves with the
-    // date — so the link keeps the choice (vmf), as Top Picks' does.
-    if (dataMode === "flights" && (forShare || travelMonthChosen)) {
-      if (picksFlex()) q.set("vmf", "1"); else q.set("vmn", String(flightMonthNum()));
-    }
+    // screen — same rule as Top Picks for the address bar. In "Any time" too
+    // (vmn, not vmf): the tab shows a real month, the window's first, and a
+    // vmf link pinned none — opened on Oct 25 it showed November where
+    // October was shared, and on Oct 16-22 the pre-paint key (index.html
+    // reads only vmn) said November until the tab swapped in October.
+    if (dataMode === "flights" && (forShare || travelMonthChosen)) q.set("vmn", String(flightMonthNum()));
     if (dataMode === "currency" && activeRange !== "1y") q.set("win", activeRange);
     if (own && dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
     if (own && dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
@@ -11056,7 +11074,7 @@ function buildRankShareSVG() {
     body += '<text x="102" y="' + (y + 30) + '" font-family="' + F
       + '" font-size="17" font-weight="700" fill="' + FG + '">' + esc2(s.name)
       // On the name's line, where it has room: the line under it is full.
-      + (s.month ? '<tspan font-size="13" font-weight="600" fill="' + MUTE + '">' + esc2("  ·  best in " + MON_ABBR[s.month - 1]) + "</tspan>" : "")
+      + (s.month ? '<tspan font-size="13" font-weight="600" fill="' + MUTE + '">' + esc2("  ·  best " + (lastPicksWx ? "weather " : "") + "in " + MON_ABBR[s.month - 1]) + "</tspan>" : "")
       + "</text>";
     const bits = [];
     // s.fare is the cached AVERAGE round trip (or a distance estimate), never
@@ -11081,7 +11099,8 @@ function buildRankShareSVG() {
     + '">' + esc2("Where to travel in " + (flexWin ? "the next 6 months" : month)) + "</text>"
     + '<text x="24" y="70" font-family="' + F + '" font-size="12.5" fill="' + MUTE
     + '">' + esc2(flexWin
-      ? "Top " + picks.length + " by value from " + originName + ", each on its best month of "
+      ? "Top " + picks.length + " by " + (lastPicksWx ? "weather" : "value") + " from " + originName
+        + ", each on its " + (lastPicksWx ? "best-weather month" : "best month") + " of "
         + flexSpan(flexWin) + " — graded A+ to F"
       : "Top " + picks.length + " by value from " + originName
       + " — affordability, safety, weather and flights, graded A+ to F") + "</text>"

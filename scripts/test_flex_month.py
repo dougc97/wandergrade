@@ -9,6 +9,8 @@ public/app.js, cut out of the file by name and run under jsc.
                     Best weather; a tie keeps the sooner month
   cheapestFareMonth the gated cheapest-flight month: banded routes only,
                     window keys only, the sooner month on an equal fare
+  flexTieOnValue    whether the chip's tip owes a tie to value ("so the best
+                    value of them"), not to order ("so the soonest")
 
     /usr/bin/python3 scripts/test_flex_month.py
 """
@@ -42,10 +44,10 @@ def jsc(prog):
 
 
 PIECES = "\n".join([js_const("MON_ABBR"), js_const("FLEX_MONTHS"), js_fn("flexWindow"), js_fn("flexSpan"),
-                    js_fn("bestOfWindow"), js_fn("cheapestFareMonth")])
+                    js_fn("bestOfWindow"), js_fn("cheapestFareMonth"), js_fn("flexTieOnValue")])
 results.append(ok(all(x in PIECES for x in ("function flexWindow", "function bestOfWindow", "function cheapestFareMonth",
-                                            "FLEX_PARTIAL_DAYS = 10", "function flexSpan")),
-                  "flexWindow, bestOfWindow, cheapestFareMonth and FLEX_MONTHS found in app.js"))
+                                            "FLEX_PARTIAL_DAYS = 10", "function flexSpan", "function flexTieOnValue")),
+                  "flexWindow, bestOfWindow, cheapestFareMonth, flexTieOnValue and FLEX_MONTHS found in app.js"))
 
 # --- flexWindow ----------------------------------------------------------------
 # The browser's local date; months are 1-12. Oct 22 has 10 days left counting
@@ -104,6 +106,33 @@ results.append(ok(got and got[2] is None, "bestOfWindow with no scores -> null")
 results.append(ok(got and got[3] == 12, "bestOfWindow keeps window order, not calendar order: Dec before Jan on a tie (got %s)" % (got and got[3])))
 results.append(ok(got and got[4] == 11, "bestOfWindow by weather with no comfort data falls back to value (got %s)" % (got and got[4])))
 results.append(ok(got and got[5] == 11, "bestOfWindow by weather: a month with comfort beats one without (got %s)" % (got and got[5])))
+
+# --- flexTieOnValue ----------------------------------------------------------------
+# The chip's tip, "the same every month, so the soonest", was true only of
+# value ties. Best weather breaks a comfort tie on value: Cabo Verde, 100
+# every month Jan-Jun on a banded route, takes its best-value month (April
+# here), and only a tie on value too is "the soonest". The rows below go
+# through bestOfWindow first, as flexChips gets them.
+WIN6 = [1, 2, 3, 4, 5, 6]
+TIES = [("weather", [S(80, 100), S(82, 100), S(85, 100), S(90, 100), S(88, 100), S(84, 100)], True, 4,
+         "Best weather, 100 every month, values differ -> April on value, owed to value"),
+        ("weather", [S(80, 100)] * 6, False, 1, "Best weather, 100 and 80 every month -> January, the soonest"),
+        ("weather", [S(70, 100), S(99, 90), S(75, 100), S(60, 80), S(60, 80), S(60, 80)], True, 3,
+         "Best weather, Jan and Mar tie on 100 -> March on value 75 > 70, owed to value"),
+        ("weather", [S(70, 100), S(99, 90), S(70, 100), S(60, 80), S(60, 80), S(60, 80)], False, 1,
+         "Best weather, Jan and Mar tie on comfort and value -> January, the soonest"),
+        ("weather", [S(70, 60), S(99, 90), S(75, 100), S(60, 80), S(60, 80), S(60, 80)], False, 3,
+         "Best weather, no tie on comfort -> March, nothing owed to a tie"),
+        ("value", [S(84, 10), S(84, 90), S(80, 95), S(84, 100), S(70, 50), S(60, 40)], False, 1,
+         "Best value, 84 in Jan, Feb and Apr -> January, the soonest, whatever the comfort")]
+prog = PIECES + "\nconst win = %s, out = [];\nfor (const [mode, rows] of %s) {\n" % (json.dumps(WIN6), json.dumps([[t[0], t[1]] for t in TIES])) + \
+    "  const by = {}; win.forEach((m, i) => { by[m] = rows[i]; });\n" \
+    "  const key = mode === 'weather' ? 'wx' : 'value', b = bestOfWindow(by, win, key);\n" \
+    "  const others = win.filter((m) => m !== b.month).map((m) => Object.assign({ m }, by[m])).filter((x) => x[key] != null);\n" \
+    "  out.push([b.month, flexTieOnValue(b.s, others, mode === 'weather')]);\n}\nprint(JSON.stringify(out));"
+got = jsc(prog) or [None] * len(TIES)
+for (mode, rows, want, wm, label), g in zip(TIES, got):
+    results.append(ok(g == [wm, want], "flexTieOnValue: %s (got %s)" % (label, g)))
 
 # --- cheapestFareMonth --------------------------------------------------------------
 KEYS = ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03"]
