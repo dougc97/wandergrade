@@ -3640,7 +3640,10 @@ async function commonsPhoto(name, minW, minH) {
 const _photoCredit = {};
 function _plainText(html) {
   const d = new DOMParser().parseFromString(String(html || ""), "text/html");
-  const t = (d.body.textContent || "").replace(/\s+/g, " ").trim();
+  // An Artist field often links the uploader by wiki username, its text the
+  // raw link ("c:User:Aboubacarkhoraa"): the name alone is the credit.
+  const t = (d.body.textContent || "").replace(/\b(?:(?:c|commons|w|en):)?User:(?=\S)/gi, "")
+    .replace(/\s+/g, " ").trim();
   return t.length > 60 ? t.slice(0, 58).trim() + "…" : t;
 }
 // file -> the in-flight batch asking for it. A caller wanting a file another

@@ -46,7 +46,10 @@ def licence_ok(short, code):
 
 
 def _plain(v):
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", str(v or ""))).strip()
+    """Tag-free text, as app.js _plainText() prints a credit: a wiki-username
+    link's raw "c:User:" prefix dropped, so the name alone credits."""
+    t = re.sub(r"\b(?:(?:c|commons|w|en):)?User:(?=\S)", "", re.sub(r"<[^>]+>", "", str(v or "")), flags=re.I)
+    return re.sub(r"\s+", " ", t).strip()
 
 
 def commons_file(name, width, ua):

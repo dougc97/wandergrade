@@ -14,8 +14,9 @@
     thumbs both go through it) and gen_og_images.py reads it too;
   * app.js's handling of a file entry, run under jsc on a fixture: the
     Commons imageinfo lookup, the size gate, the skip list, the licence rule
-    (one console.info per refused file), the credit it brings along, and a
-    title still going through pageimages; PHOTO_LICENCE_OK and
+    (one console.info per refused file), the credit it brings along (an
+    uploader linked by username credits the name, not "c:User:<name>"), and
+    a title still going through pageimages; PHOTO_LICENCE_OK and
     gallery_entry.LICENCE_OK agree on a table of licence names.
 """
 import json
@@ -118,6 +119,12 @@ results.append(ok(app.count('val("LicenseShortName")') == 1 and "_creditFrom(ii)
 UP = "https://upload.wikimedia.org/wikipedia/commons/"
 
 
+USER_ARTIST = ('<p>photo <a href="https://commons.wikimedia.org/wiki/User:Aboubacarkhoraa" class="extiw" '
+               'title="c:User:Aboubacarkhoraa">c:User:Aboubacarkhoraa</a>, correction de perspective '
+               '<a href="https://commons.wikimedia.org/wiki/User:GrandEscogriffe" class="extiw" '
+               'title="c:User:GrandEscogriffe">c:User:GrandEscogriffe</a>\n</p>')
+
+
 def ii(title, w, h, lic, code, artist='<a href="//commons.wikimedia.org/wiki/User:Jane">Jane <b>Doe</b></a>'):
     """What Commons answers today: thumbwidth/height are the size ASKED for
     (1600, even past a smaller original, which then comes back unscaled), the
@@ -140,6 +147,8 @@ FIX = {t.lower(): v for t, v in {
     "File:Skipped beach.jpg": ii("File:Skipped beach.jpg", 3000, 2000, "CC BY-SA 4.0", "cc-by-sa-4.0"),
     "File:Small beach.jpg": ii("File:Small beach.jpg", 640, 427, "CC BY-SA 3.0", "cc-by-sa-3.0"),
     "File:Old Freetown.jpg": ii("File:Old Freetown.jpg", 1827, 1095, "Public domain", "pd"),
+    # Guinea's Grand Mosque credits its uploaders by interwiki user link.
+    "File:Grand mosque.jpg": ii("File:Grand mosque.jpg", 1358, 1024, "CC-BY-SA-4.0", "cc-by-sa-4.0", USER_ARTIST),
 }.items()}
 GALLERY = ["Mount Bintumani", {"file": "beach in Freetown.jpg", "label": "Lumley Beach"}]
 prog = r"""
@@ -180,6 +189,7 @@ let activities = { SL: { gallery: %s } };
   o.badCalls = calls.length - before;
   o.missing = await wikiIconic({ file: "No such file.jpg", label: "x" });
   o.pd = await wikiIconic({ file: "Old Freetown.jpg", label: "x" });
+  o.userCredit = photoCreditHTML(await wikiIconic({ file: "Grand mosque.jpg", label: "x" }));
   o.logs = logs;
   o.lic = %s.map((s) => PHOTO_LICENCE_OK.test(s));
   o.keys = [o.ok.thumb, o.ok.full, o.title.full.replace("en.wikipedia.org", "commons.wikimedia.org"),
@@ -236,6 +246,10 @@ results.append(ok("small" in o and o["small"] is None and (o.get("smallThumb") o
 results.append(ok("bad" in o and o["bad"] is None and o.get("badCalls") == 0, "PHOTO_BAD drops a pinned name before any request"))
 results.append(ok("missing" in o and o["missing"] is None and (o.get("pd") or {}).get("file") == "Old_Freetown.jpg",
                   "a missing file is null; a public-domain file shows"))
+uc = o.get("userCredit", "")
+results.append(ok(">photo Aboubacarkhoraa, correction de perspective GrandEsco…</a>" in uc and "User:" not in uc
+                  and gallery_entry._plain(USER_ARTIST) == "photo Aboubacarkhoraa, correction de perspective GrandEscogriffe",
+                  "a credit linking uploaders by username prints the names, not raw c:User: text (%s)" % re.sub(r"<[^>]+>", "", uc)))
 py_lic = [bool(gallery_entry.LICENCE_OK.match(s)) for s in LICENCES]
 results.append(ok(o.get("lic") == list(LICENCES.values()) and py_lic == list(LICENCES.values()),
                   "PHOTO_LICENCE_OK and gallery_entry.LICENCE_OK: CC BY / BY-SA (any version, port), CC0, PD in; NC, ND, GFDL, FAL out"
