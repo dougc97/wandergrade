@@ -1545,6 +1545,18 @@ html[data-tab="guide"] #tab-guide .cardwide { min-height: 100vh; }
   border-radius: 999px; background: var(--card2); color: var(--ink); font-size: 13.5px;
   font-weight: 600; cursor: pointer; }
 .showmore:hover { border-color: var(--green); color: var(--green); }
+/* display:block above beat the [hidden] renderValue sets, so "Show top 20 ↓"
+   sat under a two-row table with nothing more to show. Invisible, not gone:
+   index.html ships it [hidden] and nearly every render shows it, so removing
+   its box would push the gems fold and the map down on each first render. */
+#showMore[hidden] { visibility: hidden; }
+/* The picks note's "show" (the ✓ been countries it hides): the site's green,
+   not the system LinkText, which is a dark blue on the dark theme. */
+.picksnote .linkbtn { color: var(--green); font-weight: 600; text-decoration: none; }
+.picksnote .linkbtn:hover { text-decoration: underline; }
+/* One unit: at 375 the count was left at a line's end ("Hidden gems. 11")
+   with "you've been to hidden · show" on the next. */
+.beennote { white-space: nowrap; }
 /* Guide jump chips. */
 .guidejump { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
 .guidejump button { border: 1px solid var(--line); background: var(--card2); border-radius: 999px;

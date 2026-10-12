@@ -7807,20 +7807,20 @@ function renderValue() {
     : "";
   const rankedBy = flex ? `each one's best ${weatherMode ? "weather" : "month"} in ${flexSpan(win)}`
     : weatherMode ? `weather comfort in ${MONTHS[month - 1]}` : "value";
+  // The ✓ been countries the picks leave out, said where the picks are read.
+  // rankNote says it too, but inside the closed Full ranking fold: a reader
+  // with eleven of the Americas marked saw Top 20 come back as Panama and
+  // Costa Rica, with nothing on screen saying why. One tap includes them
+  // (the Been-to filter's own "Include visited", so it persists the same way).
+  const beenNote = hiddenVisited
+    ? ` <span class="beennote">${hiddenVisited} you've been to hidden · <button type="button" class="linkbtn" id="showBeen">show</button></span>` : "";
   if (picksNote) picksNote.innerHTML = (popular.length
     ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
-    : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + budNote;
+    : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + beenNote + budNote;
   // lastPicksMonth stays a real month (the Trip tab and the stays plan for
   // one); lastPicksFlex tells the exports to word "the next 6 months".
   lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex; lastPicksWx = weatherMode;   // for the AI export + re-sort
   renderGradeTable($("topCards"), picks, month, false, true);
-  // "Show more" reveals 10 then 20; hides when maxed out or nothing left.
-  const sm = $("showMore");
-  if (sm) {
-    const cap = pickCount();
-    sm.hidden = cap >= 20 || picks.length < cap;
-    sm.textContent = cap === 5 ? "Show top 10 ↓" : "Show top 20 ↓";
-  }
   // Pulse the picked countries on the map so table and map visibly agree.
   if (!reducedMotion()) {
     const pickSet = new Set(picks.map((s) => s.iso));
@@ -7844,6 +7844,21 @@ function renderValue() {
   if (gemsBox) {
     gemsBox.hidden = !gems.length;
     if (gems.length) renderGradeTable($("gemRows"), gems, month, true, true, gemSort);
+  }
+  // "Show more" reveals 10 then 20. When the popular list runs out before the
+  // Show count (a region with most of its famous names marked ✓ been: two
+  // rows under "Top 20"), the same button points at the gems instead — the
+  // rest of the ranking is there, in a fold the reader may never open. Hidden
+  // otherwise; styles.css keeps its room (#showMore[hidden]).
+  const sm = $("showMore");
+  if (sm) {
+    const cap = pickCount();
+    const more = cap < 20 && picks.length >= cap;
+    const toGems = !more && popular.length > 0 && picks.length < cap && gems.length > 0;
+    sm.hidden = !more && !toGems;
+    sm.dataset.go = toGems ? "gems" : "";
+    sm.textContent = toGems ? `💎 ${gems.length} more in Hidden gems ↓`
+      : cap === 5 ? "Show top 10 ↓" : "Show top 20 ↓";
   }
   const ranked = sortRows(rankedAll, fullSort, FULL_GET).slice(0, 40);
   markSort("#valueTable", fullSort);
@@ -9898,10 +9913,26 @@ document.querySelector(".guidejump").addEventListener("click", (e) => {
 // "Show more" under the Top Picks table: 5 -> 10 -> 20 without a pre-decision
 // dropdown (the Show select still lives in Filters for direct control).
 $("showMore").addEventListener("click", () => {
+  if ($("showMore").dataset.go === "gems") {   // the popular list ran out: open the gems
+    const g = $("gemsBox");
+    if (g) { g.open = true; g.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" }); }
+    return;
+  }
   const next = pickCount() === 5 ? "10" : "20";
   $("pickCount").value = next;
   localStorage.setItem("fx_pickcount", next);
   renderValue();
+});
+
+// The picks note's "show" (beenNote): the Been-to filter's "Include visited",
+// through its own change handler so it is saved like a pick there.
+$("picksNote").addEventListener("click", (e) => {
+  if (!e.target.closest("#showBeen")) return;
+  const sel = $("beenFilter");
+  if (!sel) return;
+  sel.value = "show";
+  if (sel._sync) sel._sync();
+  sel.dispatchEvent(new Event("change"));
 });
 
 // Explore-the-Data sub-views: currency / cost of living / safety / flights.
