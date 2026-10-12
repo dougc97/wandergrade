@@ -2369,6 +2369,35 @@ button.chip2 { border: 0; }
 .seastag::after { content: ""; position: absolute; inset: -7px; }  /* tap target */
 .seastag.seasmore { background: var(--soft); color: var(--gray); }
 @media (max-width: 600px) { .seastag { display: none; } }  /* row is tight enough */
+/* "Any time" (app.js flexChips): the month a row is scored on leads its chips,
+   ringed so it reads as the answer, not one more "why now" reason; the
+   cheapest-flight month beside it is grey, a footnote to that answer. */
+.seastag.seasbest { box-shadow: inset 0 0 0 1px currentColor; }
+.seastag.seasfly { background: var(--soft); color: var(--gray); }
+/* Phones hide the tags, but not the month an "Any time" row is scored on. The
+   name takes the first line and the month shares the second with the budget
+   line, so the row stays the height its pills already set: 52.4px at 375,
+   46.8 for a country with no season strip (30.8px inside; these two lines
+   take 29). As a line of its own the month grew every row 2px, and with a budget
+   set 17px. */
+@media (max-width: 600px) {
+  .gradetable tr.flexrow td.dest { line-height: 13px; }
+  .gradetable tr.flexrow td.dest a.destlink { display: block; line-height: 16px;
+    overflow: hidden; text-overflow: ellipsis; }
+  .gradetable tr.flexrow td.dest .seastag.seasbest { display: inline-block; margin: 0 4px 0 0;
+    padding: 0 5px; font-size: 10px; line-height: 13px; vertical-align: top; }
+  .gradetable tr.flexrow td.dest .budline { display: inline; margin: 0; }
+  /* With the budget line beside it the chip is the month alone ("Jan"):
+     "Best in Jan" left the line "💵 …" at 375, the per-day figure all cut. */
+  .gradetable tr.flexrow td.dest:has(.budline) .seasbest .sbw { display: none; }
+}
+/* Where the name cell is capped hardest (601-899: 188px at 768), the chip is
+   the month alone: "Dominican Rep. Best in J…" lost the one word it is for. */
+@media (min-width: 601px) and (max-width: 899px) {
+  .gradetable tr.flexrow td.dest .seasbest .sbw { display: none; }
+}
+/* The Full ranking's month, after the name. */
+#valueTable td.dest .vmon { margin-left: 4px; font-size: 11px; font-weight: 400; color: var(--gray); }
 
 /* Contextual save prompt in Wander List — appears once there is something to
    lose, which is the moment it persuades. The header button asks before the
@@ -2503,12 +2532,14 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
        which hid it and left the chip cut flat. At 7% the ellipsis shows and
        the text stays >= 4.6:1 at rest in both themes. */
     background: color-mix(in srgb, var(--green) 7%, transparent); }
-  .gradetable td.dest .seastag.seasmore { background: color-mix(in srgb, var(--gray) 10%, transparent); }
+  .gradetable td.dest .seastag.seasmore,
+  .gradetable td.dest .seastag.seasfly { background: color-mix(in srgb, var(--gray) 10%, transparent); }
   /* The tint also lets the hovered row's --soft through: in light mode that
      took green to 4.26:1 and the grey "+N" to 4.48. One shade darker on
      hover gives 4.92 and 5.22. Dark mode stays >= 4.69 as it is. */
-  html:not([data-theme="dark"]) .gradetable tbody tr:hover td.dest .seastag:not(.seasmore):not(.seasoff) { color: #087224; }
-  html:not([data-theme="dark"]) .gradetable tbody tr:hover td.dest .seastag.seasmore { color: #5c5c5c; }
+  html:not([data-theme="dark"]) .gradetable tbody tr:hover td.dest .seastag:not(.seasmore):not(.seasoff):not(.seasfly) { color: #087224; }
+  html:not([data-theme="dark"]) .gradetable tbody tr:hover td.dest .seastag.seasmore,
+  html:not([data-theme="dark"]) .gradetable tbody tr:hover td.dest .seastag.seasfly { color: #5c5c5c; }
 }
 @media (max-width: 760px) {
   /* Header words to their emoji: "💰 AFFORDABILITY" alone is 115px, and the

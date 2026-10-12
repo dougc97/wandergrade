@@ -2543,7 +2543,7 @@ async function renderGuideGrades(iso) {
     // Fares still out after 2.5s: the line is drawn without them (below).
     setTimeout(() => { if (_guideFarePend) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); } }, 2500);
   }
-  const month = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
+  const month = travelMonth();
   let s = null;
   try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), plAnchor(originIso()).pl); } catch (e) {}
   // A graded line is drawn once, with its fares: drawn before them too, its
@@ -2847,7 +2847,7 @@ async function renderGuideFares(iso) {
   // The trip month is boxed like the temperature chart's (.selmonth), so the
   // fare for the month being planned is findable at a glance; planForMonth
   // redraws this panel when it changes.
-  const selM = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
+  const selM = travelMonth();
   // The tip sits on the whole column, not the bar: on a phone a 9px-wide bar
   // (or an 8%-high empty stub) was the only tap target.
   const cols = prices.map((p, i) => {
@@ -3051,8 +3051,7 @@ function ensureStayCoords() {
 // Concrete check-in window from the selected travel month: the 15th of that
 // month (this year if still ahead, else next year) for a 3-night stay.
 function stayDates() {
-  const vm = parseInt(($("valueMonth") || {}).value, 10);
-  const month = (vm >= 1 && vm <= 12) ? vm : (lastPicksMonth || curMonth());
+  const month = travelMonth();
   const now = new Date();
   let y = now.getFullYear();
   if (month < now.getMonth() + 1) y++;
@@ -4062,7 +4061,7 @@ function renderCountryClimate(iso) {
   const temps = c.temps || [];
   const bars = c.scores.map((s, i) => {
     const h = s == null ? 0 : Math.round(s);
-    const selM = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
+    const selM = travelMonth();
     const col = (bestSet.has(i + 1) ? "col best" : "col") + (i + 1 === selM ? " selmonth" : "");
     const hz = hzByMonth[i + 1];
     const t = temps[i];
@@ -6021,11 +6020,11 @@ function buildValueTab() {
 // ---- export shortlist as an AI prompt --------------------------------------
 // Bridges the exploratory phase (this tool) to planning (the user's LLM):
 // copies their preferences + shortlist as a ready-to-paste prompt.
-let lastPicks = [], lastPicksMonth = null;
+let lastPicks = [], lastPicksMonth = null, lastPicksFlex = false;
 // The month Top Picks ranked by, else the travel month itself: a Trip landing
 // never builds Top Picks, and /?tab=trip&vmn=3 showed October weather without
 // this (#valueMonth already holds the link's vmn= by then).
-function picksMonth() { return lastPicksMonth || parseInt(($("valueMonth") || {}).value, 10) || curMonth(); }
+function picksMonth() { return lastPicksMonth || travelMonth(); }
 let lastGems = [];   // current hidden-gems list, for the 💎 surprise button
 
 // ---- Trip builder -----------------------------------------------------------
@@ -6474,11 +6473,15 @@ function buildAIPrompt() {
   const cares = WEIGHT_DEFS.filter((w) => p[w.key] === "high" && loadFactors().includes(w.key))
     .map((w) => careMap[w.key]);
   const monthName = MONTHS[month - 1];
+  // "Any time": every pick is graded on its own best month of the window,
+  // and the prompt says which, line by line.
+  const flexWin = lastPicksFlex ? flexWindow() : null;
   const passport = guidePassport();
   const lines = [];
   lines.push("I'm in the early, exploratory phase of planning a trip and used a travel-value tool to shortlist destinations. Below is everything it already gave me — use it (don't re-derive it) to help me turn this into a plan.");
   lines.push("");
-  lines.push("WHEN: " + monthName);
+  lines.push("WHEN: " + (flexWin ? "any time in the next 6 months (" + flexSpan(flexWin)
+    + ") — each pick below is graded on its best month in that window" : monthName));
   lines.push("FROM: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
   if (region !== "all") lines.push("REGION: " + (REGIONS[region] || region));
   if (cares.length) lines.push("I CARE MOST ABOUT: " + cares.join(", "));
@@ -6489,10 +6492,11 @@ function buildAIPrompt() {
   lines.push("");
   lines.push("SHORTLIST (best value first; grades are A+ to F):");
   lastPicks.forEach((s, i) => {
+    const pm = s.month || month, pmName = MONTHS[pm - 1];
     const cl = climate && climate[s.iso];
-    const seas = cl ? seasons(cl.scores)[month - 1] : null;
+    const seas = cl ? seasons(cl.scores)[pm - 1] : null;
     const best = cl && cl.best && cl.best.length ? cl.best.map((m) => MON_ABBR[m - 1]).join(", ") : null;
-    const hz = hazardsFor(s.iso, month).map((h) => h.note);
+    const hz = hazardsFor(s.iso, pm).map((h) => h.note);
     const acts = (activities && activities[s.iso] && activities[s.iso].activities) || [];
     const vi = visaInfo(s.iso, passport);
     // Affordability in plain words.
@@ -6505,20 +6509,20 @@ function buildAIPrompt() {
     // distance where a route has too few cached months.
     const fl = s.flyBasis === "month"
       ? (s.fly >= 80 ? "cheaper than this route's usual for " : s.fly <= 60 ? "pricier than this route's usual for "
-         : "about this route's usual for ") + MONTHS[month - 1]
+         : "about this route's usual for ") + pmName
       : (s.dealRatio != null && !s.fareEst)
       ? (s.dealRatio <= 0.95 ? "cheaper than usual for the distance"
          : s.dealRatio >= 1.05 ? "pricier than usual for the distance" : "about average for the distance")
       : null;
-    lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)}`);
+    lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)}${s.month ? " in " + pmName + ", its best month" : ""}`);
     if (aff) lines.push(`   - Affordability ${grade(s.afford)}: ${aff}`);
     // Whose words they are, too: "“No warning”" alone doesn't say it's Germany's.
     lines.push(`   - Safety: ${s.advLvl ? advLevelText(s.iso, s.advLvl) + advVia(s.iso) : "no current advisory"}`);
     // visaInfo returns {home: true} with no meta for the passport's own
     // country (the US in Top Picks for a US reader): it crashed the prompt.
     if (vi && vi.meta) lines.push(`   - Visa (${passport === "US" ? "US" : countryName(passport)} passport): ${vi.meta.long}${vi.note ? " — " + vi.note : ""}`);
-    if (best) lines.push(`   - Best months: ${best}; ${monthName}: ${SEASON_WX[seas] || "no data"} for weather`);
-    if (hz.length) lines.push(`   - ${monthName} heads-up: ${hz.join("; ")}`);
+    if (best) lines.push(`   - Best months: ${best}; ${pmName}: ${SEASON_WX[seas] || "no data"} for weather`);
+    if (hz.length) lines.push(`   - ${pmName} heads-up: ${hz.join("; ")}`);
     if (acts.length) lines.push(`   - Known for: ${acts.map(actLabel).filter(Boolean).join("; ")}`);
     if (fl) lines.push(`   - Flights: ${fl}`);
   });
@@ -6530,7 +6534,7 @@ function buildAIPrompt() {
   lines.push("- Draft a day-by-day itinerary for your top pick");
   lines.push("- Tell me when to book flights and where to stay");
   lines.push("");
-  lines.push("These grades are from WanderGrade: " + SITE_ORIGIN + "/?vmn=" + month);
+  lines.push("These grades are from WanderGrade: " + SITE_ORIGIN + (flexWin ? "/?vmf=1" : "/?vmn=" + month));
   return lines.join("\n");
 }
 // Shared AI panel: shows the prompt with Copy / Open in ChatGPT / Open in
@@ -6588,10 +6592,9 @@ async function copyText(text, quiet) {
 // can copy or fire straight into ChatGPT/Claude. The monthly email links here
 // (?tab=guide&gc=ISO&ai=1) so the AI hand-off keeps people on the site.
 function buildCountryAIPrompt(iso) {
-  // Prefer the chosen travel month (set by ?vmn= from the email link or the
-  // Top Picks selector), else the last picks month, else the current month.
-  const vm = parseInt(($("valueMonth") || {}).value, 10);
-  const month = (vm >= 1 && vm <= 12) ? vm : (lastPicksMonth || curMonth());
+  // The chosen travel month (?vmn= from the email link, the Top Picks
+  // selector, a guide bar); in "Any time", the window's first month.
+  const month = travelMonth();
   const monthName = MONTHS[month - 1];
   const passport = guidePassport();
   const name = countryName(iso);
@@ -7166,14 +7169,14 @@ function dimPicksFromDom(hostId) {
            title: (row.querySelector("strong") || {}).textContent || null };
 }
 
-function renderMapPicksOverlay(picks, month, hostId) {
+function renderMapPicksOverlay(picks, month, hostId, flex) {
   // Below the map, not on it — the same call the Data maps made when their
   // overlays covered continents on narrow layouts. The EXPORTED image keeps
   // its on-map list (an image needs the answer inside itself); the live map
   // stays unobstructed.
   const show = valueMapMode !== "weather" && picks && picks.length;
   renderDimPicks(hostId || "valueMap",
-    "Best value in " + MONTHS[month - 1],
+    flex ? "Best value · next 6 months" : "Best value in " + MONTHS[month - 1],
     show ? picks.slice(0, 8).map((s) => s.name) : null);
 }
 
@@ -7252,7 +7255,45 @@ function seasonStrip(iso, month) {
   return `<span class="seasonstrip${scarce ? " scarce" : ""}" role="img" aria-label="${esc(tip)}" data-tip="${esc(tip)}" title="">${cells}</span>`;
 }
 
-function seasonalTags(iso, month, max) {
+// "Any time" rows lead with the month they are scored on, and — the owner's
+// "gated both" — the window's cheapest flight month where that differs
+// (s.cheapFly: renderValue sets it only on a route with a typical range).
+// The month is the answer a flexible traveller came for, so it is a chip of
+// its own rather than a word in the row's hover.
+function flexChips(s) {
+  const wxRank = valueMapMode === "weather", key = wxRank ? "wx" : "value";
+  const ws = s.winScores || [];
+  const span = ws.length ? flexSpan(ws.map((x) => x.m)) : "";
+  const others = ws.filter((x) => x.m !== s.month && x[key] != null);
+  const same = others.filter((x) => x[key] === s[key]).map((x) => MON_ABBR[x.m - 1]);
+  const vals = others.map((x) => x[key]), lo = Math.min(...vals), hi = Math.max(...vals);
+  const tip = "Best " + (wxRank ? "weather" : "value") + (span ? " of " + span : "") + ": "
+    + MONTHS[s.month - 1] + (s[key] != null ? ", " + s[key] + "/100" : "")
+    + (!others.length ? "."
+      : same.length ? " — " + (same.length === others.length ? "the same every month, so the soonest."
+                                : same.join(", ") + " the same.")
+      : " — the other months " + (lo === hi ? lo : lo + "–" + hi) + ".");
+  // "Best in " in a span of its own: a phone with a budget line beside the
+  // chip drops it (styles.css), leaving the month.
+  let html = `<span class="seastag seasbest" data-tip="${esc(tip)}" title=""><span class="sbw">Best in </span>${MON_ABBR[s.month - 1]}</span>`;
+  const ch = s.cheapFly;
+  if (ch) {
+    // The fare strip's money (fareStripOpts): the reader's flight currency,
+    // "≈" when converted. Beside it, the best month's own fare where its
+    // flight grade came from that month, so the trade is in one line.
+    const o = fareStripOpts(ch.month), fm = (v) => fareMoney(v, o.cur, o.conv);
+    const ftip = "Cheapest flight" + (span ? " of " + span : "") + ": " + MONTHS[ch.month - 1]
+      + ", from " + fm(ch.price) + " round-trip"
+      + (s.flyBasis === "month" && s.fare != null ? " (" + fm(s.fare) + " in " + MONTHS[s.month - 1] + ")" : "")
+      + " — Aviasales' cached fare, not a live price.";
+    html += `<span class="seastag seasfly" data-tip="${esc(ftip)}" title="">✈️ cheapest ${MON_ABBR[ch.month - 1]}</span>`;
+  }
+  return html;
+}
+// flex: an "Any time" row, led by its "Best in" chip — so no "+N" and no
+// "🗓️ Best in" fallback beside it, which named the weather's best months
+// next to the chip's best-value month as if the two disagreed.
+function seasonalTags(iso, month, max, flex) {
   const hits = seasonalNow(iso, month);
   // Nothing in season is itself the answer, and a blank cell doesn't say it.
   // Egypt in August has two seasonal windows, neither covering August, because
@@ -7276,7 +7317,7 @@ function seasonalTags(iso, month, max) {
     // question the blank cell raises ("is there nothing here?") with the most
     // useful thing we know, and it comes straight from climate.best.
     const best = (cl && cl.best) || [];
-    if (best.length) {
+    if (best.length && !flex) {
       const span = best.map((m) => MON_ABBR[m - 1]).join(", ");
       return `<span class="seastag seasoff" data-tip="${esc("Nothing peaks in "
         + MONTHS[month - 1] + ". This country is at its best in " + span + ".")}" title="">`
@@ -7287,7 +7328,7 @@ function seasonalTags(iso, month, max) {
   const shown = hits.slice(0, max || 2).map((x) =>
     `<span class="seastag" data-tip="${esc(x.what + (x.d ? " — " + x.d : ""))}" title="">`
     + `${activityEmoji(x.what)} ${esc(x.what)}</span>`).join("");
-  const more = hits.length > (max || 2)
+  const more = hits.length > (max || 2) && !flex
     ? `<span class="seastag seasmore" data-tip="${esc(hits.slice(max || 2).map((x) => x.what).join(" · "))}" title="">+${hits.length - (max || 2)}</span>`
     : "";
   return shown + more;
@@ -7299,13 +7340,15 @@ function seasonalTags(iso, month, max) {
 // same 4 + 9px the weather cell's season strip already sets — no CLS. It was
 // a block around an inline strip, a 20px line box that grew rows after paint.
 // The chosen month gets the season strip's tick, dimmed at rest like it.
+// A row with a month of its own ("Any time": data-m, its best month) ticks
+// that one instead.
 function fillRowFareStrips(hostSel, month) {
   const slots = document.querySelectorAll(hostSel + " .rowfares");
   slots.forEach(async (slot) => {
     const iso = slot.dataset.iso;
     const fm = await ensureFareMonths(iso);
     if (!fm || !fm.months || !slot.isConnected) return;
-    const strip = fareStripHTML(fm.months, fareStripOpts(month));
+    const strip = fareStripHTML(fm.months, fareStripOpts(+slot.dataset.m || month));
     if (strip) slot.innerHTML = '<span class="farestrip" role="img" aria-label="'
       + esc("Fares by month — " + strip.note) + '">' + strip.cells + "</span>";
   });
@@ -7370,8 +7413,11 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   const sc = sortable ? " sortable" : "";
   const been = ownVisited();
   const rows = list.map((s, i) => {
-    const hz = hazardsFor(s.iso, month);
-    const wxTitle = (s.wx == null ? "no weather data" : `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}`) +
+    // "Any time" scores each row on its own best month (s.month): the marks,
+    // tips, strips and tags below all speak for that month, not the table's.
+    const rm = s.month || month;
+    const hz = hazardsFor(s.iso, rm);
+    const wxTitle = (s.wx == null ? "no weather data" : `${s.wx}/100 weather comfort in ${MONTHS[rm - 1]}`) +
       (hz.length ? " — ⚠️ " + hz.map((h) => h.note).join("; ") : "");
     const iso = esc(s.iso);
     // Same ⚠️ affordance the weather column uses for seasonal hazards, with
@@ -7386,20 +7432,24 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     // plain click in the app; cmd/middle-click opens a new tab. No title on
     // the link, so the row's why-line still shows on hover.
     const seen = been.has(s.iso);
-    return `<tr data-iso="${iso}"${seen ? ' class="visited"' : ""} title="${esc(whyLine(s, month))}" style="--i:${i}">
+    // Rows must not grow in "Any time": its chip takes the place of a
+    // seasonal tag, so one tag follows it (two do in month mode), and on a
+    // phone .flexrow gives the month the name's second line (styles.css).
+    const cls = [seen ? "visited" : "", s.month ? "flexrow" : ""].filter(Boolean).join(" ");
+    return `<tr data-iso="${iso}"${cls ? ` class="${cls}"` : ""} title="${esc(whyLine(s, rm))}" style="--i:${i}">
       <td class="rank">#${i + 1}</td>
-      <td class="dest"><a class="destlink" href="${esc(guidePath(s.iso))}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}</a>${seen ? ' <span class="visited-tag">✓<span class="vtword"> visited</span></span>' : ""}${seasonalTags(s.iso, month)}${budLine(s)}</td>
+      <td class="dest"><a class="destlink" href="${esc(guidePath(s.iso))}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}</a>${seen ? ' <span class="visited-tag">✓<span class="vtword"> visited</span></span>' : ""}${s.month ? flexChips(s) + seasonalTags(s.iso, rm, 1, true) : seasonalTags(s.iso, month)}${budLine(s)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${priceNotes ? `<span class="hzmark" data-tip="${esc(priceNotes)}" title="">⚠️</span>` : ""}${fxMark(s.iso)}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}"><span class="pillwrap">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</span></td>
-      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="gr grx" data-tip="${esc(wxTitle)}" title="">—</span>` : gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, month)}</td>
+      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="gr grx" data-tip="${esc(wxTitle)}" title="">—</span>` : gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, rm)}</td>
       <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="gr grx" data-tip="No fare data" title="">—</span>'
             // An estimate is a grey pill with its letter (it always scores
             // 70, a B): the same test and the same grey as the Full ranking's
             // "~70", where a bare "~" and a title touch never shows used to be.
             : (s.flyBasis !== "month" && s.fareEst) ? `<span class="gr grx" role="img" aria-label="estimated ${grade(s.fly)}" data-tip="Estimated — no cached fare yet, so flights count as a typical fare for the distance, averaged in with the rest. Click for the Flights tab." title="">~${grade(s.fly)}</span>`
             : gradePill(s.fly, (s.flyBasis === "month"
-                ? MONTHS[month - 1] + "'s fare vs this route's usual · click for exact prices"
-                : "Year-round fare vs the typical fare for this distance (too few cached months for a month grade) · click for exact prices"))}</span><span class="rowfares" data-iso="${iso}"></span></td>
+                ? MONTHS[rm - 1] + "'s fare vs this route's usual · click for exact prices"
+                : "Year-round fare vs the typical fare for this distance (too few cached months for a month grade) · click for exact prices"))}</span><span class="rowfares" data-iso="${iso}"${s.month ? ` data-m="${s.month}"` : ""}></span></td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="ovnums"><span class="grnum" title="value score out of 100">${s.value}</span>${coverageMark(s)}</span></td>
     </tr>`;
   }).join("");
@@ -7528,9 +7578,48 @@ async function ensurePopularity() {
   }
 }
 
+// "Any time": one country's best month of the window. byMonth holds its
+// valueScores per month; key is "value", or "wx" when Rank by is Best weather
+// (comfort first, then value, so the month matches the order the tables
+// rank in). Strictly better wins, so a tie keeps the sooner month: a country
+// as good in October as in February is worth going to sooner.
+function bestOfWindow(byMonth, win, key) {
+  let best = null, bestM = null;
+  for (const m of win) {
+    const s = byMonth[m];
+    if (!s) continue;
+    const better = !best || (key === "wx"
+      ? (s.wx ?? -1) > (best.wx ?? -1) || ((s.wx ?? -1) === (best.wx ?? -1) && s.value > best.value)
+      : s.value > best.value);
+    if (better) { best = s; bestM = m; }
+  }
+  return best ? { s: best, month: bestM } : null;
+}
+// The window's cheapest departure month on a route, for the "✈️ cheapest"
+// chip. Only on a banded route (flightvalue's min_months of fares, c.median):
+// a curve of two or three cached months has a cheapest month by accident of
+// which months anyone searched. keys are the window's month keys in order
+// (flightMonthKey), so an equal price keeps the sooner month and a fare
+// outside the window never counts. curve values are [price, city].
+function cheapestFareMonth(c, keys) {
+  if (!c || c.median == null || !c.curve) return null;
+  let best = null;
+  for (const k of keys) {
+    const rec = c.curve[k];
+    if (!rec || rec[0] == null) continue;
+    if (!best || rec[0] < best.price) best = { key: k, month: parseInt(k.slice(5), 10), price: rec[0], city: rec[1] };
+  }
+  return best;
+}
+
 function renderValue() {
   const region = regionSel;
-  const month = parseInt($("valueMonth").value, 10);
+  // "Any time" ranks each country on its best month of the window; month is
+  // then the window's first, for what needs one (the seasonal backdrop, the
+  // AI export, a row with no month of its own).
+  const flex = picksFlex();
+  const win = flex ? flexWindow() : null;
+  const month = travelMonth();
   setSeason(month);
   renderTripBar();
   const advMap = advisoryByIso();
@@ -7542,20 +7631,46 @@ function renderValue() {
   const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
 
   const scored = {};
+  // Owner's call ("gated both"): the cheapest-flight month only on a route
+  // with a typical range from THIS origin, and only where it isn't the month
+  // the row already names. Fares land after the first render; their
+  // renderValue (loadValueFlights) is what adds the chips.
+  const fvC = flex && flightValue && flightValue.origin === originIso() && flightValue.countries;
+  const winKeys = flex ? win.map(flightMonthKey) : null;
   for (const iso in CUR_BY_ISO) {
     if (region !== "all" && ISO_REGION[iso] !== region) continue;
-    const s = valueScores(iso, month, advMap, fares, anchorPl);
-    if (s) scored[iso] = s;
+    if (!flex) {
+      const s = valueScores(iso, month, advMap, fares, anchorPl);
+      if (s) scored[iso] = s;
+      continue;
+    }
+    // valueScores is the month mode's own scorer, untouched (parity.py holds
+    // it to the newsletter's); only its weather and flight terms move by month.
+    const byMonth = {};
+    for (const m of win) byMonth[m] = valueScores(iso, m, advMap, fares, anchorPl);
+    const b = bestOfWindow(byMonth, win, valueMapMode === "weather" ? "wx" : "value");
+    if (!b) continue;
+    const s = b.s;
+    s.month = b.month;
+    // Every month's two scores, for the chip's "the other months" tip.
+    s.winScores = win.map((m) => (byMonth[m] ? { m, value: byMonth[m].value, wx: byMonth[m].wx } : null)).filter(Boolean);
+    const ch = fvC ? cheapestFareMonth(fvC[iso], winKeys) : null;
+    if (ch && ch.month !== s.month) s.cheapFly = ch;
+    scored[iso] = s;
   }
   // Title, ⓘ and key follow whichever map is showing. The sub line is an ⓘ
   // (one header line, per the owner), so its sentence goes in the tip.
   const vTitle = $("valueMapTitle"), vSub = $("valueMapSub"), vLeg = $("valueLegend");
-  if (vTitle) vTitle.textContent = valueMapMode === "weather"
+  if (vTitle) vTitle.textContent = flex
+    ? (valueMapMode === "weather" ? "Best weather" : "Best value") + " in the next 6 months"
+    : valueMapMode === "weather"
     ? "Weather comfort in " + MONTHS[month - 1]
     : "Best value destinations in " + MONTHS[month - 1];
-  if (vSub) vSub.dataset.tip = valueMapMode === "weather"
-    ? "Greener = more comfortable weather that month."
-    : "Greener = better overall value — affordability, safety, weather and flights combined.";
+  if (vSub) vSub.dataset.tip = (flex ? "Each country is scored on its best month between "
+      + MONTHS[win[0] - 1] + " and " + MONTHS[win[win.length - 1] - 1] + ". " : "")
+    + (valueMapMode === "weather"
+    ? "Greener = more comfortable weather " + (flex ? "in that month." : "that month.")
+    : "Greener = better overall value — affordability, safety, weather and flights combined.");
   // Short labels ("Lower"/"Higher", as the share image has them; the title
   // says of what): the key then fits one row under the title in a half-width
   // card, where "Lower value … your top picks" wrapped to two.
@@ -7576,16 +7691,28 @@ function renderValue() {
     // Weather-only view (absorbed the old "best places by month" tab).
     drawMap("valueMap", (f) => {
       const c = climate[f.properties.iso];
-      const s = c ? c.scores[month - 1] : null;
+      // "Any time": a ranked country's own month (the tables' pick); one
+      // the ranking leaves out (Level 4, no price level) its comfiest month.
+      let m = month;
+      if (c && flex) {
+        const sc = scored[f.properties.iso];
+        if (sc) m = sc.month;
+        else {
+          const byM = {};
+          for (const w of win) byM[w] = { wx: c.scores[w - 1], value: 0 };
+          m = bestOfWindow(byM, win, "wx").month;
+        }
+      }
+      const s = c ? c.scores[m - 1] : null;
       return { fill: comfortColor(s),
-        title: c ? `${c.name}: ${s == null ? "n/a" : s + "/100"} weather comfort in ${MONTHS[month - 1]}`
+        title: c ? `${c.name}: ${s == null ? "n/a" : s + "/100"} weather comfort in ${MONTHS[m - 1]}`
                  : f.properties.name + " — no data" };
     }, "Weather comfort by month");
   } else {
     drawMap("valueMap", (f) => {
       const s = scored[f.properties.iso];
       if (s) return { fill: comfortColor(s.value),
-        title: `${s.name}: value ${s.value}/100 (afford ${s.afford}, safe ${s.safe}${s.wx != null ? ", wx " + s.wx : ""}${s.fly != null ? ", fly " + s.fly + (s.fareEst ? " est." : "") : ""})` };
+        title: `${s.name}: value ${s.value}/100${s.month ? " in " + MONTHS[s.month - 1] : ""} (afford ${s.afford}, safe ${s.safe}${s.wx != null ? ", wx " + s.wx : ""}${s.fly != null ? ", fly " + s.fly + (s.fareEst ? " est." : "") : ""})` };
       if (advMap[f.properties.iso] === 4)
         return { fill: DNT_FILL, title: f.properties.name + " — Level 4: Do Not Travel (excluded)" };
       return { fill: NODATA, title: f.properties.name + " — " + notScoredReason(f.properties.iso) };
@@ -7656,11 +7783,14 @@ function renderValue() {
       + (judged && unjudged ? ` ${unjudged} had no fare to judge.` : "")
       + ` <span class="muted" data-tip="Flights are the cached fares Aviasales has seen (the cheapest one decides what's out of reach); where none is cached, a distance-based estimate, marked est. What's left is your budget minus the fare, spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
     : "";
-  const rankedBy = weatherMode ? `weather comfort in ${MONTHS[month - 1]}` : "value";
+  const rankedBy = flex ? `each one's best ${weatherMode ? "weather" : "month"} in ${flexSpan(win)}`
+    : weatherMode ? `weather comfort in ${MONTHS[month - 1]}` : "value";
   if (picksNote) picksNote.innerHTML = (popular.length
     ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
-    : `Ranked by ${weatherMode ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + budNote;
-  lastPicks = picks; lastPicksMonth = month;   // for the AI export + re-sort
+    : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + budNote;
+  // lastPicksMonth stays a real month (the Trip tab and the stays plan for
+  // one); lastPicksFlex tells the exports to word "the next 6 months".
+  lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex;   // for the AI export + re-sort
   renderGradeTable($("topCards"), picks, month, false, true);
   // "Show more" reveals 10 then 20; hides when maxed out or nothing left.
   const sm = $("showMore");
@@ -7683,7 +7813,7 @@ function renderValue() {
   // The same ranked list the exported PNG carries, on the live map — so what
   // you see is what you would be sharing. It also does the pulse's job for
   // anyone with reduced motion on, where nothing pulses at all.
-  renderMapPicksOverlay(picks, month);
+  renderMapPicksOverlay(picks, month, null, flex);
   // Gems mirror the popular list's count (5 → 10 → 20 via "Show more") so the
   // two sections always feel like one consistent ranking.
   const gems = (popular.length ? offbeat : []).slice(0, pickCount());
@@ -7710,24 +7840,28 @@ function renderValue() {
   $("valueRows").innerHTML = ranked.map((s, i) => {
     const seen = been.has(s.iso);
     const vis = seen ? ' <span class="visited-tag">✓<span class="vtword"> visited</span></span>' : "";
+    // "Any time": each row is scored on its own best month, named after the
+    // country, small and muted (no new column in a table already seven wide).
+    const rm = s.month || month;
+    const mon = s.month ? ` <span class="vmon">${MON_ABBR[s.month - 1]}</span>` : "";
     // The level in its own government's words + whose it is (advLevelText):
     // the State Dept's phrases ("Exercise Increased Caution") credited US
     // wording to Canada's or Germany's.
     const safe = chip(s.safe, SAFE_GRADE[s.advLvl] || "x", advLevelText(s.iso, s.advLvl) + advVia(s.iso))
       + `<span class="vh"> · level ${s.advLvl}</span>`;
     const wx = s.wx == null ? '<span class="muted" title="no weather data">—</span>'
-      : chip(s.wx, grade(s.wx), `${s.wx}/100 weather comfort in ${MONTHS[month - 1]}`);
+      : chip(s.wx, grade(s.wx), `${s.wx}/100 weather comfort in ${MONTHS[rm - 1]}`);
     // An estimated fare is the distance baseline, so its 70 stays grey and
     // says so rather than passing for a measured deal.
     const fly = s.fly == null ? '<span class="muted" title="no fare data">—</span>'
       : s.flyBasis !== "month" && s.fareEst
         ? chip("~" + s.fly, "x", "estimated — no cached fare, scored as a typical fare for the distance")
         : chip(s.fly, grade(s.fly), s.flyBasis === "month"
-          ? `${MONTHS[month - 1]}'s fare vs this route's usual`
+          ? `${MONTHS[rm - 1]}'s fare vs this route's usual`
           : "year-round fare vs a typical fare for the distance");
     return `<tr${seen ? ' class="visited"' : ""}>
       <td class="rank">#${i + 1}</td>
-      <td class="dest" title="${esc(s.name)}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}${vis}</td>
+      <td class="dest" title="${esc(s.month ? s.name + " — scored on " + MONTHS[s.month - 1] + ", its best month" : s.name)}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}${mon}${vis}</td>
       ${td("afford", chip(s.afford, grade(s.afford), affordTitle(s).replace(" · click for cost-of-living detail", "")))}
       ${td("safety", safe)}${td("weather", wx)}${td("flight", fly)}
       <td class="num ovcell${hot === "value" ? " sorted" : ""}"><span class="gr ${gradeCls(grade(s.value))}" title="${esc(`Overall ${grade(s.value)} · ${s.value}/100`)}">${s.value}</span></td></tr>`;
@@ -7933,7 +8067,8 @@ let travelMonthChosen = false;
 // shows next month. Display only — nothing is written back (Top Picks keeps
 // ranking the travel month) until the reader picks here.
 function flightMonthNum(now) {
-  const vm = parseInt((ensureMonthOptions() || {}).value, 10) || curMonth();
+  ensureMonthOptions();
+  const vm = travelMonth();
   if (travelMonthChosen || (now || new Date()).getDate() <= 15) return vm;
   return vm % 12 + 1;
 }
@@ -8839,7 +8974,7 @@ function renderActivity(iso) {
   // The travel month the rest of the page plans for (?vmn=, a month-bar
   // click), not the calendar month: stays and the AI prompt already followed
   // it, and this list was the one block still saying "now".
-  const m = parseInt(($("valueMonth") || {}).value, 10) || curMonth();
+  const m = travelMonth();
   const tags = a.profile.map((p) =>
     `<span class="chip2">${PROFILE_EMOJI[p] ? PROFILE_EMOJI[p] + " " : ""}${esc(p)}</span>`).join("");
   // Each activity is either a plain label or { t: label, d: one-line insight }.
@@ -9649,14 +9784,48 @@ document.querySelector(".homelink").addEventListener("click", (e) => {
 // AI prompts, share links). Filled at boot, not only when Top Picks builds: a
 // /guide/<slug> landing never builds Top Picks, and a select with no options
 // silently ignored every month picked on the guide. Keeps a chosen value.
+// The first option, "0", is Top Picks' "Any time": no fixed month, each
+// country ranked on its best month of the next six (flexWindow). Only Top
+// Picks reads it as that; every other reader asks travelMonth() for a real
+// month, because parseInt("0") || curMonth() quietly gave this month even
+// in its last 9 days, when the window has already moved on to the next.
 function ensureMonthOptions() {
   const sel = $("valueMonth");
   if (sel && !sel.options.length) {
-    sel.innerHTML = MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
+    sel.innerHTML = '<option value="0">Any time</option>'
+      + MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
     sel.value = String(curMonth());   // "I'm going in" defaults to the month it is now
   }
   return sel;
 }
+// Top Picks' "Any time" is on.
+function picksFlex() { return ($("valueMonth") || {}).value === "0"; }
+// The flexible window: six months, the way Google Flights' Explore offers
+// "the next 6 months" (fares further out are too thin to rank on). It starts
+// next month once fewer than 10 days of this one remain, today counted —
+// fxtracker/flightvalue.py partial_month()'s rule, which drops those days'
+// last-minute fares from a route's range: on Oct 23 October is mostly flown.
+const FLEX_MONTHS = 6, FLEX_PARTIAL_DAYS = 10;
+function flexWindow(now = new Date()) {
+  const m0 = now.getMonth();   // 0-11
+  const left = new Date(now.getFullYear(), m0 + 1, 0).getDate() - now.getDate() + 1;
+  const start = left < FLEX_PARTIAL_DAYS ? m0 + 1 : m0;
+  const win = [];
+  for (let i = 0; i < FLEX_MONTHS; i++) win.push((start + i) % 12 + 1);
+  return win;
+}
+// The travel month as a real month, 1-12, for everything that plans one
+// month: the guide's bars, stay dates, the Flights tab, the AI prompts. In
+// "Any time" that is the window's first month — the soonest one a flexible
+// traveller could go.
+function travelMonth() {
+  const v = ($("valueMonth") || {}).value;
+  const n = parseInt(v, 10);
+  if (n >= 1 && n <= 12) return n;
+  return v === "0" ? flexWindow()[0] : curMonth();
+}
+// "Oct–Mar": the window as the notes and tips name it.
+function flexSpan(win) { return MON_ABBR[win[0] - 1] + "–" + MON_ABBR[win[win.length - 1] - 1]; }
 
 // Clicking a month bar in the guide makes the chart the control: sets the one
 // global travel month (the same one Top Picks ranks by), re-prices the stay
@@ -10154,6 +10323,14 @@ function setGuideMeta(iso) {
   }).catch(() => {});
 }
 
+// The travel month as a link parameter: vmn=<1-12>, or vmf=1 for Top Picks'
+// "Any time" — never vmn=0, which every reader but Top Picks took for "no
+// month" and replaced with this one.
+function monthParam() {
+  const v = ($("valueMonth") || {}).value;
+  return !v ? null : v === "0" ? ["vmf", "1"] : ["vmn", v];
+}
+
 function buildShareURL(forShare) {
   if (forShare === undefined) forShare = true;
   const q = new URLSearchParams();
@@ -10170,7 +10347,8 @@ function buildShareURL(forShare) {
     if (regionSel !== "all") q.set("vr", regionSel);
     // A shared link pins the month; the address bar only once it's chosen, so
     // a reload doesn't turn the untouched default into a pick (see flightMonthNum).
-    if ($("valueMonth").value && (forShare || travelMonthChosen)) q.set("vmn", $("valueMonth").value);
+    const mp = monthParam();
+    if (mp && (forShare || travelMonthChosen)) q.set(mp[0], mp[1]);
     if (pickCount() !== 5) q.set("pc", String(pickCount()));
     if (safetyFloor() !== "b") q.set("sf", safetyFloor());
     const fac = loadFactors();
@@ -10186,7 +10364,11 @@ function buildShareURL(forShare) {
     if (regionSel !== "all") q.set("vr", regionSel);
     // The Flights tab bands fares for a month, so its link keeps the one on
     // screen — same rule as Top Picks for the address bar.
-    if (dataMode === "flights" && (forShare || travelMonthChosen)) q.set("vmn", String(flightMonthNum()));
+    // In "Any time" that month is the window's first, which moves with the
+    // date — so the link keeps the choice (vmf), as Top Picks' does.
+    if (dataMode === "flights" && (forShare || travelMonthChosen)) {
+      if (picksFlex()) q.set("vmf", "1"); else q.set("vmn", String(flightMonthNum()));
+    }
     if (dataMode === "currency" && activeRange !== "1y") q.set("win", activeRange);
     if (own && dataMode === "currency" && homeBase !== "USD") q.set("db", homeBase);
     if (own && dataMode === "flights" && $("flightOrigin").value) q.set("fo", $("flightOrigin").value);
@@ -10202,8 +10384,8 @@ function buildShareURL(forShare) {
     // Same-origin so history.pushState in syncURL accepts it.
   } else if (tab === "guide") {
     const u = location.origin + guidePath(_guideTarget || $("bestCountry").value || "JP");
-    const vm = $("valueMonth").value;
-    return vm && (forShare || travelMonthChosen) ? u + "?vmn=" + vm : u;
+    const mp = monthParam();
+    return mp && (forShare || travelMonthChosen) ? u + "?" + mp[0] + "=" + mp[1] : u;
   } else if (tab === "visited") {
     loadVisited();
     // The visited list persists in localStorage already; only embed it for an
@@ -10259,7 +10441,8 @@ window.addEventListener("popstate", async () => {
     // the guide returns early below — Back between two months of one guide
     // left the bars on the month being left.
     const vmn = q.get("vmn"), vmSel = $("valueMonth");
-    if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) { vmSel.value = vmn; travelMonthChosen = true; }
+    if (q.get("vmf") === "1" && vmSel) { vmSel.value = "0"; travelMonthChosen = true; }   // vmf wins, as on landing
+    else if (vmn && vmn !== "0" && vmSel && [...vmSel.options].some((o) => o.value === vmn)) { vmSel.value = vmn; travelMonthChosen = true; }
     // Clean guide URL (/guide/<slug>) takes precedence over the other params.
     const pIso = pathGuideIso();
     if (pIso) { resyncCombos(); await openGuideFor(pIso, false); return; }
@@ -10303,6 +10486,13 @@ const GC_RE = /^[A-Z]{2}(-[A-Z]{3})?$/;   // guide codes: JP, and GB-SCT-style h
 
 function preApplyShared() {
   if (![...sharedQ.keys()].length) return;
+  // "Any time" (vmf=1) before anything builds, so Top Picks' first render
+  // is already the flexible one and a guide landing draws for the window's
+  // first month. Not saved anywhere: like vmn, it lives in the link.
+  if (sharedQ.get("vmf") === "1") {
+    const vmSel = ensureMonthOptions();
+    if (vmSel) { vmSel.value = "0"; travelMonthChosen = true; }
+  }
   const pri = sharedQ.get("pri");
   if (pri) {
     const lv = { h: "high", m: "med", l: "low" };
@@ -10398,7 +10588,17 @@ async function postApplyShared() {
     $("valueRegion").value = sharedQ.get("vr"); rerender = true;
   }
   const vmn = sharedQ.get("vmn"), vmSel = ensureMonthOptions();
-  if (vmn && vmSel && [...vmSel.options].some((o) => o.value === vmn)) {
+  if (sharedQ.get("vmf") === "1" && vmSel) {
+    // vmf wins over a vmn beside it. preApplyShared selected it already;
+    // this only catches a page that moved off it in between.
+    travelMonthChosen = true;
+    if (vmSel.value !== "0") {
+      vmSel.value = "0"; rerender = true;
+      if (vmSel._sync) vmSel._sync();
+      if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); renderGuideFares(ccGuideIso); renderGuideGrades(ccGuideIso); }
+      if (loaded.flights && flightsData && flightsData.configured) renderFlights();
+    }
+  } else if (vmn && vmn !== "0" && vmSel && [...vmSel.options].some((o) => o.value === vmn)) {
     // A /guide/<slug>?vmn= page (the newsletter's link) has already drawn its
     // guide for the calendar month: go through planForMonth so the chart, the
     // stays, the season list and the AI prompt all move to the link's month.
@@ -10832,6 +11032,8 @@ function buildRankShareSVG() {
   if (!lastPicks || !lastPicks.length) throw new Error("ranking not ready");
   const picks = lastPicks.slice(0, 10);
   const month = MONTHS[(lastPicksMonth || curMonth()) - 1];
+  // "Any time": each pick was graded on its own best month, said on its line.
+  const flexWin = lastPicksFlex ? flexWindow() : null;
   const originName = originLabel();
   const A = plAnchor(originIso());   // US fallback when home has no price level
   const W = 640, HEAD = 118, ROWH = 62, FOOT = 54;
@@ -10852,7 +11054,10 @@ function buildRankShareSVG() {
       + '" font-size="17" font-weight="800" fill="' + DIM + '">' + (i + 1) + "</text>";
     flags.push({ iso: s.iso, x: 62, y: y + 39 });
     body += '<text x="102" y="' + (y + 30) + '" font-family="' + F
-      + '" font-size="17" font-weight="700" fill="' + FG + '">' + esc2(s.name) + "</text>";
+      + '" font-size="17" font-weight="700" fill="' + FG + '">' + esc2(s.name)
+      // On the name's line, where it has room: the line under it is full.
+      + (s.month ? '<tspan font-size="13" font-weight="600" fill="' + MUTE + '">' + esc2("  ·  best in " + MON_ABBR[s.month - 1]) + "</tspan>" : "")
+      + "</text>";
     const bits = [];
     // s.fare is the cached AVERAGE round trip (or a distance estimate), never
     // a minimum — so not "from". The price line is the pill's own framing with
@@ -10873,9 +11078,12 @@ function buildRankShareSVG() {
     + '" viewBox="0 0 ' + W + " " + H + '">'
     + '<rect width="' + W + '" height="' + H + '" fill="' + BG + '"/>'
     + '<text x="24" y="44" font-family="' + F + '" font-size="26" font-weight="800" fill="' + FG
-    + '">' + esc2("Where to travel in " + month) + "</text>"
+    + '">' + esc2("Where to travel in " + (flexWin ? "the next 6 months" : month)) + "</text>"
     + '<text x="24" y="70" font-family="' + F + '" font-size="12.5" fill="' + MUTE
-    + '">' + esc2("Top " + picks.length + " by value from " + originName
+    + '">' + esc2(flexWin
+      ? "Top " + picks.length + " by value from " + originName + ", each on its best month of "
+        + flexSpan(flexWin) + " — graded A+ to F"
+      : "Top " + picks.length + " by value from " + originName
       + " — affordability, safety, weather and flights, graded A+ to F") + "</text>"
     + '<line x1="24" x2="' + (W - 24) + '" y1="' + (HEAD - 10) + '" y2="' + (HEAD - 10)
     + '" stroke="' + LINE + '" stroke-width="1"/>'
@@ -10929,7 +11137,7 @@ function buildGuideCardSVG(iso) {
   const BG = "#101316", FG = "#f2f5f7", MUTE = "#9aa4ad", DIM = "#7d868f", LINE = "#242a30";
   const F = "Helvetica Neue, Helvetica, Arial, sans-serif";
   const esc2 = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const month = (parseInt(($("valueMonth") || {}).value, 10)) || curMonth();
+  const month = travelMonth();
   const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
 
   let s = null;
@@ -11810,12 +12018,18 @@ if ($("rankShare")) $("rankShare").addEventListener("click", downloadRankImage);
 if ($("guideShare")) $("guideShare").addEventListener("click", () =>
   downloadGuideCard(($("bestCountry") || {}).value || ccGuideIso || "JP"));
 if ($("valueShare")) $("valueShare").addEventListener("click", () => {
-  const month = MONTHS[(parseInt(($("valueMonth") || {}).value, 10) || curMonth()) - 1];
+  // "Any time" shares the window, each pick with its own best month: a map
+  // titled with one month would claim every colour on it is that month's.
+  const flex = picksFlex(), win = flex ? flexWindow() : null;
+  const month = flex ? "the next 6 months" : MONTHS[travelMonth() - 1];
   const weather = valueMapMode === "weather";
   downloadMapImage("valueMap", {
     title: weather ? "Where the weather is best in " + month
                    : "Best-value places to travel in " + month,
-    sub: weather ? "Weather comfort by country, scored 0-100 for this month."
+    sub: flex
+      ? (weather ? "Weather comfort by country, scored 0-100 on its best month, " + flexSpan(win) + "."
+                 : "Affordability, safety, weather and flight cost in one grade, each country on its best month, " + flexSpan(win) + ".")
+      : weather ? "Weather comfort by country, scored 0-100 for this month."
                  : "Affordability, safety, weather and flight cost, combined into one grade.",
     gradient: ["#b00020", "#eef0f1", "#0a7d28"],
     leftLabel: weather ? "Harsh" : "Lower", rightLabel: weather ? "Comfortable" : "Higher",
@@ -11824,10 +12038,12 @@ if ($("valueShare")) $("valueShare").addEventListener("click", () => {
     // Names the ranked countries in the image itself. On screen they pulse;
     // in a PNG they cannot, and a shared map with no answer in it is just
     // colours. lastPicks is whatever the table is currently showing.
-    picks: weather ? null : (lastPicks || []).slice(0, 8).map((p2) => p2.name),
-    picksTitle: weather ? null : "Best value in " + month,
+    picks: weather ? null : (lastPicks || []).slice(0, 8).map((p2) => p2.name + (p2.month ? " · " + MON_ABBR[p2.month - 1] : "")),
+    // The live list's own title in "Any time": "Best value in the next 6
+    // months" overran the image's 168px list box.
+    picksTitle: weather ? null : flex ? "Best value · next 6 months" : "Best value in " + month,
     footer: "Graded free at wandergrade.com — no sign-up.",
-    filename: "wandergrade-" + (weather ? "weather-" : "best-value-") + month.toLowerCase() + ".png",
+    filename: "wandergrade-" + (weather ? "weather-" : "best-value-") + (flex ? "next-6-months" : month.toLowerCase()) + ".png",
   });
 });
 // ("Use on another device" was removed — the Share button already produces a
