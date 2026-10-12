@@ -17,7 +17,10 @@
     (one console.info per refused file), the credit it brings along (an
     uploader linked by username credits the name, not "c:User:<name>"), and
     a title still going through pageimages; PHOTO_LICENCE_OK and
-    gallery_entry.LICENCE_OK agree on a table of licence names.
+    gallery_entry.LICENCE_OK agree on a table of licence names;
+  * photo_sweep.py, offline: a kept pinned file Commons has since deleted,
+    relicensed or shrunk is flagged, and the hero strip it saves for raters
+    is the desktop hero's 1158x300 centre crop.
 """
 import json
 import os
@@ -254,6 +257,26 @@ py_lic = [bool(gallery_entry.LICENCE_OK.match(s)) for s in LICENCES]
 results.append(ok(o.get("lic") == list(LICENCES.values()) and py_lic == list(LICENCES.values()),
                   "PHOTO_LICENCE_OK and gallery_entry.LICENCE_OK: CC BY / BY-SA (any version, port), CC0, PD in; NC, ND, GFDL, FAL out"
                   + ("" if py_lic == list(LICENCES.values()) == o.get("lic") else " js %s py %s" % (o.get("lic"), py_lic))))
+
+# photo_sweep's drift check on a kept pinned file (sweep --changed, skip-check),
+# offline: Commons' answer for a deleted, relicensed or shrunk file.
+import photo_sweep  # noqa: E402
+FAKE = {"Fine.jpg": ("u/1920px-Fine.jpg", 1600, 1067, "CC BY 2.0"), "Deleted.jpg": ("", 0, 0, ""),
+        "Relicensed.jpg": ("u/1920px-Relicensed.jpg", 1600, 1067, "GFDL 1.2"),
+        "Shrunk.jpg": ("u/Shrunk.jpg", 640, 427, "CC BY-SA 4.0")}
+_real = gallery_entry.commons_file
+gallery_entry.commons_file = lambda name, w, ua: dict(zip(("thumb", "tw", "th", "lic"), FAKE[name]), title="File:" + name,
+                                                      file=name, url="", ow=FAKE[name][1], oh=FAKE[name][2], code="")
+try:
+    drift = {n: photo_sweep._pinned_gone({"file": n, "label": "x"}) for n in FAKE}
+finally:
+    gallery_entry.commons_file = _real
+results.append(ok(drift == {"Fine.jpg": None, "Deleted.jpg": "no-image", "Relicensed.jpg": "bad-licence", "Shrunk.jpg": "too-small"},
+                  "photo_sweep flags a kept pinned file Commons deleted, relicensed or shrank (%s)" % drift))
+from PIL import Image  # noqa: E402
+strips = [photo_sweep.hero_crop(Image.new("RGB", wh)).size for wh in ((800, 930), (800, 535), (800, 150))]
+results.append(ok(all(abs(w / h - 1158 / 300) < 0.03 for w, h in strips) and strips[0][0] == 800 and strips[2][1] == 150,
+                  "photo_sweep's hero strip is the desktop hero's 1158x300 centre crop (%s)" % strips))
 
 with open(os.path.join(ROOT, "scripts", "gen_og_images.py"), encoding="utf-8") as f:
     og = f.read()

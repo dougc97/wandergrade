@@ -219,10 +219,18 @@ extmetadata's LicenseShortName/License (`PHOTO_LICENCE_OK`, mirrored by
 `console.info` naming the file. The author and licence for the credit line
 come back in the same answer, so the credit costs no extra request.
 `photo_sweep.py resolve "File:<name>"` shows a candidate with its licence,
-and its verdict is recorded like any other file's.
+and its verdict is recorded like any other file's. Commons can still delete,
+relicense or shrink a pinned file, which the site then drops quietly, so
+`sweep --changed` and `skip-check` ask Commons about each one and report it.
+
+Rate the hero strip as well as the full frame: the desktop hero is a
+1158x300 centre crop, which `resolve` and `sweep` save beside each copy
+(`<name>_hero.jpg`, portraits flagged in the batches). A portrait, or a
+branch across the subject, can pass whole and fail there (2026-10: Kambadaga
+Falls and Ureca beach were pinned, then dropped for exactly that).
 
 - Re-run the review tooling with `scripts/photo_sweep.py` (`resolve`,
-  `sweep`, `batches`, `skip-check`; usage in its docstring; PIL only).
+  `sweep`, `batches`, `record`, `skip-check`; usage in its docstring; PIL only).
 - `scripts/test_photo_skip.py` checks the list and every gallery offline.
 - `scripts/dev/cdp.mjs` is the headless-Chrome driver the checks use
   (`CDP_TIMEOUT=50 node cdp.mjs ./script.mjs`); `scripts/dev/ig_story.mjs`

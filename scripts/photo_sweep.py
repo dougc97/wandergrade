@@ -19,27 +19,34 @@ leaves it out). On the command line a file entry is "File:<name>" or the
 entry's JSON.
 
     /usr/bin/python3 scripts/photo_sweep.py resolve "Galle Fort" "Sigiriya" "File:Lumley Beach Freetown.JPG"
-        one JSON line per title or file: status, file, original size, lapvar,
-        img path (and licence for a file)
+        one JSON line per title or file: status, file, original size and
+        aspect (portrait flagged), lapvar, img path and its hero-strip crop
+        (and licence for a file)
     /usr/bin/python3 scripts/photo_sweep.py sweep [--out DIR] [--shard k/n] [ISO ...]
         every gallery subject (or the given ISOs); writes DIR/index<k>.json;
         run the shards in parallel from separate shells (4 at 0.25s between
         requests drew HTTP 429s from Wikimedia; 3 at 0.5s did not)
     /usr/bin/python3 scripts/photo_sweep.py batches [--out DIR] [--n 8]
         merge DIR/index*.json into DIR/index.json and DIR/batches/batch<k>.json
-        (countries + photos, the manifests a reviewer rates from)
+        (countries + photos, the manifests a reviewer rates from; rate each
+        photo's full frame AND its 1158x300 hero strip, the "hero" file)
     /usr/bin/python3 scripts/photo_sweep.py sweep --changed [--out DIR] [ISO ...]
         the incremental re-run: resolve every subject but download and index
         only lead images absent from scripts/photo_verdicts.json (keep + skip),
         i.e. the ones Wikipedia's editors have changed since the last review;
         a subject now resolving to a rejected file is printed as KNOWN-SKIP
-        (give that country a new subject). Then `batches` as usual, rate, and
+        (give that country a new subject). A pinned file is asked of Commons
+        too (one imageinfo request) and printed as no-image / bad-licence /
+        too-small when the site would now leave it out (deleted, relicensed,
+        shrunk). Then `batches` as usual, rate the photos, and record the
+        verdicts:
     /usr/bin/python3 scripts/photo_sweep.py record --keep F... --skip F...
         add verdicts to scripts/photo_verdicts.json and regenerate
         public/photo-skip.json (the list the site reads) from its skip side
     /usr/bin/python3 scripts/photo_sweep.py skip-check [ISO ...]
         list gallery subjects whose CURRENT lead image is on public/photo-skip.json:
-        a gallery that now resolves to a rejected photo and needs a new subject
+        a gallery that now resolves to a rejected photo and needs a new subject;
+        and pinned files the site would now leave out (PINNED FILE <status>)
 
 PIL only (ships with /usr/bin/python3); no numpy. Network: one API call plus
 one thumbnail download per subject, 0.5s apart.
@@ -109,8 +116,41 @@ def _file_image(entry):
             "licence": info["lic"] or info["code"], "licence_ok": gallery_entry.licence_ok(info["lic"], info["code"])}
 
 
+def _gate(page, pinned):
+    """Why the site would leave this image out, in wikiIconic's order, or None."""
+    t = page.get("thumbnail") or {}
+    thumb = (t.get("source") or "").split("?")[0]
+    if not thumb:
+        return "no-image"
+    if PHOTO_BAD.search(thumb):
+        return "filtered"
+    if pinned and not page["licence_ok"]:
+        return "bad-licence"
+    if (t.get("width") or 0) < 800 and (t.get("height") or 0) < 1000:
+        return "too-small"
+    return None
+
+
+# The desktop hero is a 1158x300 strip from a 1280px window up (styles.css
+# .heroimg, object-fit: cover, centred), so a portrait or busy photo can pass
+# as a full frame and fail as the strip readers see: the 2026-10 Kambadaga
+# (branch across the falls) and Ureca (portrait, the strip all haze) rejects
+# did. Raters get that strip beside each copy.
+HERO_ASPECT = 1158 / 300
+
+
+def hero_crop(im):
+    w, h = im.size
+    if w / h > HERO_ASPECT:
+        cw = round(h * HERO_ASPECT)
+        return im.crop(((w - cw) // 2, 0, (w - cw) // 2 + cw, h))
+    ch = round(w / HERO_ASPECT)
+    return im.crop((0, (h - ch) // 2, w, (h - ch) // 2 + ch))
+
+
 def resolve(subject, img_path=None):
-    """status + the fields the reviewer needs; saves an 800px JPEG when asked.
+    """status + the fields the reviewer needs; saves an 800px JPEG (and its
+    hero-strip crop beside it, <name>_hero.jpg) when asked.
     subject is a gallery entry: a page title or a pinned {file, label}."""
     pinned = gallery_entry.is_file(subject)
     if pinned and PHOTO_BAD.search(subject.get("file") or ""):
@@ -122,16 +162,14 @@ def resolve(subject, img_path=None):
     orig = page.get("original") or {}
     row = {"subject": gallery_entry.label(subject), "title": page.get("title"), "file": page.get("pageimage"),
            "ow": orig.get("width"), "oh": orig.get("height")}
+    if orig.get("width") and orig.get("height"):
+        row["aspect"] = round(orig["width"] / orig["height"], 2)
+        row["portrait"] = orig["height"] > orig["width"]
     if pinned:
         row["licence"], row["licence_ok"] = page["licence"], page["licence_ok"]
-    if not thumb:
-        row["status"] = "no-image"
-    elif PHOTO_BAD.search(thumb):
-        row["status"] = "filtered"
-    elif pinned and not page["licence_ok"]:
-        row["status"] = "bad-licence"
-    elif (t.get("width") or 0) < 800 and (t.get("height") or 0) < 1000:
-        row["status"] = "too-small"
+    status = _gate(page, pinned)
+    if status:
+        row["status"] = status
     else:
         small = re.sub(r"/1600px-", "/800px-", thumb)
         data = urllib.request.urlopen(urllib.request.Request(small, headers=UA), timeout=40).read()
@@ -142,6 +180,8 @@ def resolve(subject, img_path=None):
         if img_path:
             im.save(img_path, "JPEG", quality=88)
             row["img"] = img_path
+            row["hero"] = os.path.splitext(img_path)[0] + "_hero.jpg"
+            hero_crop(im).save(row["hero"], "JPEG", quality=88)
     return row
 
 
@@ -177,11 +217,18 @@ def _places(a):
 def cmd_resolve(argv):
     out = os.path.join(_opt(argv, "--out", os.path.join("/tmp", "photo-sweep")), "cand")
     os.makedirs(out, exist_ok=True)
+    used = set()
     for s in [a for a in argv if not a.startswith("--") and a != _opt(argv, "--out", None)]:
         try:
             e = _entry_arg(s)
             name = e["file"] if gallery_entry.is_file(e) else e
-            path = os.path.join(out, re.sub(r"[^A-Za-z0-9]+", "_", name)[:60] + ".jpg")
+            base = re.sub(r"[^A-Za-z0-9]+", "_", name)[:60]
+            # "Pont Faidherbe Saint-Louis.jpg" and "...Saint Louis.jpg" share a
+            # base: number the second rather than overwrite the first's copy.
+            path, k = os.path.join(out, base + ".jpg"), 2
+            while path in used:
+                path, k = os.path.join(out, "%s_%d.jpg" % (base, k)), k + 1
+            used.add(path)
             print(json.dumps(resolve(e, path), ensure_ascii=False), flush=True)
         except Exception as e:  # one bad title must not stop the list
             print(json.dumps({"subject": s, "status": "error", "error": str(e)[:120]}), flush=True)
@@ -206,6 +253,16 @@ def _verdicts():
         return set(), set()
 
 
+def _pinned_gone(subject, row=None):
+    """Why the site would now leave a pinned file out (no-image, filtered,
+    bad-licence, too-small), or None; one imageinfo request. Records the
+    licence on row when given."""
+    page = _file_image(subject)
+    if row is not None:
+        row["licence"], row["licence_ok"] = page["licence"], page["licence_ok"]
+    return _gate(page, True)
+
+
 def cmd_sweep(argv):
     out = _opt(argv, "--out", os.path.join("/tmp", "photo-sweep"))
     shard = _opt(argv, "--shard", "0/1")
@@ -226,11 +283,20 @@ def cmd_sweep(argv):
             try:
                 if changed:
                     # One API call decides: a file already judged needs no
-                    # download. A pinned file names itself and needs none.
-                    f = (gallery_entry.file_key(subject["file"]) if gallery_entry.is_file(subject)
-                         else page_image(subject).get("pageimage"))
+                    # download. A pinned file names itself, but Commons can
+                    # still delete, shrink or relicense it, and the site then
+                    # drops it with nothing logged, so a kept one is asked
+                    # too (resolve() below asks for one not yet judged).
+                    gone = None
+                    if gallery_entry.is_file(subject):
+                        f = gallery_entry.file_key(subject["file"])
+                        gone = _pinned_gone(subject, row) if f in keep else None
+                    else:
+                        f = page_image(subject).get("pageimage")
                     row["file"] = f
-                    if f in keep:
+                    if gone:
+                        row["status"] = gone
+                    elif f in keep:
                         row["status"] = "known-keep"
                     elif f in skip:
                         row["status"] = "known-skip"
@@ -242,7 +308,10 @@ def cmd_sweep(argv):
                 row["status"] = "error"
                 row["error"] = str(e)[:120]
             rows.append(row)
-            print(iso, i, row.get("status").upper() if row.get("status", "").startswith("known") else row.get("status"),
+            # Loud: a verdict reused, or a pinned file the site would drop.
+            st = row.get("status") or ""
+            loud = st.startswith("known") or (row.get("pinned") and st not in ("ok", "error"))
+            print(iso, i, st.upper() if loud else st,
                   row.get("file"), row.get("lapvar"), *(["licence:", row.get("licence")] if "licence" in row else []),
                   flush=True)
             time.sleep(PAUSE)
@@ -283,9 +352,12 @@ def cmd_batches(argv):
                       "p": _places(acts[iso]),
                       "unresolved": [{"idx": r["idx"], "subject": r["subject"], "status": r["status"]}
                                      for r in by[iso] if r["status"] != "ok"]} for iso in part]
+        # hero: the 1158x300 strip the desktop hero shows of this photo (rate
+        # both; a portrait is flagged because its strip loses the most).
         photos = [{"iso": r["iso"], "country": r["country"], "idx": r["idx"], "subject": r["subject"],
-                   "label": r["subject"], "file": r.get("file"), "img": r["img"],
-                   "orig": "%sx%s" % (r.get("ow"), r.get("oh")),
+                   "label": r["subject"], "file": r.get("file"), "img": r["img"], "hero": r.get("hero"),
+                   "orig": "%sx%s" % (r.get("ow"), r.get("oh")), "aspect": r.get("aspect"),
+                   "portrait": r.get("portrait"),
                    "lapvar": r.get("lapvar"), "sat": r.get("sat"), "licence": r.get("licence")}
                   for iso in part for r in by[iso] if r["status"] == "ok"]
         with open(os.path.join(out, "batches", "batch%d.json" % k), "w", encoding="utf-8") as f:
@@ -303,26 +375,33 @@ def cmd_skip_check(argv):
         skip = set()
     acts = _acts()
     only = set(a.upper() for a in argv if re.fullmatch(r"[A-Za-z]{2}(-[A-Za-z]+)?", a))
-    hits = 0
+    hits = gone_n = 0
     for iso in sorted(acts):
         if only and iso not in only:
             continue
         for subject in (acts[iso].get("gallery") or [])[:6]:
             name = gallery_entry.label(subject)
-            if gallery_entry.is_file(subject):
-                # A pinned file can't drift: check its own name, no request.
-                f = gallery_entry.file_key(subject.get("file"))
-            else:
-                try:
+            gone = None
+            try:
+                if gallery_entry.is_file(subject):
+                    # A pinned file keeps its name, but Commons can delete,
+                    # shrink or relicense it under that name.
+                    f = gallery_entry.file_key(subject.get("file"))
+                    gone = _pinned_gone(subject)
+                else:
                     f = page_image(subject).get("pageimage")
-                except Exception as e:
-                    print(iso, name, "error", str(e)[:80])
-                    continue
+            except Exception as e:
+                print(iso, name, "error", str(e)[:80])
                 time.sleep(PAUSE)
+                continue
+            time.sleep(PAUSE)
             if f in skip:
                 hits += 1
                 print(iso, name, "-> SKIPPED FILE", f)
-    print(hits, "gallery subjects resolve to a skipped file")
+            elif gone:
+                gone_n += 1
+                print(iso, name, "-> PINNED FILE", gone.upper(), f)
+    print(hits, "gallery subjects resolve to a skipped file;", gone_n, "pinned files the site would now leave out")
 
 
 def cmd_record(argv):
