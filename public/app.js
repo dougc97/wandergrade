@@ -7278,24 +7278,28 @@ function flexChips(s) {
       : same.length ? " — " + (same.length === others.length ? "the same every month, " + tie + "."
                                 : same.join(", ") + " the same" + (byValue ? ", " + tie : "") + ".")
       : " — the other months " + (lo === hi ? lo : lo + "–" + hi) + ".");
-  // "Best in " in a span of its own: where the name cell is capped hardest
-  // (601-899px, styles.css) the chip is the month alone.
-  let html = `<span class="seastag seasbest" data-tip="${esc(tip)}" title=""><span class="sbw">Best in </span>${MON_ABBR[s.month - 1]}</span>`;
   const ch = s.cheapFly;
+  let ftip = "";
   if (ch) {
     // The fare strip's money (fareStripOpts): the reader's flight currency,
     // "≈" when converted. Beside it, the best month's own fare where its
     // flight grade came from that month, so the trade is in one line.
     const o = fareStripOpts(ch.month), fm = (v) => fareMoney(v, o.cur, o.conv);
-    const ftip = "Cheapest flight" + (span ? " of " + span : "") + ": " + MONTHS[ch.month - 1]
+    ftip = "Cheapest flight" + (span ? " of " + span : "") + ": " + MONTHS[ch.month - 1]
       + ", from " + fm(ch.price) + " round-trip"
       + (s.flyBasis === "month" && s.fare != null ? " (" + fm(s.fare) + " in " + MONTHS[s.month - 1] + ")" : "")
       + " — Aviasales' cached fare, not a live price.";
-    // "cheapest " in a span of its own, like "Best in ": where the name cell
-    // is capped hardest (styles.css) the chip is "✈️ Feb", the month being
-    // the one word it is for — "✈️ cheap…" at 768 had lost it.
-    html += `<span class="seastag seasfly" data-tip="${esc(ftip)}" title="">✈️ <span class="sfw">cheapest </span>${MON_ABBR[ch.month - 1]}</span>`;
   }
+  // "Best in " in a span of its own: where the name cell is capped hardest
+  // (601-899px, styles.css) the chip is the month alone. Its tip carries the
+  // cheapest-flight sentence too: a phone hides the ✈️ chip to keep row
+  // heights (styles.css), and Thailand's "cheapest Oct" was then nowhere on
+  // its row at 375 — the second half of the owner's "both" decision lost.
+  let html = `<span class="seastag seasbest" data-tip="${esc(tip + (ftip ? " " + ftip : ""))}" title=""><span class="sbw">Best in </span>${MON_ABBR[s.month - 1]}</span>`;
+  // "cheapest " in a span of its own, like "Best in ": where the name cell
+  // is capped hardest (styles.css) the chip is "✈️ Feb", the month being
+  // the one word it is for — "✈️ cheap…" at 768 had lost it.
+  if (ch) html += `<span class="seastag seasfly" data-tip="${esc(ftip)}" title="">✈️ <span class="sfw">cheapest </span>${MON_ABBR[ch.month - 1]}</span>`;
   return html;
 }
 // Whether a row's month won its tie with other months of the window on
@@ -7879,7 +7883,7 @@ function renderValue() {
           : "year-round fare vs a typical fare for the distance");
     return `<tr${seen ? ' class="visited"' : ""}>
       <td class="rank">#${i + 1}</td>
-      <td class="dest" title="${esc(s.month ? s.name + " — scored on " + MONTHS[s.month - 1] + ", its best month" : s.name)}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}${mon}${vis}</td>
+      <td class="dest" title="${esc(s.month ? s.name + " — scored on " + MONTHS[s.month - 1] + (valueMapMode === "weather" ? ", its best month for weather" : ", its best month") : s.name)}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}${mon}${vis}</td>
       ${td("afford", chip(s.afford, grade(s.afford), affordTitle(s).replace(" · click for cost-of-living detail", "")))}
       ${td("safety", safe)}${td("weather", wx)}${td("flight", fly)}
       <td class="num ovcell${hot === "value" ? " sorted" : ""}"><span class="gr ${gradeCls(grade(s.value))}" title="${esc(`Overall ${grade(s.value)} · ${s.value}/100`)}">${s.value}</span></td></tr>`;
