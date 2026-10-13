@@ -6117,13 +6117,24 @@ function tripDays() {
 // deliberately), 0 means flexible, 1-12 is an explicit pick. Flexible is the
 // interesting one — it turns "is August any good for these" into "when should
 // I go", which is the question most people with a shortlist actually have.
+// Unset under Top Picks' "Any time" follows that instead: flexible over its
+// window (`window`, its six months), not set on the window's first month —
+// the prompt said "14 days in October" to someone who had asked for any
+// time, and the month select showed October too (renderTripBar).
 function tripMonth() {
   const el = $("tripMonth");
-  const raw = el ? el.value : (localStorage.getItem("fx_tripmonth") || "");
-  if (raw === "0") return { month: null, flexible: true };
+  const saved = tripMonthSaved();
+  const raw = el ? el.value : saved;
+  const win = saved === "" && picksFlex() ? flexWindow() : null;
+  if (raw === "0") return { month: null, flexible: true, window: win };
   const n = parseInt(raw, 10);
   if (n >= 1 && n <= 12) return { month: n, flexible: false };
-  return { month: picksMonth(), flexible: false };
+  return win ? { month: null, flexible: true, window: win } : { month: picksMonth(), flexible: false };
+}
+// The trip's own month as saved: "" unset, "0" flexible, "1"-"12" — a
+// shared trip's while one is on screen.
+function tripMonthSaved() {
+  return String((sharedTripView && sharedTripView.tm != null ? sharedTripView.tm : localStorage.getItem("fx_tripmonth")) || "");
 }
 
 // The cart badge and the Top Picks pointer. The basket itself lives in its own
@@ -6155,7 +6166,9 @@ function renderTripBar() {
   const t = loadTrip();
   loadWishlist();
   const seedable = wishlist && wishlist.size && [...wishlist].some((i) => !t.has(i));
-  const savedM = (sharedTripView && sharedTripView.tm != null ? sharedTripView.tm : localStorage.getItem("fx_tripmonth")) || "";
+  const savedM = tripMonthSaved();
+  // Unset under "Any time": the trip is flexible over its window (tripMonth).
+  const flexM = savedM === "0" || (savedM === "" && picksFlex());
   if (!t.size) {
     // Empty state gets doors, not just directions: the owner read the text-only
     // version and still asked where to start. Two buttons jump straight to the
@@ -6183,9 +6196,9 @@ function renderTripBar() {
       + 'value="' + esc((sharedTripView && sharedTripView.td) || localStorage.getItem("fx_tripdays")
         || ($("budgetDays") || {}).value || localStorage.getItem("wg_budgetdays") || 14) + '" inputmode="numeric"> days</label>'
       + '<label class="tripmonth">in <select id="tripMonth" aria-label="Trip month">'
-      + '<option value="0"' + (savedM === "0" ? " selected" : "") + ">I'm flexible</option>"
+      + '<option value="0"' + (flexM ? " selected" : "") + ">I'm flexible</option>"
       + MONTHS.map((m, i) => '<option value="' + (i + 1) + '"'
-        + ((savedM === "0" ? false : (parseInt(savedM, 10) || picksMonth()) === i + 1)
+        + ((flexM ? false : (parseInt(savedM, 10) || picksMonth()) === i + 1)
           ? " selected" : "") + ">" + m + "</option>").join("")
       + "</select></label></div>"
       + '<div class="tripbook" id="tripBook"></div>';
