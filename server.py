@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
-    flightvalue, guide_facts, guide_sizers, health, mailer, map_picks, picks, popularity, rates,
+    flightvalue, guide_facts, guide_sizers, health, llms_txt, mailer, map_picks, picks, popularity, rates,
     render_guide, render_lists, store, watchouts
 )
 
@@ -1767,6 +1767,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/sitemap.xml":
             self._send_body(_sitemap(), "application/xml; charset=utf-8",
                             cache="public, max-age=3600")
+            return
+        if path == "/llms.txt":
+            # The site described for AI assistants (fxtracker/llms_txt.py):
+            # most AI fetchers don't run JavaScript, so they need telling which
+            # pages answer without it. From the sitemap's slug list.
+            self._send_body(llms_txt.build(render_guide.all_slugs(), render_guide.name_for_iso).encode("utf-8"),
+                            "text/plain; charset=utf-8", cache="public, max-age=3600")
             return
         if path in _LIST_PATHS:
             page = _list_page(path)
