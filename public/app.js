@@ -6017,9 +6017,9 @@ function buildValueTab() {
   ensurePopularity().then(() => renderValue()).catch(() => {});
 }
 
-// ---- export shortlist as an AI prompt --------------------------------------
-// Bridges the exploratory phase (this tool) to planning (the user's LLM):
-// copies their preferences + shortlist as a ready-to-paste prompt.
+// ---- the ranking Top Picks last drew ----------------------------------------
+// For the share image (buildRankShareSVG), the tables' re-sort and the Trip
+// tab's month (picksMonth).
 // lastPicksWx: ranked by Best weather, so an "Any time" pick's month is its
 // best-weather month, which the exports must not call its best month (Egypt:
 // November for weather, March for value).
@@ -6458,91 +6458,8 @@ function buildTripAIPrompt() {
   return lines.join("\n");
 }
 
-// UNREFERENCED as of 2026-08-13. This built a prompt from the algorithmic top
-// ten, behind a "Plan these with AI" button in Top Picks. Removed because it
-// wore the same label as the Trip tab's plan button while doing a different
-// job, so the two read as one feature duplicated — and nobody travels to a
-// top-ten list. The ranked table answers "which of these" better than a prompt.
-// Kept rather than deleted because it is a working exploratory prompt if that
-// idea ever comes back with its own name; delete it freely if it never does.
-function buildAIPrompt() {
-  const month = lastPicksMonth || curMonth();
-  const originName = originLabel();
-  const region = regionSel;
-  // What they care about = the counted factors weighted High.
-  const p = loadPriorities();
-  const careMap = { afford: "affordability (low prices & strong currency)", safe: "safety",
-                    wx: "good weather", fly: "cheap flights" };
-  const cares = WEIGHT_DEFS.filter((w) => p[w.key] === "high" && loadFactors().includes(w.key))
-    .map((w) => careMap[w.key]);
-  const monthName = MONTHS[month - 1];
-  // "Any time": every pick is graded on its own best month of the window,
-  // and the prompt says which, line by line.
-  const flexWin = lastPicksFlex ? flexWindow() : null;
-  const flexBest = lastPicksWx ? "best-weather month" : "best month";
-  const passport = guidePassport();
-  const lines = [];
-  lines.push("I'm in the early, exploratory phase of planning a trip and used a travel-value tool to shortlist destinations. Below is everything it already gave me — use it (don't re-derive it) to help me turn this into a plan.");
-  lines.push("");
-  lines.push("WHEN: " + (flexWin ? "any time in the next 6 months (" + flexSpan(flexWin)
-    + ") — each pick below is graded on its " + flexBest + " in that window" : monthName));
-  lines.push("FROM: " + originName + (homeBase !== "USD" ? " (budgeting in " + homeBase + ")" : ""));
-  if (region !== "all") lines.push("REGION: " + (REGIONS[region] || region));
-  if (cares.length) lines.push("I CARE MOST ABOUT: " + cares.join(", "));
-  loadWishlist();
-  if (wishlist.size) lines.push("ON MY WISHLIST: " + [...wishlist].map(countryName).join(", "));
-  const beenOwn = ownVisited();
-  if (beenOwn.size) lines.push("ALREADY BEEN (skip): " + [...beenOwn].map(countryName).join(", "));
-  lines.push("");
-  lines.push("SHORTLIST (" + (flexWin && lastPicksWx ? "best weather" : "best value") + " first; grades are A+ to F):");
-  lastPicks.forEach((s, i) => {
-    const pm = s.month || month, pmName = MONTHS[pm - 1];
-    const cl = climate && climate[s.iso];
-    const seas = cl ? seasons(cl.scores)[pm - 1] : null;
-    const best = cl && cl.best && cl.best.length ? cl.best.map((m) => MON_ABBR[m - 1]).join(", ") : null;
-    const hz = hazardsFor(s.iso, pm).map((h) => h.note);
-    const acts = (activities && activities[s.iso] && activities[s.iso].activities) || [];
-    const vi = visaInfo(s.iso, passport);
-    // Affordability in plain words.
-    let aff = "";
-    if (s.pl != null) aff = "prices " + plPhrase(s.pl, plHomeWord());
-    if (s.fx != null && Math.abs(s.fx) >= 2)
-      aff += ` (${homeBase} ${signedPct(Math.round(s.fx))} vs its 1-yr avg${s.fxAdj ? ", after inflation" : ""})`;
-    // The same basis as the Flights pill, so the words can't disagree with it:
-    // the month's fare vs the route's usual, or the year-round fare for the
-    // distance where a route has too few cached months.
-    const fl = s.flyBasis === "month"
-      ? (s.fly >= 80 ? "cheaper than this route's usual for " : s.fly <= 60 ? "pricier than this route's usual for "
-         : "about this route's usual for ") + pmName
-      : (s.dealRatio != null && !s.fareEst)
-      ? (s.dealRatio <= 0.95 ? "cheaper than usual for the distance"
-         : s.dealRatio >= 1.05 ? "pricier than usual for the distance" : "about average for the distance")
-      : null;
-    lines.push(`${i + 1}. ${s.name} — overall ${grade(s.value)}${s.month ? " in " + pmName + ", its " + (lastPicksWx ? "best month for weather" : "best month") : ""}`);
-    if (aff) lines.push(`   - Affordability ${grade(s.afford)}: ${aff}`);
-    // Whose words they are, too: "“No warning”" alone doesn't say it's Germany's.
-    lines.push(`   - Safety: ${s.advLvl ? advLevelText(s.iso, s.advLvl) + advVia(s.iso) : "no current advisory"}`);
-    // visaInfo returns {home: true} with no meta for the passport's own
-    // country (the US in Top Picks for a US reader): it crashed the prompt.
-    if (vi && vi.meta) lines.push(`   - Visa (${passport === "US" ? "US" : countryName(passport)} passport): ${vi.meta.long}${vi.note ? " — " + vi.note : ""}`);
-    if (best) lines.push(`   - Best months: ${best}; ${pmName}: ${SEASON_WX[seas] || "no data"} for weather`);
-    if (hz.length) lines.push(`   - ${pmName} heads-up: ${hz.join("; ")}`);
-    if (acts.length) lines.push(`   - Known for: ${acts.map(actLabel).filter(Boolean).join("; ")}`);
-    if (fl) lines.push(`   - Flights: ${fl}`);
-  });
-  lines.push("");
-  lines.push("USING THE ABOVE, please:");
-  lines.push("- Narrow to the 2–3 that best fit what I care about, and say why");
-  lines.push("- For each, recommend specific cities/regions and how many days");
-  lines.push("- Estimate a rough daily budget and total trip cost from " + originName);
-  lines.push("- Draft a day-by-day itinerary for your top pick");
-  lines.push("- Tell me when to book flights and where to stay");
-  lines.push("");
-  lines.push("These grades are from WanderGrade: " + SITE_ORIGIN + (flexWin ? "/?vmf=1" : "/?vmn=" + month));
-  return lines.join("\n");
-}
 // Shared AI panel: shows the prompt with Copy / Open in ChatGPT / Open in
-// Claude. Used by both the Top Picks shortlist export and the Travel Guide
+// Claude. Used by both the Trip tab's plan and the Travel Guide's
 // per-country button so they behave identically.
 function renderAIPanel(host, prompt) {
   if (!host) return;
@@ -7638,7 +7555,7 @@ function renderValue() {
   const region = regionSel;
   // "Any time" ranks each country on its best month of the window; month is
   // then the window's first, for what needs one (the seasonal backdrop, the
-  // AI export, a row with no month of its own).
+  // Trip tab's month, a row with no month of its own).
   const flex = picksFlex();
   const win = flex ? flexWindow() : null;
   const month = travelMonth();
@@ -7819,7 +7736,7 @@ function renderValue() {
     : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + beenNote + budNote;
   // lastPicksMonth stays a real month (the Trip tab and the stays plan for
   // one); lastPicksFlex tells the exports to word "the next 6 months".
-  lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex; lastPicksWx = weatherMode;   // for the AI export + re-sort
+  lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex; lastPicksWx = weatherMode;   // for the share image + re-sort
   renderGradeTable($("topCards"), picks, month, false, true);
   // Pulse the picked countries on the map so table and map visibly agree.
   if (!reducedMotion()) {
