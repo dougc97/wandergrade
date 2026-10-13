@@ -169,6 +169,33 @@ results.append(ok(got[5] is None, "bestOfWindow with a budget and no scores -> n
 results.append(ok(got[6] == [3, True], "bestOfWindow by weather, only March within the budget -> March, moved (got %s)" % got[6]))
 results.append(ok(got[7] == [3, True], "bestOfWindow by weather with a budget: Jan's 95 flies over it (590) -> Mar, also 95, before Dec's 90, moved (got %s)" % got[7]))
 
+# --- bestOfWindow: a month's own fare first (own) ------------------------------
+# Owner's call (2026-10-13, option 1): with a budget, months graded on a cached
+# fare of their own (flyBasis "month") come first; a month with none passes
+# only on the route's cheapest fare ever seen (budgetFit's fareMin), so it is
+# chosen only when no month with its own fare fits. The Philippines at USD 700
+# took February, which has no fare, on October's $495, over January's own $789.
+G = lambda value, fare, own: {"value": value, "wx": 50, "fare": fare, "own": own}
+PH = {"10": G(80, 495, True), "11": G(82, 872, True), "12": G(70, 1151, True),
+      "1": G(88, 789, True), "2": G(90, 495, False), "3": G(75, 885, True)}
+PH_NO_OWN_FIT = dict(PH, **{"10": G(80, 650, True)})
+UNBANDED = {k: G(v["value"], 495, False) for k, v in PH.items()}
+PH_OWN_BEST = dict(PH, **{"2": G(90, 495, True)})
+OWN = "(s) => s.own"
+prog = ("%s\nconst win = %s, fits = %s, own = %s;\nconst r = (b) => b && [b.month, !!b.moved, !!b.own];\n"
+        "print(JSON.stringify([r(bestOfWindow(%s, win, 'value', fits, own)), r(bestOfWindow(%s, win, 'value', fits)),"
+        " r(bestOfWindow(%s, win, 'value', fits, own)), r(bestOfWindow(%s, win, 'value', fits, own)),"
+        " r(bestOfWindow(%s, win, 'value', fits, own)), r(bestOfWindow(%s, win, 'value', null, own))]));"
+        % (PIECES, json.dumps(WIN), OK600, OWN, json.dumps(PH), json.dumps(PH), json.dumps(PH_NO_OWN_FIT),
+           json.dumps(UNBANDED), json.dumps(PH_OWN_BEST), json.dumps(PH)))
+got = jsc(prog) or [None] * 6
+results.append(ok(got[0] == [10, True, True], "own fare first: Feb (90) has no fare and passes on the route's cheapest; Oct's own $495 fits -> Oct, moved (got %s)" % got[0]))
+results.append(ok(got[1] == [2, False, False], "without own, as before: Feb, the best, passing on the cheapest fare (got %s)" % got[1]))
+results.append(ok(got[2] == [2, False, False], "no month fits on its own fare: the cheapest-fare rule stands -> Feb, not moved (got %s)" % got[2]))
+results.append(ok(got[3] == [2, False, False], "a route with no per-month fares: unchanged -> Feb (got %s)" % got[3]))
+results.append(ok(got[4] == [2, False, False], "the best month fits on its own fare: unchanged -> Feb, not moved (got %s)" % got[4]))
+results.append(ok(got[5] == [2, False, False], "no budget: own is ignored -> Feb (got %s)" % got[5]))
+
 # --- flexTieOnValue ----------------------------------------------------------------
 # The chip's tip, "the same every month, so the soonest", was true only of
 # value ties. Best weather breaks a comfort tie on value: Cabo Verde, 100

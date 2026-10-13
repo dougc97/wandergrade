@@ -7215,8 +7215,9 @@ function flexChips(s) {
   // rules out are named after, in the budget note's own words. Without that,
   // "Best value: Jan, 80/100 — the other months 70–90" read as a 90 passed over.
   const moved = !!s.budgetMoved;
-  const others = ws.filter((x) => x.m !== s.month && x[key] != null && !x.over);
+  const others = ws.filter((x) => x.m !== s.month && x[key] != null && !x.over && !x.nofare);
   const over = moved ? ws.filter((x) => x.over).map((x) => MON_ABBR[x.m - 1]) : [];
+  const nofare = moved ? ws.filter((x) => x.nofare).map((x) => MON_ABBR[x.m - 1]) : [];
   const same = others.filter((x) => x[key] === s[key]).map((x) => MON_ABBR[x.m - 1]);
   const vals = others.map((x) => x[key]), lo = Math.min(...vals), hi = Math.max(...vals);
   const byValue = flexTieOnValue(s, others, wxRank), tie = byValue ? "so the best value of them" : "so the soonest";
@@ -7227,7 +7228,8 @@ function flexChips(s) {
       : same.length ? " — " + (same.length === others.length ? "the same every month" + (moved ? " within it" : "") + ", " + tie + "."
                                 : same.join(", ") + " the same" + (byValue ? ", " + tie : "") + ".")
       : " — the other months " + (lo === hi ? lo : lo + "–" + hi) + ".")
-    + (over.length ? " " + over.join(", ") + ": out of reach on the flight alone." : "");
+    + (over.length ? " " + over.join(", ") + ": out of reach on the flight alone." : "")
+    + (nofare.length ? " " + nofare.join(", ") + ": no fare cached for " + (nofare.length === 1 ? "that month." : "those months.") : "");
   const ch = s.cheapFly;
   let ftip = "";
   if (ch) {
@@ -7570,7 +7572,13 @@ async function ensurePopularity() {
 // was dropped while another month of the window fitted it. With no month
 // passing, the unconstrained best stands, and the budget filter drops it as
 // before.
-function bestOfWindow(byMonth, win, key, ok) {
+// own (a month graded on a cached fare of its own, flyBasis "month") comes
+// first under a budget: a month with none passes only on the route's
+// cheapest fare ever seen (budgetFit's fareMin), so the Philippines at USD
+// 700 took February, which has no fare, on October's $495 over January's own
+// $789. Such a month is chosen only when no month with its own fare fits
+// (the owner's call, 2026-10-13); own: true says that is why it moved.
+function bestOfWindow(byMonth, win, key, ok, own) {
   const pick = (test) => {
     let best = null, bestM = null;
     for (const m of win) {
@@ -7584,7 +7592,12 @@ function bestOfWindow(byMonth, win, key, ok) {
     return best ? { s: best, month: bestM } : null;
   };
   const best = pick(null);
-  if (!best || !ok || ok(best.s)) return best;
+  if (!best || !ok) return best;
+  if (own) {
+    const mine = pick((s) => own(s) && ok(s));
+    if (mine) return mine.month === best.month ? best : { s: mine.s, month: mine.month, moved: true, own: true };
+  }
+  if (ok(best.s)) return best;
   const fit = pick(ok);
   return fit ? { s: fit.s, month: fit.month, moved: true } : best;
 }
@@ -7636,6 +7649,7 @@ function renderValue() {
   // reaches (bestOfWindow's ok); only a per-month fare varies, so in practice
   // that moves banded routes only.
   const fits = flex && budgetOf().total ? passesBudget : null;
+  const ownFare = (s) => s.flyBasis === "month";
   for (const iso in CUR_BY_ISO) {
     if (region !== "all" && ISO_REGION[iso] !== region) continue;
     if (!flex) {
@@ -7647,14 +7661,17 @@ function renderValue() {
     // it to the newsletter's); only its weather and flight terms move by month.
     const byMonth = {};
     for (const m of win) byMonth[m] = valueScores(iso, m, advMap, fares, anchorPl);
-    const b = bestOfWindow(byMonth, win, valueMapMode === "weather" ? "wx" : "value", fits);
+    const b = bestOfWindow(byMonth, win, valueMapMode === "weather" ? "wx" : "value", fits, ownFare);
     if (!b) continue;
     const s = b.s;
     s.month = b.month;
     // Every month's two scores, for the chip's "the other months" tip; where
-    // the budget moved the month, the ones it rules out are marked (over).
+    // the budget moved the month, the ones it rules out are marked (over),
+    // and where a month with its own fare was preferred, the fare-less ones
+    // passed over on the route's cheapest are marked too (nofare).
     s.winScores = win.map((m) => (byMonth[m] ? Object.assign({ m, value: byMonth[m].value, wx: byMonth[m].wx },
-      b.moved && !fits(byMonth[m]) ? { over: true } : null) : null)).filter(Boolean);
+      b.moved && !fits(byMonth[m]) ? { over: true }
+        : b.own && !ownFare(byMonth[m]) ? { nofare: true } : null) : null)).filter(Boolean);
     if (b.moved) s.budgetMoved = true;
     const ch = fvC ? cheapestFareMonth(fvC[iso], winKeys) : null;
     if (ch && ch.month !== s.month) s.cheapFly = ch;
