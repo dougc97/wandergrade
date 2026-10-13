@@ -6041,6 +6041,9 @@ function buildValueTab() {
 // best-weather month, which the exports must not call its best month (Egypt:
 // November for weather, March for value).
 let lastPicks = [], lastPicksMonth = null, lastPicksFlex = false, lastPicksWx = false;
+// Whether the budget moved any country's month on the last Any-time render:
+// the value map's 📸 image words its subtitle from it, as the ⓘ does.
+let valueBudgetMoved = false;
 // The month Top Picks ranked by, else the travel month itself: a Trip landing
 // never builds Top Picks, and /?tab=trip&vmn=3 showed October weather without
 // this (#valueMonth already holds the link's vmn= by then).
@@ -7669,6 +7672,7 @@ function renderValue() {
   // map is coloured for it (Thailand: October at 85 under USD 700, where
   // January scores 90), so the tip says so once one has moved.
   const budgetMovedAny = flex && Object.values(scored).some((s) => s.budgetMoved);
+  valueBudgetMoved = budgetMovedAny;
   if (vSub) vSub.dataset.tip = (flex ? "Each country is scored on its best month between "
       + MONTHS[win[0] - 1] + " and " + MONTHS[win[win.length - 1] - 1]
       + (budgetMovedAny ? " within your budget, where it has one" : "") + ". " : "")
@@ -12139,8 +12143,11 @@ if ($("valueShare")) $("valueShare").addEventListener("click", () => {
     title: weather ? "Where the weather is best in " + month
                    : "Best-value places to travel in " + month,
     sub: flex
-      ? (weather ? "Weather comfort by country, scored 0-100 on its best month, " + flexSpan(win) + "."
-                 : "Affordability, safety, weather and flight cost in one grade, each country on its best month, " + flexSpan(win) + ".")
+      // "within budget" where the budget moved a month: the image said "its
+      // best month" over Thailand coloured for October (85) under USD 700,
+      // where January (90) is its best.
+      ? (weather ? "Weather comfort by country, scored 0-100 on its best month" + (valueBudgetMoved ? " within budget" : "") + ", " + flexSpan(win) + "."
+                 : "Affordability, safety, weather and flight cost in one grade, each country on its best month" + (valueBudgetMoved ? " within budget" : "") + ", " + flexSpan(win) + ".")
       : weather ? "Weather comfort by country, scored 0-100 for this month."
                  : "Affordability, safety, weather and flight cost, combined into one grade.",
     gradient: ["#b00020", "#eef0f1", "#0a7d28"],
