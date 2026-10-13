@@ -6384,6 +6384,32 @@ function renderTripBook(isos) {
   }).catch(() => {});
 }
 
+// ---- AI prompts: shared pieces ----------------------------------------------
+// The AI sites with a prefill link, and the longest encoded prompt each one
+// takes, as checked logged out on 2026-10-13: ChatGPT prefilled a 38k link;
+// Claude carries the prompt through its sign-in only up to ~4.3k; Grok asks
+// "Send this message?" first, and past ~6.5k answers a dead HTTP 431;
+// Perplexity sends at once and fails at ~16k. Past its cap a button opens
+// the site's new chat instead, and the click copies the prompt to paste
+// (renderAIPanel). Left out: Copilot drops ?q= on its way to a sign-in page;
+// Gemini's undocumented prompt_text didn't prefill logged out (it wants a
+// signed-in test before it earns a button); Mistral makes everyone sign in
+// first; Muse and Meta AI are sign-in walls; Cursor is a code editor. A site
+// is one line here, in the order the buttons show.
+const AI_SITES = [
+  { name: "ChatGPT", q: "https://chatgpt.com/?q=", home: "https://chatgpt.com/", cap: 30000 },
+  { name: "Claude", q: "https://claude.ai/new?q=", home: "https://claude.ai/new", cap: 4000 },
+  { name: "Grok", q: "https://grok.com/?q=", home: "https://grok.com/", cap: 6000 },
+  { name: "Perplexity", q: "https://www.perplexity.ai/search?q=", home: "https://www.perplexity.ai/", cap: 12000 },
+];
+// A site's link for a prompt: prefilled while the encoded prompt is within
+// the site's cap, else its plain new chat (fits false: the prompt goes by
+// the clipboard).
+function aiLink(site, prompt) {
+  const q = encodeURIComponent(prompt);
+  return q.length <= site.cap ? { href: site.q + q, fits: true } : { href: site.home, fits: false };
+}
+
 // Days and month both sit above the prompt box, so once the box is open you
 // can see it not changing. Rebuild it in place — but only if it is already
 // open, since generating it is what the plan button is for.
@@ -6514,36 +6540,43 @@ function buildTripAIPrompt() {
   return lines.join("\n");
 }
 
-// Shared AI panel: shows the prompt with Copy / Open in ChatGPT / Open in
-// Claude. Used by both the Trip tab's plan and the Travel Guide's
-// per-country button so they behave identically.
-function renderAIPanel(host, prompt) {
+// Shared AI panel: the prompt, Copy, and a link per AI site (AI_SITES). Used
+// by both the Trip tab's plan and the Travel Guide's per-country button so
+// they behave identically. refresh: an open panel drawn again (its data
+// landed, the trip's days moved) — nothing changes when the prompt is the
+// same, and the page doesn't scroll to it.
+const AI_HINT_TIP = "ChatGPT opens a new chat with the prompt filled in. Perplexity sends it straight away; "
+  + "Grok asks you to confirm before sending; Claude may ask you to sign in first. A prompt too long "
+  + "for a site's link is copied instead, and its button opens a new chat to paste it into.";
+function renderAIPanel(host, prompt, refresh) {
   if (!host) return;
-  const cg = "https://chatgpt.com/?q=" + encodeURIComponent(prompt);
-  const cla = "https://claude.ai/new?q=" + encodeURIComponent(prompt);
-  const px = "https://www.perplexity.ai/search?q=" + encodeURIComponent(prompt);
-  // Grok verified 2026-08-15: grok.com/?q= prefills the composer even logged
-  // out. The others were checked and rejected: Copilot ignores ?q=, Gemini has
-  // no public prefill URL at all, Mistral has none documented. A button that
-  // opens an empty chat is worse than no button — those stay on the paste path.
-  const gk = "https://grok.com/?q=" + encodeURIComponent(prompt);
+  const ta = host.querySelector("textarea.aitext");
+  if (refresh && ta && ta.value === prompt) return;
+  const links = AI_SITES.map((s, i) => {
+    const l = aiLink(s, prompt);
+    return '<a class="aiact" data-ai="' + i + '" data-fits="' + (l.fits ? 1 : 0) + '" href="' + l.href
+      + '" target="_blank" rel="noopener"' + (l.fits ? ">Open in "
+        : ' data-tip="' + esc("Too long for " + s.name + "'s link: this copies it and opens a new chat to paste into") + '" title="">Copy &amp; open ')
+      + esc(s.name) + " ↗</a>";
+  }).join("");
   host.hidden = false;
   host.innerHTML =
     '<div class="airow">'
-    + '<button type="button" class="aiact" data-act="copy">📋 Copy prompt</button>'
-    + '<a class="aiact" href="' + cg + '" target="_blank" rel="noopener">Open in ChatGPT ↗</a>'
-    + '<a class="aiact" href="' + cla + '" target="_blank" rel="noopener">Open in Claude ↗</a>'
-    + '<a class="aiact" href="' + gk + '" target="_blank" rel="noopener">Open in Grok ↗</a>'
-    + '<a class="aiact" href="' + px + '" target="_blank" rel="noopener">Open in Perplexity ↗</a>'
+    + '<button type="button" class="aiact" data-act="copy">📋 Copy prompt</button>' + links
     + '</div>'
     + '<textarea class="aitext" readonly rows="9">' + esc(prompt) + '</textarea>'
-    + '<p class="hint">“Copy prompt” grabs the full version — paste into ChatGPT, Claude, Grok, Perplexity, or any AI. The buttons open a new chat with it pre-filled.</p>';
+    + '<p class="hint">Paste it into any AI, or open one above. <span class="muted" data-tip="' + esc(AI_HINT_TIP) + '" title="">ⓘ</span></p>';
   host.querySelector('[data-act="copy"]').onclick = () => copyText(prompt);
-  // Also copy when opening an AI, so the full prompt is ready to paste if the
-  // pre-fill link is truncated by length limits.
-  host.querySelectorAll("a.aiact").forEach((el) =>
-    el.addEventListener("click", () => copyText(prompt, true)));
-  host.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "nearest" });
+  // Every link copies the prompt too: within its cap, so the full text is
+  // ready to paste if the site trims it; past the cap, because pasting is the
+  // only way in — said out loud, since the chat it opens is empty.
+  host.querySelectorAll("a.aiact").forEach((el) => el.addEventListener("click", () => {
+    const site = AI_SITES[+el.dataset.ai];
+    const copied = copyText(prompt, true);
+    if (el.dataset.fits !== "1") copied.then((ok) => status(ok ? "Prompt copied — paste it into " + site.name
+      : "Couldn't copy — select the prompt and copy it, then paste it into " + site.name, ok ? "ok" : "err"));
+  }));
+  if (!refresh) host.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "nearest" });
 }
 
 
