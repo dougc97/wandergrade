@@ -1705,7 +1705,10 @@ function renderCountryCard() {
     </div>`;
   card.querySelector(".ccclose").onclick = () => { card.remove(); ccCurrent = null; };
   const todo = card.querySelector('[data-cc="todo"]');
-  if (todo) todo.onclick = () => openGuideFor(iso, true);
+  if (todo) todo.onclick = () => {
+    if (host.id === "valueMap" && valueMapMonths) setFlexFocus(valueMapMonths[iso] || null, true);
+    openGuideFor(iso, true);
+  };
   const mark = (mode) => {
     const prev = visitMode; visitMode = mode; toggleMark(iso); visitMode = prev;
     renderCountryCard();
@@ -6029,6 +6032,10 @@ let lastPicks = [], lastPicksMonth = null, lastPicksFlex = false, lastPicksWx = 
 // this (#valueMonth already holds the link's vmn= by then).
 function picksMonth() { return lastPicksMonth || travelMonth(); }
 let lastGems = [];   // current hidden-gems list, for the 💎 surprise button
+// "Any time": the month each country on Top Picks' map is coloured for, so
+// its card's "Country guide →" opens that month, as its row would
+// (setFlexFocus). Null in month mode.
+let valueMapMonths = null;
 
 // ---- Trip builder -----------------------------------------------------------
 // A working set for ONE trip, deliberately separate from the ★ wishlist. The
@@ -7383,7 +7390,9 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
     // seasonal tag, so one tag follows it (two do in month mode), and on a
     // phone .flexrow gives the month the name's second line (styles.css).
     const cls = [seen ? "visited" : "", s.month ? "flexrow" : ""].filter(Boolean).join(" ");
-    return `<tr data-iso="${iso}"${cls ? ` class="${cls}"` : ""} title="${esc(whyLine(s, rm))}" style="--i:${i}">
+    // data-m: the month an opened row shows its guide and Flights tab for
+    // (setFlexFocus), only on an "Any time" row.
+    return `<tr data-iso="${iso}"${s.month ? ` data-m="${s.month}"` : ""}${cls ? ` class="${cls}"` : ""} title="${esc(whyLine(s, rm))}" style="--i:${i}">
       <td class="rank">#${i + 1}</td>
       <td class="dest"><a class="destlink" href="${esc(guidePath(s.iso))}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}</a>${seen ? ' <span class="visited-tag">✓<span class="vtword"> visited</span></span>' : ""}${s.month ? flexChips(s) + seasonalTags(s.iso, rm, 1, true) : seasonalTags(s.iso, month)}${budLine(s)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${priceNotes ? `<span class="hzmark" data-tip="${esc(priceNotes)}" title="">⚠️</span>` : ""}${fxMark(s.iso)}</span></td>
@@ -7439,19 +7448,26 @@ function affordTitle(s) {
 // One delegated click for the grade table:
 //  - a factor cell jumps to that factor's detail for the country
 //  - the rest of the row opens the country's travel guide
+// An "Any time" row opens its own month (data-m, setFlexFocus): the guide and
+// the Flights tab show the month its "Best in" chip names.
+const rowFocus = (el, guideDrawn) => {
+  const tr = el.closest(".gradetable tr[data-iso]");
+  if (tr) setFlexFocus(+tr.dataset.m || null, guideDrawn);
+};
 document.addEventListener("click", (e) => {
   const dl = e.target.closest(".gradetable a.destlink, #tripBook a.tbdest, #tab-data a.destlink");
   if (dl) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;   // new tab/window: the browser's
     e.preventDefault();
+    rowFocus(dl, true);
     openGuideFor(dl.closest("[data-iso]").dataset.iso, true);
     return;
   }
   if (e.target.closest("a")) return;
   const cell = e.target.closest(".gradetable td.scell[data-go]");
-  if (cell && cell.dataset.iso) { goToDetail(cell.dataset.go, cell.dataset.iso); return; }
+  if (cell && cell.dataset.iso) { rowFocus(cell, cell.dataset.go === "weather"); goToDetail(cell.dataset.go, cell.dataset.iso); return; }
   const t = e.target.closest(".pickcard, .gradetable tr[data-iso]");
-  if (t && t.dataset.iso) openGuideFor(t.dataset.iso, true);
+  if (t && t.dataset.iso) { rowFocus(t, true); openGuideFor(t.dataset.iso, true); }
 });
 
 // Data-tab tables (currency, cost of living, safety, flights): a row click opens
@@ -7578,7 +7594,9 @@ function renderValue() {
   // Trip tab's month, a row with no month of its own).
   const flex = picksFlex();
   const win = flex ? flexWindow() : null;
-  const month = travelMonth();
+  // win[0], not travelMonth(): that is the month of a row the reader opened
+  // (flexFocusMonth), and the ranking is of the window, whichever row it was.
+  const month = flex ? win[0] : travelMonth();
   setSeason(month);
   renderTripBar();
   const advMap = advisoryByIso();
@@ -7653,6 +7671,7 @@ function renderValue() {
       + '<span><span class="swatch"></span>No data</span>'
       + '<span><span class="swatch" style="background:' + DNT_FILL + '"></span>Do Not Travel</span>';
 
+  valueMapMonths = flex ? Object.fromEntries(Object.values(scored).map((s) => [s.iso, s.month])) : null;
   if (valueMapMode === "weather" && climate) {
     // Weather-only view (absorbed the old "best places by month" tab).
     drawMap("valueMap", (f) => {
@@ -7667,6 +7686,7 @@ function renderValue() {
           const byM = {};
           for (const w of win) byM[w] = { wx: c.scores[w - 1], value: 0 };
           m = bestOfWindow(byM, win, "wx").month;
+          valueMapMonths[f.properties.iso] = m;
         }
       }
       const s = c ? c.scores[m - 1] : null;
@@ -8652,6 +8672,9 @@ function markTravelMonthChosen() {
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
 }
 $("valueMonth").addEventListener("change", markTravelMonthChosen);
+// Any time turned off or on, or a month picked: a row's month (flexFocusMonth)
+// no longer stands.
+for (const ev of ["change", "pick"]) $("valueMonth").addEventListener(ev, () => setFlexFocus(null));
 // A changed pick already ran the above via "change"; an unchanged one only
 // changes whether the month counts, so the address bar gains its vmn too.
 $("valueMonth").addEventListener("pick", () => { if (!travelMonthChosen) { markTravelMonthChosen(); syncURL(); } });
@@ -9670,6 +9693,9 @@ async function activateTab(name, push) {
   if (name !== "guide") promoteShellHeadings();
   clearTransientStatus();   // a note about the old tab shouldn't outlive it
   closeMapFullscreen();     // "Country guide →" from a full-screen map
+  // Back on Top Picks, a row's month (flexFocusMonth) is done with: the guide
+  // tab opened by hand from here shows the window's first month again.
+  if (name === "value") setFlexFocus(null);
   document.documentElement.setAttribute("data-tab", name);  // keep pre-paint CSS in sync
   if (name === "trip") renderTripBar();
   // Meta follows the tab in BOTH directions. Leaving the guide restores the
@@ -9804,12 +9830,36 @@ function flexWindow(now = new Date()) {
 // The travel month as a real month, 1-12, for everything that plans one
 // month: the guide's bars, stay dates, the Flights tab, the AI prompts. In
 // "Any time" that is the window's first month — the soonest one a flexible
-// traveller could go.
+// traveller could go — or the month of the row the reader opened
+// (flexFocusMonth). Top Picks' own ranking never asks: it ranks the window.
 function travelMonth() {
   const v = ($("valueMonth") || {}).value;
   const n = parseInt(v, 10);
   if (n >= 1 && n <= 12) return n;
-  return v === "0" ? flexWindow()[0] : curMonth();
+  return v === "0" ? flexFocusMonth || flexWindow()[0] : curMonth();
+}
+// "Any time": the month of the Top Picks row the reader opened (its s.month,
+// the tr's data-m), while Any time stays selected. A "Best in Jan" Thailand
+// opened a guide graded for October, the window's first month, and its
+// Flights cell an October Flights tab. Opening another row replaces it; a
+// month picked anywhere, Any time turned off or on, and going back to Top
+// Picks clear it. Never in a URL (a link's vmf=1 opens on the window's first).
+let flexFocusMonth = null;
+// guideDrawn: the caller is opening a guide, which draws for the new month
+// itself (openGuideFor), so only the Flights tab needs drawing again here.
+function setFlexFocus(m, guideDrawn) {
+  const want = picksFlex() && m >= 1 && m <= 12 ? m : null;
+  if (want === flexFocusMonth) return;
+  flexFocusMonth = want;
+  // What already drew for the old month draws again, hidden or not: a guide
+  // tab opened by hand afterwards rerenders nothing, and showed January
+  // after Back to Top Picks; the Flights tab only refits on a second visit.
+  if (ccGuideIso && !guideDrawn) redrawGuideMonth(ccGuideIso);
+  if (loaded.flights && flightsData && flightsData.configured) renderFlights();
+}
+// The guide's parts that read the travel month.
+function redrawGuideMonth(iso) {
+  renderCountryClimate(iso); renderGuideStay(iso); renderGuideAI(iso); renderActivity(iso); renderGuideFares(iso); renderGuideGrades(iso);
 }
 // "Oct–Mar": the window as the notes and tips name it.
 function flexSpan(win) { return MON_ABBR[win[0] - 1] + "–" + MON_ABBR[win[win.length - 1] - 1]; }
@@ -9824,9 +9874,10 @@ function planForMonth(m, quiet) {
   const changed = sel.value !== String(m);
   sel.value = String(m);
   if (sel.value !== String(m)) return;   // never report a change that didn't happen
+  flexFocusMonth = null;   // a month picked: Any time is off (redrawn below)
   if (sel._sync) sel._sync();
   if (loaded.value) renderValue();
-  if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); renderGuideFares(ccGuideIso); renderGuideGrades(ccGuideIso); }
+  if (ccGuideIso) redrawGuideMonth(ccGuideIso);
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
   if (changed && !quiet) status("Planning for " + MONTHS[m - 1] + " ✓ — picks, stay prices & AI prompt updated", "ok");
   syncURL();
@@ -10443,9 +10494,10 @@ window.addEventListener("popstate", async () => {
     // The month first: a guide URL carries it too (/guide/<slug>?vmn=), and
     // the guide returns early below — Back between two months of one guide
     // left the bars on the month being left.
-    const vmn = q.get("vmn"), vmSel = $("valueMonth");
+    const vmn = q.get("vmn"), vmSel = $("valueMonth"), vmWas = vmSel && vmSel.value;
     if (q.get("vmf") === "1" && vmSel) { vmSel.value = "0"; travelMonthChosen = true; }   // vmf wins, as on landing
     else if (vmn && vmn !== "0" && vmSel && [...vmSel.options].some((o) => o.value === vmn)) { vmSel.value = vmn; travelMonthChosen = true; }
+    if (vmSel && vmSel.value !== vmWas) setFlexFocus(null);   // Any time left (or entered anew)
     // Clean guide URL (/guide/<slug>) takes precedence over the other params.
     const pIso = pathGuideIso();
     if (pIso) { resyncCombos(); await openGuideFor(pIso, false); return; }
@@ -10598,7 +10650,7 @@ async function postApplyShared() {
     if (vmSel.value !== "0") {
       vmSel.value = "0"; rerender = true;
       if (vmSel._sync) vmSel._sync();
-      if (ccGuideIso) { renderCountryClimate(ccGuideIso); renderGuideStay(ccGuideIso); renderGuideAI(ccGuideIso); renderActivity(ccGuideIso); renderGuideFares(ccGuideIso); renderGuideGrades(ccGuideIso); }
+      if (ccGuideIso) redrawGuideMonth(ccGuideIso);
       if (loaded.flights && flightsData && flightsData.configured) renderFlights();
     }
   } else if (vmn && vmn !== "0" && vmSel && [...vmSel.options].some((o) => o.value === vmn)) {

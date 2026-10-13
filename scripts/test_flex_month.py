@@ -4,7 +4,9 @@ public/app.js, cut out of the file by name and run under jsc.
   flexWindow        the next six months, starting next month once fewer than
                     10 days of this one remain (flightvalue.partial_month)
   travelMonth       a real month for every other reader: "0" is the window's
-                    first, never parseInt("0") || curMonth()
+                    first (or the month of the row the reader opened,
+                    flexFocusMonth), never parseInt("0") || curMonth(); a
+                    month picked never reads a leftover row month
   bestOfWindow      a country's best month: value, or comfort then value in
                     Best weather; a tie keeps the sooner month; with a budget
                     (ok), the best month it passes, else the unconstrained one
@@ -85,11 +87,22 @@ results.append(ok(jsc("%s\nprint(JSON.stringify([flexSpan([10,11,12,1,2,3]), fle
 # would show: stubbed, with the select and the clock.
 TM = js_fn("travelMonth")
 prog = ("%s\nfunction flexWindow() { return [11, 12, 1, 2, 3, 4]; }\nlet SEL = null; const $ = () => SEL; const curMonth = () => 10;\n"
+        "let flexFocusMonth = null;\n"
         "const out = []; for (const v of ['0', '11', '3', '', null]) { SEL = v === null ? null : { value: v }; out.push(travelMonth()); }\n"
         "print(JSON.stringify(out));" % TM)
 got = jsc(prog)
 results.append(ok(bool(TM) and got == [11, 11, 3, 10, 10],
                   "travelMonth on Oct 23: '0' -> 11 (the window's first), '11' -> 11, '3' -> 3, no value / no select -> 10 (got %s)" % got))
+# A row opened in Any time (flexFocusMonth = its month, January here) is what
+# the guide and the Flights tab read; a month picked never reads it, so a
+# focus left behind cannot leak into month mode.
+prog = ("%s\nfunction flexWindow() { return [11, 12, 1, 2, 3, 4]; }\nlet SEL = null; const $ = () => SEL; const curMonth = () => 10;\n"
+        "let flexFocusMonth = 1;\n"
+        "const out = []; for (const v of ['0', '11', '3', '', null]) { SEL = v === null ? null : { value: v }; out.push(travelMonth()); }\n"
+        "print(JSON.stringify(out));" % TM)
+got = jsc(prog)
+results.append(ok(bool(TM) and got == [1, 11, 3, 10, 10],
+                  "travelMonth with a row's January in focus: '0' -> 1, '11' -> 11, '3' -> 3, none -> 10 (got %s)" % got))
 
 # --- bestOfWindow ----------------------------------------------------------------
 WIN = [10, 11, 12, 1, 2, 3]
