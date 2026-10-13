@@ -7185,16 +7185,24 @@ function flexChips(s) {
   const wxRank = valueMapMode === "weather", key = wxRank ? "wx" : "value";
   const ws = s.winScores || [];
   const span = ws.length ? flexSpan(ws.map((x) => x.m)) : "";
-  const others = ws.filter((x) => x.m !== s.month && x[key] != null);
+  // A month the budget moved (renderValue's s.budgetMoved) is the best of
+  // those the budget reaches, so "the other months" are those; the ones it
+  // rules out are named after, in the budget note's own words. Without that,
+  // "Best value: Jan, 80/100 — the other months 70–90" read as a 90 passed over.
+  const moved = !!s.budgetMoved;
+  const others = ws.filter((x) => x.m !== s.month && x[key] != null && !x.over);
+  const over = moved ? ws.filter((x) => x.over).map((x) => MON_ABBR[x.m - 1]) : [];
   const same = others.filter((x) => x[key] === s[key]).map((x) => MON_ABBR[x.m - 1]);
   const vals = others.map((x) => x[key]), lo = Math.min(...vals), hi = Math.max(...vals);
   const byValue = flexTieOnValue(s, others, wxRank), tie = byValue ? "so the best value of them" : "so the soonest";
-  const tip = "Best " + (wxRank ? "weather" : "value") + (span ? " of " + span : "") + ": "
+  const tip = "Best " + (wxRank ? "weather" : "value") + (span ? " of " + span : "")
+    + (moved ? " within your budget" : "") + ": "
     + MONTHS[s.month - 1] + (s[key] != null ? ", " + s[key] + "/100" : "")
     + (!others.length ? "."
-      : same.length ? " — " + (same.length === others.length ? "the same every month, " + tie + "."
+      : same.length ? " — " + (same.length === others.length ? "the same every month" + (moved ? " within it" : "") + ", " + tie + "."
                                 : same.join(", ") + " the same" + (byValue ? ", " + tie : "") + ".")
-      : " — the other months " + (lo === hi ? lo : lo + "–" + hi) + ".");
+      : " — the other months " + (lo === hi ? lo : lo + "–" + hi) + ".")
+    + (over.length ? " " + over.join(", ") + ": out of reach on the flight alone." : "");
   const ch = s.cheapFly;
   let ftip = "";
   if (ch) {
@@ -7522,17 +7530,29 @@ async function ensurePopularity() {
 // (comfort first, then value, so the month matches the order the tables
 // rank in). Strictly better wins, so a tie keeps the sooner month: a country
 // as good in October as in February is worth going to sooner.
-function bestOfWindow(byMonth, win, key) {
-  let best = null, bestM = null;
-  for (const m of win) {
-    const s = byMonth[m];
-    if (!s) continue;
-    const better = !best || (key === "wx"
-      ? (s.wx ?? -1) > (best.wx ?? -1) || ((s.wx ?? -1) === (best.wx ?? -1) && s.value > best.value)
-      : s.value > best.value);
-    if (better) { best = s; bestM = m; }
-  }
-  return best ? { s: best, month: bestM } : null;
+// ok (passesBudget, when a budget is set) keeps the choice to the months it
+// passes, in the same order; moved says it changed the answer. Judged on the
+// best month's fare alone, a banded route whose best month flew over budget
+// was dropped while another month of the window fitted it. With no month
+// passing, the unconstrained best stands, and the budget filter drops it as
+// before.
+function bestOfWindow(byMonth, win, key, ok) {
+  const pick = (test) => {
+    let best = null, bestM = null;
+    for (const m of win) {
+      const s = byMonth[m];
+      if (!s || (test && !test(s))) continue;
+      const better = !best || (key === "wx"
+        ? (s.wx ?? -1) > (best.wx ?? -1) || ((s.wx ?? -1) === (best.wx ?? -1) && s.value > best.value)
+        : s.value > best.value);
+      if (better) { best = s; bestM = m; }
+    }
+    return best ? { s: best, month: bestM } : null;
+  };
+  const best = pick(null);
+  if (!best || !ok || ok(best.s)) return best;
+  const fit = pick(ok);
+  return fit ? { s: fit.s, month: fit.month, moved: true } : best;
 }
 // The window's cheapest departure month on a route, for the "✈️ cheapest"
 // chip. Only on a banded route (flightvalue's min_months of fares, c.median):
@@ -7576,6 +7596,10 @@ function renderValue() {
   // renderValue (loadValueFlights) is what adds the chips.
   const fvC = flex && flightValue && flightValue.origin === originIso() && flightValue.countries;
   const winKeys = flex ? win.map(flightMonthKey) : null;
+  // With a budget set, each country's month is its best one the budget
+  // reaches (bestOfWindow's ok); only a per-month fare varies, so in practice
+  // that moves banded routes only.
+  const fits = flex && budgetOf().total ? passesBudget : null;
   for (const iso in CUR_BY_ISO) {
     if (region !== "all" && ISO_REGION[iso] !== region) continue;
     if (!flex) {
@@ -7587,12 +7611,15 @@ function renderValue() {
     // it to the newsletter's); only its weather and flight terms move by month.
     const byMonth = {};
     for (const m of win) byMonth[m] = valueScores(iso, m, advMap, fares, anchorPl);
-    const b = bestOfWindow(byMonth, win, valueMapMode === "weather" ? "wx" : "value");
+    const b = bestOfWindow(byMonth, win, valueMapMode === "weather" ? "wx" : "value", fits);
     if (!b) continue;
     const s = b.s;
     s.month = b.month;
-    // Every month's two scores, for the chip's "the other months" tip.
-    s.winScores = win.map((m) => (byMonth[m] ? { m, value: byMonth[m].value, wx: byMonth[m].wx } : null)).filter(Boolean);
+    // Every month's two scores, for the chip's "the other months" tip; where
+    // the budget moved the month, the ones it rules out are marked (over).
+    s.winScores = win.map((m) => (byMonth[m] ? Object.assign({ m, value: byMonth[m].value, wx: byMonth[m].wx },
+      b.moved && !fits(byMonth[m]) ? { over: true } : null) : null)).filter(Boolean);
+    if (b.moved) s.budgetMoved = true;
     const ch = fvC ? cheapestFareMonth(fvC[iso], winKeys) : null;
     if (ch && ch.month !== s.month) s.cheapFly = ch;
     scored[iso] = s;
@@ -7821,7 +7848,7 @@ function renderValue() {
           : "year-round fare vs a typical fare for the distance");
     return `<tr${seen ? ' class="visited"' : ""}>
       <td class="rank">#${i + 1}</td>
-      <td class="dest" title="${esc(s.month ? s.name + " — scored on " + MONTHS[s.month - 1] + (valueMapMode === "weather" ? ", its best month for weather" : ", its best month") : s.name)}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}${mon}${vis}</td>
+      <td class="dest" title="${esc(s.month ? s.name + " — scored on " + MONTHS[s.month - 1] + (valueMapMode === "weather" ? ", its best month for weather" : ", its best month") + (s.budgetMoved ? " within your budget" : "") : s.name)}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}${mon}${vis}</td>
       ${td("afford", chip(s.afford, grade(s.afford), affordTitle(s).replace(" · click for cost-of-living detail", "")))}
       ${td("safety", safe)}${td("weather", wx)}${td("flight", fly)}
       <td class="num ovcell${hot === "value" ? " sorted" : ""}"><span class="gr ${gradeCls(grade(s.value))}" title="${esc(`Overall ${grade(s.value)} · ${s.value}/100`)}">${s.value}</span></td></tr>`;

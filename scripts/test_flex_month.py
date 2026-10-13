@@ -6,7 +6,8 @@ public/app.js, cut out of the file by name and run under jsc.
   travelMonth       a real month for every other reader: "0" is the window's
                     first, never parseInt("0") || curMonth()
   bestOfWindow      a country's best month: value, or comfort then value in
-                    Best weather; a tie keeps the sooner month
+                    Best weather; a tie keeps the sooner month; with a budget
+                    (ok), the best month it passes, else the unconstrained one
   cheapestFareMonth the gated cheapest-flight month: banded routes only,
                     window keys only, the sooner month on an equal fare
   flexTieOnValue    whether the chip's tip owes a tie to value ("so the best
@@ -106,6 +107,31 @@ results.append(ok(got and got[2] is None, "bestOfWindow with no scores -> null")
 results.append(ok(got and got[3] == 12, "bestOfWindow keeps window order, not calendar order: Dec before Jan on a tie (got %s)" % (got and got[3])))
 results.append(ok(got and got[4] == 11, "bestOfWindow by weather with no comfort data falls back to value (got %s)" % (got and got[4])))
 results.append(ok(got and got[5] == 11, "bestOfWindow by weather: a month with comfort beats one without (got %s)" % (got and got[5])))
+
+# --- bestOfWindow with a budget (ok) ---------------------------------------------
+# Owner's call (2026-10-13): with a budget set, a country's month is its best
+# one the budget passes (passesBudget, here a fare under 600), in the same
+# order and tie rule; with none passing, the unconstrained best stands (and
+# the budget filter drops it as before). moved says the budget changed it.
+F = lambda value, wx, fare: {"value": value, "wx": wx, "fare": fare}
+BUD = {"10": F(80, 70, 700), "11": F(90, 60, 650), "12": F(78, 90, 520), "1": F(85, 95, 590),
+       "2": F(85, 50, 560), "3": F(60, 95, 400)}
+OK600 = "(s) => s.fare < 600"
+prog = ("%s\nconst win = %s, by = %s, fits = %s;\nconst r = (b) => b && [b.month, !!b.moved];\n"
+        "print(JSON.stringify([r(bestOfWindow(by, win, 'value', fits)), r(bestOfWindow(by, win, 'value')),"
+        " r(bestOfWindow(by, win, 'value', () => false)), r(bestOfWindow(by, win, 'wx', fits)),"
+        " r(bestOfWindow(by, win, 'value', (s) => s.fare < 900)), r(bestOfWindow({}, win, 'value', fits)),"
+        " r(bestOfWindow(by, win, 'wx', (s) => s.fare < 500)), r(bestOfWindow(by, win, 'wx', (s) => s.fare < 580))]));"
+        % (PIECES, json.dumps(WIN), json.dumps(BUD), OK600))
+got = jsc(prog) or [None] * 8
+results.append(ok(got[0] == [1, True], "bestOfWindow with a budget: Nov's 90 flies over it; Jan and Feb tie on 85 within it -> Jan, the sooner, moved (got %s)" % got[0]))
+results.append(ok(got[1] == [11, False], "bestOfWindow without a budget: Nov's 90, as before (got %s)" % got[1]))
+results.append(ok(got[2] == [11, False], "bestOfWindow with no month passing: the unconstrained best, Nov, not moved (got %s)" % got[2]))
+results.append(ok(got[3] == [1, False], "bestOfWindow by weather with a budget Jan passes: Jan and Mar tie on comfort 95, Jan on value 85 > 60, not moved (got %s)" % got[3]))
+results.append(ok(got[4] == [11, False], "bestOfWindow with a budget every month passes: Nov, not moved (got %s)" % got[4]))
+results.append(ok(got[5] is None, "bestOfWindow with a budget and no scores -> null"))
+results.append(ok(got[6] == [3, True], "bestOfWindow by weather, only March within the budget -> March, moved (got %s)" % got[6]))
+results.append(ok(got[7] == [3, True], "bestOfWindow by weather with a budget: Jan's 95 flies over it (590) -> Mar, also 95, before Dec's 90, moved (got %s)" % got[7]))
 
 # --- flexTieOnValue ----------------------------------------------------------------
 # The chip's tip, "the same every month, so the soonest", was true only of
