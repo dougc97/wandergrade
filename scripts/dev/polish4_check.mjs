@@ -25,6 +25,17 @@
 //           priorities: on screen, not saved; a reload without them shows
 //           the reader's own; a Count chip or priority changed while viewing
 //           saves both; and what the other shared params leave in storage
+//   picker  "Help me choose" on a link whose pri= matches one of its presets
+//           (shown pressed): Go with only a budget saves nothing, a preset
+//           pressed there adopts the link's view, both halves (no FV/FL)
+//   gemspin "🎲 Surprise gem" in Any time (SPINS, default 6): each guide on
+//           its gem row's month; reduced motion, or the globe's spin with
+//           MOTION=1
+//   stale   a guide drawn behind its tab follows the travel month when shown
+//           again: after Back through a Flights-tab entry with a row's month,
+//           after Any time picked following a guide bar, after a month picked
+//   share   Any time with a budget: the rank share image's subtitle (and its
+//           width from five origins), its lines, and the value map's ⓘ
 //   shot    Top Picks for a screenshot (SHOT): month mode, or Any time with
 //           ANY=1, with a budget with BUDGET; APPJS=main's for the same view
 //           on main
@@ -178,9 +189,8 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot, errs }) =
     await evaluate(`(() => { document.querySelector('#bestDetail .bars .col[data-mn="${pickM}"]').click(); return 1; })()`);
     await sleep(1200);
     console.log('BAR_PICKED', JSON.stringify(await evaluate(guideState)));
-    // 7. Any time on again (Top Picks' picker): no leftover row month. (The
-    // guide's own bars stay on the month picked above until something redraws
-    // them: a month changed on Top Picks never redrew a guide, main included.)
+    // 7. Any time on again (Top Picks' picker): no leftover row month, and
+    // the guide, shown again, is redrawn for the window's first (syncGuideMonth).
     await evaluate(clickTab('value'));
     await sleep(1000);
     await evaluate(pick(0));
@@ -287,6 +297,131 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot, errs }) =
     await nav(`${BASE}/?tab=value&vr=ASIA&vmf=1&pc=20&sf=a&vmm=weather&cb=${Date.now()}`, 4500);
     console.log('OTHER_PARAMS', JSON.stringify(await evaluate(`(() => ({ keys: Object.keys(localStorage).sort(),
       on: { region: regionSel, month: document.getElementById('valueMonth').value, pc: pickCount(), sf: safetyFloor(), vmm: valueMapMode } }))()`)));
+  } else if (STEP === 'picker') {
+    // "Help me choose" on a link whose pri= is one of its presets (h.m.l.m,
+    // "My money going furthest"): the preset shows pressed, and pressing Go
+    // with only a budget typed must not save the link's weighting; choosing a
+    // preset there does adopt it, both halves.
+    const ls = `(() => ({ pri: localStorage.getItem('fx_priorities2'), fac: localStorage.getItem('fx_factors2'), view: sharedPrefsView,
+      top3: lastPicks.slice(0, 3).map((s) => s.iso + ' ' + s.value).join(', ') }))()`;
+    const seed = `(() => { localStorage.setItem('fx_priorities2', JSON.stringify({ afford: 'low', safe: 'high', wx: 'high', fly: 'med' }));
+      localStorage.setItem('fx_factors2', JSON.stringify(['afford', 'safe', 'wx'])); localStorage.removeItem('wg_budget'); localStorage.removeItem('wg_budgetdays'); return 1; })()`;
+    const LINK = `${BASE}/?tab=value&pri=h.m.l.m&fac=afford.safe`;
+    const picker = (k) => `(() => { document.getElementById('guideMeBtn').click();
+      const pressed = [...document.querySelectorAll('#gqPick button.active')].map((b) => b.dataset.k).join(' ');
+      ${k ? `document.querySelector('#gqPick button[data-k="${k}"]').click();` : ''}
+      document.getElementById('gqBudget').value = '1500';
+      document.getElementById('gqGo').click(); return pressed; })()`;
+    await nav(`${BASE}/?tab=value&cb=${Date.now()}`, 2500);
+    await evaluate(seed);
+    await nav(`${BASE}/?tab=value&cb=${Date.now()}`, 4500);
+    console.log('OWN', JSON.stringify(await evaluate(ls)));
+    await nav(LINK + `&cb=${Date.now()}`, 4500);
+    console.log('LINK', JSON.stringify(await evaluate(ls)));
+    console.log('PICKER_UNTOUCHED pressed', await evaluate(picker(null)));
+    await sleep(1000);
+    console.log('AFTER_GO', JSON.stringify(await evaluate(ls)));
+    await nav(`${BASE}/?tab=value&cb=${Date.now()}`, 4500);
+    console.log('RELOAD (own expected)', JSON.stringify(await evaluate(ls)));
+    // Control: a preset chosen in the picker while viewing the link adopts it.
+    await nav(LINK + `&cb=${Date.now()}`, 4500);
+    console.log('PICKER_CHOSEN pressed', await evaluate(picker('safe')));
+    await sleep(1000);
+    console.log('AFTER_GO_CHOSEN', JSON.stringify(await evaluate(ls)));
+    await nav(`${BASE}/?tab=value&cb=${Date.now()}`, 4500);
+    console.log('RELOAD (safe preset + link factors expected)', JSON.stringify(await evaluate(ls)));
+    await evaluate(`(() => { localStorage.clear(); return 1; })()`);
+  } else if (STEP === 'gemspin') {
+    // "🎲 Surprise gem" in Any time: the guide opens on the month its gem row
+    // shows. Reduced motion skips the globe's spin; MOTION=1 lets it spin
+    // (the month is set in its callback).
+    if (!process.env.MOTION) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await serveFares(send, on);
+    await anyTime(evaluate, nav, sleep);
+    const gems = await evaluate(`(() => lastGems.map((s) => s.iso + '@' + s.month).join(' '))()`);
+    console.log('GEMS', gems, 'w0', await evaluate(`(() => flexWindow()[0])()`));
+    for (let i = 0; i < +(process.env.SPINS || 6); i++) {
+      await evaluate(`(() => { document.getElementById('gemSurprise').click(); return 1; })()`);
+      await sleep(process.env.MOTION ? 8000 : 2500);
+      const g = await evaluate(guideState);
+      const row = await evaluate(`(() => { const s = lastGems.find((s) => s.iso === ccGuideIso); return s ? s.month : null; })()`);
+      console.log('SPIN', g.iso, 'row', row, 'guide', g.selmonth, 'tm', g.travelMonth, 'focus', g.focus, row === g.selmonth ? 'OK' : 'MISMATCH');
+      await evaluate(clickTab('value'));
+      await sleep(1200);
+    }
+  } else if (STEP === 'stale') {
+    // A guide drawn behind its tab follows the travel month however it moved:
+    // (1) Back through a Flights-tab entry that carried a row's month (vmn=),
+    // (2) Any time picked on Top Picks after a guide bar picked another month.
+    await serveFares(send, on);
+    await anyTime(evaluate, nav, sleep);
+    const w0 = await evaluate(`(() => flexWindow()[0])()`);
+    const rows = await evaluate(`(() => [...document.querySelectorAll('#topCards tr[data-iso][data-m]')].filter((t) => +t.dataset.m !== flexWindow()[0]).map((t) => ({ iso: t.dataset.iso, m: +t.dataset.m })))()`);
+    const a = rows[0], b = rows.find((r) => r.m !== a.m) || rows[1];
+    console.log('ROWS', JSON.stringify(a), JSON.stringify(b), 'w0', w0);
+    await evaluate(`(() => { document.querySelector('#topCards tr[data-iso="${a.iso}"] td.scell[data-go="weather"]').click(); return 1; })()`);
+    await sleep(2500);
+    console.log('A_WEATHER', JSON.stringify(await evaluate(guideState)));
+    await evaluate(clickTab('value'));
+    await sleep(1200);
+    await evaluate(`(() => { document.querySelector('#topCards tr[data-iso="${b.iso}"] td.scell[data-go="flights"]').click(); return 1; })()`);
+    await sleep(2500);
+    console.log('B_FLIGHTS', JSON.stringify(await evaluate(flightsState)));
+    await evaluate(clickTab('guide'));
+    await sleep(1500);
+    await evaluate(clickTab('data'));
+    await sleep(1500);
+    for (let i = 0; i < 3; i++) { await evaluate(`(() => { history.back(); return 1; })()`); await sleep(1800); }
+    console.log('AFTER_BACK3', JSON.stringify(await evaluate(`(() => ({ tab: document.documentElement.getAttribute('data-tab'), url: location.pathname + location.search, valueMonth: document.getElementById('valueMonth').value, focus: flexFocusMonth }))()`)));
+    await evaluate(clickTab('guide'));
+    await sleep(1500);
+    const g1 = await evaluate(guideState);
+    console.log('GUIDE_BY_HAND', JSON.stringify(g1), g1.selmonth === g1.travelMonth ? 'OK' : 'STALE');
+    // (2) the pre-existing path: a guide bar, then Any time picked on Top Picks.
+    const bar = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].find((m) => m !== w0 && m !== g1.selmonth);
+    await evaluate(`(() => { document.querySelector('#bestDetail .bars .col[data-mn="${bar}"]').click(); return 1; })()`);
+    await sleep(1200);
+    await evaluate(clickTab('value'));
+    await sleep(1000);
+    await evaluate(pick(0));
+    await sleep(1000);
+    await evaluate(clickTab('guide'));
+    await sleep(1500);
+    const g2 = await evaluate(guideState);
+    console.log('BAR_THEN_ANYTIME', 'bar', bar, JSON.stringify(g2), g2.selmonth === g2.travelMonth ? 'OK' : 'STALE');
+    // (3) month mode: a month picked on Top Picks with a guide drawn.
+    await evaluate(clickTab('value'));
+    await sleep(800);
+    const mm = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].find((m) => m !== w0 && m !== bar);
+    await evaluate(pick(mm));
+    await sleep(1000);
+    await evaluate(clickTab('guide'));
+    await sleep(1500);
+    const g3 = await evaluate(guideState);
+    console.log('MONTH_PICKED', mm, JSON.stringify(g3), g3.selmonth === mm ? 'OK' : 'STALE');
+  } else if (STEP === 'share') {
+    // Any time with a budget (BUDGET, default 700 for 10 days): the rank share
+    // image's subtitle and lines, the value map's ⓘ, and the subtitle's width
+    // against the image's (640, 24px margins).
+    await serveFares(send, on);
+    await anyTime(evaluate, nav, sleep);
+    const BUD = process.env.BUDGET || '700';
+    const read = `(() => { const { svg } = buildRankShareSVG(); const d = new DOMParser().parseFromString(svg, 'image/svg+xml');
+      const t = [...d.querySelectorAll('text')]; const sub = t[1].textContent;
+      const c = document.createElement('canvas').getContext('2d'); c.font = '12.5px Helvetica Neue, Helvetica, Arial, sans-serif';
+      const lines = t.filter((x) => x.querySelector('tspan')).map((x) => x.textContent);
+      return { sub, subW: Math.round(c.measureText(sub).width), moved: lastPicks.filter((s) => s.budgetMoved).map((s) => s.iso + '@' + s.month),
+        lines: lines.slice(0, 10), mapTip: document.getElementById('valueMapSub').dataset.tip }; })()`;
+    console.log('NOBUDGET', JSON.stringify(await evaluate(read)));
+    await evaluate(`(() => { const d = document.getElementById('budgetDays'); d.value = '10'; d.dispatchEvent(new Event('input'));
+      const b = document.getElementById('budgetTotal'); b.value = ${JSON.stringify(BUD)}; b.dispatchEvent(new Event('input')); return 1; })()`);
+    await sleep(1500);
+    console.log('BUDGET', JSON.stringify(await evaluate(read)));
+    // The subtitle's width in Best weather (its longer wording) from the
+    // origins with their own fares, with and without the budget's words.
+    console.log('WIDTHS', JSON.stringify(await evaluate(`(() => { const c = document.createElement('canvas').getContext('2d'); c.font = '12.5px Helvetica Neue, Helvetica, Arial, sans-serif';
+      return ['the US', 'United Kingdom', 'Germany', 'Canada', 'Australia'].map((n) => { const s = 'Top 10 by weather from ' + n + ', each on its best-weather month of Oct–Mar';
+        return n + ' ' + Math.round(c.measureText(s + ' — graded A+ to F').width) + ' / ' + Math.round(c.measureText(s + ' within budget').width); }).join(', ') + ' (room 592)'; })()`)));
   }
   console.log('ERRS', JSON.stringify(errs));
 };
