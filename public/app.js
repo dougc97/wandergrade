@@ -5242,6 +5242,19 @@ function loadFactors() {
   return factors;
 }
 function saveFactors() { localStorage.setItem("fx_factors2", JSON.stringify(factors)); }
+// A shared link's weighting (pri=, fac=) is on screen for this session only,
+// as its From and currency are (sharedOriginView): opening one wrote it to
+// fx_priorities2 / fx_factors2, and every later visit ranked by the sharer's
+// priorities. The reader's own change to a priority, a Count chip or the
+// guided picker's "what matters most" adopts what is on screen, both halves
+// (keepPrefs); a reload without the link shows their own again.
+let sharedPrefsView = false;
+// which: "pri" or "fac", the half the reader just changed.
+function keepPrefs(which) {
+  if (sharedPrefsView || which === "pri") { loadPriorities(); savePriorities(); }
+  if (sharedPrefsView || which === "fac") { loadFactors(); saveFactors(); }
+  sharedPrefsView = false;
+}
 
 function buildFactorChips() {
   loadFactors();
@@ -5262,7 +5275,7 @@ function buildFactorChips() {
       set.delete(k);
     } else set.add(k);
     factors = WEIGHT_DEFS.map((w) => w.key).filter((x) => set.has(x));
-    saveFactors();
+    keepPrefs("fac");
     buildFactorChips();
     renderValue();
   };
@@ -5343,7 +5356,7 @@ function buildWeightSliders() {
     const grp = e.target.closest(".prigroup");
     if (!btn || !grp) return;
     priorities[grp.dataset.w] = btn.dataset.v;
-    savePriorities();
+    keepPrefs("pri");
     grp.querySelectorAll("button").forEach((b) => {
       b.classList.toggle("active", b === btn);
       b.setAttribute("aria-pressed", String(b === btn));
@@ -10554,7 +10567,7 @@ function preApplyShared() {
     const parts = pri.split(".");
     loadPriorities();
     WEIGHT_DEFS.forEach((w, i) => { if (lv[parts[i]]) priorities[w.key] = lv[parts[i]]; });
-    savePriorities();
+    sharedPrefsView = true;   // on screen, not saved (keepPrefs)
   }
   // Shared From and currency: on screen for this session (sharedOriginView),
   // and applied here, before anything builds, so Top Picks' select, its first
@@ -10669,7 +10682,7 @@ async function postApplyShared() {
   if (["a", "b", "any"].includes(sharedQ.get("sf"))) { $("safeFloor").value = sharedQ.get("sf"); rerender = true; }
   if (sharedQ.get("fac")) {
     const keys = sharedQ.get("fac").split(".").filter((k) => WEIGHT_DEFS.some((w) => w.key === k));
-    if (keys.length) { factors = keys; saveFactors(); buildFactorChips(); rerender = true; }
+    if (keys.length) { factors = keys; sharedPrefsView = true; buildFactorChips(); rerender = true; }   // a view, as pri= is
   }
   if (sharedQ.get("vmm") === "weather") {
     valueMapMode = "weather"; rerender = true;
@@ -11427,7 +11440,7 @@ function openGuidedPicker() {
     if (want && GUIDE_PRIORITY[want]) {
       loadPriorities();
       Object.assign(priorities, GUIDE_PRIORITY[want]);
-      savePriorities();
+      keepPrefs("pri");
       if (typeof buildWeightSliders === "function") buildWeightSliders();
     }
     m.close();
