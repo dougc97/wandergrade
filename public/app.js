@@ -4962,7 +4962,10 @@ function renderAfford() {
   for (const iso in CUR_BY_ISO) {
     const pl = priceLevel(iso);
     if (pl == null) continue;
-    const name = (ppp[iso] && ppp[iso].name) || (climate && climate[iso] && climate[iso].name) || iso;
+    // countryName, the site's one spelling: the World Bank's own names put
+    // "Turkiye", "Egypt, Arab Rep.", "Korea, Rep.", "Viet Nam" and "Lao PDR"
+    // in this table beside "Turkey", "Egypt", "South Korea" everywhere else.
+    const name = countryName(iso);
     rows.push({ iso, name, cur: CUR_BY_ISO[iso], pl, tr: iso === anchorIso ? null : affTrend(iso, anchorObj, pl / anchorPl) });
   }
   // Both counts on the line are the table's rows as shown (its region and its
@@ -5888,6 +5891,22 @@ async function loadValueFlights(silent) {
 // Non-invasive: the native select stays the source of truth (existing .value /
 // change logic is untouched); we overlay a type-to-filter input + list.
 let _comboN = 0;   // unique list ids, for aria-controls / aria-activedescendant
+// Typed search in the combo pickers matches without accents and on a
+// country's other names: "turkiye" found nothing beside "Turkey" (the name
+// the UN and the US State Department now use), nor "cote" Côte d'Ivoire or
+// "curacao" Curaçao. The other names are the paste importer's
+// (COUNTRY_ALIASES, name -> ISO), turned round per ISO code on first search —
+// only typing calls it, long after that table exists. Keyed by option value,
+// so only the country pickers (ISO codes) match on them.
+const searchFold = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+let _isoAliases = null;
+function isoAliases(v) {
+  if (!_isoAliases) {
+    _isoAliases = {};
+    for (const [name, iso] of Object.entries(COUNTRY_ALIASES)) _isoAliases[iso] = (_isoAliases[iso] || "") + " " + name;
+  }
+  return _isoAliases[v] || "";
+}
 function enhanceSelect(sel) {
   if (!sel || sel.dataset.combo || sel.options.length < 10) return;
   sel.dataset.combo = "1";
@@ -5929,8 +5948,8 @@ function enhanceSelect(sel) {
   const sync = () => { if (document.activeElement !== input) input.value = labelFor(); };
   sel._sync = sync;
   const render = (q) => {
-    q = (q || "").trim().toLowerCase();
-    const opts = [...sel.options].filter((o) => o.value !== "" && o.textContent.toLowerCase().includes(q));
+    q = searchFold((q || "").trim());
+    const opts = [...sel.options].filter((o) => o.value !== "" && searchFold(o.textContent + isoAliases(o.value)).includes(q));
     list.innerHTML = opts.length
       ? opts.map((o, i) => `<li class="combo-opt" role="option" id="${list.id}-${i}" data-val="${esc(o.value)}">${esc(o.textContent.trim())}</li>`).join("")
       : '<li class="combo-opt muted" role="option" aria-disabled="true">No matches</li>';
