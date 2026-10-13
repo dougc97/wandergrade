@@ -7,6 +7,8 @@ public/app.js, cut out of the file by name and run under jsc.
                     first (or the month of the row the reader opened,
                     flexFocusMonth), never parseInt("0") || curMonth(); a
                     month picked never reads a leftover row month
+  syncGuideMonth    a guide drawn behind its tab is redrawn when shown if
+                    the travel month moved since it drew, and only then
   bestOfWindow      a country's best month: value, or comfort then value in
                     Best weather; a tie keeps the sooner month; with a budget
                     (ok), the best month it passes, else the unconstrained one
@@ -103,6 +105,27 @@ prog = ("%s\nfunction flexWindow() { return [11, 12, 1, 2, 3, 4]; }\nlet SEL = n
 got = jsc(prog)
 results.append(ok(bool(TM) and got == [1, 11, 3, 10, 10],
                   "travelMonth with a row's January in focus: '0' -> 1, '11' -> 11, '3' -> 3, none -> 10 (got %s)" % got))
+
+# --- syncGuideMonth --------------------------------------------------------------
+# The guide's month parts redraw when the guide is shown again (activateTab)
+# only if the travel month moved since they drew, however it moved: Back
+# through a Flights-tab entry that carried a row's January (vmn=1) and on to
+# Any time's October left an Argentina guide "Graded for January", because the
+# focus was already gone and nothing else redrew it. Renderers stubbed to count.
+SG = js_fn("redrawGuideMonth") + "\n" + js_fn("syncGuideMonth")
+prog = ("%s\nlet TM = 1, ccGuideIso = 'AR', guideMonthDrawn = null, drawn = [];\nconst travelMonth = () => TM;\n"
+        "for (const f of ['renderCountryClimate', 'renderGuideStay', 'renderGuideAI', 'renderActivity', 'renderGuideFares', 'renderGuideGrades'])\n"
+        "  globalThis[f] = (iso) => { if (f === 'renderCountryClimate') drawn.push(iso + '@' + travelMonth()); };\n"
+        "const out = [];\nredrawGuideMonth('AR');\n"
+        "TM = 10; syncGuideMonth(); out.push(drawn.slice(), guideMonthDrawn);\n"
+        "syncGuideMonth(); out.push(drawn.length);\n"
+        "ccGuideIso = null; TM = 3; syncGuideMonth(); out.push(drawn.length);\n"
+        "print(JSON.stringify(out));" % SG)
+got = jsc(prog)
+results.append(ok(bool(js_fn("syncGuideMonth")) and got and got[0] == ["AR@1", "AR@10"] and got[1] == 10,
+                  "syncGuideMonth: a guide drawn for January, the month now October -> redrawn for October (got %s)" % (got and got[:2])))
+results.append(ok(got and got[2] == 2, "syncGuideMonth: already on the travel month -> not redrawn again (got %s draws)" % (got and got[2])))
+results.append(ok(got and got[3] == 2, "syncGuideMonth: no guide drawn -> nothing drawn (got %s draws)" % (got and got[3])))
 
 # --- bestOfWindow ----------------------------------------------------------------
 WIN = [10, 11, 12, 1, 2, 3]

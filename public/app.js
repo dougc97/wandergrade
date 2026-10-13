@@ -2686,6 +2686,7 @@ function renderGuide(iso) {
   renderGuideVisa(iso);
   renderGuideSafety(iso);
   renderGuideAI(iso);
+  guideMonthDrawn = travelMonth();   // the month parts (redrawGuideMonth) draw for it here
   renderCountryClimate(iso);
   const acts = renderActivity(iso);
   if (ssr) {
@@ -6534,7 +6535,8 @@ async function copyText(text, quiet) {
 // (?tab=guide&gc=ISO&ai=1) so the AI hand-off keeps people on the site.
 function buildCountryAIPrompt(iso) {
   // The chosen travel month (?vmn= from the email link, the Top Picks
-  // selector, a guide bar); in "Any time", the window's first month.
+  // selector, a guide bar); in "Any time", the month of the row the reader
+  // opened (flexFocusMonth), else the window's first.
   const month = travelMonth();
   const monthName = MONTHS[month - 1];
   const passport = guidePassport();
@@ -7663,8 +7665,13 @@ function renderValue() {
     : valueMapMode === "weather"
     ? "Weather comfort in " + MONTHS[month - 1]
     : "Best value destinations in " + MONTHS[month - 1];
+  // A month the budget moved is the best one the budget reaches, and the
+  // map is coloured for it (Thailand: October at 85 under USD 700, where
+  // January scores 90), so the tip says so once one has moved.
+  const budgetMovedAny = flex && Object.values(scored).some((s) => s.budgetMoved);
   if (vSub) vSub.dataset.tip = (flex ? "Each country is scored on its best month between "
-      + MONTHS[win[0] - 1] + " and " + MONTHS[win[win.length - 1] - 1] + ". " : "")
+      + MONTHS[win[0] - 1] + " and " + MONTHS[win[win.length - 1] - 1]
+      + (budgetMovedAny ? " within your budget, where it has one" : "") + ". " : "")
     + (valueMapMode === "weather"
     ? "Greener = more comfortable weather " + (flex ? "in that month." : "that month.")
     : "Greener = better overall value — affordability, safety, weather and flights combined.");
@@ -9729,6 +9736,10 @@ async function activateTab(name, push) {
   }
   for (const s of document.querySelectorAll(".tab"))
     s.hidden = s.id !== "tab-" + name;
+  // The guide already drawn, shown again: on the travel month as it is now
+  // (syncGuideMonth), redrawn in this task, before anything paints.
+  // openGuideFor (_guideTarget) draws its own, and a first visit builds it.
+  if (name === "guide" && loaded.guide && !_guideTarget) syncGuideMonth();
   // Push the new history entry BEFORE anything renders. Every render ends in
   // a replacing syncURL(); run first, they overwrote the entry of the page
   // being left, so Back skipped it (or opened a guide nobody chose).
@@ -9864,15 +9875,27 @@ function setFlexFocus(m, guideDrawn) {
   const want = picksFlex() && m >= 1 && m <= 12 ? m : null;
   if (want === flexFocusMonth) return;
   flexFocusMonth = want;
-  // What already drew for the old month draws again, hidden or not: a guide
-  // tab opened by hand afterwards rerenders nothing, and showed January
-  // after Back to Top Picks; the Flights tab only refits on a second visit.
-  if (ccGuideIso && !guideDrawn) redrawGuideMonth(ccGuideIso);
+  // What already drew for the old month draws again, hidden or not: the
+  // guide showed January after Back to Top Picks (activateTab now asks
+  // syncGuideMonth too, as it shows the guide); the Flights tab only refits
+  // on a second visit.
+  if (!guideDrawn) syncGuideMonth();
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
 }
-// The guide's parts that read the travel month.
+// The guide's parts that read the travel month, and the month they last drew.
+let guideMonthDrawn = null;
 function redrawGuideMonth(iso) {
+  guideMonthDrawn = travelMonth();
   renderCountryClimate(iso); renderGuideStay(iso); renderGuideAI(iso); renderActivity(iso); renderGuideFares(iso); renderGuideGrades(iso);
+}
+// A guide drawn behind its tab, brought to the travel month however that
+// moved. A month picked on Top Picks never redrew it: a Japan guide left on
+// a February bar still said February after May was picked there, and once a
+// row's month could set it (flexFocusMonth), Back through a Flights-tab
+// entry (vmn=1) left an Argentina guide "Graded for January" under Any
+// time's October. activateTab asks before it shows the tab.
+function syncGuideMonth() {
+  if (ccGuideIso && guideMonthDrawn !== travelMonth()) redrawGuideMonth(ccGuideIso);
 }
 // "Oct–Mar": the window as the notes and tips name it.
 function flexSpan(win) { return MON_ABBR[win[0] - 1] + "–" + MON_ABBR[win[win.length - 1] - 1]; }
@@ -10431,8 +10454,9 @@ function buildShareURL(forShare) {
     if (regionSel !== "all") q.set("vr", regionSel);
     // The Flights tab bands fares for a month, so its link keeps the one on
     // screen — same rule as Top Picks for the address bar. In "Any time" too
-    // (vmn, not vmf): the tab shows a real month, the window's first, and a
-    // vmf link pinned none — opened on Oct 25 it showed November where
+    // (vmn, not vmf): the tab shows a real month, the month of the row the
+    // reader opened (flexFocusMonth), else the window's first, and a vmf link
+    // pinned none — opened on Oct 25 it showed November where
     // October was shared, and on Oct 16-22 the pre-paint key (index.html
     // reads only vmn) said November until the tab swapped in October.
     if (dataMode === "flights" && (forShare || travelMonthChosen)) q.set("vmn", String(flightMonthNum()));
@@ -11102,6 +11126,12 @@ function buildRankShareSVG() {
   const month = MONTHS[(lastPicksMonth || curMonth()) - 1];
   // "Any time": each pick was graded on its own best month, said on its line.
   const flexWin = lastPicksFlex ? flexWindow() : null;
+  // A month the budget moved (s.budgetMoved) is the best one the budget
+  // reaches: under USD 700 Thailand came in on October (85), and the image
+  // called that its best month, where January scores 90. Said in place of
+  // the grading note, which the pills show anyway: added to it, the line ran
+  // past the image's edge from the UK in Best weather.
+  const inBudget = !!flexWin && picks.some((s) => s.budgetMoved);
   const originName = originLabel();
   const A = plAnchor(originIso());   // US fallback when home has no price level
   const W = 640, HEAD = 118, ROWH = 62, FOOT = 54;
@@ -11151,7 +11181,7 @@ function buildRankShareSVG() {
     + '">' + esc2(flexWin
       ? "Top " + picks.length + " by " + (lastPicksWx ? "weather" : "value") + " from " + originName
         + ", each on its " + (lastPicksWx ? "best-weather month" : "best month") + " of "
-        + flexSpan(flexWin) + " — graded A+ to F"
+        + flexSpan(flexWin) + (inBudget ? " within budget" : " — graded A+ to F")
       : "Top " + picks.length + " by value from " + originName
       + " — affordability, safety, weather and flights, graded A+ to F") + "</text>"
     + '<line x1="24" x2="' + (W - 24) + '" y1="' + (HEAD - 10) + '" y2="' + (HEAD - 10)
@@ -11415,9 +11445,16 @@ function openGuidedPicker() {
   if (bt && bt.value) m.querySelector("#gqBudget").value = bt.value;
   if (bd && bd.value) m.querySelector("#gqDays").value = bd.value;
 
+  // Likewise only a priority the reader pressed here: the preset shown
+  // pressed because the weights on screen match it is no choice. A shared
+  // link weighted as "My money going furthest" (pri=h.m.l.m) opened it
+  // pressed, and Go with only a budget typed saved the sharer's weighting
+  // as the reader's (keepPrefs adopts a viewed link's, sharedPrefsView).
+  let wantTouched = false;
   m.querySelector("#gqPick").addEventListener("click", (e) => {
     const b = e.target.closest("button");
     if (!b) return;
+    wantTouched = true;
     want = want === b.dataset.k ? null : b.dataset.k;   // tap again to skip
     m.querySelectorAll("#gqPick button").forEach((x) => {
       x.classList.toggle("active", x.dataset.k === want);
@@ -11437,7 +11474,7 @@ function openGuidedPicker() {
       if (el) el.value = v;
       localStorage.setItem(key, v);
     }
-    if (want && GUIDE_PRIORITY[want]) {
+    if (wantTouched && want && GUIDE_PRIORITY[want]) {
       loadPriorities();
       Object.assign(priorities, GUIDE_PRIORITY[want]);
       keepPrefs("pri");
@@ -11465,13 +11502,19 @@ function surpriseMe() {
 
 // Same roulette, but across the CURRENT hidden-gems list (top offbeat value
 // under the active filters) instead of the famous-destinations pool.
+// In "Any time" the winner opens on its gem row's month, as the row itself
+// does (setFlexFocus): Togo, "Best in Dec" in the list, landed on a guide
+// graded for October. Set as the guide opens, after the spin: the month may
+// have been changed meanwhile, and setFlexFocus then sets nothing.
 function surpriseGem() {
   const pool = lastGems.map((s) => s.iso);
   if (!pool.length) return;
   ensureSlugs().then(() => {
     const winner = pool[Math.floor(Math.random() * pool.length)];
-    if (reducedMotion()) { openGuideFor(winner, true); return; }
-    spinGlobe(pool, winner, () => openGuideFor(winner, true));
+    const gm = (lastGems.find((s) => s.iso === winner) || {}).month || null;
+    const open = () => { setFlexFocus(gm, true); openGuideFor(winner, true); };
+    if (reducedMotion()) { open(); return; }
+    spinGlobe(pool, winner, open);
   });
 }
 
