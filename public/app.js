@@ -6215,6 +6215,9 @@ function renderTripBar() {
       + "</select></label></div>"
       + '<div class="tripbook" id="tripBook"></div>';
     renderTripBook([...t]);
+    // An open plan panel follows the trip: a country's × left Cambodia in
+    // "Help me plan a trip to Thailand, Vietnam and Cambodia". No-op closed.
+    refreshTripPrompt();
   }
   bindTripActions();
   const days = $("tripDays");
@@ -6429,11 +6432,18 @@ function aiPlain(s) {
 // (renderAIPanel). Left out: Copilot drops ?q= on its way to a sign-in page;
 // Gemini's undocumented prompt_text didn't prefill logged out (it wants a
 // signed-in test before it earns a button); Mistral makes everyone sign in
-// first; Muse and Meta AI are sign-in walls; Cursor is a code editor. A site
+// first; Muse and Meta AI are sign-in walls; Cursor is a code editor.
+// Gemini itself has no way in: its app reads prompt_text only for accounts
+// with an internal Google flag on, and /guided-learning?query= didn't fill
+// either, signed in (Doug, 2026-10-13). Google AI Mode, Gemini in Search, does:
+// google.com/ai?q= answers at once, signed in or out, but keeps only ~2.3k
+// of the link (2,298 kept the last line, 2,442 lost it), and a 3.5k prompt
+// pasted in answered whole — so its cap is 2,200 and past it, paste. A site
 // is one line here, in the order the buttons show; how is what its button
 // does with the prompt, for the hint's ⓘ (AI_HINT_TIP).
 const AI_SITES = [
   { name: "ChatGPT", q: "https://chatgpt.com/?q=", home: "https://chatgpt.com/", cap: 30000, how: "opens a new chat with the prompt filled in" },
+  { name: "Google AI Mode", q: "https://www.google.com/ai?q=", home: "https://www.google.com/ai", cap: 2200, how: "(Gemini in Google Search) answers straight away" },
   { name: "Claude", q: "https://claude.ai/new?q=", home: "https://claude.ai/new", cap: 4000, how: "may ask you to sign in first" },
   { name: "Grok", q: "https://grok.com/?q=", home: "https://grok.com/", cap: 6000, how: "asks you to confirm before sending" },
   { name: "Perplexity", q: "https://www.perplexity.ai/search?q=", home: "https://www.perplexity.ai/", cap: 12000, how: "sends it straight away" },

@@ -95,9 +95,9 @@ prog = ("%s\nconst mk = (n) => 'a'.repeat(n);\nconst out = AI_SITES.map((s) => (
         "print(JSON.stringify({ out, space }));" % LINK)
 got = jsc(prog) or {"out": [], "space": []}
 caps = {s["name"]: s["cap"] for s in got["out"]}
-results.append(ok(caps == {"ChatGPT": 30000, "Claude": 4000, "Grok": 6000, "Perplexity": 12000},
-                  "AI_SITES caps, in button order: ChatGPT 30000, Claude 4000, Grok 6000, Perplexity 12000 (got %s)" % caps))
-results.append(ok(list(caps) == ["ChatGPT", "Claude", "Grok", "Perplexity"], "AI_SITES order: ChatGPT, Claude, Grok, Perplexity"))
+results.append(ok(caps == {"ChatGPT": 30000, "Google AI Mode": 2200, "Claude": 4000, "Grok": 6000, "Perplexity": 12000},
+                  "AI_SITES caps, in button order: ChatGPT 30000, Google AI Mode 2200, Claude 4000, Grok 6000, Perplexity 12000 (got %s)" % caps))
+results.append(ok(list(caps) == ["ChatGPT", "Google AI Mode", "Claude", "Grok", "Perplexity"], "AI_SITES order: ChatGPT, Google AI Mode, Claude, Grok, Perplexity"))
 results.append(ok(all(s["at"]["fits"] and s["at"]["href"] == s["q"] + "a" * s["cap"] for s in got["out"]) and got["out"],
                   "aiLink: an encoded prompt exactly at the cap is prefilled"))
 results.append(ok(all(not s["over"]["fits"] and s["over"]["href"] == s["home"] for s in got["out"]) and got["out"],
@@ -116,7 +116,7 @@ prog = ("%s\nconst before = %s\nAI_SITES.push({ name: 'Gemini', q: 'https://exam
         "%s\nprint(JSON.stringify({ before, after: AI_HINT_TIP, how: AI_SITES.map((s) => s.name + ' ' + s.how) }));"
         % (js_const("AI_SITES"), js_const("AI_HINT_TIP").replace("const AI_HINT_TIP = ", "", 1), js_const("AI_HINT_TIP")))
 got = jsc(prog) or {"before": "", "after": "", "how": []}
-idx = [got["before"].find(h) for h in got["how"][:4]]
+idx = [got["before"].find(h) for h in got["how"][:5]]
 results.append(ok(got["how"] and all(i >= 0 for i in idx) and idx == sorted(idx) and "copied instead" in got["before"],
                   "AI_HINT_TIP names each site's behaviour in button order, then the copy-and-paste fallback (got %r)" % got["before"]))
 results.append(ok("Gemini does a test thing." in got["after"] and got["after"].endswith("paste it into."),
