@@ -13,7 +13,8 @@ run under jsc.
   fareCurveFacts a route's month fares as the prompts quote them: count,
                  cheapest first (ties keep the sooner month), the priciest
   monthKeyText   "2027-04" -> "Apr 2027" / "April 2027"
-  avoidAreas     Canada's avoid-travel lines: the server's line and brief
+  avoidAreas     Canada's avoid-travel lines: the server's full (the line
+                 uncut: every place, from scripts/fixtures/gac) and brief
                  where the reply has them (2026-10-14); else, from
                  production's replies of 2026-10-13
                  (scripts/watchouts_sample.2026-10-13.json), the area from
@@ -426,6 +427,37 @@ results.append(ok(pairs(got[0]) == [(A, SRV["regional"][2]["line"]), (N, SRV["re
                   "avoidAreas, guide: the server's line as it is, avoid calls only, all-travel first (got %s)" % got[0]))
 results.append(ok(pairs(got[1]) == [(A, SRV["regional"][2]["brief"]), (N, "Karachi (parts excepted)")],
                   "avoidAreas, trip: the server's brief (got %s)" % got[1]))
+
+# --- the guide's prompt names every place (2026-10-14) -------------------------------
+# The 📍 line is cut to "and N more" with the rest in its ⓘ; a prompt has no
+# ⓘ, so the guide's takes full, the line uncut. From Canada's feed as the
+# parser reads it (scripts/fixtures/gac): every top-level place of Mexico's,
+# Colombia's and Nigeria's long lists, and Honduras's El Salvador border and
+# departments, reach the guide prompt; the trip's brief names up to 10.
+sys.path.insert(0, ROOT)
+from fxtracker import watchouts as W  # noqa: E402
+FX = {iso: W.from_feed(iso, json.load(open(os.path.join(ROOT, "scripts", "fixtures", "gac", iso + ".json"), encoding="utf-8")))
+      for iso in ("mx", "co", "ng", "hn", "pk")}
+got = jsc("%s\nconst W = %s;\nconst o = {};\nfor (const c in W) o[c] = [avoidAreas(W[c], 0), avoidAreas(W[c], 10, true)];\nprint(JSON.stringify(o));"
+          % (AV, json.dumps(FX))) or {}
+lost, cut = [], []
+for iso, w in FX.items():
+    guide = " | ".join(x["text"] for x in (got.get(iso) or [[]])[0])
+    for r in w["regional"]:
+        if not re.match(r"avoid (all|non-essential) travel$", r["call"], re.I):
+            continue
+        for it in r["items"]:
+            name = W._split_exc(it["t"])[0].rstrip(" ,:")
+            name = re.sub(r"^the following\s+", "", name, flags=re.I)
+            if name not in guide:
+                lost.append((iso, name[:40]))
+        if re.search(r"and \d+ more$", r["line"]) and r["line"] in guide:
+            cut.append(iso)
+results.append(ok(got and not lost and not cut, "avoidAreas, guide: the server's full form, every place named and no 'and N more' (lost: %s; cut lines: %s)" % (lost, cut)))
+trip = {iso: " | ".join(x["text"] for x in (got.get(iso) or [[], []])[1]) for iso in FX}
+results.append(ok(trip.get("mx", "").count("*;") + trip.get("mx", "").count("Morelos;") >= 8 and trip.get("mx", "").endswith("and 4 more")
+                  and "Olancho" in trip.get("hn", "") and "El Salvador" in trip.get("hn", ""),
+                  "avoidAreas, trip: brief names up to 10 places as before the server's line (MX %r)" % trip.get("mx", "")[-80:]))
 
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

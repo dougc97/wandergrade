@@ -6788,12 +6788,14 @@ function avoidText(r, head, max, brief) {
 function avoidAreas(w, max, brief) {
   const out = [];
   for (const r of (w && w.regional) || []) {
-    // The server's own line (the guide's 📍 words) and brief (the trip's
-    // shorter form), read from the whole block; this reader is the fallback
-    // for a reply cached before it had them.
+    // The server's own forms, read from the whole block: full for the guide
+    // (the 📍 line uncut — the line's "and N more" leans on an ⓘ a prompt
+    // doesn't have, and Mexico's guide prompt named 4 of its 14 states),
+    // brief for the trip; this reader is the fallback for a reply cached
+    // before the server had them.
     if (typeof r.line === "string" && r.line && r.call) {
       const c = /^avoid (all|non-essential) travel$/i.exec(r.call.trim());
-      const text = brief ? r.brief || r.line : r.line;
+      const text = brief ? r.brief || r.line : r.full || r.line;
       if (c && text) out.push({ call: "Avoid " + c[1].toLowerCase() + " travel", text });
       continue;
     }
