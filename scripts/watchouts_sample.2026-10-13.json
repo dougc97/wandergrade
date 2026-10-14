@@ -1,0 +1,286 @@
+{
+"IN": {
+"regional": [
+{
+"t": "Manipur - Avoid non-essential travel",
+"lead": "Avoid non-essential travel to Manipur due to the risk of terrorism and insurgency.",
+"regions": []
+},
+{
+"t": "Union Territory of Jammu and Kashmir - Avoid all travel",
+"lead": "Avoid all travel to the Union Territory of Jammu and Kashmir due to the unpredictable security situation.",
+"regions": []
+},
+{
+"t": "Border areas with Pakistan - Avoid all travel",
+"lead": "Avoid all travel to areas within 10 km of the border with Pakistan in the following states due to the unpredictable security situation and presence of landmines and unexploded ordnance:",
+"regions": [
+"Gujarat",
+"Punjab",
+"Rajasthan"
+]
+}
+]
+},
+"PK": {
+"regional": [
+{
+"t": "Regional advisory - Avoid all travel",
+"lead": "Avoid all travel to: Pakistan-administered Kashmir the province of Balochistan the province of Khyber Pakhtunkhwa, except: Haripur and Abbottabad districts where you should exercise a high degree of c",
+"regions": [
+"Pakistan-administered Kashmir",
+"the province of Balochistan",
+"the province of Khyber Pakhtunkhwa*",
+"the area*",
+"the areas*",
+"the section of the Karakoram Highway from Mansehra to Chilas"
+]
+},
+{
+"t": "Karachi - Avoid non-essential travel",
+"lead": "Avoid non-essential travel to the city of Karachi, due to the risk of crime and terrorism, with the exception of the following areas where you should exercise a high degree of caution: District of Kar",
+"regions": [
+"District of Karachi (formerly Karachi South), including",
+"DHA Phase 7 Extension in the District of Korangi",
+"Lalazar, Naval Officers Residential Estate 1 and Port Tower Complex in the District of Keamari",
+"Jinnah International Airport and Shahrah-e-Faisal Road between the airport and the city, in the District of Gulshan"
+]
+}
+]
+},
+"IL": {
+"regional": [
+{
+"t": "ISRAEL - AVOID NON-ESSENTIAL TRAVEL",
+"lead": "Avoid non-essential travel to Israel due to the volatile security situation in the region.",
+"regions": []
+},
+{
+"t": "PALESTINE - AVOID ALL TRAVEL",
+"lead": "Avoid all travel to Palestine due to the ongoing military activities, the dire humanitarian conditions, the volatile and unpredictable security situation, and extensive damage to infrastructure in the",
+"regions": [
+"Highway 1",
+"Route 90, from the intersection with Highway 1 to King Hussein Bridge (Allenby), near Jericho"
+]
+},
+{
+"t": "JERUSALEM - AVOID NON-ESSENTIAL TRAVEL",
+"lead": "Avoid non-essential travel to Jerusalem due to the volatile security situation in the region.",
+"regions": []
+},
+{
+"t": "Border with Syria - Avoid all travel",
+"lead": "Avoid all travel to the parts of the Golan Heights that border Syria, east of Highway 98, due to military activity.",
+"regions": []
+}
+]
+},
+"CO": {
+"regional": [
+{
+"t": "Border areas - Avoid all travel",
+"lead": "Avoid all travel to the following departments and border areas due to the risk of kidnapping and violence posed by the presence of illegal armed groups and other criminal organizations, with exclusion",
+"regions": [
+"Arauca",
+"Caquetá*",
+"Cauca*",
+"Cesar, in the municipalities of González and Río de Oro",
+"Chocó*",
+"within 50 km of the border with Venezuela*",
+"within 100 km of the border with Panama",
+"within 50 km of the border with Ecuador*",
+"Norte de Santander*",
+"the Port of Tumaco and the city of Buenaventura"
+]
+},
+{
+"t": "Regional advisory - Avoid non-essential travel",
+"lead": "Avoid non-essential travel to the following departments, cities and border areas due to drug-related criminal activity by illegal armed groups and other criminal organizations: Amazonas, within 20 km ",
+"regions": [
+"Amazonas*",
+"Antioquia, the area along the border with Choco department that is north of highway 60 and west of highway 62 and all areas north of the city of Buriticá",
+"Córdoba, in the Paramillo National Natural Park",
+"city of Cúcuta",
+"city of Florencia",
+"city of Ipiales and Ipiales border crossing",
+"city of Popayan",
+"Guainía",
+"Guaviare",
+"Meta*",
+"Nariño*",
+"Putumayo",
+"the following towns in Chocó",
+"Valle del Cauca*"
+]
+},
+{
+"t": "Island of Providencia and the town of San Andrés - Take normal security precautions",
+"lead": "Take normal security precautions in the island of Providencia and in the town of San Andrés on the island of San Andrés.",
+"regions": []
+}
+]
+},
+"EG": {
+"regional": [
+{
+"t": "Northern Sinai - Avoid all travel",
+"lead": "Avoid all travel to northern Sinai due to terrorist activity and ongoing military operations by the Egyptian Armed Forces.",
+"regions": [
+"Port Said",
+"Ismailia",
+"Suez"
+]
+},
+{
+"t": "The Western desert and Libyan border area - Avoid all travel",
+"lead": "Avoid all travel to the following areas, due to smuggling, terrorist activities, the presence of armed groups and ongoing military operations: within 50 kilometres of the border with Libya the Western",
+"regions": [
+"within 50 kilometres of the border with Libya",
+"the Western Desert, west of the Giza-Luxor-Aswan-Abu Simbel road, including the oasis of Dakhla"
+]
+},
+{
+"t": "Northern part of the Governorate of South Sinai - Avoid non-essential travel",
+"lead": "Avoid non-essential travel to the northern part of the Governorate of South Sinai, north of St.",
+"regions": [
+"the Dahab – Nuweiba – Taba road",
+"the towns of Nuweiba and Taba",
+"the Al Qantra Shark – Ras Sedr road up to the border with the Governorate of Suez",
+"cities between Ras Sedr and El Tor"
+]
+}
+]
+},
+"TR": {
+"regional": [
+{
+"t": "Borders with Iraq and Syria - Avoid all travel",
+"lead": "Avoid all travel to within 10 km of the borders with Iraq and Syria due to the unpredictable security situation and the threat of terrorism.",
+"regions": []
+},
+{
+"t": "Southeastern provinces - Avoid non-essential travel",
+"lead": "Avoid non-essential travel to the following southeastern provinces due to the ongoing risk of cross-border terrorist activity: Hakkari Sirnak",
+"regions": [
+"Hakkari",
+"Sirnak"
+]
+}
+]
+},
+"MA": {
+"regional": [
+{
+"t": "Western Sahara border regions - Avoid all travel",
+"lead": "Avoid all travel to the following areas due to the heavy military presence and the unstable and unpredictable security situation: within 30 km west of the militarized zone of the Berm between the Berm",
+"regions": [
+"within 30 km west of the militarized zone of the Berm",
+"between the Berm and neighbouring countries on the eastern and southern sides"
+]
+},
+{
+"t": "Border with Algeria - Avoid all travel",
+"lead": "Avoid all travel to the area within 20 km of the border with Algeria due to the increased military presence, the unstable security situation and the difficulty of finding the border’s exact location.",
+"regions": []
+},
+{
+"t": "Western Sahara - Avoid non-essential travel",
+"lead": "Avoid non-essential travel to Western Sahara due to the threat of terrorism and unexploded landmines.",
+"regions": []
+}
+]
+},
+"TH": {
+"regional": [
+{
+"t": "Southern provinces of Narathiwat, Pattani, Yala and southern Songkhla province - Avoid all travel",
+"lead": "Avoid all travel to the following southern provinces and region due to violent attacks from separatist insurgents and the unpredictable security situation: Narathiwat Pattani Yala southern Songkhla pr",
+"regions": [
+"Narathiwat",
+"Pattani",
+"Yala",
+"southern Songkhla province"
+]
+}
+]
+},
+"PH": {
+"regional": [
+{
+"t": "Western Mindanao - Avoid all travel",
+"lead": "Avoid all travel to the following provinces of Mindanao island, due to the serious threat of terrorism, kidnapping, high levels of crime, and violent clashes between the security forces and rebel grou",
+"regions": [
+"Basilan",
+"Cotabato",
+"Lanao del Sur",
+"Lanao del Norte",
+"Maguindanao",
+"Misamis Occidental",
+"Sarangani",
+"South Cotabato",
+"Sultan Kudarat",
+"Sulu",
+"Tawi-Tawi",
+"Zamboanga del Norte",
+"Zamboanga del Sur",
+"Zamboanga Sibugay"
+]
+},
+{
+"t": "Central and Eastern Mindanao - Avoid non-essential travel",
+"lead": "Avoid non-essential travel to the following provinces of Mindanao island due to the risk of kidnapping and high levels of crime: Agusan del Norte Agusan del Sur Bukidnon Davao de Oro Davao del Norte D",
+"regions": [
+"Agusan del Norte",
+"Agusan del Sur",
+"Bukidnon",
+"Davao de Oro",
+"Davao del Norte",
+"Davao del Sur*",
+"Davao Occidental",
+"Davao Oriental",
+"Misamis Oriental",
+"Surigao del Norte*",
+"Surigao del Sur"
+]
+}
+]
+},
+"EC": {
+"regional": [
+{
+"t": "Border areas - Avoid all travel",
+"lead": "Avoid all travel to the area within 20 km of the border with Colombia in the following provinces due to drug trafficking and criminal activty: Carchi (except for the Panamerican Highway which connects",
+"regions": [
+"Carchi (except for the Panamerican Highway which connects to the official border crossing with Colombia at Tulcán/Ipiales)",
+"Esmeraldas",
+"Sucumbíos"
+]
+},
+{
+"t": "Minefields near the southern portion of the border with Peru - Avoid all travel",
+"lead": "Avoid all travel to within 2 km of the border with Peru in the following cantons in the province of Zamora-Chinchipe, due to the presence of landmines and unmarked minefields: Chinchipe El Pangui Nang",
+"regions": [
+"Chinchipe",
+"El Pangui",
+"Nangaritza",
+"Yantzaza"
+]
+},
+{
+"t": "Esmeraldas province, parts of El Oro, Guayas and Los Ríos provinces - Avoid non-essential travel",
+"lead": "Avoid non-essential travel to the following areas (except within 20 km of the border with Colombia where we advise against all travel) due to risks of violent crime: the province of Esmeraldas in the ",
+"regions": [
+"the province of Esmeraldas",
+"in the province of El Oro",
+"in the province of Guayas",
+"in the province of Los Ríos"
+]
+},
+{
+"t": "Galápagos Islands - Take normal security precautions",
+"lead": "Take normal security precautions in the Galápagos Islands.",
+"regions": []
+}
+]
+}
+}

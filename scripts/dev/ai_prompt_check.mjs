@@ -28,8 +28,13 @@
 //          wait it is drawn without them, then again when they land
 //          (VERSIONS lists each drawing's flights line)
 //   PAGE=0 skips the page's facts; PANEL=1 lists the panel's buttons (label,
-//          cap verdict, href length) and clicks each with its navigation
-//          cancelled: the AI sites are never opened
+//          cap verdict, href length), then middle-clicks and clicks each
+//          with its navigation cancelled (the AI sites are never opened):
+//          what each copied, its label after, the status line it left
+//   SWITCH another country picked in the guide's own country box before its
+//          AI button (a row case: Any time's row month stays the guide's)
+//   EMPTY=1 a trip case's countries all removed right after the plan click
+//          (with DELAY, before its data lands): the panel must not come back
 //   W, H   the viewport (a width under 768 runs as a phone); SHOT names a
 //          screenshot of the panel in shots/; OUT writes the prompt as JSON
 //          ({case, prompt, chars, encoded})
@@ -57,6 +62,9 @@ const CASES = {
 export default async ({ send, on, evaluate, setSize, nav, sleep, shot }) => {
   const C = CASES[CASE];
   if (!C) { console.log('unknown CASE', CASE); return; }
+  // A guide case's URL names its own country: the page's facts follow it.
+  const urlIso = process.env.URL && /[?&]gc=([A-Z-]+)/.exec(process.env.URL);
+  if (urlIso && C.kind === 'guide') C.iso = urlIso[1];
   await setSize(W, H, W < 768);
   const cache = {};
   const prod = (pathq) => (cache[pathq] = cache[pathq]
@@ -99,6 +107,11 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot }) => {
     }
     console.log('ROW', JSON.stringify(ok));
     await sleep(2500);
+    if (process.env.SWITCH) {
+      console.log('SWITCH', await evaluate(`(() => { const c = document.getElementById('bestCountry'); c.value = '${process.env.SWITCH}';
+        c.dispatchEvent(new Event('change')); return { guide: ccGuideIso, travelMonth: travelMonth(), flexFocusMonth }; })()`));
+      await sleep(2500);
+    }
     await evaluate(`(() => { const b = document.getElementById('guideAIBtn'); if (b) b.click(); return !!b; })()`);
   }
   if (C.viaPicks) {
@@ -107,6 +120,14 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot }) => {
     await sleep(1500);
   }
   if (C.kind === 'trip') await evaluate(`(() => { const b = document.getElementById('tripPlanBtn'); b.click(); return 1; })()`);
+  if (C.kind === 'trip' && process.env.EMPTY === '1') {
+    await sleep(300);
+    await evaluate(`(() => { [...loadTrip()].forEach((i) => tripToggle(i)); return loadTrip().size; })()`);
+    await sleep(Math.max(DELAY, 3000) + 3000);
+    console.log('EMPTIED', await evaluate(`(() => { const p = document.getElementById('tripPanel'), t = p.querySelector('textarea');
+      return { hidden: p.hidden, prompt: t ? t.value.slice(0, 120) : null }; })()`));
+    return;
+  }
 
   // The panel is drawn once its data is in (or after its wait), and drawn
   // again if more lands: read it once it has stopped changing.
@@ -180,9 +201,17 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot }) => {
       Object.defineProperty(navigator.clipboard, 'writeText', { configurable: true, value: (t) => { got = t; return Promise.resolve(); } });
       const out = [], prompt = document.querySelector('${panelSel} textarea').value, st = document.getElementById('status');
       for (const a of document.querySelectorAll('${panelSel} a.aiact')) {
+        // A middle-click first (auxclick, button 1: no click event, and no
+        // tab opened here), then a click; each must copy the whole prompt.
+        got = null;
+        a.dispatchEvent(new MouseEvent('auxclick', { button: 1, bubbles: true, cancelable: true }));
+        await new Promise((r) => setTimeout(r, 200));
+        const middle = got === prompt;
         got = null; status('');
+        const before = a.textContent.trim();
         a.click(); await new Promise((r) => setTimeout(r, 200));
-        out.push({ text: a.textContent.trim(), fits: a.dataset.fits, copiedWhole: got === prompt, status: st.hidden ? null : st.textContent });
+        out.push({ before, after: a.textContent.trim(), fits: a.dataset.fits, middleCopied: middle, copiedWhole: got === prompt,
+          status: st.hidden ? null : st.textContent });
       }
       document.removeEventListener('click', stop, true);
       return out; })()`);

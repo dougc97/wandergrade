@@ -3,20 +3,28 @@ Trip tab's "Plan this trip with AI"), cut out of public/app.js by name and
 run under jsc.
 
   aiPlain        the site's typography made ASCII for a link: · — – − ≈ °
-                 … → and curly quotes, each 6-9 characters once encoded;
+                 … → and curly quotes, each 6-9 characters once encoded, and
+                 a locale's amounts (no-break spaces, non-Latin digits);
                  names keep their letters
   AI_SITES /     each site's cap on the encoded prompt (ChatGPT 30000,
   aiLink         Claude 4000, Grok 6000, Perplexity 12000): within it the
                  prefill link, past it the site's plain new chat
+  AI_HINT_TIP    built from AI_SITES: a site added there is in the tip
   fareCurveFacts a route's month fares as the prompts quote them: count,
                  cheapest first (ties keep the sooner month), the priciest
   monthKeyText   "2027-04" -> "Apr 2027" / "April 2027"
-  avoidAreas     Canada's avoid-travel lines grouped by call, all-travel
-                 first; places, else the heading, else the first sentence;
-                 brief keeps the shorter of heading and places
+  avoidAreas     Canada's avoid-travel lines (production's replies of
+                 2026-10-13, scripts/watchouts_sample.2026-10-13.json): the
+                 area from each line's first sentence, its regions only where
+                 that sentence lists them, exceptions said as exceptions,
+                 never a generic heading for its list; brief for the trip
   aiTripFlights  one trip row's fares: the month's own, the strip's cheapest
-                 and priciest, the window's in flexible mode, a sparse route's
-                 months, the average fallback
+                 and priciest, the window's in flexible mode, every month of
+                 a sparse route, the average fallback
+  aiGuideFlights the guide's FLIGHTS line and whether it has a month curve
+  aiFx           the guide's FX verdict rule (after inflation, past 2%), on
+                 the guide line's own figure
+  aiLevelText    Germany's levels said as what they are
   aiEntryAsk     the Schengen 90/180 ask only for a passport from outside it
   tripMonth      unset under Top Picks' "Any time" is flexible over its window
 
@@ -50,10 +58,11 @@ def jsc(prog):
 
 
 BASE = "\n".join([js_const("MONTHS"), js_const("MON_ABBR"), js_fn("fmtDay")])
-names = ["aiPlain", "aiLink", "fareCurveFacts", "monthKeyText", "avoidAreas", "aiTripFlights", "aiEntryAsk",
-         "tripMonth", "tripMonthSaved", "todayText"]
-results.append(ok(all(js_fn(n) for n in names) and js_const("AI_SITES") and js_const("SCHENGEN"),
-                  "the prompts' pieces found in app.js: " + ", ".join(names) + ", AI_SITES, SCHENGEN"))
+names = ["aiPlain", "aiLink", "fareCurveFacts", "monthKeyText", "unshout", "avoidLead", "avoidText", "avoidAreas", "aiTripFlights",
+         "aiGuideFlights", "aiFx", "aiLevelText", "aiEntryAsk", "tripMonth", "tripMonthSaved", "todayText"]
+consts = ["AI_SITES", "AI_HINT_TIP", "SCHENGEN", "AVOID_GENERIC", "DE_LVL_PROMPT", "HUB_CITY", "aiRange"]
+results.append(ok(all(js_fn(n) for n in names) and all(js_const(n) for n in consts),
+                  "the prompts' pieces found in app.js: " + ", ".join(names + consts)))
 
 # --- aiPlain --------------------------------------------------------------------
 SAMPLE = ("WHEN: October 2026 — one of its comfiest months · best Mar–Apr; "
@@ -66,6 +75,16 @@ results.append(ok(got and got["p"] == want, "aiPlain: dashes, middots, curly quo
 non_ascii = got and sorted({c for c in got["p"] if ord(c) > 127})
 results.append(ok(non_ascii == ["é", "ó"], "aiPlain: the only non-ASCII left is the names' letters (got %s)" % non_ascii))
 results.append(ok(got and got["b"] < got["a"] - 60, "aiPlain: the sample's encoded length drops %s -> %s" % (got and got["a"], got and got["b"])))
+# Amounts in the reader's locale (toLocaleString): fr-FR's narrow no-break
+# space, Arabic-Indic digits and separators (ar-EG), Bengali digits, a
+# no-break space; ASCII digits untouched.
+NNBSP, NBSP, ARSEP = chr(0x202F), chr(0x00A0), chr(0x066C)
+arab = lambda s: "".join(chr(0x0660 + int(d)) for d in s)
+beng = lambda s: "".join(chr(0x09E6 + int(d)) for d in s)
+LOC = "EUR 12" + NNBSP + "345 / EGP " + arab("12") + ARSEP + arab("345") + " / BDT " + beng("6789") + " / 1" + NBSP + "000 / 0123456789"
+got = jsc("%s\nprint(JSON.stringify(aiPlain(%s)));" % (js_fn("aiPlain"), json.dumps(LOC)))
+results.append(ok(got == "EUR 12 345 / EGP 12,345 / BDT 6789 / 1 000 / 0123456789",
+                  "aiPlain: a locale's amounts made ASCII: narrow and plain no-break spaces, Arabic-Indic and Bengali digits, the Arabic thousands mark (got %r)" % got))
 
 # --- AI_SITES / aiLink -----------------------------------------------------------
 LINK = js_const("AI_SITES") + "\n" + js_fn("aiLink")
@@ -90,6 +109,19 @@ results.append(ok(all(s["enc"] == s["q"] + urllib.parse.quote("Japan — 10 days
 results.append(ok(got["space"] and all(x == "true/false" for x in got["space"]),
                   "aiLink measures the ENCODED prompt: a space costs 3 (cap/3 spaces fit, one more doesn't) (got %s)" % got["space"]))
 
+# --- AI_HINT_TIP ------------------------------------------------------------------
+# Built from AI_SITES: each site's behaviour in button order, so a site added
+# there (Gemini, once it has been tested signed in) is one line.
+prog = ("%s\nconst before = %s\nAI_SITES.push({ name: 'Gemini', q: 'https://example.test/?q=', home: 'https://example.test/', cap: 1, how: 'does a test thing' });\n"
+        "%s\nprint(JSON.stringify({ before, after: AI_HINT_TIP, how: AI_SITES.map((s) => s.name + ' ' + s.how) }));"
+        % (js_const("AI_SITES"), js_const("AI_HINT_TIP").replace("const AI_HINT_TIP = ", "", 1), js_const("AI_HINT_TIP")))
+got = jsc(prog) or {"before": "", "after": "", "how": []}
+idx = [got["before"].find(h) for h in got["how"][:4]]
+results.append(ok(got["how"] and all(i >= 0 for i in idx) and idx == sorted(idx) and "copied instead" in got["before"],
+                  "AI_HINT_TIP names each site's behaviour in button order, then the copy-and-paste fallback (got %r)" % got["before"]))
+results.append(ok("Gemini does a test thing." in got["after"] and got["after"].endswith("paste it into."),
+                  "AI_HINT_TIP: a site added to AI_SITES is in the tip with no second edit (got %r)" % got["after"]))
+
 # --- fareCurveFacts / monthKeyText -------------------------------------------------
 FC = js_fn("fareCurveFacts") + "\n" + js_fn("monthKeyText")
 KEYS = ["2026-10", "2026-11", "2026-12", "2027-01", "2027-02", "2027-03"]
@@ -111,36 +143,92 @@ results.append(ok(got[2] is None and got[3] is None, "fareCurveFacts with no far
 results.append(ok(got[4] == "Apr 2027" and got[5] == "October 2026", "monthKeyText: Apr 2027, October 2026 (got %s, %s)" % (got[4], got[5])))
 
 # --- avoidAreas ---------------------------------------------------------------------
-TH = {"regional": [{"t": "Southern provinces of Narathiwat, Pattani, Yala and southern Songkhla province - Avoid all travel",
-                    "regions": ["Narathiwat", "Pattani", "Yala", "southern Songkhla province"]}]}
-MA = {"regional": [{"t": "Western Sahara border regions - Avoid all travel",
-                    "regions": ["within 30 km west of the militarized zone of the Berm",
-                                "between the Berm and neighbouring countries on the eastern and southern sides"]},
-                   {"t": "Border with Algeria - Avoid all travel", "lead": "Avoid all travel to the area within 20 km. More.", "regions": []},
-                   {"t": "Western Sahara - Avoid non-essential travel", "regions": []}]}
-MIX = {"regional": [{"t": "Regional Advisory - Avoid non-essential travel", "lead": "Avoid non-essential travel to the states below. Details.",
-                     "regions": []},
-                    {"t": "Island of Providencia - Take normal security precautions", "regions": []},
-                    {"t": "PALESTINE - AVOID ALL TRAVEL", "regions": ["Gaza*", "West Bank"]},
-                    {"t": "Mindanao - Avoid all travel", "regions": ["A", "B", "C", "D", "E", "F", "G", "H"]}]}
-prog = ("%s\nprint(JSON.stringify([avoidAreas(%s, 12), avoidAreas(%s, 12), avoidAreas(%s, 6, true), avoidAreas(%s, 6), avoidAreas(null, 6), avoidAreas({ regional: [] }, 6)]));"
-        % (js_fn("avoidAreas"), json.dumps(TH), json.dumps(MA), json.dumps(MA), json.dumps(MIX)))
-got = jsc(prog) or [None] * 6
-results.append(ok(got[0] == [{"call": "Avoid all travel", "names": ["Narathiwat", "Pattani", "Yala", "southern Songkhla province"]}],
-                  "avoidAreas Thailand: the four places, as the guide's 📍 line lists them (got %s)" % got[0]))
-results.append(ok(got[1] == [{"call": "Avoid all travel", "names": ["within 30 km west of the militarized zone of the Berm",
-                                                                       "between the Berm and neighbouring countries on the eastern and southern sides",
-                                                                       "Border with Algeria"]},
-                             {"call": "Avoid non-essential travel", "names": ["Western Sahara"]}],
-                  "avoidAreas Morocco: places, else the line's heading; grouped by call (got %s)" % got[1]))
-results.append(ok(got[2] == [{"call": "Avoid all travel", "names": ["Western Sahara border regions", "Border with Algeria"]},
-                             {"call": "Avoid non-essential travel", "names": ["Western Sahara"]}],
-                  "avoidAreas brief (the trip): the heading where it is shorter than the places (got %s)" % got[2]))
-results.append(ok(got[3] == [{"call": "Avoid all travel", "names": ["Gaza (parts excepted)", "West Bank", "A", "B", "C", "D", "and 4 more"]},
-                             {"call": "Avoid non-essential travel", "names": ["Avoid non-essential travel to the states below"]}],
-                  "avoidAreas: all-travel first, an upper-case call read, a star said, past max 'and N more', "
-                  "a 'Regional advisory' heading replaced by its first sentence, a safer-than-the-rest line left out (got %s)" % got[3]))
-results.append(ok(got[4] == [] and got[5] == [], "avoidAreas with no watchouts or no regional lines -> []"))
+# Production's /api/watchouts replies of 2026-10-13 (regional lines only),
+# the cases the review found: a band's states read as whole states (India),
+# exceptions read as places to avoid (Karachi; Israel's excepted roads in
+# place of Palestine), a generic heading standing for its list (Colombia).
+WO = json.load(open(os.path.join(ROOT, "scripts", "watchouts_sample.2026-10-13.json"), encoding="utf-8"))
+AV = "\n".join([js_const("AVOID_GENERIC"), js_fn("unshout"), js_fn("avoidLead"), js_fn("avoidText"), js_fn("avoidAreas")])
+got = jsc("%s\nconst WO = %s;\nconst out = {};\nfor (const c in WO) out[c] = { guide: avoidAreas(WO[c], 0), trip: avoidAreas(WO[c], 10, true) };\n"
+          "print(JSON.stringify(out));" % (AV, json.dumps(WO))) or {}
+A, N = "Avoid all travel", "Avoid non-essential travel"
+pairs = lambda r: [(x["call"], x["text"]) for x in r] if r is not None else None
+g = lambda c, k: pairs((got.get(c) or {}).get(k))
+want = {
+    ("IN", "guide"): [(A, "the Union Territory of Jammu and Kashmir"),
+                      (A, "areas within 10 km of the border with Pakistan in the following states: Gujarat; Punjab; Rajasthan"),
+                      (N, "Manipur")],
+    ("IN", "trip"): [(A, "Union Territory of Jammu and Kashmir"), (A, "Border areas with Pakistan"), (N, "Manipur")],
+    ("PK", "guide"): [(A, "Pakistan-administered Kashmir; the province of Balochistan; the province of Khyber Pakhtunkhwa*; "
+                          "the section of the Karakoram Highway from Mansehra to Chilas; and other areas Canada lists"),
+                      (N, "the city of Karachi, except these areas: District of Karachi (formerly Karachi South); "
+                          "DHA Phase 7 Extension in the District of Korangi; Lalazar, Naval Officers Residential Estate 1 and Port Tower "
+                          "Complex in the District of Keamari; Jinnah International Airport and Shahrah-e-Faisal Road between the airport "
+                          "and the city, in the District of Gulshan")],
+    ("PK", "trip"): [(A, "Pakistan-administered Kashmir; the province of Balochistan; the province of Khyber Pakhtunkhwa*; "
+                         "the section of the Karakoram Highway from Mansehra to Chilas; and other areas Canada lists"),
+                     (N, "Karachi (parts excepted)")],
+    ("IL", "guide"): [(A, "Palestine"), (A, "the parts of the Golan Heights that border Syria, east of Highway 98"), (N, "Israel"), (N, "Jerusalem")],
+    ("IL", "trip"): [(A, "Palestine"), (A, "Border with Syria"), (N, "Israel"), (N, "Jerusalem")],
+    ("EG", "guide"): [(A, "northern Sinai"),
+                      (A, "The Western desert and Libyan border area: within 50 kilometres of the border with Libya; "
+                          "the Western Desert, west of the Giza-Luxor-Aswan-Abu Simbel road, including the oasis of Dakhla"),
+                      (N, "the northern part of the Governorate of South Sinai")],
+    ("EG", "trip"): [(A, "Northern Sinai"), (A, "The Western desert and Libyan border area"), (N, "Northern part of the Governorate of South Sinai")],
+    ("TR", "guide"): [(A, "within 10 km of the borders with Iraq and Syria"), (N, "Southeastern provinces: Hakkari; Sirnak")],
+    ("TR", "trip"): [(A, "Borders with Iraq and Syria"), (N, "Hakkari; Sirnak")],
+    ("MA", "guide"): [(A, "Western Sahara border regions: within 30 km west of the militarized zone of the Berm; "
+                          "between the Berm and neighbouring countries on the eastern and southern sides"),
+                      (A, "the area within 20 km of the border with Algeria"), (N, "Western Sahara")],
+    ("MA", "trip"): [(A, "Western Sahara border regions"), (A, "Border with Algeria"), (N, "Western Sahara")],
+    ("TH", "guide"): [(A, "Narathiwat; Pattani; Yala; southern Songkhla province")],
+    ("TH", "trip"): [(A, "Narathiwat; Pattani; Yala; southern Songkhla province")],
+    ("PH", "trip"): [(A, "Western Mindanao"), (N, "Central and Eastern Mindanao")],
+}
+labels = {
+    "IN": "India: the 10 km band with Pakistan kept with its three states (not 'avoid all travel: Gujarat, Punjab, Rajasthan')",
+    "PK": "Pakistan: Karachi's listed areas are its exceptions; the parser's 'the area*' leftovers are 'other areas Canada lists'",
+    "IL": "Israel: Palestine, not the two roads Canada excepts from it; guide and trip agree; capitals unshouted",
+    "EG": "Egypt: northern Sinai from Canada's sentence, a sentence cut at 'north of St.' backed off to its last comma",
+    "TR": "Turkey: the 10 km band from the sentence; the trip's places where shorter than the heading",
+    "MA": "Morocco: a named heading leads its places; the band's distance from the sentence",
+    "TH": "Thailand: a heading that names every place gives way to the places",
+    "PH": "the Philippines: the trip's named headings",
+}
+for (c, k), w in want.items():
+    results.append(ok(g(c, k) == w, "avoidAreas %s, %s: %s (got %s)" % (c, k, labels[c], g(c, k))))
+co_g, co_t = g("CO", "guide") or [], g("CO", "trip") or []
+co_all = WO["CO"]["regional"][0]["regions"]
+results.append(ok(len(co_g) == 2 and co_g[0][0] == A and all(r in co_g[0][1] for r in co_all)
+                  and "Cesar, in the municipalities of González and Río de Oro; Chocó*" in co_g[0][1],
+                  "avoidAreas Colombia, guide: every department and band listed, joined with '; ' (a name's own comma stays inside it) (got %s)" % co_g[:1]))
+results.append(ok(co_g and "Valle del Cauca*; and other areas Canada lists" in co_g[1][1],
+                  "avoidAreas Colombia, guide: no cap (Valle del Cauca, Cali's department, is named) and the nested 'the following towns in Chocó' is 'other areas'"))
+results.append(ok(len(co_t) == 2 and not any(t == "Border areas" for _, t in co_t) and "Buenaventura" in co_t[0][1]
+                  and co_t[1][1].endswith("; Meta*; and 4 more"),
+                  "avoidAreas Colombia, trip: a generic 'Border areas' heading never stands for its list; past 10 places 'and N more' (got %s)" % co_t))
+ec = g("EC", "guide") or []
+results.append(ok(len(ec) == 3 and ec[0][1].startswith("the area within 20 km of the border with Colombia in the following provinces: Carchi (except for")
+                  and ec[2][1].startswith("the following areas (except within 20 km of the border with Colombia where we advise against all travel): the province of Esmeraldas;"),
+                  "avoidAreas Ecuador: an 'except' inside the sentence (not 'the following') leaves the places as the area (got %s)" % ec))
+MIX = {"regional": [{"t": "Regional Advisory - Avoid non-essential travel", "lead": "Avoid non-essential travel to the states below. Details.", "regions": []},
+                    {"t": "Island of Providencia - Take normal security precautions", "lead": "Take normal security precautions.", "regions": []},
+                    {"t": "Mindanao - AVOID ALL TRAVEL", "lead": "Avoid all travel to the following provinces: A B", "regions": list("ABCDEFGH")},
+                    {"t": "Somewhere - Avoid all travel", "lead": "Avoid all travel to " + "x" * 190 + ", near y", "regions": []},
+                    {"t": "Regional advisory - Avoid all travel", "lead": "The situation is volatile. More.", "regions": []},
+                    {"t": "Border areas - Avoid all travel", "lead": "Avoid all travel to " + "z" * 200, "regions": []},
+                    {"t": "Somewhere else - Avoid all travel", "lead": "Avoid all travel to " + "w" * 200, "regions": []}]}
+got = jsc("%s\nprint(JSON.stringify([avoidAreas(%s, 6), avoidAreas(%s, 6, true), avoidAreas(null, 6), avoidAreas({ regional: [] }, 6)]));"
+          % (AV, json.dumps(MIX), json.dumps(MIX))) or [None] * 4
+results.append(ok(pairs(got[0]) == [(A, "Mindanao: A; B; C; D; E; F; and 2 more"), (A, "x" * 190), (A, "The situation is volatile"),
+                                    (A, "z" * 200 + "..."), (A, "Somewhere else"), (N, "areas Canada lists")],
+                  "avoidAreas: all-travel first, an upper-case call read, past max 'and N more', a sentence cut off at 200 backed off to its "
+                  "last comma (with none, '...', or a named heading), an unreadable one's first sentence, a list that never came said so, "
+                  "a safer-than-the-rest line left out (got %s)" % got[0]))
+results.append(ok(pairs(got[1]) == [(A, "Mindanao"), (A, "Somewhere"), (A, "The situation is volatile"), (A, "z" * 200 + "..."),
+                                    (A, "Somewhere else"), (N, "areas Canada lists")],
+                  "avoidAreas brief: a named heading alone, a generic one never (got %s)" % got[1]))
+results.append(ok(got[2] == [] and got[3] == [], "avoidAreas with no watchouts or no regional lines -> []"))
 
 # --- aiTripFlights --------------------------------------------------------------------
 # The clock and formatting stubbed: Oct 2026, fares in USD as "USD n".
@@ -153,13 +241,14 @@ TH_FM = {"months": {"2026-10": {"price": 838}, "2026-11": {"price": 879}, "2026-
 PT_FM = {"months": {"2026-11": {"price": 65}, "2026-12": {"price": 80}, "2027-01": {"price": 70}, "2027-03": {"price": 90},
                     "2027-05": {"price": 120}, "2027-07": {"price": 197}}}
 KH_FM = {"months": {"2026-12": {"price": 1060}}}
-prog = ("%s\n%s\n%s\n%s\nconst _aiFares = { 'US:TH': %s, 'US:PT': %s, 'US:KH': %s, 'US:HR': null };\n"
+NL_FM = {"months": {"2026-10": {"price": 165}, "2026-11": {"price": 165}, "2027-01": {"price": 233}, "2027-09": {"price": 183}}}
+prog = ("%s\n%s\n%s\n%s\nconst _aiFares = { 'US:TH': %s, 'US:PT': %s, 'US:KH': %s, 'US:NL': %s, 'US:HR': null };\n"
         "print(JSON.stringify([aiTripFlights('TH', 10), aiTripFlights('PT', 11), aiTripFlights('PT', 9), aiTripFlights('TH', null),"
         " aiTripFlights('TH', null, [10, 11, 12, 1, 2, 3]), aiTripFlights('KH', null), aiTripFlights('KH', 11), aiTripFlights('XX', 11),"
-        " aiTripFlights('HR', null), (flightsData = null, aiTripFlights('HR', null))]));"
+        " aiTripFlights('HR', null), aiTripFlights('NL', 2), aiTripFlights('NL', null), (flightsData = null, aiTripFlights('HR', null))]));"
         % (BASE, STUBS, js_fn("fareCurveFacts"), js_fn("monthKeyText") + "\n" + js_fn("aiTripFlights"),
-           json.dumps(TH_FM), json.dumps(PT_FM), json.dumps(KH_FM)))
-got = jsc(prog) or [None] * 10
+           json.dumps(TH_FM), json.dumps(PT_FM), json.dumps(KH_FM), json.dumps(NL_FM)))
+got = jsc(prog) or [None] * 12
 want = ["flights Oct USD 838 (cheapest Feb 2027 USD 775, priciest Jun 2027 USD 1,253)",
         "flights Nov USD 65 (its cheapest month; priciest Jul 2027 USD 197)",
         "flights: no Sep fare cached (cheapest Nov 2026 USD 65, priciest Jul 2027 USD 197)",
@@ -167,8 +256,10 @@ want = ["flights Oct USD 838 (cheapest Feb 2027 USD 775, priciest Jun 2027 USD 1
         "flights in my window: cheapest Feb 2027 USD 775, priciest Dec 2026 USD 913",
         "flights: only Dec 2026 USD 1,060 cached",
         "flights: no Nov fare cached (only Dec 2026 USD 1,060)",
-        "flights avg USD 640 (all months)",
-        "flights: none cached", ""]
+        "flights avg USD 640",
+        "flights: none cached",
+        "flights: no Feb fare cached (only Oct 2026 USD 165, Nov 2026 USD 165, Jan 2027 USD 233, Sep 2027 USD 183)",
+        "flights: only Oct 2026 USD 165, Nov 2026 USD 165, Jan 2027 USD 233, Sep 2027 USD 183 cached", ""]
 labels = ["a fixed month with a strip: its fare, the year's cheapest and priciest",
           "the trip month is the cheapest: said so",
           "no fare in the trip month: the strip's cheapest and priciest",
@@ -178,9 +269,66 @@ labels = ["a fixed month with a strip: its fare, the year's cheapest and pricies
           "a fixed month a sparse route lacks: the months it has",
           "no month curve: the cached average, said so",
           "nothing cached on a configured server: said so",
+          "a four-month route, a month it lacks: every month it has, in order (not 'only' three of them)",
+          "a four-month route, flexible: every month it has",
           "no fares on the server: nothing"]
 for g, w, l in zip(got, want, labels):
     results.append(ok(g == w, "aiTripFlights, %s: %r" % (l, g)))
+
+# --- aiFx ---------------------------------------------------------------------------
+# The guide's verdict rule: none without the destination's inflation figure
+# (adj false: the Faroes' "exchange rate only"), none inside ±2%; the guide
+# prompt quotes the guide line's own figure (/api/fx-trend) once it has come.
+FX = ("let F = null; const fxInfo = () => F; const GUIDE_PARENT = {}; let homeBase = 'USD'; const _fxTrendSeen = {};\n"
+      "const realFxPct = (iso, nom) => Math.round((nom - 0.3) * 100) / 100;\n" + js_fn("aiFx"))
+prog = ("%s\nconst out = [];\nconst at = (f, short) => { F = f; out.push(aiFx('XX', short)); };\n"
+        "at({ code: 'DKK', real: 3.6, adj: false }); at({ code: 'EUR', real: 3.6, adj: true }); at({ code: 'EUR', real: 3.6, adj: true }, true);\n"
+        "at({ code: 'EUR', real: 1.94, adj: true }); at({ code: 'TRY', real: -4.44, adj: true }); at(null);\n"
+        "_fxTrendSeen['USD:EUR'] = { pct: 2.4 }; at({ code: 'EUR', real: 1.9, adj: true }); at({ code: 'EUR', real: 3.6, adj: true }, true);\n"
+        "print(JSON.stringify(out));" % FX)
+got = jsc(prog) or [None] * 8
+want = ["", "my USD goes 3.6% further than usual there (vs its 12-month average, after inflation)", "money goes 3.6% further than usual",
+        "", "my USD goes 4.4% less far than usual there (vs its 12-month average, after inflation)", "",
+        "my USD goes 2.1% further than usual there (vs its 12-month average, after inflation)", "money goes 3.6% further than usual"]
+labels = ["no inflation figure for the destination: no verdict", "after inflation, past 2%", "the trip's short form",
+          "inside 2%: unsaid", "a weaker rate, one decimal", "no rates: nothing",
+          "the guide line's own figure (fx-trend) over the rates table's: India's 1.9 vs the line's 2.1",
+          "the trip's short form reads the table, not the guide's line"]
+for g_, w, l in zip(got, want, labels):
+    results.append(ok(g_ == w, "aiFx, %s: %r" % (l, g_)))
+
+# --- aiLevelText ----------------------------------------------------------------------
+LV = ("let SRC = 'de'; const advSrcOf = (it) => it.via || SRC; const advLevelText = (iso, l) => iso + ' Level ' + l;\n"
+      + js_const("DE_LVL_PROMPT") + "\n" + js_fn("aiLevelText"))
+got = jsc("%s\nconst o = (it) => aiLevelText({ it, of: 'TH' });\nconst out = [o({ level: 2 }), o({ level: 1 }), o({ level: 4 }), o({ level: 3 }), o({ level: 2, via: 'us' })];\n"
+          "SRC = 'us'; out.push(o({ level: 2 }));\nprint(JSON.stringify(out));" % LV)
+results.append(ok(got == ["partial travel warning for some regions", "no travel warning", "travel warning", "TH Level 3", "TH Level 2", "TH Level 2"],
+                  "aiLevelText: Germany's own levels said as what they are, not its quoted label; a gap another government filled, and the US, in their words (got %s)" % got))
+
+# --- aiGuideFlights -------------------------------------------------------------------
+# The month curve (3+ months, the chart's floor) with the band and range; one
+# or two cached months quoted as they are (Palau's one January fare used to
+# read as "the average across all months"); the average and the distance
+# estimate as the fallback, named. curve: whether the "is October right" ask fits.
+GF = (STUBS + js_const("HUB_CITY") + "\n" + js_const("aiRange") + "\n"
+      "const fareValue = () => ({ c: { median: 1000, lo: 957, hi: 1160 } }); const flightValue = { origin: 'US' };\n"
+      "flightsData = { configured: true, hub: 'NYC' };\nconst buildFareContext = () => ({ prices: { XX: 640, YY: 900 }, est: new Set(['YY']) });\n"
+      "const countryNameInText = (iso) => 'the ' + iso;\n" + js_fn("fareCurveFacts") + "\n" + js_fn("monthKeyText") + "\n" + js_fn("aiGuideFlights"))
+JP_FM = {"hub": "NYC", "months": {"2026-10": {"price": 966}, "2026-11": {"price": 864}, "2027-04": {"price": 812}, "2027-05": {"price": 1288}}}
+PW_FM = {"hub": "NYC", "months": {"2027-01": {"price": 2089}}}
+got = jsc("%s\n%s\nconst _aiFares = { 'US:JP': %s, 'US:PW': %s };\nprint(JSON.stringify([aiGuideFlights('JP', 10), aiGuideFlights('PW', 10), aiGuideFlights('XX', 10), aiGuideFlights('YY', 10), aiGuideFlights('ZZ', 10)]));"
+          % (BASE, GF, json.dumps(JP_FM), json.dumps(PW_FM))) or [None] * 5
+want = [{"curve": True, "text": "FLIGHTS from New York (cheapest cached round trip per departure month, not live quotes): October USD 966, typical for this route "
+                                "(usual USD 957-1,160). Cheapest: Apr 2027 USD 812, Nov 2026 USD 864. Priciest: May 2027 USD 1,288."},
+        {"curve": False, "text": "FLIGHTS from New York (cheapest cached round trip, not live quotes): only Jan 2027 USD 2,089 cached."},
+        {"curve": False, "text": "FLIGHTS from New York: about USD 640 round trip, the average of its cached fares (none by month)."},
+        {"curve": False, "text": "FLIGHTS from New York: about USD 900 round trip, a distance-based estimate (no cached fares to the YY)."},
+        {"curve": False, "text": ""}]
+labels = ["a month curve: the month's fare, band and range, the cheapest two and the priciest",
+          "one cached month: quoted as it is, no curve to ask about", "no month curve: the average, named",
+          "no cached fare: the distance estimate, named", "nothing at all: no line"]
+for g_, w, l in zip(got, want, labels):
+    results.append(ok(g_ == w, "aiGuideFlights, %s: %s" % (l, g_)))
 
 # --- aiEntryAsk ---------------------------------------------------------------------
 prog = ("%s\n%s\nlet PP = 'US'; const guidePassport = () => PP;\nconst out = [];\n"
