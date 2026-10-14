@@ -1,18 +1,18 @@
 {
- "note": "Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
+ "note": "Regenerated 2026-10-14 for the default priorities moving to every factor Med (picks.WEIGHTS afford 3 -> 2; affordability had been High since the FX-tracker days). Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
  "sha256": {
-  "1": "62a5eac839a40457fac944c8e20551b79f25e9208e9dbd324b9d287fb2d65b01",
-  "10": "16ea9523485eb16ca1d16ab8488c11c9886696aca542d4de82a44ed037cd34ca",
-  "11": "a269ea0e60077992b0b521a1034a9a7b78e379310b97d63ac3b8a359458bd1ec",
-  "12": "3bdc2524098a28778455f595dbb7418cde353cb0e17728b0a652736f99fb29fd",
-  "2": "bfa29d4cac6ddd9f20c21047d47e0301504e1becfefe5d4435fccefd37775094",
-  "3": "5e7aba2f5543d3ea6ae12e79e52785816a88342aedcc5053dca0a45da5220633",
-  "4": "3f807e00df41d1498d23693575d149c9b10cdc9fa6a3aaa31875e69bdcbc0160",
-  "5": "307f0782dca3e220f868c41a33171c63a074ddc746dbfd34233c0538b392dcdf",
-  "6": "483f2cb55699c1c1da59cdc3cc1a517cf755c83660a642b799074dcba0dcac68",
-  "7": "3f708e8d2ad629b41063edd72ace6ed8a113dfa41a4f43e42cc96dbc8ebb72ac",
-  "8": "e58d8a8338efdd7e0309e572ea9123f377558268b508a1d490607fa243904bd0",
-  "9": "3fc0379c8d42f66efee511860eccc655646931967d1ea9cd694af3c54c2a79fe"
+  "1": "eb0b0d8e96cf42a28379ff9efa97afc6eedd146babca61591271067bb1d09bbb",
+  "2": "e22630f72359546dbe81769da2a1082a62ca07108c5b9c9feeecc05e47fefd29",
+  "3": "df499d1ddc00b7cb8a2ba2637bc78d84d7dd22383bd9777cd767ac1f3b7ca84b",
+  "4": "2964f975fefd5747eac08e33255ebe268b81c0f82bed1e3d092d36deb3bc1e64",
+  "5": "155fdf1ed1f302d065a2240693ea19c296c5db217befd154c907e53abb3c46c2",
+  "6": "d9a9e31ee344411f1f04da776ad028ccb08cd0cfd210cf12341a73b5b93cbd6f",
+  "7": "7945ec6165ff43edc2ff69cc8b106d080751fa98bba6a9b83c9a63a01189b785",
+  "8": "fd2ed90ba01b1d7c9efa64b05160e74dcb10fef085de1caac5f5d9b5d5a6a522",
+  "9": "7591c43b86643239ce7b8545bfb17268cfd123e4d3a02f613e36a93c6697758a",
+  "10": "d44b38ac5917a4222160aeccad7d672816177d66ccee0597e4fb1f38af4e5963",
+  "11": "db9150ca99441ba7feb11c81d0c8f841c917d8257ca64a7f05cb74fd51c4ffb9",
+  "12": "5c1055e35a435bcd723abfffadf1768acc7435e46a491f0e8437943bda3877f1"
  },
  "source": "git archive 4788fd2 fxtracker public | tar -x (scripts/digest_snapshot.py, frozen fixtures, today 2026-10-03)"
 }

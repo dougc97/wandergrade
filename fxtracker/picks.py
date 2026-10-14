@@ -137,8 +137,10 @@ def grade(score):
 # letter matches the advisory level exactly. No advisory => not graded at all.
 SAFE_GRADE = {1: "A", 2: "B", 3: "D"}
 
-# The site's default priorities (app.js WEIGHT_DEFS/PRI_W: high 3, med 2).
-WEIGHTS = {"afford": 3, "safe": 2, "wx": 2, "fly": 2}
+# The site's default priorities (app.js WEIGHT_DEFS/PRI_W: high 3, med 2):
+# every factor Med since 2026-10-14 (affordability was High, a leftover of
+# the FX-tracker days; flights are a cost too, so cost is still half).
+WEIGHTS = {"afford": 2, "safe": 2, "wx": 2, "fly": 2}
 HOME_ISO = "US"
 SITE = "https://wandergrade.com"
 

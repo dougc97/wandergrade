@@ -5247,8 +5247,14 @@ const clamp100 = (x) => Math.max(0, Math.min(100, Math.round(x)));
 // numeric sliders). "fly" only participates for countries with a fare loaded.
 // "afford" blends cost-of-living (PPP price level) with current FX strength into
 // one Affordability factor — users found "Dollar" vs "Prices" hard to tell apart.
+// Every factor starts at Med (Doug, 2026-10-14). Affordability started on
+// High, a leftover of the site's FX-tracker beginnings ("Cheap" was High
+// before there was a ranking to speak of), and flights are a cost too: at
+// High the two cost terms carried 5/9 of the score against 2/9 each for
+// safety and weather. Even, cost is still half of it. fxtracker/picks.py
+// WEIGHTS mirrors these (parity.py holds the two together).
 const WEIGHT_DEFS = [
-  { key: "afford", label: "Affordability", def: "high" },
+  { key: "afford", label: "Affordability", def: "med" },
   { key: "safe",   label: "Safety",        def: "med" },
   { key: "wx",     label: "Weather",       def: "med" },
   { key: "fly",    label: "Flights",       def: "med" },
@@ -5857,6 +5863,39 @@ function buildFareContext() {
 
 let _vfSeq = 0;
 let _vfReq = null;   // {origin, p}: the latest /api/flights fetch, in flight or done
+// Top Picks' own ask for the month curves, again while the server is still
+// filling them. It used to ask once: a page opened in the minutes after a
+// deploy (the server restarts and refills) graded every country still
+// pending on the distance measure, and kept those grades until a reload —
+// Doug's October list put Greece first at 89 where the month fares give
+// Vietnam and Morocco 87. Waits 15, 30, 45 s, then 60 s, within FV_POLL_MS
+// (the Flights tab's own bound); a tab coming back into view asks again
+// while the curves are still filling. Redraws only when more countries are
+// ready, so the table doesn't re-sort under a reader for nothing.
+let _vfvTimer = null, _vfvEnd = 0;
+function askValueFlightValue(origin, seq, attempt) {
+  clearTimeout(_vfvTimer);
+  if (!attempt) _vfvEnd = Date.now() + FV_POLL_MS;
+  // Marked done however it ends, for a guide AI panel waiting on it
+  // (faresLanded): a failed fetch must not hold every panel 3 s.
+  const ask = _fvAsk = { origin, done: false };
+  const again = () => {
+    if (seq === _vfSeq && Date.now() < _vfvEnd)
+      _vfvTimer = setTimeout(() => askValueFlightValue(origin, seq, attempt + 1), Math.min(60, 15 * (attempt + 1)) * 1000);
+  };
+  getJSON("/api/flight-value?origin=" + encodeURIComponent(origin)).then((fv) => {
+    if (seq !== _vfSeq || !fv || fv.configured === false || fv.origin !== origin) return;
+    const had = flightValue && flightValue.origin === origin ? (flightValue.ready || 0) : -1;
+    flightValue = fv;
+    if (loaded.value && (fv.ready || 0) !== had) renderValue();
+    if (fv.filling) again();
+  }).catch(again).then(() => { ask.done = true; refreshGuidePrompt(); });
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible" || !flightsData || !flightsData.configured) return;
+  if (flightValue && flightValue.origin === originIso() && flightValue.filling && Date.now() >= _vfvEnd)
+    askValueFlightValue(originIso(), _vfSeq, 0);
+});
 let _fvAsk = null;   // {origin, done}: loadValueFlights' /api/flight-value fetch
 async function loadValueFlights(silent) {
   const origin = originIso();
@@ -5888,18 +5927,8 @@ async function loadValueFlights(silent) {
       flightsData = data;
       if (say) status(`Fares from ${data.origin_name || origin} folded into the score.`, "ok");
       // The month curves the grade prefers: the same payload the Flights tab
-      // polls, fetched once here (no polling — a country still filling just
-      // grades on the distance measure until the next render).
-      if (!(flightValue && flightValue.origin === origin)) {
-        // Marked done however it ends, for a guide AI panel waiting on it
-        // (faresLanded): a failed fetch must not hold every panel 3 s.
-        const ask = _fvAsk = { origin, done: false };
-        getJSON("/api/flight-value?origin=" + encodeURIComponent(origin)).then((fv) => {
-          if (seq !== _vfSeq || !fv || fv.configured === false || fv.origin !== origin) return;
-          flightValue = fv;
-          if (loaded.value) renderValue();
-        }).catch(() => {}).then(() => { ask.done = true; refreshGuidePrompt(); });
-      }
+      // polls (askValueFlightValue re-asks while the server is still filling).
+      if (!(flightValue && flightValue.origin === origin) || flightValue.filling) askValueFlightValue(origin, seq, 0);
       // A guide opened before fares arrived rendered its fare strip against
       // nothing and stayed hidden — give it its data now, its AI panel too.
       if (ccGuideIso) { renderGuideFares(ccGuideIso); renderGuideGrades(ccGuideIso); refreshGuidePrompt(); }

@@ -138,7 +138,8 @@ GRAFT = ("PL_SAME", "_pl_shown", "_pl_band", "_cost_line")
 
 def graft_cost_line(newsletter, new_root):
     """Replace `newsletter`'s _cost_line (an old tree's module) with
-    new_root's, plus the helpers and constant it uses. The new function's
+    new_root's, plus the helpers and constant it uses, and its picks.WEIGHTS
+    with new_root's (the default priorities). The new function's
     default edition is USD from new_root's digest_variants (stdlib only), and
     `decimal` is imported into the old module's namespace for it."""
     import ast
@@ -165,12 +166,30 @@ def graft_cost_line(newsletter, new_root):
     ns["USD"] = dv.VARIANTS["USD"]      # the new code's default edition (old trees have none)
     mod = ast.Module(body=keep, type_ignores=[])
     exec(compile(mod, src_path, "exec"), ns)
+    graft_weights(newsletter, new_root)
 
 
-def snapshot(root, codes=("USD",), months=range(1, 13), keep_data=False, graft=None):
+def graft_weights(newsletter, new_root):
+    """The second deliberate change since 4788fd2: the default priorities
+    (2026-10-14, every factor Med; affordability was High). The old tree
+    scores with new_root's picks.WEIGHTS, so a comparison against it still
+    isolates everything else (alone: --graft-weights, the raw-text check)."""
+    import ast
+    with open(os.path.join(new_root, "fxtracker", "picks.py"), encoding="utf-8") as f:
+        ptree = ast.parse(f.read())
+    weights = next(ast.literal_eval(n.value) for n in ptree.body if isinstance(n, ast.Assign)
+                   and any(isinstance(t, ast.Name) and t.id == "WEIGHTS" for t in n.targets))
+    old_picks = sys.modules.get((newsletter.__package__ or "fxtracker") + ".picks")
+    if old_picks is not None:
+        old_picks.WEIGHTS = dict(weights)
+
+
+def snapshot(root, codes=("USD",), months=range(1, 13), keep_data=False, graft=None, weights=None):
     picks, newsletter, dv = install(root)
     if graft:
         graft_cost_line(newsletter, graft)
+    elif weights:
+        graft_weights(newsletter, weights)
     out = {}
     datas = {}
     for m in months:
@@ -212,7 +231,9 @@ def main():
     ap.add_argument("--month", type=int, default=None)
     ap.add_argument("--html-dir", default=None, help="also write <CODE>-<month>.html pages")
     ap.add_argument("--graft-cost-line", default=None, metavar="NEWTREE",
-                    help="render with NEWTREE's newsletter._cost_line (see the docstring)")
+                    help="render with NEWTREE's newsletter._cost_line and picks.WEIGHTS (see the docstring)")
+    ap.add_argument("--graft-weights", default=None, metavar="NEWTREE",
+                    help="render with only NEWTREE's picks.WEIGHTS (the default priorities)")
     a = ap.parse_args()
     root = os.path.abspath(a.root)
     if a.variants == "all":
@@ -223,7 +244,8 @@ def main():
         codes = tuple(c.strip().upper() for c in a.variants.split(",") if c.strip())
     months = [a.month] if a.month else range(1, 13)
     snap = snapshot(root, codes, months,
-                    graft=os.path.abspath(a.graft_cost_line) if a.graft_cost_line else None)
+                    graft=os.path.abspath(a.graft_cost_line) if a.graft_cost_line else None,
+                    weights=os.path.abspath(a.graft_weights) if a.graft_weights else None)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(snap, f, ensure_ascii=False, indent=0, sort_keys=True)
     if a.html_dir:

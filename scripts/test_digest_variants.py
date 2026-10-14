@@ -35,12 +35,13 @@ GOLDEN = os.path.join(HERE, "digest_golden", "usd_sha256.json")
 JSC = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc"
 
 
-def _snapshot_in_child(root, variants="USD", graft=None):
+def _snapshot_in_child(root, variants="USD", graft=None, weights=None):
     """A tree's snapshot in a fresh interpreter (module isolation)."""
     out = tempfile.mktemp(suffix=".json")
     p = subprocess.run([sys.executable, os.path.join(HERE, "digest_snapshot.py"), "--root", root,
                         "--out", out, "--variants", variants]
-                       + (["--graft-cost-line", graft] if graft else []),
+                       + (["--graft-cost-line", graft] if graft else [])
+                       + (["--graft-weights", weights] if weights else []),
                        capture_output=True, text=True, timeout=55)
     if p.returncode != 0:
         raise RuntimeError(p.stdout + p.stderr)
@@ -69,7 +70,9 @@ def main():
         try:
             subprocess.check_call("git -C '%s' archive '%s' fxtracker public | tar -x -C '%s'"
                                   % (ROOT, against, tmp), shell=True, timeout=50)
-            old = _snapshot_in_child(tmp, "USD")
+            # With this tree's default priorities (every factor Med since
+            # 2026-10-14), so the raw diff is the cost band's alone.
+            old = _snapshot_in_child(tmp, "USD", weights=ROOT)
             diffs = [m for m in old["USD"] if old["USD"][m] != usd_only["USD"].get(m)]
             raw_diff = sorted(int(m) for m in diffs)          # checked in 2c
             grafted = _snapshot_in_child(tmp, "USD", graft=ROOT)
@@ -193,10 +196,13 @@ def main():
                 line = newsletter._cost_line(s_, False, V[c])
                 if "graded worth it" in line and c != "USD" and s_["value"] < 68:
                     worth.append((c, m, s_["iso"], s_["value"]))
-    inr_hero = [datas["INR"][m]["picks"][0] for m in range(1, 13)]
-    inr_lines = [newsletter._cost_line(h, False, V["INR"]) for h in inr_hero]
+    # Since the default priorities went even (2026-10-14) every INR hero
+    # grades B or better on these fixtures, so the plain wording is looked
+    # for among all INR picks (Philippines 67 in January, Greece 67 in April).
+    inr_picks = [s_ for m in range(1, 13) for s_ in datas["INR"][m]["picks"]]
+    inr_lines = [newsletter._cost_line(s_, False, V["INR"]) for s_ in inr_picks]
     results.append(ok(not worth and any("pricier than India.</div>" in x for x in inr_lines),
-                      "non-USD 'pricier than …, but graded worth it' only at B or better (INR heroes: "
+                      "non-USD 'pricier than …, but graded worth it' only at B or better (INR picks below B: "
                       "'Everyday pricier than India.')%s" % ("" if not worth else " -> %r" % worth[:3])))
     U, INR = V["USD"], V["INR"]
     cl = newsletter._cost_line
