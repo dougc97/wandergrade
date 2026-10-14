@@ -2902,6 +2902,16 @@ async function renderGuideFares(iso) {
 // (inflation gap removed, see realFxPct), so the headline matches the table's
 // FX mark and a steady depreciation no longer reads as a bargain.
 const _fxTrendCache = {};
+// Each reply kept as it lands too, for the AI prompt's exchange-rate line
+// (aiFx), which is written in one go and quotes this line's number.
+const _fxTrendSeen = {};
+function fxTrendFor(fxIso) {
+  const dest = CUR_BY_ISO[fxIso], base = homeBase || "USD";
+  if (!dest || dest === base) return Promise.resolve(null);
+  const key = base + ":" + dest;
+  return _fxTrendCache[key] || (_fxTrendCache[key] = getJSON("/api/fx-trend?cur=" + dest + "&base=" + base)
+    .then((t) => (_fxTrendSeen[key] = t), (e) => { delete _fxTrendCache[key]; throw e; }));
+}
 async function renderGuideFx(iso) {
   const host = $("guideFx");
   if (!host) return;
@@ -2913,12 +2923,8 @@ async function renderGuideFx(iso) {
   const base = homeBase || "USD";
   // Same currency both ends (an American in Ecuador) = no FX story to tell.
   if (!dest || dest === base) return;
-  const key = base + ":" + dest;
   let t;
-  try {
-    t = await (_fxTrendCache[key] ||
-      (_fxTrendCache[key] = getJSON("/api/fx-trend?cur=" + dest + "&base=" + base)));
-  } catch (e) { delete _fxTrendCache[key]; return; }
+  try { t = await fxTrendFor(fxIso); } catch (e) { return; }
   // The inflation figures ride in ppp.json (cached; usually already loaded).
   await ensurePPP().catch(() => {});
   // Guard BOTH coordinates that can shift during the await: the open guide
@@ -2994,9 +3000,10 @@ async function renderGuideFx(iso) {
 }
 
 // ---- Local price level -------------------------------------------------------
-// The one number the share card and the AI prompt both assert, said on the
-// page in the same words — a decision engine must not export a figure its own
-// page never shows. Against the traveller's home; the US only as a fallback,
+// The number the share card asserts, said on the page in the same words — a
+// decision engine must not export a figure its own page never shows. (The AI
+// prompts state the same level in plPhrase's framing, Top Picks' own:
+// aiPriceWords.) Against the traveller's home; the US only as a fallback,
 // and then the line says so.
 function localPricesText(iso) {
   const A = plAnchor(originIso());
@@ -6188,6 +6195,7 @@ function renderTripBar() {
     const goP = $("tripGoPicks"), goG = $("tripGoGuide");
     if (goP) goP.onclick = () => activateTab("value", true);
     if (goG) goG.onclick = () => activateTab("guide", true);
+    closeTripPanel();   // its prompt was for the countries just removed
   } else {
     // One line: "for [14] days in [October]". The count, the wishlist seed and
     // Clear moved to the list's header row (renderTripBook), and the chips
@@ -6394,13 +6402,22 @@ function renderTripBook(isos) {
 // long enough link is cut short or refused by the AI site (AI_SITES' caps).
 // So the site's typography goes plain; names keep their letters (Nazaré,
 // Kraków), and a government's quoted sentence keeps its words, only its
-// curly quotes and dashes straightened.
+// curly quotes and dashes straightened. Amounts are in the reader's locale
+// (toLocaleString), so they go plain too: a French reader's "12 345" put a
+// narrow no-break space (9 characters encoded) in every amount, an Egyptian
+// reader's came in Arabic-Indic digits. A digit's value is its place in its
+// script's run of ten (Unicode encodes every script's 0-9 in order).
 function aiPlain(s) {
   return String(s)
     .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
     .replace(/\s*\u00B7\s*/g, ", ").replace(/\s+\u2014\s+/g, " - ").replace(/[\u2013\u2014\u2212]/g, "-")
     .replace(/\u2248\s?/g, "~").replace(/\u00B0/g, "").replace(/\u2026/g, "...").replace(/\u2192/g, "->")
-    .replace(/\u00A0/g, " ");
+    .replace(/[\u00A0\u2009\u202F]/g, " ").replace(/\u066C/g, ",").replace(/\u066B/g, ".")
+    .replace(/(?![0-9])\p{Nd}/gu, (d) => {
+      let k = 0;
+      while (/\p{Nd}/u.test(String.fromCodePoint(d.codePointAt(0) - k - 1))) k++;
+      return String(k % 10);
+    });
 }
 
 // The AI sites with a prefill link, and the longest encoded prompt each one
@@ -6413,12 +6430,13 @@ function aiPlain(s) {
 // Gemini's undocumented prompt_text didn't prefill logged out (it wants a
 // signed-in test before it earns a button); Mistral makes everyone sign in
 // first; Muse and Meta AI are sign-in walls; Cursor is a code editor. A site
-// is one line here, in the order the buttons show.
+// is one line here, in the order the buttons show; how is what its button
+// does with the prompt, for the hint's ⓘ (AI_HINT_TIP).
 const AI_SITES = [
-  { name: "ChatGPT", q: "https://chatgpt.com/?q=", home: "https://chatgpt.com/", cap: 30000 },
-  { name: "Claude", q: "https://claude.ai/new?q=", home: "https://claude.ai/new", cap: 4000 },
-  { name: "Grok", q: "https://grok.com/?q=", home: "https://grok.com/", cap: 6000 },
-  { name: "Perplexity", q: "https://www.perplexity.ai/search?q=", home: "https://www.perplexity.ai/", cap: 12000 },
+  { name: "ChatGPT", q: "https://chatgpt.com/?q=", home: "https://chatgpt.com/", cap: 30000, how: "opens a new chat with the prompt filled in" },
+  { name: "Claude", q: "https://claude.ai/new?q=", home: "https://claude.ai/new", cap: 4000, how: "may ask you to sign in first" },
+  { name: "Grok", q: "https://grok.com/?q=", home: "https://grok.com/", cap: 6000, how: "asks you to confirm before sending" },
+  { name: "Perplexity", q: "https://www.perplexity.ai/search?q=", home: "https://www.perplexity.ai/", cap: 12000, how: "sends it straight away" },
 ];
 // A site's link for a prompt: prefilled while the encoded prompt is within
 // the site's cap, else its plain new chat (fits false: the prompt goes by
@@ -6504,8 +6522,9 @@ function runLimited(jobs, n) {
 // before the Trip tab has finished loading them, and a prompt drawn without
 // activities.json lost every country's seasons and "worth N days". So is the
 // home currency's rates set (the exchange-rate line), when it isn't the
-// dollar's and hasn't come. health: the guide's prompt quotes Canada's
-// health advice; the trip's doesn't.
+// dollar's and hasn't come. health: the guide's prompt, which quotes
+// Canada's health advice and the guide's own exchange-rate figure
+// (fxTrendFor, shared with its 💱 line); the trip's quotes neither.
 function aiGather(isos, health) {
   const jobs = [];
   for (const iso of isos) {
@@ -6514,6 +6533,7 @@ function aiGather(isos, health) {
       return ensureFareMonths(iso).then((v) => { _aiFares[k] = v; });
     });
     jobs.push(() => watchoutsFor(iso));
+    if (health) jobs.push(() => fxTrendFor(GUIDE_PARENT[iso] || iso));
   }
   return Promise.allSettled([runLimited(jobs, 4), ensurePPP(), ensureAdvisories(), ensureClimate(), ensureActivities(),
     guidePassport() !== "US" ? ensureVisaMatrix() : ensureVisa(), health ? ensureHealth() : null,
@@ -6532,15 +6552,25 @@ function aiPriceWords(iso, home) {
   return plPhrase(pl / A.pl, home) + (A.home ? "" : " (no figure for " + countryName(originIso()) + ")")
     + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "");
 }
-// The exchange rate at the guide's own line (renderGuideFx): within ±2% after
-// inflation it is "about typical" and goes unsaid.
+// The exchange rate as the guide's own line (renderGuideFx) says it: within
+// ±2% after inflation it is "about typical" and goes unsaid, and with no
+// inflation figure for the destination (the Faroes, Greenland) the line
+// gives the plain rate and no verdict — "goes further" is a claim about
+// prices — so neither does the prompt. The guide prompt quotes the line's
+// own number (/api/fx-trend) once it has come: the rates table's put a
+// pound reader's Portugal a tenth apart, and India's +2.1% under the line.
+// The trip's short form reads the table, as Top Picks' FX mark does.
 function aiFx(iso, short) {
-  const f = fxInfo(GUIDE_PARENT[iso] || iso);
-  if (!f || f.real == null) return "";
-  const pct = Math.round(f.real * 10) / 10;
+  const fxIso = GUIDE_PARENT[iso] || iso;
+  const f = fxInfo(fxIso);
+  if (!f || !f.adj) return "";
+  const t = short ? null : _fxTrendSeen[(homeBase || "USD") + ":" + f.code];
+  const real = t && typeof t.pct === "number" ? realFxPct(fxIso, t.pct, f.homeIso) : f.real;
+  if (real == null) return "";
+  const pct = Math.round(real * 10) / 10;
   if (Math.abs(pct) < 2) return "";
-  return (short ? "money" : "my " + homeBase) + " goes " + Math.abs(pct) + "% " + (pct > 0 ? "further" : "less far") + " than usual"
-    + (short ? "" : " there (vs its 12-month average" + (f.adj ? ", after inflation)" : ")"));
+  return (short ? "money" : "my " + homeBase) + " goes " + Math.abs(pct).toFixed(1) + "% " + (pct > 0 ? "further" : "less far") + " than usual"
+    + (short ? "" : " there (vs its 12-month average, after inflation)");
 }
 // The advisory the guide shows: the reader's chosen government's (or the one
 // that filled its gap), a territory reading its parent's.
@@ -6550,46 +6580,127 @@ function aiAdvisory(iso) {
   const it = meta[iso] || (parent && meta[parent]);
   return it ? { it, of: parent || iso, parent } : null;
 }
-// Canada's named avoid-travel areas (the guide's 📍 lines), grouped by call,
-// all-travel first: [{ call: "Avoid all travel", names }]. A line without
-// named places goes by its own heading ("Border with Algeria"), or its first
-// sentence where the heading says nothing ("Regional advisory"). A starred
-// name has parts Canada excepts. Past max names, "and N more". brief (the
-// trip's one line per country): a line's heading where it is shorter than
-// its places — "Western Sahara border regions", not two sentences of Berm.
+// Its level in that government's words (advLevelText). Germany doesn't
+// grade, and its label alone in quotes ('"Some regions"') read as a quote
+// from nowhere: said as what it is.
+const DE_LVL_PROMPT = { 1: "no travel warning", 2: "partial travel warning for some regions", 4: "travel warning" };
+function aiLevelText(adv) {
+  const l = adv.it.level;
+  return advSrcOf(adv.it) === "de" && DE_LVL_PROMPT[l] ? DE_LVL_PROMPT[l] : advLevelText(adv.of, l);
+}
+// Canada's avoid-travel lines (the guide's 📍), each as an area an AI can
+// route around: [{ call: "Avoid all travel", text }], all-travel first, in
+// Canada's order. A line's regions mean different things — the area itself
+// (Western Mindanao's provinces), where a band applies (within 10 km of the
+// border with Pakistan in Gujarat, Punjab and Rajasthan), or the exceptions
+// (Karachi's airport and southern districts) — and only its first sentence
+// says which. So the area is that sentence's ("Avoid all travel to <area>
+// due to …"), the regions are added only where it introduces them ("the
+// following …", or a list after "to:"), and "with the exception of the
+// following" makes them the exceptions. Elsewhere they are left out:
+// Israel's are the two roads Canada excepts from Palestine, which the
+// feed's cut-off sentence never mentions, and listed bare under the call
+// they told an AI to avoid the roads and dropped Palestine. A named heading
+// stands in where the sentence can't be read. Regions join with "; " (names
+// carry commas: "Cesar, in the municipalities of González and Río de Oro");
+// a star is Canada's "parts excepted" (the caller footnotes it); the
+// parser's leftovers ("the area*", a nested list's "the following towns in
+// Chocó") are "other areas Canada lists". max: past it, "and N more" (0: no
+// cap). brief (the trip's one line per country): a named heading alone, or
+// the places where they are the area and shorter ("Hakkari; Sirnak"); a
+// generic heading never stands for its list — Cauca and Buenaventura aren't
+// "Border areas" to an AI.
+const AVOID_GENERIC = /^(regional advisory|border (areas?|regions?))$/i;
+// Israel's headings come in capitals ("PALESTINE - AVOID ALL TRAVEL").
+function unshout(s) {
+  if (/[a-z]/.test(s) || !/[A-Z]{2}/.test(s)) return s;
+  return s.toLowerCase().replace(/(^|[\s(-])(\p{L})/gu, (x, a, b) => a + b.toUpperCase())
+    .replace(/ (And|Of|The|With|In) /g, (x) => x.toLowerCase());
+}
+// "Avoid all travel to <area> due to …" -> { area, colon, cut }, the area
+// ending at "due to", "with the exception" or a list's colon (colon: the
+// list follows). The feed keeps 200 characters and ends a sentence at
+// "north of St.", so a sentence stopped short backs off to its last comma,
+// else ends in "..." (cut). Null: not that sentence.
+function avoidLead(lead) {
+  const L = String(lead || "").trim();
+  const m = /^avoid (?:all|non-essential) travel(?: to)?\b\s*/i.exec(L);
+  if (!m) return null;
+  let a = L.slice(m[0].length), short = false;
+  const end = a.search(/,?\s+due to\b|,?\s+with the exception\b|:/i);
+  const colon = end >= 0 && a[end] === ":";
+  if (end >= 0) a = a.slice(0, end);
+  else if (L.length >= 200 || /\s(?:St|Ste|Mt|Ft|Pt)\.$/.test(L)) {
+    if (a.includes(",")) a = a.replace(/,[^,]*$/, "");
+    else short = true;
+  }
+  a = a.replace(/[\s,.;]+$/, "");
+  return { area: short ? a + "..." : a, colon, cut: short };
+}
+function avoidText(r, head, max, brief) {
+  const named = !!head && !AVOID_GENERIC.test(head);
+  const lead = avoidLead(r.lead);
+  const raw = (r.regions || []).map((x) => String(x).replace(/,?\s+including\s*$/i, "").trim()).filter(Boolean);
+  const regs = raw.filter((x) => !/^the areas?\*?$/i.test(x) && !/\bthe following\b/i.test(x));
+  const lost = raw.length - regs.length;
+  const list = () => {
+    const cut = max && regs.length > max;
+    const xs = cut ? regs.slice(0, max) : regs.slice();
+    if (cut) xs.push("and " + (regs.length - max + lost) + " more");
+    else if (lost) xs.push("and other areas Canada lists");
+    return xs.join("; ");
+  };
+  const except = regs.length > 0 && /with the exception of|\bexclud(?:es|ing) the following|\bexcept (?:for )?the following/i.test(r.lead || "");
+  const listed = regs.length > 0 && !except && !!lead
+    && (lead.colon || lead.area === "" || /\b(?:following|these|listed|below)\b/i.test(lead.area));
+  let area = lead ? lead.area : "";
+  // "the following provinces of Mindanao island" says less than its heading;
+  // a heading that names every place ("Southern provinces of Narathiwat,
+  // Pattani, Yala and southern Songkhla province") adds nothing to them.
+  const plain = listed && /^the following [\p{L} ]+$/u.test(area) && !/\b(?:within|km|border|except)\b/i.test(area);
+  if (plain || (listed && area === "")) area = named ? head : "";
+  const standalone = listed && (plain || !lead.area);
+  if (listed && area && regs.every((x) => area.toLowerCase().includes(x.replace(/\*$/, "").toLowerCase()))) area = "";
+  if (brief && named) {
+    if (except) return head + " (parts excepted)";
+    const joined = regs.join("; ");
+    return standalone && !lost && joined.length <= head.length ? joined : head;
+  }
+  if (except) return (lead && lead.area || head || "these areas") + ", except these areas: " + list();
+  if (listed) return (area ? area + ": " : "") + list();
+  if (lead && lead.area && !/\b(?:following|these|listed|below)\b/i.test(lead.area)) return lead.cut && named ? head : lead.area;
+  if (named) return head;
+  if (regs.length) return list();
+  if (lead) return "areas Canada lists";
+  return String(r.lead || "").split(". ")[0].trim();
+}
 function avoidAreas(w, max, brief) {
-  const by = {};
+  const out = [];
   for (const r of (w && w.regional) || []) {
     const parts = String(r.t || "").split(" - ");
     const m = /^avoid (all|non-essential) travel$/i.exec(parts.pop().trim());
     if (!m) continue;
-    const head = parts.join(" - ").trim();
-    const named = head && !/^regional advisory$/i.test(head);
-    let names = r.regions && r.regions.length
-      ? r.regions.map((x) => x.replace(/\s*\*$/, " (parts excepted)"))
-      : [named ? head : String(r.lead || "").split(". ")[0]];
-    if (brief && named && head.length < names.join(", ").length) names = [head];
-    const call = "Avoid " + m[1].toLowerCase() + " travel";
-    by[call] = (by[call] || []).concat(names.filter(Boolean));
+    const text = avoidText(r, unshout(parts.join(" - ").trim()), max, brief);
+    if (text) out.push({ call: "Avoid " + m[1].toLowerCase() + " travel", text });
   }
-  return ["Avoid all travel", "Avoid non-essential travel"].filter((c) => by[c] && by[c].length)
-    .map((call) => ({ call, names: by[call].length > max
-      ? by[call].slice(0, max).concat("and " + (by[call].length - max) + " more") : by[call] }));
+  return out.filter((x) => x.call === "Avoid all travel").concat(out.filter((x) => x.call !== "Avoid all travel"));
 }
 
 // One country's fares for the trip prompt, as its row and strip show them:
 // the trip month's own fare and the year's cheapest and priciest months
 // (the strip's, so only where it draws: six months of fares), or in
 // flexible mode the cheapest and priciest of the window, else of the year.
-// A sparse route names the months it has; one with no month curve falls
-// back to the cached average, said so.
+// A sparse route (under the strip's six) names every month it has, in
+// order: "only" three of a route's five read as all it had. One with no
+// month curve falls back to the cached average ("avg", which the FARES line
+// explains). Any line that quotes a fare has an amount in it.
 function aiTripFlights(iso, month, win) {
   const fm = _aiFares[originIso() + ":" + iso];
   const year = fm && fm.months ? fareCurveFacts(fm.months, fareYearKeys()) : null;
   const strip = year && year.n >= 6;
   const at = (x) => monthKeyText(x.key) + " " + fmtBC(x.price);
   const span = (f) => "cheapest " + at(f.cheap[0]) + ", priciest " + at(f.dear);
-  const only = () => "only " + year.cheap.slice(0, 3).map(at).join(", ");
+  const only = () => "only " + year.cheap.slice().sort((a, b) => (a.key < b.key ? -1 : 1)).map(at).join(", ");
   if (month) {
     const key = nextMonthKey(month), rec = fm && fm.months && fm.months[key];
     if (rec) return "flights " + MON_ABBR[month - 1] + " " + fmtBC(rec.price) + (!strip ? ""
@@ -6600,7 +6711,7 @@ function aiTripFlights(iso, month, win) {
     return "flights " + (w && w.n >= 2 ? "in my window: " + span(w) : span(year));
   } else if (year) return "flights: " + only() + " cached";
   const avg = flightsData && flightsData.by_country && flightsData.by_country[iso];
-  if (avg > 0) return "flights avg " + fmtBC(avg) + " (all months)";
+  if (avg > 0) return "flights avg " + fmtBC(avg);
   return flightsData && flightsData.configured ? "flights: none cached" : "";
 }
 
@@ -6608,11 +6719,21 @@ function aiTripFlights(iso, month, win) {
 // can see it not changing. Rebuild it in place — but only if it is already
 // open, since generating it is what the plan button is for. A country added
 // since gets its data gathered, and the box is drawn again once it lands.
+// A trip emptied meanwhile closes it (closeTripPanel): a fare landing after
+// the last country's × wrote "Help me plan a trip to undefined".
 function refreshTripPrompt() {
   const p = $("tripPanel");
   if (!(p && !p.hidden && p.innerHTML)) return;
+  if (!loadTrip().size) { closeTripPanel(); return; }
   renderAIPanel(p, buildTripAIPrompt(), true);
-  aiGather([...loadTrip()]).then(() => { if (!p.hidden && p.innerHTML) renderAIPanel(p, buildTripAIPrompt(), true); });
+  aiGather([...loadTrip()]).then(() => {
+    if (!loadTrip().size) closeTripPanel();
+    else if (!p.hidden && p.innerHTML) renderAIPanel(p, buildTripAIPrompt(), true);
+  });
+}
+function closeTripPanel() {
+  const p = $("tripPanel");
+  if (p) { p.hidden = true; p.innerHTML = ""; }
 }
 
 // The trip prompt. Everything the model cannot look up goes in: the season
@@ -6623,6 +6744,7 @@ function refreshTripPrompt() {
 // went: the model knows where Portugal is, and "Turkey — Europe" was ours.
 function buildTripAIPrompt() {
   const t = [...loadTrip()];
+  if (!t.length) return "";
   const tm = tripMonth();
   const flexible = tm.flexible, win = tm.window || null;
   const month = tm.month || picksMonth();
@@ -6636,8 +6758,8 @@ function buildTripAIPrompt() {
   const winKeys = win ? win.map(flightMonthKey) : null;
   const span = win ? monthKeyText(winKeys[0]) + "-" + monthKeyText(winKeys[winKeys.length - 1]) : "";
   const inWin = (ms) => !win || (ms || []).some((m) => win.includes(m));
-  const names = t.map(countryName);
-  let avoidAny = false;
+  const names = t.map(countryNameInText);   // "the Philippines, the Netherlands"
+  const avoid = [], flights = [];
 
   const lines = [];
   lines.push("Help me plan a trip to " + (names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1]
@@ -6663,9 +6785,14 @@ function buildTripAIPrompt() {
       // Fixed month: how this country scores in it. Flexible: the whole shape
       // of the year, since the model is choosing the month rather than judging
       // one — worst months matter as much as best when it has to find overlap.
+      // The caveat is the row's weather pill's (wxPill) and the guide
+      // prompt's: Japan's March is a curated best month in the bottom third
+      // of its year, and "one of its least comfy months (best Mar/...)"
+      // contradicted itself.
       if (!flexible) {
         const s = seasons(cl.scores)[month - 1];
-        if (s !== "na") bits.push(MON_ABBR[month - 1] + ": " + SEASON_WX[s] + " for weather" + (best ? " (" + best + ")" : ""));
+        if (s !== "na") bits.push(MON_ABBR[month - 1] + ": " + (seasonCaveat(s, (cl.best || []).includes(month), hazardsFor(iso, month).length > 0)
+          || SEASON_WX[s] + " for weather") + (best ? " (" + best + ")" : ""));
         else if (best) bits.push(best);
       } else {
         const off = seasons(cl.scores).map((s, i) => (s === "off" ? i + 1 : 0)).filter(Boolean);
@@ -6675,18 +6802,21 @@ function buildTripAIPrompt() {
     }
     // What nature and the calendar are doing (the guide's "What's in season"):
     // in the trip month, or, flexible, each draw with its months — within the
-    // window when there is one.
+    // window when there is one. A list inside a bit is joined with " | ": the
+    // bits are joined with "; ", and names carry "/" ("La Tomatina /
+    // festivals") and hazards ";" (Cambodia's wet season).
     if (!flexible) {
       const now = seasonalNow(iso, month);
-      if (now.length) bits.push("in season: " + now.map((x) => x.what).join(" / "));
+      if (now.length) bits.push("in season: " + now.map((x) => x.what).join(" | "));
     } else {
       const sd = ((a && a.seasonal) || []).filter((x) => inWin(x.months));
-      if (sd.length) bits.push("seasonal: " + sd.map((x) => x.what + " " + monthSpan(x.months)).join(" / "));
+      if (sd.length) bits.push("seasonal: " + sd.map((x) => x.what + " " + monthSpan(x.months)).join(" | "));
     }
     const pw = aiPriceWords(iso, home);
     if (pw) bits.push("prices " + pw);
     const fl = aiTripFlights(iso, flexible ? null : month, win);
     if (fl) bits.push(fl);
+    flights.push(fl);
     const fx = aiFx(iso, true);
     if (fx) bits.push(fx);
     const vi = visaInfo(iso, passport);
@@ -6703,30 +6833,42 @@ function buildTripAIPrompt() {
       ? ((a && a.hazards) || []).filter((h) => inWin(h.months))
           .map((h) => h.note + (h.months && h.months.length < 12 ? " (" + monthSpan(h.months) + ")" : ""))
       : hazardsFor(iso, month).map((h) => h.note);
-    if (hz.length) bits.push("heads-up: " + hz.join(" / "));
+    if (hz.length) bits.push("heads-up: " + hz.join(" | "));
     // Safety only where it bites: a Level 2+ advisory (the row's ⚠️ is 3+),
     // and Canada's named avoid-travel areas whatever the level — Thailand is
-    // Level 1 with four provinces nobody should route through.
+    // Level 1 with four provinces nobody should route through. Those go in
+    // a block of their own below: an area's own "; " lists sat badly inside
+    // a line of "; "-joined facts.
     const adv = aiAdvisory(iso);
-    if (adv && adv.it.level >= 2) bits.push("safety " + advLevelText(adv.of, adv.it.level)
+    if (adv && adv.it.level >= 2) bits.push("safety " + aiLevelText(adv)
       + " (per " + (adv.it.via ? advViaShort(adv.it) : advSrcName(true)) + ")");
-    avoidAreas(_watchoutCache[iso], 6, true).forEach((x) => { avoidAny = true; bits.push(x.call.toLowerCase() + ": " + x.names.join(", ")); });
+    const by = {};
+    for (const x of avoidAreas(_watchoutCache[iso], 10, true)) (by[x.call] = by[x.call] || []).push(x.text);
+    for (const call in by) avoid.push("- " + countryName(iso) + ", " + call.toLowerCase() + ": " + by[call].join(" | "));
     lines.push("- " + countryName(iso) + ": " + bits.join("; "));
   });
   // Each fare is a return from home to that one country: added up, three of
-  // them read as the trip's flight bill.
+  // them read as the trip's flight bill. Said only when a line quotes a fare
+  // (an amount), and what "avg" is when one does.
+  const quoted = flights.filter((x) => /[0-9]/.test(x));
   const anyFm = t.map((iso) => _aiFares[originIso() + ":" + iso]).find((x) => x && x.hub);
   const hub = (anyFm && anyFm.hub) || (flightsData && flightsData.hub);
-  lines.push("FARES: the cheapest cached round trip" + (hub ? " from " + (HUB_CITY[hub] || hub) : "")
-    + " to each country on its own, not live quotes; for a route across several, price open-jaw or one-way legs instead.");
-  if (avoidAny) lines.push("Avoid-travel areas are per Global Affairs Canada.");
+  const avg = quoted.some((x) => /^flights avg /.test(x)), byMonth = quoted.some((x) => !/^flights avg /.test(x));
+  if (quoted.length) lines.push("FARES: " + (byMonth ? "the cheapest cached round trip per departure month" : "cached round trips")
+    + (hub ? " from " + (HUB_CITY[hub] || hub) : "") + " to each country on its own"
+    + (avg ? " ('avg': the average of a route's cached fares, none by month)" : "")
+    + ", not live quotes; for a route across several, price open-jaw or one-way legs instead.");
+  if (avoid.length) {
+    lines.push("AVOID-TRAVEL AREAS (Global Affairs Canada" + (avoid.some((x) => x.includes("*")) ? "; * = parts excepted" : "") + "):");
+    avoid.forEach((x) => lines.push(x));
+  }
   const beenOwn = ownVisited();   // not a shared map that happens to be open
   if (beenOwn.size) lines.push("ALREADY BEEN (fine to route through, don't build days around): "
     + [...beenOwn].map(countryName).join(", "));
   lines.push("");
   lines.push("PLEASE:");
   lines.push("- Group these into realistic trips: countries that genuinely combine into one route, not just ones that are near each other. Consider flight connections, land borders and border crossings, and whether the visas work together."
-    + (avoidAny ? " Keep every route out of the avoid-travel areas above." : ""));
+    + (avoid.length ? " Keep every route out of the avoid-travel areas above." : ""));
   lines.push("- Name each trip the way a traveller would (\"Balkans loop\", \"Benelux + Rhine\", \"Northern Vietnam & Laos\").");
   // The honest-failure instruction. Without it the model will cheerfully cram
   // every country in and hand back an itinerary that reads fine and would be
@@ -6751,8 +6893,9 @@ function buildTripAIPrompt() {
     lines.push("- Use the " + monthName + " season notes: if it's one of a country's least comfy months or has a heads-up, say whether to reorder, swap it out, or accept the trade.");
   }
   // Our data answers whether the month is right; when to book is the
-  // model's own general knowledge, asked as such.
-  lines.push("- Flights: " + (flexible ? "f" : "is " + monthName + " right given the fares above, or would another month save enough to matter? F")
+  // model's own general knowledge, asked as such. No fares above, no
+  // question about them.
+  lines.push("- Flights: " + (flexible || !quoted.length ? "f" : "is " + monthName + " right given the fares above, or would another month save enough to matter? F")
     + "rom what you know generally, how far ahead should I book these routes?");
   lines.push("- Entry beyond the visas: " + aiEntryAsk(t) + ".");
   lines.push("Then end with the 2-3 questions that would most change this plan, so I can refine it with you.");
@@ -6765,9 +6908,8 @@ function buildTripAIPrompt() {
 // they behave identically. refresh: an open panel drawn again (its data
 // landed, the trip's days moved) — nothing changes when the prompt is the
 // same, and the page doesn't scroll to it.
-const AI_HINT_TIP = "ChatGPT opens a new chat with the prompt filled in. Perplexity sends it straight away; "
-  + "Grok asks you to confirm before sending; Claude may ask you to sign in first. A prompt too long "
-  + "for a site's link is copied instead, and its button opens a new chat to paste it into.";
+const AI_HINT_TIP = AI_SITES.map((s) => s.name + " " + s.how + ".").join(" ")
+  + " A prompt too long for a site's link is copied instead, and its button opens a new chat to paste it into.";
 function renderAIPanel(host, prompt, refresh) {
   if (!host) return;
   const ta = host.querySelector("textarea.aitext");
@@ -6789,13 +6931,23 @@ function renderAIPanel(host, prompt, refresh) {
   host.querySelector('[data-act="copy"]').onclick = () => copyText(prompt);
   // Every link copies the prompt too: within its cap, so the full text is
   // ready to paste if the site trims it; past the cap, because pasting is the
-  // only way in — said out loud, since the chat it opens is empty.
-  host.querySelectorAll("a.aiact").forEach((el) => el.addEventListener("click", () => {
+  // only way in — said out loud, since the chat it opens is empty. The toast
+  // goes in 6 s, while the reader is in the new tab, so the button says it
+  // too, for whoever comes back puzzled by an empty chat. A middle-click
+  // opens the tab without a click event (auxclick), and copied nothing.
+  const act = (el) => {
     const site = AI_SITES[+el.dataset.ai];
     const copied = copyText(prompt, true);
-    if (el.dataset.fits !== "1") copied.then((ok) => status(ok ? "Prompt copied — paste it into " + site.name
-      : "Couldn't copy — select the prompt and copy it, then paste it into " + site.name, ok ? "ok" : "err"));
-  }));
+    if (el.dataset.fits !== "1") copied.then((ok) => {
+      status(ok ? "Prompt copied — paste it into " + site.name
+        : "Couldn't copy — select the prompt and copy it, then paste it into " + site.name, ok ? "ok" : "err");
+      if (ok) el.textContent = "✓ Copied: paste into " + site.name + " ↗";
+    });
+  };
+  host.querySelectorAll("a.aiact").forEach((el) => {
+    el.addEventListener("click", () => act(el));
+    el.addEventListener("auxclick", (e) => { if (e.button === 1) act(el); });
+  });
   if (!refresh) host.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "nearest" });
 }
 
@@ -6826,48 +6978,61 @@ async function copyText(text, quiet) {
 // the route's typical range where the Flights tab has one (fareValue, the
 // chart's own banding), the year's two cheapest months and its priciest,
 // and the hub they fly from. The all-months average it used to quote was
-// ~$120 off October's bar on Japan; it is now only the fallback, named.
+// ~$120 off October's bar on Japan; it is now only the fallback, named. A
+// month or two cached is too few for the chart, but they are quoted as they
+// are: as "the average cached fare across all months (no month-by-month
+// fares yet)", Palau's one January fare read as a year's. curve: there is a
+// month curve for the "is October right" ask.
 function aiGuideFlights(iso, month) {
   const fm = _aiFares[originIso() + ":" + iso];
   const hub = (fm && fm.hub) || (flightsData && flightsData.hub);
   const from = hub ? " from " + (HUB_CITY[hub] || hub) : "";
   const f = fm && fm.months ? fareCurveFacts(fm.months, fareYearKeys()) : null;
-  if (f && f.n >= 3) {   // the chart's own floor (renderGuideFares)
+  const at = (x) => monthKeyText(x.key) + " " + fmtBC(x.price);
+  if (f && f.n < 3) return { curve: false, text: "FLIGHTS" + from + " (cheapest cached round trip, not live quotes): only "
+    + f.cheap.slice().sort((a, b) => (a.key < b.key ? -1 : 1)).map(at).join(", ") + " cached." };
+  if (f) {   // the chart's own floor (renderGuideFares)
     const rec = fm.months[nextMonthKey(month)];
     const v = fareValue(iso, flightMonthKey(month));
     const c = v.c && v.c.median != null && flightValue.origin === (fm.origin || originIso()) ? v.c : null;
     const band = rec && c ? (rec.price < c.lo ? "low" : rec.price > c.hi ? "high" : "typical") : null;
-    return "FLIGHTS" + from + " (cheapest cached round trip per departure month, not live quotes): "
+    return { curve: true, text: "FLIGHTS" + from + " (cheapest cached round trip per departure month, not live quotes): "
       + (rec ? MONTHS[month - 1] + " " + fmtBC(rec.price)
           + (band ? ", " + band + " for this route (usual " + aiRange(c.lo, c.hi) + ")" : "")
         : "no " + MONTHS[month - 1] + " fare cached")
-      + ". Cheapest: " + f.cheap.slice(0, 2).map((x) => monthKeyText(x.key) + " " + fmtBC(x.price)).join(", ")
-      + ". Priciest: " + monthKeyText(f.dear.key) + " " + fmtBC(f.dear.price) + ".";
+      + ". Cheapest: " + f.cheap.slice(0, 2).map(at).join(", ") + ". Priciest: " + at(f.dear) + "." };
   }
   const fc = buildFareContext(), avg = fc && fc.prices[iso];
-  if (avg == null) return "";
-  return "FLIGHTS" + from + ": about " + fmtBC(avg) + " round trip, "
-    + (fc.est && fc.est.has(iso) ? "a distance-based estimate (no cached fares to " + countryName(iso) + ")"
-                                 : "the average cached fare across all months (no month-by-month fares yet)") + ".";
+  if (avg == null) return { curve: false, text: "" };
+  return { curve: false, text: "FLIGHTS" + from + ": about " + fmtBC(avg) + " round trip, "
+    + (fc.est && fc.est.has(iso) ? "a distance-based estimate (no cached fares to " + countryNameInText(iso) + ")"
+                                 : "the average of its cached fares (none by month)") + "." };
 }
-// The Top Picks budget, in Top Picks' own words (budgetFit, budgetWords):
-// what the flight leaves per day, and what that buys at home. The flight is
-// the travel month's own fare, the one the FLIGHTS line quotes — Top Picks'
-// too wherever the route has a typical range; elsewhere Top Picks plans on
-// the all-months average, and so does this line when the month has no fare.
+// The Top Picks budget, in Top Picks' own words and on its fare
+// (valueScores, budgetFit, budgetWords), so the two say the same: the
+// travel month's own fare where the route has a typical range, else the
+// route's average (or its cheapest seen, or a distance estimate, which
+// budgetWords names), said so, since the FLIGHTS line quotes the month's.
+// Planned on the month's fare, a pound reader's Jamaica read GBP 107/day
+// beside Top Picks' GBP 79. A guide with no Top Picks row (a home nation,
+// a place with no price level) plans on the month's fare.
 function aiGuideBudget(iso, month) {
   const bud = budgetOf();
   if (!bud.entered) return "";
   const head = "BUDGET: " + bud.cur + " " + Math.round(bud.entered).toLocaleString() + " all-in for " + bud.days + " days";
-  const A = plAnchor(originIso()), pl = priceLevel(GUIDE_PARENT[iso] || iso);
-  const fm = _aiFares[originIso() + ":" + iso], rec = fm && fm.months && fm.months[nextMonthKey(month)];
+  const A = plAnchor(originIso());
   let s = null;
-  if (rec) s = { fare: rec.price, fareEst: false, fareMin: null, pl: pl ? pl / A.pl : null };
-  else { try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), A.pl); } catch (e) { s = null; } }
+  try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), A.pl); } catch (e) { s = null; }
+  if (!s) {
+    const fm = _aiFares[originIso() + ":" + iso], rec = fm && fm.months && fm.months[nextMonthKey(month)];
+    const pl = priceLevel(GUIDE_PARENT[iso] || iso);
+    if (rec) s = { fare: rec.price, fareEst: false, fareMin: null, pl: pl ? pl / A.pl : null, flyBasis: "month" };
+  }
   const bf = s && budgetFit(s);   // null until a rate for the budget's money is in
   if (!bf) return head + ".";
   if (bf.impossible || bf.estOut) return head + "; the " + fmtBC(bf.fare) + " flight alone uses it up.";
-  return head + "; " + budgetWords(s, bf) + ".";
+  const avg = s.flyBasis !== "month" && !bf.fareEst && !bf.fareIsMin;
+  return head + "; " + budgetWords(s, bf) + (avg ? " (planned on the route's average cached fare)" : "") + ".";
 }
 // Canada's health advice as the guide's 💉 line lists it: a current notice
 // first, West Nile with the agency that reported it, then the rest, the
@@ -6894,7 +7059,7 @@ function buildCountryAIPrompt(iso) {
   const year = nextMonthKey(month).slice(0, 4);
   const flex = picksFlex();
   const passport = guidePassport();
-  const name = countryName(iso), nameT = countryNameInText(iso);
+  const nameT = countryNameInText(iso);
   const cl = climate && climate[iso];
   const seas = cl ? seasons(cl.scores)[month - 1] : null;
   const best = cl && cl.best && cl.best.length ? cl.best.map((m) => MON_ABBR[m - 1]).join(", ") : null;
@@ -6907,6 +7072,7 @@ function buildCountryAIPrompt(iso) {
   const fvC = flex && flightValue && flightValue.origin === originIso() && flightValue.countries ? flightValue.countries[iso] : null;
   const cheapM = fvC ? cheapestFareMonth(fvC, winKeys) : null;
   const other = cheapM && cheapM.month !== month ? cheapM : null;
+  const pick = flex && valueMapMonths ? valueMapMonths[iso] : null;   // Top Picks' month for this country
 
   const lines = [];
   lines.push("Help me plan a trip to " + nameT + (flex ? ", any time " + span : " in " + monthName + " " + year)
@@ -6919,16 +7085,23 @@ function buildCountryAIPrompt(iso) {
   else {
     // Any time: the window, the month the guide is showing — Top Picks' pick
     // when the reader came from its row — and the window's cheapest flight
-    // month where the route has a typical range (the row's ✈️ chip).
+    // month where the route has a typical range (the row's ✈️ chip). A row's
+    // month outlives its row (flexFocusMonth stays through the guide's
+    // country box), so a pick is claimed only where it is this country's
+    // own (valueMapMonths, Top Picks' month per country): Thailand's January
+    // read as "WanderGrade's pick for Vietnam".
     const at = fvC && fvC.curve && fvC.curve[flightMonthKey(month)];
     lines.push("WHEN: flexible, any time " + span + ". "
-      + (flexFocusMonth === month ? "WanderGrade's pick for " + name + " in that window: " : "The facts below are for its first month, ")
+      + (pick === month ? "WanderGrade's pick for " + nameT + " in that window: "
+        : "The facts below are for " + (flexFocusMonth === month ? "the month this page is showing, " : "the window's first month, "))
       + when + "."
+      + (pick && pick !== month ? " WanderGrade's pick for " + nameT + " in the window: " + monthKeyText(flightMonthKey(pick), true) + "." : "")
       + (other ? " Cheapest flight month in the window: " + monthKeyText(other.key, true) + " (" + fmtBC(other.price)
           + (at ? " vs " + fmtBC(at[0]) + " in " + monthName : "") + ")."
         : cheapM ? " " + monthName + " is also the window's cheapest flight month." : ""));
   }
-  if (hz.length) lines.push("HEADS-UP in " + monthName + ": " + hz.join("; "));
+  // " | ": a hazard's own note can hold a ";" (Cambodia's wet season).
+  if (hz.length) lines.push("HEADS-UP in " + monthName + ": " + hz.join(" | "));
   // What nature and the calendar are doing (the guide's "What's in season"),
   // both ways: skiing listed under highlights read as a plan for October.
   const seasonal = (a && a.seasonal) || [];
@@ -6946,7 +7119,7 @@ function buildCountryAIPrompt(iso) {
   const hl = ((a && a.activities) || []).map(actLabel).filter((x) => x && !seasonalNames.has(base(x)));
   if (hl.length) lines.push("HIGHLIGHTS: " + hl.join("; "));
   const fl = aiGuideFlights(iso, month);
-  if (fl) lines.push(fl);
+  if (fl.text) lines.push(fl.text);
   // The cost line is the whole reason this prompt beats asking an AI cold: it
   // is the one number here the model cannot look up and would otherwise guess.
   // plPhrase's framing, Top Picks' and the trip prompt's: against the
@@ -6965,32 +7138,44 @@ function buildCountryAIPrompt(iso) {
   // health advice. Quoted, never paraphrased: this site doesn't author
   // safety claims, and neither should the prompt.
   const adv = aiAdvisory(iso);
-  if (adv) lines.push("SAFETY (" + (adv.it.via_name || advSrcName()) + (adv.parent ? ", " + countryName(adv.parent) + " advisory" : "")
-    + "): " + advLevelText(adv.of, adv.it.level) + (adv.it.summary ? ' - "' + adv.it.summary + '"' : ""));
+  if (adv) lines.push("SAFETY, per " + (adv.it.via_name || advSrcName()) + (adv.parent ? ", for " + countryNameInText(adv.parent) + " as a whole" : "")
+    + ": " + aiLevelText(adv) + (adv.it.summary ? ' - "' + adv.it.summary + '"' : ""));
+  // One line per Canada line (avoidAreas): an area's own list is joined
+  // with "; ", so two areas on one line ran together.
   const w = _watchoutCache[iso];
-  const areas = avoidAreas(w, 12);
-  areas.forEach((x) => lines.push(x.call.toUpperCase() + " (" + (w.source || "Global Affairs Canada") + "): " + x.names.join(", ")));
+  const areas = avoidAreas(w, 0);
+  if (areas.length) lines.push("AVOID-TRAVEL AREAS (" + (w.source || "Global Affairs Canada")
+    + (areas.some((x) => x.text.includes("*")) ? "; * = parts excepted" : "") + "):");
+  areas.forEach((x) => lines.push("- " + x.call + ": " + x.text));
   const hl2 = aiHealth(iso);
   if (hl2) lines.push(hl2);
   if (ownVisited().has(iso)) lines.push("I've been before: skip the standard first-timer circuit.");
 
   const days = bud.entered ? bud.days : a && a.days ? a.days[0] : 7;
-  lines.push("");
-  lines.push("PLEASE:");
-  lines.push("1. Cities/regions and nights in each, with travel times between them; then a day-by-day itinerary ("
+  // The asks name only what the facts above hold: Palau, with no climate
+  // data and one cached fare, was asked to work "the October season notes
+  // above" in and whether October was right "given the fares above".
+  const asks = [];
+  asks.push("Cities/regions and nights in each, with travel times between them; then a day-by-day itinerary ("
     + days + " days" + (bud.entered ? "" : " if I haven't said") + "; tell me what extra days would add)."
     + (areas.length ? " Keep the route out of the avoid-travel areas above." : ""));
-  lines.push("2. Daily budget ranges (budget / mid-range / comfortable) in " + bud.cur
+  asks.push("Daily budget ranges (budget / mid-range / comfortable) in " + bud.cur
     + (lp ? ", scaled from LOCAL PRICES" : "") + (bud.entered ? ", and whether my budget works" : "") + "; keep flights separate.");
   // Our data answers whether the month is right; how far ahead to book is
   // the model's own general knowledge, asked as such.
-  lines.push("3. " + (flex
-    ? "When: is " + monthName + (other ? " or " + MONTHS[other.month - 1] : "") + " (or another month in my window) the better trade-off: weather, crowds, prices, festivals?"
-    : "Flights: is " + monthName + " right given the fares above, or would another month save enough to matter?")
-    + " And from what you know generally, how far ahead should I book?");
-  lines.push("4. Where to stay in each place, and why.");
-  lines.push("5. Work the " + monthName + " season notes above into the timing and pacing.");
-  lines.push("6. Entry beyond the visa: " + aiEntryAsk([iso]) + "; and anything that needs booking well ahead (permits, reservations).");
+  const weigh = [...new Set([month, pick, other && other.month].filter(Boolean))].map((m) => MONTHS[m - 1]);
+  asks.push((flex
+    ? "When: is " + (weigh.length > 1 ? weigh.slice(0, -1).join(", ") + " or " + weigh[weigh.length - 1] : monthName)
+      + " (or another month in my window) the better trade-off: weather, crowds, prices, festivals?"
+      + " And from what you know generally, how far ahead should I book?"
+    : fl.curve ? "Flights: is " + monthName + " right given the fares above, or would another month save enough to matter? And from what you know generally, how far ahead should I book?"
+    : "Flights: from what you know generally, which months are cheapest to fly there, and how far ahead should I book?"));
+  asks.push("Where to stay in each place, and why.");
+  if (hz.length || inS.length || outS.length) asks.push("Work the " + monthName + " season notes above into the timing and pacing.");
+  asks.push("Entry beyond the visa: " + aiEntryAsk([iso]) + "; and anything that needs booking well ahead (permits, reservations).");
+  lines.push("");
+  lines.push("PLEASE:");
+  asks.forEach((x, i) => lines.push((i + 1) + ". " + x));
   // A confident plan built on guessed preferences is worth less than a decent
   // plan plus the questions that would fix it. This is a starting point.
   lines.push("Then end with the 2-3 questions whose answers would most change this plan (budget, pace, who I'm travelling with, what I care about).");
@@ -12480,6 +12665,7 @@ if ($("tripPlanBtn")) $("tripPlanBtn").addEventListener("click", async () => {
   // redraws the panel when it lands rather than holding it shut.
   const all = aiGather([...loadTrip()]);
   await capWait(all, 3000);
+  if (!loadTrip().size) return;   // emptied during the wait
   renderAIPanel($("tripPanel"), buildTripAIPrompt());
   all.then(() => refreshTripPrompt());
 });
