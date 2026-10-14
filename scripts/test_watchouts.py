@@ -16,6 +16,8 @@ against travel.gc.ca that day; see its README).
   text       Canada's whole block for the tip, without "Useful links"
   API        backward-compatible keys (iso, source, link, watchouts,
              regional[].t/.lead/.regions) beside the new ones
+  stand-in   guide_sizers.py draws the same words as app.js's
+             watchoutsBlockHTML, which reads line and puts text in its ⓘ
   caching    an answer is kept TTL, a failure keeps the last good copy, a
              country the feed lacks is an empty answer
 
@@ -25,15 +27,17 @@ import io
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from contextlib import redirect_stderr
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
-from fxtracker import watchouts as W  # noqa: E402
+from fxtracker import guide_sizers, watchouts as W  # noqa: E402
 
 FIX = os.path.join(ROOT, "scripts", "fixtures", "gac")
+JSC = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc"
 ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or c
 results = []
 
@@ -254,6 +258,47 @@ results.append(ok(block("pk", "Regional advisory")["regions"][:2] == ["Pakistan-
 results.append(ok(block("ke", "Border with Somalia")["lead"] == "Avoid all travel to Mandera, Wajir, Garissa and Lamu counties bordering Somalia, due to a risk of terrorist attacks, kidnapping and armed attacks."
                   and len(block("eg", "Northern part of the Governorate")["lead"]) > 120 and "St. Catherine" in block("eg", "Northern part of the Governorate")["lead"],
                   "lead: the whole first sentence, not cut at 200 or at 'St.'"))
+
+# --- the server's stand-in and app.js draw the same words -----------------------------------
+APP = open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8").read()
+
+
+def js_fn(name):
+    m = re.search(r"^function %s\(.*?^\}" % name, APP, re.M | re.S)
+    return m.group(0) if m else ""
+
+
+m = re.search(r"^const esc = .*?;$", APP, re.M | re.S)
+ESC = (m.group(0) if m else "") + "\n"
+plain = lambda h: re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", h).replace("&amp;", "&").replace("&#x27;", "'").replace("&#39;", "'")
+                         .replace("&quot;", '"').replace("&lt;", "<").replace("&gt;", ">")).strip()
+pick = ["il", "th", "ke", "mx", "pk", "co", "gt", "eg"]
+prog = ESC + js_fn("watchoutsBlockHTML") + "\nconst W = %s;\nconst out = {};\nfor (const c in W) out[c] = watchoutsBlockHTML(W[c]).reg;\nprint(JSON.stringify(out));" % json.dumps(
+    {iso: dict(OUT[iso], watchouts=[]) for iso in pick})
+try:
+    js = json.loads(subprocess.run([JSC, "-e", prog], capture_output=True, text=True, timeout=30).stdout)
+except Exception:
+    js = {}
+same, tips = [], []
+for iso in pick:
+    srv = "".join(re.findall(r'<span class="woreg">.*?</span>(?=<span class="woreg">|<details|$)', guide_sizers._watchouts(dict(OUT[iso], watchouts=[]), 1)))
+    same.append(plain(js.get(iso, "x")) == plain(srv) and plain(srv))
+    tips.append(all(("data-tip=\"" + "Global Affairs Canada&#39;s full text:") in js.get(iso, "") for _ in [0])
+                and js.get(iso, "").count("data-tip=") == len(OUT[iso]["regional"]))
+results.append(ok(all(same), "guide_sizers draws the same 📍 words as app.js's watchoutsBlockHTML (%s)" % dict(zip(pick, map(bool, same)))))
+results.append(ok(all(tips), "app.js: each 📍 line carries an ⓘ whose tip is Global Affairs Canada's full text"))
+il_js = plain(js.get("il", ""))
+results.append(ok("Avoid all travel: Palestine, except the following roads" in il_js and "Highway 1; Route 90" in il_js
+                  and "parts excepted" not in il_js, "app.js renders the line (Israel), not the older reader's form (got %r)" % il_js[:160]))
+old = {"watchouts": [], "regional": [{"t": "PALESTINE - AVOID ALL TRAVEL", "lead": "Avoid all travel to Palestine due to x.", "regions": ["Highway 1"]}]}
+prog = (ESC + "\n".join(js_fn(n) for n in ("unshout", "avoidLead", "avoidText", "watchoutsBlockHTML"))
+        + "\nconst AVOID_GENERIC = /^(regional advisory|border (areas?|regions?))$/i;\nprint(JSON.stringify(watchoutsBlockHTML(%s).reg));" % json.dumps(old))
+try:
+    fb = json.loads(subprocess.run([JSC, "-e", prog], capture_output=True, text=True, timeout=30).stdout)
+except Exception:
+    fb = ""
+results.append(ok("Avoid all travel</b>: Palestine" in fb and "data-tip" not in fb,
+                  "app.js: a reply without line (cached before) takes the older reader (got %r)" % fb[:120]))
 
 # --- caching (the network stubbed) -----------------------------------------------------------
 calls = []

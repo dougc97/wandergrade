@@ -3456,14 +3456,30 @@ function watchoutsBlockHTML(w) {
   const chips = w.watchouts.map((x) =>
     '<span class="wochip"' + (x.d ? ' data-tip="' + esc(x.d) + '" title=""' : "") + ">"
     + esc(x.t) + "</span>").join("");
-  // An avoid-travel line reads its area as Canada's own first sentence says
-  // it (avoidText, the AI prompts' reader): the line used to list the
-  // feed's regions bare under the call, and a line's regions are not always
-  // the area. Israel's are the two roads Canada EXCEPTS from Palestine, so
-  // the guide said "AVOID ALL TRAVEL: Highway 1, Route 90 …" and never named
-  // Palestine; Pakistan's are Karachi's excepted districts and airport,
-  // listed as places to avoid. Other regional lines keep the old form.
+  // A regional line is written once, on the server (fxtracker/watchouts.py
+  // line): the area as Canada's first sentence names it, its listed places
+  // with their sub-lists, and the exceptions named ("Cabo Delgado Province,
+  // except Pemba City …") — the parser reads the whole block, where this
+  // reader only ever had one sentence cut at 200 characters and the first
+  // list's top level. The ⓘ holds Canada's whole text. guide_sizers.py draws
+  // the same words into the server's stand-in, so the swap can't shift the
+  // page. A reply without a line (one cached before the server had them)
+  // takes the older path below.
+  const tipOf = (r) => (w.source || "Global Affairs Canada") + "'s full text:\n" + r.text;
   const reg = (w.regional || []).map((r) => {
+    if (typeof r.line === "string" && r.line && r.call) {
+      return '<span class="woreg">📍 <b>' + esc(r.call) + "</b>: " + esc(r.line)
+        + (r.text ? ' <span class="muted wotip" data-tip="' + esc(tipOf(r)) + '" title="">ⓘ</span>' : "")
+        + "</span>";
+    }
+    // The older path: an avoid-travel line reads its area as Canada's own
+    // first sentence says it (avoidText, the AI prompts' fallback reader):
+    // the line used to list the feed's regions bare under the call, and a
+    // line's regions are not always the area. Israel's are the two roads
+    // Canada EXCEPTS from Palestine, so the guide said "AVOID ALL TRAVEL:
+    // Highway 1, Route 90 …" and never named Palestine; Pakistan's are
+    // Karachi's excepted districts and airport, listed as places to avoid.
+    // Other regional lines keep the old form.
     const parts = (r.t || "").split(" - ");
     const head = parts[parts.length - 1];
     const call = /^avoid (all|non-essential) travel$/i.exec(head.trim());
@@ -6662,7 +6678,9 @@ function aiLevelText(adv) {
 }
 // Canada's avoid-travel lines (the guide's 📍), each as an area an AI can
 // route around: [{ call: "Avoid all travel", text }], all-travel first, in
-// Canada's order. A line's regions mean different things — the area itself
+// Canada's order — the server's line, or brief for the trip, where the reply
+// has them. Without them (a reply cached before the server wrote them) the
+// rest of this note's reader stands in. A line's regions mean different things — the area itself
 // (Western Mindanao's provinces), where a band applies (within 10 km of the
 // border with Pakistan in Gujarat, Punjab and Rajasthan), or the exceptions
 // (Karachi's airport and southern districts) — and only its first sentence
@@ -6770,6 +6788,15 @@ function avoidText(r, head, max, brief) {
 function avoidAreas(w, max, brief) {
   const out = [];
   for (const r of (w && w.regional) || []) {
+    // The server's own line (the guide's 📍 words) and brief (the trip's
+    // shorter form), read from the whole block; this reader is the fallback
+    // for a reply cached before it had them.
+    if (typeof r.line === "string" && r.line && r.call) {
+      const c = /^avoid (all|non-essential) travel$/i.exec(r.call.trim());
+      const text = brief ? r.brief || r.line : r.line;
+      if (c && text) out.push({ call: "Avoid " + c[1].toLowerCase() + " travel", text });
+      continue;
+    }
     const parts = String(r.t || "").split(" - ");
     const m = /^avoid (all|non-essential) travel$/i.exec(parts.pop().trim());
     if (!m) continue;
@@ -12920,13 +12947,24 @@ function _showTipFor(t) {
   _tipFor = t;
   if (!t.hasAttribute("aria-describedby")) t.setAttribute("aria-describedby", "wgtip");
   _tipEl.textContent = t.dataset.tip;
+  // Canada's full text behind a 📍 line (Mexico's runs to 1,338 characters)
+  // goes wider rather than taller than the screen. Only that tip: the
+  // health and chart tips past 480 characters keep their measure.
+  _tipEl.classList.toggle("wide", t.classList.contains("wotip") && t.dataset.tip.length > 480);
   _tipEl.hidden = false;
   const r = t.getBoundingClientRect();
   const w = _tipEl.offsetWidth, h = _tipEl.offsetHeight;
   // clientWidth, not innerWidth — the latter reads 0 in some headless/embedded contexts
   const vw = document.documentElement.clientWidth || window.innerWidth;
   _tipEl.style.left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2)) + "px";
-  _tipEl.style.top = (r.top - h - 8 > 8 ? r.top - h - 8 : r.bottom + 8) + "px";
+  // Above the element, else below — and never past the bottom of the screen:
+  // a phone's tip for Mexico's full text is taller than the room on either
+  // side of its ⓘ, and below it ran off the screen (it may cover the ⓘ; it
+  // takes no pointer events).
+  const vh = document.documentElement.clientHeight || window.innerHeight;
+  let top = r.top - h - 8 > 8 ? r.top - h - 8 : r.bottom + 8;
+  if (vh && top + h > vh - 8) top = Math.max(8, vh - h - 8);
+  _tipEl.style.top = top + "px";
 }
 
 const _tipShowFor = (e) => _showTipFor(e.target.closest && e.target.closest("[data-tip]"));

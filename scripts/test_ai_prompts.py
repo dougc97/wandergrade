@@ -13,11 +13,13 @@ run under jsc.
   fareCurveFacts a route's month fares as the prompts quote them: count,
                  cheapest first (ties keep the sooner month), the priciest
   monthKeyText   "2027-04" -> "Apr 2027" / "April 2027"
-  avoidAreas     Canada's avoid-travel lines (production's replies of
-                 2026-10-13, scripts/watchouts_sample.2026-10-13.json): the
-                 area from each line's first sentence, its regions only where
-                 that sentence lists them, exceptions said as exceptions,
-                 never a generic heading for its list; brief for the trip
+  avoidAreas     Canada's avoid-travel lines: the server's line and brief
+                 where the reply has them (2026-10-14); else, from
+                 production's replies of 2026-10-13
+                 (scripts/watchouts_sample.2026-10-13.json), the area from
+                 each line's first sentence, its regions only where that
+                 sentence lists them, exceptions said as exceptions, never a
+                 generic heading for its list; brief for the trip
   aiTripFlights  one trip row's fares: the month's own, the strip's cheapest
                  and priciest, the window's in flexible mode, every month of
                  a sparse route, the average fallback
@@ -405,6 +407,25 @@ results.append(ok("Avoid all travel|: Palestine" in il and "Highway 1" not in il
 results.append(ok("the city of Karachi, except these areas:" in pk, "guide line, Pakistan: Karachi's districts read as exceptions"))
 results.append(ok("within 10 km of the border with Pakistan" in inn, "guide line, India: the 10 km band, not whole states"))
 results.append(ok("Narathiwat; Pattani; Yala" in got.get("TH", ""), "guide line, Thailand: its provinces, '; '-joined"))
+
+# --- the server's line and brief (2026-10-14) -------------------------------------
+# fxtracker/watchouts.py now writes each block's line (the guide's 📍 words)
+# and brief (the trip's) from the whole block; avoidAreas takes them as they
+# are, keeps only the avoid calls, all-travel first, and leaves the reader
+# above to replies cached without them (the cases above).
+SRV = {"regional": [
+    {"t": "Karachi - Avoid non-essential travel", "call": "Avoid non-essential travel", "lead": "x", "regions": [],
+     "line": "the city of Karachi, except District of Karachi", "brief": "Karachi (parts excepted)"},
+    {"t": "Tbilisi - Exercise a high degree of caution", "call": "Exercise a high degree of caution", "lead": "x", "regions": [],
+     "line": "Tbilisi", "brief": "Tbilisi"},
+    {"t": "Regional advisory - Avoid all travel", "call": "Avoid all travel", "lead": "Avoid all travel to :", "regions": ["the area*"],
+     "line": "Pakistan-administered Kashmir; the province of Khyber Pakhtunkhwa (except Haripur and Abbottabad districts, Chitral district); and 5 more",
+     "brief": "Pakistan-administered Kashmir; the province of Khyber Pakhtunkhwa*; and 5 more"}]}
+got = jsc("%s\nprint(JSON.stringify([avoidAreas(%s, 0), avoidAreas(%s, 10, true)]));" % (AV, json.dumps(SRV), json.dumps(SRV))) or [None, None]
+results.append(ok(pairs(got[0]) == [(A, SRV["regional"][2]["line"]), (N, SRV["regional"][0]["line"])],
+                  "avoidAreas, guide: the server's line as it is, avoid calls only, all-travel first (got %s)" % got[0]))
+results.append(ok(pairs(got[1]) == [(A, SRV["regional"][2]["brief"]), (N, "Karachi (parts excepted)")],
+                  "avoidAreas, trip: the server's brief (got %s)" % got[1]))
 
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

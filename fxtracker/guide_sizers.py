@@ -101,6 +101,12 @@ def _watchouts(wo, lvl):
         '<span class="wochip">%s</span>' % _e(x.get("t")) for x in wo.get("watchouts") or []) + "</span>"
     reg = ""
     for r in wo.get("regional") or []:
+        if isinstance(r.get("line"), str) and r.get("line") and r.get("call"):
+            # watchouts.py's line, the words app.js draws, ⓘ and all (its tip
+            # left off: nothing here is read or hovered).
+            reg += ('<span class="woreg">📍 <b>%s</b>: %s%s</span>'
+                    % (_e(r["call"]), _e(r["line"]), ' <span class="muted">ⓘ</span>' if r.get("text") else ""))
+            continue
         head = (r.get("t") or "").split(" - ")[-1]
         regions = r.get("regions") or []
         if regions:
