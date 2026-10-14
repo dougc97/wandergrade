@@ -427,6 +427,8 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     return {
         "iso": iso, "name": name, "afford": comps["afford"], "safe": comps["safe"],
         "wx": comps.get("wx"), "fly": comps.get("fly"), "value": value, "advLvl": adv,
+        # Before rounding, for ties only (build's sort; app.js rankValue).
+        "raw": num / den if den else 0,
         "pl": pl, "fare": fare, "fareEst": bool(fares and iso in fares["est"] and fly_basis != "month"),
         "fly_basis": fly_basis,
         # REAL move, which is what "your dollar goes further" claims are about
@@ -616,7 +618,9 @@ def build_variant(shared, v, n_picks=5, n_gems=3):
         if s and s["advLvl"] != 3:   # default "safe" floor: drop Level 3 (4 already gone)
             scored.append(s)
 
-    scored.sort(key=lambda s: s["value"], reverse=True)
+    # Ties on the shown score break on the unrounded one, then the name, as
+    # app.js rankValue does: list order used to decide them.
+    scored.sort(key=lambda s: (-s["value"], -s["raw"], s["name"]))
     picks = [s for s in scored if s["iso"] in popular][:n_picks]
     gems = [s for s in scored if s["iso"] not in popular][:n_gems]
 

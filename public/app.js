@@ -627,9 +627,16 @@ wireSort("#flightTable", flightSort, {}, () => { if (flightsData) renderFlights(
 // reorders AND renumbers the same top-N set (rank = row position). Grade
 // columns open best-first; Safety opens safest-first (advisory level 1);
 // Destination A→Z. Flights with no fare sort last.
+// A ranking tie (the same score shown) is broken on the unrounded score,
+// then the name: a tie used to keep list order, which is no reason at all
+// (Vietnam above Morocco at 86.75 each, by country-list position). The
+// Overall columns sort the same way. Mirrors picks.py build's sort.
+function rankValue(a, b) {
+  return (b.value - a.value) || ((b.raw ?? b.value) - (a.raw ?? a.value)) || String(a.name).localeCompare(String(b.name));
+}
 const PICK_GET = { dest: (s) => s.name, afford: (s) => s.afford, safety: (s) => s.advLvl,
                    weather: (s) => (s.wx == null ? null : s.wx), flights: (s) => (s.fly == null ? null : s.fly),
-                   overall: (s) => s.value };
+                   overall: (s) => s.raw ?? s.value };
 const pickSort = { key: "overall", asc: false };
 wireSort("#topCards", pickSort, { afford: false, weather: false, flights: false, overall: false },
          () => { if (lastPicks && lastPicks.length) renderGradeTable($("topCards"), lastPicks, lastPicksMonth, false, true); });
@@ -642,7 +649,7 @@ wireSort("#gemRows", gemSort, { afford: false, weather: false, flights: false, o
 // "Full ranking & the math": every column sorts; numbers open best-first.
 // Sorted over the WHOLE ranked list before the top-40 slice, so sorting by
 // e.g. affordability shows the 40 most affordable, not a reshuffled top 40.
-const FULL_GET = { country: (s) => s.name, value: (s) => s.value, afford: (s) => s.afford,
+const FULL_GET = { country: (s) => s.name, value: (s) => s.raw ?? s.value, afford: (s) => s.afford,
                    safety: (s) => s.safe, weather: (s) => (s.wx == null ? null : s.wx),
                    flight: (s) => (s.fly == null ? null : s.fly) };
 const fullSort = { key: "value", asc: false };
@@ -5664,7 +5671,10 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   let num = 0, den = 0;
   for (const k in comps) { num += (w[k] || 0) * comps[k]; den += (w[k] || 0); }
   const value = den ? clamp100(num / den) : 0;
-  return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso,
+  // raw: the score before rounding, for ties only (rankValue). Two countries
+  // shown at 91 fell back to list order: Argentina (91.00) sat above Morocco
+  // (91.25) in Any time. picks.py _score keeps it too.
+  return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso, raw: den ? num / den : 0,
            afford: comps.afford, safe: comps.safe, wx: wxKnown ? comps.wx : null,
            fly: comps.fly, fare, fareEst, fareMin, fareBase, dealRatio, flyBasis, advLvl, value,
            // Which dimensions this score is actually built on. A country with
@@ -8447,8 +8457,7 @@ function renderValue() {
   // Filled in below, once the filters have run and we know what they removed.
   const note = $("rankNote");
   const rankedAll = Object.values(scored)
-    .sort(weatherMode ? ((a, b) => ((b.wx ?? -1) - (a.wx ?? -1)) || (b.value - a.value))
-                      : ((a, b) => b.value - a.value));
+    .sort(weatherMode ? ((a, b) => ((b.wx ?? -1) - (a.wx ?? -1)) || rankValue(a, b)) : rankValue);
   // Above the fold = recognizable destinations; Hidden Gems = high-value but
   // off-the-beaten-path. Both come from the safety-filtered, unvisited pool.
   const floor = safetyFloor();
@@ -10543,7 +10552,12 @@ function ensureMonthOptions() {
   if (sel && !sel.options.length) {
     sel.innerHTML = '<option value="0">Any time</option>'
       + MONTHS.map((m, i) => `<option value="${i + 1}">${m}</option>`).join("");
-    sel.value = String(curMonth());   // "I'm going in" defaults to the month it is now
+    // "I'm going in" opens on Any time (Doug, 2026-10-14): the page asks
+    // where to travel NEXT, most trips are planned one to six months out,
+    // and the month it is now ranked October on Oct 28. A link's vmn= or a
+    // month picked anywhere sets a real one; the Flights tab, guides and
+    // stays still plan for a real month (travelMonth: the window's first).
+    sel.value = "0";
   }
   return sel;
 }

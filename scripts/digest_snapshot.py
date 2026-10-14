@@ -170,11 +170,29 @@ def graft_cost_line(newsletter, new_root):
 
 
 def graft_weights(newsletter, new_root):
-    """The second deliberate change since 4788fd2: the default priorities
-    (2026-10-14, every factor Med; affordability was High). The old tree
-    scores with new_root's picks.WEIGHTS, so a comparison against it still
+    """The deliberate scoring changes since 4788fd2, both 2026-10-14: the
+    default priorities (every factor Med; affordability was High) and the
+    tie rule (a tie on the shown score breaks on the unrounded one, then the
+    name, where list order used to decide). The old tree scores with
+    new_root's picks.WEIGHTS and ranks with that tie rule — its picks.py
+    re-run with the two lines swapped — so a comparison against it still
     isolates everything else (alone: --graft-weights, the raw-text check)."""
     import ast
+    old_picks = sys.modules.get((newsletter.__package__ or "fxtracker") + ".picks")
+    if old_picks is not None and '"raw": num / den' not in open(old_picks.__file__, encoding="utf-8").read():
+        # Only the two functions are redefined, in the old module's own
+        # namespace: re-running the whole file undid install()'s frozen seams.
+        with open(old_picks.__file__, encoding="utf-8") as f:
+            src = f.read()
+        swaps = (('"value": value, "advLvl": adv,', '"value": value, "advLvl": adv, "raw": num / den if den else 0,'),
+                 ('scored.sort(key=lambda s: s["value"], reverse=True)',
+                  'scored.sort(key=lambda s: (-s["value"], -s["raw"], s["name"]))'))
+        tree = ast.parse(src)
+        for a, b in swaps:
+            fns = [n for n in tree.body if isinstance(n, ast.FunctionDef) and a in (ast.get_source_segment(src, n) or "")]
+            assert len(fns) == 1, "graft: %s lacks %r" % (old_picks.__file__, a)
+            fn_src = ast.get_source_segment(src, fns[0]).replace(a, b)
+            exec(compile("\n" * (fns[0].lineno - 1) + fn_src, old_picks.__file__, "exec"), old_picks.__dict__)
     with open(os.path.join(new_root, "fxtracker", "picks.py"), encoding="utf-8") as f:
         ptree = ast.parse(f.read())
     weights = next(ast.literal_eval(n.value) for n in ptree.body if isinstance(n, ast.Assign)
