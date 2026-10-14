@@ -3449,14 +3449,30 @@ function watchoutsBlockHTML(w) {
   const chips = w.watchouts.map((x) =>
     '<span class="wochip"' + (x.d ? ' data-tip="' + esc(x.d) + '" title=""' : "") + ">"
     + esc(x.t) + "</span>").join("");
+  // An avoid-travel line reads its area as Canada's own first sentence says
+  // it (avoidText, the AI prompts' reader): the line used to list the
+  // feed's regions bare under the call, and a line's regions are not always
+  // the area. Israel's are the two roads Canada EXCEPTS from Palestine, so
+  // the guide said "AVOID ALL TRAVEL: Highway 1, Route 90 …" and never named
+  // Palestine; Pakistan's are Karachi's excepted districts and airport,
+  // listed as places to avoid. Other regional lines keep the old form.
   const reg = (w.regional || []).map((r) => {
-    const head = (r.t || "").split(" - ").pop();
-    const list = r.regions && r.regions.length
-      ? ": " + r.regions.slice(0, 10).join(", ")
-        + (r.regions.length > 10 ? " +" + (r.regions.length - 10) + " more" : "")
-      : (r.lead ? ": " + r.lead : "");
-    const starred = r.regions && r.regions.some((x) => /\*$/.test(x));
-    return '<span class="woreg">📍 <b>' + esc(head) + "</b>" + esc(list)
+    const parts = (r.t || "").split(" - ");
+    const head = parts[parts.length - 1];
+    const call = /^avoid (all|non-essential) travel$/i.exec(head.trim());
+    let label = head, list;
+    if (call) {
+      label = "Avoid " + call[1].toLowerCase() + " travel";
+      const text = avoidText(r, unshout(parts.slice(0, -1).join(" - ").trim()), 10, false);
+      list = text ? ": " + text : (r.lead ? ": " + r.lead : "");
+    } else {
+      list = r.regions && r.regions.length
+        ? ": " + r.regions.slice(0, 10).join(", ")
+          + (r.regions.length > 10 ? " +" + (r.regions.length - 10) + " more" : "")
+        : (r.lead ? ": " + r.lead : "");
+    }
+    const starred = /\*/.test(list);
+    return '<span class="woreg">📍 <b>' + esc(label) + "</b>" + esc(list)
       + (starred ? ' <span class="muted">(* parts excepted — see details)</span>' : "")
       + "</span>";
   }).join("");
@@ -6632,11 +6648,23 @@ function unshout(s) {
 // list follows). The feed keeps 200 characters and ends a sentence at
 // "north of St.", so a sentence stopped short backs off to its last comma,
 // else ends in "..." (cut). Null: not that sentence.
+// Two things the same sentence can carry past the area: an exception of its
+// own (Jordan: "…Iraq and Syria, with the exception of the tourist site Umm
+// Qais, due to…": exc), and, when the area is "the following areas … due
+// to …:", the list itself run together after the colon, the feed having
+// no bullets for it (Tunisia: "…coverage: the Delegation of Remada Mount
+// Orbata This advisory e": inline, cut back to its last whole clause).
 function avoidLead(lead) {
   const L = String(lead || "").trim();
   const m = /^avoid (?:all|non-essential) travel(?: to)?\b\s*/i.exec(L);
   if (!m) return null;
   let a = L.slice(m[0].length), short = false;
+  const ex = /,?\s+with the exception of\s+(?!the following\b)(.+?)(?:,?\s+due to\b|$)/i.exec(a);
+  const exc = ex ? ex[1].replace(/[\s,.;]+$/, "") + (ex[0].search(/due to/i) < 0 && L.length >= 200 ? "..." : "") : "";
+  const ci = a.indexOf(":");
+  let inline = ci >= 0 ? a.slice(ci + 1).replace(/\s+(?:This|These) advisor\w*.*$/i, "").trim() : "";
+  if (inline && L.length >= 200 && !/[.)]$/.test(inline)) inline = inline.includes(",") ? inline.replace(/,[^,]*$/, "") : inline + "...";
+  inline = inline.replace(/[\s,.;]+$/, "");
   const end = a.search(/,?\s+due to\b|,?\s+with the exception\b|:/i);
   const colon = end >= 0 && a[end] === ":";
   if (end >= 0) a = a.slice(0, end);
@@ -6645,7 +6673,7 @@ function avoidLead(lead) {
     else short = true;
   }
   a = a.replace(/[\s,.;]+$/, "");
-  return { area: short ? a + "..." : a, colon, cut: short };
+  return { area: short ? a + "..." : a, colon, cut: short, exc, inline };
 }
 function avoidText(r, head, max, brief) {
   const named = !!head && !AVOID_GENERIC.test(head);
@@ -6677,7 +6705,16 @@ function avoidText(r, head, max, brief) {
     return standalone && !lost && joined.length <= head.length ? joined : head;
   }
   if (except) return (lead && lead.area || head || "these areas") + ", except these areas: " + list();
+  // The list run into the sentence after its colon, only where the feed split
+  // none of it into bullets (Tunisia). Most leads carry their bullets run
+  // together there too, which the regions already give properly.
+  if (lead && lead.inline && !regs.length && /\b(?:following|these|listed|below)\b/i.test(lead.area)) {
+    const rest = regs.length || lost ? "; " + list() : "";
+    return lead.inline + rest;
+  }
   if (listed) return (area ? area + ": " : "") + list();
+  if (lead && lead.exc && lead.area && !/\b(?:following|these|listed|below)\b/i.test(lead.area))
+    return lead.area + " (except " + lead.exc + ")";
   if (lead && lead.area && !/\b(?:following|these|listed|below)\b/i.test(lead.area)) return lead.cut && named ? head : lead.area;
   if (named) return head;
   if (regs.length) return list();

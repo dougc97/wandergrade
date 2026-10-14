@@ -1,0 +1,33 @@
+{
+ "JO": {
+  "regional": [
+   {
+    "t": "Borders with Iraq and Syria - Avoid all travel",
+    "lead": "Avoid all travel to within 5 km of the borders with Iraq and Syria, with the exception of the tourist site Umm Qais, due to the threat of terrorism, cross-border violence and crime.",
+    "regions": []
+   },
+   {
+    "t": "Northeastern Jordan, east of Ruwaished - Avoid all travel",
+    "lead": "Avoid all travel to all areas east of the city of Ruwaished in northeastern Jordan, including Highway 10 leading to Iraq past Ruwaished, due to military activity and the lack of emergency facilities.",
+    "regions": []
+   }
+  ]
+ },
+ "TN": {
+  "regional": [
+   {
+    "t": "Regional advisory - Avoid all travel",
+    "lead": "Avoid all travel to the following areas, due to recurring anti-terrorist operations: the area within 20 km of the Algerian border, except for the highway P7 to/from the Malloula border crossing and fo",
+    "regions": [
+     "the area*",
+     "the governorate of Kasserine, including the mountain ranges and surrounding forests of the following mountains"
+    ]
+   },
+   {
+    "t": "Regional advisory - Avoid non-essential travel",
+    "lead": "Avoid non-essential travel to the following areas due to the presence of a military zone, the risk of terrorism and the limited cellular coverage: the Delegation of Remada Mount Orbata This advisory e",
+    "regions": []
+   }
+  ]
+ }
+}

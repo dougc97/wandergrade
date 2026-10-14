@@ -372,5 +372,36 @@ for g, w, l in zip(got, want, labels):
 got = jsc("%s\n%s\nprint(JSON.stringify([todayText(new Date(2026, 9, 13)), todayText(new Date(2027, 0, 5))]));" % (BASE, js_fn("todayText")))
 results.append(ok(got == ["13 Oct 2026", "5 Jan 2027"], "todayText: 13 Oct 2026, 5 Jan 2027 (got %s)" % got))
 
+# --- the sentence's own exception and run-together list (2026-10-14) ------------
+# Checked against travel.gc.ca on 2026-10-14 (67 countries): Jordan's
+# exception sits inside the first sentence ("…with the exception of the
+# tourist site Umm Qais, due to…") and was dropped; Tunisia's lists come only
+# run together after the sentence's colon, and both lines read "areas Canada
+# lists". Production's replies for the two, scripts/watchouts_sample.2026-10-14.json.
+WO2 = json.load(open(os.path.join(ROOT, "scripts", "watchouts_sample.2026-10-14.json"), encoding="utf-8"))
+got = jsc("%s\nconst WO = %s;\nconst out = {};\nfor (const c in WO) out[c] = avoidAreas(WO[c], 10).map((x) => x.call + ': ' + x.text);\n"
+          "print(JSON.stringify(out));" % (AV, json.dumps(WO2))) or {}
+results.append(ok("Avoid all travel: within 5 km of the borders with Iraq and Syria (except the tourist site Umm Qais)" in (got.get("JO") or []),
+                  "Jordan keeps the exception inside its sentence: Umm Qais (got %s)" % got.get("JO")))
+results.append(ok("Avoid all travel: the area within 20 km of the Algerian border; and other areas Canada lists" in (got.get("TN") or []),
+                  "Tunisia's avoid-all line names the 20 km Algerian border zone from the run-together list (got %s)" % got.get("TN")))
+results.append(ok("Avoid non-essential travel: the Delegation of Remada Mount Orbata" in (got.get("TN") or []),
+                  "Tunisia's non-essential line names Remada and Mount Orbata, not 'areas Canada lists'"))
+
+# --- the guide's 📍 lines use the same reader ------------------------------------
+# watchoutsBlockHTML listed a line's regions bare under its call: Israel's
+# guide said "AVOID ALL TRAVEL: Highway 1, Route 90 …", the roads Canada
+# EXCEPTS from Palestine; Pakistan listed Karachi's excepted districts as
+# places to avoid. It now reads avoid lines through avoidText; others keep
+# their form.
+WB = AV + "\n" + js_fn("watchoutsBlockHTML") + "\nfunction esc(s){return String(s==null?'':s);}\n"
+got = jsc("%s\nconst WO = %s;\nconst out = {};\nfor (const c of ['IL','PK','IN','TH']) out[c] = watchoutsBlockHTML({ watchouts: [], regional: WO[c].regional }).reg.replace(/<[^>]+>/g, '|');\n"
+          "print(JSON.stringify(out));" % (WB, json.dumps(WO))) or {}
+il, pk, inn = got.get("IL", ""), got.get("PK", ""), got.get("IN", "")
+results.append(ok("Avoid all travel|: Palestine" in il and "Highway 1" not in il, "guide line, Israel: 'Avoid all travel: Palestine', not the excepted roads (got %s)" % il[:200]))
+results.append(ok("the city of Karachi, except these areas:" in pk, "guide line, Pakistan: Karachi's districts read as exceptions"))
+results.append(ok("within 10 km of the border with Pakistan" in inn, "guide line, India: the 10 km band, not whole states"))
+results.append(ok("Narathiwat; Pattani; Yala" in got.get("TH", ""), "guide line, Thailand: its provinces, '; '-joined"))
+
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)
