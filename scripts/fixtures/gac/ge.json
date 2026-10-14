@@ -1,0 +1,10 @@
+{
+ "data": {
+  "country-iso": "GE",
+  "eng": {
+   "name": "Georgia",
+   "url-slug": "georgia",
+   "advisories": "<div class=\"AdvisoryContainer ExNormal\"><h3>Georgia - Take normal security precautions</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Take normal security precautions</a> in Georgia.</p></div><div class=\"AdvisoryContainer ExHigh\"><h3>Tbilisi - Exercise a high degree of caution</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Exercise a high degree of caution</a> in Tbilisi due to the risk of demonstrations and clashes between security forces and protestors.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>The occupied regions of Abkhazia and South Ossetia and surrounding areas - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to the following areas due to crime, military activity, the risk of detention and the presence of landmines:<ul><li>the occupied regions of Abkhazia and South Ossetia </li><li>within 5 km of the administrative boundary line with the occupied regions of Abkhazia and South Ossetia, excluding Highway E60</li></ul></p><p>&nbsp;</p></div>"
+  }
+ }
+}

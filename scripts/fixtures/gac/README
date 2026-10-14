@@ -1,0 +1,4 @@
+Global Affairs Canada's per-country feed (https://data.international.gc.ca/travel-voyage/cta-cap-<iso>.json),
+fetched 2026-10-14 and trimmed to data.country-iso and data.eng's name, url-slug and advisories (what
+fxtracker/watchouts.py reads for the regional lines). Read offline by scripts/test_watchouts.py; the lines it
+expects were checked against travel.gc.ca that day. Refetch only together with those expectations.

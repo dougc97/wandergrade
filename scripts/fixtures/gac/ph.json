@@ -1,0 +1,10 @@
+{
+ "data": {
+  "country-iso": "PH",
+  "eng": {
+   "name": "Philippines",
+   "url-slug": "philippines",
+   "advisories": "<div class=\"AdvisoryContainer ExHigh\"><h3>Philippines - Exercise a high degree of caution</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Exercise a high degree of caution</a> in the Philippines due to crime, terrorism and kidnapping.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Western Mindanao - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to the following provinces of Mindanao island, due to the serious threat of terrorism, kidnapping, high levels of crime, and violent clashes between the security forces and rebel groups:<ul><li>Basilan</li><li>Cotabato</li><li>Lanao del Sur</li><li>Lanao del Norte</li><li>Maguindanao</li><li>Misamis Occidental</li><li>Sarangani</li><li>South Cotabato</li><li>Sultan Kudarat</li><li>Sulu</li><li>Tawi-Tawi</li><li>Zamboanga del Norte</li><li>Zamboanga del Sur</li><li>Zamboanga Sibugay</li></ul></p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Central and Eastern Mindanao - Avoid non-essential travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to the following provinces of Mindanao island due to the risk of kidnapping and high levels of crime:<ul><li>Agusan del Norte</li><li>Agusan del Sur</li><li>Bukidnon</li><li>Davao de Oro</li><li>Davao del Norte</li><li>Davao del Sur, excluding Davao City</li><li>Davao Occidental</li><li>Davao Oriental</li><li>Misamis Oriental</li><li>Surigao del Norte, excluding Siargao Island</li><li>Surigao del Sur</li></ul></p><p>&nbsp;</p></div>"
+  }
+ }
+}

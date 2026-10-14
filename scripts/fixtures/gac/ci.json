@@ -1,0 +1,10 @@
+{
+ "data": {
+  "country-iso": "CI",
+  "eng": {
+   "name": "Côte d'Ivoire (Ivory Coast)",
+   "url-slug": "cote-d-ivoire-ivory-coast",
+   "advisories": "<div class=\"AdvisoryContainer ExHigh\"><h3>C&ocirc;te d&rsquo;Ivoire - Exercise a high degree of caution</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Exercise a high degree of caution</a> in C&ocirc;te d&rsquo;Ivoire due to crime.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Borders with Mali and Burkina Faso - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to within 50 km of the borders with Mali and Burkina Faso, due to the risk of terrorist activity.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Border with Liberia - Avoid non-essential travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to the following regions, within 25 km of the border with Liberia, due to crime, insecurity and recurrent inter-community conflicts:<ul><li>Cavally</li><li>San Pedro</li><li>Tonkpi</li></ul></p><p>&nbsp;</p></div>"
+  }
+ }
+}

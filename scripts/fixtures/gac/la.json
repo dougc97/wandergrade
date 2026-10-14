@@ -1,0 +1,10 @@
+{
+ "data": {
+  "country-iso": "LA",
+  "eng": {
+   "name": "Laos",
+   "url-slug": "laos",
+   "advisories": "<div class=\"AdvisoryContainer ExHigh\"><h3>Laos - Exercise a high degree of caution</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Exercise a high degree of caution</a> in Laos due to ongoing security concerns related to banditry, crime, spiked food and drinks, and unexploded munitions.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Xaisomboun province - Avoid non-essential travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to Xaisomboun province due to the tense security situation and random shooting incidents.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Areas of Bokeo province - Avoid non-essential travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to the following areas of Bokeo province due to criminal activity:<ul><li>within 10 km of the borders with Myanmar and Thailand, excluding Bokeo International Airport and Road 3 leading there</li><li>the Golden Triangle Special Economic Zone</li></ul></p><p>&nbsp;</p></div>"
+  }
+ }
+}

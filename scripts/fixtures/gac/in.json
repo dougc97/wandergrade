@@ -1,0 +1,10 @@
+{
+ "data": {
+  "country-iso": "IN",
+  "eng": {
+   "name": "India",
+   "url-slug": "india",
+   "advisories": "<div class=\"AdvisoryContainer ExHigh\"><h3>India - Exercise a high degree of caution</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Exercise a high degree of caution</a> in India due to the threat of terrorist attacks throughout the country.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Manipur - Avoid non-essential travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to Manipur due to the risk of terrorism and insurgency.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Union Territory of Jammu and Kashmir - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to the Union Territory of Jammu and Kashmir due to the unpredictable security situation. There is a threat of terrorism, militancy, civil unrest and kidnapping.<p></p><p>This advisory excludes travelling to or within the Union Territory of Ladakh.</p></p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Border areas with Pakistan - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to areas within 10 km of the border with Pakistan in the following states due to the unpredictable security situation and presence of landmines and unexploded ordnance:<p></p><ul><li>Gujarat</li><li>Punjab</li><li>Rajasthan</li></ul><p></p><p>The Attari-Wagah border crossing is currently closed.</p></p><p>&nbsp;</p></div>"
+  }
+ }
+}

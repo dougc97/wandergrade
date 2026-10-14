@@ -1,0 +1,10 @@
+{
+ "data": {
+  "country-iso": "PA",
+  "eng": {
+   "name": "Panama",
+   "url-slug": "panama",
+   "advisories": "<div class=\"AdvisoryContainer ExNormal\"><h3>Panama - Take normal security precautions</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Take normal security precautions</a> in Panama.</p></div><div class=\"AdvisoryContainer ExHigh\"><h3>High-crime areas - Exercise a high degree of caution</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Exercise a high degree of caution</a> in the following areas due to high levels of crime:<ul><li>Col&oacute;n Province</li><li>District of San Miguelito, especially the following areas:</li><ul><li>Amelia Denis de Icaza</li><li>Belisario Porras</li><li>Belisario Frias</li><li>Arnulfo Arias</li></ul><li>Veracruz City</li><li>Panama City in the following corregimientos:</li><ul><li>Calidonia</li><li>Curund&uacute;</li><li>El Chorrillo</li><li>Panama Viejo</li><li>Rio Abajo</li><li>Santa Ana</li><li>24 de Diciembre</li></ul></ul></p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Cantons in Veraguas Province - Avoid non-essential travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to the townships of Arena, El Cacao and Quebro in Veraguas Province due to the damage caused by the October 9, 2026 earthquake.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Areas south of Metet&iacute; - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to to areas south of Metet&iacute;<b> </b>in Dari&eacute;n Province to the border with Colombia due to extremely high levels of violent crime.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Mosquito Gulf - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to the Mosquito Gulf, from Boca de R&iacute;o Chiriqu&iacute; to Cocl&eacute; del Norte, due to the high level of illegal activity such as drug smuggling and human trafficking.</p><p>&nbsp;</p></div>"
+  }
+ }
+}

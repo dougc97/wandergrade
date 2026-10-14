@@ -1,0 +1,10 @@
+{
+ "data": {
+  "country-iso": "JP",
+  "eng": {
+   "name": "Japan",
+   "url-slug": "japan",
+   "advisories": "<div class=\"AdvisoryContainer ExNormal\"><h3>Japan - Take normal security precautions</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Take normal security precautions</a> in Japan.</p></div>"
+  }
+ }
+}

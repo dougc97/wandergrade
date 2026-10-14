@@ -1,0 +1,10 @@
+{
+ "data": {
+  "country-iso": "TH",
+  "eng": {
+   "name": "Thailand",
+   "url-slug": "thailand",
+   "advisories": "<div class=\"AdvisoryContainer ExHigh\"><h3>Thailand - Exercise a high degree of caution</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Exercise a high degree of caution</a> in Thailand due to ongoing political tensions and sporadic demonstrations in Bangkok and elsewhere in the country.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Thailand-Cambodia border - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to the area within 50 kilometres of the Thailand-Cambodia border due to ongoing tensions in the region.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Southern provinces of Narathiwat, Pattani, Yala and southern Songkhla province - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to the following southern provinces and region due to violent attacks from separatist insurgents and the unpredictable security situation:<ul><li>Narathiwat</li><li>Pattani</li><li>Yala</li><li>southern Songkhla province:</li><ul><li>Hat Yai city</li><li>east of Highways 408 and 4113, including Sakom</li></ul></ul></p><p>&nbsp;</p></div>"
+  }
+ }
+}

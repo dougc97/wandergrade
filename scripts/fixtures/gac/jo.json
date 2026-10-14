@@ -1,0 +1,10 @@
+{
+ "data": {
+  "country-iso": "JO",
+  "eng": {
+   "name": "Jordan",
+   "url-slug": "jordan",
+   "advisories": "<div class=\"AdvisoryContainer AvoidNonEssential\"><h3>JORDAN - AVOID NON-ESSENTIAL TRAVEL</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to Jordan due to the volatile security situation in the region.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Borders with Iraq and Syria - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to within 5 km of the borders with Iraq and Syria, with the exception of the tourist site Umm Qais, due to the threat of terrorism, cross-border violence and crime.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Northeastern Jordan, east of Ruwaished - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to all areas east of the city of Ruwaished in northeastern Jordan, including Highway 10 leading to Iraq past Ruwaished, due to military activity and the lack of emergency facilities.</p><p>&nbsp;</p></div>"
+  }
+ }
+}
