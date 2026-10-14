@@ -88,22 +88,25 @@ results.append(ok(got == "EUR 12 345 / EGP 12,345 / BDT 6789 / 1 000 / 012345678
 
 # --- AI_SITES / aiLink -----------------------------------------------------------
 LINK = js_const("AI_SITES") + "\n" + js_fn("aiLink")
-prog = ("%s\nconst mk = (n) => 'a'.repeat(n);\nconst out = AI_SITES.map((s) => ({ name: s.name, cap: s.cap, q: s.q, home: s.home,"
+prog = ("%s\nconst mk = (n) => 'a'.repeat(n);\nconst out = AI_SITES.map((s) => ({ name: s.name, cap: s.cap, q: s.q, home: s.home, paste: !!s.paste,"
         " at: aiLink(s, mk(s.cap)), over: aiLink(s, mk(s.cap + 1)),"
         " enc: aiLink(s, 'Japan — 10 days & more?').href }));\n"
-        "const space = AI_SITES.map((s) => aiLink(s, ' '.repeat(Math.floor(s.cap / 3))).fits + '/' + aiLink(s, ' '.repeat(Math.floor(s.cap / 3) + 1)).fits);\n"
+        "const space = AI_SITES.filter((s) => !s.paste).map((s) => aiLink(s, ' '.repeat(Math.floor(s.cap / 3))).fits + '/' + aiLink(s, ' '.repeat(Math.floor(s.cap / 3) + 1)).fits);\n"
         "print(JSON.stringify({ out, space }));" % LINK)
 got = jsc(prog) or {"out": [], "space": []}
 caps = {s["name"]: s["cap"] for s in got["out"]}
-results.append(ok(caps == {"ChatGPT": 30000, "Google AI Mode": 2200, "Claude": 4000, "Grok": 6000, "Perplexity": 12000},
-                  "AI_SITES caps, in button order: ChatGPT 30000, Google AI Mode 2200, Claude 4000, Grok 6000, Perplexity 12000 (got %s)" % caps))
-results.append(ok(list(caps) == ["ChatGPT", "Google AI Mode", "Claude", "Grok", "Perplexity"], "AI_SITES order: ChatGPT, Google AI Mode, Claude, Grok, Perplexity"))
-results.append(ok(all(s["at"]["fits"] and s["at"]["href"] == s["q"] + "a" * s["cap"] for s in got["out"]) and got["out"],
-                  "aiLink: an encoded prompt exactly at the cap is prefilled"))
+results.append(ok(caps == {"ChatGPT": 30000, "Gemini": 6000, "Claude": 4000, "Grok": 6000, "Perplexity": 12000},
+                  "AI_SITES caps, in button order: ChatGPT 30000, Gemini 6000, Claude 4000, Grok 6000, Perplexity 12000 (got %s)" % caps))
+results.append(ok(list(caps) == ["ChatGPT", "Gemini", "Claude", "Grok", "Perplexity"], "AI_SITES order: ChatGPT, Gemini, Claude, Grok, Perplexity"))
+results.append(ok(all(s["at"]["href"] == s["q"] + "a" * s["cap"] and s["at"]["fits"] == (not s["paste"]) for s in got["out"]) and got["out"],
+                  "aiLink: an encoded prompt exactly at the cap rides the link; it counts as filled in except on a paste site"))
+gem = [s for s in got["out"] if s["name"] == "Gemini"]
+results.append(ok(gem and gem[0]["paste"] and not gem[0]["at"]["fits"] and "prompt_text=" in gem[0]["at"]["href"],
+                  "Gemini is a paste site: its button always copies, while the link still carries prompt_text for if Google turns it on"))
 results.append(ok(all(not s["over"]["fits"] and s["over"]["href"] == s["home"] for s in got["out"]) and got["out"],
                   "aiLink: one character over the cap opens the site's plain new chat"))
-results.append(ok(all(s["home"].startswith("https://") and s["q"].startswith("https://") and s["q"].endswith("q=") for s in got["out"]),
-                  "aiLink: every link and home page is https, every prefill link ends in q="))
+results.append(ok(all(s["home"].startswith("https://") and s["q"].startswith("https://") and (s["q"].endswith("q=") or s["q"].endswith("prompt_text=")) for s in got["out"]),
+                  "aiLink: every link and home page is https, every prefill link ends in its prompt parameter"))
 results.append(ok(all(s["enc"] == s["q"] + urllib.parse.quote("Japan — 10 days & more?", safe="!'()*-._~") for s in got["out"]),
                   "aiLink: the prompt is encodeURIComponent'd (& ? and the em dash encoded)"))
 results.append(ok(got["space"] and all(x == "true/false" for x in got["space"]),

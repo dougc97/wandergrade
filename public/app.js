@@ -6449,27 +6449,34 @@ function aiPlain(s) {
 // Gemini's undocumented prompt_text didn't prefill logged out (it wants a
 // signed-in test before it earns a button); Mistral makes everyone sign in
 // first; Muse and Meta AI are sign-in walls; Cursor is a code editor.
-// Gemini itself has no way in: its app reads prompt_text only for accounts
-// with an internal Google flag on, and /guided-learning?query= didn't fill
-// either, signed in (Doug, 2026-10-13). Google AI Mode, Gemini in Search, does:
-// google.com/ai?q= answers at once, signed in or out, but keeps only ~2.3k
-// of the link (2,298 kept the last line, 2,442 lost it), and a 3.5k prompt
-// pasted in answered whole — so its cap is 2,200 and past it, paste. A site
+// Gemini can't be filled from a link: its app reads prompt_text and
+// prompt_action only while Google's internal flag 45724671 is on for the
+// account, and it ships off (its code, re-read 2026-10-14); the one ungated
+// path, /guided-learning?query=, didn't fill either, signed in (Doug). So
+// its button is copy-and-paste (paste: true) — the link still carries
+// prompt_text, which Gemini strips when the flag is off and would honour if
+// Google ever turns it on, with no change here. It replaced Google AI Mode
+// (google.com/ai?q=), which did fill in but kept only ~2.3k of a link: every
+// prompt since the 2026-10-13 rewrite runs past that, so it was copy-and-
+// paste too, under a name fewer readers know. A site
 // is one line here, in the order the buttons show; how is what its button
 // does with the prompt, for the hint's ⓘ (AI_HINT_TIP).
 const AI_SITES = [
   { name: "ChatGPT", q: "https://chatgpt.com/?q=", home: "https://chatgpt.com/", cap: 30000, how: "opens a new chat with the prompt filled in" },
-  { name: "Google AI Mode", q: "https://www.google.com/ai?q=", home: "https://www.google.com/ai", cap: 2200, how: "(Gemini in Google Search) answers straight away" },
+  { name: "Gemini", q: "https://gemini.google.com/app?prompt_action=prefill&prompt_text=", home: "https://gemini.google.com/app", cap: 6000, paste: true,
+    how: "opens with the prompt copied for you to paste in (Google doesn't let a link fill it in)" },
   { name: "Claude", q: "https://claude.ai/new?q=", home: "https://claude.ai/new", cap: 4000, how: "may ask you to sign in first" },
   { name: "Grok", q: "https://grok.com/?q=", home: "https://grok.com/", cap: 6000, how: "asks you to confirm before sending" },
   { name: "Perplexity", q: "https://www.perplexity.ai/search?q=", home: "https://www.perplexity.ai/", cap: 12000, how: "sends it straight away" },
 ];
 // A site's link for a prompt: prefilled while the encoded prompt is within
 // the site's cap, else its plain new chat (fits false: the prompt goes by
-// the clipboard).
+// the clipboard). A paste site (Gemini) is never trusted to fill in, so its
+// button always copies, whatever the link carries.
 function aiLink(site, prompt) {
   const q = encodeURIComponent(prompt);
-  return q.length <= site.cap ? { href: site.q + q, fits: true } : { href: site.home, fits: false };
+  const within = q.length <= site.cap;
+  return { href: within ? site.q + q : site.home, fits: within && !site.paste };
 }
 
 // The hub each origin's fares are cached from (fxtracker/flights.py
