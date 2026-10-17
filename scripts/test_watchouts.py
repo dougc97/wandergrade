@@ -11,22 +11,32 @@ against travel.gc.ca that day; see its README).
              with their sub-lists folded in, the exceptions named (the
              second-sentence ones Kenya, Uganda, Mozambique, Azerbaijan,
              Tanzania and India carry), what a block includes (Benin's
-             parks); a qualifier is never an exception; several exceptions
-             under words that say they are exceptions (Egypt); every place
-             named before any detail (Honduras, Pakistan, Benin, Karachi),
-             at its shortest honest form ("parts of Cortés", "(parts
-             excepted)"), past the cap only for that; "and N more" counting
-             places, not headings (Guatemala); "the city of" kept in an
-             exception; a stricter exception's call never dropped
-             (Pakistan's Chitral); no line past the ceiling; no stars
-  full       the line uncut, for the guide's AI prompt
-  brief      the trip prompt's form: short lines whole, a named heading for
-             a long one, up to ten names for a generic one's list; a
-             stricter exception is never "parts excepted"; a place whose
-             list names parts of it never bare
+             parks, never cut); a qualifier is never an exception; several
+             exceptions under words that say they are exceptions (Egypt),
+             each of Canada's sentences its own (Tanzania); every place
+             named before any detail (Honduras, Pakistan, Mexico, Colombia,
+             Peru's VRAEM, Karachi), at its shortest honest form ("parts of
+             Cortés", "parts of Amazonas", "(parts excepted)"), past the cap
+             only for that; more room never names fewer places; every
+             excepted place flagged or none (Colombia); "and N more"
+             counting places, not headings (Guatemala); "the city of" kept
+             in an exception; a stricter exception's call never dropped
+             (Pakistan's Chitral), nor a bare exception after one; a
+             repeated "the province of" said once among places only; no
+             line past the ceiling; no stars
+  full       the block uncut, in Canada's words, for the guide's AI prompt
+  brief      the trip prompt's form: short lines whole, a named heading (or
+             Canada's own fuller words for it: "and surroundings") for a
+             long one, up to ten names for a generic one's list or every
+             one where they all fit at their shortest; a stricter exception
+             is never "parts excepted"; a place whose list names parts of
+             it never bare
   latent     shapes the feed lacks today: an exclusion inside an exception,
              a paragraph after an unclosed list, a call-less block that
-             names a call further on, a heading over places two levels down
+             names a call further on, a heading over places two levels down,
+             a call spelled with a non-breaking hyphen or space or "non
+             essential", a stricter exception or an include on the
+             over-ceiling paths
   text       Canada's whole block for the tip, without "Useful links"
   API        backward-compatible keys (iso, source, link, watchouts,
              regional[].t/.lead/.regions) beside the new ones
@@ -140,21 +150,23 @@ SECOND = [
     ("ug", "Border with South Sudan", "areas within 50 km of the border with South Sudan, except visits to national parks when accompanied by a reputable guide"),
     ("mz", "Cabo Delgado", "Cabo Delgado Province, except Pemba City to which you should avoid non-essential travel"),
     ("az", "Border with Armenia", "except the border between Armenia and the Azerbaijani Autonomous Republic of Nakhchivan, where you should exercise a high degree of caution"),
-    ("bj", "Border areas with Burkina Faso", "including the W National Park and the Pendjari National Park"),
-    ("tz", "Portion of Mtwara", "This advisory excludes the areas within 10 km from the border with Mozambique, where you should avoid all travel; Mtwara City"),
+    ("bj", "Border areas with Burkina Faso", "This advisory includes the W National Park and the Pendjari National Park"),
+    ("tz", "Portion of Mtwara", "This advisory excludes the areas within 10 km from the border with Mozambique, where you should avoid all travel. "
+                             "This advisory also excludes Mtwara City"),
     ("in", "Jammu and Kashmir", "the Union Territory of Jammu and Kashmir, except travelling to or within the Union Territory of Ladakh"),
     ("jo", "Borders with Iraq and Syria", "within 5 km of the borders with Iraq and Syria, except the tourist site Umm Qais"),
     ("tg", "Border with Burkina Faso", "including the city and area north of Dapaong, travel along the N28 and N16 highways, as well as the cities of Cinkassé"),
     ("eg", "Northern Sinai", "except the Al Qantra Shark – Ras Sedr road"),
 ]
 for iso, h, want in SECOND:
-    # Benin's parks are in the guide's AI prompt (full): its line names its
-    # four bands instead (see "every place" below).
-    got = block(iso, h)["full" if iso == "bj" else "line"]
-    results.append(ok(want in got, "%s %s: %r in the %s (got %r)" % (iso.upper(), h, want, "full" if iso == "bj" else "line", got)))
+    got = block(iso, h)["line"]
+    results.append(ok(want in got, "%s %s: %r in the line (got %r)" % (iso.upper(), h, want, got)))
 results.append(ok("within 10 km from the border with Mozambique, where you should avoid all travel" in block("tz", "Portion of Mtwara")["line"]
                   and "where you should avoid all travel" in W._shorten("x where you should avoid all travel", {"rank": 2, "floor": 1}),
                   "Tanzania's line: a stricter exception keeps its own call ('where you should avoid all travel'), which shortening never drops"))
+tzf = block("tz", "Portion of Mtwara")["full"]
+results.append(ok(tzf.endswith(", where you should avoid all travel. This advisory also excludes Mtwara City where you should exercise a high degree of caution"),
+                  "Tanzania's full: Canada's two sentences, each with its own call — the city never in the avoid-all band's list (got %r)" % tzf))
 # A stricter exception is no relief: no "(parts excepted)" or star for it in a
 # brief (Ecuador's, Tunisia's), and each one has a stricter block of its own
 # in the same country, which the trip prompt lists first.
@@ -175,7 +187,9 @@ results.append(ok(block("ec", "Esmeraldas province")["brief"] == "Esmeraldas pro
 
 # --- nested lists ------------------------------------------------------------------
 NESTED = [
-    ("mx", "Regional Advisory", "Chiapas (except the city and ruins of Palenque; the city of Tuxtla Gutiérrez; the city of San Cristobal de las Casas)"),
+    ("mx", "Regional Advisory", "Chiapas (except the city and ruins of Palenque (and highway 186 leading there); the city of Tuxtla Gutiérrez (and its "
+                                "airport and the main road leading there); the city of San Cristobal de las Casas (and toll highway 190D between this "
+                                "city and Tuxtla Gutiérrez))"),
     ("gt", "Regional advisories", "Within Guatemala City: Zone 1, Zone 3, Zones 5–7, Zone 18, Zone 21. Municipalities: in Guatemala Department (San Pedro Ayampuc"),
     ("hn", "Regional advisory", "within 20 km of the border with Guatemala (except Copán Ruinas"),
     ("hn", "Regional advisory", "within 20 km of the border with El Salvador (except CA-1 Highway"),
@@ -185,7 +199,7 @@ NESTED = [
     ("mr", "Northern and eastern", "especially all of the following regions (Tiris Zemmour, Hodh El Gharbi, Hodh Ech Chargui)"),
     ("pe", "VRAEM", "in the Department of Apurímac (Province of Abancay, Province of Andahuaylas, Province of Chincheros)"),
     ("et", "Central regions", "zones in the Oromia region (North Shewa"),
-    ("tn", "Avoid all travel", "following tourist towns: Aïn Draham, Chebika, Mides, Tabarka, Tamerza"),
+    ("tn", "Avoid all travel", "following tourist towns, where you should exercise a high degree of caution: Aïn Draham, Chebika, Mides, Tabarka, Tamerza"),
     ("pk", "Regional advisory", "the province of Khyber Pakhtunkhwa (except Haripur and Abbottabad districts"),
     ("ph", "Central and Eastern", "Davao del Sur (except Davao City)"),
     ("ph", "Central and Eastern", "Surigao del Norte (except Siargao Island)"),
@@ -196,8 +210,9 @@ NESTED = [
     ("xk", "Northern Kosovo", "the northern part of Kosovo, particularly in the municipalities of Leposavić, North Mitrovica, Zubin Potok, Zvečan"),
     ("pa", "High-crime", "District of San Miguelito, especially the following areas (Amelia Denis de Icaza"),
 ]
-# The sub-lists folded in, as the uncut form (full) says them: a line short
-# of room says a place at its shortest (Chocó "(parts excepted)").
+# The sub-lists folded in, as the uncut form (full) says them, in Canada's
+# words — asides and calls kept: a line short of room says a place at its
+# shortest (Chocó "(parts excepted)").
 for iso, h, want in NESTED:
     got = block(iso, h)["full"]
     results.append(ok(want in got, "%s %s: %r (got %r)" % (iso.upper(), h, want, got)))
@@ -267,12 +282,18 @@ for iso in ALL:
         counts.append((iso, r["t"][:30], places(its[:shown]), int(m.group(1)), places(its)))
 bad = [c for c in counts if c[2] + c[3] != c[4]]
 results.append(ok(counts and not bad, "'and N more': places shown + N = Canada's places, on every cut single-list line (%d lines; wrong: %s)" % (len(counts), bad)))
-WANT_N = {("mx", "Regional Advisory"): 9, ("co", "Regional advisory"): 16, ("pe", "VRAEM"): 7}
-for (iso, h), n in WANT_N.items():
+# Lines that hid most of their places behind "and N more" while their room
+# went to the first ones' detail (Mexico's 9 of 14 states, Colombia's 14 of
+# 16, Peru's VRAEM three of five departments) name every one now.
+WANT_ALL = {("mx", "Regional Advisory"): 14, ("co", "Regional advisory"): 16, ("pe", "VRAEM"): 5}
+for (iso, h), n in WANT_ALL.items():
     got = block(iso, h)["line"]
-    results.append(ok(got.endswith("and %d more" % n), "%s %s: 'and %d more' (got %r)" % (iso.upper(), h, n, got[-60:])))
-results.append(ok(block("co", "Regional advisory")["line"].endswith("; and 16 more") and len(block("co", "Regional advisory")["items"]) == 16,
-                  "Colombia: 14 of its 16 items left out are 16 places — 'the following towns in Chocó' is three"))
+    body = got.split(": ", 1)[1] if iso == "pe" else got
+    results.append(ok(not re.search(r"and \d+ more$", got) and len(top_split(body, "; ")) == n == len(block(iso, h)["items"])
+                      and len(got) <= W.LINE_MAX,
+                      "%s %s: all %d places named (got %d: %r)" % (iso.upper(), h, n, len(got), got)))
+results.append(ok(places([it for g in analyzed("co", block("co", "Regional advisory"))["groups"] for it in g["items"]]) == 18,
+                  "Colombia: its 16 items are 18 places to 'and N more' — 'the following towns in Chocó' is three"))
 # Several lists: each keeps its own words and its own count (Guatemala's
 # border crossings once read as "and 8 more" municipalities).
 multi = []
@@ -291,10 +312,11 @@ for iso in ALL:
                           and places(g["items"][:shown]) + (int(m.group(1)) if m else 0) == places(g["items"])))
 results.append(ok(multi and all(c for _, _, c in multi), "several lists: each under its own words, places shown + its own N = its own places (%s)" % multi))
 gtl = block("gt", "Regional advisories")["line"]
-results.append(ok("Municipalities: in Guatemala Department (San Pedro Ayampuc, and 1 more); and 3 more. " in gtl
+results.append(ok("Municipalities: parts of Guatemala Department; parts of Escuintla Department. " in gtl
                   and "Border crossings on the following highways: CA-01 (La Mesilla border with Mexico, and 1 more); and 9 more" in gtl
                   and gtl.endswith("; and 9 more"),
-                  "Guatemala: Escuintla's three municipalities are 'and 3 more', the crossings left out nine, not the seven headings over them (got %r)" % gtl))
+                  "Guatemala: both departments' municipalities named as 'parts of' them (Escuintla's three hid behind 'and 3 more'), "
+                  "the crossings left out nine, not the seven headings over them (got %r)" % gtl))
 gtb = block("gt", "Regional advisories")["brief"]
 results.append(ok(gtb.endswith("; CA-10: Agua Caliente border with Honduras; and 5 more"),
                   "brief Guatemala: its 'and N more' counts crossings too (got %r)" % gtb[-80:]))
@@ -311,19 +333,19 @@ results.append(ok(hnl == "within 20 km of the border with Guatemala (parts excep
                   "Honduras: both bands and all seven departments named (six hid behind 'and 6 more'), each at its shortest — Cortés as "
                   "'parts of', the bands' exceptions as '(parts excepted)'; the departments after a colon, not in brackets after 'of' (got %r)" % hnl))
 pkl = block("pk", "Regional advisory")["line"]
-PK_PLACES = ["Pakistan-administered Kashmir", "the province of Balochistan", "the province of Khyber Pakhtunkhwa",
+PK_PLACES = ["Pakistan-administered Kashmir", "the province of Balochistan", "Khyber Pakhtunkhwa",
              "the area within 50 km of the border with Afghanistan", "the areas within 10 km of the borders with China, India and Iran",
              "the areas within 10 km of the Line of Control with India", "the section of the Karakoram Highway from Mansehra to Chilas"]
 results.append(ok(pkl == "; ".join(PK_PLACES) and W.LINE_CAP < len(pkl) <= W.LINE_MAX,
                   "Pakistan: all seven places named — the 10 km strips and the Karakoram Highway from Mansehra to Chilas hid behind "
-                  "'and 3 more' — their exceptions cut to fit (stricter, never looser; full has them) (got %d: %r)" % (len(pkl), pkl)))
+                  "'and 3 more' — 'the province of' said once, their exceptions cut to fit (stricter, never looser; full has them) "
+                  "(got %d: %r)" % (len(pkl), pkl)))
 bjl, bjf = block("bj", "Border areas with Burkina")["line"], block("bj", "Border areas with Burkina")["full"]
 results.append(ok(bjl == "along the border with Togo in the Atacora Department west of the Boukoumbé-Tanguiéta axis; within 50 km of the border with "
-                         "Burkina Faso, Niger and all the area north of the Interstate 7 motorway; within 50 km of the border with Nigeria, "
-                         "north of the town of Nikki in Borgou Department"
+                         "Burkina Faso; and 2 more. This advisory includes the W National Park and the Pendjari National Park"
                   and bjf.endswith(" — including the W National Park and the Pendjari National Park"),
-                  "Benin: all four bands (two hid behind 'and 2 more'), Burkina Faso's and Niger's said once; with its parks the line is "
-                  "347 characters, so they stay in full and the tip (got %r)" % bjl))
+                  "Benin: the parks stay on the line (what a block includes is a place to avoid, never cut): its four bands and the parks "
+                  "are 347 characters, past the ceiling, so two bands are counted, not the parks dropped (got %r)" % bjl))
 # The breadth form never says a place wider or narrower than Canada: a place
 # with exceptions is "(parts excepted)" or bare (its exceptions cut), one
 # whose list names parts of it "parts of", an exception with an exclusion of
@@ -339,10 +361,33 @@ got_ka = W._least(ka_items[0], "compact", cx, 1)
 results.append(ok(got_least == least and got_ka == "parts of District of Karachi (formerly Karachi South)",
                   "the shortest honest forms: %s; Karachi's first exception %r" % (got_least, got_ka)))
 co1 = block("co", "Border areas")["line"]
-results.append(ok(all(p in co1 for p in ("Arauca", "Caquetá", "Cauca", "Cesar", "Chocó", "Venezuela", "Panama", "Ecuador", "Norte de Santander", "Buenaventura"))
-                  and co1.startswith("Arauca; Caquetá (parts excepted); Cauca (parts excepted);") and "Norte de Santander;" in co1
-                  and len(co1) <= W.LINE_MAX,
-                  "Colombia: its ten areas named, '(parts excepted)' kept from the first as far as they fit, cut from the last (got %r)" % co1))
+coB = W._derepeat(analyzed("co", block("co", "Border areas")))
+co_marked = W._compose(coB, "compact", 80, False)
+results.append(ok(co1 == "Arauca; Caquetá; Cauca; parts of Cesar; Chocó; within 50 km of the border with Venezuela; within 100 km of the border "
+                         "with Panama; within 50 km of the border with Ecuador; Norte de Santander; the Port of Tumaco and the city of Buenaventura"
+                  and len(co_marked) > W.LINE_MAX and co_marked.count("(parts excepted)") == 6,
+                  "Colombia: its ten areas named; with all six '(parts excepted)' the line is %d, past the ceiling, so none is flagged — "
+                  "never three flagged and three bare, which read as if Canada excepted nothing from Cúcuta or Ipiales (got %r)" % (len(co_marked), co1)))
+# A list flags every place Canada lets parts off ("(parts excepted)" or its
+# exceptions named) or none: some flagged and others bare reads as if
+# Canada excepted nothing from those.
+mixed = []
+for iso, r in [(iso, r) for iso in ALL for r in OUT[iso]["regional"]]:
+    B = W._derepeat(analyzed(iso, r))
+    shown = {"flag": [], "bare": []}
+    for it in W._marked(B):
+        place = W._heading(W._split_exc(it["t"])[0]).rstrip(" ,")
+        if W._qualified(W._split_exc(it["t"])[0]):
+            continue                        # "parts of Jalisco": no flag needed
+        for m in re.finditer(re.escape(place), r["line"]):
+            rest = r["line"][m.end():]
+            if rest.startswith(" ("):
+                shown["flag"].append(place)       # "(parts excepted)" or its exceptions named
+            elif re.match(r"(?:; |, |\. |$)", rest):
+                shown["bare"].append(place)
+    if shown["flag"] and shown["bare"]:
+        mixed.append((iso, r["t"][:30], shown))
+results.append(ok(not mixed, "no line flags some excepted places and says others bare (got %s)" % mixed))
 egl = block("eg", "Western desert")["line"]
 results.append(ok(egl == "within 50 kilometres of the border with Libya; the Western Desert, west of the Giza-Luxor-Aswan-Abu Simbel road, including the "
                          "oasis of Dakhla. This advisory excludes Marsa Matruh via the Marsa Matruh Road only; and 3 more",
@@ -367,7 +412,7 @@ for iso, r in [(iso, r) for iso in ALL for r in OUT[iso]["regional"]]:
     if len(excs) > 1 or any(len(e["items"]) > 1 for e in excs):
         for f in ("line", "full"):
             x = r[f]
-            several.append((iso, r["t"][:30], f, "This advisory excludes " in x or bool(re.search(r"except the following \w+:", x))
+            several.append((iso, r["t"][:30], f, "This advisory excludes " in x or bool(re.search(r"except the following \w+[^:;]*:", x))
                             or not re.search(r"\bexcept\b", x)))
 results.append(ok(len(several) >= 8 and all(c for *_, c in several),
                   "every block with several exceptions says them under words that end the places (%s)" % [c for c in several if not c[-1]]))
@@ -399,9 +444,11 @@ results.append(ok(not long_b, "no brief past %d characters, a generic heading's 
 results.append(ok(not [r["line"] for _, r in lines if "*" in r["line"]], "no line marks exceptions with a bare star: they are named"))
 results.append(ok(all(r["line"] and r["call"] for _, r in lines), "every block has a call and a line"))
 co2 = block("co", "Regional advisory")
-results.append(ok(co2["line"].startswith("Amazonas, within 20 km of the border with Peru, west of Puerto Narino;")
+results.append(ok(co2["line"].startswith("parts of Amazonas; parts of Antioquia; parts of Córdoba;")
+                  and co2["full"].startswith("Amazonas, within 20 km of the border with Peru, west of Puerto Narino;")
                   and not any("Peru" in x for x in co2["excepts"]),
-                  "Colombia: 'Amazonas, within 20 km of the border with Peru' is a strip of Amazonas, not Amazonas with parts excepted"))
+                  "Colombia: 'Amazonas, within 20 km of the border with Peru' is a strip of Amazonas — 'parts of Amazonas' at its shortest, "
+                  "never Amazonas with parts excepted (got %r)" % co2["line"][:80]))
 mxl = block("mx", "Regional Advisory")["line"]
 results.append(ok("Guanajuato, in all areas south of and including highways 43D and 45D" in mxl and "Guanajuato (except" not in mxl
                   and not any("Michoacán state" in x or "Sinaloa and Durango" in x for x in block("mx", "Regional Advisory")["excepts"]),
@@ -413,6 +460,9 @@ CITY = re.compile(r"^(?:the )?(?:city and ruins|cities|city|towns?|municipalit(?
 named_city, widened = [], []
 for iso, r in lines:
     B = analyzed(iso, r)
+    # A place Canada names that is also its excepted city's name ("Zacatecas,
+    # excluding the city of Zacatecas"): bare in a list, it is the state.
+    own = {W._split_exc(it["t"])[0].strip(" ,:").lower() for it in W._walk([it for g in B["groups"] for it in g["items"]])}
     xs = [_x for it in W._walk([it for g in B["groups"] for it in g["items"]]) for _x in
           ([W._split_exc(it["t"])[1] or ""] + ([k["t"] for k in it["items"]] if W._split_exc(it["t"])[1] is not None else []))]
     xs += [k["t"] for e in B["extras"] if e["k"] == "except" for k in e["items"]] + [e["t"] for e in B["extras"] if e["k"] == "except"]
@@ -425,7 +475,8 @@ for iso, r in lines:
         if not W._shorten(x, B["cx"]).lower().startswith(x[:m.start(1)].lower()):
             widened.append((iso, x, W._shorten(x, B["cx"])))
         for f in ("line", "full"):
-            if re.search(r"(?:\(except |; |, )" + re.escape(y) + r"\b", r[f]) and not re.search(r"\bof " + re.escape(y), r[f]):
+            lead = r"\(except " if y.lower() in own else r"(?:\(except |; |, )"
+            if re.search(lead + re.escape(y) + r"\b", r[f]) and not re.search(r"\bof " + re.escape(y), r[f]):
                 widened.append((iso, f, y))
 results.append(ok(len(named_city) >= 15 and not widened and "Colón (except the city of Trujillo)" in block("hn", "Regional advisory")["full"]
                   and "Caquetá (except the city of Florencia)" in block("co", "Border areas")["full"],
@@ -444,8 +495,16 @@ for (iso, h), want in BRIEF.items():
     results.append(ok(block(iso, h)["brief"] == want, "brief %s %s: %r (got %r)" % (iso.upper(), h, want, block(iso, h)["brief"])))
 mxb = block("mx", "Regional Advisory")["brief"]
 results.append(ok(mxb.startswith("Chiapas*; Chihuahua*; Colima*; Guanajuato, in all areas south of and including highways 43D and 45D")
-                  and "Nayarit, within 20 km of the border with the states of Sinaloa and Durango; Nuevo León*" in mxb and mxb.endswith("; and 4 more"),
-                  "brief Mexico: ten states as before the server's line, starred where parts are excepted, the qualifiers kept (got %r)" % mxb))
+                  and "Nayarit, within 20 km of the border with the states of Sinaloa and Durango; Nuevo León*" in mxb
+                  and mxb.endswith("; Sinaloa*; Sonora*; Tamaulipas*; Zacatecas*") and len(mxb) <= W.BRIEF_NAMES,
+                  "brief Mexico: all 14 states (Sinaloa, Sonora, Tamaulipas and Zacatecas hid behind 'and 4 more' with room for them), "
+                  "starred where parts are excepted, the qualifiers kept (got %r)" % mxb))
+cob = block("co", "Regional advisory")["brief"]
+results.append(ok(cob.startswith("Amazonas, within 20 km of the border with Peru") and cob.endswith("; Vaupés; Vichada") and len(cob) <= W.BRIEF_NAMES,
+                  "brief Colombia: all 16 (Nariño, Putumayo, Valle del Cauca … hid behind 'and 8 more'), each in Canada's words while they fit (got %r)" % cob[-90:]))
+for h in ("Upper Huallaga", "VRAEM"):
+    results.append(ok(block("pe", h)["brief"].endswith(" and surroundings"),
+                      "brief Peru %s: Canada's own 'and surroundings', not the bare heading (got %r)" % (h, block("pe", h)["brief"])))
 gtb = block("gt", "Regional advisories")["brief"]
 results.append(ok("Municipalities: in Guatemala Department (San Pedro Ayampuc, Villa Canales)" in gtb and "Border crossings on the following highways: CA-01" in gtb
                   and gtb.endswith("; and 5 more"), "brief Guatemala: each list under its own words, the crossings counted as crossings (got %r)" % gtb))
@@ -481,9 +540,105 @@ two = W.regional_blocks("<h3>Regional advisory - Avoid all travel</h3><p>Avoid a
                         "<li>Gamma:<ul><li>G1</li><li>G2</li></ul></li><li>in Delta:<ul><li>D1</li><li>D2</li><li>D3</li></ul></li></ul></li>"
                         + "".join("<li>a long place number %d with words enough to need a brief of names</li>" % i for i in range(3)) + "</ul>", "Nowhere", 1)[0]
 results.append(ok(two["brief"].startswith("in the regions of (parts of Alpha; Beta; parts of Gamma; in Delta (D1, and 2 more)); a long place")
-                  and two["line"].startswith("in the regions of (parts of Alpha; Beta; Gamma (G1, G2); in Delta (D1, D2, D3)); a long place"),
+                  and two["line"].startswith("in the regions of (parts of Alpha; Beta; Gamma (G1, G2); parts of Delta); a long place"),
                   "brief and line: a place two levels down whose list names its parts is 'parts of' it, a heading over places its first and "
-                  "'and N more', never bare (got %r / %r)" % (two["brief"][:120], two["line"][:120])))
+                  "'and N more' or 'parts of' its place ('in Delta'), never bare (got %r / %r)" % (two["brief"][:120], two["line"][:120])))
+
+# --- room goes to places before detail, never the other way --------------------------------
+# More room never names fewer places: the breadth pass once gave a place its
+# exceptions whole while a heading's places stayed hidden (Mexico named 5 of
+# its 14 states, Colombia 2 of 16).
+syn5 = W._analyze("Regional advisory - Avoid all travel", "<p>Avoid all travel to the following areas due to crime:</p><ul>"
+                  "<li>Alphaland province, excluding the city of Alpha Town and its airport road</li><li>in Beta Department:<ul>"
+                  + "".join("<li>Beta municipality number %d</li>" % i for i in range(6)) + "</ul></li>"
+                  "<li>a long trailing place that pads the line out to the cap of the line here and there and more</li></ul>", 1)
+named = []
+for room in range(150, 300, 4):
+    x = W._compose(syn5, "compact", room)
+    top = sum(int(n) for n in re.findall(r"and (\d+) more", " ".join(p for p in top_split(x, "; ") if not p.startswith("in Beta"))))
+    named.append((room, top, len(re.findall(r"Beta municipality number \d", x)), x))
+# Top-level places hidden never rise with room, and at the same number the
+# municipalities named never fall; no place has its exceptions while one of
+# the municipalities could have been named instead.
+mono = all(b[1] < a[1] or (b[1] == a[1] and b[2] >= a[2]) for a, b in zip(named, named[1:]))
+detail_last = all("(except the city" not in x or n == 6 for _, _, n, x in named)
+results.append(ok(mono and detail_last,
+                  "breadth first: more room never hides more places or names fewer, no place's exceptions before every place is named "
+                  "(room, top-level hidden, municipalities named: %s)" % [(r, t, n) for r, t, n, _ in named]))
+# A stricter exception never goes and what a block includes never goes, on
+# any of the over-ceiling paths: a place whose exception is stricter is
+# never said bare, a stricter "This advisory excludes …" sentence and a
+# "This advisory includes …" one stay on the line.
+far = ["the northern province of Alphaland along the whole of the eastern frontier road",
+       "the southern province of Betaland along the whole of the western frontier road",
+       "the central province of Gammaland between the two great rivers of the plateau",
+       "the coastal province of Deltaland including all of its offshore island chain"]
+bands = ["within 50 km of the border with Alphaland north of the great eastern motorway",
+         "within 50 km of the border with Betaland west of the great southern motorway axis",
+         "within 50 km of the border with Gammaland, north of the town of Somewhere in Department",
+         "along the border with Deltaland in the Department west of the long named highway axis"]
+ul = lambda xs: "<ul>" + "".join("<li>%s</li>" % x for x in xs) + "</ul>"
+sa = W._regional("Regional advisory - Avoid non-essential travel", "<p>Avoid non-essential travel to the following areas due to crime:</p>"
+                 + ul(far + ["Esmeraldas, excluding within 20 km of the border with Colombia where you should avoid all travel"]), 1)["line"]
+sb = W._regional("Border areas - Avoid non-essential travel", "<p>Avoid non-essential travel to the following areas due to crime:</p>" + ul(bands)
+                 + "<p>This advisory excludes the areas within 10 km from the border with Gammaland, where you should avoid all travel.</p>", 1)["line"]
+sc = W._regional("Border areas - Avoid all travel", "<p>Avoid all travel to the following areas due to crime:</p>" + ul(bands)
+                 + "<p>This advisory includes the Big National Park and the Other Long National Park.</p>", 1)["line"]
+results.append(ok(not re.search(r"Esmeraldas(?:;|$)", sa) and "within 10 km from the border with Gammaland, where you should avoid all travel" in sb
+                  and "This advisory includes the Big National Park and the Other Long National Park" in sc
+                  and all(len(x) <= W.LINE_MAX for x in (sa, sb, sc)),
+                  "over the ceiling: a place with a stricter exception is never bare, a stricter exception sentence and an include stay "
+                  "(got %r / %r / %r)" % (sa[-60:], sb[-110:], sc[-90:])))
+# One exception keeping its call ("where you should avoid all travel") and
+# the next said bare after "; " read as one more avoid-all place: a list
+# keeps every call or none, Canada's sentences stay sentences.
+STRICT = re.compile(r"(?:where|on which|to which|in which) (?:you should|we advise) (?:avoid all travel|against all travel|avoid non-essential travel); ([^;.)]*)")
+after = [(iso, f, m.group(1)[:40]) for iso, r in lines for f in ("line", "full") for m in STRICT.finditer(r[f])
+         if W._rank(re.search(r"(avoid all travel|against all travel|avoid non-essential travel)", m.group(0)).group(1)) > W._rank(r["call"])
+         and not W._WHERE.search(", " + m.group(1)) and not re.match(r"and \d+ more", m.group(1))]
+mixed_x = W._fill([{"t": "the town of A where you should exercise a high degree of caution", "items": []},
+                   {"t": "the band B where you should avoid all travel", "items": []},
+                   {"t": "the town of C where you should exercise a high degree of caution", "items": []}], "compact",
+                  {"rank": 2, "floor": 1}, 1, None)[0]
+results.append(ok(not after and mixed_x.count("where you should") == 3,
+                  "no exception said bare right after a stricter one's call in a '; ' list (got %s; a mixed list: %r)" % (after, mixed_x)))
+
+# --- shapes the 2026-10-15 feed has: Mauritania, Ecuador's Guayaquil, Peru ------------------------
+mrr = block("mr", "Northern and eastern")
+results.append(ok(not mrr["line"].endswith(".") and mrr["full"].startswith("northern and eastern Mauritania, especially all of the following regions"),
+                  "Mauritania: no full stop left mid-line, no heading said twice in full (got %r / %r)" % (mrr["line"][-30:], mrr["full"][:60])))
+ecl = block("ec", "Esmeraldas province")["line"]
+results.append(ok("in Guayas (Durán; Milagro; areas of northern Guayaquil; areas of southern Guayaquil)" in ecl and ecl.startswith("the province of Esmeraldas; in El Oro (")
+                  and ecl.endswith(" — except within 20 km of the border with Colombia where we advise against all travel") and len(ecl) <= W.LINE_CAP,
+                  "Ecuador: Guayaquil named (it hid in Guayas's 'and 15 more'), 'the province of' said once, the stricter exception kept (got %r)" % ecl))
+der = W._derepeat({"groups": [{"intro": "", "items": [
+    {"t": "the province of Alpha", "items": []},
+    {"t": "the province of Beta, excluding the province of Gamma", "items": []},
+    {"t": "the province of Delta, excluding:", "items": [{"t": "the province of Epsilon", "items": []}, {"t": "the province of Zeta", "items": []}]},
+    {"t": "the city of Eta", "items": []}, {"t": "the city of Theta", "items": []}]}]})
+results.append(ok([it["t"] for it in der["groups"][0]["items"]] == ["the province of Alpha", "Beta, excluding the province of Gamma",
+                                                                    "Delta, excluding:", "the city of Eta", "the city of Theta"]
+                  and [k["t"] for k in der["groups"][0]["items"][2]["items"]] == ["the province of Epsilon", "the province of Zeta"],
+                  "a repeated 'the province of' is said once among places, never in an exception, never 'the city of' (got %s)"
+                  % [it["t"] for it in der["groups"][0]["items"]]))
+results.append(ok(W._qualified("Amazonas, within 20 km of the border with Peru, west of Puerto Narino") == "Amazonas"
+                  and W._qualified("Cesar, in the municipalities of González and Río de Oro") == "Cesar"
+                  and W._qualified("within 50 km of the border with Nigeria, north of the town of Nikki in Borgou Department") is None
+                  and W._qualified("areas within 25 km of the northern borders, west of the line") is None
+                  and W._qualified("the Western Desert, west of the Giza-Luxor-Aswan-Abu Simbel road, including the oasis of Dakhla") is None
+                  and W._qualified("Kosovo, in particular the north") is None,
+                  "'parts of' a place only where the item names the place first, then the part of it"))
+# Canada's calls however the feed spells them: kept, never a notice to drop.
+loose = {k: W.regional_blocks(h, "Nowhere", 1) for k, h in {
+    "nb-hyphen": "<h3>Northern region - Avoid non&#8209;essential travel</h3><p>Avoid non&#8209;essential travel to the northern region due to crime.</p>",
+    "nbsp": "<h3>Northern region - Avoid all&nbsp;travel</h3><p>Avoid all&nbsp;travel to the northern region due to crime.</p>",
+    "no-hyphen": "<h3>Northern region - Avoid non essential travel</h3><p>Avoid non essential travel to the northern region due to crime.</p>",
+    "unknown call": "<h3>Northern region - Steer clear</h3><p>Until 2027, travellers must quarantine.</p>"}.items()}
+results.append(ok([(k, [x["call"] for x in v]) for k, v in loose.items()] == [
+    ("nb-hyphen", ["Avoid non-essential travel"]), ("nbsp", ["Avoid all travel"]), ("no-hyphen", ["Avoid non-essential travel"]),
+    ("unknown call", ["Steer clear"])],
+                  "a call spelled with a non-breaking hyphen or space, or 'non essential', is that call; a heading with a ' - ' segment "
+                  "is never a notice (got %s)" % [(k, [x["call"] for x in v]) for k, v in loose.items()]))
 
 # --- text ----------------------------------------------------------------------------
 ugn = next(m.group(2) for m in H3.finditer(feed("ug")["data"]["eng"]["advisories"]) if "Ebola" in m.group(1))
@@ -536,9 +691,13 @@ results.append(ok(keys_ok, "API: iso, source, link, watchouts and regional[].t/.
 # wherever the line is the whole block.
 uncut = [(iso, r["t"][:30]) for iso, r in lines if r["call"].lower().startswith("avoid") and (
          re.search(r"and \d+ more|\(parts excepted\)|except (?:the following \w+: )?parts of\b", r["full"])
-         or (r["line"] != r["full"] and r["line"] == W._compose(analyzed(iso, r), "compact")))]
-results.append(ok(not uncut and block("et", "Border areas")["full"] != block("et", "Border areas")["line"],
-                  "full: the block uncut for the guide's AI prompt, the line itself wherever the line is whole (wrong: %s)" % uncut))
+         or (analyzed(iso, r)["L"] and r["full"] != W._compose(analyzed(iso, r), "full")))]
+pkf = block("pk", "Regional advisory")["full"]
+results.append(ok(not uncut and block("et", "Border areas")["full"] != block("et", "Border areas")["line"]
+                  and "Wagah (which is currently closed) and the Grand Trunk Road" in pkf and "the Kartarpur Corridor (which is intermittently open)" in pkf
+                  and "Haripur and Abbottabad districts where you should exercise a high degree of caution" in pkf,
+                  "full: the block uncut for the guide's AI prompt, in Canada's words — no aside or call shortened away (Pakistan's Wagah "
+                  "'(which is currently closed)') (wrong: %s)" % uncut))
 results.append(ok(block("pk", "Regional advisory")["regions"][:2] == ["Pakistan-administered Kashmir", "the province of Balochistan"]
                   and OUT["il"]["link"] == "https://travel.gc.ca/destinations/israel-and-palestine",
                   "regions keep today's meaning (the first list's top level), link the travel.gc.ca page"))

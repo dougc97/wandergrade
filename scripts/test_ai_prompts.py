@@ -433,7 +433,8 @@ results.append(ok(pairs(got[1]) == [(A, SRV["regional"][2]["brief"]), (N, "Karac
 # ⓘ, so the guide's takes full, the line uncut. From Canada's feed as the
 # parser reads it (scripts/fixtures/gac): every top-level place of Mexico's,
 # Colombia's and Nigeria's long lists, and Honduras's El Salvador border and
-# departments, reach the guide prompt; the trip's brief names up to 10.
+# departments, reach the guide prompt; the trip's brief names up to 10, or
+# every one where they all fit at their shortest (Mexico's 14, 2026-10-17).
 sys.path.insert(0, ROOT)
 from fxtracker import watchouts as W  # noqa: E402
 FX = {iso: W.from_feed(iso, json.load(open(os.path.join(ROOT, "scripts", "fixtures", "gac", iso + ".json"), encoding="utf-8")))
@@ -447,7 +448,7 @@ for iso, w in FX.items():
         if not re.match(r"avoid (all|non-essential) travel$", r["call"], re.I):
             continue
         for it in r["items"]:
-            name = W._split_exc(it["t"])[0].rstrip(" ,:")
+            name = W._unstop(W._split_exc(it["t"])[0].rstrip(" ,:"))      # an item's closing full stop isn't said mid-line
             name = re.sub(r"^the following\s+", "", name, flags=re.I)
             if name not in guide:
                 lost.append((iso, name[:40]))
@@ -455,9 +456,9 @@ for iso, w in FX.items():
             cut.append(iso)
 results.append(ok(got and not lost and not cut, "avoidAreas, guide: the server's full form, every place named and no 'and N more' (lost: %s; cut lines: %s)" % (lost, cut)))
 trip = {iso: " | ".join(x["text"] for x in (got.get(iso) or [[], []])[1]) for iso in FX}
-results.append(ok(trip.get("mx", "").count("*;") + trip.get("mx", "").count("Morelos;") >= 8 and trip.get("mx", "").endswith("and 4 more")
+results.append(ok(trip.get("mx", "").count("*;") + trip.get("mx", "").count("Morelos;") >= 11 and trip.get("mx", "").endswith("Tamaulipas*; Zacatecas*")
                   and "Olancho" in trip.get("hn", "") and "El Salvador" in trip.get("hn", ""),
-                  "avoidAreas, trip: brief names up to 10 places as before the server's line (MX %r)" % trip.get("mx", "")[-80:]))
+                  "avoidAreas, trip: brief names every place where they all fit at their shortest — Mexico's 14 states (MX %r)" % trip.get("mx", "")[-80:]))
 
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)
