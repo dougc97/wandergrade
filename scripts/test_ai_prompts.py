@@ -456,7 +456,11 @@ for iso, w in FX.items():
             cut.append(iso)
 results.append(ok(got and not lost and not cut, "avoidAreas, guide: the server's full form, every place named and no 'and N more' (lost: %s; cut lines: %s)" % (lost, cut)))
 trip = {iso: " | ".join(x["text"] for x in (got.get(iso) or [[], []])[1]) for iso in FX}
-results.append(ok(trip.get("mx", "").count("*;") + trip.get("mx", "").count("Morelos;") >= 11 and trip.get("mx", "").endswith("Tamaulipas*; Zacatecas*")
+# (Since 2026-10-17 a place's exceptions are said where they fit instead of
+# its star — Chiapas's and Chihuahua's — so the states are counted by name.)
+mx_states = [re.split(r"[,(]", W._split_exc(it["t"])[0])[0].strip() for r in FX["mx"]["regional"] if r["t"].startswith("Regional") for it in r["items"]]
+results.append(ok(len(mx_states) == 14 and all(x in trip.get("mx", "") for x in mx_states)
+                  and trip.get("mx", "").endswith("Tamaulipas*; Zacatecas*")
                   and "Olancho" in trip.get("hn", "") and "El Salvador" in trip.get("hn", ""),
                   "avoidAreas, trip: brief names every place where they all fit at their shortest — Mexico's 14 states (MX %r)" % trip.get("mx", "")[-80:]))
 
