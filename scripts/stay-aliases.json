@@ -219,10 +219,22 @@
    "title": "Pamplemousses District"
   }
  },
+ "MW": {
+  "Lake Malawi": {
+   "label": "Lake Malawi",
+   "title": "Lake Malawi National Park"
+  }
+ },
  "MY": {
   "Borneo": {
    "label": "Borneo",
    "title": "Kota Kinabalu"
+  }
+ },
+ "MZ": {
+  "Bazaruto": {
+   "label": "Bazaruto Archipelago",
+   "title": "Bazaruto Archipelago"
   }
  },
  "NI": {
@@ -270,6 +282,13 @@
   "Lake Kivu": {
    "label": "Lake Kivu",
    "title": "Gisenyi"
+  },
+  "Nyungwe": {
+   "label": "Nyungwe",
+   "ll": [
+    -2.5591,
+    29.2939
+   ]
   }
  },
  "SE": {
@@ -305,6 +324,13 @@
   }
  },
  "TJ": {
+  "Fann Mountains": {
+   "label": "Fann Mountains",
+   "ll": [
+    39.18333,
+    68.18333
+   ]
+  },
   "Pamir Highway road trip": {
    "title": "Pamir Highway"
   },
@@ -325,8 +351,19 @@
   }
  },
  "TT": {
+  "Maracas Bay": {
+   "label": "Maracas Bay",
+   "ll": [
+    10.7658,
+    -61.4345
+   ]
+  },
   "Tobago": {
-   "title": "Tobago"
+   "label": "Tobago",
+   "ll": [
+    11.2405,
+    -60.672
+   ]
   }
  },
  "UA": {
@@ -335,6 +372,13 @@
   }
  },
  "UY": {
+  "Carmelo": {
+   "label": "Carmelo",
+   "ll": [
+    -33.9968,
+    -58.2836
+   ]
+  },
   "Colonial Colonia": {
    "title": "Colonia del Sacramento"
   }

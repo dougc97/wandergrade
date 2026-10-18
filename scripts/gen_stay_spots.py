@@ -11,21 +11,29 @@ same disambiguation fallbacks the photo pipeline uses ("Ella, Sri Lanka" /
 
 Every coordinate must land in the country itself (see in_country): nothing
 checked that, so "Granada" resolved to Spain and Nicaragua's default
-Booking.com link searched hotels in Andalusia.
+Booking.com link searched hotels in Andalusia. A coordinate given only to
+whole degrees is a region's rough centre, and near a border it can be across
+it: Wikipedia's Fann Mountains (39, 68) is in Uzbekistan.
 
-No spot inside a zone Canada says to avoid all travel to (see SKIP_PATH):
-Benin's chips offered Pendjari National Park, which Canada's advisory names.
+Every spot is its own point (see placeholder): Wikipedia's "Maracas Bay"
+carries the coordinates of the whole island of Trinidad, so its chip searched
+the same hotels as the "Trinidad" chip beside it.
+
+No spot inside a zone Canada says to avoid all travel to, nor inside an area
+the US State Department names under "Do not travel" (see SKIP_PATH): Benin's
+chips offered Pendjari National Park, which Canada's advisory names.
 
 Run from the repo root with /usr/bin/python3; re-run when activities or
 galleries change:
   /usr/bin/python3 scripts/gen_stay_spots.py            # every country (rewrites the file)
   /usr/bin/python3 scripts/gen_stay_spots.py NI SL      # just these; merged into the file
   /usr/bin/python3 scripts/gen_stay_spots.py --prune    # drop skip-listed spots, fetch nothing
-  /usr/bin/python3 scripts/gen_stay_spots.py --check    # validate the file + Canada's live zones
-  /usr/bin/python3 scripts/gen_stay_spots.py --check --dir <feed copy>   # zones from a local copy
+  /usr/bin/python3 scripts/gen_stay_spots.py --check    # validate the file + Canada's and the US's live words
+  /usr/bin/python3 scripts/gen_stay_spots.py --check --dir <feed copy> --us <rss copy>   # from local copies
 """
 
 import hashlib
+import html
 import json
 import math
 import os
@@ -70,7 +78,14 @@ EXTRA_AREAS = {
     "YE": [(12.0, 52.0, 12.8, 54.6)],                                  # Socotra
 }
 
+# Two spots closer than DUP_KM are one stay anchor (San Blas / Guna Yala); a
+# spot within CENTROID_KM of the map's centre of its country is the country,
+# not a place in it.
+DUP_KM = 3
+CENTROID_KM = 0.5
+
 _GEOMS = None
+_CENTROIDS = None
 
 
 def _geoms():
@@ -82,6 +97,20 @@ def _geoms():
             if iso and iso != "-99":
                 _GEOMS.setdefault(iso, []).append(f["geometry"])
     return _GEOMS
+
+
+def _centroids():
+    """{iso: [lon, lat]}: the centre app.js puts each country's map pin on."""
+    global _CENTROIDS
+    if _CENTROIDS is None:
+        _CENTROIDS = geo.country_centroids()
+    return _CENTROIDS
+
+
+def _decimals(x):
+    s = repr(round(float(x), 6))
+    s = s.rstrip("0").rstrip(".") if "." in s else s
+    return len(s.split(".")[1]) if "." in s else 0
 
 
 def _km_to(pt, geometry):
@@ -100,14 +129,37 @@ def _km_to(pt, geometry):
     return best
 
 
-def in_country(ll, iso):
-    """True when [lat, lng] is plausibly in `iso` (see NEAR_KM above)."""
+def rough(ll):
+    """True when [lat, lng] is given to whole degrees: Wikipedia's rough
+    centre of a range or a region, good only to ~55 km."""
+    return min(_decimals(x) for x in ll) == 0
+
+
+def near_neighbour(ll, iso):
+    """The other country within NEAR_KM of a rough [lat, lng], or None. The
+    coarse map can't tell sides that close to a border, and a whole-degree
+    point doesn't say which side its place is on: the Fann Mountains' (39, 68)
+    is 4 km inside Tajikistan on the map and in Uzbekistan on the ground."""
+    if not rough(ll):
+        return None
+    pt = (ll[1], ll[0])
+    for other, geoms in sorted(_geoms().items()):
+        if other != iso and min(_km_to(pt, x) for x in geoms) < NEAR_KM:
+            return other
+    return None
+
+
+def in_country(ll, iso, curated=False):
+    """True when [lat, lng] is plausibly in `iso` (see NEAR_KM above). A
+    curated point (stay-aliases.json "ll") is trusted however round it is."""
     if any(a <= ll[0] <= c and b <= ll[1] <= d for a, b, c, d in EXTRA_AREAS.get(iso, [])):
         return True
     g = _geoms()
     own = g.get(iso)
     if not own:
         return True                  # no geometry to judge by (tiny territories)
+    if not curated and near_neighbour(ll, iso):
+        return False
     pt = (ll[1], ll[0])
     if any(geo.in_geometry(pt, x) for x in own):
         return True
@@ -203,6 +255,12 @@ except OSError:
 # line already quotes Canada. --check flags a block that is new, gone or
 # reworded since the review; the review itself is by hand (a zone is words —
 # a region, a border band, a park — not a shape).
+# Under "us", the same for the State Department's regional "Do not travel"
+# areas, where it names them (a region, a county, a 10 km band; "specific
+# areas within" one names nothing): per country a fingerprint of the feed's
+# "Do Not Travel to" words and the places inside an area they name. Tiya,
+# clear of Canada's Ethiopian zones, is in the US's Oromia. A whole country
+# at the US's level 4 is app.js's rule (no stays for that source), not this.
 SKIP_PATH = os.path.join(ROOT, "scripts", "stay-skip.json")
 try:
     SKIP = json.load(open(SKIP_PATH, encoding="utf-8"))
@@ -216,10 +274,18 @@ def _fold(s):
                    if not unicodedata.combining(c)).casefold()
 
 
+def _skip_lists(iso, skip=None):
+    """Every "skip" dict for `iso`: one per Canada block, then the US's."""
+    skip = skip or SKIP
+    for block in ((skip.get("countries") or {}).get(iso) or {}).values():
+        yield block.get("skip") or {}
+    yield ((((skip.get("us") or {}).get("countries") or {}).get(iso) or {}).get("skip")) or {}
+
+
 def skipped(iso, *names, skip=None):
     """The skip-listed place any of `names` is (same_place), or None."""
-    for block in (((skip or SKIP).get("countries") or {}).get(iso) or {}).values():
-        for s in block.get("skip") or {}:
+    for places in _skip_lists(iso, skip):
+        for s in places:
             if any(n and same_place(_fold(n), _fold(s)) for n in names):
                 return s
     return None
@@ -248,6 +314,65 @@ def review_problems(iso, blocks, skip=None):
             out.append("%s avoid-all block gone from Canada's page%s: %s" % (
                 iso, " (its skipped places may be fine now)" if b.get("skip") else "", t))
     return out
+
+
+# The US feed (advisories.FEED, RSS) gives each country's advisory as one
+# description. Its regional list opens "Do Not Travel to:" and runs to the
+# next tier ("Reconsider travel to", "Exercise increased caution in") or to
+# the staff rules and summary that follow it.
+US_LEAD = re.compile(r"\bdo not travel (?:to|within|in)\b", re.I)
+US_STOP = re.compile(r"\b(?:reconsider travel|exercise (?:increased|normal) caution|advisory summary"
+                     r"|u\.s\. government employee|read the (?:entire|full))", re.I)
+
+
+def us_text(desc):
+    """An RSS description as plain text."""
+    t = re.sub(r"<!\[CDATA\[|\]\]>", "", desc or "")
+    t = html.unescape(re.sub(r"<[^>]+>", " ", html.unescape(t)))
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def us_passage(text):
+    """A US advisory's regional "Do not travel" words, or ""."""
+    m = US_LEAD.search(text or "")
+    if not m:
+        return ""
+    rest = text[m.start():]
+    stop = US_STOP.search(rest, 1)
+    return (rest[:stop.start()] if stop else rest).strip()
+
+
+def us_passages(raw):
+    """{iso: the regional "Do not travel" words} from the US feed's XML, for
+    countries below level 4 (at 4 the whole country is "do not travel", which
+    app.js already answers with no stays). A country the feed lists twice
+    gets both rows' words, in a fixed order."""
+    from fxtracker import advisories
+    name_iso = advisories._name_to_iso()
+    found = {}
+    for block in re.findall(r"<item>(.*?)</item>", raw or "", re.S):
+        m = re.match(r"(.+?)\s*[-–]\s*Level\s*(\d)", html.unescape(advisories._tag(block, "title")))
+        if not m or int(m.group(2)) >= 4:
+            continue
+        iso = name_iso.get(advisories._norm(m.group(1)))
+        words = us_passage(us_text(advisories._tag(block, "description")))
+        if iso and words:
+            found.setdefault(iso, set()).add(words)
+    return {iso: " | ".join(sorted(w)) for iso, w in found.items()}
+
+
+def us_review_problems(iso, words, skip=None):
+    """What changed in one country's US "Do not travel" words since the
+    review: `words` as us_passages gives them ("" for none)."""
+    seen = (((skip or SKIP).get("us") or {}).get("countries") or {}).get(iso)
+    if words and not seen:
+        return ["%s new US \"Do not travel\" areas, not reviewed: %s" % (iso, words[:160])]
+    if words and seen.get("fp") != fingerprint(words):
+        return ["%s US \"Do not travel\" areas reworded since the review: %s" % (iso, words[:160])]
+    if not words and seen:
+        return ["%s US \"Do not travel\" areas gone from the feed, or the country is now level 4%s"
+                % (iso, " (its skipped places may be fine now)" if seen.get("skip") else "")]
+    return []
 
 
 def build_country(args):
@@ -282,9 +407,18 @@ def _build_country(args):
             return
         ll = (al or {}).get("ll") or coords_with_fallback((al or {}).get("title") or subject,
                                                           country, iso)
-        # Two names for one place (San Blas / Guna Yala) make two identical chips.
-        if ll and not any(geo.dist_km((ll[1], ll[0]), (s["ll"][1], s["ll"][0])) < 3 for s in spots):
-            spots.append({"n": name, "ll": ll})
+        if not ll:
+            return
+        why = placeholder(iso, name, ll, spots)
+        if why:
+            # Two names for one place (San Blas / Guna Yala) are one chip. The
+            # very same point is that, or a borrowed one (Maracas Bay's was
+            # Trinidad's): said, so a place that lost its chip can get its own
+            # point in stay-aliases.json.
+            if not why.startswith("within"):
+                print("\n%s: %s %s left out — %s" % (iso, name, ll, why), end="")
+            return
+        spots.append({"n": name, "ll": ll})
 
     # Activity places first (up to 5) — these mirror "top things to do".
     for s in act_cands:
@@ -295,10 +429,48 @@ def _build_country(args):
     return iso, spots
 
 
+def placeholder(iso, name, ll, spots):
+    """Why `ll` isn't a point of its own beside `spots` (the country's spots
+    so far), or None: the same point as one of them (Maracas Bay borrowing
+    Trinidad's), within DUP_KM of one (one place, two names), the same place
+    by name, or the centre of the country itself."""
+    pt = (ll[1], ll[0])
+    for s in spots:
+        if [round(x, 4) for x in s["ll"]] == [round(x, 4) for x in ll]:
+            return "same point as %s" % s["n"]
+        if geo.dist_km(pt, (s["ll"][1], s["ll"][0])) < DUP_KM:
+            return "within %d km of %s" % (DUP_KM, s["n"])
+        if same_place(name, s["n"]):
+            return "same place as %s" % s["n"]
+    c = _centroids().get(iso)
+    if c and geo.dist_km(pt, tuple(c)) < CENTROID_KM:
+        return "the centre of the country, not a place in it"
+    return None
+
+
+def _curated(iso, ll):
+    """True when `ll` is a stay-aliases.json point for `iso` (set by hand)."""
+    return any(a.get("ll") and [round(x, 5) for x in a["ll"]] == [round(x, 5) for x in ll]
+               for a in (ALIASES.get(iso) or {}).values())
+
+
 def check(data):
-    """Every anchor that isn't plausibly in its own country."""
-    return [(iso, s["n"], s["ll"]) for iso, spots in sorted(data.items())
-            for s in spots if not in_country(s["ll"], iso)]
+    """Every anchor that isn't a sound point of its own country, as
+    (iso, name, ll, why): outside it (or a rough centre near a border), or a
+    placeholder beside an earlier spot (see placeholder)."""
+    out = []
+    for iso, spots in sorted(data.items()):
+        for i, s in enumerate(spots):
+            cur = _curated(iso, s["ll"])
+            if not in_country(s["ll"], iso, curated=cur):
+                other = None if cur else near_neighbour(s["ll"], iso)
+                out.append((iso, s["n"], s["ll"], "a whole-degree point within %d km of %s" % (NEAR_KM, other)
+                            if other else "outside its country"))
+                continue
+            why = placeholder(iso, s["n"], s["ll"], spots[:i])
+            if why:
+                out.append((iso, s["n"], s["ll"], why))
+    return out
 
 
 def skipped_present(data, skip=None):
@@ -349,6 +521,26 @@ def canada_review(data, mirror=None):
         return [line for lines in ex.map(one, isos) for line in lines]
 
 
+def us_review(data, rss=None):
+    """us_review_problems for every country with spots or a reviewed entry,
+    from the US feed or a local copy of it (the RSS XML, as fetched)."""
+    from fxtracker import advisories
+    try:
+        if rss:
+            with open(rss, encoding="utf-8") as f:
+                raw = f.read()
+        else:
+            raw = advisories._fetch_text(advisories.FEED)
+    except Exception as e:
+        return ["US feed unreadable (%s): nothing checked" % e]
+    words = us_passages(raw)
+    if not words:
+        return ["US feed has no \"Do not travel\" areas at all (format changed?): nothing checked"]
+    seen = ((SKIP.get("us") or {}).get("countries") or {})
+    isos = sorted(set(k for k in data if re.fullmatch(r"[A-Z]{2}", k)) | set(seen))
+    return [line for iso in isos for line in us_review_problems(iso, words.get(iso, ""))]
+
+
 def main(only=None):
     acts = json.load(open(os.path.join(PUBLIC, "activities.json"), encoding="utf-8"))
     names = json.load(open(os.path.join(PUBLIC, "country-names.json"), encoding="utf-8"))
@@ -382,9 +574,9 @@ def main(only=None):
              [k for k in acts if len(out.get(k, [])) < 2]))
     bad = check(out)
     if bad:
-        print("OUTSIDE THEIR COUNTRY (fix with stay-aliases.json):")
+        print("NOT A SOUND POINT OF THEIR OWN (fix with stay-aliases.json, or rebuild the country):")
         for row in bad:
-            print("  %s %s %s" % row)
+            print("  %s %s %s: %s" % row)
 
 
 if __name__ == "__main__":
@@ -400,11 +592,20 @@ if __name__ == "__main__":
         sys.exit(0)
     if argv[:1] == ["--check"]:
         mirror = argv[argv.index("--dir") + 1] if "--dir" in argv[:-1] else None
+        rss = argv[argv.index("--us") + 1] if "--us" in argv[:-1] else None
         data = json.load(open(path, encoding="utf-8"))
-        bad = check(data)
+        rows = check(data)
+        # A landmark within DUP_KM of its city's chip (Nyhavn by Copenhagen)
+        # predates that rule (b6b72de) and searches the same hotels; a rebuild
+        # of the country drops it. Listed, not failed: it's no wrong point.
+        near = [r for r in rows if r[3].startswith("within")]
+        bad = [r for r in rows if r not in near]
         for row in bad:
-            print("%s %s %s" % row)
-        print("%d anchor(s) outside their country" % len(bad))
+            print("%s %s %s: %s" % row)
+        print("%d anchor(s) not a sound point of their own country" % len(bad))
+        for row in near:
+            print("  (note) %s %s %s: %s" % row)
+        print("%d anchor(s) within %d km of an earlier one (a rebuild drops them)" % (len(near), DUP_KM))
         left = skipped_present(data)
         for row in left:
             print("%s %s is skip-listed as %s: run --prune" % row)
@@ -414,5 +615,10 @@ if __name__ == "__main__":
             print(line)
         print("%d Canada avoid-all block(s) to review against the spots (%s), then update %s"
               % (len(stale), mirror or "live feed", os.path.relpath(SKIP_PATH, ROOT)))
-        sys.exit(1 if bad or left or stale else 0)
+        us = us_review(data, rss)
+        for line in us:
+            print(line)
+        print("%d US \"Do not travel\" list(s) to review against the spots (%s), then update %s"
+              % (len(us), rss or "live feed", os.path.relpath(SKIP_PATH, ROOT)))
+        sys.exit(1 if bad or left or stale or us else 0)
     main({a.upper() for a in argv} or None)

@@ -1,6 +1,6 @@
 {
  "asof": "2026-10-18",
- "about": "Canada's regional 'Avoid all travel' blocks the stay spots were checked against (Global Affairs Canada's feed of 2026-10-15, then its live feed on 2026-10-18): per country, each block by its heading, a fingerprint of its words, and the places inside it that never become stay anchors. scripts/gen_stay_spots.py --check flags a block that is new, gone or reworded.",
+ "about": "Canada's regional 'Avoid all travel' blocks the stay spots were checked against (Global Affairs Canada's feed of 2026-10-15, then its live feed on 2026-10-18): per country, each block by its heading, a fingerprint of its words, and the places inside it that never become stay anchors. Under 'us', the same for the US State Department's regional 'Do not travel' areas where it names them (its RSS feed of 2026-10-18): per country below level 4, a fingerprint of the feed's 'Do Not Travel to' words and the places inside an area they name. scripts/gen_stay_spots.py --check flags a block or a US list that is new, gone or reworded.",
  "countries": {
   "AM": {
    "Eastern border with Azerbaijan - Avoid all travel": {
@@ -102,7 +102,13 @@
   },
   "CO": {
    "Border areas - Avoid all travel": {
-    "fp": "12a06831f570"
+    "fp": "12a06831f570",
+    "skip": {
+     "Las Lajas Sanctuary": {
+      "where": "Nariño, about 7 km from Ecuador; neither the city of Ipiales nor its border crossing",
+      "canada": "within 50 km of the border with Ecuador, excluding the border crossing at Ipiales"
+     }
+    }
    }
   },
   "DZ": {
@@ -184,7 +190,13 @@
     "fp": "77b47d86256a"
    },
    "Border with Lebanon - Avoid all travel": {
-    "fp": "d7b952b67ebd"
+    "fp": "d7b952b67ebd",
+    "skip": {
+     "Rosh HaNikra grottoes": {
+      "where": "on the Lebanese border (North District, Mate Asher)",
+      "canada": "Avoid all travel to the area within 5 kilometres of the border with Lebanon"
+     }
+    }
    },
    "Border with the Gaza Strip - Avoid all travel": {
     "fp": "f564410fa00b"
@@ -283,6 +295,18 @@
      "Zuma Rock": {
       "where": "on the line between the FCT and Niger State; its hotels are Madalla's and Suleja's, in Niger State",
       "canada": "the northcentral states of Plateau, Niger, Kwara and Kogi"
+     },
+     "Gashaka Gumti National Park": {
+      "where": "Taraba State (OSM: Gashaka)",
+      "canada": "the northeastern states of Adamawa, Bauchi, Borno, Gombe, Jigawa, Taraba and Yobe"
+     },
+     "Agbokim Waterfalls": {
+      "where": "Cross River State (Etung), on the Cameroon border: every OSM sample 5–12.5 km to the east is in Cameroon",
+      "canada": "10 km of the border areas with Cameroon, Niger, and northern Benin (between Benin and Kebbi state)"
+     },
+     "Obudu Mountain Resort": {
+      "where": "Cross River State (Obanliku); Cameroon is about 5 km to the south (OSM)",
+      "canada": "10 km of the border areas with Cameroon, Niger, and northern Benin (between Benin and Kebbi state)"
      }
     }
    }
@@ -389,7 +413,13 @@
   },
   "TN": {
    "Regional advisory - Avoid all travel": {
-    "fp": "76a5439ce935"
+    "fp": "76a5439ce935",
+    "skip": {
+     "Sbeitla": {
+      "where": "Kasserine governorate (OSM)",
+      "canada": "the governorate of Kasserine, including the mountain ranges and surrounding forests of the following mountains"
+     }
+    }
    }
   },
   "TR": {
@@ -410,6 +440,185 @@
   "UZ": {
    "Border with Afghanistan - Avoid all travel": {
     "fp": "7cef5437644a"
+   }
+  }
+ },
+ "us": {
+  "asof": "2026-10-18",
+  "countries": {
+   "AM": {
+    "fp": "0a348f97071e"
+   },
+   "AZ": {
+    "fp": "eef8d66b5a9d"
+   },
+   "BD": {
+    "fp": "7bf5fb492285"
+   },
+   "BI": {
+    "fp": "bd805c5788b8"
+   },
+   "BJ": {
+    "fp": "dfec967a1765",
+    "skip": {
+     "Tanougou Falls": {
+      "where": "Tanguiéta commune (Atacora), which reaches the Burkina Faso border; the falls are 40–50 km from it (coarse map, OSM sampling), so read conservatively they are in the area",
+      "us": "Do Not Travel to areas of Benin bordering Burkina Faso … Do not travel to the border region in northern or northeastern Benin for any reason."
+     }
+    }
+   },
+   "BO": {
+    "fp": "fed8d8397986"
+   },
+   "BR": {
+    "fp": "28ee5bf5ea24"
+   },
+   "CM": {
+    "fp": "90a4e51b5265"
+   },
+   "CO": {
+    "fp": "b5307a2f8271"
+   },
+   "DZ": {
+    "fp": "7d3cea2d97d0",
+    "skip": {
+     "Tassili n'Ajjer": {
+      "where": "its point (25.5, 9) is in Illizi province (OSM); the plateau runs on into Djanet province, about 65 km from Libya",
+      "us": "Do Not Travel to: Areas near the eastern, and southern borders, Bordj Badji Mokhtar, Illiz, In Guezzsam, In Salah, Tamanrasset, …"
+     }
+    }
+   },
+   "EC": {
+    "fp": "d1eeec12a886"
+   },
+   "EG": {
+    "fp": "d36d4342e085"
+   },
+   "ET": {
+    "fp": "750ce488fa9d",
+    "skip": {
+     "Tiya": {
+      "where": "Oromia (OSM: South West Shewa), outside Canada's Oromia zones (North and West Shewa, the Wollegas)",
+      "us": "The Oromia region , with the exception of Bishoftu and Bale Mountains National Park"
+     }
+    }
+   },
+   "GE": {
+    "fp": "c4cf4385a5ac"
+   },
+   "GT": {
+    "fp": "c9df43bb86d7"
+   },
+   "HN": {
+    "fp": "731fb8eaf54e"
+   },
+   "ID": {
+    "fp": "b94ec5ffbd2a"
+   },
+   "IL": {
+    "fp": "14ba5dcf2c1f"
+   },
+   "JO": {
+    "fp": "a05bf9397c3f"
+   },
+   "KE": {
+    "fp": "968fd4736532",
+    "skip": {
+     "Lamu Island": {
+      "where": "Lamu County; Canada excepts the island, the US names the county without exception",
+      "us": "Do Not Travel to the counties of Garissa, Wajir, Mandera, Lamu, …"
+     }
+    }
+   },
+   "KH": {
+    "fp": "b6e92ea8503a"
+   },
+   "KW": {
+    "fp": "936f8411a6cb"
+   },
+   "MR": {
+    "fp": "00c38ad6ef44"
+   },
+   "MZ": {
+    "fp": "2bd3d1af9ad8"
+   },
+   "NG": {
+    "fp": "3fa826a88071"
+   },
+   "NP": {
+    "fp": "c12fdd2df248"
+   },
+   "OM": {
+    "fp": "12d1dac6f430"
+   },
+   "PA": {
+    "fp": "425a960ee4a3"
+   },
+   "PE": {
+    "fp": "2292c2443c08"
+   },
+   "PG": {
+    "fp": "6275d7a06e92",
+    "skip": {
+     "Mount Wilhelm": {
+      "where": "Simbu Province, Highlands Region (OSM: Kundiawa-Gembogl)",
+      "us": "The Highlands region, other than the towns of Mt. Hagen and Goroka"
+     },
+     "Highlands": {
+      "where": "the activity names the Highlands Region itself",
+      "us": "The Highlands region, other than the towns of Mt. Hagen and Goroka"
+     }
+    }
+   },
+   "PH": {
+    "fp": "82242d6ab1c3"
+   },
+   "PK": {
+    "fp": "7cda875ea824"
+   },
+   "RW": {
+    "fp": "dc24c3a48af0",
+    "skip": {
+     "Volcanoes National Park": {
+      "where": "the park runs along the DRC border; its point is Kinigi (Musanze, OSM), about 3 km from the border on the coarse map",
+      "us": "Do not travel within 10 kilometers of Rwanda’s border with the Democratic Republic of the Congo"
+     },
+     "Lake Kivu": {
+      "where": "the lake is the border; its chip was Gisenyi (Rubavu, OSM), which adjoins Goma, about 4 km from the DRC on the coarse map",
+      "us": "Do not travel within 10 kilometers of Rwanda’s border with the Democratic Republic of the Congo"
+     }
+    }
+   },
+   "SA": {
+    "fp": "a15c1594a64c"
+   },
+   "TG": {
+    "fp": "cc3536026a71",
+    "skip": {
+     "Koutammakou": {
+      "where": "Kéran prefecture, Kara region (OSM), north of Kandé (10.07°N against Kandé's 9.96°N)",
+      "us": "Areas north of Kande due to risk of terrorism"
+     }
+    }
+   },
+   "TN": {
+    "fp": "d119b4ab1168"
+   },
+   "TR": {
+    "fp": "71be50805268"
+   },
+   "VE": {
+    "fp": "7e9f7fa1e82d",
+    "skip": {
+     "Canaima": {
+      "where": "Canaima National Park, rural Bolívar state",
+      "us": "Bolivar state rural areas due to the risk of crime and kidnapping"
+     },
+     "Roraima": {
+      "where": "Mount Roraima, rural Bolívar state (Gran Sabana)",
+      "us": "Bolivar state rural areas due to the risk of crime and kidnapping"
+     }
+    }
    }
   }
  }
