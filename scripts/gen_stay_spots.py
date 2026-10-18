@@ -13,19 +13,26 @@ Every coordinate must land in the country itself (see in_country): nothing
 checked that, so "Granada" resolved to Spain and Nicaragua's default
 Booking.com link searched hotels in Andalusia.
 
+No spot inside a zone Canada says to avoid all travel to (see SKIP_PATH):
+Benin's chips offered Pendjari National Park, which Canada's advisory names.
+
 Run from the repo root with /usr/bin/python3; re-run when activities or
 galleries change:
   /usr/bin/python3 scripts/gen_stay_spots.py            # every country (rewrites the file)
   /usr/bin/python3 scripts/gen_stay_spots.py NI SL      # just these; merged into the file
-  /usr/bin/python3 scripts/gen_stay_spots.py --check    # validate the file, fetch nothing
+  /usr/bin/python3 scripts/gen_stay_spots.py --prune    # drop skip-listed spots, fetch nothing
+  /usr/bin/python3 scripts/gen_stay_spots.py --check    # validate the file + Canada's live zones
+  /usr/bin/python3 scripts/gen_stay_spots.py --check --dir <feed copy>   # zones from a local copy
 """
 
+import hashlib
 import json
 import math
 import os
 import re
 import sys
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -187,6 +194,61 @@ try:
 except OSError:
     ALIASES = {}
 
+# Canada's regional "Avoid all travel" blocks the spots were reviewed against,
+# per country by heading: a fingerprint of Canada's words, and under "skip" the
+# places inside that zone (with where they fall and the words that cover them).
+# A skipped place never becomes a stay anchor: no booking link into a zone
+# Canada says to stay out of, the rule app.js applies to a whole country at
+# "do not travel". The page says nothing of its own about it; the guide's 📍
+# line already quotes Canada. --check flags a block that is new, gone or
+# reworded since the review; the review itself is by hand (a zone is words —
+# a region, a border band, a park — not a shape).
+SKIP_PATH = os.path.join(ROOT, "scripts", "stay-skip.json")
+try:
+    SKIP = json.load(open(SKIP_PATH, encoding="utf-8"))
+except OSError:
+    SKIP = {}
+
+
+def _fold(s):
+    """'Limbé' and 'Limbe' are one place."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s or "")
+                   if not unicodedata.combining(c)).casefold()
+
+
+def skipped(iso, *names, skip=None):
+    """The skip-listed place any of `names` is (same_place), or None."""
+    for block in (((skip or SKIP).get("countries") or {}).get(iso) or {}).values():
+        for s in block.get("skip") or {}:
+            if any(n and same_place(_fold(n), _fold(s)) for n in names):
+                return s
+    return None
+
+
+def fingerprint(text):
+    """Canada's words without their layout: the parser's bullets, spacing and
+    punctuation can change while Canada's advice doesn't."""
+    return hashlib.sha1(re.sub(r"[\W_]+", "", _fold(text)).encode("utf-8")).hexdigest()[:12]
+
+
+def review_problems(iso, blocks, skip=None):
+    """What changed in one country's avoid-all zones since the review.
+    `blocks` are watchouts.from_feed's regional blocks for it."""
+    have = {b.get("t"): fingerprint(b.get("text") or "") for b in blocks
+            if b.get("call") == "Avoid all travel"}
+    seen = ((skip or SKIP).get("countries") or {}).get(iso) or {}
+    out = []
+    for t, fp in have.items():
+        if t not in seen:
+            out.append("%s new avoid-all block, not reviewed: %s" % (iso, t))
+        elif seen[t].get("fp") != fp:
+            out.append("%s avoid-all block reworded since the review: %s" % (iso, t))
+    for t, b in seen.items():
+        if t not in have:
+            out.append("%s avoid-all block gone from Canada's page%s: %s" % (
+                iso, " (its skipped places may be fine now)" if b.get("skip") else "", t))
+    return out
+
 
 def build_country(args):
     """(iso, spots), or (iso, None) when Wikipedia couldn't be reached."""
@@ -216,6 +278,8 @@ def _build_country(args):
         name = (al or {}).get("label") or label((al or {}).get("title") or subject)
         if not name or any(same_place(name, s["n"]) for s in spots):
             return
+        if skipped(iso, name, subject, (al or {}).get("title")):
+            return
         ll = (al or {}).get("ll") or coords_with_fallback((al or {}).get("title") or subject,
                                                           country, iso)
         # Two names for one place (San Blas / Guna Yala) make two identical chips.
@@ -235,6 +299,54 @@ def check(data):
     """Every anchor that isn't plausibly in its own country."""
     return [(iso, s["n"], s["ll"]) for iso, spots in sorted(data.items())
             for s in spots if not in_country(s["ll"], iso)]
+
+
+def skipped_present(data, skip=None):
+    """Every anchor that is a skip-listed place: (iso, spot, skip-list name)."""
+    return [(iso, s["n"], hit) for iso, spots in sorted(data.items()) for s in spots
+            for hit in [skipped(iso, s["n"], skip=skip)] if hit]
+
+
+def prune(data, skip=None):
+    """`data` without its skip-listed anchors; a country left with none drops
+    out, as main() leaves out one that found none (the stays block hides)."""
+    out = {}
+    for iso, spots in data.items():
+        keep = [s for s in spots if not skipped(iso, s["n"], skip=skip)]
+        if keep:
+            out[iso] = keep
+    return out
+
+
+def save(path, data):
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+
+
+def canada_review(data, mirror=None):
+    """review_problems for every country with spots, from Canada's live feed
+    or a local copy of it (<mirror>/<iso>.json, as fetched)."""
+    from fxtracker import rates, watchouts
+
+    def one(iso):
+        if mirror:
+            p = os.path.join(mirror, iso.lower() + ".json")
+            if not os.path.exists(p):
+                return review_problems(iso, [])
+            with open(p, encoding="utf-8") as f:
+                raw = json.load(f)
+        else:
+            try:
+                raw = rates.fetch_json(watchouts.API.format(iso=iso.lower()))
+            except Exception as e:
+                if getattr(e, "code", None) in (404, 410):    # no Canada page
+                    return review_problems(iso, [])
+                return ["%s Canada's page unreadable (%s): nothing checked" % (iso, e)]
+        return review_problems(iso, watchouts.from_feed(iso, raw)["regional"])
+
+    isos = sorted(k for k in data if re.fullmatch(r"[A-Z]{2}", k))
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        return [line for lines in ex.map(one, isos) for line in lines]
 
 
 def main(only=None):
@@ -260,8 +372,10 @@ def main(only=None):
             if spots:
                 out[iso] = spots
             print("%s:%d" % (iso, len(spots)), end=" ", flush=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(out, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+    # A country kept from before (not rebuilt, or Wikipedia down) may still
+    # hold a place skip-listed since.
+    out = prune(out)
+    save(path, out)
     counts = [len(v) for v in out.values()]
     print("\n%d/%d countries; avg %.1f spots; thin(<2): %s"
           % (len(out), len(acts), sum(counts) / len(counts),
@@ -274,11 +388,31 @@ def main(only=None):
 
 
 if __name__ == "__main__":
-    args = [a.upper() for a in sys.argv[1:]]
-    if args == ["--CHECK"]:
-        bad = check(json.load(open(os.path.join(PUBLIC, "stay-coords.json"), encoding="utf-8")))
+    argv = sys.argv[1:]
+    path = os.path.join(PUBLIC, "stay-coords.json")
+    if argv == ["--prune"]:
+        data = json.load(open(path, encoding="utf-8"))
+        gone = skipped_present(data)
+        save(path, prune(data))
+        for row in gone:
+            print("dropped %s %s (stay-skip.json: %s)" % row)
+        print("%d anchor(s) dropped" % len(gone))
+        sys.exit(0)
+    if argv[:1] == ["--check"]:
+        mirror = argv[argv.index("--dir") + 1] if "--dir" in argv[:-1] else None
+        data = json.load(open(path, encoding="utf-8"))
+        bad = check(data)
         for row in bad:
             print("%s %s %s" % row)
         print("%d anchor(s) outside their country" % len(bad))
-        sys.exit(1 if bad else 0)
-    main(set(args) or None)
+        left = skipped_present(data)
+        for row in left:
+            print("%s %s is skip-listed as %s: run --prune" % row)
+        print("%d skip-listed anchor(s) in the file" % len(left))
+        stale = canada_review(data, mirror)
+        for line in stale:
+            print(line)
+        print("%d Canada avoid-all block(s) to review against the spots (%s), then update %s"
+              % (len(stale), mirror or "live feed", os.path.relpath(SKIP_PATH, ROOT)))
+        sys.exit(1 if bad or left or stale else 0)
+    main({a.upper() for a in argv} or None)

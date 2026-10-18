@@ -2999,6 +2999,9 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    and an advisory that runs longer (fares by month go by data-fm, like any
    guide's). Its own medians, of all 24. */
 #tab-guide[data-level="4"] :is(#guideStay, #guideInsurance):empty { display: none; }
+/* A guide with no stay spots at all (data-nostay, from the server): none of
+   its places is outside the zones Canada says to avoid (Ethiopia). */
+#tab-guide[data-nostay] #guideStay:empty { display: none; }
 #tab-guide[data-level="4"] #guideSafety:is(:empty, .filling) { min-height: 243px; }
 @media (max-width: 560px) {
   #tab-guide[data-level="4"] #guideVisa:empty { min-height: 78px; }

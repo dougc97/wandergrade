@@ -1,0 +1,416 @@
+{
+ "asof": "2026-10-18",
+ "about": "Canada's regional 'Avoid all travel' blocks the stay spots were checked against (Global Affairs Canada's feed of 2026-10-15, then its live feed on 2026-10-18): per country, each block by its heading, a fingerprint of its words, and the places inside it that never become stay anchors. scripts/gen_stay_spots.py --check flags a block that is new, gone or reworded.",
+ "countries": {
+  "AM": {
+   "Eastern border with Azerbaijan - Avoid all travel": {
+    "fp": "f1a53e563428"
+   }
+  },
+  "AZ": {
+   "Districts in the western part of Azerbaijan - Avoid all travel": {
+    "fp": "65588ef29e88"
+   },
+   "Border with Armenia - Avoid all travel": {
+    "fp": "ed1f3b544ce9"
+   }
+  },
+  "BD": {
+   "Chittagong Hill Tracts region - Avoid all travel": {
+    "fp": "cfecf1003ee8"
+   }
+  },
+  "BI": {
+   "Regional Advisory - Avoid all travel": {
+    "fp": "8bb719f80e27",
+    "skip": {
+     "Kibira National Park": {
+      "where": "its point is in Cibitoke province (OSM)",
+      "canada": "Cibitoke province"
+     }
+    }
+   }
+  },
+  "BJ": {
+   "Border areas with Burkina Faso, Niger, Nigeria and Togo - Avoid all travel": {
+    "fp": "01d8e2d8ad2c",
+    "skip": {
+     "Pendjari National Park": {
+      "where": "Atakora, about 30 km from Burkina Faso; the park is named",
+      "canada": "This advisory includes the W National Park and the Pendjari National Park."
+     }
+    }
+   }
+  },
+  "BO": {
+   "Chapare Region - Avoid all travel": {
+    "fp": "88bd0934a3ca"
+   }
+  },
+  "BR": {
+   "Certain neighbourhoods in Rio de Janeiro - Avoid all travel": {
+    "fp": "85e8e5bebd91"
+   }
+  },
+  "CI": {
+   "Borders with Mali and Burkina Faso - Avoid all travel": {
+    "fp": "9f6a04f26bae"
+   }
+  },
+  "CM": {
+   "Far North region and Mayo-Louti Department - Avoid all travel": {
+    "fp": "779015241d1b",
+    "skip": {
+     "Waza National Park": {
+      "where": "Far North region, about 23 km from Chad",
+      "canada": "Avoid all travel to the Far North region and Mayo-Louti Department in the North region"
+     },
+     "Mokolo": {
+      "where": "Far North region (Mayo-Tsanaga)",
+      "canada": "Avoid all travel to the Far North region and Mayo-Louti Department in the North region"
+     }
+    }
+   },
+   "Borders with Nigeria, Chad and the Central African Republic - Avoid all travel": {
+    "fp": "9515bfe354fa"
+   },
+   "North-West and South-West regions - Avoid all travel": {
+    "fp": "f2c693268ba1",
+    "skip": {
+     "Mount Cameroon": {
+      "where": "South-West region (Meme)",
+      "canada": "Avoid all travel to the North-West and South-West regions"
+     },
+     "Limbe": {
+      "where": "South-West region (Fako)",
+      "canada": "Avoid all travel to the North-West and South-West regions"
+     },
+     "Korup National Park": {
+      "where": "South-West region (Ndian)",
+      "canada": "Avoid all travel to the North-West and South-West regions"
+     },
+     "Bafut": {
+      "where": "North-West region (Mezam)",
+      "canada": "Avoid all travel to the North-West and South-West regions"
+     },
+     "Ring Road": {
+      "where": "the loop runs through the North-West region",
+      "canada": "Avoid all travel to the North-West and South-West regions"
+     }
+    }
+   }
+  },
+  "CO": {
+   "Border areas - Avoid all travel": {
+    "fp": "12a06831f570"
+   }
+  },
+  "DZ": {
+   "Border areas - Avoid all travel": {
+    "fp": "f6fa40df7a7b"
+   },
+   "Border with Morocco - Avoid all travel": {
+    "fp": "1b5aa2646fc7"
+   }
+  },
+  "EC": {
+   "Border areas - Avoid all travel": {
+    "fp": "21378ec2a7f6"
+   },
+   "Minefields near the southern portion of the border with Peru - Avoid all travel": {
+    "fp": "2d463f5b6981"
+   }
+  },
+  "EG": {
+   "Northern Sinai - Avoid all travel": {
+    "fp": "69428be134d1"
+   },
+   "The Western desert and Libyan border area - Avoid all travel": {
+    "fp": "86afce6ccdc7"
+   }
+  },
+  "ER": {
+   "Border areas - Avoid all travel": {
+    "fp": "c09face429e6"
+   }
+  },
+  "ET": {
+   "Northern regions - Avoid all travel": {
+    "fp": "cd863c97dbe3",
+    "skip": {
+     "Lalibela": {
+      "where": "Amhara",
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+     },
+     "Gondar": {
+      "where": "Amhara",
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+     },
+     "Fasil Ghebbi": {
+      "where": "Amhara (Gondar)",
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+     },
+     "Simien Mountains": {
+      "where": "Amhara",
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+     },
+     "Danakil Desert": {
+      "where": "Afar",
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+     },
+     "Obelisk of Axum": {
+      "where": "Tigray",
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+     }
+    }
+   },
+   "Central regions - Avoid all travel": {
+    "fp": "12a868785809"
+   },
+   "Border areas - Avoid all travel": {
+    "fp": "fe018d105e3a"
+   }
+  },
+  "GE": {
+   "The occupied regions of Abkhazia and South Ossetia and surrounding areas - Avoid all travel": {
+    "fp": "60298cc4e821"
+   }
+  },
+  "IL": {
+   "PALESTINE - AVOID ALL TRAVEL": {
+    "fp": "9d0a6a38e526"
+   },
+   "Border with Syria - Avoid all travel": {
+    "fp": "77b47d86256a"
+   },
+   "Border with Lebanon - Avoid all travel": {
+    "fp": "d7b952b67ebd"
+   },
+   "Border with the Gaza Strip - Avoid all travel": {
+    "fp": "f564410fa00b"
+   }
+  },
+  "IN": {
+   "Union Territory of Jammu and Kashmir - Avoid all travel": {
+    "fp": "0be9877e20d1"
+   },
+   "Border areas with Pakistan - Avoid all travel": {
+    "fp": "18f842d995d9"
+   }
+  },
+  "JO": {
+   "Borders with Iraq and Syria - Avoid all travel": {
+    "fp": "e81cbe489924"
+   },
+   "Northeastern Jordan, east of Ruwaished - Avoid all travel": {
+    "fp": "a1095be925f3"
+   }
+  },
+  "KE": {
+   "Border with Somalia - Avoid all travel": {
+    "fp": "0dd9b15e698f"
+   },
+   "Border with South Sudan and Ethiopia - Avoid all travel": {
+    "fp": "6c3d8c3fc31c"
+   },
+   "Regional advisory - Avoid all travel": {
+    "fp": "acd9f93a2448"
+   }
+  },
+  "KH": {
+   "Cambodia-Thailand border - Avoid all travel": {
+    "fp": "cad1b78d5320"
+   }
+  },
+  "KW": {
+   "Border with Iraq - Avoid all travel": {
+    "fp": "f9acbaecfe09"
+   }
+  },
+  "MA": {
+   "Western Sahara border regions - Avoid all travel": {
+    "fp": "b5aaf4deb1e0"
+   },
+   "Border with Algeria - Avoid all travel": {
+    "fp": "503eb53580ce"
+   }
+  },
+  "MR": {
+   "Northern and eastern Mauritania - Avoid all travel": {
+    "fp": "895214c020df",
+    "skip": {
+     "Adrar": {
+      "where": "the region's centre (20.5, -11.0), about 60 km east of the Ouadane-Tidjikdja leg",
+      "canada": "east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: ◦ Adrar ◦ Tagant ◦ Assaba ◦ Guidimakha"
+     },
+     "Richat Structure": {
+      "where": "Adrar, east of the Zouerate-Ouadane leg",
+      "canada": "east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: ◦ Adrar ◦ Tagant ◦ Assaba ◦ Guidimakha"
+     },
+     "Tichit": {
+      "where": "Tagant, east of the Tidjikdja-Kiffa leg",
+      "canada": "east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: ◦ Adrar ◦ Tagant ◦ Assaba ◦ Guidimakha"
+     }
+    }
+   }
+  },
+  "MZ": {
+   "Cabo Delgado Province - Avoid all travel": {
+    "fp": "a97d946e61e5",
+    "skip": {
+     "Quirimbas Archipelago": {
+      "where": "Cabo Delgado Province",
+      "canada": "Avoid all travel to to Cabo Delgado Province … This advisory excludes Pemba City"
+     },
+     "Quirimbas National Park": {
+      "where": "Cabo Delgado Province (Macomia)",
+      "canada": "Avoid all travel to to Cabo Delgado Province … This advisory excludes Pemba City"
+     },
+     "Ibo Island": {
+      "where": "Cabo Delgado Province (Quirimbas)",
+      "canada": "Avoid all travel to to Cabo Delgado Province … This advisory excludes Pemba City"
+     }
+    }
+   },
+   "Parts of Nampula Province - Avoid all travel": {
+    "fp": "d3e8e65ecd14"
+   }
+  },
+  "NG": {
+   "Regional risk level - Avoid all travel": {
+    "fp": "42ac439cbca6",
+    "skip": {
+     "Zuma Rock": {
+      "where": "on the line between the FCT and Niger State; its hotels are Madalla's and Suleja's, in Niger State",
+      "canada": "the northcentral states of Plateau, Niger, Kwara and Kogi"
+     }
+    }
+   }
+  },
+  "PA": {
+   "Areas south of Metetí - Avoid all travel": {
+    "fp": "8b1696a54dee"
+   },
+   "Mosquito Gulf - Avoid all travel": {
+    "fp": "a4ac1d8338db"
+   }
+  },
+  "PE": {
+   "Valley of the Apurímac, Ene and Mantaro Rivers (VRAEM) - Avoid all travel": {
+    "fp": "0b69012548c8"
+   }
+  },
+  "PH": {
+   "Western Mindanao - Avoid all travel": {
+    "fp": "d4675abaaf24"
+   }
+  },
+  "PK": {
+   "Regional advisory - Avoid all travel": {
+    "fp": "4926a3196d03",
+    "skip": {
+     "K2": {
+      "where": "on the border with China",
+      "canada": "the areas within 10 km of the borders with China, India and Iran, except … Khunjerab Pass and the Karakorum Highway leading there"
+     }
+    }
+   }
+  },
+  "SA": {
+   "King Khalid International Airport (RUH) - Avoid all travel": {
+    "fp": "470230c86003"
+   },
+   "Provinces of Asir, Jazan and Najran - Avoid all travel": {
+    "fp": "1ca85863518a"
+   },
+   "Border with Yemen - Avoid all travel": {
+    "fp": "c48514173c1b"
+   }
+  },
+  "TD": {
+   "Regional advisory - Avoid all travel": {
+    "fp": "cee066ccc4a5",
+    "skip": {
+     "Tibesti": {
+      "where": "Tibesti",
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+     },
+     "Toussidé": {
+      "where": "Tibesti",
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+     },
+     "Ennedi": {
+      "where": "Ennedi-Ouest",
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+     },
+     "Aloba Arch": {
+      "where": "Ennedi-Ouest",
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+     },
+     "Lakes of Ounianga": {
+      "where": "Ennedi-Ouest",
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+     },
+     "Lake Yoa": {
+      "where": "Ennedi-Ouest (Ounianga)",
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+     }
+    }
+   }
+  },
+  "TG": {
+   "Border with Burkina Faso - Avoid all travel": {
+    "fp": "4ff17996e741"
+   }
+  },
+  "TH": {
+   "Thailand-Cambodia border - Avoid all travel": {
+    "fp": "2c90583c31b7"
+   },
+   "Southern provinces of Narathiwat, Pattani, Yala and southern Songkhla province - Avoid all travel": {
+    "fp": "e4ee25aad56d"
+   }
+  },
+  "TJ": {
+   "Border with Afghanistan - Avoid all travel": {
+    "fp": "9536794a1ec8",
+    "skip": {
+     "Wakhan": {
+      "where": "Ishkoshim, on the Panj: Afghanistan within 5 km",
+      "canada": "Avoid all travel to within 10 km of the border with Afghanistan"
+     }
+    }
+   }
+  },
+  "TM": {
+   "Border with Afghanistan - Avoid all travel": {
+    "fp": "fb9bb8c967e3"
+   }
+  },
+  "TN": {
+   "Regional advisory - Avoid all travel": {
+    "fp": "76a5439ce935"
+   }
+  },
+  "TR": {
+   "Borders with Iraq and Syria - Avoid all travel": {
+    "fp": "df61451979a0"
+   }
+  },
+  "TZ": {
+   "Border with Mozambique in Mtwara Region - Avoid all travel": {
+    "fp": "97fa2f5451c6"
+   }
+  },
+  "UG": {
+   "Border with South Sudan - Avoid all travel": {
+    "fp": "4452a6d40c61"
+   }
+  },
+  "UZ": {
+   "Border with Afghanistan - Avoid all travel": {
+    "fp": "7cef5437644a"
+   }
+  }
+ }
+}

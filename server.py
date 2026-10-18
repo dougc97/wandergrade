@@ -1052,9 +1052,13 @@ def _render_index(gc_iso=None):
             GUIDE_HIDDEN="",
             # render_guide's layout hints: styles.css holds the empty blocks
             # at the sizes for the guide's advisory level (data-level) and the
-            # weather chart for its number of hazard lines (data-hz, 1 or 2+).
+            # weather chart for its number of hazard lines (data-hz, 1 or 2+),
+            # and no stays block where no stays come (data-nostay: Ethiopia,
+            # whose places are all in zones Canada says to avoid — held, the
+            # insurance line rose 135px at 1280 when it went).
             GUIDE_DATA=(' data-level="%d"' % r["adv"] if r.get("adv") in (1, 2, 3, 4) else "")
             + (' data-hz="%d"' % min(r.get("hz") or 0, 2) if r.get("hz") else "")
+            + ("" if guide_sizers.stay(gc_iso) else ' data-nostay="1"')
             + (' data-fm="1"' if _fare_strip_hint(gc_iso) else "")
             + _fare_col_hints(gc_iso, r.get("pct")),
             VALUE_ACTIVE="",

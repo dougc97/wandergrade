@@ -3150,6 +3150,10 @@ function renderGuideStay(iso) {
   // both rode up 135px and back down when the stays came (1280).
   holdSizer(host, iso);
   host.innerHTML = ""; host.hidden = false;
+  // The server's data-nostay (no room held for stays that never come) is
+  // its own guide's; another guide's stays are held as usual.
+  const gtab = $("tab-guide");
+  if (gtab && iso !== window.__WGGC__) gtab.removeAttribute("data-nostay");
   const none = () => { if (ccGuideIso === iso) { host.hidden = true; host.style.minHeight = ""; } };
   Promise.all([ensureStayCoords(), ensureAdvisories().catch(() => null)]).then(([cc]) => {
     if (ccGuideIso !== iso) return;                    // user switched country
