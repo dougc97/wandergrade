@@ -458,8 +458,12 @@ results.append(ok(got and not lost and not cut, "avoidAreas, guide: the server's
 trip = {iso: " | ".join(x["text"] for x in (got.get(iso) or [[], []])[1]) for iso in FX}
 # (Since 2026-10-17 a place's exceptions are said where they fit instead of
 # its star — Chiapas's and Chihuahua's — so the states are counted by name.)
+# Each as a list entry, not anywhere: "Sinaloa" is also in Nayarit's "the
+# states of Sinaloa and Durango", "Michoacán" in Jalisco's "border with
+# Michoacán state".
 mx_states = [re.split(r"[,(]", W._split_exc(it["t"])[0])[0].strip() for r in FX["mx"]["regional"] if r["t"].startswith("Regional") for it in r["items"]]
-results.append(ok(len(mx_states) == 14 and all(x in trip.get("mx", "") for x in mx_states)
+mx_entry = lambda x: re.search(r"(?:^|; | \| )" + re.escape(x) + r"(?=\*|,| \(|;| \||$)", trip.get("mx", ""))
+results.append(ok(len(mx_states) == 14 and all(mx_entry(x) for x in mx_states) and not re.search(r"and \d+ more", trip.get("mx", ""))
                   and trip.get("mx", "").endswith("Tamaulipas*; Zacatecas*")
                   and "Olancho" in trip.get("hn", "") and "El Salvador" in trip.get("hn", ""),
                   "avoidAreas, trip: brief names every place where they all fit at their shortest — Mexico's 14 states (MX %r)" % trip.get("mx", "")[-80:]))

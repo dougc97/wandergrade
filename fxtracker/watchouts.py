@@ -126,7 +126,9 @@ def _top_level_items(fragment):
 # (_shorten); full, the guide's AI prompt, is never shortened at all.
 # Canada's sentence on its exceptions (Colombia's "If you intend to travel
 # to any of the above excluded areas, do so by air") follows every form that
-# names them, and none that only flags them (_conds). A
+# names one letting a part off, straight after it, and none that names only
+# a stricter one or flags them (_frees); it never takes the places' room
+# (_compose). A
 # notice with no call and no area is no advisory and is left out (_notice).
 # Canada's "we advise" is said "Canada advises" (_third): beside the
 # traveller's own government's level, "we" read as that government's.
@@ -216,9 +218,6 @@ _EXC_KIND = r"(?:areas?|places?|cities|city|towns?|locations?|roads?|zones?|regi
 _COND = re.compile(r"\b(?:the|these|those|such|said)\s+(?:above\s+|listed\s+)?(?:excluded|excepted|exempted)\s+" + _EXC_KIND + r"\b"
                    r"|\b(?:the|these|those)\s+(?:above\s+)?(?:exclusions|exceptions)\b|\b" + _EXC_KIND + r"\s+(?:excluded|excepted)\s+above\b",
                    re.I)
-# A form that names an exception: "(except …", "— except …", ". Except …",
-# Canada's "This advisory excludes …"; never "(parts excepted)" or a star.
-_SAYS_EXC = re.compile(r"\bexcept\b|\bexcludes\b|\bdoes not (?:include|apply to)\b", re.I)
 # Words that take the list after them as their object ("…, especially:",
 # "the municipalities of:"): the list follows them directly.
 _OBJECT_END = re.compile(r"\b(?:of|in|especially|including|particularly|notably|namely)$", re.I)
@@ -1052,28 +1051,99 @@ def _compose(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True):
     False: the room goes only to naming more places, the exceptions stay at
     their shortest (_line past its cap); wholes False: a whole's regions
     are not among the places hide False names (_least).
-    Canada's sentences on the exceptions (B["conds"]) follow, whole, last,
-    wherever the line names an exception (_conds)."""
-    s = _composed(B, mode, room, hide, bare, grow, wholes)
-    tail = _conds(B, s)
-    if not tail or room is None or len(s) + len(tail) <= room:
-        return s + tail
-    s = _composed(B, mode, max(room - len(tail), 0), hide, bare, grow, wholes)
-    return s + _conds(B, s)
+    Canada's sentences on the exceptions (B["conds"]) follow, whole,
+    wherever the line names one that lets a part off (_frees), and never
+    take the places' room: where the line and they don't fit, the line is
+    said with each place's exceptions flagged instead (_flagged), its places
+    the same and the detail Canada's order gives the room. Retried within
+    the room less the sentence, Colombia's block without its first six
+    places, which named Meta's, Nariño's and Valle del Cauca's exceptions in
+    258 characters, flagged them and hid Capurganá and Nuquí again ("towns
+    in Chocó (Bahía Solano, and 2 more)"), without the sentence either.
+    Only an exception Canada states of the whole area, which no line flags,
+    keeps it there (_line's cap does with them what it does with any of
+    Canada's sentences)."""
+    args = (mode, room, hide, bare, grow, wholes)
+    s = _composed(B, *args)
+    if not B.get("conds") or not _frees(B, s):
+        return s
+    tail = _conds(B)
+    t = _composed(B, *args, tail=tail)
+    if room is None or len(t) <= room:
+        return t
+    F = _flagged(B, bare)
+    f = _composed(F, *args)
+    return _composed(F, *args, tail=tail) if _frees(F, f) else f
 
 
-def _conds(B, s):
-    """What follows a form that names any of the block's exceptions: Canada's
-    sentences on them (Colombia's "If you intend to travel to any of the
-    above excluded areas, do so by air"), each whole and its own. A form
-    that only flags them "(parts excepted)" or "*" gets none: the sentence
-    reads on places to avoid. Put last: each refers back ("the above")."""
-    conds = B.get("conds") or []
-    return "".join(". " + c for c in conds) if conds and _SAYS_EXC.search(s or "") else ""
+def _conds(B):
+    """Canada's sentences on the block's exceptions (Colombia's "If you
+    intend to travel to any of the above excluded areas, do so by air"),
+    each whole and its own, as they follow a form that names one (_frees).
+    A form that only flags them "(parts excepted)" or "*" gets none: the
+    sentence reads on places to avoid."""
+    return "".join(". " + c for c in B.get("conds") or [])
 
 
-def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True):
-    """_compose without Canada's sentences on the exceptions."""
+def _lets_off_part(B, exc, kids=()):
+    """Whether an exception, with the list it introduces, names a part let
+    off (_relief): its own words carry no stricter call, and nor do all the
+    places it lists."""
+    return _relief(B, exc) and (not kids or any(_relief(B, k["t"]) for k in kids))
+
+
+def _lifts(B, e):
+    """An exception the block states of its whole area that lets a part off:
+    every form says it (_composed), none can flag it."""
+    return e["k"] == "except" and _lets_off_part(B, e["t"], e["items"])
+
+
+def _frees(B, s):
+    """Whether form s names an exception that lets a part off, which
+    Canada's sentences on the exceptions follow (_conds): one the block
+    states of its whole area (_lifts), or a place's, said "X (except …".
+    Never a stricter one alone: "— except within 20 km of the border with
+    Zed where Canada advises against all travel. If you intend to travel to
+    any of the above excluded areas, do so by air" read as flying into the
+    band, where Canada's sentence is about the places it lets off."""
+    if any(_lifts(B, e) for e in B["extras"]):
+        return True
+
+    def walk(items, depth):
+        for it in items:
+            base, exc = _split_exc(it["t"])
+            if exc is not None and depth % 2 == 0 and _lets_off_part(B, exc, it["items"]) and base.rstrip(" ,:") + " (except " in s:
+                return True
+            if walk(it["items"], depth + (1 if exc is not None else 0)):
+                return True
+        return False
+    return walk([it for g in B["groups"] for it in g["items"]], 0)
+
+
+def _flagged(B, bare=None):
+    """B with every place whose exceptions all let it off said "(parts
+    excepted)" in its own words, so that no form names them (_compose),
+    and its places count and fit as they did. Not one said bare."""
+    bare = bare or frozenset()
+
+    def walk(items, depth):
+        out = []
+        for it in items:
+            base, exc = _split_exc(it["t"])
+            if exc is not None and depth % 2 == 0 and id(it) not in bare and _lets_off(it, B["cx"]):
+                out.append({"t": _unaside(_heading(base).rstrip(" ,")) + " (parts excepted)", "items": []})
+                continue
+            kids = walk(it["items"], depth + (1 if exc is not None else 0))
+            out.append(it if all(a is b for a, b in zip(kids, it["items"])) else dict(it, items=kids))
+        return out
+    return dict(B, groups=[dict(g, items=walk(g["items"], 0)) for g in B["groups"]])
+
+
+def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True, tail=""):
+    """_compose without Canada's sentences on the exceptions, or with them
+    (tail) where they go, in the room the form takes without them: after
+    the last exception it names that lets a part off, never after a
+    stricter one, which then is a sentence of its own."""
     cx = dict(B["cx"], bare=bare or frozenset(), wholes=wholes)
     prefix, groups, extras = B["area"], B["groups"], B["extras"]
     multi = len(groups) > 1
@@ -1097,8 +1167,8 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True):
     # border between Armenia and the Azerbaijani Autonomous Republic of
     # Nakhchivan, where you should exercise a high degree of caution" read
     # as a closed border but for an open crossing to Nakhchivan.
-    tail = groups[-1]["items"][-1]["t"] if groups and groups[-1]["items"] else prefix
-    own = own or bool(extras) and bool(_ASIDE.search(tail or ""))
+    end = groups[-1]["items"][-1]["t"] if groups and groups[-1]["items"] else prefix
+    own = own or bool(extras) and bool(_ASIDE.search(end or ""))
 
     def lab(g):
         intro = g["intro"]
@@ -1130,7 +1200,7 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True):
             out.append(whole[i] if grow and len(whole[i]) <= avail else one(g, avail))
         return ". ".join(out)
 
-    def ex(limit=None, sentence=False):
+    def ex(limit=None, sentence=False, tail=""):
         # Each kind under its word — " — except A". After a list cut to "and
         # N more" they are a sentence of their own, in Canada's words where
         # Canada wrote one (". This advisory includes …"): Benin's "…; and 2
@@ -1140,19 +1210,24 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True):
         # "…, where you should avoid all travel; Mtwara City" put the city
         # Canada lets off to a high degree of caution in the avoid-all band's
         # list. Where several are joined by "; " and one keeps its call,
-        # they all keep theirs (_shorten).
+        # they all keep theirs (_shorten). tail: Canada's sentences on the
+        # exceptions, after the last that lets a part off (_lifts); what
+        # follows them is a sentence of its own.
         own_s = lambda e: sentence and e.get("src") == "sentence"
         joined = [e for e in excs if not own_s(e)]
         kx = dict(cx, keep_calls=True) if len(joined) > 1 and any(_keeps_call(e["t"], cx) for e in joined) else cx
-        out, prev = "", None
-        for e in extras:
+        upto = max((i for i, e in enumerate(extras) if _lifts(B, e)), default=-1) if tail else -1
+        out, prev, after = "", None, False
+        for i, e in enumerate(extras):
             exc = e["k"] == "except"
+            snt = sentence or after
+            own = snt and e.get("src") == "sentence"
             x = _shorten(e["t"], kx if e in joined else cx, several and not sentence) if mode == "compact" and exc else e["t"]
-            if own_s(e):
+            if own:
                 lead_in = (". " if out else "") + e.get("word", "This advisory " + ("excludes" if exc else "includes")) + " "
             else:
-                word = ("except " if exc else "including ") if not sentence else ("Except " if exc else "Including ")
-                lead_in = "; " if prev == e["k"] else (((". " if sentence else ", ") if out else "") + word)
+                word = ("except " if exc else "including ") if not snt else ("Except " if exc else "Including ")
+                lead_in = "; " if prev == e["k"] else (((". " if snt else ", ") if out else "") + word)
             body = x
             if e["items"]:
                 pre = (x + (" " if _OBJECT_END.search(x) else ": ")) if x else ""
@@ -1160,7 +1235,9 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True):
                 left = None if limit is None else max(limit - len(out) - len(lead_in) - len(pre), 0)
                 body = pre + _fill(e["items"], mode, cx, d, left, hide=hide or exc, last=e is extras[-1])[0]
             out += lead_in + body
-            prev = None if own_s(e) else e["k"]
+            prev = None if own else e["k"]
+            if i == upto:
+                out, prev, after = out + tail, None, True
         return out
 
     def put(g, e, sentence=False):
@@ -1171,11 +1248,20 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True):
             s = (s + (". " if sentence else " — " if g else ", ") if s else "") + e
         return s
 
-    s = put(grp(), ex(sentence=own), own)
-    if room is None or (grow and len(s) <= room):
-        return s
+    def done(g, limit, sentence):
+        # Canada's sentences on the exceptions after the places where only
+        # places' exceptions let parts off; what the block states after
+        # them is then a sentence of its own each.
+        if tail and g and not any(_lifts(B, e) for e in extras):
+            e = ex(limit, True)
+            return put(g, "") + tail + (". " + e if e else "")
+        return put(g, ex(limit, sentence, tail), sentence)
+
+    whole = grp()
+    if room is None or (grow and len(put(whole, ex(sentence=own), own)) <= room):
+        return done(whole, None, own)
     if not groups:
-        return put("", ex(max(room - len(prefix) - 2, 0) if grow else 0, own), own)
+        return done("", max(room - len(prefix) - 2, 0) if grow else 0, own)
     pre = len(prefix) + (2 if prefix else 0)
     cut = lambda g: bool(re.search(r"\band \d+ more$", g))
     e_min = ex(0, own) if extras else ""
@@ -1183,8 +1269,7 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True):
     if extras and not own and cut(g):
         g = grp(room - pre - len(ex(0, True)) - 2)
     sentence = own or (bool(extras) and cut(g))
-    e = ex(max(room - pre - len(g) - (2 if sentence else 3), 0) if grow else 0, sentence) if extras else ""
-    return put(g, e, sentence)
+    return done(g, max(room - pre - len(g) - (2 if sentence else 3), 0) if grow else 0, sentence)
 
 
 def _marked(B):
@@ -1383,30 +1468,36 @@ def _names(B, most, cap):
     `cap` at their shortest ("parts of Amazonas" for "Amazonas, within
     20 km of the border with Peru, …"), however many: Mexico's brief hid
     Sinaloa, Sonora, Tamaulipas and Zacatecas behind "and 4 more" with room
-    for them; then the places of a list two levels down named at its first
-    ("areas of northern Guayaquil (Bastión Popular, and 10 more)") all
-    named, in Canada's order, while they fit: Ecuador's brief hid 12 of its
-    14 Guayaquil neighbourhoods with room for every one; then each place in
-    its own words again, in Canada's order, while they fit. A heading
-    standing in for "the following areas" leads them where it costs no
-    place ("Western Sahara border regions: within 30 km west of the
-    militarized zone of the Berm; …"), and carries the star for what Canada
-    excepts from the whole block: "…, including the oasis of Dakhla*" read
-    as Dakhla let off, where Canada lets off Marsa Matruh and the White and
-    Black deserts. What the block includes follows in Canada's sentence
-    where it fits (Benin's parks: _included); then a stricter exception of
-    the block's in Canada's words, as the line says it (Ecuador's "— except
-    within 20 km of the border with Colombia where Canada advises against
-    all travel"), where it fits; then, once every place is named, each
-    place's own exceptions as the line says them in place of its star, in
-    Canada's order, where they fit: Georgia's "…with the occupied regions of
+    for them. A heading standing in for "the following areas" leads them
+    where it costs no place ("Western Sahara border regions: within 30 km
+    west of the militarized zone of the Berm; …"), and carries the star for
+    what Canada excepts from the whole block: "…, including the oasis of
+    Dakhla*" read as Dakhla let off, where Canada lets off Marsa Matruh and
+    the White and Black deserts. What the block includes follows in
+    Canada's sentence where it fits beside them (Benin's parks: _included),
+    decided before anything below: places to avoid, which a lower list
+    named whole once left out with nothing said. Then, in Canada's order
+    while they fit, the places below them: a list two levels down named at
+    its first ("areas of northern Guayaquil (Bastión Popular, and 10
+    more)"), and one a place said "parts of" holds — Ecuador's brief hid 12
+    of its 14 Guayaquil neighbourhoods with room for every one, Honduras's
+    named Guatemala's exceptions while it hid Choloma, San Pedro Sula's
+    eastern neighbourhoods and La Lima's El Planeta behind "parts of
+    Cortés"; then each place in its own words again; then a stricter
+    exception of the block's in Canada's words, as the line says it
+    (Ecuador's "— except within 20 km of the border with Colombia where
+    Canada advises against all travel"), a sentence of its own after a cut
+    list or a sentence; then, once every place is named, each place's own
+    exceptions as the line says them in place of its star, in Canada's
+    order, where they fit: Georgia's "…with the occupied regions of
     Abkhazia and South Ossetia*" read as South Ossetia let off, and said
     nothing of Highway E60 (the Tbilisi–Gori–Kutaisi road runs in the band);
     it reads "… (except Highway E60)". The star stays where they don't fit.
-    Canada's sentences on the exceptions follow wherever one is named
-    (_conds)."""
+    Canada's sentences on the exceptions (_conds) follow the list wherever
+    one of those is said, before anything the block states after it, and
+    never cost a stricter exception its place."""
     cx = B["cx"]
-    # What name() says a list two levels down whole ("open") and which
+    # What name() says whole of a list below a place ("open") and which
     # places it says with their exceptions ("said"); "seen": where it could
     # do either, in Canada's order.
     cur = {"open": frozenset(), "said": frozenset(), "seen": []}
@@ -1433,11 +1524,11 @@ def _names(B, most, cap):
             # A list two levels down is never dropped to leave its heading
             # bare: Honduras's brief said "Cortés", all of it, where Canada
             # lists three neighbourhoods and two cities of it.
-            if kind == "part":
-                return "parts of " + _place(it["t"]) + ("*" if star(it) else "")
             if kind == "emph":
                 return _place(it["t"]) + ("*" if star(it) else "")
             cur["seen"].append(("open", id(it)))
+            if kind == "part":
+                return "parts of " + _place(it["t"]) + ("*" if star(it) else "")
             more = sum(_count(k, of) for k in it["items"][1:])
             return base + " (" + name(it["items"][0], False, of) + (", " + _more(more) if more else "") + ")"
         if not star(it):
@@ -1455,6 +1546,8 @@ def _names(B, most, cap):
         intro = g["intro"][:1].upper() + g["intro"][1:] if multi else g["intro"]
         labs.append((intro + (" " if _OBJECT_END.search(intro) else ": ")) if intro else "")
     starred = any(e["k"] == "except" and _relief(B, e["t"]) for e in B["extras"])
+    strict = [e for e in B["extras"] if e["k"] == "except" and not _relief(B, e["t"])]
+    head = B["area"] + ("*" if starred else "")
 
     def render(pre, cfg):
         # cfg: each list's (how many named, [each one in its own words?]);
@@ -1468,72 +1561,19 @@ def _names(B, most, cap):
             out.append(labs[i] + sep.join(xs) + ("" if k == sizes[i] else sep + _more(sum(counts[i][k:]))))
         return pre + ". ".join(out)
 
-    def opening(pre, cfg):
-        # Every list two levels down named at its first place named whole,
-        # in Canada's order, while it fits: places, before any detail.
-        opened, tried = set(), set()
-        while True:
-            cur["open"] = frozenset(opened)
-            render(pre, cfg)
-            nxt = next((x for k, x in cur["seen"] if k == "open" and x not in tried), None)
-            if nxt is None:
-                return frozenset(opened)
-            tried.add(nxt)
-            opened.add(nxt)
-            cur["open"] = frozenset(opened)
-            if len(render(pre, cfg)) > cap:
-                opened.discard(nxt)
-
-    def listed(pre):
-        # Every list its first place, then more in Canada's order while they fit.
-        cur["open"] = frozenset()
-        take = [1] * len(gs)
-        whole = lambda: [(take[i], [True] * take[i]) for i in range(len(gs))]
-        for i in range(len(gs)):
-            while take[i] < sizes[i] and sum(take) < most:
-                take[i] += 1
-                if len(render(pre, whole())) > cap:
-                    take[i] -= 1
-                    break
-        if take == sizes:
-            cfg = whole()
-            return cfg, opening(pre, cfg)
-        cfg = [(n, [False] * n) for n in sizes]
-        if len(render(pre, cfg)) > cap:
-            return whole(), frozenset()
-        opened = opening(pre, cfg)
-        cur["open"] = opened
-        for i in range(len(gs)):
-            for j in range(sizes[i]):
-                cfg[i][1][j] = True
-                if len(render(pre, cfg)) > cap:
-                    cfg[i][1][j] = False
-        return cfg, opened
-    head = B["area"] + ("*" if starred else "")
-    pre = head + ": " if B["area"] and not B["optional"] else ""
-    cfg, opened = listed(pre)
-    if B["area"] and B["optional"]:
-        cur["open"] = opened
-        s = render(pre, cfg)
-        cfg_h, opened_h = listed(head + ": ")
-        cur["open"] = opened_h
-        t = render(head + ": ", cfg_h)
-        if t == head + ": " + s and len(t) <= cap:
-            pre, cfg, opened = head + ": ", cfg_h, opened_h
-    cur["open"] = opened
-    every = [k for k, _ in cfg] == sizes
-    strict = [e for e in B["extras"] if e["k"] == "except" and not _relief(B, e["t"])]
-    incs, strict_on = set(), False
-
-    def final(said):
-        cur["said"] = frozenset(said)
+    def form(pre, cfg, opened=frozenset(), incs=frozenset(), strict_on=False, said=()):
+        cur["open"], cur["said"] = frozenset(opened), frozenset(said)
         s = render(pre, cfg)
         if starred and not s.endswith("*") and not s.startswith(head + ": "):
             s += "*"
         # Straight after the list, an exception as the line says one ("—
-        # except …", Tunisia's and Ecuador's); past a sentence, a sentence
-        # of its own, in Canada's words where Canada wrote one.
-        lone = False
+        # except …", Tunisia's and Ecuador's); past a list cut to "and N
+        # more" or a sentence, a sentence of its own, in Canada's words where
+        # Canada wrote one: "…; and 3 more — except …" read as the three
+        # left out (Benin's line, _composed).
+        lone = bool(re.search(r"\band \d+ more\*?$", s))
+        if said and B["conds"]:
+            s, lone = s + _conds(B), True
         for e in B["extras"]:
             if e["k"] == "include" and id(e) in incs:
                 s += ". " + e.get("word", "This advisory includes") + " " + _included(e, cx)
@@ -1545,24 +1585,74 @@ def _names(B, most, cap):
             else:
                 continue
             lone = True
-        return s + _conds(B, s)
-    for e in B["extras"]:
-        if e["k"] == "include":
-            incs.add(id(e))
-            if len(final(())) > cap:
-                incs.discard(id(e))
-    strict_on = bool(strict)
-    if strict_on and len(final(())) > cap:
-        strict_on = False
+        return s
+
+    def opening(pre, cfg, incs):
+        # Every list below a place named whole, in Canada's order, while it
+        # fits: places, before any detail.
+        opened, tried = set(), set()
+        while True:
+            cur["open"] = frozenset(opened)
+            render(pre, cfg)
+            nxt = next((x for k, x in cur["seen"] if k == "open" and x not in tried), None)
+            if nxt is None:
+                return frozenset(opened)
+            tried.add(nxt)
+            opened.add(nxt)
+            if len(form(pre, cfg, opened, incs)) > cap:
+                opened.discard(nxt)
+
+    def listed(pre):
+        # Every list its first place, then more in Canada's order while they
+        # fit; or every place at its shortest where they all fit. Then what
+        # the block includes, then the places below them, then own words.
+        cur["open"] = frozenset()
+        take = [1] * len(gs)
+        whole = lambda: [(take[i], [True] * take[i]) for i in range(len(gs))]
+        for i in range(len(gs)):
+            while take[i] < sizes[i] and sum(take) < most:
+                take[i] += 1
+                if len(render(pre, whole())) > cap:
+                    take[i] -= 1
+                    break
+        cfg = [(n, [False] * n) for n in sizes]
+        every = take == sizes or len(render(pre, cfg)) <= cap
+        if not every:
+            cfg = whole()
+        incs = set()
+        for e in B["extras"]:
+            if e["k"] == "include":
+                incs.add(id(e))
+                if len(form(pre, cfg, frozenset(), incs)) > cap:
+                    incs.discard(id(e))
+        if not every:
+            return cfg, frozenset(), frozenset(incs)
+        opened = opening(pre, cfg, incs)
+        for i in range(len(gs)):
+            for j in range(sizes[i]):
+                cfg[i][1][j] = True
+                if len(form(pre, cfg, opened, incs)) > cap:
+                    cfg[i][1][j] = False
+        return cfg, opened, frozenset(incs)
+    pre = head + ": " if B["area"] and not B["optional"] else ""
+    cfg, opened, incs = listed(pre)
+    if B["area"] and B["optional"]:
+        cur["open"], cur["said"] = opened, frozenset()
+        s = render(pre, cfg)
+        cfg_h, opened_h, incs_h = listed(head + ": ")
+        cur["open"], cur["said"] = opened_h, frozenset()
+        t = render(head + ": ", cfg_h)
+        if t == head + ": " + s and incs_h == incs and len(form(head + ": ", cfg_h, opened_h, incs_h)) <= cap:
+            pre, cfg, opened, incs = head + ": ", cfg_h, opened_h, incs_h
+    strict_on = bool(strict) and len(form(pre, cfg, opened, incs, True)) <= cap
     said = []
-    if every:
-        cur["said"] = frozenset()
-        render(pre, cfg)
+    if [k for k, _ in cfg] == sizes:
+        form(pre, cfg, opened)
         for x in [x for k, x in cur["seen"] if k == "said"]:
             said.append(x)
-            if len(final(said)) > cap:
+            if len(form(pre, cfg, opened, incs, strict_on, said)) > cap:
                 said.pop()
-    return final(said)
+    return form(pre, cfg, opened, incs, strict_on, said)
 
 
 def _regional(t, fragment, floor=None):
@@ -1607,7 +1697,13 @@ def _regional(t, fragment, floor=None):
         # Togo's "within 30 km of the border with Burkina Faso" Dapaong and
         # the N28 and N16. The tag is the block's, so it goes on the heading:
         # after the last place, "…, Ismailia, Suez (parts excepted)" read as
-        # Suez let off. Nothing straight after an aside (_unaside).
+        # Suez let off. Nothing straight after an aside (_unaside). Where
+        # what it includes takes it to BRIEF_NAMES, the block as the line
+        # says it, the heading for its area, if that fits there: its
+        # exceptions named in place of the tag, as a list's are in place of
+        # their stars (_names) — northern Sinai's said only "(parts
+        # excepted)" of the Al Qantra Shark – Ras Sedr road in Suez
+        # Governorate, with room for it.
         tag = " (parts excepted)" if excepted else ""
         area = B["L"]["area"]
         h = area if (B["head"].lower() in area.lower() and len(B["head"]) < len(area) <= BRIEF_CAP - len(tag)
@@ -1615,7 +1711,9 @@ def _regional(t, fragment, floor=None):
         inc = "".join(", including " + _included(e, B["cx"]) for e in B["extras"] if e["k"] == "include")
         tagged = lambda x: (_unaside(x) if inc or tag else x) + tag + inc
         cap = BRIEF_NAMES if inc else BRIEF_CAP
-        brief = next((tagged(x) for x in (h, B["head"]) if len(tagged(x)) <= cap), None)
+        lined = (lambda x: _compose(dict(B, area=x), "compact")) if inc and any(e["k"] == "except" for e in B["extras"]) else None
+        brief = next((lined(x) for x in (h, B["head"]) if lined and len(lined(x)) <= cap), None)
+        brief = brief or next((tagged(x) for x in (h, B["head"]) if len(tagged(x)) <= cap), None)
         if brief is None and inc:
             brief = _cut_words(tagged(B["head"]), cap)      # cut, and says so ("…")
         elif brief is None:
