@@ -1,6 +1,6 @@
 {
  "asof": "2026-10-18",
- "about": "Canada's regional 'Avoid all travel' blocks the stay spots were checked against (Global Affairs Canada's feed of 2026-10-15, then its live feed on 2026-10-18): per country, each block by its heading, a fingerprint of its words, and the places inside it that never become stay anchors. Under 'us', the same for the US State Department's regional 'Do not travel' areas where it names them (its RSS feed of 2026-10-18): per country below level 4, a fingerprint of the feed's 'Do Not Travel to' words and the places inside an area they name. scripts/gen_stay_spots.py --check flags a block or a US list that is new, gone or reworded.",
+ "about": "Canada's regional 'Avoid all travel' blocks the stay spots were checked against (Global Affairs Canada's feed of 2026-10-15, then its live feed on 2026-10-18): per country, each block by its heading, a fingerprint of its words, and the places inside it that never become stay anchors. Under 'us', the same for the US State Department's regional 'Do not travel' areas where it names them (its RSS feed of 2026-10-18): per country below level 4, a fingerprint of the feed's 'Do Not Travel to' words and the places inside an area they name. Where the feed says some areas have increased risk but names none (Mexico, India), the whole row is fingerprinted and its 'note' records the review by hand against travel.state.gov. A skipped place may carry its point ('ll') and other names ('aka'); a candidate within 5 km of that point, or under one of those names, is skipped too. scripts/gen_stay_spots.py --check flags a block or a US list that is new, gone or reworded.",
  "countries": {
   "AM": {
    "Eastern border with Azerbaijan - Avoid all travel": {
@@ -26,7 +26,11 @@
     "skip": {
      "Kibira National Park": {
       "where": "its point is in Cibitoke province (OSM)",
-      "canada": "Cibitoke province"
+      "canada": "Cibitoke province",
+      "ll": [
+       -2.91466,
+       29.43361
+      ]
      }
     }
    }
@@ -37,7 +41,11 @@
     "skip": {
      "Pendjari National Park": {
       "where": "Atakora, about 30 km from Burkina Faso; the park is named",
-      "canada": "This advisory includes the W National Park and the Pendjari National Park."
+      "canada": "This advisory includes the W National Park and the Pendjari National Park.",
+      "ll": [
+       11.05,
+       1.51667
+      ]
      }
     }
    }
@@ -63,11 +71,19 @@
     "skip": {
      "Waza National Park": {
       "where": "Far North region, about 23 km from Chad",
-      "canada": "Avoid all travel to the Far North region and Mayo-Louti Department in the North region"
+      "canada": "Avoid all travel to the Far North region and Mayo-Louti Department in the North region",
+      "ll": [
+       11.33333,
+       14.73333
+      ]
      },
      "Mokolo": {
       "where": "Far North region (Mayo-Tsanaga)",
-      "canada": "Avoid all travel to the Far North region and Mayo-Louti Department in the North region"
+      "canada": "Avoid all travel to the Far North region and Mayo-Louti Department in the North region",
+      "ll": [
+       10.74,
+       13.8
+      ]
      }
     }
    },
@@ -79,19 +95,35 @@
     "skip": {
      "Mount Cameroon": {
       "where": "South-West region (Meme)",
-      "canada": "Avoid all travel to the North-West and South-West regions"
+      "canada": "Avoid all travel to the North-West and South-West regions",
+      "ll": [
+       4.21667,
+       9.1725
+      ]
      },
      "Limbe": {
       "where": "South-West region (Fako)",
-      "canada": "Avoid all travel to the North-West and South-West regions"
+      "canada": "Avoid all travel to the North-West and South-West regions",
+      "ll": [
+       4.01667,
+       9.21667
+      ]
      },
      "Korup National Park": {
       "where": "South-West region (Ndian)",
-      "canada": "Avoid all travel to the North-West and South-West regions"
+      "canada": "Avoid all travel to the North-West and South-West regions",
+      "ll": [
+       5.08333,
+       8.83333
+      ]
      },
      "Bafut": {
       "where": "North-West region (Mezam)",
-      "canada": "Avoid all travel to the North-West and South-West regions"
+      "canada": "Avoid all travel to the North-West and South-West regions",
+      "ll": [
+       6.08333,
+       10.1
+      ]
      },
      "Ring Road": {
       "where": "the loop runs through the North-West region",
@@ -106,7 +138,11 @@
     "skip": {
      "Las Lajas Sanctuary": {
       "where": "Nariño, about 7 km from Ecuador; neither the city of Ipiales nor its border crossing",
-      "canada": "within 50 km of the border with Ecuador, excluding the border crossing at Ipiales"
+      "canada": "within 50 km of the border with Ecuador, excluding the border crossing at Ipiales",
+      "ll": [
+       0.8055,
+       -77.586
+      ]
      }
     }
    }
@@ -146,27 +182,67 @@
     "skip": {
      "Lalibela": {
       "where": "Amhara",
-      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray",
+      "ll": [
+       12.03167,
+       39.04111
+      ]
      },
      "Gondar": {
       "where": "Amhara",
-      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray",
+      "ll": [
+       12.6075,
+       37.45917
+      ],
+      "aka": [
+       "Gonder"
+      ]
      },
      "Fasil Ghebbi": {
       "where": "Amhara (Gondar)",
-      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray",
+      "ll": [
+       12.6075,
+       37.47
+      ]
      },
      "Simien Mountains": {
       "where": "Amhara",
-      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray",
+      "ll": [
+       13.26667,
+       38.08333
+      ],
+      "aka": [
+       "Semien Mountains",
+       "Ras Dashen"
+      ]
      },
      "Danakil Desert": {
       "where": "Afar",
-      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray",
+      "ll": [
+       14.2417,
+       40.3
+      ],
+      "aka": [
+       "Danakil Depression",
+       "Erta Ale",
+       "Dallol"
+      ]
      },
      "Obelisk of Axum": {
       "where": "Tigray",
-      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray"
+      "canada": "Afar • Amhara • Benishangul-Gumuz • Tigray",
+      "ll": [
+       14.13222,
+       38.71972
+      ],
+      "aka": [
+       "Aksum",
+       "Axum"
+      ]
      }
     }
    },
@@ -194,7 +270,11 @@
     "skip": {
      "Rosh HaNikra grottoes": {
       "where": "on the Lebanese border (North District, Mate Asher)",
-      "canada": "Avoid all travel to the area within 5 kilometres of the border with Lebanon"
+      "canada": "Avoid all travel to the area within 5 kilometres of the border with Lebanon",
+      "ll": [
+       33.09312,
+       35.10477
+      ]
      }
     }
    },
@@ -253,15 +333,27 @@
     "skip": {
      "Adrar": {
       "where": "the region's centre (20.5, -11.0), about 60 km east of the Ouadane-Tidjikdja leg",
-      "canada": "east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: ◦ Adrar ◦ Tagant ◦ Assaba ◦ Guidimakha"
+      "canada": "east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: ◦ Adrar ◦ Tagant ◦ Assaba ◦ Guidimakha",
+      "ll": [
+       20.5,
+       -11
+      ]
      },
      "Richat Structure": {
       "where": "Adrar, east of the Zouerate-Ouadane leg",
-      "canada": "east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: ◦ Adrar ◦ Tagant ◦ Assaba ◦ Guidimakha"
+      "canada": "east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: ◦ Adrar ◦ Tagant ◦ Assaba ◦ Guidimakha",
+      "ll": [
+       21.1147,
+       -11.3943
+      ]
      },
      "Tichit": {
       "where": "Tagant, east of the Tidjikdja-Kiffa leg",
-      "canada": "east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: ◦ Adrar ◦ Tagant ◦ Assaba ◦ Guidimakha"
+      "canada": "east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: ◦ Adrar ◦ Tagant ◦ Assaba ◦ Guidimakha",
+      "ll": [
+       18.44167,
+       -9.49167
+      ]
      }
     }
    }
@@ -272,15 +364,27 @@
     "skip": {
      "Quirimbas Archipelago": {
       "where": "Cabo Delgado Province",
-      "canada": "Avoid all travel to to Cabo Delgado Province … This advisory excludes Pemba City"
+      "canada": "Avoid all travel to to Cabo Delgado Province … This advisory excludes Pemba City",
+      "ll": [
+       -12.14667,
+       40.5725
+      ]
      },
      "Quirimbas National Park": {
       "where": "Cabo Delgado Province (Macomia)",
-      "canada": "Avoid all travel to to Cabo Delgado Province … This advisory excludes Pemba City"
+      "canada": "Avoid all travel to to Cabo Delgado Province … This advisory excludes Pemba City",
+      "ll": [
+       -12.10462,
+       40.4314
+      ]
      },
      "Ibo Island": {
       "where": "Cabo Delgado Province (Quirimbas)",
-      "canada": "Avoid all travel to to Cabo Delgado Province … This advisory excludes Pemba City"
+      "canada": "Avoid all travel to to Cabo Delgado Province … This advisory excludes Pemba City",
+      "ll": [
+       -12.35,
+       40.63333
+      ]
      }
     }
    },
@@ -294,19 +398,35 @@
     "skip": {
      "Zuma Rock": {
       "where": "on the line between the FCT and Niger State; its hotels are Madalla's and Suleja's, in Niger State",
-      "canada": "the northcentral states of Plateau, Niger, Kwara and Kogi"
+      "canada": "the northcentral states of Plateau, Niger, Kwara and Kogi",
+      "ll": [
+       9.13028,
+       7.23389
+      ]
      },
      "Gashaka Gumti National Park": {
       "where": "Taraba State (OSM: Gashaka)",
-      "canada": "the northeastern states of Adamawa, Bauchi, Borno, Gombe, Jigawa, Taraba and Yobe"
+      "canada": "the northeastern states of Adamawa, Bauchi, Borno, Gombe, Jigawa, Taraba and Yobe",
+      "ll": [
+       7.35,
+       11.52
+      ]
      },
      "Agbokim Waterfalls": {
       "where": "Cross River State (Etung), on the Cameroon border: every OSM sample 5–12.5 km to the east is in Cameroon",
-      "canada": "10 km of the border areas with Cameroon, Niger, and northern Benin (between Benin and Kebbi state)"
+      "canada": "10 km of the border areas with Cameroon, Niger, and northern Benin (between Benin and Kebbi state)",
+      "ll": [
+       5.90694,
+       8.91278
+      ]
      },
      "Obudu Mountain Resort": {
       "where": "Cross River State (Obanliku); Cameroon is about 5 km to the south (OSM)",
-      "canada": "10 km of the border areas with Cameroon, Niger, and northern Benin (between Benin and Kebbi state)"
+      "canada": "10 km of the border areas with Cameroon, Niger, and northern Benin (between Benin and Kebbi state)",
+      "ll": [
+       6.38667,
+       9.37389
+      ]
      }
     }
    }
@@ -335,7 +455,11 @@
     "skip": {
      "K2": {
       "where": "on the border with China",
-      "canada": "the areas within 10 km of the borders with China, India and Iran, except … Khunjerab Pass and the Karakorum Highway leading there"
+      "canada": "the areas within 10 km of the borders with China, India and Iran, except … Khunjerab Pass and the Karakorum Highway leading there",
+      "ll": [
+       35.8825,
+       76.51333
+      ]
      }
     }
    }
@@ -357,27 +481,51 @@
     "skip": {
      "Tibesti": {
       "where": "Tibesti",
-      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)",
+      "ll": [
+       20.78084,
+       18.04983
+      ]
      },
      "Toussidé": {
       "where": "Tibesti",
-      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)",
+      "ll": [
+       21.0408,
+       16.4736
+      ]
      },
      "Ennedi": {
       "where": "Ennedi-Ouest",
-      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)",
+      "ll": [
+       17.04167,
+       21.86278
+      ]
      },
      "Aloba Arch": {
       "where": "Ennedi-Ouest",
-      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)",
+      "ll": [
+       16.7415,
+       22.2392
+      ]
      },
      "Lakes of Ounianga": {
       "where": "Ennedi-Ouest",
-      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)",
+      "ll": [
+       19.055,
+       20.50556
+      ]
      },
      "Lake Yoa": {
       "where": "Ennedi-Ouest (Ounianga)",
-      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)"
+      "canada": "the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)",
+      "ll": [
+       19.05,
+       20.51667
+      ]
      }
     }
    }
@@ -401,7 +549,11 @@
     "skip": {
      "Wakhan": {
       "where": "Ishkoshim, on the Panj: Afghanistan within 5 km",
-      "canada": "Avoid all travel to within 10 km of the border with Afghanistan"
+      "canada": "Avoid all travel to within 10 km of the border with Afghanistan",
+      "ll": [
+       36.727,
+       71.612
+      ]
      }
     }
    }
@@ -417,7 +569,11 @@
     "skip": {
      "Sbeitla": {
       "where": "Kasserine governorate (OSM)",
-      "canada": "the governorate of Kasserine, including the mountain ranges and surrounding forests of the following mountains"
+      "canada": "the governorate of Kasserine, including the mountain ranges and surrounding forests of the following mountains",
+      "ll": [
+       35.22972,
+       9.12944
+      ]
      }
     }
    }
@@ -463,7 +619,14 @@
     "skip": {
      "Tanougou Falls": {
       "where": "Tanguiéta commune (Atacora), which reaches the Burkina Faso border; the falls are 40–50 km from it (coarse map, OSM sampling), so read conservatively they are in the area",
-      "us": "Do Not Travel to areas of Benin bordering Burkina Faso … Do not travel to the border region in northern or northeastern Benin for any reason."
+      "us": "Do Not Travel to areas of Benin bordering Burkina Faso … Do not travel to the border region in northern or northeastern Benin for any reason.",
+      "ll": [
+       10.80537,
+       1.44449
+      ],
+      "aka": [
+       "Tanguiéta"
+      ]
      }
     }
    },
@@ -471,7 +634,28 @@
     "fp": "fed8d8397986"
    },
    "BR": {
-    "fp": "28ee5bf5ea24"
+    "fp": "28ee5bf5ea24",
+    "skip": {
+     "Iguazú Falls": {
+      "where": "the falls are the Argentine border itself (Iguaçu river, Foz do Iguaçu municipality, Paraná); Paraguay is about 18 km away",
+      "us": "Do Not Travel to : International land borders due to crime and kidnapping.",
+      "ll": [
+       -25.68667,
+       -54.44472
+      ],
+      "aka": [
+       "Iguaçu Falls",
+       "Iguassu Falls",
+       "Foz do Iguaçu",
+       "Iguaçu National Park"
+      ]
+     }
+    },
+    "note": "The public line names Brazil's land borders with no exception. The feed's only Foz exception is in the staff rules (\"Within 100 miles/160 km of Brazil’s land borders (except travel to the Foz do Iguacu and Pantanal)\"), which govern US government employees, not the public advice, so it exempts nothing here. Canada's 20 km Paraguay band is avoid non-essential, where a chip may stay; the US line takes the falls out. Rio, Salvador and Manaus are hundreds of km from any land border."
+   },
+   "CI": {
+    "fp": "ce5f4ee6d469",
+    "note": "The feed's row names no area. Search-engine copies of travel.state.gov's advisory read on 2026-10-18 give Do Not Travel to the northern border region with Mali and Burkina Faso (one copy: within 50 km). The chips are far south of it: Assinie, Abidjan, Yamoussoukro, Man; the gallery's Kong and Comoé National Park only top up a list under four and are not reached."
    },
    "CM": {
     "fp": "90a4e51b5265"
@@ -479,12 +663,24 @@
    "CO": {
     "fp": "b5307a2f8271"
    },
+   "CV": {
+    "fp": "58c7d6083e68",
+    "note": "Level 1. Search-engine copies of travel.state.gov's advisory read on 2026-10-18 put Praia at Exercise Increased Caution: no Do Not Travel area."
+   },
+   "CY": {
+    "fp": "71919fded461",
+    "note": "Level 1. Search-engine copies of travel.state.gov's advisory read on 2026-10-18 put the area administered by Turkish Cypriots at Level 2 (Exercise Increased Caution) and say not to enter the UN buffer zone outside crossing points: no Do Not Travel area. Every chip is in the south."
+   },
    "DZ": {
     "fp": "7d3cea2d97d0",
     "skip": {
      "Tassili n'Ajjer": {
       "where": "its point (25.5, 9) is in Illizi province (OSM); the plateau runs on into Djanet province, about 65 km from Libya",
-      "us": "Do Not Travel to: Areas near the eastern, and southern borders, Bordj Badji Mokhtar, Illiz, In Guezzsam, In Salah, Tamanrasset, …"
+      "us": "Do Not Travel to: Areas near the eastern, and southern borders, Bordj Badji Mokhtar, Illiz, In Guezzsam, In Salah, Tamanrasset, …",
+      "ll": [
+       25.5,
+       9
+      ]
      }
     }
    },
@@ -499,7 +695,11 @@
     "skip": {
      "Tiya": {
       "where": "Oromia (OSM: South West Shewa), outside Canada's Oromia zones (North and West Shewa, the Wollegas)",
-      "us": "The Oromia region , with the exception of Bishoftu and Bale Mountains National Park"
+      "us": "The Oromia region , with the exception of Bishoftu and Bale Mountains National Park",
+      "ll": [
+       8.43333,
+       38.61667
+      ]
      }
     }
    },
@@ -518,6 +718,10 @@
    "IL": {
     "fp": "14ba5dcf2c1f"
    },
+   "IN": {
+    "fp": "ce84b874a785",
+    "note": "The feed's row names no area. Search-engine copies of travel.state.gov's advisory read on 2026-10-18 give Do Not Travel to Jammu and Kashmir (except eastern Ladakh and Leh), within 10 km of the India-Pakistan border, and Manipur; some add central and east India (from eastern Maharashtra and northern Telangana to western West Bengal). No chip or candidate is in them: Agra and Varanasi (Uttar Pradesh), Jaipur (hundreds of km from Pakistan), Kerala, Goa, Rishikesh; the gallery's Golden Temple (about 29 km from the border) is not reached."
+   },
    "JO": {
     "fp": "a05bf9397c3f"
    },
@@ -526,9 +730,24 @@
     "skip": {
      "Lamu Island": {
       "where": "Lamu County; Canada excepts the island, the US names the county without exception",
-      "us": "Do Not Travel to the counties of Garissa, Wajir, Mandera, Lamu, …"
+      "us": "Do Not Travel to the counties of Garissa, Wajir, Mandera, Lamu, …",
+      "ll": [
+       -2.28333,
+       40.86667
+      ],
+      "aka": [
+       "Lamu Old Town",
+       "Lamu Town",
+       "Shela",
+       "Manda Island",
+       "Lamu Archipelago"
+      ]
      }
     }
+   },
+   "KG": {
+    "fp": "2f57f5d030c3",
+    "note": "Level 1. Search-engine copies of travel.state.gov's advisory read on 2026-10-18 put the area within 30 km of the Tajik border at Level 2: no Do Not Travel area. Song-Köl, Ala-Archa and Issyk-Kul are far from it."
    },
    "KH": {
     "fp": "b6e92ea8503a"
@@ -536,8 +755,20 @@
    "KW": {
     "fp": "936f8411a6cb"
    },
+   "MA": {
+    "fp": "f66e74bb07aa",
+    "note": "The feed's row names no area. Search-engine copies of travel.state.gov's 4 September 2026 advisory show no Do Not Travel or Reconsider Travel area. Merzouga, the chip nearest a border, is about 32 km from Algeria."
+   },
+   "MG": {
+    "fp": "b354e997d892",
+    "note": "The feed's row names no area; it describes crime on roads in the south and west without designating them. Search-engine copies of travel.state.gov's advisory read on 2026-10-18 show no Do Not Travel area."
+   },
    "MR": {
     "fp": "00c38ad6ef44"
+   },
+   "MX": {
+    "fp": "a5961b4f4b2b",
+    "note": "The feed's row names no area (\"Check the maps of restricted areas\"). travel.state.gov refuses scripted reads (403, bot check); search-engine copies of its advisory read on 2026-10-18 give Do Not Travel to Colima, Guerrero, Michoacán, Sinaloa, Tamaulipas and Zacatecas. No chip or candidate is in them: Cancún and Tulum (Quintana Roo), Chichen Itza (Yucatán), Mexico City, Oaxaca; the gallery's Xochimilco, Teotihuacan and Cabo San Lucas are not reached (five things-to-do places fill the list)."
    },
    "MZ": {
     "fp": "2bd3d1af9ad8"
@@ -562,7 +793,11 @@
     "skip": {
      "Mount Wilhelm": {
       "where": "Simbu Province, Highlands Region (OSM: Kundiawa-Gembogl)",
-      "us": "The Highlands region, other than the towns of Mt. Hagen and Goroka"
+      "us": "The Highlands region, other than the towns of Mt. Hagen and Goroka",
+      "ll": [
+       -5.8,
+       145.03333
+      ]
      },
      "Highlands": {
       "where": "the activity names the Highlands Region itself",
@@ -581,11 +816,29 @@
     "skip": {
      "Volcanoes National Park": {
       "where": "the park runs along the DRC border; its point is Kinigi (Musanze, OSM), about 3 km from the border on the coarse map",
-      "us": "Do not travel within 10 kilometers of Rwanda’s border with the Democratic Republic of the Congo"
+      "us": "Do not travel within 10 kilometers of Rwanda’s border with the Democratic Republic of the Congo",
+      "ll": [
+       -1.4675,
+       29.4925
+      ],
+      "aka": [
+       "Kinigi",
+       "Parc National des Volcans",
+       "Mount Bisoke",
+       "Mount Karisimbi"
+      ]
      },
      "Lake Kivu": {
       "where": "the lake is the border; its chip was Gisenyi (Rubavu, OSM), which adjoins Goma, about 4 km from the DRC on the coarse map",
-      "us": "Do not travel within 10 kilometers of Rwanda’s border with the Democratic Republic of the Congo"
+      "us": "Do not travel within 10 kilometers of Rwanda’s border with the Democratic Republic of the Congo",
+      "ll": [
+       -1.7,
+       29.25
+      ],
+      "aka": [
+       "Gisenyi",
+       "Rubavu"
+      ]
      }
     }
    },
@@ -597,7 +850,15 @@
     "skip": {
      "Koutammakou": {
       "where": "Kéran prefecture, Kara region (OSM), north of Kandé (10.07°N against Kandé's 9.96°N)",
-      "us": "Areas north of Kande due to risk of terrorism"
+      "us": "Areas north of Kande due to risk of terrorism",
+      "ll": [
+       10.06667,
+       1.13333
+      ],
+      "aka": [
+       "Tamberma Valley",
+       "Batammariba"
+      ]
      }
     }
    },
@@ -612,11 +873,28 @@
     "skip": {
      "Canaima": {
       "where": "Canaima National Park, rural Bolívar state",
-      "us": "Bolivar state rural areas due to the risk of crime and kidnapping"
+      "us": "Bolivar state rural areas due to the risk of crime and kidnapping",
+      "ll": [
+       6.16667,
+       -62.5
+      ],
+      "aka": [
+       "Angel Falls",
+       "Salto Ángel",
+       "Kerepakupai Merú"
+      ]
      },
      "Roraima": {
       "where": "Mount Roraima, rural Bolívar state (Gran Sabana)",
-      "us": "Bolivar state rural areas due to the risk of crime and kidnapping"
+      "us": "Bolivar state rural areas due to the risk of crime and kidnapping",
+      "ll": [
+       5.14333,
+       -60.7625
+      ],
+      "aka": [
+       "Gran Sabana",
+       "Kukenán"
+      ]
      }
     }
    }

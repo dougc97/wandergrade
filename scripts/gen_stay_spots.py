@@ -21,7 +21,10 @@ the same hotels as the "Trinidad" chip beside it.
 
 No spot inside a zone Canada says to avoid all travel to, nor inside an area
 the US State Department names under "Do not travel" (see SKIP_PATH): Benin's
-chips offered Pendjari National Park, which Canada's advisory names.
+chips offered Pendjari National Park, which Canada's advisory names. A
+skipped place is kept out under its other names and on its ground (a label
+within SKIP_KM of its point), and a US advisory that keeps its list off the
+feed (Mexico's states) is reviewed by hand and re-flagged when reissued.
 
 Run from the repo root with /usr/bin/python3; re-run when activities or
 galleries change:
@@ -261,7 +264,15 @@ except OSError:
 # "Do Not Travel to" words and the places inside an area they name. Tiya,
 # clear of Canada's Ethiopian zones, is in the US's Oromia. A whole country
 # at the US's level 4 is app.js's rule (no stays for that source), not this.
+# Where the feed says "some areas have increased risk" and names none
+# (Mexico's states, India's Kashmir are only on travel.state.gov), the entry
+# fingerprints the whole row and its "note" records the review by hand.
+# A skipped place is matched by its name, its other names ("aka": Gonder for
+# Gondar) and its point ("ll", where it has one): any candidate within
+# SKIP_KM of that point is the same ground under another label (a gallery's
+# "Gisenyi" is the skipped Lake Kivu chip).
 SKIP_PATH = os.path.join(ROOT, "scripts", "stay-skip.json")
+SKIP_KM = 5
 try:
     SKIP = json.load(open(SKIP_PATH, encoding="utf-8"))
 except OSError:
@@ -283,12 +294,35 @@ def _skip_lists(iso, skip=None):
 
 
 def skipped(iso, *names, skip=None):
-    """The skip-listed place any of `names` is (same_place), or None."""
+    """The skip-listed place any of `names` is (same_place, with its "aka"
+    names), or None."""
     for places in _skip_lists(iso, skip):
-        for s in places:
-            if any(n and same_place(_fold(n), _fold(s)) for n in names):
+        for s, v in places.items():
+            for alt in [s] + list((v or {}).get("aka") or []):
+                if any(n and same_place(_fold(n), _fold(alt)) for n in names):
+                    return s
+    return None
+
+
+def skipped_near(iso, ll, skip=None):
+    """The skip-listed place whose point is within SKIP_KM of `ll`, or None:
+    the same ground under a name the list doesn't hold (Gisenyi, the Lake
+    Kivu chip's town)."""
+    if not ll:
+        return None
+    pt = (ll[1], ll[0])
+    for places in _skip_lists(iso, skip):
+        for s, v in places.items():
+            p = (v or {}).get("ll")
+            if p and geo.dist_km(pt, (p[1], p[0])) < SKIP_KM:
                 return s
     return None
+
+
+def skip_hit(iso, spot, skip=None):
+    """The skip-listed place a stay spot ({"n", "ll"}) is, by name or by
+    point, or None."""
+    return skipped(iso, spot["n"], skip=skip) or skipped_near(iso, spot.get("ll"), skip=skip)
 
 
 def fingerprint(text):
@@ -342,32 +376,83 @@ def us_passage(text):
     return (rest[:stop.start()] if stop else rest).strip()
 
 
+# A row that says "some areas have increased risk" may name them in the feed
+# (Brazil's "Do Not Travel to : International land borders", Tanzania's
+# "Reconsider travel to the border ... in the Mtwara Region") or not at all:
+# Mexico's row ends "Check the maps of restricted areas" and India's names no
+# area, while both advisories list "Do not travel" states on travel.state.gov.
+# Such a row is reviewed by hand there (the site refuses scripted reads); its
+# words are US_UNLISTED + the whole row, so any reissue asks for it again.
+US_SOME = re.compile(r"\bsome areas have increased risks?\b", re.I)
+US_TIER = re.compile(r"\b(?:do not travel|reconsider travel|exercise (?:increased caution|normal precaution))", re.I)
+US_UNLISTED = "No list in the feed (review on travel.state.gov): "
+# Feed titles the site's name map misses (advisories._norm drops the curly
+# apostrophe of "Côte d’Ivoire", so it is straightened first).
+US_NAMES = {"republic of congo": "CG"}
+
+
+def us_unlisted(text):
+    """True when a US row says some areas have increased risk but names none
+    at any tier: its only tier words are its own lead sentence's."""
+    return bool(US_SOME.search(text or "")) and not us_passage(text) and len(US_TIER.findall(text)) <= 1
+
+
+def us_words(text):
+    """What --check reviews in one US row: its regional "Do not travel"
+    words; for a row that names its risky areas only on travel.state.gov,
+    US_UNLISTED + the row; else ""."""
+    return us_passage(text) or (US_UNLISTED + text if us_unlisted(text) else "")
+
+
+def us_items(raw):
+    """(title's country, iso or None, level, plain text) for every row of
+    the US feed's XML."""
+    from fxtracker import advisories
+    name_iso = advisories._name_to_iso()
+    out = []
+    for block in re.findall(r"<item>(.*?)</item>", raw or "", re.S):
+        m = re.match(r"(.+?)\s*[-–]\s*Level\s*(\d)", html.unescape(advisories._tag(block, "title")))
+        if not m:
+            continue
+        key = advisories._norm(re.sub(r"[\u2018\u2019]", "'", m.group(1)))
+        out.append((m.group(1), name_iso.get(key) or US_NAMES.get(key), int(m.group(2)),
+                    us_text(advisories._tag(block, "description"))))
+    return out
+
+
 def us_passages(raw):
-    """{iso: the regional "Do not travel" words} from the US feed's XML, for
+    """{iso: what --check reviews (us_words)} from the US feed's XML, for
     countries below level 4 (at 4 the whole country is "do not travel", which
     app.js already answers with no stays). A country the feed lists twice
     gets both rows' words, in a fixed order."""
-    from fxtracker import advisories
-    name_iso = advisories._name_to_iso()
     found = {}
-    for block in re.findall(r"<item>(.*?)</item>", raw or "", re.S):
-        m = re.match(r"(.+?)\s*[-–]\s*Level\s*(\d)", html.unescape(advisories._tag(block, "title")))
-        if not m or int(m.group(2)) >= 4:
-            continue
-        iso = name_iso.get(advisories._norm(m.group(1)))
-        words = us_passage(us_text(advisories._tag(block, "description")))
-        if iso and words:
+    for name, iso, level, text in us_items(raw):
+        words = us_words(text)
+        if iso and level < 4 and words:
             found.setdefault(iso, set()).add(words)
     return {iso: " | ".join(sorted(w)) for iso, w in found.items()}
+
+
+def us_unmapped(raw):
+    """Feed rows below level 4 with words to review but no ISO for their
+    title: reported, never silently dropped."""
+    return sorted(name for name, iso, level, text in us_items(raw) if not iso and level < 4 and us_words(text))
 
 
 def us_review_problems(iso, words, skip=None):
     """What changed in one country's US "Do not travel" words since the
     review: `words` as us_passages gives them ("" for none)."""
     seen = (((skip or SKIP).get("us") or {}).get("countries") or {}).get(iso)
+    unlisted = words.startswith(US_UNLISTED)
     if words and not seen:
+        if unlisted:
+            return ["%s US advisory says some areas have increased risk but the feed names none, not reviewed:"
+                    " read its \"Do not travel\" areas on travel.state.gov" % iso]
         return ["%s new US \"Do not travel\" areas, not reviewed: %s" % (iso, words[:160])]
     if words and seen.get("fp") != fingerprint(words):
+        if unlisted:
+            return ["%s US advisory reissued or reworded since the review (its areas are only on"
+                    " travel.state.gov): read them again" % iso]
         return ["%s US \"Do not travel\" areas reworded since the review: %s" % (iso, words[:160])]
     if not words and seen:
         return ["%s US \"Do not travel\" areas gone from the feed, or the country is now level 4%s"
@@ -408,6 +493,10 @@ def _build_country(args):
         ll = (al or {}).get("ll") or coords_with_fallback((al or {}).get("title") or subject,
                                                           country, iso)
         if not ll:
+            return
+        near = skipped_near(iso, ll)
+        if near:
+            print("\n%s: %s %s left out — within %d km of skip-listed %s" % (iso, name, ll, SKIP_KM, near), end="")
             return
         why = placeholder(iso, name, ll, spots)
         if why:
@@ -474,9 +563,10 @@ def check(data):
 
 
 def skipped_present(data, skip=None):
-    """Every anchor that is a skip-listed place: (iso, spot, skip-list name)."""
+    """Every anchor that is a skip-listed place, by name or by point:
+    (iso, spot, skip-list name)."""
     return [(iso, s["n"], hit) for iso, spots in sorted(data.items()) for s in spots
-            for hit in [skipped(iso, s["n"], skip=skip)] if hit]
+            for hit in [skip_hit(iso, s, skip=skip)] if hit]
 
 
 def prune(data, skip=None):
@@ -484,7 +574,7 @@ def prune(data, skip=None):
     out, as main() leaves out one that found none (the stays block hides)."""
     out = {}
     for iso, spots in data.items():
-        keep = [s for s in spots if not skipped(iso, s["n"], skip=skip)]
+        keep = [s for s in spots if not skip_hit(iso, s, skip=skip)]
         if keep:
             out[iso] = keep
     return out
@@ -538,7 +628,9 @@ def us_review(data, rss=None):
         return ["US feed has no \"Do not travel\" areas at all (format changed?): nothing checked"]
     seen = ((SKIP.get("us") or {}).get("countries") or {})
     isos = sorted(set(k for k in data if re.fullmatch(r"[A-Z]{2}", k)) | set(seen))
-    return [line for iso in isos for line in us_review_problems(iso, words.get(iso, ""))]
+    return (["US feed row with areas to review matches no country (add it to US_NAMES): %s" % n
+             for n in us_unmapped(raw)]
+            + [line for iso in isos for line in us_review_problems(iso, words.get(iso, ""))])
 
 
 def main(only=None):

@@ -211,6 +211,13 @@
   "Adrar": {
    "label": "Adrar",
    "title": "Adrar Plateau"
+  },
+  "Amojjar Pass": {
+   "label": "Amojjar Pass",
+   "ll": [
+    20.53933,
+    -12.79186
+   ]
   }
  },
  "MU": {
@@ -321,6 +328,15 @@
  "TF": {
   "Crozet": {
    "title": "Crozet Islands"
+  }
+ },
+ "TG": {
+  "Fazao-Malfakassa National Park": {
+   "label": "Fazao-Malfakassa National Park",
+   "ll": [
+    8.76571,
+    0.76086
+   ]
   }
  },
  "TJ": {
