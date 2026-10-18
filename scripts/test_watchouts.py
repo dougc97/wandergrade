@@ -57,9 +57,16 @@ against travel.gc.ca that day; see its README).
   lead call  Canada's words where its first sentence states the call on the
              exceptions once for them all (Colombia's border areas' "with
              exclusions where you should avoid non-essential travel") lead
-             every form that names one: full always, the brief within
-             BRIEF_NAMES with the latest starred until it fits; none for a
-             form that only flags them
+             every form that names one, behind Canada's words for the area
+             ("the following departments and border areas") before a list,
+             right before the exception with no list, never before what a
+             block includes: full always, the brief within BRIEF_NAMES, each
+             named in Canada's order while it fits and starred where it
+             doesn't; none for a form that only flags them; a list where
+             only some places carry a call takes them for the rest; an
+             exception stricter only by them said after them on every path;
+             a short block keeps the line's form, and the block's star is
+             never on the last place
   latent     shapes the feed lacks today: an exclusion inside an exception,
              a paragraph after an unclosed list, a call-less block that
              names a call further on, a heading over places two levels down,
@@ -1068,22 +1075,26 @@ results.append(ok(c3[0]["brief"] == c3[0]["line"] == "Placename0; Placename1; Pl
 # non-essential travel:"); the brief and full named Florencia, Popayan, the
 # Chocó towns, Cúcuta and the Ipiales crossing and never said it, so the
 # cities read as let off entirely. Those words lead every form that names
-# one: full always, the brief within BRIEF_NAMES with the latest starred
-# until it fits; the line, which flags them all, is as it was.
+# one, behind Canada's words for the area (seventh pass): full always, the
+# brief within BRIEF_NAMES, each exception named in Canada's order while it
+# fits and starred where it doesn't; the line, which flags them all, is as
+# it was.
 XL = "with exclusions where you should avoid non-essential travel"
+COA = "the following departments and border areas, "
 COB = ("Arauca; Caquetá (except the city of Florencia); Cauca (except the city of Popayan); Cesar, in the municipalities of González "
        "and Río de Oro; Chocó (except the towns of Bahía Solano, Capurganá, Nuquí); within 50 km of the border with Venezuela (except "
        "the city of Cúcuta); within 100 km of the border with Panama; ")
 cobr = block("co", "Border areas")
 xleads = [(iso, r["t"], analyzed(iso, r)["xlead"]) for iso, r in lines if analyzed(iso, r)["xlead"]]
 results.append(ok(xleads == [("co", "Border areas - Avoid all travel", XL)]
-                  and cobr["full"] == XL + ": " + COB + "within 50 km of the border with Ecuador (except the border crossing at Ipiales); "
-                                     "Norte de Santander (except the city of Cúcuta); the Port of Tumaco and the city of Buenaventura"
-                  and cobr["brief"] == XL + ": " + COB + "within 50 km of the border with Ecuador*; Norte de Santander*; the Port of "
-                                                         "Tumaco and the city of Buenaventura"
+                  and cobr["full"] == COA + XL + ": " + COB + "within 50 km of the border with Ecuador (except the border crossing at "
+                                           "Ipiales); Norte de Santander (except the city of Cúcuta); the Port of Tumaco and the city of Buenaventura"
+                  and cobr["brief"] == COA + XL + ": " + COB.replace("Chocó (except the towns of Bahía Solano, Capurganá, Nuquí)", "Chocó*")
+                  + "within 50 km of the border with Ecuador*; Norte de Santander*; the Port of Tumaco and the city of Buenaventura"
                   and len(cobr["brief"]) <= W.BRIEF_NAMES and cobr["line"] == co1 and XL not in cobr["line"],
                   "Colombia's border areas: Canada's 'with exclusions where you should avoid non-essential travel' leads full and the "
-                  "brief, the brief's Ecuador band and Norte de Santander starred to fit it; the line flags them, unchanged "
+                  "brief behind 'the following departments and border areas', the brief's Chocó, Ecuador band and Norte de Santander "
+                  "starred to fit it; the line flags them, unchanged "
                   "(first-sentence calls: %s; got %r / %r)" % (xleads, cobr["brief"], cobr["full"][:80])))
 xs = "<p>Avoid all travel to the following areas due to x, with exclusions where you should avoid non-essential travel:</p>"
 xp = ["Alphaland, excluding the city of Alpha", "Gammaland, excluding the town of Gamma", "Deltaland, excluding the port of Delta", "Betaland"]
@@ -1096,19 +1107,20 @@ x_hard = W._regional("Border areas - Avoid non-essential travel", xs.replace("Av
                      .replace("avoid non-essential travel:", "avoid all travel:") + ul(pad + xp + ["the southern frontier district " + "y" * 150]), 1)
 x_hB = W._analyze("Border areas - Avoid non-essential travel", xs.replace("Avoid all travel", "Avoid non-essential travel")
                   .replace("avoid non-essential travel:", "avoid all travel:") + ul(xp), 1)
-results.append(ok(x_short["line"] == x_short["brief"] == x_short["full"] == XL + ": Alphaland (except the city of Alpha); Betaland"
-                  and x_star["brief"].startswith(XL + ": the long northern") and len(x_star["brief"]) <= W.BRIEF_NAMES
+XA = "the following areas, "
+results.append(ok(x_short["line"] == x_short["brief"] == x_short["full"] == XA + XL + ": Alphaland (except the city of Alpha); Betaland"
+                  and x_star["brief"].startswith(XA + XL + ": the long northern") and len(x_star["brief"]) <= W.BRIEF_NAMES
                   and "; Alphaland (except the city of Alpha); Gammaland*; Deltaland*; Betaland; the southern" in x_star["brief"]
-                  and x_star["full"].startswith(XL + ": ") and "Deltaland (except the port of Delta)" in x_star["full"] and XL not in x_star["line"]
+                  and x_star["full"].startswith(XA + XL + ": ") and "Deltaland (except the port of Delta)" in x_star["full"] and XL not in x_star["line"]
                   and XL not in x_flag["brief"] and "; Alphaland*; Gammaland*; Deltaland*; Betaland; " in x_flag["brief"]
                   and x_drop["brief"] == "Alphaland (except the city of Alpha); Betaland"
-                  and x_drop["full"].startswith("with exclusions where you should exercise a high degree of caution: ")
+                  and x_drop["full"].startswith(XA + "with exclusions where you should exercise a high degree of caution: ")
                   and not W._relief(x_hB, "the city of Alpha") and W._relief(x_hB, "the city of Alpha where you should exercise a high degree of caution")
-                  and x_hard["brief"].startswith("with exclusions where you should avoid all travel: ")
+                  and x_hard["brief"].startswith(XA + "with exclusions where you should avoid all travel: ")
                   and "Gammaland (except the town of Gamma); Deltaland (except the port of Delta)" in x_hard["brief"]
                   and not re.search(r"\*|parts excepted", x_hard["brief"] + x_hard["line"]),
-                  "a call Canada states once for its exceptions leads every form naming one: whole where it fits, the latest starred "
-                  "where it doesn't, none for flags alone, shortened only as an exception's own call is (the country's level), and a "
+                  "a call Canada states once for its exceptions leads every form naming one: whole where it fits, each starred "
+                  "where it doesn't, in Canada's order, none for flags alone, shortened only as an exception's own call is (the country's level), and a "
                   "stricter one keeps the exceptions from reading as let off (got %r / %r / %r)"
                   % (x_star["brief"][-120:], x_flag["brief"][-80:], x_hard["brief"][:80])))
 
@@ -1150,6 +1162,101 @@ results.append(ok(z1 == "Portion of Eta Region south of the Zeta highway. This a
                   "brief: a stricter exception never left out — a heading's as the line says it, else after the heading's tag; a "
                   "generic block's with it; a list's kept before its places are counted; a place's said, never bare or starred "
                   "(got %r / %r / %r / %r)" % (z1, z2, z5[-100:], z6[-160:])))
+
+# --- the seventh pass (2026-10-17) ---------------------------------------------------------
+# Canada's words for the exceptions' call opened Colombia's brief and full
+# ("Avoid all travel: with exclusions where you should avoid non-essential
+# travel: Arauca; …"), and the list after their colon read as the
+# exclusions — Arauca, the Panama band, Tumaco and Buenaventura as places
+# Canada lowers — as a list after "where you should <call>:" is Karachi's
+# exceptions. Before a list they go behind Canada's words for the area
+# ("the following departments and border areas"); with no list, in place of
+# the word that opens the first exception they govern, never before what the
+# block includes.
+def xl_at(B, form):
+    """Where a form says the lead words: "list" behind Canada's area words,
+    "exc" right before an exception, "" nowhere, or the bad spot."""
+    x = B["xlead"].lower()
+    i = form.lower().find(x)
+    if i < 0:
+        return ""
+    after = form[i + len(x):]
+    if not after.startswith(": "):
+        return "bad: %r" % form[i:i + len(x) + 30]
+    if form[:i] == W._xanchor(B) + ", ":
+        return "list"
+    return "exc" if not [it for g in B["groups"] for it in g["items"]] else "bad: %r" % form[:i + len(x) + 2]
+
+
+xl_mirror = [(iso, r["t"], f, xl_at(analyzed(iso, r), r[f])) for iso, r in lines if analyzed(iso, r)["xlead"] for f in ("line", "brief", "full")]
+ETA_I = ("<p>Avoid non-essential travel to the Eta Region, with exceptions where you should avoid all travel.</p><p>This advisory includes "
+         "the town of Iota.</p><p>This advisory excludes the coastal strip of Kappa.</p>")
+eta_i = W._regional("Eta Region - Avoid non-essential travel", ETA_I, 1)
+eta_iB = W._analyze("Eta Region - Avoid non-essential travel", ETA_I, 1)
+x_shB = W._analyze("Border areas - Avoid all travel", xs + ul(xp[:1] + xp[3:]), 1)
+results.append(ok([w for _, _, _, w in xl_mirror] == ["", "list", "list"] and cobr["brief"].startswith(COA + XL + ": Arauca; ")
+                  and all(xl_at(x_shB, x_short[f]) == "list" for f in ("line", "brief", "full"))
+                  and eta_i["line"] == eta_i["brief"] == eta_i["full"] == "the Eta Region, including the town of Iota, with exceptions where you "
+                                                                        "should avoid all travel: the coastal strip of Kappa"
+                  and all(xl_at(eta_iB, eta_i[f]) == "exc" for f in ("line", "brief", "full")),
+                  "lead call: behind Canada's words for the area before a list (Colombia's 'the following departments and border "
+                  "areas'), never opening a form with the places after its colon; with no list right before the exception it governs, "
+                  "never before what the block includes (got %s / %r)" % (xl_mirror, eta_i["line"])))
+
+# Where only some places an exception lists carry their own call, the rest
+# take the block's: "the towns of: Bahia; Nuqui, where you should exercise a
+# high degree of caution" said Bahia let off entirely, full too.
+PARTS = ("<p>Avoid all travel to the following areas due to x, with exclusions where you should avoid non-essential travel:</p><ul><li>Arauca"
+         "</li><li>Chocoland, excluding the towns of:<ul><li>Bahia</li><li>Nuqui, where you should exercise a high degree of caution</li></ul>"
+         "</li></ul>")
+x_parts = W._regional("Border areas - Avoid all travel", PARTS, 1)
+NQ = "Nuqui, where you should exercise a high degree of caution"
+results.append(ok(x_parts["full"] == x_parts["line"] == XA + XL + ": Arauca; Chocoland (except the towns of Bahia; " + NQ + ")"
+                  and x_parts["brief"] == XA + XL + ": Arauca; Chocoland (except the towns of Bahia, Nuqui)"
+                  and W._governed("the towns of", [{"t": "Bahia"}, {"t": NQ}]) and not W._governed("the towns of", [{"t": NQ}])
+                  and not W._governed("the city of Alpha where you should exercise a high degree of caution"),
+                  "lead call: an exception's list where only some places carry a call of their own takes Canada's words for the rest "
+                  "(got %r / %r)" % (x_parts["full"], x_parts["brief"])))
+
+# An exception stricter only by the lead call is said after those words on
+# every path that says the block's stricter exceptions alone: _line's last
+# resort, the brief that falls back to it, a named heading's tag route —
+# ", except the coastal strip of Kappa" read as let off.
+LONGA = ("<p>Avoid non-essential travel to " + "the area between the Zeta highway and the border with Omega " + "and the old northern "
+         "railway corridor " * 12 + ", with exceptions where you should avoid all travel.</p><p>This advisory excludes the coastal strip of "
+         "Kappa.</p>")
+x_long = W._regional("Regional advisory - Avoid non-essential travel", LONGA, 1)
+KAP = ", with exceptions where you should avoid all travel: the coastal strip of Kappa"
+x_tag = W._regional("Eta Region - Avoid non-essential travel", ETA_I.replace("the town of Iota", "the town of Iota" + " and the long winding "
+                    "coast road along the old northern railway" * 7).replace("Kappa.</p>", "Kappa.</p><p>This advisory also excludes Eta City "
+                    "where you should exercise a high degree of caution.</p>"), 1)
+results.append(ok(x_long["line"].endswith("..." + KAP) and len(x_long["line"]) <= W.LINE_CAP
+                  and x_long["brief"].endswith("..." + KAP) and len(x_long["brief"]) <= W.BRIEF_NAMES and x_long["full"].endswith(KAP)
+                  and x_tag["brief"].startswith("Eta Region (parts excepted), including the town of Iota and the long")
+                  and x_tag["brief"].endswith(". With exceptions where you should avoid all travel: the coastal strip of Kappa")
+                  and len(x_tag["brief"]) <= W.BRIEF_NAMES,
+                  "lead call: an exception stricter only by it comes after Canada's words for it on the last-resort line, the brief "
+                  "that falls back to it and a heading's tag route (got %r / %r / %r)" % (x_long["line"][-90:], x_long["brief"][-90:],
+                                                                                          x_tag["brief"][-90:])))
+
+# A block whose places and exceptions fit BRIEF_CAP without the lead words
+# keeps the line's form (_names named none of what Canada excepts from the
+# whole block: the city of Zed), and the block's star always has a heading:
+# Canada's words for its area where the block has none, never the last place
+# ("Caqueta (except the city of Florencia)*" read as more of Caqueta let off).
+ZED = "<p>This advisory also excludes the city of Zed.</p>"
+x_zed = W._regional("Border areas - Avoid all travel", xs + ul(["Arauca", "Caqueta, excluding the city of Florencia"]) + ZED, 1)
+x_zst = W._regional("Border areas - Avoid all travel", xs + ul(pad + ["Arauca", "Caqueta, excluding the city of Florencia", "Gammaland, "
+                    "excluding the town of Gamma and " + "y" * 200, "the southern frontier district " + "y" * 150]) + ZED, 1)
+x_zno = W._regional("Border areas - Avoid all travel", xs.replace(", with exclusions where you should avoid non-essential travel", "")
+                    + ul(pad + ["Arauca", "Caqueta, excluding the city of Florencia", "the southern frontier district " + "y" * 230]) + ZED, 1)
+results.append(ok(x_zed["brief"] == x_zed["line"] == XA + XL + ": Arauca; Caqueta (except the city of Florencia) — except the city of Zed"
+                  and x_zst["brief"].startswith("the following areas*: ") and "; Caqueta*; Gammaland*; the southern" in x_zst["brief"]
+                  and not x_zst["brief"].endswith("*") and len(x_zst["brief"]) <= W.BRIEF_NAMES
+                  and x_zno["brief"].startswith("the following areas*: ") and not x_zno["brief"].endswith("*")
+                  and block("eg", "The Western desert")["brief"].startswith("The Western desert and Libyan border area*: "),
+                  "brief: a short lead-call block keeps the line's form (the city of Zed named); the block's star on Canada's words for "
+                  "its area, never the last place (got %r / %r / %r)" % (x_zed["brief"], x_zst["brief"][:60], x_zno["brief"][-60:])))
 
 # --- text ----------------------------------------------------------------------------
 ugn = next(m.group(2) for m in H3.finditer(feed("ug")["data"]["eng"]["advisories"]) if "Ebola" in m.group(1))

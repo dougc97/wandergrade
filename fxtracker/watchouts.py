@@ -131,9 +131,11 @@ def _top_level_items(fragment):
 # (_compose). Where Canada's first sentence states the call on the
 # exceptions once for them all (Colombia's border areas' "with exclusions
 # where you should avoid non-essential travel"), those words lead every
-# form that names one of them (_xlead). No brief leaves out a stricter
-# exception, which is no part let off (_stricter, _names: Tanzania's 10 km
-# band). A
+# form that names one of them (_xlead), behind Canada's words for the area
+# ("the following departments and border areas", _xanchor): alone, they
+# made the list after their colon read as the exclusions. No brief leaves
+# out a stricter exception, which is no part let off (_stricter, _names:
+# Tanzania's 10 km band). A
 # notice with no call and no area is no advisory and is left out (_notice).
 # Canada's "we advise" is said "Canada advises" (_third): beside the
 # traveller's own government's level, "we" read as that government's.
@@ -1093,7 +1095,9 @@ def _compose(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True):
     Canada's words for the call on the exceptions, where its first sentence
     states it once for them all (_xlead: Colombia's border areas' "with
     exclusions where you should avoid non-essential travel"), go the same
-    way, before the places, wherever the form names one of those (_xnamed)."""
+    way wherever the form names one of those (_xnamed): before the places,
+    behind Canada's words for the area (_xanchor), or, with no list, before
+    the first exception they govern (_composed)."""
     args = (mode, room, hide, bare, grow, wholes)
 
     def words(B, s):
@@ -1124,9 +1128,13 @@ def _conds(B):
 
 def _governed(text, kids=()):
     """Whether an exception takes the call the block's first sentence states
-    for its exceptions (_XLEAD): it carries none of its own, nor does its
-    list."""
-    return not _WHERE.search(text or "") and not any(_WHERE.search(k["t"]) for k in kids)
+    for its exceptions (_XLEAD), in part at least: it carries none of its
+    own, and nor does some place it lists. "the towns of: Bahía; Nuquí,
+    where you should exercise a high degree of caution" — Nuquí's call is
+    its own, Bahía's is the block's, and a form naming Bahía without those
+    words, full too, read as Bahía let off entirely (any(), as _lets_off_part
+    reads such a list)."""
+    return not _WHERE.search(text or "") and (not kids or not all(_WHERE.search(k["t"]) for k in kids))
 
 
 def _xlead(B, mode="full"):
@@ -1140,11 +1148,34 @@ def _xlead(B, mode="full"):
     them ("(parts excepted)", "*") needs none. Shortened (compact) only as
     an exception's own call is (_shorten): where that call is milder than
     the block's and no stricter than the country's level, what a reader
-    assumes for an excepted place. "" where there is none."""
+    assumes for an excepted place. "" where there is none.
+    Where they go: before a list, behind Canada's own words for the area
+    (_xanchor); in a form with no list, in place of the word that opens the
+    first exception they govern ("except", "This advisory excludes"), so
+    that exception is what their colon brings on — after the area they put
+    what the block includes ("…, with exceptions where you should avoid all
+    travel, including the town of Iota") among the exceptions (_composed,
+    _stricter)."""
     x = B.get("xlead") or ""
     if not x or (mode == "compact" and _droppable(B["xcall"], B["cx"])):
         return ""
     return x
+
+
+def _xanchor(B):
+    """Canada's own words for the area its list is, which go before its
+    words for the exceptions' call (_xlead) wherever those lead a list, as
+    in Canada's sentence: "the following departments and border areas, with
+    exclusions where you should avoid non-essential travel: Arauca; Caquetá
+    (except the city of Florencia); …". Without them the words opened
+    Colombia's brief and full ("Avoid all travel: with exclusions where you
+    should avoid non-essential travel: Arauca; …"), and the list after their
+    colon read as the exclusions — Arauca, the Panama band, Tumaco and
+    Buenaventura as places Canada lowers to avoiding non-essential travel —
+    as it is where a list after "where you should <call>:" is the exceptions
+    (Karachi's). "the following …" says the list is the area. Its first
+    sentence's area, else the block's, else its heading."""
+    return ((B.get("L") or {}).get("area") or B["area"] or B["head"]).strip()
 
 
 def _xnamed(B, s):
@@ -1226,10 +1257,16 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True, 
     (tail) where they go, in the room the form takes without them: after
     the last exception it names that lets a part off, never after a
     stricter one, which then is a sentence of its own. lead: Canada's words
-    for the exceptions' call (_xlead), said as Canada says them, after the
-    area and before the places — "with exclusions where you should avoid
+    for the exceptions' call (_xlead), said as Canada says them, after its
+    words for the area (_xanchor) and before the places — "the following
+    departments and border areas, with exclusions where you should avoid
     non-essential travel: Arauca; Caquetá (except the city of Florencia);
-    …" — in that room too."""
+    …" — in that room too; with no list, in place of the word that opens
+    the first exception they govern, never before what the block includes
+    ("the Eta Region, including the town of Iota, with exceptions where you
+    should avoid all travel: the coastal strip of Kappa"): once for a run of
+    them joined by "; ", again for each that is a sentence of Canada's own
+    or follows anything else."""
     cx = dict(B["cx"], bare=bare or frozenset(), wholes=wholes)
     prefix, groups, extras = B["area"], B["groups"], B["extras"]
     multi = len(groups) > 1
@@ -1286,7 +1323,7 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True, 
             out.append(whole[i] if grow and len(whole[i]) <= avail else one(g, avail))
         return ". ".join(out)
 
-    def ex(limit=None, sentence=False, tail=""):
+    def ex(limit=None, sentence=False, tail="", xl=""):
         # Each kind under its word — " — except A". After a list cut to "and
         # N more" they are a sentence of their own, in Canada's words where
         # Canada wrote one (". This advisory includes …"): Benin's "…; and 2
@@ -1298,12 +1335,15 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True, 
         # list. Where several are joined by "; " and one keeps its call,
         # they all keep theirs (_shorten). tail: Canada's sentences on the
         # exceptions, after the last that lets a part off (_lifts); what
-        # follows them is a sentence of its own.
+        # follows them is a sentence of its own. xl: Canada's words for the
+        # exceptions' call (_xlead) in a form with no list, in place of the
+        # words that open each run of exceptions they govern (a sentence of
+        # Canada's is a run of its own).
         own_s = lambda e: sentence and e.get("src") == "sentence"
         joined = [e for e in excs if not own_s(e)]
         kx = dict(cx, keep_calls=True) if len(joined) > 1 and any(_keeps_call(e["t"], cx) for e in joined) else cx
         upto = max((i for i, e in enumerate(extras) if _lifts(B, e)), default=-1) if tail else -1
-        out, prev, after = "", None, False
+        out, prev, after, under = "", None, False, False
         for i, e in enumerate(extras):
             exc = e["k"] == "except"
             snt = sentence or after
@@ -1314,6 +1354,13 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True, 
             else:
                 word = ("except " if exc else "including ") if not snt else ("Except " if exc else "Including ")
                 lead_in = "; " if prev == e["k"] else (((". " if snt else ", ") if out else "") + word)
+            if xl and exc and _governed(e["t"], e["items"]):
+                if not (under and lead_in == "; "):
+                    joint = (". " if own else "; " if prev == "except" else ". " if snt else ", ") if out else ""
+                    lead_in = joint + (xl[:1].upper() + xl[1:] if joint == ". " or (snt and not out) else xl) + ": "
+                under = True
+            else:
+                under = False
             body = x
             if e["items"]:
                 pre = (x + (" " if _OBJECT_END.search(x) else ": ")) if x else ""
@@ -1323,13 +1370,15 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True, 
             out += lead_in + body
             prev = None if own else e["k"]
             if i == upto:
-                out, prev, after = out + tail, None, True
+                out, prev, after, under = out + tail, None, True, False
         return out
 
     def put(g, e, sentence=False, said=False):
         s = prefix
-        if said and lead:
-            s = (s + ", " if s else "") + lead          # said: the form itself, not its length (done)
+        if said and lead and g:
+            # said: the form itself, not its length (done); before a list,
+            # behind Canada's words for the area (_xanchor)
+            s = _xanchor(B) + ", " + lead
         if g:
             s = (s + (", " if re.match(r"(?:particularly|especially|notably|including)\b", g) else ": ") if s else "") + g
         if e:
@@ -1343,7 +1392,7 @@ def _composed(B, mode, room=None, hide=True, bare=None, grow=True, wholes=True, 
         if tail and g and not any(_lifts(B, e) for e in extras):
             e = ex(limit, True)
             return put(g, "", said=True) + tail + (". " + e if e else "")
-        return put(g, ex(limit, sentence, tail), sentence, True)
+        return put(g, ex(limit, sentence, tail, "" if g else lead), sentence, True)
 
     whole = grp()
     if room is None or (grow and len(put(whole, ex(sentence=own), own)) <= room):
@@ -1569,11 +1618,27 @@ def _stricter(B, lone=True):
     """Every stricter exception the block states of its whole area, as the
     line says them (_strict_said), for a brief or a line that otherwise
     says only its area or heading: none is ever left out, and a tag before
-    them ("(parts excepted)") covers only what lets a part off."""
-    out = ""
+    them ("(parts excepted)") covers only what lets a part off. One with no
+    call of its own is stricter only by the call Canada's first sentence
+    states for the exceptions (_relief), so it comes after those words
+    (_xlead), in place of the words that open it: ", except the coastal
+    strip of Kappa" said it let off, where Canada says "with exceptions
+    where you should avoid all travel"."""
+    out, xl, under = "", _xlead(B, "compact"), False
     for e in B["extras"]:
-        if e["k"] == "except" and not _relief(B, e["t"]):
+        if e["k"] != "except" or _relief(B, e["t"]):
+            continue
+        if xl and _governed(e["t"], e["items"]):
+            # once for a run of them, again for each sentence of Canada's
+            x = _strict_said(e, B["cx"], False, "")
+            if under and e.get("src") != "sentence":
+                out += "; " + x
+            else:
+                out += (". " + xl[:1].upper() + xl[1:] if lone or out else ", " + xl) + ": " + x
+            under = True
+        else:
             out += _strict_said(e, B["cx"], lone or bool(out), ", except ")
+            under = False
     return out
 
 
@@ -1596,7 +1661,11 @@ def _names(B, most, cap):
     west of the militarized zone of the Berm; …"), and carries the star for
     what Canada excepts from the whole block: "…, including the oasis of
     Dakhla*" read as Dakhla let off, where Canada lets off Marsa Matruh and
-    the White and Black deserts. What the block includes follows in
+    the White and Black deserts. So that star always has a heading: the
+    block's, at the cost of a place if need be, else Canada's own words for
+    its area (_xanchor: "the following areas*: …"); with none, it went on
+    the last place ("Caqueta (except the city of Florencia)*", more of
+    Caqueta let off than Canada lists). What the block includes follows in
     Canada's sentence where it fits beside them (Benin's parks: _included),
     decided before anything below: places to avoid, which a lower list
     named whole once left out with nothing said. Then, in Canada's order
@@ -1620,8 +1689,10 @@ def _names(B, most, cap):
     one of those is said, before anything the block states after it, and
     never cost a stricter exception its place; where Canada's first sentence
     states the exceptions' call once for them all (_xlead), its words lead
-    the list wherever one of those is said, and the stars go on the latest
-    in Canada's order until they fit: Colombia's border areas' brief named
+    the list wherever one of those is said, behind Canada's words for the
+    area (_xanchor), and those exceptions are named in Canada's order while
+    each fits with them, any that doesn't keeping its star (a later, shorter
+    one can still be named): Colombia's border areas' brief named
     Florencia, Popayan, the Chocó towns, Cúcuta and the Ipiales crossing as
     if let off entirely, never saying "with exclusions where you should
     avoid non-essential travel". A stricter exception is never left out to
@@ -1683,7 +1754,11 @@ def _names(B, most, cap):
         labs.append((intro + (" " if _OBJECT_END.search(intro) else ": ")) if intro else "")
     starred = any(e["k"] == "except" and _relief(B, e["t"]) for e in B["extras"])
     strict = [e for e in B["extras"] if e["k"] == "except" and not _relief(B, e["t"])]
-    head = B["area"] + ("*" if starred else "")
+    # The block's star always on a heading: its own, at the cost of a place
+    # if need be, else Canada's words for its area (_xanchor), never the
+    # last place's.
+    mark = "*" if starred else ""
+    head = (B["area"] or (_xanchor(B) if starred else "")) + mark
     # The places whose exceptions take the call Canada's first sentence
     # states for them (_xlead): said with their exceptions, those words lead.
     gov = {id(it) for it in _walk([it for g in gs for it in g["items"]])
@@ -1702,27 +1777,25 @@ def _names(B, most, cap):
             out.append(labs[i] + sep.join(xs) + ("" if k == sizes[i] else sep + _more(sum(counts[i][k:]))))
         return pre + ". ".join(out)
 
-    def form(pre, cfg, opened=frozenset(), incs=frozenset(), strict_on=False, said=(), mark=True):
+    def form(pre, cfg, opened=frozenset(), incs=frozenset(), strict_on=False, said=()):
         cur["open"], cur["said"] = frozenset(opened), frozenset(said)
         # Canada's words for the exceptions' call where it states it once
-        # (_xlead), after the heading and before the places, as Canada has
-        # them, wherever one it governs is named: a place's, said in place
-        # of its star or for being stricter, or a stricter one of the
-        # block's.
+        # (_xlead), behind its words for the area (_xanchor, with the
+        # block's star) and before the places, as Canada has them, wherever
+        # one it governs is named: a place's, said in place of its star or
+        # for being stricter, or a stricter one of the block's.
         s = render(pre, cfg)
         xl = _xlead(B, "compact") if cur["shown"] & gov or strict_on and any(
             _governed(e["t"], e["items"]) for e in strict) else ""
         if xl:
-            pre = (pre[:-2] + ", " if pre else "") + xl + ": "
+            pre = _xanchor(B) + mark + ", " + xl + ": "
             s = render(pre, cfg)
-        if mark and starred and not s.endswith("*") and not s.startswith(head + (", " + xl if xl else "") + ": "):
-            s += "*"
         # Straight after the list, an exception as the line says one ("—
         # except …", Tunisia's and Ecuador's); past a list cut to "and N
         # more" or a sentence, a sentence of its own, in Canada's words where
         # Canada wrote one: "…; and 3 more — except …" read as the three
         # left out (Benin's line, _composed).
-        lone = bool(re.search(r"\band \d+ more\*?$", s))
+        lone = bool(re.search(r"\band \d+ more$", s))
         if said and B["conds"]:
             s, lone = s + _conds(B), True
         for e in B["extras"]:
@@ -1754,7 +1827,7 @@ def _names(B, most, cap):
         # a list's places as a form says them, with what that needs: the
         # block's stricter exceptions (S), never left out, and Canada's words
         # for the exceptions' call where a place's stricter one is named
-        return len(form(pre, cfg, strict_on=S, mark=False))
+        return len(form(pre, cfg, strict_on=S))
 
     def listed(pre):
         # Every list its first place, then more in Canada's order while they
@@ -1789,9 +1862,9 @@ def _names(B, most, cap):
                     cfg[i][1][j] = False
         return cfg, opened, frozenset(incs)
     S = bool(strict)
-    pre = head + ": " if B["area"] and not B["optional"] else ""
+    pre = head + ": " if head and (starred or not B["optional"]) else ""
     cfg, opened, incs = listed(pre)
-    if B["area"] and B["optional"]:
+    if B["area"] and B["optional"] and not pre:
         cur["open"], cur["said"] = opened, frozenset()
         s = render(pre, cfg)
         cfg_h, opened_h, incs_h = listed(head + ": ")
@@ -1827,7 +1900,13 @@ def _regional(t, fragment, floor=None):
     # closed)") and Canada's sentence on them (_conds), nothing shortened.
     full = _compose(B, "full") if B["L"] else line
     excepted = _excepted(B)
-    if len(compact) <= BRIEF_CAP:
+    # Canada's words for the exceptions' call (_xlead), with its words for
+    # the area before them, are left out of the BRIEF_CAP test as they are
+    # of the room a form's places take (_compose): a block that fits it
+    # without them is said whole with them. Counted, they sent a short one
+    # to _names, which named none of what Canada excepts from the whole
+    # block (the city of Zed, which the line names).
+    if len(_compose(dict(B, xlead=""), "compact") if B["xlead"] else compact) <= BRIEF_CAP:
         brief = compact
     elif not B["L"]:
         # No call in its first sentence: its heading, and any stricter
@@ -1876,19 +1955,17 @@ def _regional(t, fragment, floor=None):
         h = area if (B["head"].lower() in area.lower() and len(B["head"]) < len(area) <= BRIEF_CAP - len(tag)
                      and not re.search(r"\bthe following\b", area, re.I)) else B["head"]      # not a list's "the following areas"
         inc = "".join(", including " + _included(e, B["cx"]) for e in B["extras"] if e["k"] == "include")
+        # (with Canada's words for the exceptions' call before one that is
+        # stricter only by them: _stricter)
         st = _stricter(B, bool(tag or inc))
-        # Canada's words for the exceptions' call where it states it once
-        # for them (_xlead) and a stricter exception they govern is named
-        xl = ", " + _xlead(B, "compact") if st and _xlead(B, "compact") and any(
-            e["k"] == "except" and not _relief(B, e["t"]) and _governed(e["t"], e["items"]) for e in B["extras"]) else ""
-        tagged = lambda x, st=st: (_unaside(x) if inc or tag or st else x) + tag + inc + (xl + st if st else "")
+        tagged = lambda x, st=st: (_unaside(x) if inc or tag or st else x) + tag + inc + st
         cap = BRIEF_NAMES if inc or st else BRIEF_CAP
         lined = (lambda x: _compose(dict(B, area=x), "compact")) if (inc or st) and any(e["k"] == "except" for e in B["extras"]) else None
         brief = next((lined(x) for x in (h, B["head"]) if lined and len(lined(x)) <= cap), None)
         brief = brief or next((tagged(x) for x in (h, B["head"]) if len(tagged(x)) <= cap), None)
         if brief is None and (inc or st):
             # cut, and says so ("…"); never a stricter exception
-            brief = _cut_words(tagged(B["head"], ""), cap - len(xl + st)) + (xl + st if st else "")
+            brief = _cut_words(tagged(B["head"], ""), cap - len(st)) + st
         elif brief is None:
             brief = _cut_words(_unaside(h) if tag else h, BRIEF_CAP - len(tag)) + tag
     elif _stricter(B):
