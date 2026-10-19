@@ -27,7 +27,8 @@ generator's rules for a sound point, without the network.
     (the Fann Mountains' (39, 68) is in Uzbekistan) unless curated; a spot on
     another spot's very point (Maracas Bay on Trinidad's), within 3 km of
     one, or on the country's centre is left out, at build and in --check;
-    the file has no such spot left but the listed pre-rule landmarks;
+    the file has no such spot left but neighbourhoods the build keeps
+    (scripts/test_stay_near.py);
   * a fingerprint ignores layout (bullets, spacing, punctuation) and sees a
     changed word; --check's review, on Benin's feed fixture, passes the
     blocks as reviewed and flags one that is new, gone or reworded; the US
@@ -42,7 +43,9 @@ generator's rules for a sound point, without the network.
     northern ... Benin", each with a note; Mauritania's Amojjar Pass and
     Togo's Fazao-Malfakassa chips sit on their OSM points.
 """
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import re
@@ -169,8 +172,9 @@ g.coords_with_fallback = lambda subject, country, iso: pts.setdefault(subject, [
 try:
     with open(os.path.join(ROOT, "public", "activities.json"), encoding="utf-8") as f:
         acts = json.load(f)
-    built = {iso: g._build_country((iso, acts[iso], {}))[1]
-             for iso in ("BJ", "CM", "ET", "TD", "MZ", "MR", "NG", "RW", "PG", "TG", "VE", "DZ", "KE", "TN", "CO", "IL", "BR")}
+    with contextlib.redirect_stdout(io.StringIO()):      # its stub points are 111 km apart, its "left out" lines noise
+        built = {iso: g._build_country((iso, acts[iso], {}))[1]
+                 for iso in ("BJ", "CM", "ET", "TD", "MZ", "MR", "NG", "RW", "PG", "TG", "VE", "DZ", "KE", "TN", "CO", "IL", "BR")}
 finally:
     g.coords_with_fallback = real
 bad = [(iso, s["n"]) for iso, spots in built.items() for s in spots if g.skipped(iso, s["n"])]

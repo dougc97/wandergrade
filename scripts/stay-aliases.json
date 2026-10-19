@@ -76,6 +76,14 @@
    "title": "Tayrona National Natural Park"
   }
  },
+ "CU": {
+  "Palacio de Valle": {
+   "ll": [
+    22.12134,
+    -80.4515
+   ]
+  }
+ },
  "CY": {
   "Troodos": {
    "title": "Troodos Mountains"
@@ -139,6 +147,33 @@
  "KG": {
   "Song-Kul": {
    "title": "Song-Köl"
+  }
+ },
+ "KR": {
+  "Seoul — Hongdae": {
+   "label": "Hongdae",
+   "title": "Hongdae (area)"
+  }
+ },
+ "KW": {
+  "Al-Mubarakiya": {
+   "label": "Souq Al-Mubarakiya",
+   "ll": [
+    29.37388,
+    47.97363
+   ]
+  },
+  "Seif Palace": {
+   "ll": [
+    29.38083,
+    47.97111
+   ]
+  },
+  "Souq Sharq": {
+   "ll": [
+    29.38914,
+    47.98091
+   ]
   }
  },
  "KZ": {
@@ -252,6 +287,12 @@
  "OM": {
   "Ras al Jinz": {
    "title": "Ras al-Jinz"
+  },
+  "Wadi Bani Khalid": {
+   "ll": [
+    22.602,
+    59.083
+   ]
   }
  },
  "PA": {
@@ -276,7 +317,32 @@
    "title": "Jericho"
   },
   "Ramallah": {
+   "ll": [
+    31.89694,
+    35.20167
+   ],
    "title": "Ramallah"
+  }
+ },
+ "QA": {
+  "Fanar": {
+   "label": "Fanar",
+   "ll": [
+    25.28898,
+    51.53563
+   ]
+  },
+  "National Museum of Qatar": {
+   "ll": [
+    25.28847,
+    51.54926
+   ]
+  },
+  "Souq Waqif": {
+   "ll": [
+    25.28738,
+    51.53321
+   ]
   }
  },
  "RS": {
@@ -298,9 +364,31 @@
    ]
   }
  },
+ "SD": {
+  "Taka Mountains": {
+   "ll": [
+    15.41298,
+    36.42603
+   ]
+  }
+ },
  "SE": {
   "Archipelago islands": {
    "title": "Stockholm Archipelago"
+  },
+  "Stockholm Archipelago": {
+   "ll": [
+    59.38778,
+    18.73581
+   ]
+  }
+ },
+ "SG": {
+  "Buddha Tooth Relic Temple and Museum": {
+   "ll": [
+    1.28155,
+    103.844
+   ]
   }
  },
  "SL": {
@@ -382,8 +470,17 @@
    ]
   }
  },
+ "TW": {
+  "Taroko": {
+   "title": "Taroko National Park"
+  }
+ },
  "UA": {
   "Odesa": {
+   "ll": [
+    46.47747,
+    30.73262
+   ],
    "title": "Odesa"
   }
  },

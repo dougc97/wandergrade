@@ -19,6 +19,20 @@ Every spot is its own point (see placeholder): Wikipedia's "Maracas Bay"
 carries the coordinates of the whole island of Trinidad, so its chip searched
 the same hotels as the "Trinidad" chip beside it.
 
+Distinct destinations first (see pick): a place within DUP_KM of a chip is
+that chip's neighbourhood (Nyhavn by Copenhagen, Gamla stan by Stockholm) and
+keeps a slot only while nothing distinct can have it, and a landmark across
+town (within FAR_KM) comes after both. Dropping every neighbourhood outright
+left Singapore with Marina Bay and Sentosa alone and swapped Budapest's
+Parliament for Heroes' Square, another Budapest landmark 3.2 km off; filling
+slots in plain guide order spent North Korea's last one on Pyongyang's Arch
+of Triumph while Mount Kumgang waited further down the gallery.
+
+Every guide place that finds no point is printed with its country (a
+rebuild said nothing when Sweden's Visby fell off the coarse map): give a
+real place one in stay-aliases.json, and leave a phrase that names none
+("Desert safari").
+
 No spot inside a zone Canada says to avoid all travel to, nor inside a place
 or distance the US State Department names under "Do not travel" (see SKIP_PATH): Benin's
 chips offered Pendjari National Park, which Canada's advisory names. A
@@ -31,12 +45,15 @@ galleries change:
   /usr/bin/python3 scripts/gen_stay_spots.py            # every country (rewrites the file)
   /usr/bin/python3 scripts/gen_stay_spots.py NI SL      # just these; merged into the file
   /usr/bin/python3 scripts/gen_stay_spots.py --prune    # drop skip-listed spots, fetch nothing
-  /usr/bin/python3 scripts/gen_stay_spots.py --check    # validate the file + Canada's and the US's live words
+  /usr/bin/python3 scripts/gen_stay_spots.py --check    # validate the file (its neighbourhood chips against
+                                                        # a rebuild) + Canada's and the US's live words
   /usr/bin/python3 scripts/gen_stay_spots.py --check --dir <feed copy> --us <rss copy>   # from local copies
 """
 
+import contextlib
 import hashlib
 import html
+import io
 import json
 import math
 import os
@@ -74,6 +91,7 @@ EXTRA_AREAS = {
     "GR": [(34.8, 23.0, 38.0, 28.3)],                                  # Cyclades, Dodecanese
     "NC": [(-23.0, 163.5, -19.5, 169.0)],                              # Loyalty Is., Isle of Pines
     "SB": [(-12.5, 155.3, -6.5, 170.3)],
+    "SE": [(56.85, 17.9, 58.45, 19.4)],                                # Gotland (Visby, 100 km out)
     "SO": [(8.0, 42.6, 11.5, 49.1)],                                   # Somaliland (its own map feature)
     "TF": [(-46.6, 50.0, -46.0, 52.5), (-39.0, 77.3, -37.6, 77.8)],   # Crozet, Amsterdam/St-Paul
     "VE": [(11.7, -67.0, 12.0, -66.5)],                                # Los Roques
@@ -81,11 +99,22 @@ EXTRA_AREAS = {
     "YE": [(12.0, 52.0, 12.8, 54.6)],                                  # Socotra
 }
 
-# Two spots closer than DUP_KM are one stay anchor (San Blas / Guna Yala); a
-# spot within CENTROID_KM of the map's centre of its country is the country,
-# not a place in it.
+# Two spots closer than DUP_KM search the same hotels (San Blas / Guna Yala,
+# Nyhavn by Copenhagen); a spot within CENTROID_KM of the map's centre of its
+# country is the country, not a place in it.
 DUP_KM = 3
 CENTROID_KM = 0.5
+# A spot at least FAR_KM from every chip is a destination of its own; nearer,
+# it is the same city's spread. The guides' places across town sit 3-8 km
+# from their city's chip (the Heydar Aliyev Center 3.7 km from Baku's,
+# Sentosa 5 km from Marina Bay, Hongdae 5.9 km from Seoul, Katara 8.2 km
+# from Doha): 10 km clears the widest of them, while a beach strip 11 km out
+# (Burj Al Arab's Jumeirah from Downtown Dubai) or a day trip 19-38 km away
+# (Barzan Towers from Doha, Frederiksborg, the Stockholm Archipelago) has a
+# Booking search of other hotels.
+FAR_KM = 10
+# Gallery places only top up thin lists (to 4), never crowd the itinerary.
+GALLERY_SPOTS = 4
 
 _GEOMS = None
 _CENTROIDS = None
@@ -180,24 +209,62 @@ class LookupFailed(Exception):
     coordinates", and must not silently drop a country's spots."""
 
 
-def coords(subject):
+# Every title asked this run, with its point or None: a country's places are
+# asked together, up to WIKI_BATCH titles a request (prefetch), as every
+# place is now looked at, not just the first five. Wikipedia answers HTTP 429
+# to a few hundred single-title requests a minute.
+_COORDS = {}
+WIKI_BATCH = 50
+
+
+def _wiki(titles):
+    """{title: [lat, lng] or None} for up to WIKI_BATCH titles, one request.
+    A title is followed through Wikipedia's normalisation and redirects to
+    its page ("Paektu Mountain" is Mount Paektu's)."""
     api = ("https://en.wikipedia.org/w/api.php?action=query&format=json"
-           "&prop=coordinates&redirects=1&titles=" + urllib.parse.quote(subject))
+           "&prop=coordinates&colimit=max&redirects=1&titles=" + urllib.parse.quote("|".join(titles)))
     req = urllib.request.Request(
         api, headers={"User-Agent": "wandergrade-spots/1.0 (+https://wandergrade.com)"})
     for attempt in range(4):
         try:
             j = json.load(urllib.request.urlopen(req, timeout=20))
             break
-        except Exception:
+        except Exception as e:
             if attempt == 3:
-                raise LookupFailed(subject)
-            time.sleep(2 * (attempt + 1))
-    page = next(iter(j.get("query", {}).get("pages", {}).values()), {})
-    c = page.get("coordinates")
-    if c:
-        return [round(c[0]["lat"], 5), round(c[0]["lon"], 5)]
-    return None
+                raise LookupFailed(titles[0] if len(titles) == 1 else "%d titles from %s" % (len(titles), titles[0]))
+            wait = 2 * (attempt + 1)
+            if getattr(e, "code", None) == 429:          # rate limited: its own pause, not ours
+                try:
+                    wait = max(wait, min(60, int(e.headers.get("Retry-After") or 0)), 15 * (attempt + 1))
+                except (TypeError, ValueError):
+                    wait = 15 * (attempt + 1)
+            time.sleep(wait)
+    q = j.get("query", {})
+    hop = {n["from"]: n["to"] for n in q.get("normalized", []) + q.get("redirects", [])}
+    pages = {p.get("title"): p for p in q.get("pages", {}).values()}
+    out = {}
+    for t in titles:
+        x = t
+        for _ in range(4):
+            if x not in hop:
+                break
+            x = hop[x]
+        c = (pages.get(x) or {}).get("coordinates")
+        out[t] = [round(c[0]["lat"], 5), round(c[0]["lon"], 5)] if c else None
+    return out
+
+
+def prefetch(titles):
+    """Ask Wikipedia for every title not asked yet, WIKI_BATCH at a time."""
+    todo = list(dict.fromkeys(t for t in titles if t and t not in _COORDS and "|" not in t))
+    for i in range(0, len(todo), WIKI_BATCH):
+        _COORDS.update(_wiki(todo[i:i + WIKI_BATCH]))
+
+
+def coords(subject):
+    if subject not in _COORDS:
+        _COORDS.update(_wiki([subject]))
+    return _COORDS[subject]
 
 
 def coords_with_fallback(subject, country, iso):
@@ -205,11 +272,28 @@ def coords_with_fallback(subject, country, iso):
     first (a qualified one can land on a region article: "Sylhet, Bangladesh"
     is the division, not the city), but a better-known namesake abroad
     (Granada, Antigua, Casco Viejo) now fails in_country and falls through."""
-    for title in (subject, "%s, %s" % (subject, country), "%s (%s)" % (subject, country)):
+    for title in variants(subject, country):
         ll = coords(title)
         if ll and in_country(ll, iso):
             return ll
     return None
+
+
+def variants(subject, country):
+    """The titles coords_with_fallback tries, in its order."""
+    return (subject, "%s, %s" % (subject, country), "%s (%s)" % (subject, country))
+
+
+def why_unresolved(subject, country, iso):
+    """Why coords_with_fallback found no point for `subject`, from what this
+    run already asked (it asks nothing itself)."""
+    for title in variants(subject, country):
+        ll = _COORDS.get(title)
+        if ll:
+            other = near_neighbour(ll, iso)
+            return ("Wikipedia's %s is a whole-degree point within %d km of %s" % (ll, NEAR_KM, other) if other
+                    else "Wikipedia's %s is outside %s on the map" % (ll, country))
+    return "no coordinates on Wikipedia"
 
 
 def expand(s):
@@ -465,79 +549,152 @@ def us_review_problems(iso, words, skip=None):
 
 
 def build_country(args):
-    """(iso, spots), or (iso, None) when Wikipedia couldn't be reached."""
+    """(iso, spots), or (iso, None) when Wikipedia couldn't be reached. The
+    country's titles are asked in batches first (prefetch_country)."""
     try:
+        prefetch_country(*args)
         return _build_country(args)
     except LookupFailed as e:
         print("\n%s: lookup failed at %r — keeping its previous spots" % (args[0], str(e)))
         return args[0], None
 
 
-def _build_country(args):
-    iso, act, names = args
-    country = names.get(iso, iso)
+def _subjects(iso, act):
+    """(subject, cap, alias, chip name) for every place the guide names, in
+    its order: "top things to do" first (up to MAX_SPOTS), then the gallery
+    (topping up to GALLERY_SPOTS). A pinned Commons file's place is its
+    label; a label that isn't a Wikipedia title finds no coordinates."""
     aliases = ALIASES.get(iso, {})
-    act_cands = [p for x in (act.get("activities") or []) for p in act_places(x)]
-    # A pinned Commons file's place is its label; a label that isn't a
-    # Wikipedia title finds no coordinates and simply adds no spot.
-    gal_cands = [gallery_entry.label(e) for e in act.get("gallery") or []]
-    spots = []
-
-    def add(subject, cap):
-        if len(spots) >= cap:
-            return
+    subjects = [(p, MAX_SPOTS) for x in (act.get("activities") or []) for p in act_places(x)]
+    subjects += [(gallery_entry.label(e), GALLERY_SPOTS) for e in act.get("gallery") or []]
+    for subject, cap in subjects:
         # curated alias: phrase -> real Wikipedia title (+ optional chip label,
         # + optional fixed "ll" for places Wikipedia has no coordinates for)
-        al = aliases.get(subject) or aliases.get(label(subject))
-        name = (al or {}).get("label") or label((al or {}).get("title") or subject)
-        if not name or any(same_place(name, s["n"]) for s in spots):
-            return
-        if skipped(iso, name, subject, (al or {}).get("title")):
-            return
-        ll = (al or {}).get("ll") or coords_with_fallback((al or {}).get("title") or subject,
-                                                          country, iso)
+        al = aliases.get(subject) or aliases.get(label(subject)) or {}
+        yield subject, cap, al, al.get("label") or label(al.get("title") or subject)
+
+
+def prefetch_country(iso, act, names):
+    """Ask Wikipedia for a country's titles together: every bare title, then
+    "X, Country" for those without a point in the country, then "X (Country)"."""
+    country = names.get(iso, iso)
+    titles = [al.get("title") or s for s, cap, al, name in _subjects(iso, act) if name and not al.get("ll")]
+    for k in range(3):
+        need = [t for t in titles if not any(_COORDS.get(v) and in_country(_COORDS[v], iso)
+                                             for v in variants(t, country)[:k])]
+        prefetch([variants(t, country)[k] for t in need])
+
+
+# Every guide place a build found no point for, per country: [(place, why)].
+UNRESOLVED = {}
+
+
+def candidates(iso, act, names):
+    """The guide's places as stay candidates, in its order: [{"n", "ll",
+    "cap"}], each a point in the country and clear of the skip list. A place
+    with no point goes to UNRESOLVED[iso], printed by main()."""
+    country = names.get(iso, iso)
+    out, unresolved = [], []
+    for subject, cap, al, name in _subjects(iso, act):
+        if not name or skipped(iso, name, subject, al.get("title")):
+            continue
+        title = al.get("title") or subject
+        ll = al.get("ll") or coords_with_fallback(title, country, iso)
         if not ll:
-            return
+            if subject not in [u for u, why in unresolved]:
+                unresolved.append((subject, why_unresolved(title, country, iso)))
+            continue
         near = skipped_near(iso, ll)
         if near:
             print("\n%s: %s %s left out — within %d km of skip-listed %s" % (iso, name, ll, SKIP_KM, near), end="")
-            return
-        why = placeholder(iso, name, ll, spots)
-        if why:
-            # Two names for one place (San Blas / Guna Yala) are one chip. The
-            # very same point is that, or a borrowed one (Maracas Bay's was
-            # Trinidad's): said, so a place that lost its chip can get its own
-            # point in stay-aliases.json.
-            if not why.startswith("within"):
-                print("\n%s: %s %s left out — %s" % (iso, name, ll, why), end="")
-            return
-        spots.append({"n": name, "ll": ll})
-
-    # Activity places first (up to 5) — these mirror "top things to do".
-    for s in act_cands:
-        add(s, MAX_SPOTS)
-    # Gallery places only top up thin lists (to 4), never crowd the itinerary.
-    for s in gal_cands:
-        add(s, 4)
-    return iso, spots
+            continue
+        out.append({"n": name, "ll": ll, "cap": cap, "cur": bool(al.get("ll"))})
+    UNRESOLVED[iso] = unresolved
+    return out
 
 
-def placeholder(iso, name, ll, spots):
+def _build_country(args):
+    iso, act, names = args
+    return iso, pick(iso, candidates(iso, act, names))
+
+
+def _tier(ll, spots):
+    """0 for a destination of its own (FAR_KM or more from every spot), 1 for
+    a spot's neighbourhood (within DUP_KM of one), 2 for a place across town
+    (between the two)."""
+    pt = (ll[1], ll[0])
+    d = min((geo.dist_km(pt, (s["ll"][1], s["ll"][0])) for s in spots), default=float("inf"))
+    return 0 if d >= FAR_KM else 1 if d < DUP_KM else 2
+
+
+def pick(iso, cands):
+    """The chips from `cands` (candidates' order and caps), in the guide's
+    order. Slots go to destinations of their own first, in the guide's order;
+    then to neighbourhoods; then to places across town.
+
+    A neighbourhood (within DUP_KM of a chip) loses its slot only to a
+    distinct destination: Sweden's Gamla stan and Vasa Museum give theirs to
+    the Stockholm Archipelago and Visby; Singapore's Clarke Quay and Gardens
+    by the Bay keep theirs, as nothing there is FAR_KM from Marina Bay (an
+    empty slot helps no one). A place across town never takes a neighbourhood's
+    slot: Budapest's Parliament stays and Heroes' Square, gallery place #1 but
+    3.2 km off, doesn't swap in; Baku keeps Flame Towers over the Heydar
+    Aliyev Center. It fills a slot nothing else wants (Sentosa, 5 km from
+    Marina Bay, takes Singapore's last). The same point, the same place by
+    name or the country's centre (see placeholder) is never a chip."""
+    chosen, out = {}, set()
+    for tier in (0, 1, 2):
+        for i, c in enumerate(cands):
+            if i in chosen or i in out or len(chosen) >= c["cap"]:
+                continue
+            spots = list(chosen.values())
+            why = placeholder(iso, c["n"], c["ll"], spots, near=False, curated=c.get("cur", False))
+            if why:
+                # Two names for one place (San Blas / Guna Yala) are one chip.
+                # The very same point is that, or a borrowed one (Maracas
+                # Bay's was Trinidad's): said, so a place that lost its chip
+                # can get its own point in stay-aliases.json. A name the
+                # guide repeats ("Dubai" three times) goes quietly; one
+                # inside another FAR_KM off (Dubai Marina, 19 km from Dubai's
+                # chip) is said, as it may be a place of its own.
+                out.add(i)
+                twin = next((s for s in spots if same_place(c["n"], s["n"])), None)
+                km = twin and geo.dist_km((c["ll"][1], c["ll"][0]), (twin["ll"][1], twin["ll"][0]))
+                if twin is None:
+                    print("\n%s: %s %s left out — %s" % (iso, c["n"], c["ll"], why), end="")
+                elif km >= FAR_KM:
+                    print("\n%s: %s %s left out — the same place as %s by name, %.0f km off (if it's a place"
+                          " of its own, give it a point in stay-aliases.json)" % (iso, c["n"], c["ll"], twin["n"], km), end="")
+                continue
+            if _tier(c["ll"], spots) <= tier:
+                chosen[i] = {"n": c["n"], "ll": c["ll"]}
+    return [chosen[i] for i in sorted(chosen)]
+
+
+def placeholder(iso, name, ll, spots, near=True, curated=False):
     """Why `ll` isn't a point of its own beside `spots` (the country's spots
     so far), or None: the same point as one of them (Maracas Bay borrowing
-    Trinidad's), within DUP_KM of one (one place, two names), the same place
-    by name, or the centre of the country itself."""
+    Trinidad's), the same place by name, the centre of the country itself,
+    or (with `near`) within DUP_KM of one, a neighbourhood that pick keeps
+    only while nothing distinct can have its slot.
+
+    A name inside another (Kalandula / Kalandula Falls) is one place, unless
+    the point is `curated` (set by hand in stay-aliases.json) and FAR_KM from
+    the other's: the Stockholm Archipelago's, 38 km out, isn't Stockholm's,
+    and the name rule alone kept Sweden's from ever being a chip."""
     pt = (ll[1], ll[0])
     for s in spots:
         if [round(x, 4) for x in s["ll"]] == [round(x, 4) for x in ll]:
             return "same point as %s" % s["n"]
-        if geo.dist_km(pt, (s["ll"][1], s["ll"][0])) < DUP_KM:
-            return "within %d km of %s" % (DUP_KM, s["n"])
-        if same_place(name, s["n"]):
+    for s in spots:
+        if same_place(name, s["n"]) and not (curated and geo.dist_km(pt, (s["ll"][1], s["ll"][0])) >= FAR_KM):
             return "same place as %s" % s["n"]
     c = _centroids().get(iso)
     if c and geo.dist_km(pt, tuple(c)) < CENTROID_KM:
         return "the centre of the country, not a place in it"
+    for s in spots if near else []:
+        if geo.dist_km(pt, (s["ll"][1], s["ll"][0])) < DUP_KM:
+            return "within %d km of %s" % (DUP_KM, s["n"])
     return None
 
 
@@ -560,9 +717,50 @@ def check(data):
                 out.append((iso, s["n"], s["ll"], "a whole-degree point within %d km of %s" % (NEAR_KM, other)
                             if other else "outside its country"))
                 continue
-            why = placeholder(iso, s["n"], s["ll"], spots[:i])
+            why = placeholder(iso, s["n"], s["ll"], spots[:i], curated=cur)
             if why:
                 out.append((iso, s["n"], s["ll"], why))
+    return out
+
+
+def fresh_build(iso):
+    """`iso`'s spots as a rebuild would pick them now (Wikipedia asked; None
+    when it can't be reached), without touching the file."""
+    acts = _json_once("activities.json")
+    if iso not in acts:
+        return []
+    with contextlib.redirect_stdout(io.StringIO()):       # its "left out" lines are a build's, not --check's
+        return build_country((iso, acts[iso], _json_once("country-names.json")))[1]
+
+
+_LOADED = {}
+
+
+def _json_once(name):
+    if name not in _LOADED:
+        with open(os.path.join(PUBLIC, name), encoding="utf-8") as f:
+            _LOADED[name] = json.load(f)
+    return _LOADED[name]
+
+
+def near_notes(rows, build=fresh_build):
+    """The rows of check() within DUP_KM of an earlier anchor that a rebuild
+    of their country would drop, as (iso, name, ll, why). One the rule keeps
+    (a neighbourhood with nothing distinct to take its slot: Singapore's
+    Clarke Quay) is no note. `build(iso)` gives the spots a rebuild would
+    pick, or None when it can't tell."""
+    near = [r for r in rows if r[3].startswith("within")]
+    out = []
+    for iso in sorted({r[0] for r in near}):
+        fresh = build(iso)
+        names = None if fresh is None else {s["n"] for s in fresh}
+        for r in near:
+            if r[0] != iso:
+                continue
+            if names is None:
+                out.append(r[:3] + (r[3] + " (not judged: Wikipedia unreachable)",))
+            elif r[1] not in names:
+                out.append(r[:3] + (r[3] + "; a rebuild drops it",))
     return out
 
 
@@ -653,10 +851,13 @@ def main(only=None):
     if only:
         out = {k: v for k, v in previous.items() if k not in only}
     jobs = [(iso, acts[iso], names) for iso in sorted(acts) if not only or iso in only]
+    rebuilt = set()
     with ThreadPoolExecutor(max_workers=2 if only else 8) as ex:
         for iso, spots in ex.map(build_country, jobs):
             if spots is None:
                 spots = previous.get(iso) or []
+            else:
+                rebuilt.add(iso)
             if spots:
                 out[iso] = spots
             print("%s:%d" % (iso, len(spots)), end=" ", flush=True)
@@ -668,11 +869,22 @@ def main(only=None):
     print("\n%d/%d countries; avg %.1f spots; thin(<2): %s"
           % (len(out), len(acts), sum(counts) / len(counts),
              [k for k in acts if len(out.get(k, [])) < 2]))
-    bad = check(out)
+    unresolved = [(iso, UNRESOLVED[iso]) for iso in sorted(UNRESOLVED) if iso in rebuilt and UNRESOLVED[iso]]
+    if unresolved:
+        print("GUIDE PLACES WITH NO POINT, NO CHIP (give a real place one in stay-aliases.json):")
+        for iso, places in unresolved:
+            print("  %s: %s" % (iso, "; ".join("%s (%s)" % p for p in places)))
+    # A rebuilt country's neighbourhood chips are the rule's (pick); another
+    # country's are judged by --check.
+    rows = check(out)
+    bad = [r for r in rows if not r[3].startswith("within")]
     if bad:
         print("NOT A SOUND POINT OF THEIR OWN (fix with stay-aliases.json, or rebuild the country):")
         for row in bad:
             print("  %s %s %s: %s" % row)
+    for row in rows:
+        if row not in bad and row[0] not in rebuilt:
+            print("  (note) %s %s %s: %s (not rebuilt in this run; --check judges it)" % row)
 
 
 if __name__ == "__main__":
@@ -691,17 +903,20 @@ if __name__ == "__main__":
         rss = argv[argv.index("--us") + 1] if "--us" in argv[:-1] else None
         data = json.load(open(path, encoding="utf-8"))
         rows = check(data)
-        # A landmark within DUP_KM of its city's chip (Nyhavn by Copenhagen)
-        # predates that rule (b6b72de) and searches the same hotels; a rebuild
-        # of the country drops it. Listed, not failed: it's no wrong point.
+        # An anchor within DUP_KM of an earlier one (Nyhavn by Copenhagen)
+        # searches the same hotels. A rebuild keeps it while nothing distinct
+        # can have its slot (pick): then it's a neighbourhood chip, no note.
+        # One a rebuild would drop is listed, not failed: it's no wrong point.
         near = [r for r in rows if r[3].startswith("within")]
         bad = [r for r in rows if r not in near]
         for row in bad:
             print("%s %s %s: %s" % row)
         print("%d anchor(s) not a sound point of their own country" % len(bad))
-        for row in near:
+        notes = near_notes(near)
+        for row in notes:
             print("  (note) %s %s %s: %s" % row)
-        print("%d anchor(s) within %d km of an earlier one (a rebuild drops them)" % (len(near), DUP_KM))
+        print("%d anchor(s) within %d km of an earlier one that a rebuild drops (%d more kept by the rule:"
+              " neighbourhoods with nothing distinct to take their slot)" % (len(notes), DUP_KM, len(near) - len(notes)))
         left = skipped_present(data)
         for row in left:
             print("%s %s is skip-listed as %s: run --prune" % row)
