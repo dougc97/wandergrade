@@ -14,10 +14,9 @@ generator's rules for a sound point, without the network.
     near Kribi with Foumban, Benin with Porto-Novo), never a skipped one;
   * each place skipped since the first list is skipped under its own
     government's list and under its other names (Tiya, clear of Canada's
-    zones, is in the US's Oromia; Tanougou Falls, outside Canada's avoid-all
-    band, borders Burkina Faso for the US), and nothing beside them is
-    (Bale Mountains, which the US exempts; Mount Hagen, a town the US
-    exempts; Kribi, Zakouma, Chinguetti, Terjit, Porto-Novo...);
+    zones, is in the US's Oromia), and nothing beside them is (Bale
+    Mountains, which the US exempts; Mount Hagen, a town the US exempts;
+    Kribi, Zakouma, Chinguetti, Terjit, Porto-Novo...);
   * the generator never adds a skipped place, under any of its names (an
     activity's "Pendjari" is the chip "Pendjari National Park"; "Limbé" is
     "Limbe"; "Gonder" is Gondar, "Gisenyi" the Lake Kivu chip) or on its
@@ -37,8 +36,10 @@ generator's rules for a sound point, without the network.
     increased risk but names none (Mexico, India) is reviewed by hand on
     travel.state.gov and re-flagged at any reissue; a row whose title maps to
     no country is reported, and "Côte d’Ivoire" and "Republic of Congo" map;
-  * Brazil's Iguazú Falls is out under the US's "International land borders"
-    (the Foz exception is the staff rules'), Mauritania's Amojjar Pass and
+  * a US line that names no place or distance is reviewed by hand, not a
+    skip (Doug, 2026-10-19): Brazil's Iguazú Falls stays under "International
+    land borders" and Benin's Tanougou Falls under "the border region in
+    northern ... Benin", each with a note; Mauritania's Amojjar Pass and
     Togo's Fazao-Malfakassa chips sit on their OSM points.
 """
 import importlib.util
@@ -107,11 +108,10 @@ us_only = {"us": us}
 NEW_CANADA = [("NG", "Gashaka Gumti National Park", "Gashaka Gumti"), ("NG", "Agbokim Waterfalls", "Agbokim Waterfalls"),
               ("NG", "Obudu Mountain Resort", "Obudu Mountain Resort"), ("TN", "Sbeitla", "Sbeitla"),
               ("CO", "Las Lajas Sanctuary", "Las Lajas"), ("IL", "Rosh HaNikra grottoes", "Rosh HaNikra")]
-NEW_US = [("ET", "Tiya", "Tiya"), ("BJ", "Tanougou Falls", "Tanougou Falls"), ("DZ", "Tassili n'Ajjer", "Tassili n'Ajjer"),
+NEW_US = [("ET", "Tiya", "Tiya"), ("DZ", "Tassili n'Ajjer", "Tassili n'Ajjer"),
           ("KE", "Lamu Island", "Lamu"), ("PG", "Mount Wilhelm", "Mount Wilhelm"), ("PG", "Highlands", "Highlands"),
           ("RW", "Volcanoes National Park", "Volcanoes National Park"), ("RW", "Lake Kivu", "Lake Kivu"),
-          ("TG", "Koutammakou", "Koutammakou"), ("VE", "Canaima", "Canaima National Park"), ("VE", "Roraima", "Mount Roraima"),
-          ("BR", "Iguazú Falls", "Iguaçu Falls")]
+          ("TG", "Koutammakou", "Koutammakou"), ("VE", "Canaima", "Canaima National Park"), ("VE", "Roraima", "Mount Roraima")]
 for iso, place, alias in NEW_CANADA:
     results.append(ok(g.skipped(iso, place, skip=canada_only) == place and g.skipped(iso, alias) == place,
                       "%s %s is in Canada's avoid-all zone (also as \"%s\")" % (iso, place, alias)))
@@ -123,19 +123,21 @@ keep = [("ET", "Bale Mountains National Park"), ("ET", "Sanetti Plateau"), ("CM"
         ("MR", "Terjit"), ("MR", "Amojjar Pass"), ("BJ", "Porto-Novo"), ("PG", "Mount Hagen"), ("RW", "Kigali"),
         ("RW", "Lake Burera"), ("RW", "Nyungwe"), ("BI", "Bujumbura"), ("BR", "Christ the Redeemer"), ("BR", "Salvador"),
         ("TG", "Fazao-Malfakassa National Park"), ("RW", "Musanze"),
-        ("VE", "Los Roques"), ("VE", "Médanos de Coro"), ("KE", "Ruins of Gedi"), ("IL", "Masada"), ("DZ", "Djémila")]
+        ("VE", "Los Roques"), ("VE", "Médanos de Coro"), ("KE", "Ruins of Gedi"), ("IL", "Masada"), ("DZ", "Djémila"),
+        ("BR", "Iguazú Falls"), ("BR", "Foz do Iguaçu"), ("BJ", "Tanougou Falls")]
 left_in = [(iso, n) for iso, n in keep if g.skipped(iso, n)]
 results.append(ok(not left_in, "and the places beside them stay: the US exempts Bale Mountains and the town of Mount Hagen;"
-                               " Foumban, Terjit, Porto-Novo, Nyungwe... are clear of both (%s)" % left_in))
+                               " Foumban, Terjit, Porto-Novo, Nyungwe... are clear of both; Iguazú and Tanougou are"
+                               " reviewed keeps (%s)" % left_in))
 
 # Other names and points. A skipped place's "aka" names and its point ("ll")
 # keep it out under a label the list doesn't hold.
 AKA = [("ET", "Gonder", "Gondar"), ("ET", "Aksum", "Obelisk of Axum"), ("ET", "Danakil Depression", "Danakil Desert"),
        ("RW", "Gisenyi", "Lake Kivu"), ("RW", "Kinigi", "Volcanoes National Park"), ("KE", "Lamu Old Town", "Lamu Island"),
-       ("KE", "Shela", "Lamu Island"), ("VE", "Angel Falls", "Canaima"), ("BR", "Foz do Iguaçu", "Iguazú Falls")]
+       ("KE", "Shela", "Lamu Island"), ("VE", "Angel Falls", "Canaima")]
 missed = [(iso, n, g.skipped(iso, n)) for iso, n, want in AKA if g.skipped(iso, n) != want]
 results.append(ok(not missed, "a skipped place's other names are skipped: Gonder, Aksum, Gisenyi, Kinigi, Lamu Old Town,"
-                              " Angel Falls, Foz do Iguaçu (%s)" % missed))
+                              " Angel Falls (%s)" % missed))
 all_skips = [(iso, n, v) for iso, n, v in places + us_places]
 with_ll = [(iso, n, v["ll"]) for iso, n, v in all_skips if v.get("ll")]
 results.append(ok(len(with_ll) >= len(all_skips) - 3
@@ -180,17 +182,17 @@ results.append(ok(all(built[iso] for iso in built), "and still finds places outs
 # in a zone, by words in their names and by their ground (5 km round each).
 ZONE_WORDS = {"ET": ["lalibela", "gondar", "gonder", "fasil", "simien", "semien", "danakil", "axum", "aksum", "tiya"],
               "CM": ["mount cameroon", "limbe", "waza", "mokolo", "bafut", "korup", "ring road"],
-              "BJ": ["pendjari", "tanougou"], "BI": ["kibira"], "MZ": ["quirimbas", "ibo"],
+              "BJ": ["pendjari"], "BI": ["kibira"], "MZ": ["quirimbas", "ibo"],
               "MR": ["adrar", "richat", "tichit"], "PK": ["k2"],
               "TD": ["tibesti", "ennedi", "ounianga", "toussid", "aloba", "yoa"], "TJ": ["wakhan"],
               "NG": ["zuma", "gashaka", "agbokim", "obudu"], "TN": ["sbeitla"], "CO": ["lajas"], "IL": ["hanikra"],
               "DZ": ["tassili"], "KE": ["lamu", "shela"], "PG": ["wilhelm", "highlands"],
               "RW": ["volcanoes", "kivu", "gisenyi", "kinigi"], "TG": ["koutammakou"],
-              "VE": ["canaima", "roraima", "angel falls"], "BR": ["iguaz", "iguac", "iguass"]}
+              "VE": ["canaima", "roraima", "angel falls"]}
 ZONE_POINTS = [("RW", -1.70, 29.26, "Gisenyi, on the DRC border"), ("RW", -1.43, 29.59, "Kinigi, Volcanoes National Park"),
-               ("KE", -2.27, 40.90, "Lamu"), ("BR", -25.687, -54.445, "Iguazú Falls"), ("ET", 12.6075, 37.46, "Gondar"),
+               ("KE", -2.27, 40.90, "Lamu"), ("ET", 12.6075, 37.46, "Gondar"),
                ("ET", 14.13, 38.72, "Axum"), ("ET", 8.43, 38.62, "Tiya"), ("VE", 5.97, -62.54, "Angel Falls"),
-               ("TG", 10.07, 1.13, "Koutammakou"), ("BJ", 10.81, 1.44, "Tanougou Falls")]
+               ("TG", 10.07, 1.13, "Koutammakou")]
 fold = g._fold
 
 
@@ -206,7 +208,7 @@ zoned = [(iso, s["n"]) for iso, spots in stays.items() for s in spots if in_zone
 results.append(ok(not zoned, "judged apart from the skip list, no chip in the file is in a zone (%s)" % zoned))
 zoned = [(iso, s["n"]) for iso, spots in built.items() for s in spots if in_zone(iso, s)]
 results.append(ok(not zoned, "nor any in a stubbed build of the zoned countries (%s)" % zoned))
-results.append(ok(in_zone("RW", {"n": "Gisenyi Beach", "ll": [0, 0]}) and in_zone("BR", {"n": "x", "ll": [-25.69, -54.44]})
+results.append(ok(in_zone("RW", {"n": "Gisenyi Beach", "ll": [0, 0]}) and in_zone("RW", {"n": "x", "ll": [-1.44, 29.58]})
                   and not in_zone("RW", {"n": "Kigali", "ll": [-1.9525, 30.115]}), "and that judge works"))
 
 p = g.prune({"ET": [{"n": "Lalibela", "ll": [12, 39]}],
@@ -353,10 +355,13 @@ results.append(ok(all(us_countries.get(iso, {}).get("note") and re.fullmatch(r"[
                   and "Guerrero" in us_countries["MX"]["note"] and "Kashmir" in us_countries["IN"]["note"],
                   "Mexico's, India's and the other unlisted rows with chips are reviewed, each with a note"))
 br = us_countries.get("BR") or {}
-results.append(ok("Iguazú Falls" in (br.get("skip") or {}) and "International land borders" in br["skip"]["Iguazú Falls"]["us"]
-                  and "staff" in br.get("note", "") and not any("Igua" in s["n"] for s in stays["BR"])
-                  and [s["n"] for s in stays["BR"]][:3] == ["Rio de Janeiro", "Salvador", "Manaus"],
-                  "Brazil's Iguazú Falls is out under the US's land borders, the staff-only Foz exception noted (%s)"
+bjn = us_countries.get("BJ") or {}
+results.append(ok(bool(not br.get("skip") and "Reviewed keep" in br.get("note", "") and "International land borders" in br["note"]
+                  and [s["n"] for s in stays["BR"]] == ["Rio de Janeiro", "Salvador", "Manaus", "Iguazú Falls"]
+                  and not bjn.get("skip") and "Reviewed keep" in bjn.get("note", "") and "Tanougou" in bjn["note"]
+                  and re.fullmatch(r"[0-9a-f]{12}", br.get("fp", "")) and re.fullmatch(r"[0-9a-f]{12}", bjn.get("fp", ""))),
+                  "a US line with no place or distance is a reviewed keep, not a skip: Brazil keeps Iguazú Falls under"
+                  " \"International land borders\", Benin's Tanougou note stands, both still fingerprinted (%s)"
                   % [s["n"] for s in stays["BR"]]))
 amo = next((s["ll"] for s in stays["MR"] if s["n"] == "Amojjar Pass"), None)
 faz = next((s["ll"] for s in stays["TG"] if s["n"] == "Fazao-Malfakassa National Park"), None)

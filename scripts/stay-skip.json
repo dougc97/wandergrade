@@ -616,42 +616,14 @@
    },
    "BJ": {
     "fp": "dfec967a1765",
-    "skip": {
-     "Tanougou Falls": {
-      "where": "Tanguiéta commune (Atacora), which reaches the Burkina Faso border; the falls are 40–50 km from it (coarse map, OSM sampling), so read conservatively they are in the area",
-      "us": "Do Not Travel to areas of Benin bordering Burkina Faso … Do not travel to the border region in northern or northeastern Benin for any reason.",
-      "ll": [
-       10.80537,
-       1.44449
-      ],
-      "aka": [
-       "Tanguiéta"
-      ]
-     }
-    }
+    "note": "Reviewed keep (Doug, 2026-10-19): \"areas of Benin bordering Burkina Faso\" and \"the border region in northern or northeastern Benin\" name no distance, so they are reviewed by hand, not a skip. Tanougou Falls (Tanguiéta, Atacora) is 40–50 km from Burkina Faso, outside Canada's 50 km avoid-all band (the 2026-10-17 audit's sampling) and in Canada's avoid-non-essential Atacora; Pendjari, which Canada names, stays skipped under Canada's block."
    },
    "BO": {
     "fp": "fed8d8397986"
    },
    "BR": {
     "fp": "28ee5bf5ea24",
-    "skip": {
-     "Iguazú Falls": {
-      "where": "the falls are the Argentine border itself (Iguaçu river, Foz do Iguaçu municipality, Paraná); Paraguay is about 18 km away",
-      "us": "Do Not Travel to : International land borders due to crime and kidnapping.",
-      "ll": [
-       -25.68667,
-       -54.44472
-      ],
-      "aka": [
-       "Iguaçu Falls",
-       "Iguassu Falls",
-       "Foz do Iguaçu",
-       "Iguaçu National Park"
-      ]
-     }
-    },
-    "note": "The public line names Brazil's land borders with no exception. The feed's only Foz exception is in the staff rules (\"Within 100 miles/160 km of Brazil’s land borders (except travel to the Foz do Iguacu and Pantanal)\"), which govern US government employees, not the public advice, so it exempts nothing here. Canada's 20 km Paraguay band is avoid non-essential, where a chip may stay; the US line takes the falls out. Rio, Salvador and Manaus are hundreds of km from any land border."
+    "note": "Reviewed keep (Doug, 2026-10-19): the public line \"Do Not Travel to : International land borders\" names no distance, so it is reviewed by hand, not a skip. Iguazú Falls stays: the feed's only Foz rule is the staff one (\"Within 100 miles/160 km of Brazil’s land borders (except travel to the Foz do Iguacu and Pantanal)\"), and Canada's 20 km Paraguay band is avoid non-essential. Rio, Salvador and Manaus are hundreds of km from any land border."
    },
    "CI": {
     "fp": "ce5f4ee6d469",

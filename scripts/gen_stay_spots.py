@@ -19,8 +19,8 @@ Every spot is its own point (see placeholder): Wikipedia's "Maracas Bay"
 carries the coordinates of the whole island of Trinidad, so its chip searched
 the same hotels as the "Trinidad" chip beside it.
 
-No spot inside a zone Canada says to avoid all travel to, nor inside an area
-the US State Department names under "Do not travel" (see SKIP_PATH): Benin's
+No spot inside a zone Canada says to avoid all travel to, nor inside a place
+or distance the US State Department names under "Do not travel" (see SKIP_PATH): Benin's
 chips offered Pendjari National Park, which Canada's advisory names. A
 skipped place is kept out under its other names and on its ground (a label
 within SKIP_KM of its point), and a US advisory that keeps its list off the
@@ -262,7 +262,11 @@ except OSError:
 # areas, where it names them (a region, a county, a 10 km band; "specific
 # areas within" one names nothing): per country a fingerprint of the feed's
 # "Do Not Travel to" words and the places inside an area they name. Tiya,
-# clear of Canada's Ethiopian zones, is in the US's Oromia. A whole country
+# clear of Canada's Ethiopian zones, is in the US's Oromia. A line that names
+# no place or distance a point can be checked against is reviewed by hand and
+# its "note" records the call, not a skip (Doug, 2026-10-19): Brazil's
+# "International land borders" keeps Iguazú Falls, Benin's "border region in
+# northern ... Benin" keeps Tanougou Falls. A whole country
 # at the US's level 4 is app.js's rule (no stays for that source), not this.
 # Where the feed says "some areas have increased risk" and names none
 # (Mexico's states, India's Kashmir are only on travel.state.gov), the entry
