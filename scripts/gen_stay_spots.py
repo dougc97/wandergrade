@@ -21,12 +21,15 @@ the same hotels as the "Trinidad" chip beside it.
 
 Distinct destinations first (see pick): a place within DUP_KM of a chip is
 that chip's neighbourhood (Nyhavn by Copenhagen, Gamla stan by Stockholm) and
-keeps a slot only while nothing distinct can have it, and a landmark across
-town (within FAR_KM) comes after both. Dropping every neighbourhood outright
-left Singapore with Marina Bay and Sentosa alone and swapped Budapest's
-Parliament for Heroes' Square, another Budapest landmark 3.2 km off; filling
-slots in plain guide order spent North Korea's last one on Pyongyang's Arch
-of Triumph while Mount Kumgang waited further down the gallery.
+keeps a slot only while nothing distinct can have it; in a city, the place
+that is a chip already (the file's) keeps its slot over another landmark
+from the same list (things to do, or gallery), and a neighbourhood comes
+before a landmark across town (within FAR_KM). Dropping every neighbourhood outright left Singapore with Marina Bay
+and Sentosa alone and swapped Budapest's Parliament for Heroes' Square,
+another Budapest landmark 3.2 km off; filling slots in plain guide order
+spent North Korea's last one on Pyongyang's Arch of Triumph while Mount
+Kumgang waited further down the gallery. Two points within SAME_KM are one
+(Souq Waqif sits on Doha's).
 
 Every guide place that finds no point is printed with its country (a
 rebuild said nothing when Sweden's Visby fell off the coarse map): give a
@@ -104,6 +107,13 @@ EXTRA_AREAS = {
 # country is the country, not a place in it.
 DUP_KM = 3
 CENTROID_KM = 0.5
+# Two points closer than SAME_KM are one point, whatever their names: a chip's
+# Booking.com search is its lat/lng alone, and Wikipedia pins a city on its
+# old centre, a block from the souq or church on the same square (Souq
+# Waqif's point is 80 m from Doha's, the Church of the Nativity's 110 m from
+# Bethlehem's). A neighbourhood chip starts further out (Tallinn's Alexander
+# Nevsky Cathedral, 0.37 km up Toompea; Belgrade's Skadarlija, 0.58 km).
+SAME_KM = 0.25
 # A spot at least FAR_KM from every chip is a destination of its own; nearer,
 # it is the same city's spread. The guides' places across town sit 3-8 km
 # from their city's chip (the Heydar Aliyev Center 3.7 km from Baku's,
@@ -113,7 +123,10 @@ CENTROID_KM = 0.5
 # (Barzan Towers from Doha, Frederiksborg, the Stockholm Archipelago) has a
 # Booking search of other hotels.
 FAR_KM = 10
-# Gallery places only top up thin lists (to 4), never crowd the itinerary.
+# Gallery places only top up thin lists (to 4), never crowd the itinerary: a
+# gallery place in a chip's city waits for the guide's own (see pick). One
+# that is a destination of its own may come first, and the guide's places in
+# a city then fill to MAX_SPOTS (Korea's Gyeongju, then Seoul's Hongdae).
 GALLERY_SPOTS = 4
 
 _GEOMS = None
@@ -552,7 +565,7 @@ def build_country(args):
     """(iso, spots), or (iso, None) when Wikipedia couldn't be reached. The
     country's titles are asked in batches first (prefetch_country)."""
     try:
-        prefetch_country(*args)
+        prefetch_country(*args[:3])
         return _build_country(args)
     except LookupFailed as e:
         print("\n%s: lookup failed at %r — keeping its previous spots" % (args[0], str(e)))
@@ -614,8 +627,11 @@ def candidates(iso, act, names):
 
 
 def _build_country(args):
-    iso, act, names = args
-    return iso, pick(iso, candidates(iso, act, names))
+    """(iso, spots) for args (iso, act, names[, prev]): prev is the
+    country's chips in the file, which pick keeps over other places in
+    their city."""
+    iso, act, names = args[:3]
+    return iso, pick(iso, candidates(iso, act, names), args[3] if len(args) > 3 else None)
 
 
 def _tier(ll, spots):
@@ -627,25 +643,50 @@ def _tier(ll, spots):
     return 0 if d >= FAR_KM else 1 if d < DUP_KM else 2
 
 
-def pick(iso, cands):
-    """The chips from `cands` (candidates' order and caps), in the guide's
-    order. Slots go to destinations of their own first, in the guide's order;
-    then to neighbourhoods; then to places across town.
+def _passes(cands, prev):
+    """pick's passes, as (wanted, highest _tier taken): every place that is a
+    destination of its own, in the guide's order; then, per source (the
+    larger cap first: the guide's things to do, then its gallery), the places
+    in a chip's city that are chips already (`prev`), then neighbourhoods,
+    then places across town."""
+    had = {s["n"] for s in prev or ()}
+    out = [(lambda c: True, 0)]
+    for cap in sorted({c["cap"] for c in cands}, reverse=True):
+        out += [(lambda c, cap=cap: c["cap"] == cap and c["n"] in had, 2),
+                (lambda c, cap=cap: c["cap"] == cap, 1),
+                (lambda c, cap=cap: c["cap"] == cap, 2)]
+    return out
 
-    A neighbourhood (within DUP_KM of a chip) loses its slot only to a
-    distinct destination: Sweden's Gamla stan and Vasa Museum give theirs to
-    the Stockholm Archipelago and Visby; Singapore's Clarke Quay and Gardens
-    by the Bay keep theirs, as nothing there is FAR_KM from Marina Bay (an
-    empty slot helps no one). A place across town never takes a neighbourhood's
-    slot: Budapest's Parliament stays and Heroes' Square, gallery place #1 but
-    3.2 km off, doesn't swap in; Baku keeps Flame Towers over the Heydar
-    Aliyev Center. It fills a slot nothing else wants (Sentosa, 5 km from
-    Marina Bay, takes Singapore's last). The same point, the same place by
-    name or the country's centre (see placeholder) is never a chip."""
+
+def pick(iso, cands, prev=None):
+    """The chips from `cands` (candidates' order and caps), in the guide's
+    order; `prev` is the country's chips in the file, if any. Slots go to
+    destinations of their own (FAR_KM or more from every chip) first, in the
+    guide's order; then to places in a chip's city, the guide's things to do
+    before its gallery (which only tops up to GALLERY_SPOTS), and in each a
+    place that is a chip already first, then a neighbourhood (within DUP_KM
+    of a chip), then a place across town (see _passes).
+
+    A neighbourhood loses its slot only to a distinct destination: Sweden's
+    Gamla stan and Vasa Museum give theirs to the Stockholm Archipelago and
+    Visby; Singapore's Clarke Quay and Gardens by the Bay keep theirs, as
+    nothing there is FAR_KM from Marina Bay (an empty slot helps no one). A
+    place in the city never takes the slot of one from its own list that is
+    a chip already: Budapest's Parliament stays and Heroes' Square, gallery
+    place #1 but 3.2 km off, doesn't swap in; Baku keeps Flame Towers over
+    the Heydar Aliyev Center, Tallinn its Alexander Nevsky Cathedral over
+    Kadriorg Palace. The guide's own things to do still come before a
+    gallery chip (Kuwait's souq, a thing to do, before Kuwait Towers, whose
+    slot was the souq's while it had no point). One fills a slot nothing else wants (Sentosa, 5 km from Marina
+    Bay, Singapore's last), its source's cap permitting: a gallery
+    neighbourhood never gets in ahead of the guide's own place across town
+    and so lifts the list past GALLERY_SPOTS (Singapore's Buddha Tooth Relic
+    Temple, 1 km from Clarke Quay). The same point, the same place by name or
+    the country's centre (see placeholder) is never a chip."""
     chosen, out = {}, set()
-    for tier in (0, 1, 2):
+    for wanted, top in _passes(cands, prev):
         for i, c in enumerate(cands):
-            if i in chosen or i in out or len(chosen) >= c["cap"]:
+            if i in chosen or i in out or len(chosen) >= c["cap"] or not wanted(c):
                 continue
             spots = list(chosen.values())
             why = placeholder(iso, c["n"], c["ll"], spots, near=False, curated=c.get("cur", False))
@@ -666,15 +707,16 @@ def pick(iso, cands):
                     print("\n%s: %s %s left out — the same place as %s by name, %.0f km off (if it's a place"
                           " of its own, give it a point in stay-aliases.json)" % (iso, c["n"], c["ll"], twin["n"], km), end="")
                 continue
-            if _tier(c["ll"], spots) <= tier:
+            if _tier(c["ll"], spots) <= top:
                 chosen[i] = {"n": c["n"], "ll": c["ll"]}
     return [chosen[i] for i in sorted(chosen)]
 
 
 def placeholder(iso, name, ll, spots, near=True, curated=False):
     """Why `ll` isn't a point of its own beside `spots` (the country's spots
-    so far), or None: the same point as one of them (Maracas Bay borrowing
-    Trinidad's), the same place by name, the centre of the country itself,
+    so far), or None: the same point as one of them, within SAME_KM (Maracas
+    Bay borrowing Trinidad's, Souq Waqif on Doha's), the same place by name,
+    the centre of the country itself,
     or (with `near`) within DUP_KM of one, a neighbourhood that pick keeps
     only while nothing distinct can have its slot.
 
@@ -684,7 +726,7 @@ def placeholder(iso, name, ll, spots, near=True, curated=False):
     and the name rule alone kept Sweden's from ever being a chip."""
     pt = (ll[1], ll[0])
     for s in spots:
-        if [round(x, 4) for x in s["ll"]] == [round(x, 4) for x in ll]:
+        if geo.dist_km(pt, (s["ll"][1], s["ll"][0])) < SAME_KM:
             return "same point as %s" % s["n"]
     for s in spots:
         if same_place(name, s["n"]) and not (curated and geo.dist_km(pt, (s["ll"][1], s["ll"][0])) >= FAR_KM):
@@ -723,14 +765,15 @@ def check(data):
     return out
 
 
-def fresh_build(iso):
-    """`iso`'s spots as a rebuild would pick them now (Wikipedia asked; None
-    when it can't be reached), without touching the file."""
+def fresh_build(iso, prev=None):
+    """`iso`'s spots as a rebuild would pick them now from its chips `prev`
+    (Wikipedia asked; None when it can't be reached), without touching the
+    file."""
     acts = _json_once("activities.json")
     if iso not in acts:
         return []
     with contextlib.redirect_stdout(io.StringIO()):       # its "left out" lines are a build's, not --check's
-        return build_country((iso, acts[iso], _json_once("country-names.json")))[1]
+        return build_country((iso, acts[iso], _json_once("country-names.json"), prev))[1]
 
 
 _LOADED = {}
@@ -743,12 +786,14 @@ def _json_once(name):
     return _LOADED[name]
 
 
-def near_notes(rows, build=fresh_build):
+def near_notes(rows, data=None, build=None):
     """The rows of check() within DUP_KM of an earlier anchor that a rebuild
     of their country would drop, as (iso, name, ll, why). One the rule keeps
     (a neighbourhood with nothing distinct to take its slot: Singapore's
     Clarke Quay) is no note. `build(iso)` gives the spots a rebuild would
-    pick, or None when it can't tell."""
+    pick, or None when it can't tell; by default fresh_build from the
+    country's chips in `data` (the file judged)."""
+    build = build or (lambda iso: fresh_build(iso, (data or {}).get(iso)))
     near = [r for r in rows if r[3].startswith("within")]
     out = []
     for iso in sorted({r[0] for r in near}):
@@ -850,7 +895,7 @@ def main(only=None):
         previous = {}
     if only:
         out = {k: v for k, v in previous.items() if k not in only}
-    jobs = [(iso, acts[iso], names) for iso in sorted(acts) if not only or iso in only]
+    jobs = [(iso, acts[iso], names, previous.get(iso)) for iso in sorted(acts) if not only or iso in only]
     rebuilt = set()
     with ThreadPoolExecutor(max_workers=2 if only else 8) as ex:
         for iso, spots in ex.map(build_country, jobs):
@@ -904,15 +949,16 @@ if __name__ == "__main__":
         data = json.load(open(path, encoding="utf-8"))
         rows = check(data)
         # An anchor within DUP_KM of an earlier one (Nyhavn by Copenhagen)
-        # searches the same hotels. A rebuild keeps it while nothing distinct
-        # can have its slot (pick): then it's a neighbourhood chip, no note.
+        # searches the same hotels. A rebuild from the file keeps it while
+        # nothing distinct can have its slot (pick): then it's a neighbourhood
+        # chip, no note.
         # One a rebuild would drop is listed, not failed: it's no wrong point.
         near = [r for r in rows if r[3].startswith("within")]
         bad = [r for r in rows if r not in near]
         for row in bad:
             print("%s %s %s: %s" % row)
         print("%d anchor(s) not a sound point of their own country" % len(bad))
-        notes = near_notes(near)
+        notes = near_notes(near, data)
         for row in notes:
             print("  (note) %s %s %s: %s" % row)
         print("%d anchor(s) within %d km of an earlier one that a rebuild drops (%d more kept by the rule:"

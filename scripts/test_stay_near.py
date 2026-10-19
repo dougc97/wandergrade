@@ -7,20 +7,26 @@
     distinct can have it (Singapore's Clarke Quay and Gardens by the Bay) and
     loses it to a destination FAR_KM or more from every chip (Sweden's Gamla
     stan to the Stockholm Archipelago and Visby);
-  * slots go to distinct destinations first, in the guide's order, then to
-    neighbourhoods, then to places across town; a place across town never
-    takes a neighbourhood's slot (Budapest's Parliament over Heroes' Square,
-    Baku's Flame Towers over the Heydar Aliyev Center), and the chips come out
-    in the guide's order;
-  * the same point, the same place by name and the country's centre are
-    still always left out, even with slots free; a name inside another is
-    its own place only on a hand-set point FAR_KM away (the Stockholm
-    Archipelago is not Stockholm, Prague Castle is Prague);
-  * --check lists a neighbourhood chip only when a rebuild would drop it, and
-    says so when it can't judge;
-  * Singapore, Sweden, Cuba and Azerbaijan, built from their guides with
-    Wikipedia's points of 2026-10-19 stubbed, give exactly the chips in
-    public/stay-coords.json, and every guide place without a point is listed;
+  * slots go to distinct destinations first, in the guide's order; then to
+    places in a chip's city, the guide's things to do before its gallery
+    (a gallery neighbourhood never gets in ahead of the guide's own place
+    across town and so lifts the list past 4: Singapore's Buddha Tooth Relic
+    Temple), and in each the place that is a chip already first (Budapest's
+    Parliament over Heroes' Square, Baku's Flame Towers over the Heydar
+    Aliyev Center, Tallinn's Alexander Nevsky Cathedral over Kadriorg
+    Palace), then neighbourhoods, then places across town; the chips come out
+    in the guide's order, and a rebuild of a rebuild changes nothing;
+  * the same point (within SAME_KM: Souq Waqif, 80 m from Doha's), the same
+    place by name and the country's centre are still always left out, even
+    with slots free; a name inside another is its own place only on a
+    hand-set point FAR_KM away (the Stockholm Archipelago is not Stockholm,
+    Prague Castle is Prague);
+  * --check lists a neighbourhood chip only when a rebuild from the file
+    would drop it, and says so when it can't judge;
+  * Singapore, Sweden, Cuba, Azerbaijan, Estonia, Kuwait and Qatar, rebuilt
+    from their guides and main's chips with Wikipedia's points of 2026-10-19
+    stubbed, give exactly the chips in public/stay-coords.json, and every
+    guide place without a point is listed;
   * Wikipedia's batched answers map each asked title through normalisation
     and redirects, and Gotland (Visby) counts as Sweden.
 """
@@ -53,13 +59,14 @@ def names(spots):
     return [s["n"] for s in spots]
 
 
-def pick(cands, iso="ZZ"):
+def pick(cands, iso="ZZ", prev=None):
     with redirect_stdout(io.StringIO()):
-        return names(g.pick(iso, cands))
+        return names(g.pick(iso, cands, prev))
 
 
-results.append(ok(g.DUP_KM == 3 and g.FAR_KM == 10 and g.GALLERY_SPOTS == 4 and g.MAX_SPOTS == 5,
-                  "a neighbourhood is within 3 km, a destination of its own 10 km or more; gallery tops up to 4 of 5"))
+results.append(ok(g.DUP_KM == 3 and g.FAR_KM == 10 and g.GALLERY_SPOTS == 4 and g.MAX_SPOTS == 5 and g.SAME_KM == 0.25,
+                  "one point within 0.25 km, a neighbourhood within 3 km, a destination of its own 10 km or more;"
+                  " gallery tops up to 4 of 5"))
 
 # A neighbourhood keeps its slot while nothing distinct can have it.
 A, N = c("Alpha", 0), c("Nook", 1)
@@ -94,7 +101,38 @@ results.append(ok(pick([A, dict(X, cap=4), dict(N, cap=4), G1, G2, G3]) == ["Alp
                   "distinct destinations take every slot before a neighbourhood or a place across town"))
 N2 = c("Corner", 1.5, east=1)
 results.append(ok(pick([A, dict(X, cap=3), dict(N, cap=3), dict(N2, cap=3)]) == ["Alpha", "Nook", "Corner"],
-                  "neighbourhoods before a place across town (Kuwait's souq and mosque before Kuwait Towers)"))
+                  "with no chip in the city yet, neighbourhoods before a place across town"))
+
+# The guide's things to do before its gallery, in a chip's city.
+GN, GN2 = c("Shrine", 1, cap=4, east=1), c("Garden", 1.5, cap=4, east=-1)
+sg = [A, N, X, GN, GN2]
+results.append(ok(pick(sg) == ["Alpha", "Nook", "Uptown", "Shrine"],
+                  "a gallery neighbourhood waits for the guide's own place across town, so the gallery stops at 4"
+                  " (Singapore: Clarke Quay, Sentosa, then Gardens by the Bay, not Buddha Tooth as a 5th): %s" % pick(sg)))
+results.append(ok(pick([A, N, GN, GN2]) == ["Alpha", "Nook", "Shrine", "Garden"],
+                  "and tops a thin list up to 4 with neighbourhoods (%s)" % pick([A, N, GN, GN2])))
+
+# In a city, the place that is a chip already keeps its slot.
+P_A, P_C, P_N = ({"n": x["n"], "ll": x["ll"]} for x in (A, C, N))
+results.append(ok(pick([A, dict(C, cap=2), dict(N, cap=2)], prev=[P_A, P_C]) == ["Alpha", "Crosstown"]
+                  and pick([A, dict(C, cap=2), dict(N, cap=2)], prev=[P_A, P_N]) == ["Alpha", "Nook"],
+                  "the chip already in the file keeps its slot over another place in its city, across town or not"
+                  " (Kuwait's Grand Mosque; Tallinn's Alexander Nevsky Cathedral over Kadriorg Palace)"))
+results.append(ok(pick([A, dict(N, cap=2), F], prev=[P_A, P_N]) == ["Alpha", "Faraway"],
+                  "but still gives it to a distinct destination (Gamla stan to the Stockholm Archipelago)"))
+S, M, T = c("Souq", 0.6, east=0.3), c("Mosque", 0.5, east=-0.3), c("Towers", 3.3, cap=4)
+kw = [A, S, M, F, T]
+kw_prev = [{"n": x["n"], "ll": x["ll"]} for x in (A, M, F, T)]
+results.append(ok(pick(kw, prev=kw_prev) == ["Alpha", "Souq", "Mosque", "Faraway"],
+                  "and the guide's things to do still come before a gallery chip in the city: four of them leave the"
+                  " gallery no slot (Kuwait's souq over Kuwait Towers, which had its slot only while the souq had no"
+                  " point): %s" % pick(kw, prev=kw_prev)))
+
+# One point within SAME_KM, whatever the names.
+souq, church = c("Souq", 0.08, east=0.02), c("Cathedral", 0.37, east=-0.05)
+results.append(ok(pick([A, souq, church]) == ["Alpha", "Cathedral"],
+                  "a place 80 m from a chip is its point, left out with slots free; 0.37 km off is a neighbourhood"
+                  " (%s)" % pick([A, souq, church])))
 
 # Exact duplicates are always out, even with slots free.
 same_pt = dict(c("Other name", 0))
@@ -135,8 +173,9 @@ results.append(ok(keep == [] and len(drop) == 1 and drop[0][:2] == ("ZZ", "Nook"
 results.append(ok(g.near_notes([("ZZ", "Far", [0, 0], "outside its country")], build=lambda iso: 1 / 0) == [],
                   "and it asks nothing for a file without neighbourhoods"))
 
-# The four countries, built from their guides with Wikipedia stubbed by the
-# points it gave on 2026-10-19 (stay-aliases.json points are the file's own).
+# Seven countries, rebuilt from their guides and main's chips (as main()
+# rebuilds the file) with Wikipedia stubbed by the points it gave on
+# 2026-10-19 (stay-aliases.json points are the file's own).
 WIKI = {
     "SG": {"Marina Bay": [1.28444, 103.85583], "hawker centres": None, "Clarke Quay": [1.29002, 103.84609],
            "Sentosa": [1.248, 103.83], "Marina Bay Sands": [1.2825, 103.86], "Gardens by the Bay": [1.28472, 103.865],
@@ -151,16 +190,39 @@ WIKI = {
            "Sheki": [41.19194, 47.17056], "Caspian seafront": None, "Flame Towers": [40.35944, 49.82667],
            "Maiden Tower (Baku)": [40.3661, 49.8372], "Palace of the Shirvanshahs": [40.36615, 49.83344],
            "Heydar Aliyev Center": [40.39528, 49.86694]},
+    "EE": {"Tallinn": [59.43722, 24.74528], "Saaremaa": [58.41667, 22.5], "Forests & bogs": None,
+           "Kadriorg Palace": [59.43851, 24.79084], "Alexander Nevsky Cathedral, Tallinn": [59.43583, 24.73936],
+           "Tallinn Town Hall": [59.43709, 24.74547], "Lahemaa National Park": [59.57111, 25.80028]},
+    "KW": {"Kuwait City": [29.36972, 47.97833], "Grand Mosque": [29.37889, 47.97472], "Failaka": [29.43889, 48.33333],
+           "Kuwait Towers": [29.39, 48.00306], "Al Hamra Tower": [29.379, 47.9932]},
+    "QA": {"Doha": [25.28667, 51.53333], "Khor Al Adaid": [24.63, 51.296], "Barzan Towers": [25.41802, 51.41309],
+           "Katara (cultural village)": [25.36033, 51.52636]},
 }
+MAIN = {    # main 787e351's chips, the file these were rebuilt from
+    "SG": [["Marina Bay", [1.28444, 103.85583]], ["Clarke Quay", [1.29002, 103.84609]], ["Sentosa", [1.248, 103.83]], ["Gardens by the Bay", [1.28472, 103.865]]],
+    "SE": [["Stockholm", [59.32944, 18.06861]], ["Lapland", [65.929, 16.743]], ["Gamla stan", [59.325, 18.07083]], ["Vasa Museum", [59.32794, 18.09139]]],
+    "CU": [["Old Havana", [23.13594, -82.35833]], ["Varadero", [23.13944, -81.28611]], ["Viñales", [22.61528, -83.71583]], ["Malecón", [23.14167, -82.36806]]],
+    "AZ": [["Baku", [40.37556, 49.8325]], ["Gobustan", [40.125, 49.375]], ["Sheki", [41.19194, 47.17056]], ["Flame Towers", [40.35944, 49.82667]]],
+    "EE": [["Tallinn", [59.43722, 24.74528]], ["Saaremaa", [58.41667, 22.5]], ["Alexander Nevsky Cathedral", [59.43583, 24.73936]], ["Lahemaa National Park", [59.57111, 25.80028]]],
+    "KW": [["Kuwait City", [29.36972, 47.97833]], ["Grand Mosque", [29.37889, 47.97472]], ["Failaka", [29.43889, 48.33333]], ["Kuwait Towers", [29.39, 48.00306]]],
+    "QA": [["Doha", [25.28667, 51.53333]], ["Khor Al Adaid", [24.63, 51.296]], ["Museum of Islamic Art", [25.29502, 51.53927]], ["The Pearl-Qatar", [25.36861, 51.55194]]],
+}
+MAIN = {iso: [{"n": n, "ll": ll} for n, ll in v] for iso, v in MAIN.items()}
 WANT = {
     "SG": [("Marina Bay", [1.28444, 103.85583]), ("Clarke Quay", [1.29002, 103.84609]), ("Sentosa", [1.248, 103.83]),
-           ("Gardens by the Bay", [1.28472, 103.865]), ("Buddha Tooth Relic Temple and Museum", [1.28155, 103.844])],
+           ("Gardens by the Bay", [1.28472, 103.865])],
     "SE": [("Stockholm", [59.32944, 18.06861]), ("Stockholm Archipelago", [59.38778, 18.73581]),
            ("Lapland", [65.929, 16.743]), ("Visby", [57.63472, 18.29917])],
     "CU": [("Old Havana", [23.13594, -82.35833]), ("Varadero", [23.13944, -81.28611]), ("Viñales", [22.61528, -83.71583]),
            ("Trinidad", [21.80417, -79.98306])],
     "AZ": [("Baku", [40.37556, 49.8325]), ("Gobustan", [40.125, 49.375]), ("Sheki", [41.19194, 47.17056]),
            ("Flame Towers", [40.35944, 49.82667])],
+    "EE": [("Tallinn", [59.43722, 24.74528]), ("Saaremaa", [58.41667, 22.5]),
+           ("Alexander Nevsky Cathedral", [59.43583, 24.73936]), ("Lahemaa National Park", [59.57111, 25.80028])],
+    "KW": [("Kuwait City", [29.36972, 47.97833]), ("Souq Al-Mubarakiya", [29.37388, 47.97363]),
+           ("Grand Mosque", [29.37889, 47.97472]), ("Failaka", [29.43889, 48.33333])],
+    "QA": [("Doha", [25.28667, 51.53333]), ("Khor Al Adaid", [24.63, 51.296]),
+           ("National Museum of Qatar", [25.28847, 51.54926]), ("Barzan Towers", [25.41802, 51.41309])],
 }
 with open(os.path.join(ROOT, "public", "activities.json"), encoding="utf-8") as f:
     acts = json.load(f)
@@ -178,21 +240,39 @@ def stub(subject, country, iso):
 
 
 g.coords_with_fallback = stub
+said = {}
 try:
-    with redirect_stdout(io.StringIO()):
-        built = {iso: g._build_country((iso, acts[iso], cnames))[1] for iso in WANT}
+    built, again, bare = {}, {}, {}
+    for iso in WANT:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            built[iso] = g._build_country((iso, acts[iso], cnames, MAIN[iso]))[1]
+        said[iso] = buf.getvalue()
+        with redirect_stdout(io.StringIO()):
+            again[iso] = g._build_country((iso, acts[iso], cnames, built[iso]))[1]
+            bare[iso] = g._build_country((iso, acts[iso], cnames))[1]
 finally:
     g.coords_with_fallback = real
 for iso, want in WANT.items():
     have = [(s["n"], s["ll"]) for s in stays.get(iso, [])]
     results.append(ok(have == want and [(s["n"], s["ll"]) for s in built[iso]] == want,
-                      "%s is exactly %s, in the file and in a rebuild from its guide (file %s)"
+                      "%s is exactly %s, in the file and in a rebuild from its guide and main's chips (file %s)"
                       % (iso, ", ".join(n for n, _ in want), [n for n, _ in have])))
+results.append(ok(again == built, "a rebuild of the rebuilt file changes nothing (%s)"
+                  % [iso for iso in WANT if again[iso] != built[iso]]))
+results.append(ok({iso for iso in WANT if bare[iso] != built[iso]} == {"EE"}
+                  and [s["n"] for s in bare["EE"]][2] == "Kadriorg Palace",
+                  "with no file to keep from, only Tallinn differs: a neighbourhood new to the list (Kadriorg Palace,"
+                  " gallery place #1) over one further down (%s)" % [iso for iso in WANT if bare[iso] != built[iso]]))
+results.append(ok("Souq Waqif [25.28738, 51.53321] left out — same point as Doha" in said["QA"],
+                  "Qatar's Souq Waqif, 80 m from Doha's point, is left out as that point, and said (%r)"
+                  % said["QA"].strip()[:120]))
 results.append(ok(set(asked) <= set().union(*WIKI.values()),
                   "the stub holds every title the build asked (%s)" % sorted(set(asked) - set().union(*WIKI.values()))))
 results.append(ok(g.UNRESOLVED["SG"] == [("hawker centres", "no coordinates on Wikipedia")]
                   and g.UNRESOLVED["AZ"] == [("Caspian seafront", "no coordinates on Wikipedia")]
-                  and g.UNRESOLVED["SE"] == [] and g.UNRESOLVED["CU"] == [],
+                  and g.UNRESOLVED["EE"] == [("Forests & bogs", "no coordinates on Wikipedia")]
+                  and g.UNRESOLVED["SE"] == g.UNRESOLVED["CU"] == g.UNRESOLVED["KW"] == g.UNRESOLVED["QA"] == [],
                   "every guide place without a point is listed per country, and Sweden's Visby and archipelago have"
                   " theirs (%s)" % {k: g.UNRESOLVED[k] for k in WANT}))
 g._COORDS["Atlantis, Sweden"] = [0.0, 0.0]
@@ -205,14 +285,26 @@ results.append(ok(why == "Wikipedia's [0.0, 0.0] is outside Sweden on the map" a
 results.append(ok(g.in_country([57.63472, 18.29917], "SE") and not g.in_country([56.95, 24.1], "SE"),
                   "Gotland (Visby, off the coarse map) counts as Sweden; Riga does not"))
 
-# The judged file: every neighbourhood chip in the four countries is one the
-# rule keeps, so --check lists none of them.
-rows4 = g.check({iso: stays[iso] for iso in WANT})
-results.append(ok(not [r for r in rows4 if not r[3].startswith("within")]
-                  and g.near_notes(rows4, build=lambda iso: built[iso]) == []
-                  and {(r[0], r[1]) for r in rows4} == {("SG", "Clarke Quay"), ("SG", "Gardens by the Bay"),
-                                                         ("SG", "Buddha Tooth Relic Temple and Museum"), ("AZ", "Flame Towers")},
-                  "Singapore's three neighbourhoods and Baku's Flame Towers are the rule's, no --check note (%s)" % rows4))
+# The judged file: every neighbourhood chip in the seven countries is one the
+# rule keeps, so --check lists none of them; main's file had Sweden's two
+# and Havana's Malecón, which a rebuild drops, and Qatar's museum, which the
+# guide no longer names.
+rows7 = g.check({iso: stays[iso] for iso in WANT})
+results.append(ok(not [r for r in rows7 if not r[3].startswith("within")]
+                  and g.near_notes(rows7, build=lambda iso: built[iso]) == []
+                  and {(r[0], r[1]) for r in rows7} == {("SG", "Clarke Quay"), ("SG", "Gardens by the Bay"), ("AZ", "Flame Towers"),
+                                                         ("EE", "Alexander Nevsky Cathedral"), ("KW", "Souq Al-Mubarakiya"),
+                                                         ("KW", "Grand Mosque"), ("QA", "National Museum of Qatar")},
+                  "Singapore's two neighbourhoods, Baku's, Tallinn's, Kuwait City's and Doha's are the rule's, no"
+                  " --check note (%s)" % sorted((r[0], r[1]) for r in rows7)))
+rows_main = g.check(MAIN)
+notes_main = g.near_notes(rows_main, build=lambda iso: built[iso])
+results.append(ok({(r[0], r[1]) for r in notes_main} == {("SE", "Gamla stan"), ("SE", "Vasa Museum"), ("CU", "Malecón"),
+                                                         ("QA", "Museum of Islamic Art")}
+                  and ("SG", "Clarke Quay") in {(r[0], r[1]) for r in rows_main},
+                  "on main's file --check lists what a rebuild drops (Sweden's two, Havana's Malecón, Qatar's museum)"
+                  " and not what it"
+                  " keeps (Singapore's, Tallinn's, Kuwait's Grand Mosque): %s" % sorted((r[0], r[1]) for r in notes_main)))
 # Sweden's chip for the archipelago is its hand-set point, 38 km out, and
 # check() takes it as its own place by that point.
 results.append(ok(g._curated("SE", [59.38778, 18.73581]) and not any(r[0] == "SE" for r in g.check({"SE": stays["SE"]})),
