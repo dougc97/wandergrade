@@ -29,14 +29,18 @@
     guide place without a point is listed;
   * Wikipedia's batched answers map each asked title through normalisation
     and redirects, and Gotland (Visby) counts as Sweden;
-  * the rest, reviewed 2026-10-19: the 25 countries whose rebuild was a GAIN,
+  * the rest, reviewed 2026-10-19: the 23 countries whose rebuild was a GAIN,
     the United Arab Emirates (Dubai Marina on its own point, in Burj
     Khalifa's slot) and Korea (Donggung's chip labelled Gyeongju, searched on
     the palace's point), rebuilt from main's chips with Wikipedia's answers
     stubbed (scripts/fixtures/stay_rest_2026-10-19.json), give exactly their
     chips in the file and a rebuild of them changes nothing; every country
-    reviewed NEUTRAL or LOSS keeps main's chips; the guide places whose chip a
-    rebuild lost name it again through stay-aliases.json;
+    reviewed NEUTRAL or LOSS, and the three whose new place is in a country
+    Canada says to avoid all travel to (Burkina Faso, South Sudan, Yemen),
+    keeps main's chips; the guide places whose chip a rebuild lost name it
+    again through stay-aliases.json (the Falklands' king penguin is Volunteer
+    Point's); Trinidad's Port of Spain chip is the city's point, clear of
+    Canada's downtown block;
   * a parenthetical's qualifier words ("guided", "when held", "season") are
     no places, and only North Korea's, Gabon's and Timor-Leste's labels hold
     any, so no other country's candidates change.
@@ -342,7 +346,11 @@ results.append(ok(got == {"Paektu Mountain": [41.99333, 128.0775], "maiden Tower
 
 # The rest (2026-10-19): every other country a rebuild would change was
 # reviewed and only the GAINs rebuilt, with the United Arab Emirates (Dubai
-# Marina's own point) and Korea (Gyeongju's label). Rebuilt from their guides
+# Marina's own point) and Korea (Gyeongju's label). A GAIN whose new place is
+# in a country Canada says to avoid all travel to (Burkina Faso's Banfora,
+# South Sudan's Boma, Yemen's Al Hajjarah) is not rebuilt: stay-skip.json
+# holds regional zones only, any refill is in the same zone, and the German
+# source rates Burkina Faso level 2, so its chips are drawn. Rebuilt from their guides
 # and main a2663ff's chips with Wikipedia's answers of 2026-10-19 stubbed
 # (scripts/fixtures/stay_rest_2026-10-19.json), each gives exactly these
 # chips, the file holds them, and a rebuild of the rebuilt file changes nothing.
@@ -355,12 +363,10 @@ WANT2 = {
            ("Seoraksan", [38.11944, 128.46556]), ("Gyeongju", [35.83462, 129.22711])],
     "BB": [("Carlisle Bay", [13.08333, -59.61667]), ("Bathsheba", [13.21417, -59.52361]), ("Oistins", [13.06444, -59.54444]),
            ("St Nicholas Abbey", [13.27754, -59.59205]), ("The Crane", [13.10556, -59.44556])],
-    "BF": [("Bobo-Dioulasso", [11.18333, -4.28333]), ("Ouagadougou", [12.36861, -1.5275]), ("Sindou", [10.65, -5.16667]),
-           ("Banfora", [10.63083, -4.75889])],
     "CG": [("Odzala-Kokoua National Park", [0.8, 14.9]), ("Brazzaville", [-4.26667, 15.26667]),
            ("Nouabalé-Ndoki National Park", [2.46667, 16.45]), ("Lefini Faunal Reserve", [-2.92, 15.35])],
     "FI": [("Lapland", [67, 26]), ("Helsinki", [60.17083, 24.9375]), ("Saimaa", [61.25, 28.25]), ("Olavinlinna", [61.86389, 28.90111])],
-    "FK": [("Stanley", [-51.695, -57.85056]), ("Gypsy Cove", [-51.678, -57.803]), ("Christ Church Cathedral", [-51.69222, -57.85861]),
+    "FK": [("Volunteer Point", [-51.47111, -57.845]), ("Stanley", [-51.695, -57.85056]), ("Gypsy Cove", [-51.678, -57.803]),
            ("Goose Green", [-51.82722, -58.97306])],
     "GM": [("Kololi", [13.45, -16.71667]), ("Kunta Kinteh Island", [13.31746, -16.36141]), ("Banjul", [13.45417, -16.57528]),
            ("Janjanbureh", [13.53413, -14.76615])],
@@ -380,11 +386,12 @@ WANT2 = {
     "PT": [("Lisbon", [38.72528, -9.15]), ("Algarve", [37.242, -8.17]), ("Porto", [41.15, -8.6108]), ("Pena Palace", [38.78778, -9.39056])],
     "SK": [("Bratislava", [48.14389, 17.10972]), ("High Tatras", [49.16667, 20.13333]), ("Orava Castle", [49.26167, 19.35806]),
            ("Bardejov", [49.29333, 21.27611])],
-    "SS": [("Boma National Park", [6.49, 33.91]), ("Sudd", [8, 31]), ("Juba", [4.8539, 31.5825]), ("Wau", [7.7, 28])],
+    "SZ": [("Hlane", [-26.29832, 31.8749]), ("Mkhaya Game Reserve", [-26.625, 31.7375]), ("Malolotja National Park", [-26.098, 31.099]),
+           ("Ezulwini", [-26.47917, 31.24028])],
     "TL": [("Atauro Island", [-8.24, 125.58]), ("Mount Ramelau", [-8.90667, 125.49333]), ("Dili", [-8.55361, 125.57833]),
            ("Lospalos", [-8.52222, 126.9975])],
     "TT": [("Trinidad", [10.5, -61.3]), ("Maracas Bay", [10.7658, -61.4345]), ("Tobago", [11.2405, -60.672]),
-           ("Port of Spain", [10.6499, -61.5068])],
+           ("Port of Spain", [10.66667, -61.51667])],
     "TZ": [("Serengeti", [-2.33083, 34.83333]), ("Mount Kilimanjaro", [-3.07583, 37.35333]), ("Zanzibar", [-5.9, 39.3]),
            ("Ngorongoro Crater", [-3.21, 35.46])],
     "US": [("Grand Canyon", [36.3, -112.75]), ("Yosemite", [37.85, -119.51667]), ("NYC", [40.7128, -74.0061]),
@@ -393,8 +400,6 @@ WANT2 = {
            ("Hoi An", [15.87972, 108.33194])],
     "XK": [("Prizren", [42.21278, 20.73917]), ("Pristina", [42.66667, 21.16667]), ("Visoki Dečani", [42.54694, 20.26611]),
            ("Rugova Canyon", [42.69222, 20.16861])],
-    "YE": [("Socotra", [12.51, 53.92]), ("Sana'a", [15.34833, 44.20639]), ("Shibam", [15.92694, 48.62667]),
-           ("Al Hajjarah", [15.0675, 43.71722])],
     "ZA": [("Cape Town", [-33.92528, 18.42389]), ("Stellenbosch", [-33.93667, 18.86139]), ("Kruger National Park", [-24, 31.5]),
            ("Boulders Beach", [-34.197, 18.451])],
     "ZM": [("Livingstone", [-17.85, 25.86667]), ("Devil's Pool", [-17.924, 25.855]), ("Lower Zambezi National Park", [-15.6, 29.56667]),
@@ -433,7 +438,8 @@ results.append(ok(all(t in REST["wiki"][iso] for iso, t in asked2),
                   "the stub holds every title the build asked (%s)" % [x for x in asked2 if x[1] not in REST["wiki"][x[0]]]))
 kept_now = {iso: stays.get(iso, []) for iso in REST["kept"]}
 results.append(ok(kept_now == REST["kept"],
-                  "every country reviewed NEUTRAL or LOSS keeps main's chips exactly, Antarctica none (%s)"
+                  "every country reviewed NEUTRAL or LOSS, and Burkina Faso, South Sudan and Yemen (a new place in a"
+                  " country Canada says to avoid all travel to), keeps main's chips exactly, Antarctica none (%s)"
                   % [iso for iso in REST["kept"] if kept_now[iso] != REST["kept"][iso]]))
 
 # A guide place that found no point, or the wrong one, now names the file's
@@ -441,14 +447,16 @@ results.append(ok(kept_now == REST["kept"],
 # (Petra's and Kilimanjaro's Wikipedia coordinates are no longer marked
 # primary; "Plitvice", "Hội An" and "Golden Circle" are disambiguation pages;
 # "Ala-Archa" is the river, 21 km north of Bishkek; Yala's moved 20 km into
-# the park's interior).
+# the park's interior; the Falklands' first thing to do and gallery place is
+# the king penguin, whose colony is Volunteer Point's).
 FIXED = [("HR", "Plitvice", "Plitvice Lakes National Park"), ("LA", "Kuang Si", "Kuang Si Falls"),
          ("UG", "Bwindi", "Bwindi Impenetrable National Park"), ("GY", "Iwokrama", "Iwokrama Forest"),
          ("CD", "Virunga", "Virunga National Park"), ("GA", "Lopé", "Lopé National Park"),
          ("GQ", "Monte Alén", "Monte Alén National Park"), ("ML", "Dogon", "Bandiagara Escarpment"),
          ("MN", "Khövsgöl", "Lake Khövsgöl"), ("SS", "The Sudd", "Sudd"), ("TL", "Ataúro Island", "Atauro Island"),
          ("VN", "Hoi An", "Hoi An"), ("KG", "Ala-Archa", "Ala Archa National Park"), ("IS", "Golden Circle", "Gullfoss"),
-         ("JO", "Petra", "Petra"), ("TZ", "Mount Kilimanjaro", "Mount Kilimanjaro"), ("LK", "Yala National Park", "Yala National Park")]
+         ("JO", "Petra", "Petra"), ("TZ", "Mount Kilimanjaro", "Mount Kilimanjaro"), ("LK", "Yala National Park", "Yala National Park"),
+         ("FK", "King penguin", "Volunteer Point")]
 bad_fix = []
 for iso, place, chip in FIXED:
     subj = next(((s, al, n) for s, cap, al, n in g._subjects(iso, acts[iso]) if s == place), None)
@@ -481,6 +489,20 @@ results.append(ok(kr_al == {"label": "Gyeongju"} and stays["KR"][4] == {"n": "Gy
                   and '"&lat=" + sp.ll[0] + "&lng=" + sp.ll[1]' in stay_fn and "hostelworldURL(iso)" in stay_fn
                   and "sp.n" not in stay_fn.split("const q =")[1].split(";")[0],
                   "Korea's Donggung chip reads Gyeongju, searched on the palace's point (Booking by lat/lng, Hostelworld by country)"))
+
+# Port of Spain: the gallery's Cathedral of the Immaculate Conception stands
+# for the city on the city's own point (Wikipedia and Wikidata Q39178; OSM:
+# Queen's Park West, Newtown), not on the cathedral's at Independence Square,
+# the edge of the downtown block Canada says to avoid non-essential travel to
+# ("east of Charlotte street ... north of Independence Square"; OSM draws
+# Charlotte Street from 10.648 to 10.663 N, no further west than 61.5089 W).
+tt_al = g.ALIASES["TT"]["Cathedral of the Immaculate Conception (Port of Spain)"]
+pos = next((s["ll"] for s in stays["TT"] if s["n"] == "Port of Spain"), None)
+results.append(ok(tt_al == {"title": "Port of Spain"} and pos == REST["wiki"]["TT"]["Port of Spain"] == [10.66667, -61.51667]
+                  and pos[1] < -61.5089 - 0.005
+                  and g.geo.dist_km((pos[1], pos[0]), (-61.5089, 10.6627)) > 0.9,
+                  "Trinidad's Port of Spain chip is the city's point, west of Charlotte Street and 0.9 km+ from"
+                  " Canada's downtown block (%s)" % pos))
 
 # Qualifier words (D): a parenthetical entry with no capital letter that says
 # when or how ("guided", "when held", "season") is no place; one of them alone

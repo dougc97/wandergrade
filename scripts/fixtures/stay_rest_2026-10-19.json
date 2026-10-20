@@ -1,8 +1,38 @@
 {
- "about": "Wikipedia's answers of 2026-10-19 for every title the rebuild of these countries asked (coords_with_fallback: title -> point in the country, or null), main a2663ff's chips they were rebuilt from, and main's chips of every country reviewed and kept (NEUTRAL or LOSS; Antarctica has none). scripts/test_stay_near.py.",
+ "about": "Wikipedia's answers of 2026-10-19 for every title the rebuild of these countries asked (coords_with_fallback: title -> point in the country, or null), main a2663ff's chips they were rebuilt from, and main's chips of every country reviewed and kept (NEUTRAL or LOSS, or a GAIN whose new place is in a country Canada says to avoid all travel to: Burkina Faso, South Sudan, Yemen; Antarctica has none). scripts/test_stay_near.py.",
  "asof": "2026-10-19",
  "kept": {
   "AQ": [],
+  "BF": [
+   {
+    "ll": [
+     11.18333,
+     -4.28333
+    ],
+    "n": "Bobo-Dioulasso"
+   },
+   {
+    "ll": [
+     12.36861,
+     -1.5275
+    ],
+    "n": "Ouagadougou"
+   },
+   {
+    "ll": [
+     10.65,
+     -5.16667
+    ],
+    "n": "Sindou"
+   },
+   {
+    "ll": [
+     10.3,
+     -3.53333
+    ],
+    "n": "Loropéni"
+   }
+  ],
   "BT": [
    {
     "ll": [
@@ -954,6 +984,36 @@
     "n": "Brownsberg Nature Park"
    }
   ],
+  "SS": [
+   {
+    "ll": [
+     4.8539,
+     31.5825
+    ],
+    "n": "Juba"
+   },
+   {
+    "ll": [
+     8,
+     31
+    ],
+    "n": "Sudd"
+   },
+   {
+    "ll": [
+     7.7,
+     28
+    ],
+    "n": "Wau"
+   },
+   {
+    "ll": [
+     3.95,
+     32.9
+    ],
+    "n": "Imatong Mountains"
+   }
+  ],
   "SV": [
    {
     "ll": [
@@ -982,36 +1042,6 @@
      -89.35611
     ],
     "n": "Joya de Cerén"
-   }
-  ],
-  "SZ": [
-   {
-    "ll": [
-     -26.29832,
-     31.8749
-    ],
-    "n": "Hlane"
-   },
-   {
-    "ll": [
-     -26.098,
-     31.099
-    ],
-    "n": "Malolotja National Park"
-   },
-   {
-    "ll": [
-     -26.47917,
-     31.24028
-    ],
-    "n": "Ezulwini"
-   },
-   {
-    "ll": [
-     -26.46908,
-     31.16186
-    ],
-    "n": "Mlilwane Wildlife Sanctuary"
    }
   ],
   "TF": [
@@ -1133,6 +1163,36 @@
     ],
     "n": "SS President Coolidge"
    }
+  ],
+  "YE": [
+   {
+    "ll": [
+     12.51,
+     53.92
+    ],
+    "n": "Socotra"
+   },
+   {
+    "ll": [
+     15.34833,
+     44.20639
+    ],
+    "n": "Sana'a"
+   },
+   {
+    "ll": [
+     15.92694,
+     48.62667
+    ],
+    "n": "Shibam"
+   },
+   {
+    "ll": [
+     15.44108,
+     44.12513
+    ],
+    "n": "Dar al-Hajar"
+   }
   ]
  },
  "main": {
@@ -1194,36 +1254,6 @@
      -59.59205
     ],
     "n": "St Nicholas Abbey"
-   }
-  ],
-  "BF": [
-   {
-    "ll": [
-     11.18333,
-     -4.28333
-    ],
-    "n": "Bobo-Dioulasso"
-   },
-   {
-    "ll": [
-     12.36861,
-     -1.5275
-    ],
-    "n": "Ouagadougou"
-   },
-   {
-    "ll": [
-     10.65,
-     -5.16667
-    ],
-    "n": "Sindou"
-   },
-   {
-    "ll": [
-     10.3,
-     -3.53333
-    ],
-    "n": "Loropéni"
    }
   ],
   "CG": [
@@ -1632,34 +1662,34 @@
     "n": "Štrbské Pleso"
    }
   ],
-  "SS": [
+  "SZ": [
    {
     "ll": [
-     4.8539,
-     31.5825
+     -26.29832,
+     31.8749
     ],
-    "n": "Juba"
+    "n": "Hlane"
    },
    {
     "ll": [
-     8,
-     31
+     -26.098,
+     31.099
     ],
-    "n": "Sudd"
+    "n": "Malolotja National Park"
    },
    {
     "ll": [
-     7.7,
-     28
+     -26.47917,
+     31.24028
     ],
-    "n": "Wau"
+    "n": "Ezulwini"
    },
    {
     "ll": [
-     3.95,
-     32.9
+     -26.46908,
+     31.16186
     ],
-    "n": "Imatong Mountains"
+    "n": "Mlilwane Wildlife Sanctuary"
    }
   ],
   "TL": [
@@ -1842,36 +1872,6 @@
     "n": "Rugova Canyon"
    }
   ],
-  "YE": [
-   {
-    "ll": [
-     12.51,
-     53.92
-    ],
-    "n": "Socotra"
-   },
-   {
-    "ll": [
-     15.34833,
-     44.20639
-    ],
-    "n": "Sana'a"
-   },
-   {
-    "ll": [
-     15.92694,
-     48.62667
-    ],
-    "n": "Shibam"
-   },
-   {
-    "ll": [
-     15.44108,
-     44.12513
-    ],
-    "n": "Dar al-Hajar"
-   }
-  ],
   "ZA": [
    {
     "ll": [
@@ -1991,34 +1991,6 @@
     -59.44556
    ]
   },
-  "BF": {
-   "Artisan markets": null,
-   "Banfora": [
-    10.63083,
-    -4.75889
-   ],
-   "Bobo-Dioulasso": [
-    11.18333,
-    -4.28333
-   ],
-   "Cascades de Karfiguéla": [
-    10.72228,
-    -4.821
-   ],
-   "Grand Mosque of Bobo-Dioulasso": [
-    11.1778,
-    -4.2959
-   ],
-   "Kassena": null,
-   "Ouagadougou": [
-    12.36861,
-    -1.5275
-   ],
-   "Sindou": [
-    10.65,
-    -5.16667
-   ]
-  },
   "CG": {
    "Brazzaville": [
     -4.26667,
@@ -2099,11 +2071,14 @@
     -51.678,
     -57.803
    ],
-   "King penguin": null,
    "Magellanic penguin": null,
    "Stanley": [
     -51.695,
     -57.85056
+   ],
+   "Volunteer Point": [
+    -51.47111,
+    -57.845
    ],
    "Wildlife cruises": null
   },
@@ -2449,36 +2424,28 @@
     20.0803
    ]
   },
-  "SS": {
-   "Boma National Park": [
-    6.49,
-    33.91
+  "SZ": {
+   "Aug/Sep": null,
+   "Climate change in Eswatini": null,
+   "Ezulwini": [
+    -26.47917,
+    31.24028
    ],
-   "Juba": [
-    4.8539,
-    31.5825
+   "Hlane": [
+    -26.29832,
+    31.8749
    ],
-   "Juba Bridge": [
-    4.823,
-    31.6086
+   "Lebombo Mountains": null,
+   "Malolotja National Park": [
+    -26.098,
+    31.099
    ],
-   "Mundari": null,
-   "Pibor": [
-    6.8,
-    33.13333
+   "Mkhaya Game Reserve": [
+    -26.625,
+    31.7375
    ],
-   "Sudd": [
-    8,
-    31
-   ],
-   "Tonj": [
-    7.28,
-    28.68
-   ],
-   "Wau, South Sudan": [
-    7.7,
-    28
-   ]
+   "Pongola River": null,
+   "Tourism in Eswatini": null
   },
   "TL": {
    "Atauro Island": [
@@ -2515,10 +2482,6 @@
     11.185,
     -60.833
    ],
-   "Cathedral of the Immaculate Conception (Port of Spain)": [
-    10.6499,
-    -61.5068
-   ],
    "Englishman's Bay": [
     11.28333,
     -60.68333
@@ -2531,6 +2494,10 @@
    "National Academy for the Performing Arts": [
     10.65699,
     -61.50981
+   ],
+   "Port of Spain": [
+    10.66667,
+    -61.51667
    ],
    "Trinidad": [
     10.5,
@@ -2660,37 +2627,6 @@
    "Visoki Dečani": [
     42.54694,
     20.26611
-   ]
-  },
-  "YE": {
-   "Al Hajjarah": [
-    15.0675,
-    43.71722
-   ],
-   "Detwah Lagoon": [
-    12.70556,
-    53.50667
-   ],
-   "Dracaena cinnabari": null,
-   "Old City of Sana'a": [
-    15.5,
-    44.3
-   ],
-   "Sana'a": [
-    15.34833,
-    44.20639
-   ],
-   "Shibam": [
-    15.92694,
-    48.62667
-   ],
-   "Socotra": [
-    12.51,
-    53.92
-   ],
-   "Zabid": [
-    14.2,
-    43.31667
    ]
   },
   "ZA": {

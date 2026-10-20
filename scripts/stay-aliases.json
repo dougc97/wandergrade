@@ -108,6 +108,11 @@
    "title": "Ibiza (city)"
   }
  },
+ "FK": {
+  "King penguin": {
+   "title": "Volunteer Point"
+  }
+ },
  "GA": {
   "Lopé": {
    "title": "Lopé National Park"
@@ -535,7 +540,7 @@
  },
  "TT": {
   "Cathedral of the Immaculate Conception (Port of Spain)": {
-   "label": "Port of Spain"
+   "title": "Port of Spain"
   },
   "Maracas Bay": {
    "label": "Maracas Bay",
