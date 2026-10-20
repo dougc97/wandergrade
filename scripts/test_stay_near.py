@@ -28,12 +28,24 @@
     stubbed, give exactly the chips in public/stay-coords.json, and every
     guide place without a point is listed;
   * Wikipedia's batched answers map each asked title through normalisation
-    and redirects, and Gotland (Visby) counts as Sweden.
+    and redirects, and Gotland (Visby) counts as Sweden;
+  * the rest, reviewed 2026-10-19: the 25 countries whose rebuild was a GAIN,
+    the United Arab Emirates (Dubai Marina on its own point, in Burj
+    Khalifa's slot) and Korea (Donggung's chip labelled Gyeongju, searched on
+    the palace's point), rebuilt from main's chips with Wikipedia's answers
+    stubbed (scripts/fixtures/stay_rest_2026-10-19.json), give exactly their
+    chips in the file and a rebuild of them changes nothing; every country
+    reviewed NEUTRAL or LOSS keeps main's chips; the guide places whose chip a
+    rebuild lost name it again through stay-aliases.json;
+  * a parenthetical's qualifier words ("guided", "when held", "season") are
+    no places, and only North Korea's, Gabon's and Timor-Leste's labels hold
+    any, so no other country's candidates change.
 """
 import importlib.util
 import io
 import json
 import os
+import re
 import sys
 from contextlib import redirect_stdout
 
@@ -43,6 +55,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 spec = importlib.util.spec_from_file_location("gen_stay_spots", os.path.join(ROOT, "scripts", "gen_stay_spots.py"))
 g = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(g)
+from fxtracker import guide_sizers  # noqa: E402
 
 ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or c
 results = []
@@ -326,6 +339,190 @@ finally:
     g.urllib.request.urlopen = real_open
 results.append(ok(got == {"Paektu Mountain": [41.99333, 128.0775], "maiden Tower (Baku)": [40.3661, 49.8372], "Desert safari": None},
                   "a batched answer maps each title through redirects and normalisation (%s)" % got))
+
+# The rest (2026-10-19): every other country a rebuild would change was
+# reviewed and only the GAINs rebuilt, with the United Arab Emirates (Dubai
+# Marina's own point) and Korea (Gyeongju's label). Rebuilt from their guides
+# and main a2663ff's chips with Wikipedia's answers of 2026-10-19 stubbed
+# (scripts/fixtures/stay_rest_2026-10-19.json), each gives exactly these
+# chips, the file holds them, and a rebuild of the rebuilt file changes nothing.
+with open(os.path.join(ROOT, "scripts", "fixtures", "stay_rest_2026-10-19.json"), encoding="utf-8") as f:
+    REST = json.load(f)
+WANT2 = {
+    "AE": [("Dubai", [25.20472, 55.27083]), ("Sheikh Zayed Grand Mosque", [24.412, 54.474]), ("Dubai Marina", [25.08135, 55.14408]),
+           ("Burj Al Arab", [25.14139, 55.18528])],
+    "KR": [("Seoul", [37.56, 126.99]), ("Hongdae", [37.55528, 126.92333]), ("Busan", [35.18, 129.075]),
+           ("Seoraksan", [38.11944, 128.46556]), ("Gyeongju", [35.83462, 129.22711])],
+    "BB": [("Carlisle Bay", [13.08333, -59.61667]), ("Bathsheba", [13.21417, -59.52361]), ("Oistins", [13.06444, -59.54444]),
+           ("St Nicholas Abbey", [13.27754, -59.59205]), ("The Crane", [13.10556, -59.44556])],
+    "BF": [("Bobo-Dioulasso", [11.18333, -4.28333]), ("Ouagadougou", [12.36861, -1.5275]), ("Sindou", [10.65, -5.16667]),
+           ("Banfora", [10.63083, -4.75889])],
+    "CG": [("Odzala-Kokoua National Park", [0.8, 14.9]), ("Brazzaville", [-4.26667, 15.26667]),
+           ("Nouabalé-Ndoki National Park", [2.46667, 16.45]), ("Lefini Faunal Reserve", [-2.92, 15.35])],
+    "FI": [("Lapland", [67, 26]), ("Helsinki", [60.17083, 24.9375]), ("Saimaa", [61.25, 28.25]), ("Olavinlinna", [61.86389, 28.90111])],
+    "FK": [("Stanley", [-51.695, -57.85056]), ("Gypsy Cove", [-51.678, -57.803]), ("Christ Church Cathedral", [-51.69222, -57.85861]),
+           ("Goose Green", [-51.82722, -58.97306])],
+    "GM": [("Kololi", [13.45, -16.71667]), ("Kunta Kinteh Island", [13.31746, -16.36141]), ("Banjul", [13.45417, -16.57528]),
+           ("Janjanbureh", [13.53413, -14.76615])],
+    "GQ": [("Malabo", [3.74556, 8.77444]), ("Bioko", [3.5, 8.7]), ("Monte Alén National Park", [1.53, 10.11]), ("Bata", [1.865, 9.77])],
+    "IS": [("Gullfoss", [64.32611, -20.12111]), ("Blue Lagoon", [63.88, -22.44806]), ("Seljalandsfoss", [63.61583, -19.99278]),
+           ("Kirkjufell", [64.94104, -23.30569])],
+    "JO": [("Petra", [30.32861, 35.44194]), ("Wadi Rum", [29.59306, 35.42]), ("Jerash", [32.28056, 35.89722]),
+           ("Roman Theatre", [31.95169, 35.93931])],
+    "KG": [("Song-Köl", [41.83333, 75.16667]), ("Ala Archa National Park", [42.58333, 74.48333]), ("Issyk-Kul", [42.41667, 77.25]),
+           ("Jeti-Ögüz Rocks", [42.3371, 78.2309])],
+    "ME": [("Kotor", [42.43, 18.77]), ("Budva", [42.28806, 18.8425]), ("Durmitor", [43.12806, 19.03472]),
+           ("Ostrog Monastery", [42.675, 19.02917])],
+    "NC": [("Isle of Pines", [-22.61667, 167.48333]), ("Nouméa", [-22.2758, 166.458]), ("Loyalty Islands", [-21.06667, 167.35]),
+           ("Ouvéa", [-20.6522, 166.5619])],
+    "PA": [("Panama Canal", [9.12, -79.75]), ("Casco Viejo", [8.9525, -79.535]), ("San Blas", [9.29611, -78.34417]),
+           ("Portobelo", [9.55444, -79.655])],
+    "PT": [("Lisbon", [38.72528, -9.15]), ("Algarve", [37.242, -8.17]), ("Porto", [41.15, -8.6108]), ("Pena Palace", [38.78778, -9.39056])],
+    "SK": [("Bratislava", [48.14389, 17.10972]), ("High Tatras", [49.16667, 20.13333]), ("Orava Castle", [49.26167, 19.35806]),
+           ("Bardejov", [49.29333, 21.27611])],
+    "SS": [("Boma National Park", [6.49, 33.91]), ("Sudd", [8, 31]), ("Juba", [4.8539, 31.5825]), ("Wau", [7.7, 28])],
+    "TL": [("Atauro Island", [-8.24, 125.58]), ("Mount Ramelau", [-8.90667, 125.49333]), ("Dili", [-8.55361, 125.57833]),
+           ("Lospalos", [-8.52222, 126.9975])],
+    "TT": [("Trinidad", [10.5, -61.3]), ("Maracas Bay", [10.7658, -61.4345]), ("Tobago", [11.2405, -60.672]),
+           ("Port of Spain", [10.6499, -61.5068])],
+    "TZ": [("Serengeti", [-2.33083, 34.83333]), ("Mount Kilimanjaro", [-3.07583, 37.35333]), ("Zanzibar", [-5.9, 39.3]),
+           ("Ngorongoro Crater", [-3.21, 35.46])],
+    "US": [("Grand Canyon", [36.3, -112.75]), ("Yosemite", [37.85, -119.51667]), ("NYC", [40.7128, -74.0061]),
+           ("Golden Gate Bridge", [37.81972, -122.47861])],
+    "VN": [("Ha Long", [20.94912, 107.1045]), ("Hanoi", [21, 105.85]), ("Ho Chi Minh City", [10.77556, 106.70194]),
+           ("Hoi An", [15.87972, 108.33194])],
+    "XK": [("Prizren", [42.21278, 20.73917]), ("Pristina", [42.66667, 21.16667]), ("Visoki Dečani", [42.54694, 20.26611]),
+           ("Rugova Canyon", [42.69222, 20.16861])],
+    "YE": [("Socotra", [12.51, 53.92]), ("Sana'a", [15.34833, 44.20639]), ("Shibam", [15.92694, 48.62667]),
+           ("Al Hajjarah", [15.0675, 43.71722])],
+    "ZA": [("Cape Town", [-33.92528, 18.42389]), ("Stellenbosch", [-33.93667, 18.86139]), ("Kruger National Park", [-24, 31.5]),
+           ("Boulders Beach", [-34.197, 18.451])],
+    "ZM": [("Livingstone", [-17.85, 25.86667]), ("Devil's Pool", [-17.924, 25.855]), ("Lower Zambezi National Park", [-15.6, 29.56667]),
+           ("South Luangwa National Park", [-13, 31.5]), ("Shiwa Ngandu", [-11.19491, 31.73682])],
+}
+results.append(ok(set(WANT2) == set(REST["wiki"]) == set(REST["main"]) and not set(WANT2) & set(REST["kept"]),
+                  "the fixture covers the %d rebuilt countries, and the %d reviewed and kept apart"
+                  % (len(WANT2), len(REST["kept"]))))
+
+
+def stub2(subject, country, iso):
+    asked2.append((iso, subject))
+    return REST["wiki"][iso].get(subject)
+
+
+asked2, built2, again2, said2 = [], {}, {}, {}
+g.coords_with_fallback = stub2
+try:
+    for iso in WANT2:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            built2[iso] = g._build_country((iso, acts[iso], cnames, REST["main"][iso]))[1]
+        said2[iso] = buf.getvalue()
+        with redirect_stdout(io.StringIO()):
+            again2[iso] = g._build_country((iso, acts[iso], cnames, built2[iso]))[1]
+finally:
+    g.coords_with_fallback = real
+for iso, want in WANT2.items():
+    have = [(s["n"], s["ll"]) for s in stays.get(iso, [])]
+    results.append(ok(have == want and [(s["n"], s["ll"]) for s in built2[iso]] == want,
+                      "%s is exactly %s, in the file and in a rebuild from its guide and main's chips (was %s)"
+                      % (iso, ", ".join(n for n, _ in want), ", ".join(s["n"] for s in REST["main"][iso]))))
+results.append(ok(again2 == built2, "a rebuild of the rebuilt file changes nothing (%s)"
+                  % [iso for iso in WANT2 if again2[iso] != built2[iso]]))
+results.append(ok(all(t in REST["wiki"][iso] for iso, t in asked2),
+                  "the stub holds every title the build asked (%s)" % [x for x in asked2 if x[1] not in REST["wiki"][x[0]]]))
+kept_now = {iso: stays.get(iso, []) for iso in REST["kept"]}
+results.append(ok(kept_now == REST["kept"],
+                  "every country reviewed NEUTRAL or LOSS keeps main's chips exactly, Antarctica none (%s)"
+                  % [iso for iso in REST["kept"] if kept_now[iso] != REST["kept"][iso]]))
+
+# A guide place that found no point, or the wrong one, now names the file's
+# chip through stay-aliases.json: a LOSS whose cause had a correct point
+# (Petra's and Kilimanjaro's Wikipedia coordinates are no longer marked
+# primary; "Plitvice", "Hội An" and "Golden Circle" are disambiguation pages;
+# "Ala-Archa" is the river, 21 km north of Bishkek; Yala's moved 20 km into
+# the park's interior).
+FIXED = [("HR", "Plitvice", "Plitvice Lakes National Park"), ("LA", "Kuang Si", "Kuang Si Falls"),
+         ("UG", "Bwindi", "Bwindi Impenetrable National Park"), ("GY", "Iwokrama", "Iwokrama Forest"),
+         ("CD", "Virunga", "Virunga National Park"), ("GA", "Lopé", "Lopé National Park"),
+         ("GQ", "Monte Alén", "Monte Alén National Park"), ("ML", "Dogon", "Bandiagara Escarpment"),
+         ("MN", "Khövsgöl", "Lake Khövsgöl"), ("SS", "The Sudd", "Sudd"), ("TL", "Ataúro Island", "Atauro Island"),
+         ("VN", "Hoi An", "Hoi An"), ("KG", "Ala-Archa", "Ala Archa National Park"), ("IS", "Golden Circle", "Gullfoss"),
+         ("JO", "Petra", "Petra"), ("TZ", "Mount Kilimanjaro", "Mount Kilimanjaro"), ("LK", "Yala National Park", "Yala National Park")]
+bad_fix = []
+for iso, place, chip in FIXED:
+    subj = next(((s, al, n) for s, cap, al, n in g._subjects(iso, acts[iso]) if s == place), None)
+    file_ll = next((s["ll"] for s in stays.get(iso, []) if s["n"] == chip), None)
+    if not subj or subj[2] != chip or file_ll is None or (subj[1].get("ll") and subj[1]["ll"] != file_ll):
+        bad_fix.append((iso, place, subj and subj[2], file_ll))
+results.append(ok(not bad_fix, "%d guide places that lost their chip name it again through an alias, on the file's point"
+                               " where the alias sets one (%s)" % (len(FIXED), bad_fix)))
+
+# Dubai Marina (B): its own point, 19 km from Dubai's, so no longer the same
+# place by name; it takes Burj Khalifa's slot (0.9 km from Dubai's point, the
+# city's weakest chip) and Burj Al Arab, a chip already, keeps its own.
+ae_al = g.ALIASES["AE"]["Dubai Marina"]
+results.append(ok(ae_al == {"ll": [25.08135, 55.14408]} and g._curated("AE", [25.08135, 55.14408])
+                  and "Dubai Marina" not in said2["AE"] and not g.check({"AE": stays["AE"]})
+                  and "Burj Khalifa" not in [s["n"] for s in stays["AE"]],
+                  "Dubai Marina has its own point (Wikipedia's), is no longer said to be Dubai, and takes Burj Khalifa's slot"))
+
+# Gyeongju (C): a label only. The search point stays the palace's Wikipedia
+# point, and app.js searches Booking.com by that point and Hostelworld by the
+# country, so the label never reaches a search; the stand-in shows it.
+kr_al = g.ALIASES["KR"]["Donggung Palace and Wolji Pond"]
+kr_html = guide_sizers.stay("KR")
+with open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8") as f:
+    appjs = f.read()
+stay_fn = appjs[appjs.index("function renderGuideStay("):]
+stay_fn = stay_fn[:stay_fn.index("\n}\n")]
+results.append(ok(kr_al == {"label": "Gyeongju"} and stays["KR"][4] == {"n": "Gyeongju", "ll": REST["wiki"]["KR"]["Donggung Palace and Wolji Pond"]}
+                  and "📍 Gyeongju" in kr_html and "Donggung" not in kr_html
+                  and '"&lat=" + sp.ll[0] + "&lng=" + sp.ll[1]' in stay_fn and "hostelworldURL(iso)" in stay_fn
+                  and "sp.n" not in stay_fn.split("const q =")[1].split(";")[0],
+                  "Korea's Donggung chip reads Gyeongju, searched on the palace's point (Booking by lat/lng, Hostelworld by country)"))
+
+# Qualifier words (D): a parenthetical entry with no capital letter that says
+# when or how ("guided", "when held", "season") is no place; one of them alone
+# names none (the Mass Games' photo subject, the Arirang festival, has a point
+# 4 km from Pyongyang's and must not become a chip). Against the old reading,
+# only North Korea's two labels and Gabon's and Timor-Leste's whales change,
+# by those words alone: no other country's candidates move.
+results.append(ok(all(g.qualifier(w) for w in ("guided", "when held", "season", "seasonal", "in season", "optional"))
+                  and not any(g.qualifier(w) for w in ("Guided", "Pyongyang", "hawker centres", "wrecks", "cichlids",
+                                                       "south Bioko", "Season Island", "guided tours of Hvar"))
+                  and g.act_places({"t": "Monuments (Pyongyang, guided)"}) == ["Pyongyang"]
+                  and g.act_places({"t": "Mass Games (when held)", "p": "Arirang Festival"}) == []
+                  and g.act_places({"t": "Humpback whales (season)", "p": "Humpback whale"}) == []
+                  and g.act_places({"t": "Tea country & trains (Ella, Kandy)"}) == ["Ella", "Kandy"],
+                  "qualifier words are not places; a parenthetical of them alone names none (not the photo subject)"))
+
+
+def old_act_places(x):
+    """act_places before the qualifier rule."""
+    label = x if isinstance(x, str) else x.get("t", "")
+    m = re.search(r"\(([^)]*)\)", label)
+    if m:
+        return [g.expand(s.strip()) for s in m.group(1).split(",") if s.strip()]
+    if isinstance(x, dict) and x.get("p"):
+        return [x["p"]]
+    clean = re.sub(r"\s*\([^)]*\)", "", label).strip()
+    return [g.expand(clean)] if clean else []
+
+
+moved = {}
+for iso in sorted(acts):
+    for x in acts[iso].get("activities") or []:
+        o, n = old_act_places(x), g.act_places(x)
+        if o != n:
+            moved.setdefault(iso, []).append([p for p in o if p not in n])
+results.append(ok(moved == {"GA": [["season"]], "KP": [["guided"], ["when held"]], "TL": [["season"]]}
+                  and all(g.qualifier(p) for v in moved.values() for ps in v for p in ps),
+                  "only qualifier words leave the guides' places, in North Korea, Gabon and Timor-Leste (%s)" % moved))
+kp_subjects = [s for s, cap, al, n in g._subjects("KP", acts["KP"])]
+results.append(ok(kp_subjects[:3] == ["Pyongyang", "Korean Demilitarized Zone", "Mount Paektu"]
+                  and not {"guided", "when held"} & set(kp_subjects),
+                  "North Korea's things to do are Pyongyang, the DMZ and Mount Paektu (%s)" % kp_subjects[:4]))
 
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

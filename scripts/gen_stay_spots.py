@@ -4,7 +4,8 @@
 
 Spots mirror the page's own recommendations: the places named in "top things
 to do" come first (all comma-separated places in a label's parenthetical,
-e.g. "Tea country & trains (Ella, Kandy)" -> Ella AND Kandy), then curated
+e.g. "Tea country & trains (Ella, Kandy)" -> Ella AND Kandy, but not its
+qualifier words: "Monuments (Pyongyang, guided)" -> Pyongyang), then curated
 gallery places fill any remaining room. Coordinates via Wikipedia, with the
 same disambiguation fallbacks the photo pipeline uses ("Ella, Sri Lanka" /
 "Ella (Sri Lanka)").
@@ -314,13 +315,28 @@ def expand(s):
     return re.sub(r"\bNP\b", "National Park", re.sub(r"\bMt\b", "Mount", s))
 
 
+# Words a label's parenthetical uses to say when or how, not where:
+# "Monuments (Pyongyang, guided)", "Mass Games (when held)", "Humpback whales
+# (season)". Only an entry with no capital letter is read this way, so a
+# proper name ("Guided Rock") never is.
+QUALIFIERS = re.compile(r"(?:self-)?guided|when (?:held|open|staged|running)|(?:in |high |peak )?season(?:al)?"
+                        r"|optional|by permit|permit only|on request")
+
+
+def qualifier(s):
+    """True when a parenthetical entry is a qualifier word, not a place."""
+    return not re.search(r"[A-Z]", s) and QUALIFIERS.fullmatch(s.strip()) is not None
+
+
 def act_places(x):
-    """Every place an activity names: all parenthetical entries, else the
-    photo-subject override, else the cleaned label."""
+    """Every place an activity names: all parenthetical entries but the
+    qualifier words, else the photo-subject override, else the cleaned label.
+    A parenthetical of qualifiers alone names no place: the Mass Games' photo
+    subject is the Arirang festival, an event, not somewhere to stay."""
     label = x if isinstance(x, str) else x.get("t", "")
     m = re.search(r"\(([^)]*)\)", label)
     if m:
-        return [expand(s.strip()) for s in m.group(1).split(",") if s.strip()]
+        return [expand(s.strip()) for s in m.group(1).split(",") if s.strip() and not qualifier(s)]
     if isinstance(x, dict) and x.get("p"):
         return [x["p"]]
     clean = re.sub(r"\s*\([^)]*\)", "", label).strip()

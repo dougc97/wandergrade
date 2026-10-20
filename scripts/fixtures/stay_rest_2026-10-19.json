@@ -1,0 +1,2764 @@
+{
+ "about": "Wikipedia's answers of 2026-10-19 for every title the rebuild of these countries asked (coords_with_fallback: title -> point in the country, or null), main a2663ff's chips they were rebuilt from, and main's chips of every country reviewed and kept (NEUTRAL or LOSS; Antarctica has none). scripts/test_stay_near.py.",
+ "asof": "2026-10-19",
+ "kept": {
+  "AQ": [],
+  "BT": [
+   {
+    "ll": [
+     27.49191,
+     89.36349
+    ],
+    "n": "Tiger's Nest"
+   },
+   {
+    "ll": [
+     27.43333,
+     89.41667
+    ],
+    "n": "Paro"
+   },
+   {
+    "ll": [
+     27.58194,
+     89.86306
+    ],
+    "n": "Punakha Dzong"
+   },
+   {
+    "ll": [
+     27.47222,
+     89.63611
+    ],
+    "n": "Thimphu"
+   }
+  ],
+  "BZ": [
+   {
+    "ll": [
+     17.31528,
+     -87.53444
+    ],
+    "n": "Blue Hole"
+   },
+   {
+    "ll": [
+     16.76389,
+     -89.1175
+    ],
+    "n": "Caracol"
+   },
+   {
+    "ll": [
+     17.7425,
+     -88.025
+    ],
+    "n": "Caye Caulker"
+   },
+   {
+    "ll": [
+     18.01395,
+     -87.93104
+    ],
+    "n": "Ambergris Caye"
+   }
+  ],
+  "CD": [
+   {
+    "ll": [
+     -1.51917,
+     29.25417
+    ],
+    "n": "Nyiragongo"
+   },
+   {
+    "ll": [
+     -6.075,
+     12.45
+    ],
+    "n": "Congo River"
+   },
+   {
+    "ll": [
+     -4.32194,
+     15.31194
+    ],
+    "n": "Kinshasa"
+   },
+   {
+    "ll": [
+     -0.91667,
+     29.16667
+    ],
+    "n": "Virunga National Park"
+   }
+  ],
+  "CF": [
+   {
+    "ll": [
+     3.1,
+     16.33333
+    ],
+    "n": "Dzanga-Sangha Special Reserve"
+   },
+   {
+    "ll": [
+     4.37333,
+     18.56278
+    ],
+    "n": "Bangui"
+   },
+   {
+    "ll": [
+     9,
+     21.5
+    ],
+    "n": "Manovo-Gounda St. Floris National Park"
+   },
+   {
+    "ll": [
+     4.8,
+     18.11667
+    ],
+    "n": "Boali"
+   }
+  ],
+  "CR": [
+   {
+    "ll": [
+     10.54694,
+     -84.89944
+    ],
+    "n": "Arenal"
+   },
+   {
+    "ll": [
+     10.29234,
+     -85.79818
+    ],
+    "n": "Tamarindo"
+   },
+   {
+    "ll": [
+     10.29083,
+     -84.82528
+    ],
+    "n": "Monteverde"
+   },
+   {
+    "ll": [
+     9.37556,
+     -84.13583
+    ],
+    "n": "Manuel Antonio National Park"
+   }
+  ],
+  "DJ": [
+   {
+    "ll": [
+     11.65,
+     42.41667
+    ],
+    "n": "Lake Assal"
+   },
+   {
+    "ll": [
+     11.7,
+     43
+    ],
+    "n": "Gulf of Tadjoura"
+   },
+   {
+    "ll": [
+     11.16667,
+     41.78333
+    ],
+    "n": "Lake Abbe"
+   },
+   {
+    "ll": [
+     11.59444,
+     43.14806
+    ],
+    "n": "Djibouti"
+   }
+  ],
+  "EH": [
+   {
+    "ll": [
+     23.70806,
+     -15.94556
+    ],
+    "n": "Dakhla"
+   },
+   {
+    "ll": [
+     27.15,
+     -13.19889
+    ],
+    "n": "Laayoune"
+   },
+   {
+    "ll": [
+     26.73944,
+     -11.67028
+    ],
+    "n": "Smara"
+   },
+   {
+    "ll": [
+     26.13306,
+     -14.46694
+    ],
+    "n": "Boujdour"
+   }
+  ],
+  "ES": [
+   {
+    "ll": [
+     41.38333,
+     2.18333
+    ],
+    "n": "Barcelona"
+   },
+   {
+    "ll": [
+     40.4169,
+     -3.7033
+    ],
+    "n": "Madrid"
+   },
+   {
+    "ll": [
+     38.90889,
+     1.43278
+    ],
+    "n": "Ibiza"
+   },
+   {
+    "ll": [
+     36.79,
+     -4.48
+    ],
+    "n": "Costa del Sol"
+   },
+   {
+    "ll": [
+     37.39,
+     -5.99
+    ],
+    "n": "Seville"
+   }
+  ],
+  "FJ": [
+   {
+    "ll": [
+     -17.66667,
+     177.08333
+    ],
+    "n": "Mamanuca"
+   },
+   {
+    "ll": [
+     -16.77583,
+     177.51389
+    ],
+    "n": "Yasawa"
+   },
+   {
+    "ll": [
+     -17.8577,
+     177.20179
+    ],
+    "n": "Cloudbreak"
+   },
+   {
+    "ll": [
+     -18.1416,
+     178.4419
+    ],
+    "n": "Suva"
+   }
+  ],
+  "GA": [
+   {
+    "ll": [
+     -2.16667,
+     9.56667
+    ],
+    "n": "Loango National Park"
+   },
+   {
+    "ll": [
+     0.40778,
+     9.44028
+    ],
+    "n": "Libreville"
+   },
+   {
+    "ll": [
+     -0.5,
+     11.5
+    ],
+    "n": "Lopé National Park"
+   },
+   {
+    "ll": [
+     0.11667,
+     9.63333
+    ],
+    "n": "Pongara National Park"
+   }
+  ],
+  "GG": [
+   {
+    "ll": [
+     49.4555,
+     -2.5368
+    ],
+    "n": "St Peter Port"
+   },
+   {
+    "ll": [
+     49.42,
+     -2.56
+    ],
+    "n": "Icart Point"
+   },
+   {
+    "ll": [
+     49.43306,
+     -2.36083
+    ],
+    "n": "Sark"
+   },
+   {
+    "ll": [
+     49.46667,
+     -2.45
+    ],
+    "n": "Herm"
+   }
+  ],
+  "GL": [
+   {
+    "ll": [
+     69.21972,
+     -51.09861
+    ],
+    "n": "Ilulissat"
+   },
+   {
+    "ll": [
+     64.17667,
+     -51.73611
+    ],
+    "n": "Nuuk"
+   },
+   {
+    "ll": [
+     69,
+     -52
+    ],
+    "n": "Disko Bay"
+   },
+   {
+    "ll": [
+     65.61361,
+     -37.63111
+    ],
+    "n": "Tasiilaq"
+   }
+  ],
+  "GU": [
+   {
+    "ll": [
+     13.5139,
+     144.79302
+    ],
+    "n": "Tumon Bay"
+   },
+   {
+    "ll": [
+     13.42251,
+     144.67566
+    ],
+    "n": "War in the Pacific National Historical Park"
+   },
+   {
+    "ll": [
+     13.47917,
+     144.75
+    ],
+    "n": "Hagåtña"
+   },
+   {
+    "ll": [
+     13.4702,
+     144.7012
+    ],
+    "n": "Piti Bomb Holes"
+   }
+  ],
+  "GY": [
+   {
+    "ll": [
+     5.175,
+     -59.4805
+    ],
+    "n": "Kaieteur"
+   },
+   {
+    "ll": [
+     2.75,
+     -59.75
+    ],
+    "n": "Rupununi"
+   },
+   {
+    "ll": [
+     6.80111,
+     -58.155
+    ],
+    "n": "Georgetown"
+   },
+   {
+    "ll": [
+     4.5,
+     -59
+    ],
+    "n": "Iwokrama Forest"
+   }
+  ],
+  "HR": [
+   {
+    "ll": [
+     42.64028,
+     18.10833
+    ],
+    "n": "Dubrovnik"
+   },
+   {
+    "ll": [
+     43.15,
+     16.75
+    ],
+    "n": "Hvar"
+   },
+   {
+    "ll": [
+     43.51,
+     16.44
+    ],
+    "n": "Split"
+   },
+   {
+    "ll": [
+     44.88056,
+     15.61611
+    ],
+    "n": "Plitvice Lakes National Park"
+   }
+  ],
+  "JM": [
+   {
+    "ll": [
+     18.31102,
+     -78.33939
+    ],
+    "n": "Negril"
+   },
+   {
+    "ll": [
+     18.46667,
+     -77.91667
+    ],
+    "n": "Montego Bay"
+   },
+   {
+    "ll": [
+     18.4158,
+     -77.1381
+    ],
+    "n": "Dunn's River"
+   },
+   {
+    "ll": [
+     18.1757,
+     -76.45025
+    ],
+    "n": "Port Antonio"
+   }
+  ],
+  "LA": [
+   {
+    "ll": [
+     19.89,
+     102.13472
+    ],
+    "n": "Luang Prabang"
+   },
+   {
+    "ll": [
+     18.92667,
+     102.44944
+    ],
+    "n": "Vang Vieng"
+   },
+   {
+    "ll": [
+     14.05,
+     105.84
+    ],
+    "n": "Si Phan Don"
+   },
+   {
+    "ll": [
+     19.74917,
+     101.99167
+    ],
+    "n": "Kuang Si Falls"
+   }
+  ],
+  "LK": [
+   {
+    "ll": [
+     7.95694,
+     80.75972
+    ],
+    "n": "Sigiriya"
+   },
+   {
+    "ll": [
+     6.87528,
+     81.03833
+    ],
+    "n": "Ella"
+   },
+   {
+    "ll": [
+     7.2931,
+     80.635
+    ],
+    "n": "Kandy"
+   },
+   {
+    "ll": [
+     5.94583,
+     80.45972
+    ],
+    "n": "Mirissa"
+   },
+   {
+    "ll": [
+     6.37278,
+     81.51694
+    ],
+    "n": "Yala National Park"
+   }
+  ],
+  "LR": [
+   {
+    "ll": [
+     6.75,
+     -11.36667
+    ],
+    "n": "Robertsport"
+   },
+   {
+    "ll": [
+     6.31333,
+     -10.80139
+    ],
+    "n": "Monrovia"
+   },
+   {
+    "ll": [
+     5.41111,
+     -8.41462
+    ],
+    "n": "Sapo National Park"
+   },
+   {
+    "ll": [
+     4.36667,
+     -7.71667
+    ],
+    "n": "Harper"
+   }
+  ],
+  "LT": [
+   {
+    "ll": [
+     54.68722,
+     25.28
+    ],
+    "n": "Vilnius"
+   },
+   {
+    "ll": [
+     56.01528,
+     23.41667
+    ],
+    "n": "Hill of Crosses"
+   },
+   {
+    "ll": [
+     55.27444,
+     20.97083
+    ],
+    "n": "Curonian Spit"
+   },
+   {
+    "ll": [
+     54.6525,
+     24.93306
+    ],
+    "n": "Trakai Island Castle"
+   }
+  ],
+  "LV": [
+   {
+    "ll": [
+     56.94889,
+     24.10639
+    ],
+    "n": "Riga"
+   },
+   {
+    "ll": [
+     56.96806,
+     23.77028
+    ],
+    "n": "Jūrmala"
+   },
+   {
+    "ll": [
+     57.15,
+     24.86667
+    ],
+    "n": "Sigulda"
+   },
+   {
+    "ll": [
+     56.4138,
+     24.0248
+    ],
+    "n": "Rundāle Palace"
+   }
+  ],
+  "ML": [
+   {
+    "ll": [
+     13.90556,
+     -4.555
+    ],
+    "n": "Djenné"
+   },
+   {
+    "ll": [
+     16.77583,
+     -3.00944
+    ],
+    "n": "Timbuktu"
+   },
+   {
+    "ll": [
+     14.49583,
+     -4.19861
+    ],
+    "n": "Mopti"
+   },
+   {
+    "ll": [
+     14.33333,
+     -3.41667
+    ],
+    "n": "Bandiagara Escarpment"
+   }
+  ],
+  "MN": [
+   {
+    "ll": [
+     42.59,
+     103.43
+    ],
+    "n": "Gobi Desert"
+   },
+   {
+    "ll": [
+     47.20167,
+     102.84333
+    ],
+    "n": "Erdene Zuu Monastery"
+   },
+   {
+    "ll": [
+     47.80806,
+     107.52975
+    ],
+    "n": "Genghis Khan Equestrian Statue"
+   },
+   {
+    "ll": [
+     51.1,
+     100.5
+    ],
+    "n": "Lake Khövsgöl"
+   }
+  ],
+  "NE": [
+   {
+    "ll": [
+     16.97222,
+     7.99083
+    ],
+    "n": "Agadez"
+   },
+   {
+    "ll": [
+     18.27667,
+     8
+    ],
+    "n": "Aïr Mountains"
+   },
+   {
+    "ll": [
+     12.52528,
+     2.66333
+    ],
+    "n": "W National Park"
+   },
+   {
+    "ll": [
+     17.58333,
+     10.91667
+    ],
+    "n": "Ténéré"
+   }
+  ],
+  "NL": [
+   {
+    "ll": [
+     52.37278,
+     4.89361
+    ],
+    "n": "Amsterdam"
+   },
+   {
+    "ll": [
+     52.09083,
+     5.12167
+    ],
+    "n": "Utrecht"
+   },
+   {
+    "ll": [
+     52.38333,
+     4.63333
+    ],
+    "n": "Haarlem"
+   },
+   {
+    "ll": [
+     52.01111,
+     4.71111
+    ],
+    "n": "Gouda"
+   },
+   {
+    "ll": [
+     52.63333,
+     4.75
+    ],
+    "n": "Alkmaar"
+   }
+  ],
+  "PY": [
+   {
+    "ll": [
+     -25.28,
+     -57.63444
+    ],
+    "n": "Asunción"
+   },
+   {
+    "ll": [
+     -25.56194,
+     -54.63139
+    ],
+    "n": "Saltos del Monday"
+   },
+   {
+    "ll": [
+     -27.33,
+     -55.88
+    ],
+    "n": "Encarnación"
+   },
+   {
+    "ll": [
+     -27.05,
+     -55.79
+    ],
+    "n": "Jesús de Tavarangue"
+   }
+  ],
+  "SA": [
+   {
+    "ll": [
+     26.6083,
+     37.92271
+    ],
+    "n": "AlUla"
+   },
+   {
+    "ll": [
+     21.54333,
+     39.17278
+    ],
+    "n": "Jeddah"
+   },
+   {
+    "ll": [
+     24.63333,
+     46.71667
+    ],
+    "n": "Riyadh"
+   },
+   {
+    "ll": [
+     24.7113,
+     46.6744
+    ],
+    "n": "Kingdom Centre"
+   }
+  ],
+  "SB": [
+   {
+    "ll": [
+     -9.25,
+     160
+    ],
+    "n": "Iron Bottom Sound"
+   },
+   {
+    "ll": [
+     -9.59,
+     160.235
+    ],
+    "n": "Guadalcanal"
+   },
+   {
+    "ll": [
+     -9.43194,
+     159.95556
+    ],
+    "n": "Honiara"
+   },
+   {
+    "ll": [
+     -8.71667,
+     157.55
+    ],
+    "n": "Tetepare Island"
+   }
+  ],
+  "SL": [
+   {
+    "ll": [
+     8.355,
+     -13.205
+    ],
+    "n": "Tokeh"
+   },
+   {
+    "ll": [
+     8.11667,
+     -13.21667
+    ],
+    "n": "Banana Islands"
+   },
+   {
+    "ll": [
+     7.54413,
+     -11.34878
+    ],
+    "n": "Tiwai Island"
+   },
+   {
+    "ll": [
+     8.48722,
+     -13.23556
+    ],
+    "n": "Freetown"
+   }
+  ],
+  "SN": [
+   {
+    "ll": [
+     14.69278,
+     -17.44667
+    ],
+    "n": "Dakar"
+   },
+   {
+    "ll": [
+     14.66694,
+     -17.39833
+    ],
+    "n": "Gorée Island"
+   },
+   {
+    "ll": [
+     14.83834,
+     -17.24482
+    ],
+    "n": "Lac Rose"
+   },
+   {
+    "ll": [
+     14.43833,
+     -17.0125
+    ],
+    "n": "Saly"
+   }
+  ],
+  "SR": [
+   {
+    "ll": [
+     5.85222,
+     -55.20389
+    ],
+    "n": "Paramaribo"
+   },
+   {
+    "ll": [
+     5.6978,
+     -54.0277
+    ],
+    "n": "Galibi"
+   },
+   {
+    "ll": [
+     4,
+     -56.5
+    ],
+    "n": "Central Suriname Nature Reserve"
+   },
+   {
+    "ll": [
+     4.943,
+     -55.176
+    ],
+    "n": "Brownsberg Nature Park"
+   }
+  ],
+  "SV": [
+   {
+    "ll": [
+     13.495,
+     -89.44
+    ],
+    "n": "El Zonte"
+   },
+   {
+    "ll": [
+     13.995,
+     -89.55611
+    ],
+    "n": "Santa Ana"
+   },
+   {
+    "ll": [
+     13.93333,
+     -89.03333
+    ],
+    "n": "Suchitoto"
+   },
+   {
+    "ll": [
+     13.8275,
+     -89.35611
+    ],
+    "n": "Joya de Cerén"
+   }
+  ],
+  "SZ": [
+   {
+    "ll": [
+     -26.29832,
+     31.8749
+    ],
+    "n": "Hlane"
+   },
+   {
+    "ll": [
+     -26.098,
+     31.099
+    ],
+    "n": "Malolotja National Park"
+   },
+   {
+    "ll": [
+     -26.47917,
+     31.24028
+    ],
+    "n": "Ezulwini"
+   },
+   {
+    "ll": [
+     -26.46908,
+     31.16186
+    ],
+    "n": "Mlilwane Wildlife Sanctuary"
+   }
+  ],
+  "TF": [
+   {
+    "ll": [
+     -49.25,
+     69.16667
+    ],
+    "n": "Kerguelen"
+   },
+   {
+    "ll": [
+     -46.38,
+     51.67
+    ],
+    "n": "Crozet Islands"
+   },
+   {
+    "ll": [
+     -37.83333,
+     77.55
+    ],
+    "n": "Île Amsterdam"
+   },
+   {
+    "ll": [
+     -38.71667,
+     77.51667
+    ],
+    "n": "Île Saint-Paul"
+   }
+  ],
+  "UG": [
+   {
+    "ll": [
+     -0.13722,
+     30.04111
+    ],
+    "n": "Queen Elizabeth National Park"
+   },
+   {
+    "ll": [
+     0.42333,
+     33.20389
+    ],
+    "n": "Jinja"
+   },
+   {
+    "ll": [
+     0.79111,
+     31.075
+    ],
+    "n": "Kibale"
+   },
+   {
+    "ll": [
+     -1.01667,
+     29.68333
+    ],
+    "n": "Bwindi Impenetrable National Park"
+   }
+  ],
+  "UZ": [
+   {
+    "ll": [
+     39.65056,
+     66.96528
+    ],
+    "n": "Samarkand"
+   },
+   {
+    "ll": [
+     39.76667,
+     64.42306
+    ],
+    "n": "Bukhara"
+   },
+   {
+    "ll": [
+     41.38139,
+     60.36111
+    ],
+    "n": "Khiva"
+   },
+   {
+    "ll": [
+     41.31111,
+     69.27972
+    ],
+    "n": "Tashkent"
+   }
+  ],
+  "VU": [
+   {
+    "ll": [
+     -19.5,
+     169.33333
+    ],
+    "n": "Tanna"
+   },
+   {
+    "ll": [
+     -19.52833,
+     169.44833
+    ],
+    "n": "Mount Yasur"
+   },
+   {
+    "ll": [
+     -17.73333,
+     168.31667
+    ],
+    "n": "Port Vila"
+   },
+   {
+    "ll": [
+     -15.5242,
+     167.23522
+    ],
+    "n": "SS President Coolidge"
+   }
+  ]
+ },
+ "main": {
+  "AE": [
+   {
+    "ll": [
+     25.20472,
+     55.27083
+    ],
+    "n": "Dubai"
+   },
+   {
+    "ll": [
+     24.412,
+     54.474
+    ],
+    "n": "Sheikh Zayed Grand Mosque"
+   },
+   {
+    "ll": [
+     25.14139,
+     55.18528
+    ],
+    "n": "Burj Al Arab"
+   },
+   {
+    "ll": [
+     25.1972,
+     55.2742
+    ],
+    "n": "Burj Khalifa"
+   }
+  ],
+  "BB": [
+   {
+    "ll": [
+     13.08333,
+     -59.61667
+    ],
+    "n": "Carlisle Bay"
+   },
+   {
+    "ll": [
+     13.21417,
+     -59.52361
+    ],
+    "n": "Bathsheba"
+   },
+   {
+    "ll": [
+     13.06444,
+     -59.54444
+    ],
+    "n": "Oistins"
+   },
+   {
+    "ll": [
+     13.27754,
+     -59.59205
+    ],
+    "n": "St Nicholas Abbey"
+   }
+  ],
+  "BF": [
+   {
+    "ll": [
+     11.18333,
+     -4.28333
+    ],
+    "n": "Bobo-Dioulasso"
+   },
+   {
+    "ll": [
+     12.36861,
+     -1.5275
+    ],
+    "n": "Ouagadougou"
+   },
+   {
+    "ll": [
+     10.65,
+     -5.16667
+    ],
+    "n": "Sindou"
+   },
+   {
+    "ll": [
+     10.3,
+     -3.53333
+    ],
+    "n": "Loropéni"
+   }
+  ],
+  "CG": [
+   {
+    "ll": [
+     0.8,
+     14.9
+    ],
+    "n": "Odzala-Kokoua National Park"
+   },
+   {
+    "ll": [
+     -4.26667,
+     15.26667
+    ],
+    "n": "Brazzaville"
+   },
+   {
+    "ll": [
+     2.46667,
+     16.45
+    ],
+    "n": "Nouabalé-Ndoki National Park"
+   }
+  ],
+  "FI": [
+   {
+    "ll": [
+     67,
+     26
+    ],
+    "n": "Lapland"
+   },
+   {
+    "ll": [
+     60.17083,
+     24.9375
+    ],
+    "n": "Helsinki"
+   },
+   {
+    "ll": [
+     61.25,
+     28.25
+    ],
+    "n": "Saimaa"
+   },
+   {
+    "ll": [
+     60.14361,
+     24.98444
+    ],
+    "n": "Suomenlinna"
+   }
+  ],
+  "FK": [
+   {
+    "ll": [
+     -51.695,
+     -57.85056
+    ],
+    "n": "Stanley"
+   },
+   {
+    "ll": [
+     -51.47111,
+     -57.845
+    ],
+    "n": "Volunteer Point"
+   },
+   {
+    "ll": [
+     -51.678,
+     -57.803
+    ],
+    "n": "Gypsy Cove"
+   },
+   {
+    "ll": [
+     -51.69167,
+     -58.83444
+    ],
+    "n": "Mount Usborne"
+   }
+  ],
+  "GM": [
+   {
+    "ll": [
+     13.45,
+     -16.71667
+    ],
+    "n": "Kololi"
+   },
+   {
+    "ll": [
+     13.31746,
+     -16.36141
+    ],
+    "n": "Kunta Kinteh Island"
+   },
+   {
+    "ll": [
+     13.45417,
+     -16.57528
+    ],
+    "n": "Banjul"
+   },
+   {
+    "ll": [
+     13.39583,
+     -16.64556
+    ],
+    "n": "Abuko Nature Reserve"
+   }
+  ],
+  "GQ": [
+   {
+    "ll": [
+     3.74556,
+     8.77444
+    ],
+    "n": "Malabo"
+   },
+   {
+    "ll": [
+     3.5,
+     8.7
+    ],
+    "n": "Bioko"
+   },
+   {
+    "ll": [
+     3.58778,
+     8.76167
+    ],
+    "n": "Pico Basile"
+   },
+   {
+    "ll": [
+     1.53,
+     10.11
+    ],
+    "n": "Monte Alén National Park"
+   }
+  ],
+  "IS": [
+   {
+    "ll": [
+     63.88,
+     -22.44806
+    ],
+    "n": "Blue Lagoon"
+   },
+   {
+    "ll": [
+     63.61583,
+     -19.99278
+    ],
+    "n": "Seljalandsfoss"
+   },
+   {
+    "ll": [
+     63.53211,
+     -19.51114
+    ],
+    "n": "Skógafoss"
+   },
+   {
+    "ll": [
+     64.32611,
+     -20.12111
+    ],
+    "n": "Gullfoss"
+   }
+  ],
+  "JO": [
+   {
+    "ll": [
+     29.59306,
+     35.42
+    ],
+    "n": "Wadi Rum"
+   },
+   {
+    "ll": [
+     32.28056,
+     35.89722
+    ],
+    "n": "Jerash"
+   }
+  ],
+  "KG": [
+   {
+    "ll": [
+     41.83333,
+     75.16667
+    ],
+    "n": "Song-Köl"
+   },
+   {
+    "ll": [
+     43.0623,
+     74.6382
+    ],
+    "n": "Ala-Archa"
+   },
+   {
+    "ll": [
+     42.41667,
+     77.25
+    ],
+    "n": "Issyk-Kul"
+   },
+   {
+    "ll": [
+     42.58333,
+     74.48333
+    ],
+    "n": "Ala Archa National Park"
+   }
+  ],
+  "KR": [
+   {
+    "ll": [
+     37.56,
+     126.99
+    ],
+    "n": "Seoul"
+   },
+   {
+    "ll": [
+     37.55528,
+     126.92333
+    ],
+    "n": "Hongdae"
+   },
+   {
+    "ll": [
+     35.18,
+     129.075
+    ],
+    "n": "Busan"
+   },
+   {
+    "ll": [
+     38.11944,
+     128.46556
+    ],
+    "n": "Seoraksan"
+   },
+   {
+    "ll": [
+     35.83462,
+     129.22711
+    ],
+    "n": "Donggung Palace and Wolji Pond"
+   }
+  ],
+  "ME": [
+   {
+    "ll": [
+     42.43,
+     18.77
+    ],
+    "n": "Kotor"
+   },
+   {
+    "ll": [
+     42.28806,
+     18.8425
+    ],
+    "n": "Budva"
+   },
+   {
+    "ll": [
+     42.25583,
+     18.89111
+    ],
+    "n": "Sveti Stefan"
+   },
+   {
+    "ll": [
+     42.675,
+     19.02917
+    ],
+    "n": "Ostrog Monastery"
+   }
+  ],
+  "NC": [
+   {
+    "ll": [
+     -22.61667,
+     167.48333
+    ],
+    "n": "Isle of Pines"
+   },
+   {
+    "ll": [
+     -22.2758,
+     166.458
+    ],
+    "n": "Nouméa"
+   },
+   {
+    "ll": [
+     -21.06667,
+     167.35
+    ],
+    "n": "Loyalty Islands"
+   },
+   {
+    "ll": [
+     -22.47733,
+     166.46795
+    ],
+    "n": "Amédée Lighthouse"
+   }
+  ],
+  "PA": [
+   {
+    "ll": [
+     9.12,
+     -79.75
+    ],
+    "n": "Panama Canal"
+   },
+   {
+    "ll": [
+     8.9525,
+     -79.535
+    ],
+    "n": "Casco Viejo"
+   },
+   {
+    "ll": [
+     9.29611,
+     -78.34417
+    ],
+    "n": "San Blas"
+   },
+   {
+    "ll": [
+     8.94306,
+     -79.565
+    ],
+    "n": "Bridge of the Americas"
+   }
+  ],
+  "PT": [
+   {
+    "ll": [
+     38.72528,
+     -9.15
+    ],
+    "n": "Lisbon"
+   },
+   {
+    "ll": [
+     37.242,
+     -8.17
+    ],
+    "n": "Algarve"
+   },
+   {
+    "ll": [
+     41.15,
+     -8.6108
+    ],
+    "n": "Porto"
+   },
+   {
+    "ll": [
+     38.69167,
+     -9.21611
+    ],
+    "n": "Belém Tower"
+   }
+  ],
+  "SK": [
+   {
+    "ll": [
+     48.14389,
+     17.10972
+    ],
+    "n": "Bratislava"
+   },
+   {
+    "ll": [
+     49.16667,
+     20.13333
+    ],
+    "n": "High Tatras"
+   },
+   {
+    "ll": [
+     48.78,
+     18.57778
+    ],
+    "n": "Bojnice Castle"
+   },
+   {
+    "ll": [
+     49.11667,
+     20.06667
+    ],
+    "n": "Štrbské Pleso"
+   }
+  ],
+  "SS": [
+   {
+    "ll": [
+     4.8539,
+     31.5825
+    ],
+    "n": "Juba"
+   },
+   {
+    "ll": [
+     8,
+     31
+    ],
+    "n": "Sudd"
+   },
+   {
+    "ll": [
+     7.7,
+     28
+    ],
+    "n": "Wau"
+   },
+   {
+    "ll": [
+     3.95,
+     32.9
+    ],
+    "n": "Imatong Mountains"
+   }
+  ],
+  "TL": [
+   {
+    "ll": [
+     -8.90667,
+     125.49333
+    ],
+    "n": "Mount Ramelau"
+   },
+   {
+    "ll": [
+     -8.55361,
+     125.57833
+    ],
+    "n": "Dili"
+   },
+   {
+    "ll": [
+     -8.24,
+     125.58
+    ],
+    "n": "Atauro Island"
+   },
+   {
+    "ll": [
+     -8.425,
+     127.325
+    ],
+    "n": "Jaco Island"
+   }
+  ],
+  "TT": [
+   {
+    "ll": [
+     10.5,
+     -61.3
+    ],
+    "n": "Trinidad"
+   },
+   {
+    "ll": [
+     10.7658,
+     -61.4345
+    ],
+    "n": "Maracas Bay"
+   },
+   {
+    "ll": [
+     11.2405,
+     -60.672
+    ],
+    "n": "Tobago"
+   },
+   {
+    "ll": [
+     11.28333,
+     -60.68333
+    ],
+    "n": "Englishman's Bay"
+   }
+  ],
+  "TZ": [
+   {
+    "ll": [
+     -2.33083,
+     34.83333
+    ],
+    "n": "Serengeti"
+   },
+   {
+    "ll": [
+     -5.9,
+     39.3
+    ],
+    "n": "Zanzibar"
+   },
+   {
+    "ll": [
+     -3.21,
+     35.46
+    ],
+    "n": "Ngorongoro Crater"
+   },
+   {
+    "ll": [
+     -6.1624,
+     39.1913
+    ],
+    "n": "Stone Town"
+   }
+  ],
+  "US": [
+   {
+    "ll": [
+     36.3,
+     -112.75
+    ],
+    "n": "Grand Canyon"
+   },
+   {
+    "ll": [
+     37.85,
+     -119.51667
+    ],
+    "n": "Yosemite"
+   },
+   {
+    "ll": [
+     40.7128,
+     -74.0061
+    ],
+    "n": "NYC"
+   },
+   {
+    "ll": [
+     40.68917,
+     -74.04444
+    ],
+    "n": "Statue of Liberty"
+   }
+  ],
+  "VN": [
+   {
+    "ll": [
+     20.95,
+     107.08333
+    ],
+    "n": "Ha Long"
+   },
+   {
+    "ll": [
+     21,
+     105.85
+    ],
+    "n": "Hanoi"
+   },
+   {
+    "ll": [
+     10.77556,
+     106.70194
+    ],
+    "n": "Ho Chi Minh City"
+   },
+   {
+    "ll": [
+     20.9,
+     107.2
+    ],
+    "n": "Hạ Long Bay"
+   }
+  ],
+  "XK": [
+   {
+    "ll": [
+     42.21278,
+     20.73917
+    ],
+    "n": "Prizren"
+   },
+   {
+    "ll": [
+     42.59833,
+     21.19333
+    ],
+    "n": "Gračanica Monastery"
+   },
+   {
+    "ll": [
+     42.54694,
+     20.26611
+    ],
+    "n": "Visoki Dečani"
+   },
+   {
+    "ll": [
+     42.69222,
+     20.16861
+    ],
+    "n": "Rugova Canyon"
+   }
+  ],
+  "YE": [
+   {
+    "ll": [
+     12.51,
+     53.92
+    ],
+    "n": "Socotra"
+   },
+   {
+    "ll": [
+     15.34833,
+     44.20639
+    ],
+    "n": "Sana'a"
+   },
+   {
+    "ll": [
+     15.92694,
+     48.62667
+    ],
+    "n": "Shibam"
+   },
+   {
+    "ll": [
+     15.44108,
+     44.12513
+    ],
+    "n": "Dar al-Hajar"
+   }
+  ],
+  "ZA": [
+   {
+    "ll": [
+     -33.92528,
+     18.42389
+    ],
+    "n": "Cape Town"
+   },
+   {
+    "ll": [
+     -33.93667,
+     18.86139
+    ],
+    "n": "Stellenbosch"
+   },
+   {
+    "ll": [
+     -33.96218,
+     18.40988
+    ],
+    "n": "Table Mountain"
+   },
+   {
+    "ll": [
+     -24,
+     31.5
+    ],
+    "n": "Kruger National Park"
+   }
+  ],
+  "ZM": [
+   {
+    "ll": [
+     -17.85,
+     25.86667
+    ],
+    "n": "Livingstone"
+   },
+   {
+    "ll": [
+     -17.924,
+     25.855
+    ],
+    "n": "Devil's Pool"
+   },
+   {
+    "ll": [
+     -15.6,
+     29.56667
+    ],
+    "n": "Lower Zambezi National Park"
+   },
+   {
+    "ll": [
+     -13,
+     31.5
+    ],
+    "n": "South Luangwa National Park"
+   }
+  ]
+ },
+ "wiki": {
+  "AE": {
+   "Burj Al Arab": [
+    25.14139,
+    55.18528
+   ],
+   "Burj Khalifa": [
+    25.1972,
+    55.2742
+   ],
+   "Desert safari": null,
+   "Dubai": [
+    25.20472,
+    55.27083
+   ],
+   "Sheikh Zayed Grand Mosque": [
+    24.412,
+    54.474
+   ]
+  },
+  "BB": {
+   "Bathsheba": [
+    13.21417,
+    -59.52361
+   ],
+   "Bathsheba, Barbados": [
+    13.21417,
+    -59.52361
+   ],
+   "Carlisle Bay": [
+    13.08333,
+    -59.61667
+   ],
+   "Codrington College": [
+    13.17521,
+    -59.47531
+   ],
+   "Oistins": [
+    13.06444,
+    -59.54444
+   ],
+   "Saint Joseph, Barbados": [
+    13.2,
+    -59.53333
+   ],
+   "St Nicholas Abbey": [
+    13.27754,
+    -59.59205
+   ],
+   "St. Lawrence Gap": [
+    13.07,
+    -59.5714
+   ],
+   "The Crane, Barbados": [
+    13.10556,
+    -59.44556
+   ]
+  },
+  "BF": {
+   "Artisan markets": null,
+   "Banfora": [
+    10.63083,
+    -4.75889
+   ],
+   "Bobo-Dioulasso": [
+    11.18333,
+    -4.28333
+   ],
+   "Cascades de Karfiguéla": [
+    10.72228,
+    -4.821
+   ],
+   "Grand Mosque of Bobo-Dioulasso": [
+    11.1778,
+    -4.2959
+   ],
+   "Kassena": null,
+   "Ouagadougou": [
+    12.36861,
+    -1.5275
+   ],
+   "Sindou": [
+    10.65,
+    -5.16667
+   ]
+  },
+  "CG": {
+   "Brazzaville": [
+    -4.26667,
+    15.26667
+   ],
+   "Congo River": null,
+   "Congolian rainforests": null,
+   "Lefini Faunal Reserve": [
+    -2.92,
+    15.35
+   ],
+   "Lésio-Louna": null,
+   "Mbeli Bai": [
+    2.2583,
+    16.4117
+   ],
+   "Nouabalé-Ndoki National Park": [
+    2.46667,
+    16.45
+   ],
+   "Odzala-Kokoua National Park": [
+    0.8,
+    14.9
+   ],
+   "Rainforest clearings": null
+  },
+  "FI": {
+   "Helsinki": [
+    60.17083,
+    24.9375
+   ],
+   "Helsinki Cathedral": [
+    60.17028,
+    24.95222
+   ],
+   "Husky & reindeer safaris": null,
+   "Lapland": [
+    67,
+    26
+   ],
+   "Olavinlinna": [
+    61.86389,
+    28.90111
+   ],
+   "Oulanka National Park": [
+    66.37556,
+    29.33861
+   ],
+   "Porvoo": [
+    60.39444,
+    25.66389
+   ],
+   "Saimaa": [
+    61.25,
+    28.25
+   ],
+   "Santa Claus Village": [
+    66.54333,
+    25.8475
+   ],
+   "Turku Castle": [
+    60.43528,
+    22.22861
+   ]
+  },
+  "FK": {
+   "Battlefield sites": null,
+   "Black-browed albatross": null,
+   "Christ Church Cathedral, Stanley": [
+    -51.69222,
+    -57.85861
+   ],
+   "Goose Green": [
+    -51.82722,
+    -58.97306
+   ],
+   "Gypsy Cove": [
+    -51.678,
+    -57.803
+   ],
+   "King penguin": null,
+   "Magellanic penguin": null,
+   "Stanley": [
+    -51.695,
+    -57.85056
+   ],
+   "Wildlife cruises": null
+  },
+  "GM": {
+   "Arch 22": [
+    13.46,
+    -16.582
+   ],
+   "Banjul": [
+    13.45417,
+    -16.57528
+   ],
+   "Janjanbureh": [
+    13.53413,
+    -14.76615
+   ],
+   "Kiang West National Park": [
+    13.38333,
+    -15.91667
+   ],
+   "Kololi": [
+    13.45,
+    -16.71667
+   ],
+   "Kunta Kinteh Island": [
+    13.31746,
+    -16.36141
+   ],
+   "Makasutu": null,
+   "River birdwatching": null
+  },
+  "GQ": {
+   "Basilica of the Immaculate Conception, Mongomo": [
+    1.62224,
+    11.2989
+   ],
+   "Bata, Equatorial Guinea": [
+    1.865,
+    9.77
+   ],
+   "Bioko": [
+    3.5,
+    8.7
+   ],
+   "Lago Biaó, Bioko": null,
+   "Luba, Equatorial Guinea": [
+    3.45,
+    8.55
+   ],
+   "Malabo": [
+    3.74556,
+    8.77444
+   ],
+   "Monte Alén National Park": [
+    1.53,
+    10.11
+   ],
+   "south Bioko": null
+  },
+  "IS": {
+   "Aurora": null,
+   "Blue Lagoon (geothermal spa)": [
+    63.88,
+    -22.44806
+   ],
+   "Dettifoss": [
+    65.81467,
+    -16.38447
+   ],
+   "Dyrhólaey": [
+    63.39972,
+    -19.12639
+   ],
+   "Gullfoss": [
+    64.32611,
+    -20.12111
+   ],
+   "Kirkjufell": [
+    64.94104,
+    -23.30569
+   ],
+   "Seljalandsfoss": [
+    63.61583,
+    -19.99278
+   ],
+   "Stokksnes": [
+    64.243,
+    -14.96
+   ],
+   "Svartifoss": [
+    64.023,
+    -16.975
+   ]
+  },
+  "JO": {
+   "Dana Biosphere Reserve": [
+    30.6875,
+    35.5725
+   ],
+   "Dead Sea": null,
+   "Jerash": [
+    32.28056,
+    35.89722
+   ],
+   "Little Petra": null,
+   "Roman Theatre (Amman)": [
+    31.95169,
+    35.93931
+   ],
+   "Wadi Rum": [
+    29.59306,
+    35.42
+   ]
+  },
+  "KG": {
+   "Ala Archa National Park": [
+    42.58333,
+    74.48333
+   ],
+   "Bishkek": [
+    42.87472,
+    74.61222
+   ],
+   "Burana Tower": [
+    42.74694,
+    75.24861
+   ],
+   "Issyk-Kul": [
+    42.41667,
+    77.25
+   ],
+   "Jeti-Ögüz Rocks": [
+    42.3371,
+    78.2309
+   ],
+   "Köl-Suu": [
+    40.63889,
+    76.40556
+   ],
+   "Song-Köl": [
+    41.83333,
+    75.16667
+   ],
+   "World Nomad Games": null,
+   "Özgön": [
+    40.76667,
+    73.3
+   ]
+  },
+  "KR": {
+   "Bukchon Hanok Village": [
+    37.58306,
+    126.98361
+   ],
+   "Busan": [
+    35.18,
+    129.075
+   ],
+   "Changdeokgung": [
+    37.57944,
+    126.99278
+   ],
+   "Donggung Palace and Wolji Pond": [
+    35.83462,
+    129.22711
+   ],
+   "Gamcheon Culture Village": [
+    35.097,
+    129.009
+   ],
+   "Gyeongbokgung": [
+    37.57988,
+    126.9768
+   ],
+   "Haedong Yonggungsa": [
+    35.18833,
+    129.22333
+   ],
+   "Hongdae (area)": [
+    37.55528,
+    126.92333
+   ],
+   "Seoraksan": [
+    38.11944,
+    128.46556
+   ],
+   "Seoul": [
+    37.56,
+    126.99
+   ]
+  },
+  "ME": {
+   "Budva": [
+    42.28806,
+    18.8425
+   ],
+   "Durmitor": [
+    43.12806,
+    19.03472
+   ],
+   "Kotor": [
+    42.43,
+    18.77
+   ],
+   "Ostrog Monastery": [
+    42.675,
+    19.02917
+   ],
+   "Sveti Stefan": [
+    42.25583,
+    18.89111
+   ]
+  },
+  "NC": {
+   "Amédée Lighthouse": [
+    -22.47733,
+    166.46795
+   ],
+   "Hienghène": [
+    -20.6941,
+    164.9222
+   ],
+   "Isle of Pines": [
+    -22.61667,
+    167.48333
+   ],
+   "Lagoon diving & snorkeling": null,
+   "Loyalty Islands": [
+    -21.06667,
+    167.35
+   ],
+   "Maré Island": [
+    -21.5167,
+    167.9833
+   ],
+   "Nouméa": [
+    -22.2758,
+    166.458
+   ],
+   "Ouvéa": [
+    -20.6522,
+    166.5619
+   ],
+   "Tjibaou Cultural Centre": [
+    -22.25628,
+    166.48193
+   ]
+  },
+  "PA": {
+   "Biomuseo": [
+    8.9325,
+    -79.5449
+   ],
+   "Casco Viejo, Panama": [
+    8.9525,
+    -79.535
+   ],
+   "Panama Canal": [
+    9.12,
+    -79.75
+   ],
+   "Panama City": [
+    8.9711,
+    -79.5347
+   ],
+   "Panamá Viejo": [
+    9.00556,
+    -79.48583
+   ],
+   "Portobelo": [
+    9.55444,
+    -79.655
+   ],
+   "Rainforest & wildlife": null,
+   "San Blas": [
+    9.29611,
+    -78.34417
+   ]
+  },
+  "PT": {
+   "Algarve": [
+    37.242,
+    -8.17
+   ],
+   "Belém Tower": [
+    38.69167,
+    -9.21611
+   ],
+   "Douro": [
+    41.14333,
+    -8.66944
+   ],
+   "Lisbon": [
+    38.72528,
+    -9.15
+   ],
+   "Pena Palace": [
+    38.78778,
+    -9.39056
+   ],
+   "Ponta da Piedade": [
+    37.081,
+    -8.67
+   ],
+   "Porto": [
+    41.15,
+    -8.6108
+   ],
+   "Praça do Comércio": null
+  },
+  "SK": {
+   "Bardejov": [
+    49.29333,
+    21.27611
+   ],
+   "Bojnice Castle": [
+    48.78,
+    18.57778
+   ],
+   "Bratislava": [
+    48.14389,
+    17.10972
+   ],
+   "Bratislava Castle": [
+    48.14222,
+    17.1
+   ],
+   "Caves & spas": null,
+   "High Tatras": [
+    49.16667,
+    20.13333
+   ],
+   "Levoča": [
+    49.03,
+    20.59
+   ],
+   "Orava Castle": [
+    49.26167,
+    19.35806
+   ],
+   "Popradské pleso": [
+    49.1531,
+    20.0803
+   ]
+  },
+  "SS": {
+   "Boma National Park": [
+    6.49,
+    33.91
+   ],
+   "Juba": [
+    4.8539,
+    31.5825
+   ],
+   "Juba Bridge": [
+    4.823,
+    31.6086
+   ],
+   "Mundari": null,
+   "Pibor": [
+    6.8,
+    33.13333
+   ],
+   "Sudd": [
+    8,
+    31
+   ],
+   "Tonj": [
+    7.28,
+    28.68
+   ],
+   "Wau, South Sudan": [
+    7.7,
+    28
+   ]
+  },
+  "TL": {
+   "Atauro Island": [
+    -8.24,
+    125.58
+   ],
+   "Cristo Rei of Dili": [
+    -8.52053,
+    125.60832
+   ],
+   "Dili": [
+    -8.55361,
+    125.57833
+   ],
+   "Lospalos": [
+    -8.52222,
+    126.9975
+   ],
+   "Motael Church": [
+    -8.55083,
+    125.57056
+   ],
+   "Mount Ramelau": [
+    -8.90667,
+    125.49333
+   ],
+   "Tasitolu": [
+    -8.57,
+    125.5
+   ]
+  },
+  "TT": {
+   "Buccoo Reef": [
+    11.185,
+    -60.833
+   ],
+   "Cathedral of the Immaculate Conception (Port of Spain)": [
+    10.6499,
+    -61.5068
+   ],
+   "Englishman's Bay": [
+    11.28333,
+    -60.68333
+   ],
+   "Green sea turtle": null,
+   "Jinnah Memorial Mosque": [
+    10.65167,
+    -61.41347
+   ],
+   "National Academy for the Performing Arts": [
+    10.65699,
+    -61.50981
+   ],
+   "Trinidad": [
+    10.5,
+    -61.3
+   ]
+  },
+  "TZ": {
+   "Gombe National Park": [
+    -4.66667,
+    29.63333
+   ],
+   "Mafia Island": [
+    -7.85,
+    39.78333
+   ],
+   "Ngorongoro Crater": [
+    -3.21,
+    35.46
+   ],
+   "Ol Doinyo Lengai": [
+    -2.764,
+    35.914
+   ],
+   "Ruaha National Park": [
+    -7.5,
+    35
+   ],
+   "Serengeti": [
+    -2.33083,
+    34.83333
+   ],
+   "Udzungwa Mountains National Park": [
+    -7.8,
+    36.68333
+   ],
+   "Zanzibar": [
+    -5.9,
+    39.3
+   ]
+  },
+  "US": {
+   "Beaches & coast": null,
+   "Golden Gate Bridge": [
+    37.81972,
+    -122.47861
+   ],
+   "Grand Canyon": [
+    36.3,
+    -112.75
+   ],
+   "NYC": [
+    40.7128,
+    -74.0061
+   ],
+   "Route 66": null,
+   "Statue of Liberty": [
+    40.68917,
+    -74.04444
+   ],
+   "Yellowstone National Park": [
+    44.6,
+    -110.5
+   ],
+   "Yosemite": [
+    37.85,
+    -119.51667
+   ],
+   "Yosemite National Park": [
+    37.85,
+    -119.51667
+   ]
+  },
+  "VN": {
+   "Ban Gioc–Detian Falls": [
+    22.8564,
+    106.722
+   ],
+   "Golden Bridge (Vietnam)": [
+    15.99486,
+    107.99625
+   ],
+   "Ha Long": [
+    20.94912,
+    107.1045
+   ],
+   "Hanoi": [
+    21,
+    105.85
+   ],
+   "Ho Chi Minh City": [
+    10.77556,
+    106.70194
+   ],
+   "Hội An (city)": [
+    15.87972,
+    108.33194
+   ],
+   "Imperial City, Huế": [
+    16.46972,
+    107.57778
+   ],
+   "Landmark 81": [
+    10.795,
+    106.7219
+   ]
+  },
+  "XK": {
+   "Patriarchal Monastery of Peć": [
+    42.661,
+    20.266
+   ],
+   "Peja": null,
+   "Pristina": [
+    42.66667,
+    21.16667
+   ],
+   "Prizren": [
+    42.21278,
+    20.73917
+   ],
+   "Rugova": null,
+   "Rugova Canyon": [
+    42.69222,
+    20.16861
+   ],
+   "Via Dinarica": null,
+   "Visoki Dečani": [
+    42.54694,
+    20.26611
+   ]
+  },
+  "YE": {
+   "Al Hajjarah": [
+    15.0675,
+    43.71722
+   ],
+   "Detwah Lagoon": [
+    12.70556,
+    53.50667
+   ],
+   "Dracaena cinnabari": null,
+   "Old City of Sana'a": [
+    15.5,
+    44.3
+   ],
+   "Sana'a": [
+    15.34833,
+    44.20639
+   ],
+   "Shibam": [
+    15.92694,
+    48.62667
+   ],
+   "Socotra": [
+    12.51,
+    53.92
+   ],
+   "Zabid": [
+    14.2,
+    43.31667
+   ]
+  },
+  "ZA": {
+   "Boulders Beach": [
+    -34.197,
+    18.451
+   ],
+   "Cape Town": [
+    -33.92528,
+    18.42389
+   ],
+   "Cape of Good Hope": [
+    -34.35806,
+    18.47556
+   ],
+   "Chapman's Peak": [
+    -34.08722,
+    18.36056
+   ],
+   "Garden Route road trip": null,
+   "Kruger": null,
+   "Kruger National Park": [
+    -24,
+    31.5
+   ],
+   "Stellenbosch": [
+    -33.93667,
+    18.86139
+   ],
+   "Table Mountain": [
+    -33.96218,
+    18.40988
+   ]
+  },
+  "ZM": {
+   "Chisimba Falls": [
+    -10.10833,
+    30.9175
+   ],
+   "Livingstone": [
+    -17.85,
+    25.86667
+   ],
+   "Lower Zambezi National Park": [
+    -15.6,
+    29.56667
+   ],
+   "Luangwa River": [
+    -15.57443,
+    30.38887
+   ],
+   "Shiwa Ngandu": [
+    -11.19491,
+    31.73682
+   ],
+   "South Luangwa": null,
+   "South Luangwa National Park": [
+    -13,
+    31.5
+   ],
+   "Victoria Falls": [
+    -17.92444,
+    25.85667
+   ],
+   "Victoria Falls Bridge": [
+    -17.92833,
+    25.85722
+   ]
+  }
+ }
+}

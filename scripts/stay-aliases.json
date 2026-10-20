@@ -1,4 +1,12 @@
 {
+ "AE": {
+  "Dubai Marina": {
+   "ll": [
+    25.08135,
+    55.14408
+   ]
+  }
+ },
  "AZ": {
   "Gobustan": {
    "label": "Gobustan",
@@ -57,6 +65,11 @@
    "title": "Makgadikgadi Pan"
   }
  },
+ "CD": {
+  "Virunga": {
+   "title": "Virunga National Park"
+  }
+ },
  "CG": {
   "Odzala": {
    "title": "Odzala-Kokoua National Park"
@@ -95,6 +108,16 @@
    "title": "Ibiza (city)"
   }
  },
+ "GA": {
+  "Lopé": {
+   "title": "Lopé National Park"
+  }
+ },
+ "GQ": {
+  "Monte Alén": {
+   "title": "Monte Alén National Park"
+  }
+ },
  "GT": {
   "Antigua": {
    "label": "Antigua",
@@ -106,9 +129,17 @@
   }
  },
  "GY": {
+  "Iwokrama": {
+   "title": "Iwokrama Forest"
+  },
   "Rupununi": {
    "label": "Rupununi",
    "title": "Rupununi savannah"
+  }
+ },
+ "HR": {
+  "Plitvice": {
+   "title": "Plitvice Lakes National Park"
   }
  },
  "HT": {
@@ -127,10 +158,23 @@
    "title": "Persepolis"
   }
  },
+ "IS": {
+  "Golden Circle": {
+   "title": "Gullfoss"
+  }
+ },
  "JM": {
   "Blue Mountains coffee": {
    "label": "Blue Mountains",
    "title": "Blue Mountains (Jamaica)"
+  }
+ },
+ "JO": {
+  "Petra": {
+   "ll": [
+    30.32861,
+    35.44194
+   ]
   }
  },
  "JP": {
@@ -145,11 +189,17 @@
   }
  },
  "KG": {
+  "Ala-Archa": {
+   "title": "Ala Archa National Park"
+  },
   "Song-Kul": {
    "title": "Song-Köl"
   }
  },
  "KR": {
+  "Donggung Palace and Wolji Pond": {
+   "label": "Gyeongju"
+  },
   "Seoul — Hongdae": {
    "label": "Hongdae",
    "title": "Hongdae (area)"
@@ -182,9 +232,22 @@
    "title": "Baikonur Cosmodrome"
   }
  },
+ "LA": {
+  "Kuang Si": {
+   "title": "Kuang Si Falls"
+  }
+ },
  "LB": {
   "Cedars & mountains": {
    "title": "Cedars of God"
+  }
+ },
+ "LK": {
+  "Yala National Park": {
+   "ll": [
+    6.37278,
+    81.51694
+   ]
   }
  },
  "LR": {
@@ -232,6 +295,9 @@
   }
  },
  "ML": {
+  "Dogon": {
+   "title": "Bandiagara Escarpment"
+  },
   "Niger River": {
    "label": "Mopti",
    "title": "Mopti"
@@ -240,6 +306,11 @@
  "MM": {
   "Inle": {
    "title": "Inle Lake"
+  }
+ },
+ "MN": {
+  "Khövsgöl": {
+   "title": "Lake Khövsgöl"
   }
  },
  "MR": {
@@ -403,6 +474,9 @@
  "SS": {
   "Boma-Badingilo": {
    "title": "Boma National Park"
+  },
+  "The Sudd": {
+   "title": "Sudd"
   }
  },
  "SZ": {
@@ -446,6 +520,11 @@
    ]
   }
  },
+ "TL": {
+  "Ataúro Island": {
+   "title": "Atauro Island"
+  }
+ },
  "TM": {
   "Ancient Merv": {
    "title": "Merv"
@@ -455,6 +534,9 @@
   }
  },
  "TT": {
+  "Cathedral of the Immaculate Conception (Port of Spain)": {
+   "label": "Port of Spain"
+  },
   "Maracas Bay": {
    "label": "Maracas Bay",
    "ll": [
@@ -475,6 +557,14 @@
    "title": "Taroko National Park"
   }
  },
+ "TZ": {
+  "Mount Kilimanjaro": {
+   "ll": [
+    -3.07583,
+    37.35333
+   ]
+  }
+ },
  "UA": {
   "Odesa": {
    "ll": [
@@ -482,6 +572,11 @@
     30.73262
    ],
    "title": "Odesa"
+  }
+ },
+ "UG": {
+  "Bwindi": {
+   "title": "Bwindi Impenetrable National Park"
   }
  },
  "UY": {
@@ -504,6 +599,12 @@
   "Roraima": {
    "label": "Roraima",
    "title": "Mount Roraima"
+  }
+ },
+ "VN": {
+  "Hoi An": {
+   "label": "Hoi An",
+   "title": "Hội An (city)"
   }
  },
  "XK": {
