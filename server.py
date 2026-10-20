@@ -794,6 +794,114 @@ def _adv_inputs():
     return payloads, fetched, stale
 
 
+# Who says "do not travel" (advisories.dnt_sources), from the three lists the
+# cache holds at any age — never a fetch on a request's path. The guide's
+# stays and tours go by it whichever list the reader picked: Germany's
+# Reisewarnung for Saudi Arabia (US and Canada: Level 3), Canada's "Avoid all
+# travel" for Venezuela (US: 3), the US's and Canada's Level 4 for Burkina
+# Faso (Germany: some regions). Memoized on the cached payloads themselves
+# (a refresh is a new object): ~700 items a guide render otherwise.
+_dnt_memo = [None]   # [(payloads tuple, result)], swapped whole: request threads share it
+
+
+def _adv_dnt():
+    """{"flags": {ISO: [source, ...]}, "unknown": [source, ...] (lists not in
+    hand), "own": {source: {ISO: level}}} from the cache as it is."""
+    payloads = {}
+    for src in _ADV_SRCS:
+        hit = _adv_cache.get(src)
+        payloads[src] = hit[1] if hit else None
+    key = tuple(payloads[s] for s in _ADV_SRCS)
+    memo = _dnt_memo[0]
+    if memo and all(a is b for a, b in zip(memo[0], key)):
+        return memo[1]
+    flags, unknown = advisories.dnt_sources(payloads, guide_sizers.ADV_PARENT)
+    val = {"flags": flags, "unknown": unknown,
+           "own": {s: advisories.own_levels(p) for s, p in payloads.items() if p is not None}}
+    _dnt_memo[0] = (key, val)
+    return val
+
+
+def _guide_no_bookings(iso, dnt=None):
+    """True when a guide shows no stays or tours: a government's own list
+    rates the country (or the territory's parent) Level 4."""
+    dnt = dnt or _adv_dnt()
+    return bool(advisories.dnt_for(iso, dnt["own"], guide_sizers.ADV_PARENT))
+
+
+def _with_dnt(data, dnt):
+    """An /api/advisories payload with the do-not-travel marks app.js's
+    guideNoBookings reads: `dnt` on each item some government's own list rates
+    Level 4 (["us", "ca"]: who says so), `dnt_unlisted` for such a country
+    the list has no row for at all (a gap-fill that failed when it was
+    built), and `dnt_pending` naming the lists not in hand yet — until they
+    are, a country without a mark is not known to be clear. A new dict: the
+    cached payload is shared."""
+    flags = dnt["flags"]
+    items = data.get("items") or []
+    out = dict(data, items=[dict(it, dnt=flags[it["iso"]]) if it.get("iso") in flags else it
+                            for it in items])
+    listed = {it.get("iso") for it in items}
+    unlisted = {iso: by for iso, by in flags.items() if iso not in listed}
+    if unlisted:
+        out["dnt_unlisted"] = unlisted
+    if dnt["unknown"]:
+        out["dnt_pending"] = list(dnt["unknown"])
+    return out
+
+
+_adv_warming = set()
+_adv_warm_lock = threading.Lock()
+
+
+def _warm_adv_lists():
+    """Fetch, in the background and once at a time, each government's list the
+    cache doesn't hold or holds past ADV_TTL, so the do-not-travel marks are
+    whole and current: the requests that fill the cache ask for one list each,
+    and after a deploy Canada's and Germany's stayed unloaded until a reader
+    picked them. A list in its upstream failure backoff is left alone
+    (_cached would only hand back what it has)."""
+    now = time.time()
+    for src in _ADV_SRCS:
+        hit = _adv_cache.get(src)
+        if hit and now - hit[0] < ADV_TTL:
+            continue
+        fail = _upstream_fail.get(("advisories", src))
+        if fail and now < fail[0]:
+            continue
+        with _adv_warm_lock:
+            if src in _adv_warming:
+                continue
+            _adv_warming.add(src)
+
+        def run(s=src):
+            try:
+                _advisories_payload(s)
+            except Exception:
+                pass
+            finally:
+                with _adv_warm_lock:
+                    _adv_warming.discard(s)
+
+        threading.Thread(target=run, daemon=True).start()
+
+
+def _guide_cache(iso):
+    """The Cache-Control a guide page goes out with. Until the default
+    origin's flight-value pass has run once (~9 minutes after a deploy), a
+    render has no fares-strip marks; cached at the edge it would serve that
+    for 5 minutes. Likewise while a government's list isn't in hand: the
+    stays stand-in is drawn for a country that list may yet rule out (Saudi
+    Arabia before Germany's list is in), and the next render knows — unless
+    a list already in hand rules the country out (_guide_no_bookings)."""
+    _warm_adv_lists()
+    dnt = _adv_dnt()
+    warm = ((not flights.is_configured()
+             or flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN))
+            and (not dnt["unknown"] or _guide_no_bookings(iso, dnt)))
+    return "public, max-age=300" if warm else "no-store"
+
+
 def _fx_inputs():
     """{currency: strength_pct} from the rates the server already caches, and
     the PPP table, for the dollar column. Read, never computed: a cold rates
@@ -947,13 +1055,14 @@ def _fare_col_hints(iso, pct):
     return out
 
 
-def _guide_sizers(iso, level):
+def _guide_sizers(iso, level, no_bookings=False):
     """Invisible stand-ins for the guide blocks app.js fills (the visa line,
     the advisory, the AI buttons, the weather chart, the stays and the
     insurance line; fxtracker/guide_sizers.py),
     from the data files and what the caches hold right now — never an
     upstream call. Nothing for a block whose content isn't cached yet: it
-    keeps its per-level height (styles.css)."""
+    keeps its per-level height (styles.css). No stays where a government
+    says not to travel at all (no_bookings, _guide_no_bookings)."""
     out = {}
     try:
         out["GUIDE_VISA"] = guide_sizers.visa(iso)
@@ -978,10 +1087,14 @@ def _guide_sizers(iso, level):
             _warm_watchouts(iso)
         # No stays or insurance under "do not travel" (the server's level and
         # the US list's agree on that, or styles.css's data-level="4" hides
-        # them).
+        # them). No stays either where Canada or Germany says it (Venezuela,
+        # Saudi Arabia: US Level 3), as app.js's guideNoBookings has it for
+        # every reader; the insurance line follows the reader's own source,
+        # the US for the stand-in.
         lvl_now = int((items.get(iso) or {}).get("level") or 0)
         if level != 4 and lvl_now != 4:
-            out["GUIDE_STAY"] = guide_sizers.stay(iso)
+            if not no_bookings:
+                out["GUIDE_STAY"] = guide_sizers.stay(iso)
             out["GUIDE_INSURANCE"] = guide_sizers.insurance(iso)
     except Exception as e:   # a hint only: never the page
         print("[guide-sizers] %s: %s" % (iso, e), file=sys.stderr, flush=True)
@@ -1031,6 +1144,7 @@ def _render_index(gc_iso=None):
         vals.update(_home_sizers())
     if gc_iso:
         r = render_guide.render(gc_iso)
+        no_book = _guide_no_bookings(gc_iso)
         vals.update(
             TITLE=html.escape(r["title"]),
             DESC=html.escape(r["desc"], quote=True),
@@ -1055,10 +1169,12 @@ def _render_index(gc_iso=None):
             # weather chart for its number of hazard lines (data-hz, 1 or 2+),
             # and no stays block where no stays come (data-nostay: Ethiopia,
             # whose places are all in zones Canada says to avoid — held, the
-            # insurance line rose 135px at 1280 when it went).
+            # insurance line rose 135px at 1280 when it went — and every
+            # country a government says not to travel to, whoever the reader
+            # follows: _guide_no_bookings).
             GUIDE_DATA=(' data-level="%d"' % r["adv"] if r.get("adv") in (1, 2, 3, 4) else "")
             + (' data-hz="%d"' % min(r.get("hz") or 0, 2) if r.get("hz") else "")
-            + ("" if guide_sizers.stay(gc_iso) else ' data-nostay="1"')
+            + ("" if not no_book and guide_sizers.stay(gc_iso) else ' data-nostay="1"')
             + (' data-fm="1"' if _fare_strip_hint(gc_iso) else "")
             + _fare_col_hints(gc_iso, r.get("pct")),
             VALUE_ACTIVE="",
@@ -1068,7 +1184,7 @@ def _render_index(gc_iso=None):
             ACTIONS_HIDDEN=" hidden",
             VISITED_STATS="", VISITED_PICK="", VISITED_HOLD="",
         )
-        vals.update(_guide_sizers(gc_iso, r.get("adv")))
+        vals.update(_guide_sizers(gc_iso, r.get("adv"), no_book))
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
     out = _guide_template() if gc_iso else _index_template()
@@ -1746,13 +1862,10 @@ class Handler(BaseHTTPRequestHandler):
             raw = path[len("/guide/"):]
             iso = render_guide.iso_for_slug(raw)
             if iso:
-                # Until the default origin's flight-value pass has run once
-                # (~9 minutes after a deploy), a render has no fares-strip
-                # marks; cached at the edge it would serve that for 5 minutes.
-                warm = (not flights.is_configured()
-                        or flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN))
-                self._send_body(_render_index(iso), "text/html; charset=utf-8",
-                                cache="public, max-age=300" if warm else "no-store")
+                # Decided before the render: a list that lands in between
+                # only makes the page more right than its header says.
+                cache = _guide_cache(iso)
+                self._send_body(_render_index(iso), "text/html; charset=utf-8", cache=cache)
                 return
             # Only the exact lowercase slug is served. Everything else that
             # names a guide — /guide/Japan, a trailing slash, an alternate
@@ -2006,7 +2119,12 @@ class Handler(BaseHTTPRequestHandler):
             if data is None:
                 self._send_json({"error": str(e)}, 500)
                 return
-        self._send_json(data)
+        # The do-not-travel marks from all three lists (_with_dnt), whichever
+        # was asked for. Not cached by the browser while one is still being
+        # fetched: app.js's ensureBookingsKnown asks again until it is in.
+        _warm_adv_lists()
+        data = _with_dnt(data, _adv_dnt())
+        self._send_json(data, extra=[("Cache-Control", "no-store")] if data.get("dnt_pending") else None)
 
     def _handle_popularity(self):
         now = time.time()
@@ -2203,6 +2321,13 @@ def main():
     _warm_flight_value()
     _warm_rates()
     _warm_fx_history()
+    # The three governments' lists, for the guides' "do not travel" marks
+    # (_adv_dnt): nothing asked for them until a reader's /api/advisories, so
+    # the first guide after a deploy went out not knowing Germany's Level 4
+    # for Saudi Arabia (no-store, its stays held and then hidden).
+    t = threading.Timer(10, _warm_adv_lists)
+    t.daemon = True
+    t.start()
     # Canada's health advice ages; the server rebuilds /health.json itself
     # once it's a week old (fxtracker/health.py). Render only, unless
     # HEALTH_REFRESH=1 — never from a laptop by accident.

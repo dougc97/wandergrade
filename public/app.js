@@ -2517,6 +2517,9 @@ function renderGuideInsurance(iso) {
   // are the product, and a booking button beneath "do not travel for any
   // reason" makes the badge look like it is there to sell the booking. Held
   // back until the level is known, so it never flashes on a Level 4 page.
+  // The reader's own level only, here: insurers follow the traveller's own
+  // government, while stays and tours go wherever ANY of the three says
+  // "do not travel" (guideNoBookings).
   // Empty until then it holds its usual height (styles.css #guideInsurance:
   // empty), so a Level 4 page hides it outright rather than keep a blank.
   // The server's stand-in for it (.gsizer) stays instead until then: emptied,
@@ -3141,6 +3144,7 @@ function hostelworldURL(iso) {
                          : "https://www.hostelworld.com/";
 }
 let _staySpotIdx = 0, _staySpotIso = null;   // chip selection, reset per country
+let _ssrNoStay = null;                        // the server's data-nostay on its own guide, as served
 function renderGuideStay(iso) {
   const host = $("guideStay");
   if (!host) return;
@@ -3151,13 +3155,20 @@ function renderGuideStay(iso) {
   holdSizer(host, iso);
   host.innerHTML = ""; host.hidden = false;
   // The server's data-nostay (no room held for stays that never come) is
-  // its own guide's; another guide's stays are held as usual.
+  // its own guide's; another guide's stays are held as usual, but for a
+  // country already known to get none (guideNoBookings).
   const gtab = $("tab-guide");
-  if (gtab && iso !== window.__WGGC__) gtab.removeAttribute("data-nostay");
+  if (gtab) {
+    if (_ssrNoStay === null) _ssrNoStay = gtab.hasAttribute("data-nostay");
+    if (guideNoBookings(iso) === true || (iso === window.__WGGC__ && _ssrNoStay)) gtab.setAttribute("data-nostay", "1");
+    else gtab.removeAttribute("data-nostay");
+  }
   const none = () => { if (ccGuideIso === iso) { host.hidden = true; host.style.minHeight = ""; } };
-  Promise.all([ensureStayCoords(), ensureAdvisories().catch(() => null)]).then(([cc]) => {
+  Promise.all([ensureStayCoords(), ensureBookingsKnown()]).then(([cc]) => {
     if (ccGuideIso !== iso) return;                    // user switched country
-    if (guideAdvLevel(iso) === 4) return none();       // no bookings under "do not travel"
+    // No bookings where any government says "do not travel", and none while
+    // that can't be known (guideNoBookings).
+    if (guideNoBookings(iso) !== false) return none();
     // Spots = the country's top places (from the curated gallery), each a
     // stay-search anchor. Tolerate the old single-anchor shape from cache.
     let spots = cc[iso];
@@ -3316,6 +3327,55 @@ function guideAdvLevel(iso) {
   const parent = !meta[iso] && ADV_PARENT[iso] && meta[ADV_PARENT[iso]] ? ADV_PARENT[iso] : null;
   const it = meta[iso] || (parent && meta[parent]);
   return it ? it.level : 0;
+}
+// No stays and no tours for a country ANY of the three governments tells its
+// people not to enter at all, in its own list (the server's `dnt` marks, from
+// all three: Burkina Faso is Level 4 to the US and Canada, only "some
+// regions" to Germany), whichever source the reader follows: a booking link
+// into it would read as the site vouching for the trip. Also the reader's
+// own Level 4, a gap another government filled. true / false, or null while
+// that isn't known: the advisories still loading, or the server still
+// fetching a list it hasn't got (dnt_pending, seconds after a deploy) and
+// no mark on this country yet. A territory reads its parent, as its level
+// does. The insurance line stays on the reader's own level (guideAdvLevel):
+// insurers follow the traveller's own government.
+function guideNoBookings(iso) {
+  const lvl = guideAdvLevel(iso);
+  if (lvl == null) return null;
+  if (Number(lvl) === 4) return true;
+  const meta = advisoryMetaByIso();
+  const parent = !meta[iso] && ADV_PARENT[iso] ? ADV_PARENT[iso] : null;
+  const it = meta[iso] || (parent && meta[parent]);
+  const more = advisories.dnt_unlisted || {};
+  if ((it && it.dnt && it.dnt.length) || more[iso] || (parent && more[parent])) return true;
+  return advisories.dnt_pending && advisories.dnt_pending.length ? null : false;
+}
+// Resolves once guideNoBookings can answer for the reader's source, or never
+// will (it then says null, and the guide shows no bookings): a list the
+// server is still fetching (dnt_pending) is asked for again after 2, 4, 8, 16
+// and 32 seconds — one chain per source however many blocks wait on it. The
+// levels in a fresh copy are the ones already drawn; only the marks were
+// missing.
+const _dntWait = {};
+function ensureBookingsKnown() {
+  return ensureAdvisories().then((a) => {
+    if (!a || !a.dnt_pending) return a;
+    const src = advisorySource();
+    return _dntWait[src] || (_dntWait[src] = new Promise((resolve) => {
+      let n = 0;
+      const again = () => setTimeout(() => {
+        getJSON("/api/advisories?source=" + src).then((r) => {
+          if (r && r.items) {
+            if (advisories === _advBySource[src]) advisories = r;
+            _advBySource[src] = r;
+            if (!r.dnt_pending) return resolve(r);
+          }
+          if (++n < 5) again(); else resolve(null);
+        }, () => { if (++n < 5) again(); else resolve(null); });
+      }, 2000 * 2 ** n);
+      again();
+    }).finally(() => { delete _dntWait[src]; }));
+  }, () => null);
 }
 // A guide block about to be emptied and refilled for the country it already
 // shows — the server's invisible stand-in for it (.gsizer, fxtracker/
@@ -6396,13 +6456,15 @@ function renderTripBook(isos) {
     // says "Oct USD 608", and its Flights link has to mean October.
     const lvl = adv[iso] || (ADV_PARENT[iso] && adv[ADV_PARENT[iso]]) || 0;
     // No booking links for a "Level 4 — do not travel" country (the guide's
-    // rule); its ⚠️ still says why.
+    // rule); its ⚠️ still says why. No stays or things to do either where
+    // another government says it (guideNoBookings): Germany's Reisewarnung
+    // for Saudi Arabia, a US Level 3.
     const fu = lvl < 4 && fr && fr.dest ? flightSearchURL(fr.dest, key) : null;
     const links = [];
     if (fu) links.push(A(fu, "✈️", "Flights", name).replace('class="triplink"', 'class="triplink tbfly"'));
     // Stay link needs coordinates that load async; the span keeps the row's
     // shape until the fill swaps it for the real anchor.
-    if (lvl < 4) {
+    if (lvl < 4 && guideNoBookings(iso) !== true) {
       links.push('<span class="tbstay" data-iso="' + iso + '"></span>');
       links.push(A(viatorURL(name), "🎟️", "Things to do", name));
     }
@@ -9792,10 +9854,10 @@ function renderActivity(iso) {
   // deleting it meant the rendered DOM Google indexes no longer contained the
   // sentence the snippet promises. One muted line is the honest price.
   const summary = (a.summary || "").trim();
-  // The tours button waits for the advisory level like the stays do: none
-  // under "Level 4 — do not travel" (guideAdvLevel), hidden until it is known.
-  const lv = guideAdvLevel(iso);
-  const tours = lv === 4 ? "" : `<div class="guidetours"${lv == null ? " hidden" : ""}>
+  // The tours button waits like the stays do: none where any government
+  // says "do not travel" (guideNoBookings), hidden until that is known.
+  const nb = guideNoBookings(iso);
+  const tours = nb === true ? "" : `<div class="guidetours"${nb === false ? "" : " hidden"}>
     <a class="viatorbtn" href="${viatorURL(name)}" target="_blank" rel="sponsored nofollow noopener"
        title="Browse bookable tours & experiences in ${esc(nameT)} on Viator">🎟️ Book tours &amp; activities in ${esc(nameT)} <span class="muted">on Viator</span> <span class="ext">↗</span></a>
     <p class="affnote">Affiliate link — we may earn a commission, at no extra cost to you.</p></div>`;
@@ -9812,13 +9874,13 @@ function renderActivity(iso) {
     ${summary ? `<p class="actsummary muted">${esc(summary)}</p>` : ""}
     <div class="chips">${tags}</div>
     ${seas ? `<div class="actgrid"><div>${todo}</div><div><h3 style="font-size:1em;margin:.6em 0 .2em">${seasHead}</h3>${seas}</div></div>` : todo}`;
-  if (lv == null) {
+  if (nb == null) {
     const settle = () => {
       const t = $("actDetail").querySelector(".guidetours");
       if (!t || ccGuideIso !== iso) return;
-      if (guideAdvLevel(iso) === 4) t.remove(); else t.hidden = false;
+      if (guideNoBookings(iso) !== false) t.remove(); else t.hidden = false;
     };
-    ensureAdvisories().then(settle, settle);
+    ensureBookingsKnown().then(settle, settle);
   }
   return loadActivityThumbs(iso);   // settles once every row's photo is in or known missing
 }

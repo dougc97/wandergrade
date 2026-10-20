@@ -226,6 +226,75 @@ def get_advisories(source="us"):
     return primary
 
 
+# ---- "do not travel" by any of the three ----------------------------------
+# A guide draws no stay or tour links for a country any of the three
+# governments tells its people not to enter at all, whichever one the reader
+# follows: Burkina Faso is Level 4 to the US and Canada and only a warning for
+# some regions to Germany, and a German-source reader was offered hotels
+# there. Each government counts for its OWN top level only (US "Do Not
+# Travel", Canada "Avoid all travel", Germany's Reisewarnung for the whole
+# country) — a gap one fills in another's list (`via`) is its call already,
+# counted once under its own name.
+DNT_ORDER = ("us", "ca", "de")
+
+
+def own_levels(payload):
+    """{ISO: level} of a government's OWN ratings in one /api/advisories
+    payload (gap-fills stamped `via` left out). Numbers whatever the payload
+    holds: a level read back as "4" is Level 4, and one that isn't a number
+    rates nothing. Two rows for one ISO (Gaza and the West Bank are both PS):
+    the most cautious, as everywhere on the site."""
+    out = {}
+    for it in (payload or {}).get("items") or []:
+        iso = it.get("iso")
+        if not iso or it.get("via"):
+            continue
+        try:
+            lvl = int(str(it.get("level")).strip())
+        except (TypeError, ValueError):
+            continue
+        out[iso] = max(out.get(iso, lvl), lvl)
+    return out
+
+
+def dnt_for(iso, own, parents=None):
+    """The governments whose own list rates `iso` Level 4, in DNT_ORDER, from
+    {source: own_levels(...)} (a source missing from `own` is not in hand and
+    says nothing). A territory a list doesn't rate on its own reads its
+    parent's there (parents: app.js ADV_PARENT — Guernsey under the UK, the
+    Faroes under Denmark), as its guide's level does."""
+    parent = (parents or {}).get(iso)
+    out = []
+    for src in DNT_ORDER:
+        levels = own.get(src)
+        if levels is None:
+            continue
+        lvl = levels.get(iso)
+        if lvl is None and parent:
+            lvl = levels.get(parent)
+        if lvl is not None and lvl >= 4:
+            out.append(src)
+    return out
+
+
+def dnt_sources(payloads, parents=None):
+    """({ISO: [source, ...]}, unknown) from the three governments' payloads
+    ({source: payload, or None for a list not in hand}): every rated country
+    at least one of them puts at Level 4 in its own list, and `unknown`, the
+    sources whose list is missing. A missing list is not a "no": nobody can
+    say it doesn't rate Saudi Arabia Level 4 (Germany's does since
+    2026-10-11, the US's and Canada's say 3), so a caller must treat the
+    countries it could flag as not known yet."""
+    own = {s: own_levels(p) for s, p in payloads.items() if s in DNT_ORDER and p is not None}
+    unknown = [s for s in DNT_ORDER if payloads.get(s) is None]
+    flags = {}
+    for iso in set().union(*own.values()):
+        by = dnt_for(iso, own, parents)
+        if by:
+            flags[iso] = by
+    return flags, unknown
+
+
 def _german_advisories():
     """German Foreign Office warnings -> 1-4 levels. Germany only issues warnings
     for genuinely risky places, so most countries read as Level 1 (normal) — a

@@ -346,11 +346,15 @@ results.append(ok(got == {"Paektu Mountain": [41.99333, 128.0775], "maiden Tower
 
 # The rest (2026-10-19): every other country a rebuild would change was
 # reviewed and only the GAINs rebuilt, with the United Arab Emirates (Dubai
-# Marina's own point) and Korea (Gyeongju's label). A GAIN whose new place is
+# Marina's own point), Korea (Gyeongju's label) and Jordan (Amman's label on
+# the Roman Theatre's point: the one chip that named a landmark, beside
+# three destinations). A GAIN whose new place is
 # in a country Canada says to avoid all travel to (Burkina Faso's Banfora,
 # South Sudan's Boma, Yemen's Al Hajjarah) is not rebuilt: stay-skip.json
-# holds regional zones only, any refill is in the same zone, and the German
-# source rates Burkina Faso level 2, so its chips are drawn. Rebuilt from their guides
+# holds regional zones only, any refill is in the same zone, and no guide
+# draws its chips anyway (app.js guideNoBookings: Level 4 in the US's or
+# Canada's own list, whatever source the reader follows; Germany's level 2
+# drew Burkina Faso's until 2026-10-20). Rebuilt from their guides
 # and main a2663ff's chips with Wikipedia's answers of 2026-10-19 stubbed
 # (scripts/fixtures/stay_rest_2026-10-19.json), each gives exactly these
 # chips, the file holds them, and a rebuild of the rebuilt file changes nothing.
@@ -374,7 +378,7 @@ WANT2 = {
     "IS": [("Gullfoss", [64.32611, -20.12111]), ("Blue Lagoon", [63.88, -22.44806]), ("Seljalandsfoss", [63.61583, -19.99278]),
            ("Kirkjufell", [64.94104, -23.30569])],
     "JO": [("Petra", [30.32861, 35.44194]), ("Wadi Rum", [29.59306, 35.42]), ("Jerash", [32.28056, 35.89722]),
-           ("Roman Theatre", [31.95169, 35.93931])],
+           ("Amman", [31.95169, 35.93931])],
     "KG": [("Song-Köl", [41.83333, 75.16667]), ("Ala Archa National Park", [42.58333, 74.48333]), ("Issyk-Kul", [42.41667, 77.25]),
            ("Jeti-Ögüz Rocks", [42.3371, 78.2309])],
     "ME": [("Kotor", [42.43, 18.77]), ("Budva", [42.28806, 18.8425]), ("Durmitor", [43.12806, 19.03472]),
