@@ -3143,6 +3143,27 @@ function hostelworldURL(iso) {
   return HW_COUNTRY[iso] ? "https://www.hostelworld.com/hostels/" + HW_COUNTRY[iso] + "/"
                          : "https://www.hostelworld.com/";
 }
+// Vrbo (holiday homes) through Stay22's /allez/vrbo, on Booking's aid, point
+// and dates; it lands on the reader's own Vrbo brand (Abritel in France,
+// Fewo-direkt in Germany, Stayz in Australia, Bookabach in New Zealand).
+// Only where Vrbo has homes to show, by the site's regions (regionOf): the
+// Americas (Mexico's and the Caribbean's beach houses), Europe and Oceania;
+// not Russia (Expedia Group, Vrbo's owner, stopped selling travel there in
+// March 2022), Papua New Guinea or the Solomon Islands (lodges and
+// guesthouses, next to no holiday lets). Plus four with villa markets of
+// their own: Thailand (Phuket, Koh Samui), Indonesia (Bali), South Africa
+// (about 4,000 homes in the Western Cape) and Morocco (Marrakech's riads).
+// Elsewhere in Asia, Africa and the Middle East the search comes back near
+// empty: Japan's home-sharing law (registered hosts, 180 nights a year) left
+// Vrbo mostly hotels there. A third button wraps the row onto two lines on a
+// phone (Portugal 154 -> 199px at 390), which the stand-in draws too:
+// guide_sizers.vrbo() is the same rule, so change them together.
+const VRBO_REGIONS = new Set(["AMER", "EUR", "OCEANIA"]);
+const VRBO_ALSO = new Set(["TH", "ID", "ZA", "MA"]);
+const VRBO_NOT = new Set(["RU", "PG", "SB"]);
+function vrboOK(iso) {
+  return VRBO_ALSO.has(iso) || (VRBO_REGIONS.has(regionOf(iso)) && !VRBO_NOT.has(iso));
+}
 let _staySpotIdx = 0, _staySpotIso = null;   // chip selection, reset per country
 let _ssrNoStay = null;                        // the server's data-nostay on its own guide, as served
 function renderGuideStay(iso) {
@@ -3183,10 +3204,10 @@ function renderGuideStay(iso) {
     if (_staySpotIdx >= spots.length) _staySpotIdx = 0;
     const sp = spots[_staySpotIdx];
     const { checkin, checkout } = stayDates();
-    // Allez deep links land users in Booking's own UI at the chosen spot with
-    // the traveler's month — earning through aid=wandergrade. Hostelworld is a
-    // plain link until the Partnerize camref arrives. Footer disclosure covers
-    // the affiliate relationship.
+    // Allez deep links land users in Booking's (and Vrbo's, vrboOK) own UI at
+    // the chosen spot with the traveler's month — earning through
+    // aid=wandergrade. Hostelworld is a plain link until the Partnerize camref
+    // arrives. Footer disclosure covers the affiliate relationship.
     const q = "aid=" + STAY22_AID + "&lat=" + sp.ll[0] + "&lng=" + sp.ll[1] +
               "&checkin=" + checkin + "&checkout=" + checkout;
     const hw = hostelworldURL(iso);
@@ -3203,6 +3224,7 @@ function renderGuideStay(iso) {
       chips +
       '<div class="staybtns">' +
         btn("https://www.stay22.com/allez/booking?" + q, "🏨 Booking.com", true) +
+        (vrboOK(iso) ? btn("https://www.stay22.com/allez/vrbo?" + q, "🏡 Vrbo", true) : "") +
         btn(hw, "🎒 Hostelworld", false) +
       "</div>";
     host.querySelectorAll(".staychip").forEach((b) => b.addEventListener("click", () => {

@@ -228,10 +228,22 @@ def safety(iso, items, source_name, wo, hdoc, today=None, source="us"):
     return _wrap(iso, inner + _health(hdoc, iso, GUIDE_PARENT.get(iso)), None if source == "us" else source)
 
 
+def vrbo(iso):
+    """app.js vrboOK: whether the stays block has a Vrbo button. The
+    Americas, Europe and Oceania, less Russia (Expedia Group stopped selling
+    travel there) and Papua New Guinea and the Solomon Islands (next to no
+    holiday lets), plus Thailand, Indonesia, South Africa and Morocco's villa
+    markets; app.js says why for each. ISO_REGION is regionOf for every guide."""
+    return iso in VRBO_ALSO or (ISO_REGION.get(iso) in VRBO_REGIONS and iso not in VRBO_NOT)
+
+
 def stay(iso, spots=None):
     """The stays block as renderGuideStay draws it (first spot chosen), or ""
     with no spots (app.js hides the block then). `spots` defaults to the
-    country's entry in public/stay-coords.json, the file app.js reads."""
+    country's entry in public/stay-coords.json, the file app.js reads. Its
+    buttons are app.js's, in order: Booking.com, Vrbo where vrbo() says so
+    (Portugal, Mexico, Australia; not Japan or Kenya), Hostelworld — a third
+    button wraps the row onto two lines on a phone."""
     if spots is None:
         spots = _json("stay-coords.json").get(iso)
     if isinstance(spots, dict):
@@ -247,7 +259,8 @@ def stay(iso, spots=None):
     # margins, so it lays out the same).
     return _wrap(iso, '<div class="staytitle">🏨 Where to stay <span class="staynear">near %s</span></div>' % _e(spots[0]["n"])
                  + chips + '<div class="staybtns"><a class="staybtn">🏨 Booking.com <span class="ext">↗</span></a>'
-                 '<a class="staybtn">🎒 Hostelworld <span class="ext">↗</span></a></div>')
+                 + ('<a class="staybtn">🏡 Vrbo <span class="ext">↗</span></a>' if vrbo(iso) else "")
+                 + '<a class="staybtn">🎒 Hostelworld <span class="ext">↗</span></a></div>')
 
 
 # app.js VISA_META: the chip's word and colour, and the line's words.
@@ -304,6 +317,10 @@ ISO_REGION = {iso: r for r, isos in _ISO_REGION.items() for iso in isos.split()}
 # The guides app.js places by the map's continents instead (regionOf); none
 # for Antarctica and the French Southern Lands.
 ISO_REGION.update(FK="AMER", PR="AMER", SV="AMER", KP="ASIA", TL="ASIA", NC="OCEANIA", SL="AFRICA", ZW="AFRICA")
+# app.js VRBO_REGIONS / VRBO_ALSO / VRBO_NOT (vrbo()).
+VRBO_REGIONS = {"AMER", "EUR", "OCEANIA"}
+VRBO_ALSO = {"TH", "ID", "ZA", "MA"}
+VRBO_NOT = {"RU", "PG", "SB"}
 
 
 def _join_and(items):
