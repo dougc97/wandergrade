@@ -90,7 +90,7 @@ def page_image(subject):
 def metrics(data):
     im = Image.open(io.BytesIO(data)).convert("RGB")
     # Wikimedia now serves thumbs in fixed steps (a 1600px ask comes back
-    # 1920px from thumb.wikimedia.org), so resolve()'s /800px- rewrite misses:
+    # 1920px from thumb.wikimedia.org), so resolve()'s /1600px- rewrite misses:
     # scale here, keeping the copy and its metrics 800px wide like the 2026-10
     # sweep's.
     if im.width > 800:
@@ -171,7 +171,9 @@ def resolve(subject, img_path=None):
     if status:
         row["status"] = status
     else:
-        small = re.sub(r"/1600px-", "/800px-", thumb)
+        # 960, not 800: a hotlinked thumb must be one of Wikimedia's steps
+        # (https://w.wiki/GHai) or it is a 400; metrics() scales it to 800.
+        small = re.sub(r"/1600px-", "/960px-", thumb)
         data = urllib.request.urlopen(urllib.request.Request(small, headers=UA), timeout=40).read()
         im, m = metrics(data)
         row.update(m)

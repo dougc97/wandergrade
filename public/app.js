@@ -9933,9 +9933,13 @@ function loadActivityThumbs(iso) {
     const k = fileKey(p.full);
     if (used.has(k)) return;
     used.add(k);
-    // Derive a lightweight thumb from the API's 1600px URL (standard MediaWiki
+    // Derive a lightweight thumb from the API's URL (standard MediaWiki
     // size-in-path); fall back to the big one if that variant doesn't exist.
-    const small = p.thumb.replace(/\/(\d+)px-/, "/320px-");
+    // The width must be one of Wikimedia's thumbnail steps (20, 40, 60, 120,
+    // 250, 330, 500, 960, 1280, 1920, 3840: https://w.wiki/GHai): any other is
+    // a 400 for a hotlink, and 320 was, so every thumb fell back to 1920px.
+    // 330 covers the 84px slot at 3x.
+    const small = p.thumb.replace(/\/(\d+)px-/, "/330px-");
     const img = document.createElement("img");
     // An interactive control, so it is neither alt="" (invisible to SRs) nor
     // mouse-only: named, focusable, Enter/Space opens the same viewer.
