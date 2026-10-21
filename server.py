@@ -31,7 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
     flightvalue, guide_facts, guide_sizers, health, llms_txt, mailer, map_picks, picks, popularity, rates,
-    render_guide, render_lists, store, watchouts
+    render_guide, render_lists, render_privacy, store, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -254,6 +254,13 @@ _HTML_DEFAULTS = {
                     '<span style="width:9.2em"></span><span style="width:9.5em"></span>'
                     '<span style="width:8.2em"></span></div>',
     "FLIGHTS_OFF": "",
+    # The footer's link to /privacy, at the end of the commission line: a
+    # homepage-only token, in the footer's own bytes with no space of its own,
+    # so a guide (which fills it with "") stays byte-identical while
+    # /guide/* is under its Search Console measurement (until November 2026).
+    # The shell pages (/data, the lists, 404) carry it in _shell_page. The
+    # no-break space keeps the dot with the link when a phone wraps the line.
+    "FOOTER_PRIVACY": ' &middot;&nbsp;<a href="/privacy">Privacy</a>',
 }
 _html_tpl = None
 
@@ -566,7 +573,10 @@ def _sitemap():
            '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
            '  <url><loc>%s/data</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
            '  <url><loc>%s/safe-and-cheap</loc><lastmod>%s</lastmod></url>' % (_SITE, safe_lm),
-           '  <url><loc>%s/do-not-travel</loc><lastmod>%s</lastmod></url>' % (_SITE, dnt_lm)]
+           '  <url><loc>%s/do-not-travel</loc><lastmod>%s</lastmod></url>' % (_SITE, dnt_lm),
+           # Dated by its own "Last updated", the day its words last changed:
+           # a content-stamp bump for the guides' data doesn't touch it.
+           '  <url><loc>%s/privacy</loc><lastmod>%s</lastmod></url>' % (_SITE, render_privacy.UPDATED)]
     expired = render_guide.snapshot_expired_on(doc=doc)
     for slug, iso in render_guide.all_slugs():
         days = [stamp, render_guide.snapshot_changed(iso, doc), expired.isoformat() if expired else ""]
@@ -719,6 +729,7 @@ def _shell_page(title, body, head="", analytics=True, credits=True):
         # crawl priority — see _guide_links).
         'Lists: <a href="/safe-and-cheap">Safest cheap countries</a> &middot; '
         '<a href="/do-not-travel">Do Not Travel list</a> &middot; '
+        '<a href="/privacy">Privacy</a> &middot; '
         '<a href="/">Back to WanderGrade</a></footer></body></html>'
         % (html.escape(title), _SHELL_ICON, head, _asset_version("styles.css"),
            _analytics_tag() if analytics else "", body,
@@ -1001,6 +1012,19 @@ def _list_page(path):
     return out
 
 
+_privacy_memo = [None]
+
+
+def _render_privacy_page():
+    """/privacy in the list pages' shell (fxtracker/render_privacy.py). Its
+    words are fixed per deploy, so it is built once per process."""
+    if _privacy_memo[0] is None:
+        p = render_privacy.privacy()
+        _privacy_memo[0] = _shell_page(p["title"], p["html"], _list_head("/privacy", p["title"], p["desc"]),
+                                       credits=False)
+    return _privacy_memo[0]
+
+
 _NOINDEX = '<meta name="robots" content="noindex">'
 
 
@@ -1233,6 +1257,7 @@ def _render_index(gc_iso=None):
             # and the guides' HTML stays byte-identical to before them.
             ACTIONS_HIDDEN=" hidden",
             VISITED_STATS="", VISITED_PICK="", VISITED_HOLD="",
+            FOOTER_PRIVACY="",
         )
         sz = _guide_sizers(gc_iso, r.get("adv"), no_book)
         vals["GUIDE_DATA"] += sz.pop("_ATTRS", "")
@@ -1972,6 +1997,16 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/data", "/data/"):
             self._send_body(_render_data_page(), "text/html; charset=utf-8",
                             cache="public, max-age=300")
+            return
+        if path == "/privacy":
+            # Cached like the list pages (the edge follows this header once
+            # Cloudflare's HTML rule names the path); no cookie, nothing personal.
+            self._send_body(_render_privacy_page(), "text/html; charset=utf-8",
+                            cache="public, max-age=300")
+            return
+        if path == "/privacy/":
+            query = self.path.split("?", 1)[1] if "?" in self.path else ""
+            self._redirect("/privacy" + ("?" + query if query else ""))
             return
         if path == "/ppp.json":
             self._send_json(_ppp_data(), extra=[("Cache-Control", "public, max-age=86400")])

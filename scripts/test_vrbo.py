@@ -9,12 +9,13 @@ the network or a server process.
     guide and every country with stays: the Americas, Europe and Oceania
     less Russia, Papua New Guinea, the Solomon Islands, Greenland, the
     Falklands and Cuba, plus Thailand, Indonesia, South Africa, Morocco, the
-    UAE and Mauritius (Portugal, Mexico, Australia, Puerto Rico, England,
-    the UAE yes; Japan, Kenya, Greenland no);
+    UAE, Mauritius, the Philippines and Sri Lanka (Portugal, Mexico,
+    Australia, Puerto Rico, England, the UAE, the Philippines, Sri Lanka yes;
+    Japan, Kenya, Greenland no);
   * the served stays stand-in has the button exactly where vrbo() says;
   * renderGuideStay under jsc (its page stubbed) draws the same buttons in
-    the same order as the stand-in (Booking.com, Vrbo, Hostelworld; no Vrbo
-    for Japan, Kenya or Greenland), and the Vrbo link is
+    the same order as the stand-in (Booking.com, Vrbo, Hostelworld, the
+    Philippines and Sri Lanka too; no Vrbo for Japan, Kenya or Greenland), and the Vrbo link is
     https://www.stay22.com/allez/vrbo with aid=wandergrade, the chosen
     spot's lat and lng and the stay's checkin and checkout — Booking's own
     query — opened sponsored in a new tab;
@@ -80,8 +81,9 @@ diff = [i for i in ISOS if js.get(i) is not py[i]]
 results.append(ok(not diff and len(js) == len(ISOS),
                   "app.js vrboOK and guide_sizers.vrbo agree on all %d guides and stay countries (differ: %s%s)"
                   % (len(ISOS), diff[:8], " " + js["error"] if "error" in js else "")))
-yes = ["PT", "MX", "AU", "US", "CA", "GB-ENG", "PR", "CR", "BR", "FJ", "NZ", "TR", "TH", "ID", "ZA", "MA", "AE", "MU"]
-no = ["JP", "KE", "ET", "EG", "IN", "CN", "VN", "PH", "LK", "RU", "PG", "SB", "GL", "FK", "CU", "TF", "AQ"]
+yes = ["PT", "MX", "AU", "US", "CA", "GB-ENG", "PR", "CR", "BR", "FJ", "NZ", "TR", "TH", "ID", "ZA", "MA", "AE", "MU",
+       "PH", "LK"]
+no = ["JP", "KE", "ET", "EG", "IN", "CN", "VN", "RU", "PG", "SB", "GL", "FK", "CU", "TF", "AQ"]
 results.append(ok(all(py[i] for i in yes) and not any(py[i] for i in no),
                   "Vrbo for %s; none for %s (got %s)" % (" ".join(yes), " ".join(no),
                                                          {i: py[i] for i in yes + no if py[i] != (i in yes)})))
@@ -98,7 +100,7 @@ for iso in sorted(coords):
 results.append(ok(not wrong, "the stays stand-in has the Vrbo button exactly where vrbo() says (wrong: %s)" % wrong[:8]))
 
 # --- renderGuideStay under jsc -------------------------------------------------------
-PICK = ["PT", "MX", "AU", "TH", "MA", "AE", "MU", "GB-ENG", "JP", "KE", "GL", "FK"]
+PICK = ["PT", "MX", "AU", "TH", "MA", "AE", "MU", "PH", "LK", "GB-ENG", "JP", "KE", "GL", "FK"]
 DATES = {"checkin": "2026-11-15", "checkout": "2026-11-18"}
 prog = "\n".join([js_const("esc"), REGION_JS, js_const("STAY22_AID"), js_const("HW_COUNTRY"), js_fn("hostelworldURL"),
                   "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;", js_fn("renderGuideStay")]) + """
@@ -128,9 +130,10 @@ for iso in PICK:
     links[iso] = (a[0] if a else None, b[0] if b else None)
 results.append(ok(all(same.values()), "renderGuideStay draws the stand-in's buttons in its order (%s%s)"
                   % (same, " " + drawn["error"] if "error" in drawn else "")))
-results.append(ok([LABELS.findall(drawn.get(i) or "") for i in ("PT", "JP")]
-                  == [["🏨 Booking.com", "🏡 Vrbo", "🎒 Hostelworld"], ["🏨 Booking.com", "🎒 Hostelworld"]],
-                  "Portugal: Booking.com, Vrbo, Hostelworld; Japan: Booking.com, Hostelworld"))
+THREE = ["🏨 Booking.com", "🏡 Vrbo", "🎒 Hostelworld"]
+results.append(ok([LABELS.findall(drawn.get(i) or "") for i in ("PT", "PH", "LK", "JP")]
+                  == [THREE, THREE, THREE, ["🏨 Booking.com", "🎒 Hostelworld"]],
+                  "Portugal, the Philippines, Sri Lanka: Booking.com, Vrbo, Hostelworld; Japan: Booking.com, Hostelworld"))
 good = []
 for iso in PICK:
     (vr, booking) = links[iso]

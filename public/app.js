@@ -3153,19 +3153,18 @@ function hostelworldURL(iso) {
 // guesthouses, next to no holiday lets), Greenland (1 home on Vrbo's country
 // page), the Falklands (0) or Cuba (Vrbo's Old Havana page shows homes in
 // other countries, and US rules bar US readers' tourist stays there). Plus
-// six with holiday-home markets of their own: Thailand (Phuket, Koh Samui),
+// eight with holiday-home markets of their own: Thailand (Phuket, Koh Samui),
 // Indonesia (Bali), South Africa (about 4,000 homes in the Western Cape),
 // Morocco (Marrakech's riads), the UAE (about 9,000 to 11,000 in Dubai,
-// mostly managed apartments) and Mauritius (about 1,500, 600 of them villas).
-// Elsewhere in Asia, Africa and the Middle East Vrbo is thinner: Japan's
-// home-sharing law (registered hosts, 180 nights a year) left it mostly
-// hotels; the Philippines (about 90 homes each on Boracay and Palawan) and
-// Sri Lanka (about 850 villas) are the next candidates. A third button wraps
-// the row onto two lines on a phone (Portugal 154 -> 199px at 390), which the
-// stand-in draws too: guide_sizers.vrbo() is the same rule, so change them
-// together.
+// mostly managed apartments), Mauritius (about 1,500, 600 of them villas),
+// the Philippines (homes on Boracay, Palawan and Siargao) and Sri Lanka
+// (about 850 villas). Elsewhere in Asia, Africa and the Middle East Vrbo is
+// thinner: Japan's home-sharing law (registered hosts, 180 nights a year)
+// left it mostly hotels. A third button wraps the row onto two lines on a
+// phone (Portugal 154 -> 199px at 390), which the stand-in draws too:
+// guide_sizers.vrbo() is the same rule, so change them together.
 const VRBO_REGIONS = new Set(["AMER", "EUR", "OCEANIA"]);
-const VRBO_ALSO = new Set(["TH", "ID", "ZA", "MA", "AE", "MU"]);
+const VRBO_ALSO = new Set(["TH", "ID", "ZA", "MA", "AE", "MU", "PH", "LK"]);
 const VRBO_NOT = new Set(["RU", "PG", "SB", "GL", "FK", "CU"]);
 function vrboOK(iso) {
   return VRBO_ALSO.has(iso) || (VRBO_REGIONS.has(regionOf(iso)) && !VRBO_NOT.has(iso));

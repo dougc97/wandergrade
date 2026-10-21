@@ -54,6 +54,7 @@ Example: {site}/?vmn=11&vo=GB&vr=EUR&pc=10 is the top ten in Europe for a travel
 
 - Fares and exchange rates move daily and advisories change without notice: give the date and link the page; tell readers to check entry rules and advisories on the official links each guide gives before booking.
 - Some booking links on the site are affiliate links; the grades do not depend on them.
+- [Privacy]({site}/privacy): what the site keeps, which partner links carry tracking, and where data goes.
 - Contact: hello@wandergrade.com
 
 ## Country guides

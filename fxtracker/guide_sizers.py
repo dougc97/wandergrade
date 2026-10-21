@@ -233,9 +233,9 @@ def vrbo(iso):
     Americas, Europe and Oceania, less Russia (Expedia Group stopped selling
     travel there), Papua New Guinea, the Solomon Islands, Greenland, the
     Falklands and Cuba (next to no homes on Vrbo), plus the holiday-home
-    markets of Thailand, Indonesia, South Africa, Morocco, the UAE and
-    Mauritius; app.js says why for each. ISO_REGION is regionOf for every
-    guide."""
+    markets of Thailand, Indonesia, South Africa, Morocco, the UAE,
+    Mauritius, the Philippines and Sri Lanka; app.js says why for each.
+    ISO_REGION is regionOf for every guide."""
     return iso in VRBO_ALSO or (ISO_REGION.get(iso) in VRBO_REGIONS and iso not in VRBO_NOT)
 
 
@@ -321,7 +321,7 @@ ISO_REGION = {iso: r for r, isos in _ISO_REGION.items() for iso in isos.split()}
 ISO_REGION.update(FK="AMER", PR="AMER", SV="AMER", KP="ASIA", TL="ASIA", NC="OCEANIA", SL="AFRICA", ZW="AFRICA")
 # app.js VRBO_REGIONS / VRBO_ALSO / VRBO_NOT (vrbo()).
 VRBO_REGIONS = {"AMER", "EUR", "OCEANIA"}
-VRBO_ALSO = {"TH", "ID", "ZA", "MA", "AE", "MU"}
+VRBO_ALSO = {"TH", "ID", "ZA", "MA", "AE", "MU", "PH", "LK"}
 VRBO_NOT = {"RU", "PG", "SB", "GL", "FK", "CU"}
 
 
