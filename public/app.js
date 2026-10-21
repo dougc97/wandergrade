@@ -3156,11 +3156,14 @@ function renderGuideStay(iso) {
   host.innerHTML = ""; host.hidden = false;
   // The server's data-nostay (no room held for stays that never come) is
   // its own guide's; another guide's stays are held as usual, but for a
-  // country already known to get none (guideNoBookings).
+  // country already known to get none (guideNoBookings), or that never can
+  // be while a list's fetch has failed (dntSettled with no answer).
   const gtab = $("tab-guide");
   if (gtab) {
     if (_ssrNoStay === null) _ssrNoStay = gtab.hasAttribute("data-nostay");
-    if (guideNoBookings(iso) === true || (iso === window.__WGGC__ && _ssrNoStay)) gtab.setAttribute("data-nostay", "1");
+    const nb = guideNoBookings(iso);
+    if (nb === true || (nb === null && advisories && dntSettled(advisories))
+        || (iso === window.__WGGC__ && _ssrNoStay)) gtab.setAttribute("data-nostay", "1");
     else gtab.removeAttribute("data-nostay");
   }
   const none = () => { if (ccGuideIso === iso) { host.hidden = true; host.style.minHeight = ""; } };
@@ -3353,13 +3356,16 @@ function guideNoBookings(iso) {
 // Resolves once guideNoBookings can answer for the reader's source, or never
 // will (it then says null, and the guide shows no bookings): a list the
 // server is still fetching (dnt_pending) is asked for again after 2, 4, 8, 16
-// and 32 seconds — one chain per source however many blocks wait on it. The
-// levels in a fresh copy are the ones already drawn; only the marks were
-// missing.
+// and 32 seconds — one chain per source however many blocks wait on it. Not
+// a list whose fetch failed (dnt_failed): the server serves its guide with no
+// stays held already, and a minute's wait only ended in the same answer,
+// the block it had held for that minute dropping out. The levels in a fresh
+// copy are the ones already drawn; only the marks were missing.
 const _dntWait = {};
+const dntSettled = (a) => !a.dnt_pending || a.dnt_pending.every((s) => (a.dnt_failed || []).includes(s));
 function ensureBookingsKnown() {
   return ensureAdvisories().then((a) => {
-    if (!a || !a.dnt_pending) return a;
+    if (!a || dntSettled(a)) return a;
     const src = advisorySource();
     return _dntWait[src] || (_dntWait[src] = new Promise((resolve) => {
       let n = 0;
@@ -3368,7 +3374,7 @@ function ensureBookingsKnown() {
           if (r && r.items) {
             if (advisories === _advBySource[src]) advisories = r;
             _advBySource[src] = r;
-            if (!r.dnt_pending) return resolve(r);
+            if (dntSettled(r)) return resolve(r);
           }
           if (++n < 5) again(); else resolve(null);
         }, () => { if (++n < 5) again(); else resolve(null); });
@@ -6448,6 +6454,7 @@ function renderTripBook(isos) {
     + '" title=""> ⓘ</span></span>'
     + '<span class="tbacts">' + (seedable ? '<button type="button" class="tripseed" id="tripSeed">+ my ★ wishlist</button>' : "")
     + '<button type="button" class="tripseed" id="tripClear">Clear</button></span></div>';
+  let unknown = false;   // a row whose stays and things to do wait on the marks
   const rows = isos.map((iso) => {
     const name = countryName(iso);
     const fr = flightsData && flightsData.countries
@@ -6457,14 +6464,16 @@ function renderTripBook(isos) {
     const lvl = adv[iso] || (ADV_PARENT[iso] && adv[ADV_PARENT[iso]]) || 0;
     // No booking links for a "Level 4 — do not travel" country (the guide's
     // rule); its ⚠️ still says why. No stays or things to do either where
-    // another government says it (guideNoBookings): Germany's Reisewarnung
-    // for Saudi Arabia, a US Level 3.
+    // another government says it, or while that can't be known
+    // (guideNoBookings): Germany's Reisewarnung for Saudi Arabia, a US Level 3.
     const fu = lvl < 4 && fr && fr.dest ? flightSearchURL(fr.dest, key) : null;
     const links = [];
     if (fu) links.push(A(fu, "✈️", "Flights", name).replace('class="triplink"', 'class="triplink tbfly"'));
     // Stay link needs coordinates that load async; the span keeps the row's
     // shape until the fill swaps it for the real anchor.
-    if (lvl < 4 && guideNoBookings(iso) !== true) {
+    const nb = lvl < 4 ? guideNoBookings(iso) : true;
+    if (nb == null) unknown = true;
+    if (nb === false) {
       links.push('<span class="tbstay" data-iso="' + iso + '"></span>');
       links.push(A(viatorURL(name), "🎟️", "Things to do", name));
     }
@@ -6485,6 +6494,14 @@ function renderTripBook(isos) {
     + '<span class="tblinks">' + A(insuranceHref(isos[0] || "US"), "", "Travel insurance (EKTA)", "whole trip") + "</span></div>"
     + '<p class="affnote">These earn us a commission at no extra cost to you — it’s what keeps the site free.</p>';
   bindTripActions();
+  // A list the server is still fetching (dnt_pending, seconds after a
+  // deploy): those rows get their links once it is in, as the guide does.
+  if (unknown && advisories && !dntSettled(advisories)) {
+    const was = advisories;
+    ensureBookingsKnown().then((a) => {
+      if (a && a !== was && dntSettled(a) && host.isConnected) renderTripBook([...loadTrip()]);
+    });
+  }
   host.querySelectorAll(".tbx").forEach((b) => b.addEventListener("click", () => {
     const all = [...host.querySelectorAll(".tbx")];
     const at = all.indexOf(b);

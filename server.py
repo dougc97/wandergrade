@@ -822,11 +822,28 @@ def _adv_dnt():
     return val
 
 
-def _guide_no_bookings(iso, dnt=None):
-    """True when a guide shows no stays or tours: a government's own list
-    rates the country (or the territory's parent) Level 4."""
+def _dnt_failed(dnt):
+    """The lists not in hand whose fetch has failed (_adv_failed) — not ones
+    still on their way after a boot: a reader can't wait those out, so the
+    guide draws no stays or tours for them at once (app.js
+    ensureBookingsKnown stops asking) rather than hold the block for a
+    minute and then drop it."""
+    return [s for s in dnt["unknown"] if s in _adv_failed]
+
+
+def _guide_flagged(iso, dnt=None):
+    """True when a government's own list in hand rates the country (or the
+    territory's parent) Level 4."""
     dnt = dnt or _adv_dnt()
     return bool(advisories.dnt_for(iso, dnt["own"], guide_sizers.ADV_PARENT))
+
+
+def _guide_no_bookings(iso, dnt=None):
+    """True when a guide shows no stays or tours: a government's own list
+    rates the country Level 4 (_guide_flagged), or a list whose fetch failed
+    can't say it doesn't (a missing list is unknown, never a no)."""
+    dnt = dnt or _adv_dnt()
+    return _guide_flagged(iso, dnt) or bool(_dnt_failed(dnt))
 
 
 def _with_dnt(data, dnt):
@@ -835,8 +852,9 @@ def _with_dnt(data, dnt):
     Level 4 (["us", "ca"]: who says so), `dnt_unlisted` for such a country
     the list has no row for at all (a gap-fill that failed when it was
     built), and `dnt_pending` naming the lists not in hand yet — until they
-    are, a country without a mark is not known to be clear. A new dict: the
-    cached payload is shared."""
+    are, a country without a mark is not known to be clear — with
+    `dnt_failed`, those of them whose fetch failed (no use waiting). A new
+    dict: the cached payload is shared."""
     flags = dnt["flags"]
     items = data.get("items") or []
     out = dict(data, items=[dict(it, dnt=flags[it["iso"]]) if it.get("iso") in flags else it
@@ -847,6 +865,9 @@ def _with_dnt(data, dnt):
         out["dnt_unlisted"] = unlisted
     if dnt["unknown"]:
         out["dnt_pending"] = list(dnt["unknown"])
+        failed = _dnt_failed(dnt)
+        if failed:
+            out["dnt_failed"] = failed
     return out
 
 
@@ -892,13 +913,14 @@ def _guide_cache(iso):
     render has no fares-strip marks; cached at the edge it would serve that
     for 5 minutes. Likewise while a government's list isn't in hand: the
     stays stand-in is drawn for a country that list may yet rule out (Saudi
-    Arabia before Germany's list is in), and the next render knows — unless
-    a list already in hand rules the country out (_guide_no_bookings)."""
+    Arabia before Germany's list is in), or none at all while a fetch has
+    failed, and the next render knows — unless a list already in hand rules
+    the country out (_guide_flagged)."""
     _warm_adv_lists()
     dnt = _adv_dnt()
     warm = ((not flights.is_configured()
              or flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN))
-            and (not dnt["unknown"] or _guide_no_bookings(iso, dnt)))
+            and (not dnt["unknown"] or _guide_flagged(iso, dnt)))
     return "public, max-age=300" if warm else "no-store"
 
 
@@ -1062,8 +1084,10 @@ def _guide_sizers(iso, level, no_bookings=False):
     from the data files and what the caches hold right now — never an
     upstream call. Nothing for a block whose content isn't cached yet: it
     keeps its per-level height (styles.css). No stays where a government
-    says not to travel at all (no_bookings, _guide_no_bookings)."""
+    says not to travel at all (no_bookings, _guide_no_bookings). The
+    attributes for #tab-guide go under "_ATTRS" (the per-source levels)."""
     out = {}
+    attrs = ""
     try:
         out["GUIDE_VISA"] = guide_sizers.visa(iso)
         out["GUIDE_AI"] = guide_sizers.ai(iso, render_guide.name_for_iso(iso) or iso)
@@ -1080,24 +1104,43 @@ def _guide_sizers(iso, level, no_bookings=False):
         # the one the edge then serves for 5 minutes. A miss fetches the
         # notes in the background so the next render is exact.
         notes = watchouts.cached(iso)
+        # Canada's and Germany's lists as the cache holds them: a reader who
+        # follows one gets its advisory, its level (the safety notes fold at
+        # 1-2) and its insurance line, and the US stand-in was the wrong
+        # height for them (Lebanon to a German-source reader at 1280: the US
+        # Level 4 block against Germany's "Some regions", the chart and fare
+        # column 100px up when it filled). Each gets its own stand-in and its
+        # level on #tab-guide (data-lvca, data-lvde); index.html's first
+        # script picks the reader's before the first paint (data-gsrc).
+        others = {}
+        for src in ("ca", "de"):
+            p = _adv_cached(src)
+            if p:
+                others[src] = (p, {it.get("iso"): it for it in p.get("items") or [] if it.get("iso")})
+                attrs += ' data-lv%s="%d"' % (src, guide_sizers.level_of(iso, others[src][1]))
         if notes is not None:
             out["GUIDE_SAFETY"] = guide_sizers.safety(
                 iso, items, (adv or {}).get("source_name"), notes, health.get_doc())
+            for src, (p, its) in others.items():
+                out["GUIDE_SAFETY"] += guide_sizers.safety(
+                    iso, its, p.get("source_name"), notes, health.get_doc(), source=src)
         else:
             _warm_watchouts(iso)
-        # No stays or insurance under "do not travel" (the server's level and
-        # the US list's agree on that, or styles.css's data-level="4" hides
-        # them). No stays either where Canada or Germany says it (Venezuela,
-        # Saudi Arabia: US Level 3), as app.js's guideNoBookings has it for
-        # every reader; the insurance line follows the reader's own source,
-        # the US for the stand-in.
+        # No stays under "do not travel" — where any government says it
+        # (no_bookings: Venezuela and Saudi Arabia are US Level 3), as app.js's
+        # guideNoBookings has it for every reader, or the server's level and
+        # the US list's say Level 4. The insurance line follows the reader's
+        # own source: its stand-in is served when some reader gets one, and
+        # styles.css drops it under the reader's Level 4 (data-level).
         lvl_now = int((items.get(iso) or {}).get("level") or 0)
-        if level != 4 and lvl_now != 4:
-            if not no_bookings:
-                out["GUIDE_STAY"] = guide_sizers.stay(iso)
+        us4 = level == 4 or lvl_now == 4
+        if not us4 and not no_bookings:
+            out["GUIDE_STAY"] = guide_sizers.stay(iso)
+        if not us4 or any(guide_sizers.level_of(iso, its) != 4 for _p, its in others.values()):
             out["GUIDE_INSURANCE"] = guide_sizers.insurance(iso)
     except Exception as e:   # a hint only: never the page
         print("[guide-sizers] %s: %s" % (iso, e), file=sys.stderr, flush=True)
+    out["_ATTRS"] = attrs
     return out
 
 
@@ -1184,7 +1227,9 @@ def _render_index(gc_iso=None):
             ACTIONS_HIDDEN=" hidden",
             VISITED_STATS="", VISITED_PICK="", VISITED_HOLD="",
         )
-        vals.update(_guide_sizers(gc_iso, r.get("adv"), no_book))
+        sz = _guide_sizers(gc_iso, r.get("adv"), no_book)
+        vals["GUIDE_DATA"] += sz.pop("_ATTRS", "")
+        vals.update(sz)
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
     out = _guide_template() if gc_iso else _index_template()
@@ -1249,12 +1294,21 @@ def _cached(name, cache, key, ttl, compute, stale_max=None):
     return data
 
 
+_adv_failed = set()   # sources whose last fetch failed with no copy to serve (_dnt_failed)
+
+
 def _advisories_payload(source):
     """The cached list /api/advisories serves for `source` (stale-on-error,
     see _cached) — also what the guide-facts refresher reads."""
     # No stale_max: a days-old advisory list beats a 500 that blanks Top
     # Picks, and the payload says it is stale.
-    return _cached("advisories", _adv_cache, source, ADV_TTL, lambda: _advisories_fresh(source))
+    try:
+        out = _cached("advisories", _adv_cache, source, ADV_TTL, lambda: _advisories_fresh(source))
+    except Exception:
+        _adv_failed.add(source)
+        raise
+    _adv_failed.discard(source)
+    return out
 
 
 def _advisories_fresh(source):

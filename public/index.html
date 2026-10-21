@@ -426,11 +426,17 @@
          loadFlightValue): the UK, German and Canadian curves cover the same
          popular guides. The FX and local-prices lines a US reader doesn't get
          (data-fx="home", data-cost="home") are theirs again for a reader with
-         another From. -->
+         another From. A reader who follows Canada's or Germany's advisories
+         gets that government's advisory stand-in and level (data-lvca,
+         data-lvde: data-gsrc picks the stand-in, styles.css) — the US one was
+         another height, and its Level 4 hid an insurance line theirs draws. -->
     <script>(function(){try{var o=localStorage.getItem("fx_origin"),t=document.getElementById("tab-guide");
       if(o&&o!=="US"){
         if(t.getAttribute("data-fx")==="home")t.removeAttribute("data-fx");
-        if(t.getAttribute("data-cost")==="home")t.removeAttribute("data-cost");}}catch(e){}})();</script>
+        if(t.getAttribute("data-cost")==="home")t.removeAttribute("data-cost");}
+      var s=localStorage.getItem("wg_advsrc"),l=(s==="ca"||s==="de")?t.getAttribute("data-lv"+s):null;
+      if(l!==null){t.setAttribute("data-gsrc",s);
+        if(+l)t.setAttribute("data-level",l);else t.removeAttribute("data-level");}}catch(e){}})();</script>
     <div class="cardwide">
       <div class="charthead">
         <div>

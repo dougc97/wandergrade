@@ -13,9 +13,10 @@ one row or two by the country's name (Italy 45px on a phone, held at 100),
 the stays 154px at 1000-1149 for Thailand (held at 115), the chart 309 for
 Thailand at 768 (held at 272). For a reader scrolling during a slow load
 that was CLS 0.02-0.07 on most guides. The server has what those blocks will
-say: the US advisory list and Canada's notes as its own caches hold them,
-the health document, and the visa, climate, activity and stay files app.js
-reads too. So it writes them, in app.js's own markup and classes, into a
+say: the three governments' advisory lists (one stand-in each, the
+reader's own picked before the first paint) and Canada's notes as its own
+caches hold them, the health document, and the visa, climate, activity and
+stay files app.js reads too. So it writes them, in app.js's own markup and classes, into a
 hidden wrapper (.gsizer): the browser wraps that at the reader's real width,
 which no per-level or per-band number could (measured equal to the drawn
 blocks, to the pixel, on 20 guides at 390-1280). app.js replaces it, and
@@ -68,9 +69,9 @@ def _e(s):
     return html.escape(str(s or ""), quote=True)
 
 
-def _wrap(iso, inner):
-    return ('<div class="gsizer" aria-hidden="true" data-nosnippet data-for="%s">%s</div>'
-            % (_e(iso), inner))
+def _wrap(iso, inner, src=None):
+    return ('<div class="gsizer" aria-hidden="true" data-nosnippet data-for="%s"%s>%s</div>'
+            % (_e(iso), ' data-src="%s"' % _e(src) if src else "", inner))
 
 
 def _day_short(d, today):
@@ -172,11 +173,29 @@ GUIDE_PARENT = {"GB-ENG": "GB", "GB-SCT": "GB", "GB-WLS": "GB"}
 ADV_PARENT = dict(GUIDE_PARENT, GG="GB", IM="GB", JE="GB", FO="DK")
 
 
-def safety(iso, items, source_name, wo, hdoc, today=None):
+# app.js advSrcName's fallbacks, for a payload without its source_name.
+_SRC_SHORT = {"us": "U.S. State Department", "ca": "Global Affairs Canada", "de": "German Foreign Office"}
+
+
+def level_of(iso, items):
+    """app.js guideAdvLevel on one list's {ISO: entry}: the country's level,
+    a territory the list doesn't rate on its own reading its parent's, 0
+    when the list rates neither (or rates it with no number)."""
+    parent = ADV_PARENT.get(iso) if iso not in items and ADV_PARENT.get(iso) in items else None
+    item = items.get(iso) or (items.get(parent) if parent else None)
+    try:
+        return int(str((item or {}).get("level") or 0).strip())
+    except (TypeError, ValueError):
+        return 0
+
+
+def safety(iso, items, source_name, wo, hdoc, today=None, source="us"):
     """The advisory block as renderGuideSafety draws it for a reader of the
-    US list (the default), or "" without an entry to draw from. `items` maps
-    ISO -> entry of the cached /api/advisories?source=us payload, `wo` is
-    Canada's cached notes for the country, `hdoc` the health document."""
+    `source` government's list (the US's, the default), or "" without an
+    entry to draw from. `items` maps ISO -> entry of that cached
+    /api/advisories payload, `wo` is Canada's cached notes for the country,
+    `hdoc` the health document. Canada's and Germany's are marked data-src
+    (styles.css shows the one for the reader's source, data-gsrc)."""
     parent = ADV_PARENT.get(iso) if iso not in items and ADV_PARENT.get(iso) in items else None
     item = items.get(iso) or (items.get(parent) if parent else None)
     if not item or not item.get("level"):
@@ -186,12 +205,12 @@ def safety(iso, items, source_name, wo, hdoc, today=None):
         lvl = int(item.get("level") or 0)
     except (TypeError, ValueError):
         return ""
-    src_of = item.get("via") or "us"
+    src_of = item.get("via") or source
     words = (DE_LVL_LABEL.get(lvl, "") if src_of == "de"
              else (ADV_LVL_WORDS.get(src_of) or ADV_LVL_WORDS["us"])[lvl - 1] if 1 <= lvl <= 4 else "")
     badge = words if src_of == "de" else "Level %d · %s" % (lvl, words)
     cls = "nowarn" if src_of == "de" and lvl == 1 else "advlvl%d" % lvl
-    src = (item.get("via_name") or source_name or "U.S. State Department") + (
+    src = (item.get("via_name") or source_name or _SRC_SHORT.get(source, _SRC_SHORT["us"])) + (
         " (%s advisory)" % parent_name(parent) if parent else "")
     moved = ""
     on = item.get("changed") or item.get("updated") or ""
@@ -206,7 +225,7 @@ def safety(iso, items, source_name, wo, hdoc, today=None):
              'switch source (US · CA · DE) → Safety tab</button></span> <span>%s</span></span>'
              % (cls, _e(badge.rstrip(" ·")), moved, _e(src), why,
                 _watchouts(wo, int((items.get(iso) or {}).get("level") or 0))))
-    return _wrap(iso, inner + _health(hdoc, iso, GUIDE_PARENT.get(iso)))
+    return _wrap(iso, inner + _health(hdoc, iso, GUIDE_PARENT.get(iso)), None if source == "us" else source)
 
 
 def stay(iso, spots=None):

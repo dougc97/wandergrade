@@ -2899,6 +2899,18 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    holds below are for guides opened in the app and for blocks the server
    has nothing cached for yet. */
 .gsizer { display: contents; visibility: hidden; }
+/* The advisory's stand-in for the reader's own government: the server writes
+   Canada's and Germany's (data-src) after the US one, and index.html's first
+   script marks a reader who follows one (data-gsrc) before the first paint. */
+#guideSafety > .gsizer[data-src],
+#tab-guide[data-gsrc] #guideSafety > .gsizer:not([data-src]) { display: none; }
+#tab-guide[data-gsrc="ca"] #guideSafety > .gsizer[data-src="ca"],
+#tab-guide[data-gsrc="de"] #guideSafety > .gsizer[data-src="de"] { display: contents; }
+/* The insurance stand-in is served when some government's reader gets the
+   line; under the reader's own Level 4 (data-level) it never comes (the
+   second rule for a browser without :has(): all but the block's margin). */
+#tab-guide[data-level="4"] #guideInsurance:has(> .gsizer) { display: none; }
+#tab-guide[data-level="4"] #guideInsurance > .gsizer { display: none; }
 .besthead .gh2 { margin: 0; font-size: 18px; font-weight: 700; }   /* the chart stand-in's h2 */
 #guideVisa:empty { min-height: 40px; }
 #guideSafety:is(:empty, .filling) { min-height: 168px; }
