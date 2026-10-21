@@ -127,6 +127,12 @@ _WEBSITE_JSONLD = (
     'decide where and when to travel next."}'
     "</script>"
 )
+# impact.com's site-ownership tag for the WanderGrade partner account (the
+# Airbnb Demand Program application, 2026-10-21), in impact.com's own words
+# and quotes: its check reads the homepage's <head>. It rides on JSONLD, the
+# one head token only the homepage fills, so the 190 guides stay
+# byte-identical (the Search Console freeze until Nov 9).
+_IMPACT_VERIFY = "<meta name='impact-site-verification' value='cf7a1cf5-6953-488a-a53d-725a779d6766'>"
 def _analytics_tag():
     """Cloudflare Web Analytics beacon, injected on every page only when
     CF_ANALYTICS_TOKEN is set (Render → Environment). The token is public (it
@@ -1185,6 +1191,7 @@ def _render_index(gc_iso=None):
     vals["GUIDE_COUNT"] = str(_guide_count())
     if not gc_iso:
         vals.update(_home_sizers())
+        vals["JSONLD"] = _IMPACT_VERIFY + vals["JSONLD"]
     if gc_iso:
         r = render_guide.render(gc_iso)
         no_book = _guide_no_bookings(gc_iso)
