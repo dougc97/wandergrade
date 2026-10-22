@@ -238,7 +238,7 @@ def _send_mail(to, subject, html):
         # real reason can be seen.
         detail = ""
         try:
-            detail = e.read().decode("utf-8", "replace")[:400]
+            detail = _scrub(e.read().decode("utf-8", "replace")[:400])
         except Exception:
             pass
         raise RuntimeError("resend HTTP %s: %s" % (e.code, detail)) from None
@@ -448,7 +448,7 @@ def _buttondown(method, url, key, payload=None, extra=None):
             return r.status
     except urllib.error.HTTPError as e:
         try:
-            detail = e.read().decode("utf-8", "replace")[:300]
+            detail = _scrub(e.read().decode("utf-8", "replace")[:300])
         except Exception:
             detail = ""
         if e.code != 404:
@@ -606,6 +606,15 @@ def _mask(email):
     return local[:1] + "***@" + domain
 
 
+_ANY_EMAIL = re.compile(r"[^@\s\"'<>(),;:]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+
+
+def _scrub(text):
+    """An API's error body with every address in it masked: Resend and
+    Buttondown may quote the address back, and the body goes to the log."""
+    return _ANY_EMAIL.sub(lambda m: _mask(m.group(0)), text or "")
+
+
 def _bd_subscriber(email, key):
     """(HTTP status, subscriber dict or None) for one address in Buttondown."""
     req = urllib.request.Request(
@@ -722,3 +731,72 @@ def _reconcile_pass(key, pause, backoff):
     except Exception as e:
         print("[accounts] reconcile: couldn't record the result (%s)" % e, flush=True)
     return stats
+
+
+# ---- deleting an account (the owner runs scripts/delete_account.py) ----------
+# /privacy promises deletion on request, and deleting user:<email> by hand is
+# not enough: a device still signed in writes it back on its next Wander List
+# change (/api/auth/me answers {email, user: null}, the page pushes its own
+# lists, and sync_map starts from _blank_user()). So the sessions go first.
+
+def _keys_holding(pattern, email):
+    """Keys matching `pattern` whose value is `email` (sess:*, magic:*)."""
+    found, cursor = [], "0"
+    while True:
+        cursor, keys = _redis("SCAN", cursor, "MATCH", pattern, "COUNT", RECONCILE_SCAN)
+        for k in keys or []:
+            if _kv_get(k) == email:
+                found.append(k)
+        if str(cursor) == "0":
+            return found
+
+
+def delete_account(email, dry_run=False):
+    """Remove everything stored for `email` -> a report dict.
+
+    Sessions and unused sign-in links go before the record, so no device can
+    write it back: its next sync is a 401 and the page signs itself out. The
+    record is deleted again at the end, after the Buttondown call, in case a
+    sync already past its session check landed in between. The address's
+    sign-in counter goes too (it would expire within the hour anyway). The
+    Buttondown subscriber is deleted as well, whether it joined through the
+    account or the public form: it is the same person asking, and Buttondown
+    holds what it recorded at signup and since.
+
+    `dry_run` looks and deletes nothing. Report keys: email, user (bool),
+    sessions, links (counts), newsletter ("deleted", "absent", "no key",
+    "on the list (<type>)" in a dry run, or "failed (HTTP <n>)"). Storage
+    errors raise: a half-done deletion must not look finished."""
+    email = norm_email(email)
+    sessions = _keys_holding("sess:*", email)
+    links = _keys_holding("magic:*", email)
+    report = {"email": email, "user": _kv_get("user:" + email) is not None,
+              "sessions": len(sessions), "links": len(links)}
+    key = _env("BUTTONDOWN_API_KEY")
+    url = _BD_API + "/" + urllib.parse.quote(email, safe="@")
+    if dry_run:
+        if not key:
+            report["newsletter"] = "no key"
+        else:
+            try:
+                status, sub = _bd_subscriber(email, key)
+            except Exception:
+                status, sub = None, None
+            report["newsletter"] = ("on the list (%s)" % sub.get("type") if status == 200 and isinstance(sub, dict)
+                                    else "absent" if status == 404 else "failed (HTTP %s)" % status)
+        return report
+    for k in sessions + links:
+        _kv_del(k)
+    _kv_del("user:" + email)
+    _kv_del("rl:e:" + _mailbox(email))
+    if not key:
+        report["newsletter"] = "no key"
+    else:
+        try:
+            status = _buttondown("DELETE", url, key)
+        except Exception:
+            status = None
+        report["newsletter"] = ("deleted" if status in (200, 202, 204) else "absent" if status == 404
+                                else "failed (HTTP %s)" % status)
+    _kv_del("user:" + email)
+    return report

@@ -424,6 +424,37 @@ results.append(ok(sent == 2, "daily mail cap stops sends past the cap (got %d)" 
 os.environ.pop("MAIL_DAILY_CAP")
 accounts._redis("DEL", day_key)
 
+# --- deletion on request (/privacy; scripts/delete_account.py) ---------------
+# The record alone isn't enough: a device still signed in recreates it on its
+# next sync. Two devices, an unused link, a neighbour who must be untouched.
+gone, keep = "gone@example.com", "keep@example.com"
+for who in (gone, keep):
+    accounts._kv_set("magic:del-" + who, who, accounts.MAGIC_TTL)
+    accounts.consume_token("del-" + who)
+_, sid_b = (accounts._kv_set("magic:del2", gone, accounts.MAGIC_TTL), accounts.consume_token("del2"))[1]
+accounts._kv_set("magic:del-unused", gone, accounts.MAGIC_TTL)
+accounts.sync_map(gone, ["JP", "FR"], ["BR"])
+accounts.request_link(gone, "203.0.113.9")             # leaves an rl:e: counter
+os.environ["BUTTONDOWN_API_KEY"] = "mock"              # fake_lookup / fake_bd from above
+BD.clear()
+dry = accounts.delete_account(gone, dry_run=True)
+results.append(ok(dry["user"] and dry["sessions"] == 2 and dry["links"] >= 2 and BD == []
+                  and accounts.get_user(gone)["visited"] == ["FR", "JP"],
+                  "delete_account dry run: reports the record, 2 sessions, unused links; deletes nothing (%s)" % dry))
+BD.clear()
+rep = accounts.delete_account(" Gone@Example.com ")
+left = [k for k in json.loads(urllib.request.urlopen(os.environ["UPSTASH_REDIS_REST_URL"]).read())
+        if accounts._kv_get(k) == gone or k == "user:" + gone or k == "rl:e:" + gone]
+results.append(ok(rep["newsletter"] == "deleted" and rep["sessions"] == 2 and not left
+                  and BD == [("DELETE", accounts._BD_API + "/" + gone, None, {})],
+                  "delete_account: sessions, links, record, counter and the Buttondown subscriber all gone (left: %s)" % left))
+results.append(ok(accounts.session_email(sid_b) is None and accounts.get_user(keep) is not None,
+                  "the deleted address's other device is signed out; another account is untouched"))
+os.environ.pop("BUTTONDOWN_API_KEY")
+results.append(ok(accounts._scrub('{"detail": "a.b+x@mail.example.org is invalid"}')
+                  == '{"detail": "a***@mail.example.org is invalid"}',
+                  "API error bodies are logged with addresses masked"))
+
 # --- HTTP: the magic link, and who may ask for one ----------------------------
 import server
 from http.server import ThreadingHTTPServer

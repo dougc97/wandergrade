@@ -18,7 +18,12 @@ What it holds the code to:
     and /privacy itself (served with an analytics token set), each host
     app.js fetches or loads images from by a literal URL, and the hosts of
     the guides' hero photos (public/og-images.json, the same Wikipedia lead
-    images the guide loads);
+    images the guide loads), and each host the newsletter's images come
+    from (newsletter.py's <img> literals, picks.cover()'s photo proxy);
+  * it makes no claim the code breaks: not "no tracking cookies" (the
+    Wikimedia photos set a year-long ID cookie, which the page names), not
+    "everything that leaves"; and the server log it describes keeps a
+    sign-in link's one-time token out;
   * it names each partner app.js links to with a partner ID, each AI site
     the guide's buttons open, the services accounts.py hands an email to, and
     the one cookie server.py sets;
@@ -50,6 +55,8 @@ results = []
 APP = open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8").read()
 SERVER_SRC = open(os.path.join(ROOT, "server.py"), encoding="utf-8").read()
 ACCOUNTS_SRC = open(os.path.join(ROOT, "fxtracker", "accounts.py"), encoding="utf-8").read()
+NEWS_SRC = open(os.path.join(ROOT, "fxtracker", "newsletter.py"), encoding="utf-8").read()
+PICKS_SRC = open(os.path.join(ROOT, "fxtracker", "picks.py"), encoding="utf-8").read()
 OWN = {"wandergrade.com", "www.wandergrade.com", "localhost", "127.0.0.1"}
 
 page = RP.privacy()
@@ -58,6 +65,7 @@ served = server._render_privacy_page().decode("utf-8")
 text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", body))
 
 # --- the route ------------------------------------------------------------------------
+_real_log = server.Handler.log_message
 server.Handler.log_message = lambda self, *a: None   # no request lines in the test's output
 httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
 threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -138,9 +146,27 @@ results.append(ok("Last updated 21 October 2026" in text and RP.UPDATED == "2026
                   "the last-updated date reads 21 October 2026"))
 results.append(ok(body.count('href="mailto:hello@wandergrade.com"') >= 3, "hello@wandergrade.com, as a mailto link"))
 results.append(ok("airbnb" not in served.lower(), "no Airbnb anywhere on the page"))
-for words in ["No ads", "no tracking cookies", "nothing sold", "never sell", "unsubscribe", "commission",
-              "GDPR", "delete", "local storage", "no password"]:
+for words in ["No ads", "nothing sold", "no cookie from WanderGrade unless you sign in", "never sell",
+              "unsubscribe", "commission", "GDPR", "delete", "local storage", "no password", "WMF-Uniq",
+              "sign out every device", "marked as visited", "Gmail", "a.nel.cloudflare.com", "Postmark"]:
     results.append(ok(words.lower() in text.lower(), "says “%s”" % words))
+claims = [w for w in ["no tracking cookies", "everything that leaves", "nothing about you"]
+          if w in (text + " " + page["desc"]).lower()]
+results.append(ok(not claims, "no claim the code breaks (found: %s)" % claims))
+
+# The log the Hosting section describes: the request line, with a sign-in
+# link's token taken out (Render keeps the log).
+import io  # noqa: E402
+_err, sys.stderr = sys.stderr, io.StringIO()
+try:
+    _real_log(server.Handler, '"%s" %s %s', "GET /auth/verify?t=SECRETtoken_123 HTTP/1.1", "200", "-")
+    _real_log(server.Handler, '"%s" %s %s', "GET /?tab=value&vo=GB HTTP/1.1", "200", "-")
+    logged = sys.stderr.getvalue()
+finally:
+    sys.stderr = _err
+results.append(ok("SECRETtoken" not in logged and "/auth/verify?t=[redacted] HTTP/1.1" in logged
+                  and "/?tab=value&vo=GB" in logged,
+                  "the server log drops a sign-in token and keeps other addresses whole"))
 
 # --- third-party hosts, computed ------------------------------------------------------------
 RES_TAG = re.compile(r"<(script|link|img|iframe|source|video|audio)\b[^>]*?\b(?:src|href)=[\"']([^\"']+)[\"']", re.I)
@@ -166,9 +192,16 @@ from_app = set()
 for line in APP.splitlines():
     if re.search(r"fetch\(|\bapi = |new Image|\.src = ", line):
         from_app |= {h for h in re.findall(r"[\"'`]https://([a-z0-9.-]+)", line) if h not in OWN}
+# The newsletter: hosts in its <img> literals, and the photo proxy picks.cover() builds.
+from_mail = {h for line in NEWS_SRC.splitlines() if "<img" in line
+             for h in re.findall(r"https://([a-z0-9.-]+)", line)}
+cover_src = re.search(r"^def cover\(.*?^def ", PICKS_SRC, re.M | re.S)
+from_mail |= set(re.findall(r'"url": \("https://([a-z0-9.-]+)', cover_src.group(0) if cover_src else ""))
+results.append(ok({"flagcdn.com", "images.weserv.nl"} <= from_mail,
+                  "the computed list finds the newsletter's image hosts (%s)" % sorted(from_mail)))
 og = json.load(open(os.path.join(ROOT, "public", "og-images.json"), encoding="utf-8"))
 from_photos = {urlsplit(u).hostname for u in og.values() if isinstance(u, str) and u.startswith("https://")}
-hosts = from_html | from_app | from_photos
+hosts = from_html | from_app | from_photos | from_mail
 results.append(ok({"static.cloudflareinsights.com"} <= from_html and {"en.wikipedia.org", "commons.wikimedia.org"} <= from_app
                   and "upload.wikimedia.org" in from_photos,
                   "the computed lists find the beacon, the Wikipedia APIs and the photo hosts (%s)" % sorted(hosts)))

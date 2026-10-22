@@ -1758,8 +1758,12 @@ class Handler(BaseHTTPRequestHandler):
             return {}
         return data if isinstance(data, dict) else {}
 
-    def log_message(self, fmt, *args):  # quieter console
-        sys.stderr.write("  %s\n" % (fmt % args))
+    # A sign-in link's one-time token stays out of the log (Render keeps it),
+    # as it stays out of the analytics beacon (_render_verify_page).
+    _LOG_TOKEN = re.compile(r"(/auth/verify\?)[^\s\"]*")
+
+    def log_message(self, fmt, *args):  # quieter console; no client address
+        sys.stderr.write("  %s\n" % self._LOG_TOKEN.sub(r"\1t=[redacted]", fmt % args))
 
     # ---- auth ------------------------------------------------------------
     def _authed(self):
