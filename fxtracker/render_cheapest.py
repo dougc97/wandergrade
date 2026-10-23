@@ -380,7 +380,7 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
     scored = {m: score_all(ctx, m, score) for m in range(1, 13)}
     ranked = {m: rank_month(ctx, m, scored=scored[m]) for m in range(1, 13)}
     gaps = {m: (feed_gaps(ctx, m, scored[m]) if have else []) for m in range(1, 13)}
-    alt = set(pl_alt or ())
+    alt = RL.alt_marked(pl_alt)
     us_items = ctx["items"].get("us") or {}
     fare_note = ("* Fares are cached searches, not live prices, and many months have none. Where a month "
                  "has one: the cheapest round trip from the US, marked Low, Typical or High against the "

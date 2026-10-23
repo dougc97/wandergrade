@@ -488,6 +488,17 @@ results.append(ok(tm_ok and all(RL.ALT_NOTE not in A[RC.path_for(m)]["html"] for
                   "Turkmenistan's price carries the † and the official-rate note where it is listed (%s), the "
                   "number unchanged; no note without it or without the alt list" % tm_months))
 
+# Liberia is on the alt list only because the World Bank's unit for it is the dollar (PPP_UNIT):
+# its price divides by no exchange rate, so the official-rate note would be false for it.
+L = render(pl_alt=["LR"])
+lr_months = [m for m in range(1, 13) if "LR" in L[RC.path_for(m)]["isos"]]
+results.append(ok(lr_months and all(RL.ALT_NOTE not in L[RC.path_for(m)]["html"]
+                                    and '<sup class="fn">†</sup>' not in L[RC.path_for(m)]["html"] for m in lr_months),
+                  "Liberia (priced in the World Bank's own dollar unit, no exchange rate) gets no † and no "
+                  "official-rate note where it is listed (%s)" % lr_months))
+results.append(ok(RL.alt_marked(["AO", "LR", "TM", "VE"]) == {"AO", "TM", "VE"} and RL.alt_marked(None) == set(),
+                  "alt_marked keeps every alt country but the dollar-unit ones"))
+
 # --- dates after today are no "newest advisory" --------------------------------------------------------
 results.append(ok("2 Dec 2026" not in nov["html"] and re.search(r"U\.S\. State Department: fetched [^·]*newest advisory "
                                                                   r"dated (\d+ \w+ 2026)", nov["html"]) is not None

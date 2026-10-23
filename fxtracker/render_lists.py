@@ -63,6 +63,14 @@ DESC_MAX = 157
 ALT_NOTE = ("† at the official exchange rate, which the World Bank doesn't use for that economy's own "
             "figures, so this price is rougher than most.")
 
+
+def alt_marked(alt):
+    """The ISOs of the "alt" list whose price gets the †: not one priced with
+    no exchange rate at all (pricelevel.PPP_UNIT "USD": Liberia, whose World
+    Bank unit is the dollar, the very case that trips its alt flag), where
+    the note's "at the official exchange rate" would be false."""
+    return {iso for iso in (alt or ()) if pricelevel.PPP_UNIT.get(iso) != "USD"}
+
 _clim = None
 
 
@@ -394,7 +402,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
                      "from WanderGrade's daily snapshot of %s. This page is served uncached until "
                      "the feed is back." % html.escape(_day(facts.get("_asof"))))
     ca_own, de_own = own["ca"] or {}, own["de"] or {}
-    alt = set((pl_history or {}).get("alt") or [])
+    alt = alt_marked((pl_history or {}).get("alt"))
     hc = (health or {}).get("c") or {}
 
     rows = safe_rows(us_own, facts)

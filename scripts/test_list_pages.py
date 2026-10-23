@@ -199,6 +199,15 @@ results.append(ok('45%<sup class="fn">†</sup>' in tm and RL.ALT_NOTE in S["htm
                   and RL.ALT_NOTE.startswith("† at the official exchange rate") and "market exchange rate" not in text,
                   "Turkmenistan: on the list, its † saying the price is at the official rate (TMT 3.5, what the "
                   "figure divides by), not the market one"))
+# Liberia sits on the alt list only because the World Bank's unit for it is the dollar
+# (pricelevel.PPP_UNIT): its price divides by no exchange rate, so no † and no note.
+US_LR = payload("us", US["items"] + [item("LR", 1, "us", updated="2026-03-01", risks=[])])
+SL = RL.safe_and_cheap(US_LR, CA, DE, dict(FACTS, LR={"pct": 49, "band": "very cheap", "adv": 1, "src": "us"}),
+                       CLIM, HEALTH, {"alt": ["LR"], "years": [], "pl": {}}, fetched=FETCHED, today=TODAY)
+lr = re.search(r'<tr>.*?/guide/liberia.*?</tr>', SL["html"], re.S)
+results.append(ok(lr and "49%" in lr.group(0) and '<sup class="fn">†</sup>' not in SL["html"]
+                  and RL.ALT_NOTE not in SL["html"],
+                  "Liberia (priced in the World Bank's dollar unit, no exchange rate): listed with no † and no note"))
 bt = re.search(r'<tr>.*?/guide/bhutan.*?</tr>', S["html"], re.S).group(0)
 results.append(ok('21% <span class="band">very cheap</span>' in bt and 'title="Very cheap"' not in S["html"]
                   and '60% <span class="band">cheap</span>' in re.search(r'<tr>.*?/guide/portugal.*?</tr>', S["html"], re.S).group(0),
