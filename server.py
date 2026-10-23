@@ -31,7 +31,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
     flightvalue, guide_facts, guide_sizers, health, llms_txt, mailer, map_picks, picks, popularity, rates,
-    render_guide, render_lists, render_privacy, store, watchouts
+    render_cheapest, render_guide, render_lists, render_privacy, store, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -261,6 +261,12 @@ _HTML_DEFAULTS = {
     # The shell pages (/data, the lists, 404) carry it in _shell_page. The
     # no-break space keeps the dot with the link when a phone wraps the line.
     "FOOTER_PRIVACY": ' &middot;&nbsp;<a href="/privacy">Privacy</a>',
+    # The footer's "Lists:" line gains the month lists and the dollar page on
+    # the homepage only, the same way: a token in the line's own bytes, which a
+    # guide fills with "" so it stays byte-identical (Search Console freeze).
+    # Every shell page carries the two links in _shell_page.
+    "FOOTER_LISTS": ', <a href="/cheapest">Cheapest by month</a>, '
+                    '<a href="/dollar-strength">Dollar strength</a>',
 }
 _html_tpl = None
 
@@ -577,6 +583,12 @@ def _sitemap():
            # Dated by its own "Last updated", the day its words last changed:
            # a content-stamp bump for the guides' data doesn't touch it.
            '  <url><loc>%s/privacy</loc><lastmod>%s</lastmod></url>' % (_SITE, render_privacy.UPDATED)]
+    # /cheapest and its 12 months, by the exchange rates' own date (every
+    # row's price and grade moves with them), else the snapshot's; floored
+    # at the stamp like the lists above, never today.
+    cheap_lm = max(stamp, render_cheapest.lastmod_of(_fx_inputs()[0], doc))
+    out += ['  <url><loc>%s%s</loc><lastmod>%s</lastmod></url>' % (_SITE, p, cheap_lm)
+            for p in render_cheapest.PATHS]
     expired = render_guide.snapshot_expired_on(doc=doc)
     for slug, iso in render_guide.all_slugs():
         days = [stamp, render_guide.snapshot_changed(iso, doc), expired.isoformat() if expired else ""]
@@ -729,6 +741,8 @@ def _shell_page(title, body, head="", analytics=True, credits=True):
         # crawl priority — see _guide_links).
         'Lists: <a href="/safe-and-cheap">Safest cheap countries</a> &middot; '
         '<a href="/do-not-travel">Do Not Travel list</a> &middot; '
+        '<a href="/cheapest">Cheapest by month</a> &middot; '
+        '<a href="/dollar-strength">Dollar strength</a> &middot; '
         '<a href="/privacy">Privacy</a> &middot; '
         '<a href="/">Back to WanderGrade</a></footer></body></html>'
         % (html.escape(title), _SHELL_ICON, head, _asset_version("styles.css"),
@@ -1025,6 +1039,80 @@ def _render_privacy_page():
     return _privacy_memo[0]
 
 
+# ---- /cheapest and /cheapest/<month> --------------------------------------------
+# The cheapest countries to visit each month from the US (fxtracker/
+# render_cheapest.py): Top Picks' own scoring for a US traveller, run on what
+# the server already caches — the three advisory lists at any age (a refresh
+# is started in the background, never awaited), the USD rates rows and PPP
+# table (_fx_inputs), climate, the guide-facts snapshot, the US fares and
+# their flight-value curves (flightvalue.build reads the curve cache alone).
+# All 13 pages render together on a miss; every other request is a lookup.
+_CHEAP_CREDITS = ('Data: <a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
+                  '(PPP) &amp; <a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
+                  "&middot; Advisories: " + _ADV_LINKS + " &middot; Climate: "
+                  '<a href="https://open-meteo.com" rel="noopener" target="_blank">Open-Meteo</a> &middot; '
+                  'Flights: <a href="https://www.aviasales.com" rel="noopener" target="_blank">Aviasales</a> '
+                  "(cached fares) &middot; ")
+_cheap_memo = [None]   # (key, inputs kept alive, fv, {path: {bytes, degraded}}), swapped whole
+
+
+def _cheap_adv():
+    """The three lists as the cache holds them (None: not in hand), their
+    fetch times, and {source: seconds} for a list past its TTL whose refresh
+    is failing (_cached's stale-on-error copy) — never a fetch on this path."""
+    _warm_adv_lists()
+    now = time.time()
+    payloads, fetched, stale = {}, {}, {}
+    for src in _ADV_SRCS:
+        hit = _adv_cache.get(src)
+        payloads[src] = hit[1] if hit else None
+        if hit:
+            fetched[src] = hit[0]
+            if now - hit[0] >= ADV_TTL and ("advisories", src) in _upstream_fail:
+                stale[src] = int(now - hit[0])
+    return payloads, fetched, stale
+
+
+def _cheap_fares():
+    """(fares payload, flight-value build, state) for the default origin from
+    the caches alone. "off" with no fare source (local dev: dashes, not a
+    degradation); "cold" until the fares are cached and the origin's first
+    warm pass has run (the curves are still filling, grades may move)."""
+    if not flights.is_configured():
+        return None, None, "off"
+    hit = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
+    fares = hit[1] if hit else None
+    fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares) if fares else None
+    warm = fares is not None and flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN)
+    return fares, fv, "warm" if warm else "cold"
+
+
+def _cheap_page(path):
+    """{bytes, degraded} for one of render_cheapest.PATHS, memoized on the
+    identity of the inputs (a refreshed list, rates entry, PPP table,
+    snapshot or fares payload is a new object), the UTC day (the months'
+    years, the curves' window), the fares' state, a failing list's age to
+    the hour, and the flight-value curves by value (they have no identity:
+    the curve cache fills and refreshes in place)."""
+    payloads, fetched, stale = _cheap_adv()
+    rp, ppp = _fx_inputs()
+    fares, fv, state = _cheap_fares()
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    docs = (payloads["us"], payloads["ca"], payloads["de"], rp, ppp, render_lists.climate(),
+            guide_facts.get_doc(), fares)
+    key = tuple(id(x) for x in docs) + (today, state) + tuple(stale.get(s, 0) // 3600 for s in _ADV_SRCS)
+    hit = _cheap_memo[0]
+    if hit and hit[0] == key and hit[2] == fv:
+        return hit[3][path]
+    pages = render_cheapest.pages(*docs[:7], flights=fares, fv=fv, fares_state=state, fetched=fetched,
+                                  stale=stale, today=today)
+    out = {p: {"bytes": _shell_page(pg["title"], pg["html"], _list_head(p, pg["title"], pg["desc"]),
+                                    credits=_CHEAP_CREDITS),
+               "degraded": pg["degraded"]} for p, pg in pages.items()}
+    _cheap_memo[0] = (key, docs, fv, out)
+    return out[path]
+
+
 _NOINDEX = '<meta name="robots" content="noindex">'
 
 
@@ -1257,7 +1345,7 @@ def _render_index(gc_iso=None):
             # and the guides' HTML stays byte-identical to before them.
             ACTIONS_HIDDEN=" hidden",
             VISITED_STATS="", VISITED_PICK="", VISITED_HOLD="",
-            FOOTER_PRIVACY="",
+            FOOTER_PRIVACY="", FOOTER_LISTS="",
         )
         sz = _guide_sizers(gc_iso, r.get("adv"), no_book)
         vals["GUIDE_DATA"] += sz.pop("_ATTRS", "")
@@ -2011,6 +2099,20 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/privacy/":
             query = self.path.split("?", 1)[1] if "?" in self.path else ""
             self._redirect("/privacy" + ("?" + query if query else ""))
+            return
+        if path == render_cheapest.HUB or path.startswith(render_cheapest.HUB + "/"):
+            # The hub and the twelve months; the slash variant 301s to its
+            # canonical URL, query and all, and anything else under /cheapest/
+            # (another spelling, a deeper path) is the site's 404.
+            if path in render_cheapest.PATHS:
+                page = _cheap_page(path)
+                self._send_body(page["bytes"], "text/html; charset=utf-8",
+                                cache="no-store" if page["degraded"] else "public, max-age=300")
+            elif path.endswith("/") and path.rstrip("/") in render_cheapest.PATHS:
+                query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                self._redirect(path.rstrip("/") + ("?" + query if query else ""))
+            else:
+                self._send_not_found()
             return
         if path == "/ppp.json":
             self._send_json(_ppp_data(), extra=[("Cache-Control", "public, max-age=86400")])

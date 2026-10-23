@@ -464,7 +464,9 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
                     "after local and US inflation." if show_fx else ""))
     notes.append(_missing_note(missing))
     body += ('<p class="xlink">See also: <a href="/do-not-travel">the Do Not Travel list, US, Canada and '
-             'Germany compared</a> · <a href="/data">the price-level dataset</a>.</p>')
+             'Germany compared</a> · <a href="/cheapest">the cheapest countries by month, from the US</a> · '
+             '<a href="/dollar-strength">where the US dollar is strongest</a> · '
+             '<a href="/data">the price-level dataset</a>.</p>')
     stale = {s: a for s, a in (stale or {}).items() if a and s not in missing}
     sources = _sources_line(fetched, own, facts.get("_asof"), (health or {}).get("built"), stale)
     h1 = "Safest cheap countries to visit in %s" % year
@@ -585,7 +587,8 @@ def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
             % (recent, len(all3), table(all3, "None today."), len(some),
                table(some, "None today."), len(three), table(three, "None today.")))
     body += ('<p class="xlink">See also: <a href="/safe-and-cheap">the safest cheap countries, by the same '
-             'three governments</a>.</p>')
+             'three governments</a> · <a href="/cheapest">the cheapest countries by month, from the US</a> · '
+             '<a href="/dollar-strength">where the US dollar is strongest</a>.</p>')
     notes = ["Levels are each government's own; the pill's tooltip quotes its phrase. Dates: the feed's own "
              "date where it publishes one, and “since” when WanderGrade's record saw the level change "
              "(↑ raised, ↓ lowered). US reasons are the State Department's “due to” clause.",

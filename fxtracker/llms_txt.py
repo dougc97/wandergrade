@@ -3,7 +3,7 @@
 Every major AI fetcher is let in (robots.txt allows all; 2026-10-13 check:
 GPTBot, ChatGPT-User, ClaudeBot, PerplexityBot, Meta's agents, Google-Extended
 all get 200), but most of them read HTML without running JavaScript. Those
-see the country guides and the two list pages in full and an EMPTY Top Picks
+see the country guides and the list pages in full and an EMPTY Top Picks
 table, so an assistant asked "where does WanderGrade say to go in November"
 had nothing to quote. This file tells it which pages carry the answers
 without JavaScript, how a ranking link is built for a reader who has a
@@ -34,6 +34,8 @@ WanderGrade answers "where should I go, and when?" for a traveller from a given 
 - [Country guides]({site}/guide/japan): one page per country, {n} in all (index below). Each has the visa rule, the safety level in the government's own words, health notes, the best months and hazard months, local prices versus the US, top things to do and what is in season.
 - [Safest cheap countries]({site}/safe-and-cheap): countries at U.S. Level 1 with local prices at or under 60% of the US, with Canada's and Germany's levels, best months and health notes.
 - [Do Not Travel list]({site}/do-not-travel): every country rated "do not travel" by the US, Canada or Germany, in each government's own words, with dates and reasons.
+- [Cheapest countries by month, from the US]({site}/cheapest): one ranked list per month ({site}/cheapest/january to {site}/cheapest/december) of the countries at U.S. Level 1 or 2, rated "do not travel" by none of the US, Canada or Germany, at or under 50% of US prices and with a weather score of 70 or more that month, graded as Top Picks grades them for a traveller from the US, with the month's US round-trip fare where one is cached.
+- [Where the US dollar is strongest]({site}/dollar-strength): every currency ranked by the US dollar's move against its one-year average after inflation, with the move before inflation, where each currency is used and local prices versus the US, plus the site's overall dollar index (January 1999 = 100, before inflation).
 - [Sitemap]({site}/sitemap.xml)
 
 ## The interactive ranking (needs JavaScript)
