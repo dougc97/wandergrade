@@ -574,12 +574,14 @@ def _sitemap():
     # stamp). Never today — the same fabricated freshness as above.
     safe_lm = max(stamp, render_lists.lastmod_of(doc.get("_asof")))
     dnt_lm = max(stamp, render_lists.newest_change({s: _adv_cached(s) for s in _ADV_SRCS}))
+    strength_lm = _strength_lastmod(stamp)
     out = ['<?xml version="1.0" encoding="UTF-8"?>',
            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
            '  <url><loc>%s/</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
            '  <url><loc>%s/data</loc><lastmod>%s</lastmod></url>' % (_SITE, stamp),
            '  <url><loc>%s/safe-and-cheap</loc><lastmod>%s</lastmod></url>' % (_SITE, safe_lm),
            '  <url><loc>%s/do-not-travel</loc><lastmod>%s</lastmod></url>' % (_SITE, dnt_lm),
+           '  <url><loc>%s/dollar-strength</loc><lastmod>%s</lastmod></url>' % (_SITE, strength_lm),
            # Dated by its own "Last updated", the day its words last changed:
            # a content-stamp bump for the guides' data doesn't touch it.
            '  <url><loc>%s/privacy</loc><lastmod>%s</lastmod></url>' % (_SITE, render_privacy.UPDATED)]
@@ -1024,6 +1026,100 @@ def _list_page(path):
            "degraded": page["degraded"]}
     _list_memo[path] = (key, docs, out)
     return out
+
+
+# ---- /dollar-strength (fxtracker/render_strength.py) ---------------------------
+# The Currency tab's rows ranked after inflation, under the Data tab's dollar
+# index, from what the server already holds: the USD /api/rates entry and the
+# PPP table (_fx_inputs, as /safe-and-cheap's dollar column reads them) and
+# the strength chart's ECB history as rates.get_history() last stored it.
+# Never a fetch on a request's path; a missing input renders, says so and
+# goes out no-store. Imported here, beside the only code that uses it.
+from fxtracker import render_strength  # noqa: E402
+
+_STRENGTH_CREDITS = ('Data: <a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
+                     '(rates) &middot; <a href="https://www.ecb.europa.eu/stats/policy_and_exchange_rates/'
+                     'euro_reference_exchange_rates/html/index.en.html" rel="noopener" target="_blank">'
+                     "ECB reference rates</a> (index history since 1999) &middot; "
+                     '<a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
+                     "(PPP, inflation) &middot; ")
+_strength_memo = [None]        # (key, inputs, out), swapped whole: request threads share it
+_strength_idx_memo = [None]    # (history snapshot, day, index payloads)
+_strength_warm = {"busy": False, "at": 0.0}
+
+
+def _strength_history():
+    """The strength chart's history (fetched_at, dates, cols) as the cache
+    holds it, or None — never a fetch here. Only a Data-tab visit refreshes
+    it otherwise, so a copy past rates.HISTORY_TTL asks for a refresh on a
+    background thread (at most once a minute) and the page re-renders when
+    it lands; one past HISTORY_STALE, which /api/index no longer serves
+    either, counts as not cached."""
+    snap = rates._history["snap"]
+    now = time.time()
+    if (not snap[1] or now - snap[0] >= rates.HISTORY_TTL) and not _strength_warm["busy"] \
+            and now - _strength_warm["at"] >= 60:
+        _strength_warm.update(busy=True, at=now)
+
+        def run():
+            try:
+                rates.get_history()
+            except Exception as e:
+                print("[dollar-strength] index history refresh failed: %s" % e, flush=True)
+            finally:
+                _strength_warm["busy"] = False
+
+        threading.Thread(target=run, daemon=True).start()
+    return snap if snap[1] and now - snap[0] < rates.HISTORY_STALE else None
+
+
+def _strength_index(snap, day):
+    """The index's 1-year and since-1999 figures for `day` (the date
+    rates.compute_index windows by), memoized on the history snapshot."""
+    if snap is None:
+        return None
+    memo = _strength_idx_memo[0]
+    if memo and memo[0] is snap and memo[1] == day:
+        return memo[2]
+    try:
+        val = render_strength.index_payloads(snap[1], snap[2], datetime.strptime(day, "%Y-%m-%d").date())
+    except Exception as e:
+        print("[dollar-strength] index figures unavailable: %s" % e, flush=True)
+        val = None
+    _strength_idx_memo[0] = (snap, day, val)
+    return val
+
+
+def _strength_page():
+    """{bytes, degraded} for /dollar-strength, memoized on the identity of
+    its inputs (a refreshed rates entry, PPP table or history is a new
+    object) and the day — like _list_page."""
+    rp, ppp = _fx_inputs()
+    day = datetime.now().strftime("%Y-%m-%d")   # compute_index's date.today()
+    idx = _strength_index(_strength_history(), day)
+    key = (id(rp), id(ppp), id(idx), day)
+    hit = _strength_memo[0]
+    if hit and hit[0] == key:
+        return hit[2]
+    page = render_strength.dollar_strength(rp, ppp, idx, today=day)
+    out = {"bytes": _shell_page(page["title"], page["html"],
+                                _list_head(render_strength.PATH, page["title"], page["desc"]),
+                                credits=_STRENGTH_CREDITS),
+           "degraded": page["degraded"]}
+    _strength_memo[0] = (key, (rp, ppp, idx), out)
+    return out
+
+
+def _strength_lastmod(stamp):
+    """The sitemap's date for /dollar-strength: the cached rates' own as-of
+    date, floored at the content stamp (never today; nothing cached: the
+    stamp)."""
+    try:
+        cfg = store.load_config()
+        hit = _rates_cache.get((cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]), "USD"))
+    except Exception:
+        hit = None
+    return max(stamp, render_lists.lastmod_of(((hit[1] if hit else None) or {}).get("as_of")))
 
 
 _privacy_memo = [None]
@@ -2111,6 +2207,20 @@ class Handler(BaseHTTPRequestHandler):
             elif path.endswith("/") and path.rstrip("/") in render_cheapest.PATHS:
                 query = self.path.split("?", 1)[1] if "?" in self.path else ""
                 self._redirect(path.rstrip("/") + ("?" + query if query else ""))
+            else:
+                self._send_not_found()
+            return
+        if path == render_strength.PATH:
+            page = _strength_page()
+            # no-store while an input is missing, as the list pages do.
+            self._send_body(page["bytes"], "text/html; charset=utf-8",
+                            cache="no-store" if page["degraded"] else "public, max-age=300")
+            return
+        if path.startswith(render_strength.PATH + "/"):
+            # The slash variant 301s to the one URL, query and all; deeper is a 404.
+            if path.rstrip("/") == render_strength.PATH:
+                query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                self._redirect(render_strength.PATH + ("?" + query if query else ""))
             else:
                 self._send_not_found()
             return
