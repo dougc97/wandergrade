@@ -195,8 +195,10 @@ results.append(ok(S["isos"]["near"] == ["AL"] and "Nearly made it" in S["html"]
                   and re.search(r'/guide/albania.*?<span class="risk">Crime</span><span class="risk">Unrest</span>', S["html"], re.S),
                   "Nearly made it: US Level 2 under 50% (Albania, not Egypt at 55), with the US risk chips"))
 tm = re.search(r'<tr>.*?/guide/turkmenistan.*?</tr>', S["html"], re.S).group(0)
-results.append(ok('45%<sup class="fn">†</sup>' in tm and "† priced on the alternative rate basis" in text,
-                  "Turkmenistan: on the list, footnoted as priced on the alternative rate basis"))
+results.append(ok('45%<sup class="fn">†</sup>' in tm and RL.ALT_NOTE in S["html"]
+                  and RL.ALT_NOTE.startswith("† at the official exchange rate") and "market exchange rate" not in text,
+                  "Turkmenistan: on the list, its † saying the price is at the official rate (TMT 3.5, what the "
+                  "figure divides by), not the market one"))
 bt = re.search(r'<tr>.*?/guide/bhutan.*?</tr>', S["html"], re.S).group(0)
 results.append(ok('21% <span class="band">very cheap</span>' in bt and 'title="Very cheap"' not in S["html"]
                   and '60% <span class="band">cheap</span>' in re.search(r'<tr>.*?/guide/portugal.*?</tr>', S["html"], re.S).group(0),
@@ -293,6 +295,16 @@ results.append(ok(D3["counts"]["changes"] == 0 and "No level changes in the last
 results.append(ok(RL.newest_change({"us": US, "ca": CA, "de": DE}) == "2026-09-30"
                   and RL.newest_change({"us": None, "ca": None, "de": None}) == "",
                   "newest_change: the sitemap's date, '' with nothing cached"))
+
+# A feed item dated after today (the US list's French Polynesia read 2 Dec 2026 on 23 Oct) is
+# never the "newest advisory": both pages print the newest on or before today.
+US_FUT = payload("us", US["items"] + [item("PF", 1, "us", updated="2026-12-02")])
+newest_ok = RL._newest(RL.own_by_iso(US_FUT), TODAY) == RL._newest(RL.own_by_iso(US), TODAY) <= TODAY
+DF = RL.do_not_travel(US_FUT, CA, DE, fetched=FETCHED, today=TODAY)
+SF = RL.safe_and_cheap(US_FUT, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+results.append(ok(newest_ok and RL._newest(RL.own_by_iso(US_FUT)) == "2026-12-02"
+                  and all("2 Dec 2026" not in p["html"] and "newest advisory dated" in p["html"] for p in (DF, SF)),
+                  "a future-dated feed item is not the newest advisory on either page (today caps it; no today: no cap)"))
 
 # --- no "None", no forbidden names, on both pages' full output --------------------------
 results.append(ok(all(" None" not in p["html"] and ">None<" not in p["html"] for p in (S, S3, S4, S5, S6, S7, D, D2, D3, D4)),

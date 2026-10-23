@@ -17,9 +17,10 @@ Every figure is one the site already shows, computed the same way:
     tab's currencyCountry), the figure behind its green rows and Top Picks'
     "your USD is unusually strong there";
   * prices are pricelevel.price_level against the US's own, with the income
-    plausibility fit, carried to the rates' own date (as guide_facts does),
-    so the same inputs always print the same figures; a currency several
-    places share shows the range across them, as the tab's cell does.
+    plausibility fit, carried to the day the server hands in (its UTC day,
+    the date /cheapest and the Currency tab carry prices to), so the same
+    inputs and day always print the same figures; a currency several places
+    share shows the range across them, as the tab's cell does.
 
 A currency with no honest inflation-adjusted figure (high inflation with no
 current reading, no single country to adjust by, or too few days since a
@@ -69,6 +70,9 @@ PLACE_NAMES = {"TO": "Tonga", "WS": "Samoa", "MV": "Maldives", "KY": "Cayman Isl
 # The chart's ⓘ names the core majors in this order (app.js CORE_NAME).
 CORE_NAME = {"EUR": "euro", "JPY": "yen", "GBP": "pound", "CHF": "Swiss franc"}
 CORE_ORDER = ("EUR", "JPY", "GBP", "CHF")
+
+# The rates feed's (fxratesapi.com /currencies) own misspellings, put right here.
+CUR_NAME_FIX = {"COP": "Colombian Peso"}
 
 # A long "used in" list (the euro's 27) shows this many names, then "and N more".
 NAMES_SHOWN = 3
@@ -265,16 +269,22 @@ def table_rows(payload):
     return out, folded
 
 
-def price_levels(payload, ppp):
+def _as_date(d):
+    try:
+        return datetime.date.fromisoformat(str(d)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def price_levels(payload, ppp, day=None):
     """{iso: price level vs the US} for every place the table can price:
     app.js priceLevel (tablePriceLevel for the table-only places, tested
     against the fit but never feeding it) over plAnchor("US").pl, carried to
-    the rates' own date."""
-    try:
-        asof = datetime.date.fromisoformat(str(payload["as_of"])[:10])
-    except (KeyError, TypeError, ValueError):
-        asof = None
-    now_y = pricelevel.now_year(asof) if asof else None
+    `day` — the server's UTC day, the date /cheapest (picks._score) and the
+    Currency tab (app.js nowYearFrac) carry prices to, so a country prints
+    one figure on all three — else the rates' own date."""
+    when = _as_date(day) or _as_date((payload or {}).get("as_of"))
+    now_y = pricelevel.now_year(when) if when else None
     rate_by_code = {r["code"]: r["rate_now"] for r in payload.get("rows") or [] if "code" in r and "rate_now" in r}
     fit = pricelevel.plausibility_fit(ppp, rate_by_code, CUR_BY_ISO, now_y)
     us = pricelevel.price_level("US", ppp, rate_by_code, CUR_BY_ISO, fit, now_y) or 1
@@ -295,12 +305,17 @@ def _pct(rel):
     return pricelevel.js_round(100 * rel)
 
 
-def rank(payload, ppp):
+def cur_name(code, name):
+    """The feed's currency name, with its known misspellings put right."""
+    return CUR_NAME_FIX.get(code) or name or code
+
+
+def rank(payload, ppp, day=None):
     """(ranked, apart, folded): every Currency-tab row as a dict, those with
     an inflation-adjusted figure strongest first (ties by code), the rest
-    with the reason they have none."""
+    with the reason they have none. `day`: price_levels' carry date."""
     rows, folded = table_rows(payload)
-    pls = price_levels(payload, ppp)
+    pls = price_levels(payload, ppp, day)
     ranked, apart = [], []
     for r in rows:
         code, nominal = r["code"], r.get("strength_pct")
@@ -309,7 +324,7 @@ def rank(payload, ppp):
         iso = currency_country(code)
         places = currency_countries(code)
         priced = sorted(((pls[i], i) for i in places if i in pls), key=lambda t: t[0])
-        row = {"code": code, "name": r.get("name") or code, "iso": iso, "places": places, "nominal": nominal,
+        row = {"code": code, "name": cur_name(code, r.get("name")), "iso": iso, "places": places, "nominal": nominal,
                "real": None, "adj": False, "priced": priced, "pegged": folded.get(code, []),
                "strong": False, "reason": None}
         if r.get("no_trend"):
@@ -398,21 +413,26 @@ def _prices(row, ppp):
     (lo, lo_iso), (hi, hi_iso) = pr[0], pr[-1]
     n = len(pr)
     mid = pr[(n - 1) // 2][0] if n % 2 else (pr[n // 2 - 1][0] + pr[n // 2][0]) / 2
-    tip = "%s %d%% to %s %d%% · %d places use the %s (median %d%%)" % (
-        place_name(lo_iso, ppp), _pct(lo), place_name(hi_iso, ppp), _pct(hi), n, row["code"], _pct(mid))
+    k = len(row["places"])
+    count = ("%d places use the %s" % (n, row["code"]) if n >= k
+             else "%d of the %d places using the %s have price data" % (n, k, row["code"]))
+    tip = "%s %d%% to %s %d%% · %s (median %d%%)" % (
+        place_name(lo_iso, ppp), _pct(lo), place_name(hi_iso, ppp), _pct(hi), count, _pct(mid))
     txt = "%d%%" % _pct(lo) if _pct(lo) == _pct(hi) else "%d–%d%%" % (_pct(lo), _pct(hi))
     return '<span title="%s">%s</span>' % (html.escape(tip, quote=True), txt)
 
 
-def _currency_cell(row):
+def _currency_cell(row, n):
+    """The currency's name cell; the rank rides in it on a phone and tablet,
+    where the # column is hidden (as /cheapest's .rk)."""
     peg = ""
     if row["pegged"]:
         peg = (' <span class="dspegs" title="%s">+%d pegged</span>'
                % (html.escape("Fixed to the %s at official rates, so they move with it by exactly the same %% "
                               "before inflation: %s." % (row["code"], ", ".join(row["pegged"])), quote=True),
                   len(row["pegged"])))
-    return ('<td class="name" data-l="Currency">%s <span class="dscode">%s</span> %s%s</td>'
-            % (_flag(row["code"], row["iso"]), html.escape(row["code"]), html.escape(row["name"]), peg))
+    return ('<td class="name" data-l="Currency"><span class="rk">%d.</span> %s <span class="dscode">%s</span> %s%s</td>'
+            % (n, _flag(row["code"], row["iso"]), html.escape(row["code"]), html.escape(row["name"]), peg))
 
 
 def _reason(row, ppp):
@@ -441,12 +461,13 @@ HEAD = (("#", ""),
                          "same day's exchange rates. A shared currency shows the range across its places."))
 
 
-def dollar_strength(rates_payload, ppp, idx=None, today=None):
+def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
     """The /dollar-strength page. `rates_payload` is the cached USD /api/rates
     payload, `ppp` the PPP table, `idx` {"1y", "all"} index payloads
     (index_payloads, or /api/index answers) — each None when the server
     doesn't hold it, and then the page still renders, says so and reports
-    `degraded` (the server sends it no-store)."""
+    `degraded` (the server sends it no-store). `price_day`: the UTC day
+    prices are carried to (price_levels), `today` when not given."""
     today = today or datetime.date.today().isoformat()
     have_fx = bool(rates_payload and (rates_payload.get("rows") or []) and ppp)
     lede, spark, ix = index_lede(idx)
@@ -454,7 +475,7 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None):
     if not ix:
         lede = ("The overall dollar index isn't loaded right now, so its figures are left out: this page is "
                 "served uncached until it is back.")
-    ranked, apart, folded = rank(rates_payload, ppp) if have_fx else ([], [], {})
+    ranked, apart, folded = rank(rates_payload, ppp, price_day or today) if have_fx else ([], [], {})
     strong = sum(1 for r in ranked if r["strong"])
     asof = (rates_payload or {}).get("as_of") if have_fx else None
 
@@ -463,7 +484,7 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None):
         trs = []
         for n, row in enumerate(ranked, 1):
             trs.append('<tr><td class="num" data-l="#">%d</td>%s%s%s%s%s</tr>' % (
-                n, _currency_cell(row),
+                n, _currency_cell(row, n),
                 RL._cell("Used in", _used_in(row, ppp)),
                 RL._cell("Before inflation", signed_pct(row["nominal"])),
                 RL._cell("After inflation", _after(row, ppp)),

@@ -3234,6 +3234,12 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
   cursor: help; }
 .listpage .dsnone { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.5; max-width: 80ch; }
 .listpage .dsnone li { margin: 0 0 6px; }
+/* The currency cell holds no link, so the site-wide .name gray (the Currency
+   tab's under-label) would reach it: the row's headline is ink, as on the
+   other lists. The rank rides in it below 1024px, where # is hidden. */
+.listpage .dstable td.name { color: var(--ink); }
+.listpage .dstable .rk { color: var(--gray); font-weight: 700; margin-right: 2px; }
+@media (min-width: 1024px) { .listpage .dstable .rk { display: none; } }
 
 /* /cheapest */
 /* The month lists (fxtracker/render_cheapest.py) in the list pages' look:

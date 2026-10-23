@@ -186,6 +186,11 @@ def why_out(iso, s, ctx):
     lvl = ctx["own"].get("us", {}).get(iso)
     if lvl not in US_LEVELS or s.get("advLvl") != lvl:
         return "us level"
+    return _rest_out(iso, s, ctx)
+
+
+def _rest_out(iso, s, ctx):
+    """The rule past the US level: anyone's do not travel, price, weather."""
     if advisories.dnt_for(iso, ctx["own"], ADV_PARENT):
         return "do not travel"
     if pct_of(s) > MAX_PCT:
@@ -195,10 +200,29 @@ def why_out(iso, s, ctx):
     return None
 
 
-def rank_month(ctx, month, score=None):
+def feed_gaps(ctx, month, scored=None):
+    """Guide countries the State Department's feed has no entry for (the
+    served US list carries them only as a Canadian or German gap-fill) that
+    would otherwise meet the month's rule — named on the page, so the line
+    saying why they are left out stays true. ISO codes, by name."""
+    scored = score_all(ctx, month) if scored is None else scored
+    us = ctx["own"].get("us") or {}
+    out = [iso for iso, s in scored.items()
+           if iso not in us and s.get("advLvl") in US_LEVELS and _rest_out(iso, s, ctx) is None]
+    return sorted(out, key=RL._name)
+
+
+def available(ctx):
+    """Whether a list can be drawn at all: prices, climate and some US levels
+    in hand. Without them the page says the list isn't available — never
+    that no country qualifies."""
+    return bool(ctx["ok"] and ctx["own"].get("us"))
+
+
+def rank_month(ctx, month, score=None, scored=None):
     """The month's rows, best first: every scored guide country that meets
     the rule, in build_variant's order."""
-    scored = score_all(ctx, month, score)
+    scored = score_all(ctx, month, score) if scored is None else scored
     keep = [s for iso, s in scored.items() if why_out(iso, s, ctx) is None]
     keep.sort(key=lambda s: (-s["value"], -s["raw"], s["name"]))
     return keep
@@ -226,16 +250,38 @@ def _rule_html(month_name=None):
             % (US_LEVELS[0], US_LEVELS[1], MAX_PCT, MIN_WX, (" in %s" % month_name) if month_name else " that month"))
 
 
-def _excluded():
-    return ("Left out: US Level 3 and 4, any country the US, Canada or Germany says not to travel to, "
-            "and countries no government rates.")
+def _plural(n, one, many):
+    return one if n == 1 else many
 
 
-def _us_pill(it, lvl):
+def _and(names):
+    return ("%s and %s" % (", ".join(names[:-1]), names[-1])) if len(names) > 1 else "".join(names)
+
+
+def _excluded(gaps=(), when="this month"):
+    """The one line on what the rule leaves out. `gaps`: the guide countries
+    missing from the State Department's feed that would otherwise qualify
+    (feed_gaps), named so the reason given is theirs."""
+    line = ("Left out: US Level 3 and 4, any country the US, Canada or Germany says not to travel to, "
+            "and countries missing from the State Department's feed")
+    if gaps:
+        one = len(gaps) == 1
+        tip = ("Not in the State Department's feed, so there is no US level to go by. Canada or Germany "
+               "rates %s, and %s otherwise %s the rule." % (_plural(len(gaps), "it", "them"),
+                                                            _plural(len(gaps), "it", "they"),
+                                                            "meets" if one else "meet"))
+        names = [('<a href="/guide/%s">%s</a>' % (RL._slug(i), html.escape(RL._name(i))))
+                 if RL._slug(i) else html.escape(RL._name(i)) for i in gaps]
+        line += ' (<span title="%s">%s: %s</span>)' % (html.escape(tip, quote=True), when, _and(names))
+    return line + "."
+
+
+def _us_pill(it, lvl, today=None):
     words = US_WORDS.get(lvl, rg.lvl_words("us", lvl))
     tip = "U.S. State Department: %s" % ((it or {}).get("level_text") or words)
-    if (it or {}).get("updated"):
-        tip += ", dated %s" % RL._day(it["updated"])
+    upd = str((it or {}).get("updated") or "")[:10]
+    if upd and (not today or upd <= str(today)[:10]):
+        tip += ", dated %s" % RL._day(upd)
     return '<span class="lvl lvl%d" title="%s">Level %d: %s</span>' % (
         lvl, html.escape(tip, quote=True), lvl, html.escape(words))
 
@@ -304,55 +350,67 @@ def _problems(ctx, facts, fares_state):
     return notes
 
 
-def _sources(ctx, fetched, stale, rates_asof):
+def _sources(ctx, fetched, stale, rates_asof, today=None):
     parts = []
     if rates_asof:
         parts.append("Prices and grades: WanderGrade's snapshot of %s (exchange rates from fxratesapi.com, "
                      "World Bank PPP carried forward for inflation)" % html.escape(RL._day(rates_asof)))
     adv = RL._sources_line(fetched, ctx["items"], stale={s: a for s, a in (stale or {}).items()
-                                                         if a and s not in ctx["missing"]})
+                                                         if a and s not in ctx["missing"]}, today=today)
     return " · ".join(parts + [adv[:-1]]) + "."
 
 
 def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_state="off",
-          fetched=None, stale=None, today=None, cent=None, score=None):
+          fetched=None, stale=None, today=None, cent=None, score=None, pl_alt=None):
     """{path: page} for the hub and the 12 months. fares_state: "off" (no
     fare source configured: the fare column is dashes, not a degradation),
     "cold" (configured, but the US flight-value pass hasn't run or the fares
-    aren't cached: degraded) or "warm"."""
+    aren't cached: degraded) or "warm". `pl_alt`: the price-level history's
+    "alt" list (a † on those prices, as /safe-and-cheap marks them)."""
     today_d = _date(today)
     ctx = context(us, ca, de, rates, ppp, clim, facts, flights, fv, cent)
     notes = _problems(ctx, facts, fares_state)
     stale = {s: a for s, a in (stale or {}).items() if a and s not in ctx["missing"]}
     degraded = bool(notes or stale)
     rates_asof = (rates or {}).get("as_of")
-    sources = _sources(ctx, fetched, stale, rates_asof)
+    sources = _sources(ctx, fetched, stale, rates_asof, today_d.isoformat())
     lastmod = lastmod_of(rates, facts)
     snap = RL._day(rates_asof) or RL._day((facts or {}).get("_asof")) or RL._day(today_d.isoformat())
-    ranked = {m: rank_month(ctx, m, score) for m in range(1, 13)}
+    have = available(ctx)
+    scored = {m: score_all(ctx, m, score) for m in range(1, 13)}
+    ranked = {m: rank_month(ctx, m, scored=scored[m]) for m in range(1, 13)}
+    gaps = {m: (feed_gaps(ctx, m, scored[m]) if have else []) for m in range(1, 13)}
+    alt = set(pl_alt or ())
     us_items = ctx["items"].get("us") or {}
     fare_note = ("* Fares are cached searches, not live prices, and many months have none. Where a month "
                  "has one: the cheapest round trip from the US, marked Low, Typical or High against the "
                  "route's own year.")
+    unavailable = ("The list isn't available right now: %s not loaded (see the note below)."
+                   % ("prices or climate are" if not ctx["ok"] else "the US levels are"))
     out = {}
 
     for m in range(1, 13):
         name, year = rg.MON_FULL[m - 1], year_for(m, today_d)
         rows = ranked[m]
-        trs = []
+        n = len(rows)
+        trs, alt_used = [], False
         for i, s in enumerate(rows):
             iso = s["iso"]
             lvl = ctx["own"]["us"][iso]
             f = fare_of(ctx, iso, m, today_d)
+            pct = "%d%%" % pct_of(s)
+            if iso in alt:
+                alt_used = True
+                pct += '<sup class="fn">†</sup>'
             cells = [
                 '<td class="num" data-l="#">%d</td>' % (i + 1),
                 '<td class="name" data-l="Country"><span class="rk">%d.</span> %s</td>'
                 % (i + 1, RL._country(iso, RL._name(iso))),
                 RL._cell("Grade", _grade_pill(s, name)),
-                RL._cell("Prices vs US", "%d%%" % pct_of(s)),
-                RL._cell("Weather", _weather(s, ctx["clim"].get(iso), m)),
-                RL._cell("US State Dept", _us_pill(us_items.get(iso), lvl)),
-                RL._cell("US fare", _fare_cell(f)),
+                RL._cell("Prices vs US", pct),
+                RL._cell("Weather score", _weather(s, ctx["clim"].get(iso), m)),
+                RL._cell("US State Dept", _us_pill(us_items.get(iso), lvl, today_d.isoformat())),
+                RL._cell("US round trip", _fare_cell(f)),
             ]
             trs.append("<tr>%s</tr>" % "".join(cells))
         head = ["#", "Country", "Grade", "Prices vs US", "Weather (score · avg daily mean)",
@@ -361,31 +419,40 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
                  '</table></div>'
                  % ("".join("<th>%s</th>" % html.escape(h) for h in head),
                     "".join(trs) or '<tr><td class="name" data-l="Country">No country meets the rule '
-                    'for this month right now.</td></tr>'))
+                    'for this month right now.</td></tr>')) if have else ""
         prev_m, next_m = (m - 2) % 12 + 1, m % 12 + 1
         nav = ('<p class="monthnav"><a href="%s">← %s</a> · <a href="%s">All months</a> · '
                '<a href="%s">%s →</a></p>'
                % (path_for(prev_m), rg.MON_FULL[prev_m - 1], HUB, path_for(next_m), rg.MON_FULL[next_m - 1]))
-        lede = ("The rule: %s. <strong>%d</strong> countries qualify, ranked by WanderGrade's value grade "
-                "for a traveller from the US, as of %s." % (_rule_html(name), len(rows), html.escape(snap)))
+        if have:
+            lede = ("The rule: %s. <strong>%d</strong> %s, ranked by WanderGrade's value grade for a "
+                    "traveller from the US, as of %s." % (_rule_html(name), n,
+                                                         _plural(n, "country qualifies", "countries qualify"),
+                                                         html.escape(snap)))
+        else:
+            lede = "The rule: %s. %s" % (_rule_html(name), unavailable)
         body = nav + table
         body += ('<p class="xlink">See also: <a href="/safe-and-cheap">the safest cheap countries, any '
                  'month</a> · <a href="/?vmn=%d&amp;vo=US">%s in Top Picks</a> · '
                  '<a href="/do-not-travel">the Do Not Travel list</a>.</p>' % (m, name))
-        page_notes = [_excluded(),
+        page_notes = [_excluded(gaps[m]),
                       "Grade: WanderGrade's overall value from the US in %s (prices, safety, weather and "
                       "flights), as Top Picks shows it. Prices: national averages vs the US (100%%)." % name,
-                      fare_note] + notes
+                      fare_note] + ([RL.ALT_NOTE] if alt_used else []) + notes
         h1 = "Cheapest countries to visit in %s %d, from the US" % (name, year)
         title = RL._fit(["Cheapest Countries to Visit in %s %d (From the US)" % (name, year),
                          "Cheapest Countries to Visit in %s %d (US)" % (name, year),
                          "Cheapest Countries in %s %d (From the US)" % (name, year)], TITLE_MAX)
         top = [RL._name(s["iso"]) for s in rows[:3]]
-        tail = ("%s and %s" % (", ".join(top[:-1]), top[-1])) if len(top) > 1 else "".join(top)
-        lead = ("%d countries at most half US prices with good weather (70+) and US Level 1–2 in %s %d, "
-                "graded from the US" % (len(rows), name, year))
-        if rows:
-            desc = RL._fit(["%s: %s lead." % (lead, tail),
+        lead = ("%d %s at most half US prices with good weather (70+) and US Level 1–2 in %s %d, "
+                "graded from the US" % (n, _plural(n, "country", "countries"), name, year))
+        if not have:
+            desc = RL._fit(["The cheapest countries to visit in %s %d from the US: US Level 1–2, at most half "
+                            "US prices, weather 70+, graded A+ to F." % (name, year),
+                            "Cheapest countries to visit in %s %d from the US: Level 1–2, half US prices, "
+                            "weather 70+." % (name, year)], DESC_MAX)
+        elif rows:
+            desc = RL._fit(["%s: %s %s." % (lead, _and(top), _plural(len(top), "leads", "lead")),
                             "%s: %s first." % (lead, top[0]),
                             "%s." % lead], DESC_MAX)
         else:
@@ -396,7 +463,8 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
             "title": title, "desc": desc, "h1": h1,
             "html": _wrap(html.escape(h1), lede, body, page_notes, sources),
             "lastmod": lastmod, "degraded": degraded,
-            "counts": {"rows": len(rows)}, "isos": [s["iso"] for s in rows],
+            "counts": {"rows": len(rows)}, "isos": [s["iso"] for s in rows], "gaps": gaps[m],
+            "available": have,
         }
 
     # The hub: one row per month, soonest first.
@@ -406,12 +474,13 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
         names = ", ".join(html.escape(RL._name(i)) for i in p["isos"][:HUB_TOP]) or "—"
         trs.append('<tr><td class="name" data-l="Month"><a href="%s">%s %d</a></td>%s%s</tr>'
                    % (p["path"], rg.MON_FULL[m - 1], p["year"],
-                      RL._cell("Countries", str(p["counts"]["rows"])),
+                      RL._cell("Countries", str(p["counts"]["rows"]) if have else "—"),
                       RL._cell("Top three", names)))
     table = ('<div class="listbox"><table class="listtable hub"><thead><tr><th>Month</th><th>Countries</th>'
              '<th>Top three</th></tr></thead><tbody>%s</tbody></table></div>' % "".join(trs))
     lede = ("One list per month. The rule: %s. Each list is ranked by WanderGrade's value grade for a "
-            "traveller from the US, as of %s." % (_rule_html(), html.escape(snap)))
+            "traveller from the US, as of %s.%s" % (_rule_html(), html.escape(snap),
+                                                    "" if have else " " + unavailable))
     body = table + ('<p class="xlink">See also: <a href="/safe-and-cheap">the safest cheap countries, any '
                     'month</a> · <a href="/do-not-travel">the Do Not Travel list</a>.</p>')
     nxt = out[path_for(today_d.month % 12 + 1)]
@@ -419,21 +488,25 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
     hub_lead = ("Each month's cheapest countries from the US: at most half US prices, weather 70+ and US "
                 "Level 1–2, graded A+ to F")
     nxt_name = "%s %d" % (rg.MON_FULL[nxt["month"] - 1], nxt["year"])
-    if nxt["isos"]:
-        hub_desc = RL._fit(["%s. %s: %d countries, led by %s." % (hub_lead, nxt_name, nxt["counts"]["rows"],
-                                                                 RL._name(nxt["isos"][0])),
-                            "%s. %s: %d countries." % (hub_lead, nxt_name, nxt["counts"]["rows"]),
+    k = nxt["counts"]["rows"]
+    if have and nxt["isos"]:
+        hub_desc = RL._fit(["%s. %s: %d %s, led by %s." % (hub_lead, nxt_name, k, _plural(k, "country", "countries"),
+                                                          RL._name(nxt["isos"][0])),
+                            "%s. %s: %d %s." % (hub_lead, nxt_name, k, _plural(k, "country", "countries")),
                             "%s." % hub_lead], DESC_MAX)
     else:
         hub_desc = RL._fit(["%s." % hub_lead], DESC_MAX)
+    # A country missing from the State Department's feed that would qualify in
+    # any month: named once on the hub, as each month names its own.
+    hub_gaps = sorted({i for g in gaps.values() for i in g}, key=RL._name)
     out[HUB] = {
         "path": HUB, "month": None, "year": None,
         "title": RL._fit(["Cheapest Countries to Visit Each Month (From the US)"], TITLE_MAX),
         "desc": hub_desc, "h1": h1,
-        "html": _wrap(html.escape(h1), lede, body, [_excluded()] + notes, sources),
+        "html": _wrap(html.escape(h1), lede, body, [_excluded(hub_gaps, "in some months")] + notes, sources),
         "lastmod": lastmod, "degraded": degraded,
         "counts": {m: out[path_for(m)]["counts"]["rows"] for m in range(1, 13)},
-        "isos": [],
+        "isos": [], "gaps": hub_gaps, "available": have,
     }
     return out
 

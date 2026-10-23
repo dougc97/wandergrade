@@ -176,10 +176,12 @@ results.append(ok(P["codes"]["ranked"] == order, "the ranking is real_fx_pct, st
                   % (len(order), order[0])))
 results.append(ok(all(a >= b for a, b in zip([expect_real[k] for k in order], [expect_real[k] for k in order][1:])),
                   "and it never rises down the table"))
-shown = re.findall(r'<tr><td class="num" data-l="#">(\d+)</td><td class="name" data-l="Currency">[^<]*<span class="dscode">([A-Z]{3})</span>',
-                   P["html"])
-results.append(ok([c for _n, c in shown] == order and [int(n) for n, _c in shown] == list(range(1, len(order) + 1)),
-                  "the page prints the rows in that order, numbered 1..%d" % len(order)))
+shown = re.findall(r'<tr><td class="num" data-l="#">(\d+)</td><td class="name" data-l="Currency"><span class="rk">(\d+)\.</span>'
+                   r'[^<]*<span class="dscode">([A-Z]{3})</span>', P["html"])
+results.append(ok([c for _n, _r, c in shown] == order
+                  and [int(n) for n, _r, _c in shown] == [int(r) for _n, r, _c in shown] == list(range(1, len(order) + 1)),
+                  "the page prints the rows in that order, numbered 1..%d in the # column and again in the name "
+                  "cell (the rank a phone or tablet card shows, # being hidden there)" % len(order)))
 results.append(ok(sorted(P["codes"]["apart"]) == sorted(k for k, v in expect_real.items() if v is None)
                   and not set(P["codes"]["apart"]) & set(order),
                   "every currency without a real figure is apart, none ranked: %s" % P["codes"]["apart"]))
@@ -402,6 +404,58 @@ results.append(ok("THB" in D6["codes"]["apart"] and "THB" not in D6["codes"]["ra
                   "a no-trend row (regime change) is apart with its reason"))
 results.append(ok(all(" None" not in p["html"] and ">None<" not in p["html"] for p in (P, P2, D1, D2, D3, D4, D5, D6)),
                   "no None leaks on any variant"))
+
+# ---- review fixes: the feed's misspelling, the shared-currency count, one carry date ---------
+cop_feed = next(r["name"] for r in RATES["rows"] if r["code"] == "COP")
+results.append(ok(cop_feed == "Coombian Peso" and 'COP</span> Colombian Peso' in P["html"] and "Coombian" not in P["html"],
+                  "the feed's \"Coombian Peso\" prints as Colombian Peso"))
+counts_ok, seen_short = True, 0
+for row in P["rows"]:
+    n, k = len(row["priced"]), len(row["places"])
+    if n < 2:
+        continue
+    want = ("%d places use the %s" % (n, row["code"]) if n >= k
+            else "%d of the %d places using the %s have price data" % (n, k, row["code"]))
+    seen_short += n < k
+    counts_ok = counts_ok and want in P["html"]
+eur = next(r for r in P["rows"] if r["code"] == "EUR")
+results.append(ok(counts_ok and seen_short >= 1 and "%d places use the EUR" % len(eur["priced"]) not in P["html"],
+                  "a shared currency's price tooltip counts the places with price data against all that use it "
+                  "(EUR: %d of %d)" % (len(eur["priced"]), len(eur["places"]))))
+# /cheapest's price figure (picks._score: price_level with now_y=None, today in UTC) and this page's for the
+# same inputs and the same UTC day, for every single-place currency; and the day decides the carry.
+from fxtracker import picks  # noqa: E402
+utc_today = datetime.datetime.now(datetime.timezone.utc).date()
+rate_by = {r["code"]: r["rate_now"] for r in RATES["rows"] if "code" in r and "rate_now" in r}
+fit0 = pricelevel.plausibility_fit(PPP, rate_by, picks.CUR_BY_ISO)
+anchor0 = picks._price_level("US", PPP, rate_by, fit0) or 1
+cheap_pct = {iso: pricelevel.js_round(100 * pl / anchor0) for iso in picks.CUR_BY_ISO
+             for pl in [picks._price_level(iso, PPP, rate_by, fit0)] if pl}
+mine = RS.price_levels(RATES, PPP, utc_today.isoformat())
+same_day = [iso for iso in cheap_pct if iso in mine and pricelevel.js_round(100 * mine[iso]) == cheap_pct[iso]]
+results.append(ok(len(same_day) == len([i for i in cheap_pct if i in mine]) and len(same_day) > 100,
+                  "carried to the same UTC day, every country's price matches /cheapest's (picks._score) figure "
+                  "(%d countries)" % len(same_day)))
+PD = RS.dollar_strength(RATES, PPP, IDX, today=TODAY, price_day=utc_today.isoformat())
+single = [r for r in PD["rows"] if len(r["priced"]) == 1 and r["priced"][0][1] in cheap_pct]
+results.append(ok(single and all('>%d%%</span>' % cheap_pct[r["priced"][0][1]] in PD["html"] for r in single),
+                  "the page itself prints /cheapest's %% for its %d single-place currencies on that day" % len(single)))
+later = (datetime.date.fromisoformat(TODAY) + datetime.timedelta(days=30)).isoformat()
+lv30 = RS.price_levels(RATES, PPP, later)
+ref30 = pricelevel.now_year(datetime.date.fromisoformat(later))
+fit30 = pricelevel.plausibility_fit(PPP, rate_by, picks.CUR_BY_ISO, ref30)
+us30 = pricelevel.price_level("US", PPP, rate_by, picks.CUR_BY_ISO, fit30, ref30)
+results.append(ok(all(abs(lv30[i] - pricelevel.price_level(i, PPP, rate_by, picks.CUR_BY_ISO, fit30, ref30) / us30) < 1e-12
+                      for i in ("BO", "MY", "TR", "JP")) and RS.price_levels(RATES, PPP) == RS.price_levels(RATES, PPP, TODAY),
+                  "price_day sets the carry date (30 days on: the inflation carried that far); none given: the rates' date"))
+results.append(ok(re.search(r'<td class="name" data-l="Currency"><span class="rk">1\.</span> ', P["html"]) is not None,
+                  "the rank rides in the currency cell for phone and tablet cards"))
+css = open(os.path.join(ROOT, "public", "styles.css"), encoding="utf-8").read()
+blk = css[css.index("/* /dollar-strength"):css.index("/* /cheapest */")]
+results.append(ok(".listpage .dstable td.name { color: var(--ink); }" in blk and ".listpage .dstable .rk" in blk
+                  and "@media (min-width: 1024px) { .listpage .dstable .rk { display: none; } }" in blk,
+                  "CSS (in the /dollar-strength block): the currency cell is ink, not the site-wide .name gray; "
+                  "the card rank hides from 1024px, where # shows"))
 
 # ---- the server ------------------------------------------------------------------------------
 import server  # noqa: E402

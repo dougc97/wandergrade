@@ -56,6 +56,12 @@ LOWEST = {"us": 1, "ca": 1, "de": 1}
 
 TITLE_MAX = 60
 DESC_MAX = 157
+# The † on a price where the World Bank converts that economy at another rate
+# than the official one (the price-level history's "alt" list: Turkmenistan,
+# Angola...). Today's figure divides PPP by the official rate the feed quotes
+# (TMT 3.5), so that is what the note says; shared by every list that prints it.
+ALT_NOTE = ("† at the official exchange rate, which the World Bank doesn't use for that economy's own "
+            "figures, so this price is rougher than most.")
 
 _clim = None
 
@@ -251,10 +257,20 @@ def _age(seconds):
     return ("%dd" % (s // 86400)) if s >= 2 * 86400 else ("%dh" % (s // 3600))
 
 
-def _sources_line(fetched, own, facts_asof=None, health_built=None, stale=None):
+def _newest(items, today=None):
+    """The newest advisory date among a feed's items, ignoring any after
+    `today` (a feed item dated weeks ahead — the US list's French Polynesia
+    read 2 Dec 2026 on 23 Oct — is a typo upstream, not news), or ''."""
+    cap = str(today or "")[:10]
+    return max((u for u in ((it.get("updated") or "")[:10] for it in items.values())
+                if u and (not cap or u <= cap)), default="")
+
+
+def _sources_line(fetched, own, facts_asof=None, health_built=None, stale=None, today=None):
     """`stale` {source: seconds}: feeds whose refresh is failing and whose
     last good copy is being served (the server's stale-on-error), said next
-    to the fetched time — the printed data is honest, the silence wasn't."""
+    to the fetched time — the printed data is honest, the silence wasn't.
+    `today` caps the "newest advisory dated" day (_newest)."""
     parts = []
     stale = stale or {}
     if facts_asof:
@@ -265,7 +281,7 @@ def _sources_line(fetched, own, facts_asof=None, health_built=None, stale=None):
         if items is None:
             parts.append("%s: not loaded" % html.escape(SOURCES[src]))
             continue
-        newest = max((it.get("updated") or "" for it in items.values()), default="")
+        newest = _newest(items, today)
         bits = [html.escape(SOURCES[src])]
         f = _fetched(fetched, src)
         if f:
@@ -456,7 +472,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
              '<p class="sub"><strong>%d</strong> countries under %d%% of US prices where the State Department '
              "says “exercise increased caution”, with its reasons.</p>%s" % (len(near), NEAR_PCT, near_table))
     if alt_used:
-        notes.append("† priced on the alternative rate basis: the market exchange rate, not the official one.")
+        notes.append(ALT_NOTE)
     notes.append("Prices are national averages vs the US (100%%), from World Bank PPP at the snapshot's "
                  "exchange rates. Best months: the guide's hand-picked months, or the best-weather months "
                  "where it has none. Health notes are Canada's risk-to-travellers list (* in certain areas).%s"
@@ -468,7 +484,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
              '<a href="/dollar-strength">where the US dollar is strongest</a> · '
              '<a href="/data">the price-level dataset</a>.</p>')
     stale = {s: a for s, a in (stale or {}).items() if a and s not in missing}
-    sources = _sources_line(fetched, own, facts.get("_asof"), (health or {}).get("built"), stale)
+    sources = _sources_line(fetched, own, facts.get("_asof"), (health or {}).get("built"), stale, today)
     h1 = "Safest cheap countries to visit in %s" % year
     title = _fit(["Safest Cheap Countries to Visit in %s (Data, Not Opinion)" % year,
                   "Safest Cheap Countries to Visit in %s (Data)" % year], TITLE_MAX)
@@ -594,7 +610,7 @@ def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
              "(↑ raised, ↓ lowered). US reasons are the State Department's “due to” clause.",
              _missing_note(missing)]
     stale = {s: a for s, a in (stale or {}).items() if a and s not in missing}
-    sources = _sources_line(fetched, own, stale=stale)
+    sources = _sources_line(fetched, own, stale=stale, today=today)
     h1 = "Do not travel list %s: US, Canada and Germany compared" % year
     title = _fit(["Do Not Travel List %s: US, Canada & Germany Compared" % year], TITLE_MAX)
     desc = _fit(["%d countries rated do not travel by the US, Canada or Germany, %d by all three, each in "

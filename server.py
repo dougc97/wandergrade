@@ -1096,12 +1096,15 @@ def _strength_page():
     object) and the day — like _list_page."""
     rp, ppp = _fx_inputs()
     day = datetime.now().strftime("%Y-%m-%d")   # compute_index's date.today()
+    # Prices are carried to the UTC day, as /cheapest (picks._score) and the
+    # Currency tab (app.js nowYearFrac) carry them, so the three agree.
+    utc_day = time.strftime("%Y-%m-%d", time.gmtime())
     idx = _strength_index(_strength_history(), day)
-    key = (id(rp), id(ppp), id(idx), day)
+    key = (id(rp), id(ppp), id(idx), day, utc_day)
     hit = _strength_memo[0]
     if hit and hit[0] == key:
         return hit[2]
-    page = render_strength.dollar_strength(rp, ppp, idx, today=day)
+    page = render_strength.dollar_strength(rp, ppp, idx, today=day, price_day=utc_day)
     out = {"bytes": _shell_page(page["title"], page["html"],
                                 _list_head(render_strength.PATH, page["title"], page["desc"]),
                                 credits=_STRENGTH_CREDITS),
@@ -1195,13 +1198,13 @@ def _cheap_page(path):
     fares, fv, state = _cheap_fares()
     today = time.strftime("%Y-%m-%d", time.gmtime())
     docs = (payloads["us"], payloads["ca"], payloads["de"], rp, ppp, render_lists.climate(),
-            guide_facts.get_doc(), fares)
+            guide_facts.get_doc(), fares, _pl_history())
     key = tuple(id(x) for x in docs) + (today, state) + tuple(stale.get(s, 0) // 3600 for s in _ADV_SRCS)
     hit = _cheap_memo[0]
     if hit and hit[0] == key and hit[2] == fv:
         return hit[3][path]
     pages = render_cheapest.pages(*docs[:7], flights=fares, fv=fv, fares_state=state, fetched=fetched,
-                                  stale=stale, today=today)
+                                  stale=stale, today=today, pl_alt=(docs[8] or {}).get("alt"))
     out = {p: {"bytes": _shell_page(pg["title"], pg["html"], _list_head(p, pg["title"], pg["desc"]),
                                     credits=_CHEAP_CREDITS),
                "degraded": pg["degraded"]} for p, pg in pages.items()}
