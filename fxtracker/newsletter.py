@@ -593,6 +593,19 @@ QUOTES = [
 ]
 
 
+# Fixed, not strftime("%B"): that follows the machine's locale.
+_MONTH_SLUGS = ("january", "february", "march", "april", "may", "june", "july",
+                "august", "september", "october", "november", "december")
+
+
+def _cheapest_url(month):
+    """The site's /cheapest/<month> page (render_cheapest.path_for: lowercase
+    English month names). Its year is the month's next occurrence counting
+    the current one, so the issue's month, about two months out, is the
+    year the page shows."""
+    return "%s/cheapest/%s" % (SITE, _MONTH_SLUGS[month - 1])
+
+
 def _quote_for(year, month):
     """Deterministic by month: every issue gets a different one, and re-rendering
     the same issue gets the same one (a random pick would make the archive lie)."""
@@ -648,6 +661,14 @@ def render_digest(data):
                       "<p style='font-size:13px;color:#555;margin:0 0 12px'>Under-the-radar, high-value "
                       "spots the crowds miss:</p>" + "".join(_gem_line(s, m, v) for s in gems))
 
+    # The /cheapest/<month> page ranks every country under half US prices with
+    # good weather and a US Level 1-2 for that month, graded from the US: the
+    # USD edition only (the page is US-origin; a euro reader's picks aren't).
+    cheap_link = "" if v.code != "USD" else (
+        "<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b8 <b>On a budget?</b> "
+        "<a href='%s' style='color:%s;font-weight:600;text-decoration:none'>The cheapest countries "
+        "to visit in %s →</a></p>" % (_cheapest_url(m), GREEN, _esc(mn)))
+
     body = """<div style="display:none;font-size:1px;color:#f4f5f6;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">%s&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;</div>
 <div style="max-width:600px;margin:0 auto;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;background:#f4f5f6;padding:20px">
   <div style="text-align:center;margin:0 0 18px">
@@ -660,7 +681,7 @@ def render_digest(data):
   %s
   %s
   %s
-  %s
+  %s%s
   <div style="text-align:center;margin:22px 0 6px">
     <a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px">See every country’s grades →</a>
   </div>
@@ -671,7 +692,7 @@ def render_digest(data):
     <b>WanderGrade</b> · once a month, no spam · <a href="%s" style="color:#888">wandergrade.com</a> · <a href="%s" style="color:#888">unsubscribe</a>
   </p>
 </div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), pick_link, GREEN, hero, rest,
-             ai_callout, gems_block, month_link, GREEN, _quote_for(yr, m),
+             ai_callout, gems_block, cheap_link, month_link, GREEN, _quote_for(yr, m),
              _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]), SITE, UNSUB)
 
     return subject, body

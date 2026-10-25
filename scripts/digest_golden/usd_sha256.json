@@ -1,18 +1,18 @@
 {
- "note": "Regenerated 2026-10-14 again for the tie rule (a tie on the shown score breaks on the unrounded one, then the name; list order used to decide). Regenerated 2026-10-14 for the default priorities moving to every factor Med (picks.WEIGHTS afford 3 -> 2; affordability had been High since the FX-tracker days). Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
+ "note": "Regenerated 2026-10-24 for the USD edition's new line after the hidden gems: 💸 On a budget? \"The cheapest countries to visit in <Month> →\" linking https://wandergrade.com/cheapest/<month> for the issue's month (scripts/digest_snapshot.py on HEAD 4f15187 and on the change: every month's text identical once that one paragraph is removed). Regenerated 2026-10-14 again for the tie rule (a tie on the shown score breaks on the unrounded one, then the name; list order used to decide). Regenerated 2026-10-14 for the default priorities moving to every factor Med (picks.WEIGHTS afford 3 -> 2; affordability had been High since the FX-tracker days). Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
  "sha256": {
-  "1": "6f12cbaef5c0d1e893c628f53ea76cd8dbbcc6c018b6478ed3791da7c876431e",
-  "2": "e22630f72359546dbe81769da2a1082a62ca07108c5b9c9feeecc05e47fefd29",
-  "3": "7e8861ab77b7a5bfa76641ccbb68bc1f605a36ae31518a2a0740e9de91a76e07",
-  "4": "2964f975fefd5747eac08e33255ebe268b81c0f82bed1e3d092d36deb3bc1e64",
-  "5": "fe453e70722389e3b5a6966482e86e7e24dc0d8e5a7cbe591bf4cd96c717e0b5",
-  "6": "75c8031a2d2a623a0a89a9d3a2ca1b802db8de364d7616f7c10f7ea66f95b330",
-  "7": "7945ec6165ff43edc2ff69cc8b106d080751fa98bba6a9b83c9a63a01189b785",
-  "8": "fd07b52be8cefef1dc3989a59ff03dea3b3343dd1bf767db62d9c3d04e9a3314",
-  "9": "7591c43b86643239ce7b8545bfb17268cfd123e4d3a02f613e36a93c6697758a",
-  "10": "563e77646351ebdba98a618d6ff0d2e3b9963712cb25d3034024854f40bb36fb",
-  "11": "713770377d9cc5177bbc68996f32a943e95fe403abb018f0e1721a04231d8303",
-  "12": "5c1055e35a435bcd723abfffadf1768acc7435e46a491f0e8437943bda3877f1"
+  "1": "b42d6a165722fb910d35a1f7409ab2f582198154a96922c4ea2b21db534c111b",
+  "2": "90d5aa15347ecc481f6d449a6d241e97fdf5d6b6b112e5d1c989431fa7b44494",
+  "3": "b8ef914da03b1dada2ec881970a89a0b6e8e00ab7afc23ce56aba4a5fcee35a5",
+  "4": "d23824d1bbd2ee7ae633548cfb67c6b764804f8771f2688407faaf4f42f78c49",
+  "5": "cf7de6397873990e8a6ac7a7d85babcd944a0a4f80d64453e628d2ca0a70b86f",
+  "6": "61b7441bf7af89ffeb904b1b3868644978a9bd8e18e80238166fa00e388181f4",
+  "7": "f6e2c5bff96a4d69949234ffdbd8e4d8ece6240ea281ca3232827394400cae95",
+  "8": "59c2c6f4990f120f373365cc194e7c536a2a6e1ae0e6235d605c41a78669c8d2",
+  "9": "ee7c279c5d280baf4942bfde6f3072fcfea524123e5e6cfd05209523d697197e",
+  "10": "bd95131b02f9cfcd175c3d8a8921f3a47ac31b1da3992212ca52a4d4eb5a3e04",
+  "11": "0d7fc1b8680681803aedd581a8b53150b869ac8d4897d2449359ccbdfef9e2a3",
+  "12": "b1d3795cdf2425488ead02764e22fd40df93b68359adeb2e2240efeecf408664"
  },
  "source": "git archive 4788fd2 fxtracker public | tar -x (scripts/digest_snapshot.py, frozen fixtures, today 2026-10-03)"
 }

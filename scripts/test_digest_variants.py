@@ -2,9 +2,10 @@
 """The digest's home-currency editions, rendered offline from frozen inputs
 (scripts/digest_snapshot.py; nothing leaves this machine):
 
-  1. USD is byte-for-byte what 4788fd2 renders, but for one deliberate
-     change: the cost line now uses the site's ±10% "about the same" band on
-     the two printed decimals (newsletter._pl_band). The 12 months' sha256
+  1. USD is byte-for-byte what 4788fd2 renders, but for two deliberate
+     changes: the cost line now uses the site's ±10% "about the same" band on
+     the two printed decimals (newsletter._pl_band), and since 2026-10-24 a
+     line after the hidden gems links the issue month's /cheapest page. The 12 months' sha256
      match scripts/digest_golden/usd_sha256.json, and the USD edition built
      the per-currency way (gather + build_variant) is the same text. The
      band is checked against JavaScript's own toFixed under jsc.
@@ -121,6 +122,13 @@ def main():
                 problems.append((c, m, "compact FX line says dollar"))
             if d.get("variant") != c or d.get("home_iso") != v.home_iso:
                 problems.append((c, m, "payload variant/home"))
+    # The USD issue links its month's /cheapest page once (US-origin, so no other edition does).
+    for c in V:
+        for m in range(1, 13):
+            n_links = snap[c][str(m)][1].count("https://wandergrade.com/cheapest/")
+            want = "https://wandergrade.com/cheapest/%s'" % newsletter._MONTH_SLUGS[m - 1]
+            if (c == "USD") != (n_links == 1) or (c == "USD" and want not in snap[c][str(m)][1]):
+                problems.append((c, m, "cheapest link", n_links))
     results.append(ok(not problems, "subjects unique per month; wording, footer, emoji, home exclusion, "
                       "markup all right (%d renders)%s" % (12 * len(V), "" if not problems else
                                                              " -> %r" % problems[:4])))

@@ -14,7 +14,7 @@ from them.
 --against <rev> (default 4788fd2) is the tree whose USD-only calls must be
 matched; it is extracted with `git archive` into a temp dir.
 """
-import contextlib, io, json, os, random, shutil, subprocess, sys, tempfile, urllib.parse
+import contextlib, io, json, os, random, re, shutil, subprocess, sys, tempfile, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -147,6 +147,27 @@ class FakeButtondown:
         raise AssertionError("fake Buttondown: unexpected %s %s" % (method, url))
 
 
+# The USD issue's one line newer than 4788fd2 (2026-10-24): the link to the
+# issue month's /cheapest page, after the hidden gems.
+CHEAP_LINK = re.compile(
+    r"<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b8 <b>On a budget\?</b> "
+    r"<a href='https://wandergrade\.com/cheapest/[a-z]+' style='[^']*'>The cheapest countries "
+    r"to visit in [A-Za-z]+ →</a></p>")
+
+
+def without_cheap_link(calls):
+    """(calls with that line taken out of every email body, True when each
+    body carried it exactly once)."""
+    out, once = [], True
+    for c in calls:
+        if len(c) > 2 and isinstance(c[2], dict) and isinstance(c[2].get("body"), str):
+            body, n = CHEAP_LINK.subn("", c[2]["body"])
+            once = once and n == 1
+            c = [c[0], c[1], dict(c[2], body=body)] + list(c[3:])
+        out.append(c)
+    return out, once
+
+
 # ---- running a tree against the fake -----------------------------------------
 
 def _child(root, scenario):
@@ -264,7 +285,8 @@ def main():
 
         # 1. USD-only: the same calls (and output) as the old code, for a send,
         #    a draft, and a send whose issue is already out.
-        print("1. USD-only run == %s (+ this tree's cost line), call for call" % against)
+        print("1. USD-only run == %s (+ this tree's cost line, less the /cheapest link), call for call"
+              % against)
         base_subs = subs({"a@x.test": "", "b@x.test": "currency-eur", "c@x.test": "cadence-monthly"})
         sent_before = [{"id": "em900", "subject": "\U0001f9ed Where your dollar goes furthest this December",
                         "status": "sent", "creation_date": "2026-10-01", "metadata": {},
@@ -278,15 +300,17 @@ def main():
             new = run_tree(ROOT, sc)
             raw = run_tree(tmp, sc)
             old = run_tree(tmp, dict(sc, graft=ROOT))
-            same_raw = raw["calls"] == new["calls"] and raw["out"] == new["out"]
-            results.append(ok(old["calls"] == new["calls"] and old["out"] == new["out"]
+            new_calls, linked = without_cheap_link(new["calls"])
+            same_raw = raw["calls"] == new_calls and raw["out"] == new["out"]
+            results.append(ok(old["calls"] == new_calls and linked and old["out"] == new["out"]
                               and old["code"] == new["code"],
-                              "%s: %d identical calls, identical output, exit %s (ungrafted: %s)"
+                              "%s: %d identical calls once the /cheapest link (in every body, once) is "
+                              "taken out, identical output, exit %s (ungrafted: %s)"
                               % (name, len(new["calls"]), new["code"],
                                  "identical too" if same_raw else "differs in the cost line only")))
-            if old["calls"] != new["calls"]:
+            if old["calls"] != new_calls:
                 print("    old:", json.dumps(old["calls"])[:600])
-                print("    new:", json.dumps(new["calls"])[:600])
+                print("    new:", json.dumps(new_calls)[:600])
         results.append(ok(all(not (c[3] or {}).get("X-API-Version") for c in new["calls"]),
                           "USD-only sends no X-API-Version header and no filters"))
 
