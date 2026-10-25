@@ -661,9 +661,9 @@ def render_digest(data):
                       "<p style='font-size:13px;color:#555;margin:0 0 12px'>Under-the-radar, high-value "
                       "spots the crowds miss:</p>" + "".join(_gem_line(s, m, v) for s in gems))
 
-    # The /cheapest/<month> page ranks every country under half US prices with
-    # good weather and a US Level 1-2 for that month, graded from the US: the
-    # USD edition only (the page is US-origin; a euro reader's picks aren't).
+    # The issue month's /cheapest page (its rule and ranking are
+    # render_cheapest's, graded from the US): the USD edition only, as the
+    # page is US-origin and a euro reader's picks aren't.
     cheap_link = "" if v.code != "USD" else (
         "<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b8 <b>On a budget?</b> "
         "<a href='%s' style='color:%s;font-weight:600;text-decoration:none'>The cheapest countries "

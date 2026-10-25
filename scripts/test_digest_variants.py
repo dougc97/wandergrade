@@ -18,7 +18,8 @@
     /usr/bin/python3 scripts/test_digest_variants.py [--against <rev>]
 
 --against <rev> also extracts that tree with `git archive` and diffs its USD
-text against this tree's in full, then again with only this tree's cost line
+text against this tree's (less the /cheapest line, which must be in every
+month once) in full, then again with only this tree's cost line
 grafted into it (digest_snapshot --graft-cost-line): that must be identical
 for all 12 months, which proves the cost line is the only USD change.
 """
@@ -74,10 +75,14 @@ def main():
             # With this tree's default priorities (every factor Med since
             # 2026-10-14), so the raw diff is the cost band's alone.
             old = _snapshot_in_child(tmp, "USD", weights=ROOT)
-            diffs = [m for m in old["USD"] if old["USD"][m] != usd_only["USD"].get(m)]
+            # The /cheapest line is the other deliberate change: compare without it.
+            usd_cmp, linked = ds.without_cheap_link(usd_only["USD"])
+            results.append(ok(linked and len(usd_cmp) == 12,
+                              "this tree's USD text carries the /cheapest line once in every month"))
+            diffs = [m for m in old["USD"] if old["USD"][m] != usd_cmp.get(m)]
             raw_diff = sorted(int(m) for m in diffs)          # checked in 2c
             grafted = _snapshot_in_child(tmp, "USD", graft=ROOT)
-            gdiffs = [m for m in grafted["USD"] if grafted["USD"][m] != usd_only["USD"].get(m)]
+            gdiffs = [m for m in grafted["USD"] if grafted["USD"][m] != usd_cmp.get(m)]
             results.append(ok(not gdiffs and len(grafted["USD"]) == 12,
                               "%s with only this tree's cost line grafted in renders this tree's USD "
                               "text for all 12 months (the cost band is the only USD change)%s"
@@ -127,7 +132,7 @@ def main():
         for m in range(1, 13):
             n_links = snap[c][str(m)][1].count("https://wandergrade.com/cheapest/")
             want = "https://wandergrade.com/cheapest/%s'" % newsletter._MONTH_SLUGS[m - 1]
-            if (c == "USD") != (n_links == 1) or (c == "USD" and want not in snap[c][str(m)][1]):
+            if n_links != (1 if c == "USD" else 0) or (c == "USD" and want not in snap[c][str(m)][1]):
                 problems.append((c, m, "cheapest link", n_links))
     results.append(ok(not problems, "subjects unique per month; wording, footer, emoji, home exclusion, "
                       "markup all right (%d renders)%s" % (12 * len(V), "" if not problems else

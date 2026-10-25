@@ -148,11 +148,8 @@ class FakeButtondown:
 
 
 # The USD issue's one line newer than 4788fd2 (2026-10-24): the link to the
-# issue month's /cheapest page, after the hidden gems.
-CHEAP_LINK = re.compile(
-    r"<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b8 <b>On a budget\?</b> "
-    r"<a href='https://wandergrade\.com/cheapest/[a-z]+' style='[^']*'>The cheapest countries "
-    r"to visit in [A-Za-z]+ →</a></p>")
+# issue month's /cheapest page, after the hidden gems (digest_snapshot.CHEAP_LINK).
+CHEAP_LINK = ds.CHEAP_LINK
 
 
 def without_cheap_link(calls):

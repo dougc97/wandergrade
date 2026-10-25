@@ -40,6 +40,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import sys
 import types
 import urllib.request
@@ -134,6 +135,24 @@ def install(root):
 
 # newsletter.py names the cost line is built from, taken from the new tree.
 GRAFT = ("PL_SAME", "_pl_shown", "_pl_band", "_cost_line")
+
+# The USD issue's other deliberate change since 4788fd2 (2026-10-24): the line
+# after the hidden gems linking the issue month's /cheapest page.
+CHEAP_LINK = re.compile(
+    r"<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b8 <b>On a budget\?</b> "
+    r"<a href='https://wandergrade\.com/cheapest/[a-z]+' style='[^']*'>The cheapest countries "
+    r"to visit in [A-Za-z]+ →</a></p>")
+
+
+def without_cheap_link(per_month):
+    """{month: [subject, body]} with that line taken out of each body, and
+    True when every body carried it exactly once."""
+    out, once = {}, True
+    for m, (subj, body) in per_month.items():
+        body, n = CHEAP_LINK.subn("", body)
+        once = once and n == 1
+        out[m] = [subj, body]
+    return out, once
 
 
 def graft_cost_line(newsletter, new_root):
