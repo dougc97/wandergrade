@@ -665,7 +665,7 @@ def render_digest(data):
     # render_cheapest's, graded from the US): the USD edition only, as the
     # page is US-origin and a euro reader's picks aren't.
     cheap_link = "" if v.code != "USD" else (
-        "<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b8 <b>On a budget?</b> "
+        "<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b0 <b>On a budget?</b> "
         "<a href='%s' style='color:%s;font-weight:600;text-decoration:none'>The cheapest countries "
         "to visit in %s →</a></p>" % (_cheapest_url(m), GREEN, _esc(mn)))
 

@@ -139,7 +139,7 @@ GRAFT = ("PL_SAME", "_pl_shown", "_pl_band", "_cost_line")
 # The USD issue's other deliberate change since 4788fd2 (2026-10-24): the line
 # after the hidden gems linking the issue month's /cheapest page.
 CHEAP_LINK = re.compile(
-    r"<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b8 <b>On a budget\?</b> "
+    r"<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b0 <b>On a budget\?</b> "
     r"<a href='https://wandergrade\.com/cheapest/[a-z]+' style='[^']*'>The cheapest countries "
     r"to visit in [A-Za-z]+ →</a></p>")
 

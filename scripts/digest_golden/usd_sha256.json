@@ -1,18 +1,18 @@
 {
- "note": "Regenerated 2026-10-24 for the USD edition's new line after the hidden gems: 💸 On a budget? \"The cheapest countries to visit in <Month> →\" linking https://wandergrade.com/cheapest/<month> for the issue's month (scripts/digest_snapshot.py on HEAD 4f15187 and on the change: every month's text identical once that one paragraph is removed; test_digest_variants --against 4788fd2 compares with it taken out). Regenerated 2026-10-14 again for the tie rule (a tie on the shown score breaks on the unrounded one, then the name; list order used to decide). Regenerated 2026-10-14 for the default priorities moving to every factor Med (picks.WEIGHTS afford 3 -> 2; affordability had been High since the FX-tracker days). Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
+ "note": "Regenerated 2026-10-24 for the USD edition's new line after the hidden gems: 💰 On a budget? (💸 until the same day, Doug's pick) \"The cheapest countries to visit in <Month> →\" linking https://wandergrade.com/cheapest/<month> for the issue's month (scripts/digest_snapshot.py on HEAD 4f15187 and on the change: every month's text identical once that one paragraph is removed; test_digest_variants --against 4788fd2 compares with it taken out). Regenerated 2026-10-14 again for the tie rule (a tie on the shown score breaks on the unrounded one, then the name; list order used to decide). Regenerated 2026-10-14 for the default priorities moving to every factor Med (picks.WEIGHTS afford 3 -> 2; affordability had been High since the FX-tracker days). Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
  "sha256": {
-  "1": "b42d6a165722fb910d35a1f7409ab2f582198154a96922c4ea2b21db534c111b",
-  "2": "90d5aa15347ecc481f6d449a6d241e97fdf5d6b6b112e5d1c989431fa7b44494",
-  "3": "b8ef914da03b1dada2ec881970a89a0b6e8e00ab7afc23ce56aba4a5fcee35a5",
-  "4": "d23824d1bbd2ee7ae633548cfb67c6b764804f8771f2688407faaf4f42f78c49",
-  "5": "cf7de6397873990e8a6ac7a7d85babcd944a0a4f80d64453e628d2ca0a70b86f",
-  "6": "61b7441bf7af89ffeb904b1b3868644978a9bd8e18e80238166fa00e388181f4",
-  "7": "f6e2c5bff96a4d69949234ffdbd8e4d8ece6240ea281ca3232827394400cae95",
-  "8": "59c2c6f4990f120f373365cc194e7c536a2a6e1ae0e6235d605c41a78669c8d2",
-  "9": "ee7c279c5d280baf4942bfde6f3072fcfea524123e5e6cfd05209523d697197e",
-  "10": "bd95131b02f9cfcd175c3d8a8921f3a47ac31b1da3992212ca52a4d4eb5a3e04",
-  "11": "0d7fc1b8680681803aedd581a8b53150b869ac8d4897d2449359ccbdfef9e2a3",
-  "12": "b1d3795cdf2425488ead02764e22fd40df93b68359adeb2e2240efeecf408664"
+  "1": "a1fdede21e1ca39f0ab94a592dab0078edbde9cc2dd64e0f1d6dc21ba693d0d4",
+  "2": "e6bf22951cdddcbc45b73a63858cf26a908ca463207c6229f2ffa9e9d56bfd80",
+  "3": "b2034b8090c83983c51364ecbe548f2e366b4a9b9f5f8339003f78a52dd59e82",
+  "4": "a01b841c565b5837018176e5cada803f5eed49497a0ada24bcd11a989609ad53",
+  "5": "467aa45157858d4fbd5d184bd480c9594edd2c67caa2c9d1d7168978836294f1",
+  "6": "6ba6201bd0452936c9cf9bb8e656b262f961c3ffb97ee83d282175a1d9e12ada",
+  "7": "61a47afbaea13d61d3e28d20f3c27f8f98810108b775f6db57f588d990820156",
+  "8": "79afe7d9d0648e406405c558b994fef17ff03b2cd53c33444cddb177f420cc07",
+  "9": "450a77614c034984f81f37b8a8cf84fee78d2a385e9e1526253c565dc8b84c2a",
+  "10": "bd252efe6165139cc7fcdfe1b7ea6b63ba2978cecea5142ca45ef8b4e08d563b",
+  "11": "f52c2ba26de364b06bf67094f7146873804bd6f0f5b5e0cf885e8fe2df477bb4",
+  "12": "16b6ed9a7e95b30f60daf4bf76a33b4c581724b941473e08af4c413ed913f4eb"
  },
  "source": "git archive 4788fd2 fxtracker public | tar -x (scripts/digest_snapshot.py, frozen fixtures, today 2026-10-03)"
 }
