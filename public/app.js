@@ -865,9 +865,17 @@ async function loadRates() {
 // does the room a phone holds for the Safety view's government list
 // (#govScroll, 336px), which renderGov never reaches without advisories.
 const LOADING_MAP = { rows: "map", affRows: "affMap", advRows: "advMap", flightRows: "flightMap" };
+// Its cell, and the Safety view's other stand-ins, stop saying Loading…: they
+// said it for good when the advisories failed.
 function dropLoadingRow(tbodyId) {
   const tr = document.querySelector("#" + tbodyId + " > tr.loadingrow");
-  if (tr) tr.classList.remove("loadingrow");
+  if (tr) { tr.classList.remove("loadingrow"); if (tr.cells[0]) tr.cells[0].textContent = "Couldn't load"; }
+  if (tbodyId === "advRows" && !advisories) {
+    $("advSub").textContent = "Couldn't load travel advisories";
+    const am = $("advMap"), gs = document.querySelector("#govSub .skelover");
+    if (am && !am.querySelector("svg")) am.textContent = "Couldn't load";
+    if (gs) gs.textContent = "Couldn't load";
+  }
   const sk = document.querySelector('.mappicksrow.skel[data-for="' + LOADING_MAP[tbodyId] + '"]');
   if (sk) sk.remove();
   const gov = tbodyId === "advRows" && $("govScroll");
@@ -10939,7 +10947,9 @@ async function setDataMode(mode) {
       loadFlights(); loaded.flights = true;
     }
   } catch (e) {
-    status("Could not load " + mode + ": " + e.message, "err");
+    // The view's own name: "advisory" is the mode key, the tab says Safety.
+    const name = { currency: "Currency", afford: "Cost of living", advisory: "Safety", flights: "Flights" }[mode];
+    status("Could not load " + name + ": " + e.message, "err");
     dropLoadingRow({ currency: "rows", afford: "affRows", advisory: "advRows", flights: "flightRows" }[mode]);
   }
   syncURL();
