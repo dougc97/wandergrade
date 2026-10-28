@@ -2924,6 +2924,14 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .besthead .gh2 { margin: 0; font-size: 18px; font-weight: 700; }   /* the chart stand-in's h2 */
 #guideVisa:empty { min-height: 40px; }
 #guideSafety:is(:empty, .filling) { min-height: 168px; }
+/* No government rates it (Western Sahara, the French Southern Territories:
+   the server writes data-lvca="0" data-lvde="0" and no data-level, and the
+   index.html script keeps it that way for every reader): nothing will fill
+   the block, so it takes no room from the first paint, as it ends; and the
+   hidden app.js gives it is honoured (#guideSafety's display:block beat
+   [hidden], a 228-250px blank under the visa line). */
+#guideSafety[hidden],
+#tab-guide:not([data-level])[data-lvca="0"][data-lvde="0"] #guideSafety:empty { display: none; }
 #guideAI:empty { min-height: 45px; }
 #bestDetail.loading { min-height: 222px; }
 #tab-guide[data-hz="1"] #bestDetail.loading { min-height: 247px; }
