@@ -176,6 +176,9 @@ export async function renderFrame(t, { html, out, allowClip = null, css = '' }) 
   })()`);
   await evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');
   await sleep(400);
+  // Before each screenshot: the face is still there (openCanvas reloaded until the page drew with it).
+  const fontOk = await evaluate(`document.fonts.load(${JSON.stringify(FONT)}).then(() => document.fonts.check(${JSON.stringify(FONT)}))`);
+  if (fontOk !== true) throw new Error(`Plus Jakarta Sans 800 not loaded before ${path.basename(out)}: ${JSON.stringify(fontOk)}`);
   const lay = await evaluate(CHECK(allowClip));
   if (!lay || lay.EXC) throw new Error('layout check failed to run: ' + JSON.stringify(lay));
   const words = wordingProblems(lay.text);
