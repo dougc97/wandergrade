@@ -145,6 +145,9 @@ results.append(ok(not missing, "every section is there (missing: %s)" % missing)
 results.append(ok("Last updated 21 October 2026" in text and RP.UPDATED == "2026-10-21",
                   "the last-updated date reads 21 October 2026"))
 results.append(ok(body.count('href="mailto:hello@wandergrade.com"') >= 3, "hello@wandergrade.com, as a mailto link"))
+results.append(ok(body.count('<!--email_off--><a href="mailto:hello@wandergrade.com">hello@wandergrade.com</a><!--/email_off-->')
+                  == body.count("mailto:") and "[email" not in body,
+                  "every mailto link sits inside Cloudflare's email_off markers (no \"[email protected]\" without JS)"))
 results.append(ok("airbnb" not in served.lower(), "no Airbnb anywhere on the page"))
 for words in ["No ads", "nothing sold", "no cookie from WanderGrade unless you sign in", "never sell",
               "unsubscribe", "commission", "GDPR", "delete", "local storage", "no password", "WMF-Uniq",

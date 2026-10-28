@@ -87,7 +87,10 @@ def _sec(sid, title, *parts):
 
 
 def _mail():
-    return '<a href="mailto:%s">%s</a>' % (CONTACT, CONTACT)
+    """The contact link, inside Cloudflare's email_off markers: its Email
+    Address Obfuscation otherwise swaps the address for "[email protected]" and a
+    /cdn-cgi/l/email-protection link that 404s without JavaScript."""
+    return '<!--email_off--><a href="mailto:%s">%s</a><!--/email_off-->' % (CONTACT, CONTACT)
 
 
 def privacy():
