@@ -8,7 +8,7 @@ import * as D from './ig_data.mjs';
 import { sidecarText } from './ig_frame.mjs';
 import { plan as cheapestPlan } from './ig_cheapest.mjs';
 import { plan as quizPlan } from './ig_quiz.mjs';
-import { safetyFact } from './ig_story.mjs';
+import { safetyFact, pickRows } from './ig_story.mjs';
 
 const FX = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures', 'ig');
 const read = (f) => fs.readFileSync(path.join(FX, f), 'utf8');
@@ -304,6 +304,17 @@ test('wording: "safe"/"safest" and Airbnb never pass; ig_story turns the safety 
   eq(safetyFact('safest travel rating', 'Level 1: normal security precautions — US State Dept publishes no advisory here; level per Canada'), null);
   eq(safetyFact('great weather in November', ''), 'great weather in November');
   eq(D.displayName('Turkey'), 'Turkey (Türkiye)'); eq(D.displayName('Japan'), 'Japan');
+});
+
+test('ig_story: only Level 1-2 rows (safety pill A or B), each with its own Top Picks rank', () => {
+  const row = (rank, advLetter) => ({ rank, name: 'C' + rank, advLetter });
+  const all = [row(1, 'A'), row(2, 'B'), row(3, 'D'), row(4, 'A'), row(5, 'F'), row(6, 'B'), row(7, 'A'), row(8, 'D')];
+  const { picked, skipped } = pickRows(all);
+  eq(picked.map((r) => r.rank), [1, 2, 4, 6, 7], 'Level 3 (#3) and Level 4 (#5) left off, the next rows taken');
+  eq(skipped.map((r) => r.rank), [3, 5], 'only the skips above the last pick are reported');
+  eq(pickRows([row(1, 'A'), row(2, 'B'), row(3, 'A'), row(4, 'B'), row(5, 'A'), row(6, 'D')]).skipped, [], 'nothing to report');
+  eq(pickRows([row(1, '—'), row(2, 'A')]).picked.map((r) => r.rank), [2], 'unrated is out too');
+  eq(pickRows([row(1, 'D'), row(2, 'F')]).picked, [], 'none left: the script refuses');
 });
 
 for (const [name, fn] of tests) {
