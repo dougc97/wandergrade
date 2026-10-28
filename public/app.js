@@ -3765,7 +3765,11 @@ async function wikiIconic(subject, minW, minH) {
     if ((t.width || 0) < minW && (t.height || 0) < minH) return null;
     const orig = page.original && page.original.source;
     // file = the File: page name, for the author/licence credit.
-    return { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb, file: page.pageimage || "" };
+    const p = { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb, file: page.pageimage || "" };
+    // A file no wider than the 1600px asked comes back as itself, no /NNNpx-
+    // to resize: w, its width, lets wmThumbAt ask for a real thumb instead.
+    if (!/\/thumb\//.test(thumb)) p.w = (page.original && page.original.width) || t.width || 0;
+    return p;
   } catch (e) { return null; }
 }
 // A gallery's pinned Commons file ({file, label}): wikiIconic's result and
@@ -3810,7 +3814,9 @@ async function commonsPhoto(name, minW, minH) {
     // The credit came with the photo: loadPhotoCredits finds it known and
     // asks nothing more.
     _photoCredit[file] = credit;
-    return { thumb, full: (ii.url && !PHOTO_BAD.test(ii.url)) ? ii.url : thumb, file };
+    const p = { thumb, full: (ii.url && !PHOTO_BAD.test(ii.url)) ? ii.url : thumb, file };
+    if (!/\/thumb\//.test(thumb)) p.w = ii.width || 0;   // unscaled: as wikiIconic's
+    return p;
   } catch (e) { return null; }
 }
 
@@ -3892,7 +3898,9 @@ async function iconicPhotos(iso) {
   // and switched the size gate off.
   const settled = await Promise.all(photoSubjects(iso).map((s) => wikiIconic(s)));
   const out = [], seen = new Set();
-  for (const p of settled) if (p && !seen.has(fileKey(p.full))) { seen.add(fileKey(p.full)); out.push(p); }
+  // An unscaled original shows as a thumb (heroThumb); the viewer still opens
+  // the original.
+  for (const p of settled) if (p && !seen.has(fileKey(p.full))) { seen.add(fileKey(p.full)); out.push(p.w ? { ...p, thumb: heroThumb(p.thumb, p.w) } : p); }
   if (out.length) _heroCache[iso] = out;
   return out;
 }
@@ -4102,6 +4110,26 @@ const fileKey = (u) => {
   const m = u && u.match(/\/wikipedia\/[^/]+\/(?:thumb\/)?[0-9a-f]\/[0-9a-f]{2}\/([^/?]+)/);
   return m ? decodeURIComponent(m[1]) : u;
 };
+// A Wikimedia image (upload. or thumb.wikimedia.org) w px wide, w one of
+// its thumbnail steps (20, 40, 60, 120, 250, 330, 500, 960, 1280, 1920, 3840
+// or 400: https://w.wiki/GHai; any other is a 400 for a hotlink). A thumb gets its
+// size swapped when that is smaller. An original — what the APIs hand back
+// for a file no wider than the size asked, which the old 330px swap missed,
+// so an 84px slot hotlinked a 1920px original — gets its /thumb/ form, but
+// only narrower than the original (origW, the API's; unknown: kept as it is),
+// and only for a raster file whose thumb keeps its name (an .svg's is a .png;
+// a name past 160 bytes becomes "thumbnail.jpg").
+function wmThumbAt(url, w, origW) {
+  const t = /^(.*\/thumb\/.+\/)(\d+)(px-[^/?]+(?:\?.*)?)$/.exec(url || "");
+  if (t) return w < +t[2] ? t[1] + w + t[3] : url;
+  const o = /^(https:\/\/(?:upload|thumb)\.wikimedia\.org\/wikipedia\/[^/]+\/)([0-9a-f]\/[0-9a-f]{2}\/)([^/?]+\.(?:jpe?g|png|gif|webp))(\?.*)?$/i.exec(url || "");
+  if (!o || !(w > 0 && origW > w)) return url;
+  try { if (new TextEncoder().encode(decodeURIComponent(o[3])).length > 160) return url; } catch (e) { return url; }
+  return o[1] + "thumb/" + o[2] + o[3] + "/" + w + "px-" + o[3] + (o[4] || "");
+}
+// The hero's size for an original under the 1600px asked: the widest step
+// below it, down to 960 (smaller ones stay as they are, at most 960px).
+const heroThumb = (url, origW) => wmThumbAt(url, [1280, 960].find((s) => s < origW) || 0, origW);
 // Reject non-scenic files (flags, coats of arms, maps, diagrams) by filename.
 const PHOTO_BAD = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram|\.svg|location|adm[_ ]|administrative|emblem|wikidata|collage|montage/i;
 // The licences a pinned Commons file (commonsPhoto) may carry: CC BY and
@@ -10036,8 +10064,8 @@ function loadActivityThumbs(iso) {
     // The width must be one of Wikimedia's thumbnail steps (20, 40, 60, 120,
     // 250, 330, 500, 960, 1280, 1920, 3840: https://w.wiki/GHai): any other is
     // a 400 for a hotlink, and 320 was, so every thumb fell back to 1920px.
-    // 330 covers the 84px slot at 3x.
-    const small = p.thumb.replace(/\/(\d+)px-/, "/330px-");
+    // 330 covers the 84px slot at 3x; an original gets its /thumb/ form.
+    const small = wmThumbAt(p.thumb, 330, p.w);
     const img = document.createElement("img");
     // An interactive control, so it is neither alt="" (invisible to SRs) nor
     // mouse-only: named, focusable, Enter/Space opens the same viewer.
