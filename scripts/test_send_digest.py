@@ -279,6 +279,9 @@ def main():
         if arch.returncode != 0:
             print("git archive failed:", arch.stderr)
             return 1
+        # On this tree's weather data (climate.json is input, not code; its full
+        # rebuild on 2026-10-28 moved the March issue's picks): the code's diff alone.
+        shutil.copy(os.path.join(ROOT, "public", "climate.json"), os.path.join(tmp, "public", "climate.json"))
 
         # 1. USD-only: the same calls (and output) as the old code, for a send,
         #    a draft, and a send whose issue is already out.

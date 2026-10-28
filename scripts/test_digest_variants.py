@@ -72,6 +72,10 @@ def main():
         try:
             subprocess.check_call("git -C '%s' archive '%s' fxtracker public | tar -x -C '%s'"
                                   % (ROOT, against, tmp), shell=True, timeout=50)
+            # On this tree's weather data (climate.json is input, not code; its
+            # full rebuild on 2026-10-28 moved March's, May's and June's picks),
+            # so the diff is the code's alone.
+            shutil.copy(os.path.join(ROOT, "public", "climate.json"), os.path.join(tmp, "public", "climate.json"))
             # With this tree's default priorities (every factor Med since
             # 2026-10-14), so the raw diff is the cost band's alone.
             old = _snapshot_in_child(tmp, "USD", weights=ROOT)
