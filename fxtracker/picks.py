@@ -145,6 +145,15 @@ HOME_ISO = "US"
 SITE = "https://wandergrade.com"
 
 
+# app.js NAME_FIX: Natural Earth's abbreviations ("Dominican Rep.", "S. Sudan")
+# and long forms read as the site names them, so a pick is called in the email
+# what Top Picks and its guide call it.
+NAME_FIX = {"US": "United States", "BA": "Bosnia and Herzegovina", "CD": "DR Congo",
+            "CG": "Republic of the Congo", "CF": "Central African Republic",
+            "DO": "Dominican Republic", "GQ": "Equatorial Guinea", "SS": "South Sudan",
+            "SB": "Solomon Islands", "EH": "Western Sahara", "TF": "French Southern Territories"}
+
+
 def _load(name):
     with open(os.path.join(PUBLIC, name), encoding="utf-8") as f:
         return json.load(f)
@@ -423,7 +432,7 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     num = sum(WEIGHTS[k] * v for k, v in comps.items())
     den = sum(WEIGHTS[k] for k in comps)
     value = clamp100(num / den) if den else 0
-    name = (cl and cl.get("name")) or (ppp.get(iso) and ppp[iso].get("name")) or iso
+    name = NAME_FIX.get(iso) or (cl and cl.get("name")) or (ppp.get(iso) and ppp[iso].get("name")) or iso
     return {
         "iso": iso, "name": name, "afford": comps["afford"], "safe": comps["safe"],
         "wx": comps.get("wx"), "fly": comps.get("fly"), "value": value, "advLvl": adv,
