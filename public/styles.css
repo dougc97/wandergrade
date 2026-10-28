@@ -950,7 +950,11 @@ tr.favorable { background: var(--green-bg); }
 @keyframes wgpop { 0% { transform: scale(1); } 45% { transform: scale(1.25); } 100% { transform: scale(1); } }
 
 .subform { display: flex; gap: 8px; }
-.subform input { padding: 8px 10px; border: 1px solid var(--border-input); border-radius: 7px; font-size: 14px; min-width: 200px; }
+.subform input { padding: 8px 10px; border: 1px solid var(--border-input); border-radius: 7px; font-size: 14px; min-width: 200px;
+  background: var(--card); color: var(--ink); }
+/* The UA's placeholder grey was 2.43:1 on a dark field; --gray is >= 5.7:1 on
+   the card in both themes. */
+::placeholder { color: var(--gray); opacity: 1; }
 .subform button { background: var(--green-fill); color: #fff; border: none; border-radius: 7px; padding: 8px 16px; font-size: 14px; cursor: pointer; }
 /* Newsletter currency picker (only when the digest has editions beyond USD):
    a fixed width, so the default changing under the geo seed can't shift the
