@@ -54,7 +54,7 @@ PRIMARY = {"BQ": "bonaire"}
 ALIASES = {
     "burma": "MM", "myanmar": "MM",
     "democratic republic of the congo": "CD", "dr congo": "CD",
-    "republic of the congo": "CG", "congo": "CG",
+    "republic of the congo": "CG", "republic of congo": "CG", "congo": "CG",
     "cote d ivoire": "CI", "ivory coast": "CI",
     "south korea": "KR", "korea": "KR", "north korea": "KP",
     "russia": "RU", "russian federation": "RU",
@@ -100,6 +100,8 @@ ALIASES = {
     "turks and caicos islands": "TC", "montserrat": "MS",
     "saint kitts and nevis": "KN", "saint vincent and the grenadines": "VC",
     "french guiana": "GF",
+    # Nauru's row is titled in Nauruan.
+    "naoero": "NR",
 }
 
 
@@ -107,7 +109,11 @@ def _norm(name):
     # Accents fold to their letters first: "Saint Barthélemy" used to become
     # "saint barth lemy" and match nothing.
     import unicodedata
-    name = unicodedata.normalize("NFKD", html.unescape(name)).encode("ascii", "ignore").decode().lower()
+    # A curly apostrophe has no ASCII fold and vanished, so the feed's
+    # "Côte d’Ivoire" became "cote divoire" and matched nothing; read as a
+    # space like a straight one, it is "cote d ivoire".
+    name = re.sub("[\u2018\u2019\u02bc`\u00b4]", "'", html.unescape(name))
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
     name = re.sub(r"\btravel advisory\b", "", name)
     name = re.sub(r"[^a-z ]", " ", name)
     name = re.sub(r"\s+", " ", name).strip()
