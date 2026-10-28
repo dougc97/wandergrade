@@ -392,7 +392,12 @@ def _us_advisories():
             # place (any_level): it still says what the State Department
             # names as the risks. Quoted as the summary, it would contradict
             # the pill beside it (see _summary).
-            "risks": _risks(_summary(desc, level, iso, name_iso, full=True, any_level=True), level),
+            "risks": (_risks(_summary(desc, level, iso, name_iso, full=True, any_level=True), level)
+                      # The lead naming the place may give no reasons when a
+                      # placeless one does: Afghanistan's "Do not travel to
+                      # Afghanistan for any reason" beside "Do not travel due
+                      # to civil unrest, crime…". No ISO names that one first.
+                      or _risks(_summary(desc, level, "", name_iso, full=True), level)),
             # The bookkeeping sentences _summary discards ("The advisory level
             # was decreased to 1") are exactly the change signal — captured
             # here with the item's publish date so the UI can show what moved.
