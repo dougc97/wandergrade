@@ -6496,7 +6496,9 @@ function renderTripBook(isos) {
     // rule); its ⚠️ still says why. No stays or things to do either where
     // another government says it, or while that can't be known
     // (guideNoBookings): Germany's Reisewarnung for Saudi Arabia, a US Level 3.
-    const fu = lvl < 4 && fr && fr.dest ? flightSearchURL(fr.dest, key) : null;
+    // Flexible: the stays' month (tripStayDates), not ~60 days out — the two
+    // links of one row searched Dec 27 and Nov 15.
+    const fu = lvl < 4 && fr && fr.dest ? flightSearchURL(fr.dest, key || nextMonthKey(picksMonth())) : null;
     const links = [];
     if (fu) links.push(A(fu, "✈️", "Flights", name).replace('class="triplink"', 'class="triplink tbfly"'));
     // Stay link needs coordinates that load async; the span keeps the row's
@@ -11375,7 +11377,7 @@ function buildShareURL(forShare) {
       q.set("tp", [...t].join(","));
       const d = tripDays();
       if (d) q.set("td", String(d));
-      const m = localStorage.getItem("fx_tripmonth");
+      const m = tripMonthSaved();   // a shared trip's own month while it is on screen
       if (m) q.set("tm", m);
     }
   }
