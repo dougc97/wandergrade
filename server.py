@@ -1640,6 +1640,39 @@ def _guide_redirect(raw):
     return iso_to_slug.get(GUIDE_ALIASES.get(slug) or slug.upper())
 
 
+# app.js GC_RE: the codes a ?gc= link opens (JP, and GB-SCT-style home nations).
+_GC_RE = re.compile(r"[A-Z]{2}(-[A-Z]{3})?")
+
+
+def _guide_query_redirect(raw_path):
+    """/guide/<slug>?<the rest> for a homepage URL in the app's own guide form
+    (/?tab=guide&gc=ZA: the newsletter's links, and app.js guidePath before
+    slugs.json loads), or None. Served as the homepage, each was a second URL
+    for a guide page, and Search Console listed /?tab=guide&gc=ZA as
+    "Duplicate, Google chose different canonical than user".
+
+    Only where the app would open that guide anyway: tab=guide, a gc code by
+    GC_RE, read the way URLSearchParams.get reads them (decoded, first value
+    wins), and a guide page for the code (Malta has none: its link stays).
+    tab and gc are dropped and every other pair is kept byte for byte (vmn,
+    vmf, vo, UTM tags), in order. Not with ai=: only a ?gc= landing opens the
+    Plan with AI panel (postApplyShared), and /guide/<slug>?ai=1 would not."""
+    query = raw_path.split("?", 1)[1] if "?" in raw_path else ""
+    pairs = [p for p in query.split("&") if p]
+    keys = [urllib.parse.unquote_plus(p.split("=", 1)[0]) for p in pairs]
+    first = {}
+    for k, p in zip(keys, pairs):
+        first.setdefault(k, urllib.parse.unquote_plus(p.split("=", 1)[1]) if "=" in p else "")
+    gc = first.get("gc", "")
+    if first.get("tab") != "guide" or first.get("ai") or not _GC_RE.fullmatch(gc):
+        return None
+    slug = {iso: sl for sl, iso in render_guide.all_slugs()}.get(gc)
+    if not slug:
+        return None
+    rest = "&".join(p for k, p in zip(keys, pairs) if k not in ("tab", "gc"))
+    return "/guide/" + slug + ("?" + rest if rest else "")
+
+
 class Handler(BaseHTTPRequestHandler):
     # Generic identity — don't advertise the framework/Python version.
     server_version = "WanderGrade"
@@ -2145,6 +2178,12 @@ class Handler(BaseHTTPRequestHandler):
         # right before any JS runs. Unknown slugs 404 rather than serving a
         # soft-200 duplicate of the homepage.
         if path == "/":
+            # /?tab=guide&gc=ZA 301s to /guide/south-africa, query and all
+            # (_guide_query_redirect): one URL per guide.
+            target = _guide_query_redirect(self.path)
+            if target:
+                self._redirect(target)
+                return
             self._send_body(_render_index(None), "text/html; charset=utf-8",
                             cache="public, max-age=300")
             return
