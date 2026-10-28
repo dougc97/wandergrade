@@ -151,7 +151,8 @@ SITE = "https://wandergrade.com"
 NAME_FIX = {"US": "United States", "BA": "Bosnia and Herzegovina", "CD": "DR Congo",
             "CG": "Republic of the Congo", "CF": "Central African Republic",
             "DO": "Dominican Republic", "GQ": "Equatorial Guinea", "SS": "South Sudan",
-            "SB": "Solomon Islands", "EH": "Western Sahara", "TF": "French Southern Territories"}
+            "SB": "Solomon Islands", "EH": "Western Sahara", "TF": "French Southern Territories",
+            "MO": "Macau", "FM": "Micronesia"}
 
 
 def _load(name):

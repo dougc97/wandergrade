@@ -61,7 +61,13 @@ body {
   pointer-events: none;
   z-index: 0;
 }
-body > *:not(.bgdoodle):not(.bgseason):not(.lightbox):not(.wgtip):not(.submodal):not(.spinover):not(.mapfs) { position: relative; z-index: 1; }
+body > *:not(.bgdoodle):not(.bgseason):not(.lightbox):not(.wgtip):not(.submodal):not(.spinover):not(.mapfs):not(.skiplink) { position: relative; z-index: 1; }
+/* Off screen until focused: the first Tab stop skips the header and tabs. */
+.skiplink { position: absolute; left: 8px; top: -60px; z-index: 30; padding: 8px 12px; border-radius: 8px;
+  background: var(--card); color: var(--ink); font-weight: 700; }
+.skiplink:focus { top: 8px; }
+/* The tabs moved into <main>: each keeps the positioning it had as a body child. */
+#main > * { position: relative; z-index: 1; }
 
 header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide, .filterbar, .shellmain { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
 
@@ -3037,6 +3043,9 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 /* A guide with no stay spots at all (data-nostay, from the server): none of
    its places is outside the zones Canada says to avoid (Ethiopia). */
 #tab-guide[data-nostay] #guideStay:empty { display: none; }
+/* …and no "Where to stay" jump chip pointing at it (it scrolled to the
+   newsletter box on Syria, Yemen, Antarctica). */
+#tab-guide[data-nostay] .guidejump [data-go="guideStay"] { display: none; }
 #tab-guide[data-level="4"] #guideSafety:is(:empty, .filling) { min-height: 243px; }
 @media (max-width: 560px) {
   #tab-guide[data-level="4"] #guideVisa:empty { min-height: 78px; }

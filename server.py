@@ -1316,7 +1316,7 @@ def _guide_sizers(iso, level, no_bookings=False):
     attrs = ""
     try:
         out["GUIDE_VISA"] = guide_sizers.visa(iso)
-        out["GUIDE_AI"] = guide_sizers.ai(iso, render_guide.name_for_iso(iso) or iso)
+        out["GUIDE_AI"] = guide_sizers.ai(iso, render_guide.name_in_text(iso))
         ch = guide_sizers.chart(iso, render_guide.name_in_text(iso),
                                 (render_guide.activities(iso) or {}).get("hazards"))
         if ch:   # the frame instead of "Loading…" and its per-hazard-count hold

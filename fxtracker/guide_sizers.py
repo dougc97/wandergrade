@@ -120,8 +120,9 @@ def _watchouts(wo, lvl):
     src = ('<span class="muted">(per %s%s)</span>'
            % (_e(wo.get("source")), " — <a>details ↗</a>" if wo.get("link") else ""))
     if 0 < lvl <= 2:
-        return (reg + '<details class="wofold"><summary>🧭 Safety notes (%d) — nothing unusual for a Level %d '
-                'country %s</summary></details>' % (len(wo.get("watchouts") or []), lvl, src))
+        return (('<span class="wohead">Regional advice %s</span>' % src + reg if reg else "")
+                + '<details class="wofold"><summary>🧭 Safety notes (%d)%s</summary></details>'
+                % (len(wo.get("watchouts") or []), "" if reg else " " + src))
     return ('<span class="wohead">Safety notes %s</span>' % src + chips + reg
             + '<span class="advsrcnote"><button type="button" class="linkbtn wotab" tabindex="-1">'
               'full picture → Safety tab</button></span>')

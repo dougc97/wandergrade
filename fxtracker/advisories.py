@@ -54,7 +54,7 @@ PRIMARY = {"BQ": "bonaire"}
 ALIASES = {
     "burma": "MM", "myanmar": "MM",
     "democratic republic of the congo": "CD", "dr congo": "CD",
-    "republic of the congo": "CG", "congo": "CG",
+    "republic of the congo": "CG", "republic of congo": "CG", "congo": "CG",
     "cote d ivoire": "CI", "ivory coast": "CI",
     "south korea": "KR", "korea": "KR", "north korea": "KP",
     "russia": "RU", "russian federation": "RU",
@@ -100,6 +100,8 @@ ALIASES = {
     "turks and caicos islands": "TC", "montserrat": "MS",
     "saint kitts and nevis": "KN", "saint vincent and the grenadines": "VC",
     "french guiana": "GF",
+    # Nauru's row is titled in Nauruan.
+    "naoero": "NR",
 }
 
 
@@ -107,7 +109,11 @@ def _norm(name):
     # Accents fold to their letters first: "Saint Barthélemy" used to become
     # "saint barth lemy" and match nothing.
     import unicodedata
-    name = unicodedata.normalize("NFKD", html.unescape(name)).encode("ascii", "ignore").decode().lower()
+    # A curly apostrophe has no ASCII fold and vanished, so the feed's
+    # "Côte d’Ivoire" became "cote divoire" and matched nothing; read as a
+    # space like a straight one, it is "cote d ivoire".
+    name = re.sub("[\u2018\u2019\u02bc`\u00b4]", "'", html.unescape(name))
+    name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
     name = re.sub(r"\btravel advisory\b", "", name)
     name = re.sub(r"[^a-z ]", " ", name)
     name = re.sub(r"\s+", " ", name).strip()
@@ -501,10 +507,22 @@ def _summary(desc, level=None, iso=None, name_iso=None, full=False, any_level=Fa
     text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>(?:\s|&nbsp;)*(?:</span>\s*)?</p>",
                   heading, text, flags=re.I)
     text = re.sub(r"<b>\s*([^<]{1,60}?)<br\s*/?>\s*</b>", heading, text, flags=re.I)
+    # …or closed before the break: "<p><b>U.S. government employee travel
+    # restrictions</b><br> U.S. government employees…" (UAE, Guinea), and the
+    # styled headings ("<span class='header-paragraph'>Crime<br></span>",
+    # Mauritius; "…>Unrest</span></p>", Gabon) that read "Crime Most crimes…".
+    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>\s*<br\s*/?>", heading, text, flags=re.I)
+    text = re.sub(r"<span class=['\"]header-paragraph['\"]>([^<]{1,80}?)(?:<br\s*/?>\s*)?</span>",
+                  heading, text, flags=re.I)
     # An inline tag INSIDE a word is no word break ("a<b>rbitrary",
     # "citizen</span>s", "W<u>eather"): the feed's markup split words, and
     # quoted back they read "a rbitrary". Only where one side is a single
     # letter — "caution</b>in Mexico" stays two words.
+    # A block that ends without punctuation ends its sentence: "Exercise normal
+    # precaution<p>in Aruba</p> <p>Aruba is…" and Afghanistan's "…for any
+    # reason</span></p>" were quoted as one run-on sentence.
+    text = re.sub(r"(?<=[A-Za-z0-9)])((?:\s|&nbsp;|</(?:span|b|i|em|strong|u|a|font)>)*)"
+                  r"(</p>|</li>|<br\s*/?>)", r".\1\2", text, flags=re.I)
     INL = r"</?(?:span|b|i|em|strong|u|a|font)\b[^>]*>"
     prev = None
     while prev != text:
@@ -607,7 +625,18 @@ def _summary(desc, level=None, iso=None, name_iso=None, full=False, any_level=Fa
         return ""          # a bare level phrase says no more than the level itself
     if full:
         return out
-    return (out[:277] + "...") if len(out) > 280 else out
+    if len(out) <= 280:
+        return out
+    # Cut at the last full sentence that fits, else at a word: a fixed 277
+    # characters quoted the State Department mid-word ("U.S. pas...").
+    cut = out[:280]
+    # A sentence ends at punctuation before a capital, not after an initial
+    # ("U.S. government", "D.C.").
+    ends = [m.end() for m in re.finditer(r"[.!?](?= [A-Z])", cut)
+            if not re.search(r"(?:^|[\s(])(?:[A-Z]\.)*[A-Z]\.$", cut[:m.end()])]
+    if ends and ends[-1] >= 120:
+        return cut[:ends[-1]]
+    return cut[:279].rsplit(" ", 1)[0].rstrip(",;:") + "…"
 
 
 # The reasons a US advisory gives for its level, in its own "due to" clause

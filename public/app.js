@@ -3035,7 +3035,7 @@ async function renderGuideFx(iso) {
   const basis = noInfl ? " (exchange rate only)"
     : nominal ? " (nominal — inflation data isn't current)"
     : gap ? ", after inflation" : " (exchange rate only)";
-  host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b>: `
+  host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(countryNameInText(iso))}</b>: `
     + `<b class="${cls}">${signedPct(pct, 1)}</b> vs its 12-month average${basis}`
     + (noInfl || nominal || !gap ? "" : ` <span class="muted">— ${verdict}</span>`)
     + `<span class="fxinfo" data-tip="${esc(tip)}" title="">ⓘ</span></span>`
@@ -3661,10 +3661,14 @@ function renderWatchouts(iso) {
     const tabLink = ' <button type="button" class="linkbtn wotab">full picture → Safety tab</button>';
     // chips already arrives wrapped in .wochips — wrapping again indented the
     // chip row differently from every other line in the block.
+    // Canada's 📍 lines follow a heading naming Canada: drawn straight under
+    // the State Department's quote they read as its words, and "nothing
+    // unusual for a Level 1 country (per Global Affairs Canada)" paired the
+    // US level with Canada and judged safety in the site's own words.
     host.innerHTML = calm
-      ? reg + '<details class="wofold"><summary>🧭 Safety notes ('
-        + w.watchouts.length + ") — nothing unusual for a Level " + lvl
-        + " country " + srcNote + "</summary>" + chips + "</details>"
+      ? (reg ? '<span class="wohead">Regional advice ' + srcNote + "</span>" + reg : "")
+        + '<details class="wofold"><summary>🧭 Safety notes (' + w.watchouts.length + ")"
+        + (reg ? "" : " " + srcNote) + "</summary>" + chips + "</details>"
       : '<span class="wohead">Safety notes ' + srcNote + "</span>"
         + chips + reg
         + '<span class="advsrcnote">' + tabLink.trim() + "</span>";
@@ -7497,7 +7501,7 @@ function buildCountryAIPrompt(iso) {
 function renderGuideAI(iso) {
   const host = $("guideAI");
   if (!host) return;
-  const name = countryName(iso);
+  const name = countryNameInText(iso);   // "Add the United Kingdom to my trip"
   // The button alone reads as "an AI writes your trip", which is not what this
   // does and oversells it. It writes the *prompt* — with the month, the visa
   // rules for your passport, the season, and the local price level already
@@ -10153,7 +10157,9 @@ let _displayNames = null;
 const NAME_FIX = { US: "United States", BA: "Bosnia and Herzegovina", CD: "DR Congo",
   CG: "Republic of the Congo", CF: "Central African Republic", DO: "Dominican Republic",
   GQ: "Equatorial Guinea", SS: "South Sudan", SB: "Solomon Islands",
-  EH: "Western Sahara", TF: "French Southern Territories" };
+  EH: "Western Sahara", TF: "French Southern Territories",
+  // World Bank names for places the map data lacks ("Macao SAR, China").
+  MO: "Macau", FM: "Micronesia" };
 function countryName(iso) {
   if (EXTRA_PLACES[iso]) return EXTRA_PLACES[iso];   // flag-emoji places
   if (NAME_FIX[iso]) return NAME_FIX[iso];
