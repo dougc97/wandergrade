@@ -23,7 +23,7 @@ import os
 import re
 import sys
 
-from . import guide_facts
+from . import flightvalue, guide_facts, guide_sizers, pricelevel
 
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public")
 SITE = "https://wandergrade.com"
@@ -505,9 +505,106 @@ def _insurance_link(slug):
             "at no extra cost to you.</span></p>" % html.escape(_EKTA % slug, quote=True))
 
 
-def render(iso):
+# ---- month by month (#when-to-go) -------------------------------------------------
+# A table under the guide's "Best time to visit X": each month's average
+# temperature, rain, weather score (best months starred), hazard and US fare
+# with its Low/Typical/High band, in the page's own HTML. The guides earned
+# their "best time to visit X" searches; the chart answers them only in bars
+# and hover titles. Its own host after #bestDetail (server.py GUIDE_MONTHS),
+# outside the blocks app.js rewrites; app.js hides it when another country is
+# opened in-app. Rolled out first to the guides with measured best-time
+# demand; MONTH_TABLE_ALL turns it on for every guide with the data.
+MONTH_TABLE = {"PR", "DO", "CV", "LA", "IM", "MA", "CI", "TL", "GL", "AU", "SI", "OM", "PG", "AZ",
+               "PT", "CL", "SE", "MU", "CH", "TG", "HT", "GG", "CM"}
+MONTH_TABLE_ALL = False
+# Guides whose best-time readers are mostly in the UK (Search Console): a fare
+# from the US answers nobody there, so the table leaves that column out.
+UK_MARKET = {"CV", "IM", "GG", "LT"}
+MONTH_IDS = [m.lower() for m in MON_FULL]     # <tr id="january">: /guide/x#march links to a row
+
+
+def month_table_on(iso):
+    return MONTH_TABLE_ALL or iso in MONTH_TABLE
+
+
+def _day(d):
+    return "%d %s %d" % (d.day, MON[d.month - 1], d.year)
+
+
+def _money(p):
+    return "$" + format(int(p), ",")
+
+
+def month_table(iso, fv=None, fares_at=None, no_bookings=False):
+    """The #when-to-go block for a guide, or "" (not rolled out to it, or
+    climate.json lacks a month's temperature or rain, or its scores are flat:
+    Antarctica's are all 0). fv: flightvalue.build() for the US, from the
+    caches; fares_at: the date of the fares it is built on. The fare column
+    needs the country's typical range (median: MIN_MONTHS months of fares,
+    the Flights tab's rule) and is left off for UK_MARKET guides and where
+    no bookings are offered (a government's Level 4: no_bookings); a month
+    with no cached fare shows "—". Curve keys run 12 months from this one, so
+    the January row is the next January."""
+    if not month_table_on(iso):
+        return ""
+    d = _load()
+    c = d["clim"].get(iso) or {}
+    cols = [c.get(k) or [] for k in ("scores", "temps", "rain_mm", "rain_days")]
+    if any(len(x) != 12 or None in x for x in cols) or len(set(cols[0])) < 2:
+        return ""
+    scores, temps, rain_mm, rain_days = cols
+    best = set(c.get("best") or [])
+    hazards = [h for h in (d["acts"].get(iso) or {}).get("hazards") or [] if isinstance(h, dict) and h.get("note")]
+    fc = ((fv or {}).get("countries") or {}).get(iso) or {}
+    fares = None
+    if fc.get("median") and iso not in UK_MARKET and not no_bookings:
+        key = {int(k[5:7]): k for k in fv.get("months") or []}
+        fares = {m: ((fc.get("curve") or {}).get(key.get(m)) or [None])[0] for m in range(1, 13)}
+    e = lambda x: html.escape(str(x), quote=True)
+    head = ['<th scope="col">Month</th>', '<th scope="col">Avg temp</th>',
+            '<th scope="col" title="Monthly total, and the days with more than 1 mm">Rain</th>',
+            '<th scope="col" title="Weather comfort, 0–100; ★ = %s">Weather score</th>'
+            % ("the curated best months to visit" if c.get("curated") else "the best-weather months")]
+    if hazards:
+        head.append('<th scope="col" title="A month-level hazard; see the notes under the table">⚠️</th>')
+    if fares:
+        head.append('<th scope="col" title="The cheapest cached round-trip from the US departing that month, and '
+                    'how it compares with this route\'s own year: typical %s–%s">Fare from the US</th>'
+                    % (_money(fc["lo"]), _money(fc["hi"])))
+    rows = []
+    for m in range(1, 13):
+        i, t = m - 1, temps[m - 1]
+        cells = ['<th scope="row">%s</th>' % MON_FULL[i],
+                 '<td>%d°C<span class="wtg2"><span class="wtgsep"> / </span>%d°F</span></td>' % (t, pricelevel.js_round(t * 9 / 5 + 32)),
+                 '<td>%d mm<span class="wtg2"><span class="wtgsep"> · </span>%d %s</span></td>'
+                 % (rain_mm[i], rain_days[i], "day" if rain_days[i] == 1 else "days"),
+                 "<td>%d%s</td>" % (scores[i], " ★" if m in best else "")]
+        if hazards:
+            notes = [h["note"] for h in hazards if m in (h.get("months") or [])]
+            cells.append('<td><span title="%s">⚠️</span></td>' % e("; ".join(notes)) if notes else "<td></td>")
+        if fares:
+            p = fares[m]
+            b = flightvalue.band(p, fc)
+            cells.append("<td>%s</td>" % ("—" if p is None else '%s<span class="wtg2"><span class="wtgsep"> </span>'
+                                          '<span class="fvband %s">%s</span></span>' % (_money(p), b, b.capitalize())))
+        rows.append('<tr id="%s"%s>%s</tr>' % (MONTH_IDS[i], ' class="best"' if m in best else "", "".join(cells)))
+    where = c.get("at") or "one representative point in the country"
+    cap = "Measured at %s, Open-Meteo %s" % (where, c.get("window") or "")
+    if fares and fares_at:
+        cap += "; fares as of %s" % _day(fares_at)
+    lines = "".join('<div class="hazardline">⚠️ <b>%s:</b> %s</div>'
+                    % (e(guide_sizers.month_span(h.get("months"))), e(h["note"])) for h in hazards)
+    return ('<div id="when-to-go" class="whentogo"><div class="wtgscroll"><table>'
+            "<caption>%s</caption><thead><tr>%s</tr></thead><tbody>%s</tbody></table></div>%s"
+            '<p class="wtgnote">How we grade: comfort peaks at 18–26°C, hot months lose points faster than '
+            "cold ones, and rain lowers the score.</p></div>"
+            % (e(cap), "".join(head), "".join(rows), lines))
+
+
+def render(iso, fv=None, fares_at=None, no_bookings=False):
     """Return the token values for a country page: title, description, og title,
-    canonical URL, the h1 (served as #guideH1 itself) and the crawlable body."""
+    canonical URL, the h1 (served as #guideH1 itself), the crawlable body and
+    the month table (month_table's arguments)."""
     d = _load()
     name = name_in_text(iso)          # every use below sits inside a sentence or heading
     slug = d["iso2slug"].get(iso, iso.lower())
@@ -603,6 +700,7 @@ def render(iso):
         "url": url,
         "h1_html": h1_html(iso, doc),
         "body": "\n".join(p),
+        "months": month_table(iso, fv, fares_at, no_bookings),
         # No FAQPage JSON-LD (it was here until Oct 2026): Google requires an
         # FAQ's questions to be visible on the page, and these 926 were only in
         # the markup (the page shows the facts as the 💰/🛡️/best-time lines,

@@ -185,6 +185,10 @@ _HTML_DEFAULTS = {
     "GUIDE_DATA": "",
     "GUIDE_VISA": "",
     "GUIDE_CHART": "Loading…",
+    # The guide's month-by-month table (render_guide.month_table, #when-to-go),
+    # its own block right after #bestDetail. In index.html with no bytes of its
+    # own, so the homepage and every guide not rolled out to stay byte-identical.
+    "GUIDE_MONTHS": "",
     "CHART_LOADING": " loading",
     "GUIDE_SAFETY": "",
     "GUIDE_AI": "",
@@ -1268,6 +1272,25 @@ def _fare_strip_hint(iso):
         return False
 
 
+def _guide_fv(iso):
+    """(flight-value build, date of its fares) for the default origin from the
+    caches alone, for a guide whose month table carries a fare column; (None,
+    None) for any other guide, with no fare source, or before the fares are
+    cached. The page stays no-store until the origin's first warm pass has
+    run (_guide_cache), so a column a cold render leaves out comes later."""
+    if not render_guide.month_table_on(iso) or not flights.is_configured():
+        return None, None
+    hit = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
+    if not hit or not hit[1]:
+        return None, None
+    try:
+        return (flightvalue.build(flightvalue.DEFAULT_ORIGIN, hit[1]),
+                datetime(*time.gmtime(hit[0])[:3]).date())
+    except Exception as e:   # the fare column only: never the page
+        print("[month-table] %s %s" % (iso, e), file=sys.stderr, flush=True)
+        return None, None
+
+
 def _fare_col_hints(iso, pct):
     """The fare column's other two lines for a reader at home in the US (the
     default), as data- marks styles.css reads to hold their room or not: FX
@@ -1404,8 +1427,9 @@ def _render_index(gc_iso=None):
         vals.update(_home_sizers())
         vals["JSONLD"] = _IMPACT_VERIFY + vals["JSONLD"]
     if gc_iso:
-        r = render_guide.render(gc_iso)
         no_book = _guide_no_bookings(gc_iso)
+        fv, fares_at = _guide_fv(gc_iso)
+        r = render_guide.render(gc_iso, fv, fares_at, no_book)
         vals.update(
             TITLE=html.escape(r["title"]),
             DESC=html.escape(r["desc"], quote=True),
@@ -1414,6 +1438,7 @@ def _render_index(gc_iso=None):
             GUIDE_H1_HIDDEN="",
             GUIDE_H1=r["h1_html"],                    # already-safe HTML
             SSR_BODY=r["body"],                       # already-safe HTML
+            GUIDE_MONTHS=("\n        " + r["months"]) if r["months"] else "",
             GC_JS="<script>window.__WGGC__=%s;</script>" % json.dumps(gc_iso),
             # No JSON-LD: the WebSite block is the homepage's (Google reads the
             # site name from there only), and the guides' FAQPage went with

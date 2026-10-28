@@ -2643,6 +2643,10 @@ function renderGuide(iso) {
   const ssr = $("ssrGuide"), ssrH = ssr ? ssr.offsetHeight : 0;
   const actH0 = ssr ? $("actDetail").offsetHeight : 0;
   if (ssr) { ssr.innerHTML = ""; ssr.id = ""; ssr.setAttribute("aria-hidden", "true"); }
+  // The server's month table (#when-to-go, render_guide.month_table) stays:
+  // it is the page's own guide. Another country opened in-app hides it.
+  const wtg = $("when-to-go");
+  if (wtg) wtg.hidden = iso !== window.__WGGC__;
   // The advisory level, for styles.css's first-paint holds (the advisory
   // block, and on Level 4 the grades line, stays and insurance): the server
   // marks its own country (data-level); any other gets it from the advisories

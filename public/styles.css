@@ -1589,6 +1589,29 @@ html[data-tab="guide"] #tab-guide .cardwide { min-height: 100vh; }
 .surprisebtn { background: var(--green-fill); color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap; align-self: flex-start; }
 .surprisebtn:hover { filter: brightness(1.08); }
 .hazardline { font-size: 13px; color: var(--gray); margin: 6px 0 0; line-height: 1.45; }
+/* The guide's month table (render_guide.month_table, #when-to-go): a row a
+   month under the weather chart, served in the page's HTML. It scrolls sideways
+   on a phone rather than crushing its numbers, and from 900px takes the whole
+   width under the chart and the fare column (.guidegrid's fourth row). */
+.whentogo { margin-top: 18px; }
+.wtgscroll { overflow-x: auto; }
+.whentogo table { font-variant-numeric: tabular-nums; }
+.whentogo caption { caption-side: bottom; text-align: left; padding: 6px 2px 0; font-size: 12px; color: var(--gray); }
+.whentogo th, .whentogo td { padding: 6px 10px; font-size: 13px; white-space: nowrap; }
+.whentogo tbody th { background: none; text-transform: none; letter-spacing: 0; color: var(--ink); font-weight: 600; }
+.whentogo tr.best { background: var(--green-bg); }
+.whentogo .fvband { min-width: 0; padding: 1px 7px; font-size: 11.5px; margin-left: 2px; }
+.wtgnote { margin: 8px 0 0; font-size: 12.5px; color: var(--gray); }
+@media (min-width: 900px) { #when-to-go { grid-row: 4; grid-column: 1 / -1; } }
+/* A phone stacks each cell's second unit (°F, rainy days, the fare's band)
+   under the first, so the six columns fit 360px instead of scrolling. */
+@media (max-width: 560px) {
+  .whentogo th, .whentogo td { padding: 6px 5px; }
+  .whentogo .wtg2 { display: block; font-size: 11.5px; color: var(--gray); white-space: nowrap; }
+  .whentogo .wtg2 .fvband { margin: 2px 0 0; }
+  .whentogo .wtgsep { display: none; }
+  .whentogo thead th { white-space: normal; }
+}
 
 /* ---- picker hierarchy: big question row, quiet filter row ---- */
 .pickersmain { margin-top: 12px; }
