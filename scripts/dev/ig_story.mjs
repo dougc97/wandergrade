@@ -5,7 +5,10 @@
 //
 // MONTH defaults to the current month; ORIGIN (ISO, default US) is the
 // "From" country the ranking is scored for; SITE overrides the base URL for a
-// local server. The page is loaded at /?tab=value&vmn=<month> (analytics
+// local server. It refuses while the server sends /cheapest/<month> uncached
+// (a feed missing or fares still loading: grades may change); behind an HTTP
+// proxy, as in a cloud container, Node's fetch needs NODE_USE_ENV_PROXY=1.
+// The page is loaded at /?tab=value&vmn=<month> (analytics
 // beacon blocked), the top five rows of the ranked table are read from the
 // DOM, and the shared ig_frame.mjs panel is drawn INSIDE the server-rendered
 // /cheapest/<month> page (so the site's CSS variables, grade pills and Plus
@@ -39,6 +42,23 @@ export function pickRows(rows, n = 5) {
   return { picked, skipped: rows.filter((r) => !ok(r) && r.rank < last) };
 }
 
+// While a feed is missing, or the US fares are still loading after a server
+// restart, the server sends /cheapest/<month> uncached (no-store) and the
+// homepage's grades shift from minute to minute: a frame then would carry
+// numbers that change. Returns why not to render, or null when settled.
+// fetchFn is injectable for the tests.
+export async function siteUnsettled(month, fetchFn = fetch) {
+  const url = `${SITE}/cheapest/${MONTHS[month - 1].toLowerCase()}`;
+  let r;
+  try { r = await fetchFn(url); } catch (e) { return `GET ${url} failed (${(e.cause && e.cause.code) || e.message})`; }
+  if (r.body && r.body.cancel) await r.body.cancel().catch(() => {});
+  if (r.status !== 200) return `GET ${url} returned ${r.status}`;
+  if (/no-store/i.test(r.headers.get('cache-control') || '')) {
+    return `${url} is served uncached: a feed is missing or the US fares are still loading, so grades may still change`;
+  }
+  return null;
+}
+
 // Five cards with two-line why-lines, the link band and the footer have to fit
 // between the 250px top and the 280px bottom safe areas: slightly tighter
 // cards than the shared frame's (it was 24px padding, 16px apart, 36px under the sub; now 18, 10 and 20).
@@ -50,6 +70,8 @@ const TIGHT = `
 
 export default async (t) => {
   const { send, evaluate, setSize, nav, sleep, errs } = t;
+  const before = await siteUnsettled(MONTH);
+  if (before) { console.log('REFUSED:', before, '— run again later.'); return; }
   await setSize(1280, 900, false);
   await blockBeacon(send);
   // app.js counts each score up from 0 over 650ms after every re-render
@@ -141,6 +163,9 @@ export default async (t) => {
     ${cards}
     <div class="igspace"></div>${band('link', 130)}
     ${foot(`As of ${asOf}`, 'Tap the link for the full ranking · free, no sign-up')}`;
+  // Checked again: the server may have restarted while the rows were read.
+  const after = await siteUnsettled(MONTH);
+  if (after) { console.log('REFUSED:', after, '— run again later.'); return; }
   await openCanvas(t, `${SITE}/cheapest/${MONTHS[MONTH - 1].toLowerCase()}`);
   await renderFrame(t, { html, out: OUT, allowClip: '.igname.clip, .igwhy.clamp', css: TIGHT });
   const posting = process.env.POSTED || new Date().toISOString().slice(0, 10);
