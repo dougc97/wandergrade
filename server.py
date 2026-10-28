@@ -1040,6 +1040,12 @@ def _list_page(path):
 # goes out no-store. Imported here, beside the only code that uses it.
 from fxtracker import render_strength  # noqa: E402
 
+# The shell pages whose other spellings (/Cheapest/January, /Safe-and-cheap,
+# a capital and a slash at once) 301 to their lowercase URL. Never /guide/:
+# that has its own redirects (_guide_redirect).
+_LOWER_PATHS = frozenset(_LIST_PATHS + render_cheapest.PATHS
+                         + (render_strength.PATH, "/privacy", "/data"))
+
 _STRENGTH_CREDITS = ('Data: <a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
                      '(rates) &middot; <a href="https://www.ecb.europa.eu/stats/policy_and_exchange_rates/'
                      'euro_reference_exchange_rates/html/index.en.html" rel="noopener" target="_blank">'
@@ -2176,6 +2182,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_body(llms_txt.build(render_guide.all_slugs(), render_guide.name_for_iso).encode("utf-8"),
                             "text/plain; charset=utf-8", cache="public, max-age=3600")
             return
+        low = path.lower()
+        if low != path and low.rstrip("/") in _LOWER_PATHS:
+            # /Cheapest/January, /Safe-and-cheap: one 301 to the lowercase
+            # canonical URL (slash dropped), query and all, as /guide/Japan does.
+            query = self.path.split("?", 1)[1] if "?" in self.path else ""
+            self._redirect(low.rstrip("/") + ("?" + query if query else ""))
+            return
         if path in _LIST_PATHS:
             page = _list_page(path)
             # no-store while a feed is down: Cloudflare must never hold a copy
@@ -2192,9 +2205,17 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith(tuple(p + "/" for p in _LIST_PATHS)):
             self._send_not_found()
             return
-        if path in ("/data", "/data/"):
-            self._send_body(_render_data_page(), "text/html; charset=utf-8",
-                            cache="public, max-age=300")
+        if path == "/data":
+            body = _render_data_page()
+            # no-store while the dataset is down (nothing built yet): the copy
+            # then has no date and a fallback count, as a list page with a feed
+            # down goes out uncached.
+            self._send_body(body, "text/html; charset=utf-8",
+                            cache="no-store" if _dataset_cache["payload"] is None else "public, max-age=300")
+            return
+        if path == "/data/":
+            query = self.path.split("?", 1)[1] if "?" in self.path else ""
+            self._redirect("/data" + ("?" + query if query else ""))
             return
         if path == "/privacy":
             # Cached like the list pages (the edge follows this header once
@@ -2295,6 +2316,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         # static files
         rel = path.lstrip("/")
+        if rel.endswith("/"):
+            # normpath below drops a trailing slash, so /og.png/ and /app.js/
+            # served the file: a duplicate URL per asset. A file has no slash form.
+            self._send_not_found()
+            return
         safe = os.path.normpath(os.path.join(PUBLIC, rel))
         if os.path.commonpath([PUBLIC, safe]) != PUBLIC:
             self._send_json({"error": "forbidden"}, 403)

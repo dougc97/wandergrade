@@ -580,8 +580,73 @@ st2, hd2, _b = get("/cheapest/november/?utm_source=x")
 results.append(ok(st == 301 and hd.get("Location") == "/cheapest" and st2 == 301
                   and hd2.get("Location") == "/cheapest/november?utm_source=x",
                   "a trailing slash 301s to the canonical URL, query kept"))
-nf = [get(p)[0] for p in ("/cheapest/November", "/cheapest/nov", "/cheapest/november/x", "/cheapest/13", "/cheapest//")]
-results.append(ok(nf[:4] == [404] * 4 and nf[4] == 301, "anything else under /cheapest/ is a 404: %s" % nf))
+nf = [get(p)[0] for p in ("/cheapest/nov", "/cheapest/november/x", "/cheapest/13", "/cheapest//")]
+results.append(ok(nf[:3] == [404] * 3 and nf[3] == 301, "anything else under /cheapest/ is a 404: %s" % nf))
+# Another case 301s to the lowercase URL in one hop, query kept, as /guide/Japan does.
+cs = [get(p)[:2] for p in ("/cheapest/November", "/Cheapest/January/?utm_source=x", "/Cheapest", "/Safe-and-cheap")]
+results.append(ok([(st, hd.get("Location")) for st, hd in cs]
+                  == [(301, "/cheapest/november"), (301, "/cheapest/january?utm_source=x"), (301, "/cheapest"),
+                      (301, "/safe-and-cheap")],
+                  "a capitalised spelling 301s to the lowercase URL, query kept: %s"
+                  % [(st, hd.get("Location")) for st, hd in cs]))
+rd = [get(p)[:2] for p in ("/Dollar-Strength/?a=1", "/Privacy", "/data/", "/Data", "/guide/France")]
+results.append(ok([(st, hd.get("Location")) for st, hd in rd]
+                  == [(301, "/dollar-strength?a=1"), (301, "/privacy"), (301, "/data"), (301, "/data"),
+                      (301, "/guide/france")],
+                  "the other shell pages 301 to one lowercase, slashless URL; /guide/ keeps its own redirect: %s"
+                  % [(st, hd.get("Location")) for st, hd in rd]))
+sl = [get(p)[0] for p in ("/og.png/", "/app.js/", "/robots.txt/", "/app.js", "/robots.txt")]
+results.append(ok(sl == [404, 404, 404, 200, 200], "a static file with a trailing slash is a 404, not a copy: %s" % sl))
+csp = get("/cheapest")[1].get("Content-Security-Policy", "")
+results.append(ok("frame-src 'none'" in csp and "object-src 'none'" in csp and "stay22" not in csp,
+                  "CSP: nothing may be framed (no embedded map) and no plugin content: %r" % csp))
+# A provider failure answers the same empty body as a genuine empty answer, but no-store.
+_trend = server.rates.get_trend
+try:
+    st0, hd0, b0 = get("/api/fx-trend?cur=ZZZ")
+    server.rates.get_trend = lambda *a, **k: (_ for _ in ()).throw(TimeoutError("slow"))
+    st1, hd1, b1 = get("/api/fx-trend?cur=VND")
+finally:
+    server.rates.get_trend = _trend
+results.append(ok(st0 == st1 == 200 and json.loads(b1) == {"code": "VND", "base": "USD", "months": []}
+                  and hd1.get("Cache-Control") == "no-store" and hd0.get("Cache-Control") == "public, max-age=300",
+                  "/api/fx-trend: a failure is no-store, a real empty answer stays cacheable (%s / %s)"
+                  % (hd1.get("Cache-Control"), hd0.get("Cache-Control"))))
+_fetch = server.watchouts.rates.fetch_json
+try:
+    server.watchouts._cache.pop("zw", None)
+    server.watchouts.rates.fetch_json = lambda url: (_ for _ in ()).throw(TimeoutError("slow"))
+    st1, hd1, b1 = get("/api/watchouts?iso=ZW")
+    st2, hd2, b2 = get("/api/watchouts?iso=ZW")      # the remembered failure, within FAIL_TTL
+    server.watchouts.rates.fetch_json = lambda url: (_ for _ in ()).throw(type("E", (Exception,), {"code": 404})())
+    server.watchouts._cache.pop("eh", None)
+    st3, hd3, b3 = get("/api/watchouts?iso=EH")
+finally:
+    server.watchouts.rates.fetch_json = _fetch
+    server.watchouts._cache.pop("zw", None)
+    server.watchouts._cache.pop("eh", None)
+results.append(ok(st1 == st2 == st3 == 200 and b1 == b2
+                  and json.loads(b1) == {"iso": "ZW", "source": "Global Affairs Canada", "link": "", "watchouts": [],
+                                         "regional": []}
+                  and hd1.get("Cache-Control") == hd2.get("Cache-Control") == "no-store"
+                  and hd3.get("Cache-Control") == "public, max-age=300",
+                  "/api/watchouts: a feed failure is the same empty body, no-store; a country the feed lacks stays cacheable"))
+_build, _saved = server.build_dataset.build, dict(server._dataset_cache)
+try:
+    server._dataset_cache.update(at=0, payload=None, csv=None)
+    server.build_dataset.build = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("rates down"))
+    st1, hd1, _b = get("/data")
+    # Back (a copy built a moment ago, so no rebuild and no fetch from a test).
+    server._dataset_cache.update(at=time.time(), payload={"countries": [{}] * 3, "meta": {"rates_as_of": "2026-10-23"}},
+                                 csv="")
+    st2, hd2, b2 = get("/data")
+finally:
+    server.build_dataset.build = _build
+    server._dataset_cache.update(_saved)
+results.append(ok(st1 == st2 == 200 and hd1.get("Cache-Control") == "no-store"
+                  and hd2.get("Cache-Control") == "public, max-age=300" and "<strong>3 countries</strong>" in b2,
+                  "/data: no-store while the dataset is down, cached once it is back (%s / %s)"
+                  % (hd1.get("Cache-Control"), hd2.get("Cache-Control"))))
 st, hd, body = get("/cheapest", "HEAD")
 results.append(ok(st == 200 and body == "", "HEAD answers 200 with no body"))
 st, hd, sm = get("/sitemap.xml")
