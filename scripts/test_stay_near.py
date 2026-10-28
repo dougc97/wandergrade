@@ -440,11 +440,14 @@ results.append(ok(again2 == built2, "a rebuild of the rebuilt file changes nothi
                   % [iso for iso in WANT2 if again2[iso] != built2[iso]]))
 results.append(ok(all(t in REST["wiki"][iso] for iso, t in asked2),
                   "the stub holds every title the build asked (%s)" % [x for x in asked2 if x[1] not in REST["wiki"][x[0]]]))
+# gen_stay_spots.NO_STAYS (the French Southern Territories, 2026-10-28) have
+# none at all; every other kept country is unchanged.
+kept_want = {iso: ([] if iso in g.NO_STAYS else v) for iso, v in REST["kept"].items()}
 kept_now = {iso: stays.get(iso, []) for iso in REST["kept"]}
-results.append(ok(kept_now == REST["kept"],
+results.append(ok(kept_now == kept_want and not set(g.NO_STAYS) & set(stays),
                   "every country reviewed NEUTRAL or LOSS, and Burkina Faso, South Sudan and Yemen (a new place in a"
-                  " country Canada says to avoid all travel to), keeps main's chips exactly, Antarctica none (%s)"
-                  % [iso for iso in REST["kept"] if kept_now[iso] != REST["kept"][iso]]))
+                  " country Canada says to avoid all travel to), keeps main's chips exactly, Antarctica and %s none (%s)"
+                  % (" ".join(sorted(g.NO_STAYS)), [iso for iso in REST["kept"] if kept_now[iso] != kept_want[iso]])))
 
 # A guide place that found no point, or the wrong one, now names the file's
 # chip through stay-aliases.json: a LOSS whose cause had a correct point

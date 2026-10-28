@@ -899,6 +899,11 @@ def us_review(data, rss=None):
             + [line for iso in isos for line in us_review_problems(iso, words.get(iso, ""))])
 
 
+# Places with nowhere to book: the French Southern Territories are research
+# stations reached only by supply ship (Antarctica finds no point at all).
+NO_STAYS = {"TF"}
+
+
 def main(only=None):
     acts = json.load(open(os.path.join(PUBLIC, "activities.json"), encoding="utf-8"))
     names = json.load(open(os.path.join(PUBLIC, "country-names.json"), encoding="utf-8"))
@@ -914,7 +919,8 @@ def main(only=None):
         previous = {}
     if only:
         out = {k: v for k, v in previous.items() if k not in only}
-    jobs = [(iso, acts[iso], names, previous.get(iso)) for iso in sorted(acts) if not only or iso in only]
+    jobs = [(iso, acts[iso], names, previous.get(iso)) for iso in sorted(acts)
+            if (not only or iso in only) and iso not in NO_STAYS]
     rebuilt = set()
     with ThreadPoolExecutor(max_workers=2 if only else 8) as ex:
         for iso, spots in ex.map(build_country, jobs):
