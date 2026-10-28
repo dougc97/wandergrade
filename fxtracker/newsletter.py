@@ -363,12 +363,6 @@ def render_markdown(rows, as_of, baseline_days):
 # Renders the payload from fxtracker.picks.build() into an HTML email.
 
 _FLAG = {1: "A", 2: "B", 3: "D"}   # safety grade by advisory level (picks.SAFE_GRADE)
-# Whose levels the 🛡️ letters are, said once in the footer: bare letters read as
-# WanderGrade's own safety rating. A government with no level of its own for a
-# country is filled in by the others, as on the site (advisories' gap-fills).
-_ADV_SOURCE = {"us": ("the U.S. State Department", "Canada’s or Germany’s"),
-               "ca": ("Global Affairs Canada", "the U.S.’s or Germany’s"),
-               "de": ("the German Foreign Office", "the U.S.’s or Canada’s")}
 USD = VARIANTS["USD"]              # the edition every render defaults to
 SITE = "https://wandergrade.com"
 UNSUB = "{{ unsubscribe_url }}"    # Buttondown fills this on send
@@ -377,6 +371,13 @@ GREEN = "#0a7d28"
 
 def _esc(x):
     return html.escape(str(x))
+
+
+def _adv_by(s):
+    """Whose level the 🛡️ grade is, as the site's pills say it ("per US State
+    Dept", or the government that filled the gap): a bare letter read as
+    WanderGrade's own safety rating."""
+    return (" <span style='color:#888'>per %s</span>" % _esc(s["advBy"])) if s.get("advBy") else ""
 
 
 def _grade(score):
@@ -533,12 +534,12 @@ def _hero_card(s, month, v=USD):
       %s
       <div style="padding:15px">
         <div style="font-size:20px;font-weight:800;color:#111">%s<a href="%s" style="color:%s;text-decoration:none">%s</a> <span style="color:#666">— Overall %s</span></div>
-        <div style="font-size:14px;color:#444;margin:5px 0 0">\U0001f4b0 Affordability <b>%s</b> &nbsp;&middot;&nbsp; \U0001f6e1️ Safety <b>%s</b> &nbsp;&middot;&nbsp; \U0001f324️ Weather <b>%s</b>%s</div>
+        <div style="font-size:14px;color:#444;margin:5px 0 0">\U0001f4b0 Affordability <b>%s</b> &nbsp;&middot;&nbsp; \U0001f6e1️ Safety <b>%s</b>%s &nbsp;&middot;&nbsp; \U0001f324️ Weather <b>%s</b>%s</div>
         %s%s%s%s
         <div style="margin:14px 0 0"><a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 18px;border-radius:9px">See %s’s guide →</a></div>
       </div>
     </div>""" % (photo, _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
-                 _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]), _fly(s),
+                 _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]), _fly(s),
                  _fx_line(s, v=v), _cost_line(s, v=v), _dont_miss(s), _credit(s), g, GREEN,
                  _esc(s["name"]))
 
@@ -553,13 +554,13 @@ def _compact_card(s, month, v=USD):
       <tr>%s
         <td valign="top" style="padding:11px 14px">
           <div style="font-size:16px;font-weight:800;color:#111">%s<a href="%s" style="color:%s;text-decoration:none">%s</a> <span style="color:#666">— %s</span></div>
-          <div style="font-size:13px;color:#555;margin:3px 0 0">\U0001f4b0 %s &middot; \U0001f6e1️ %s &middot; \U0001f324️ %s%s</div>
+          <div style="font-size:13px;color:#555;margin:3px 0 0">\U0001f4b0 %s &middot; \U0001f6e1️ %s%s &middot; \U0001f324️ %s%s</div>
           %s%s
           <div style="font-size:13px;margin:6px 0 0"><a href="%s" style="color:%s;text-decoration:none;font-weight:600">See the guide →</a></div>
         </td>
       </tr>
     </table>""" % (thumb, _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
-                   _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]),
+                   _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]),
                    _fly(s, compact=True), _value_line(s, compact=True, v=v), _credit(s), g, GREEN)
 
 
@@ -567,10 +568,10 @@ def _gem_line(s, month, v=USD):
     g = _guide_url(s["iso"], month, v)
     return ("<div style='font-size:14px;margin:0 0 9px;color:#111'>%s<a href='%s' "
             "style='color:%s;text-decoration:none;font-weight:700'>%s</a> "
-            "<span style='color:#666'>— %s &middot; \U0001f4b0 %s &middot; \U0001f6e1️ %s "
+            "<span style='color:#666'>— %s &middot; \U0001f4b0 %s &middot; \U0001f6e1️ %s%s "
             "&middot; \U0001f324️ %s%s</span></div>") % (
         _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
-        _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _grade(s["wx"]), _fly(s, compact=True))
+        _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]), _fly(s, compact=True))
 
 
 # One line of human at the end of a page of grades. Every author here died long
@@ -646,9 +647,6 @@ def render_digest(data):
         " Want another currency’s edition? Reply and say which, or change it in your account"
         " on wandergrade.com (sign in with this address).")
     nstrong = sum(1 for s in picks if (s.get("fx") or 0) >= 3)
-    who, fill = _ADV_SOURCE.get(v.adv_source, _ADV_SOURCE["us"])
-    safety_note = ("Safety grades are %s’s travel-advisory levels (Level 1 = A, 2 = B, 3 = D), "
-                   "%s where it publishes none." % (who, fill))
 
     subject = digest_subject(v, mn)
     if nstrong:
@@ -697,11 +695,11 @@ def render_digest(data):
   <p style="font-size:13px;color:#555;margin:16px 0 0">\U0001f4ac Tell me where you’re headed — just hit reply, or write to <a href="mailto:hello@wandergrade.com" style="color:#555"><b>hello@wandergrade.com</b></a>. I read every message.</p>
   %s
   <p style="font-size:12px;color:#888;line-height:1.6;border-top:1px solid #e0e0e0;margin-top:14px;padding-top:14px">
-    Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s %s Currency data as of %s. Photos via Wikimedia Commons.<br>
+    Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s Currency data as of %s. Photos via Wikimedia Commons.<br>
     <b>WanderGrade</b> · once a month, no spam · <a href="%s" style="color:#888">wandergrade.com</a> · <a href="%s" style="color:#888">unsubscribe</a>
   </p>
 </div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), pick_link, GREEN, hero, rest,
              ai_callout, gems_block, cheap_link, month_link, GREEN, _quote_for(yr, m),
-             _esc(v.traveler), _esc(mn), _esc(switch), _esc(safety_note), _esc(data["as_of"]), SITE, UNSUB)
+             _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]), SITE, UNSUB)
 
     return subject, body

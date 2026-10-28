@@ -6,10 +6,9 @@
      changes: the cost line now uses the site's ±10% "about the same" band on
      the two printed decimals (newsletter._pl_band), since 2026-10-24 a
      line after the hidden gems links the issue month's /cheapest page, and
-     since 2026-10-28 (review 3) the footer names whose levels the 🛡️ letters
-     are, the AI callout drops "New:" and names the four AIs, "route’s" is
-     typographic and an explicit --month issue prints its own year
-     (digest_snapshot.as_4788fd2 undoes each). The 12 months' sha256
+     since 2026-10-28 (review 3) each 🛡️ grade names its source, the AI
+     callout drops "New:", "route’s" is typographic and an explicit --month
+     issue prints its own year (digest_snapshot.REVIEW3). The 12 months' sha256
      match scripts/digest_golden/usd_sha256.json, and the USD edition built
      the per-currency way (gather + build_variant) is the same text. The
      band is checked against JavaScript's own toFixed under jsc.
@@ -23,7 +22,8 @@
 
 --against <rev> also extracts that tree with `git archive` and diffs its USD
 text against this tree's (less the /cheapest line, which must be in every
-month once, and with review 3's changes undone, each where it belongs) in full, then again with only this tree's cost line
+month once, and less digest_snapshot.REVIEW3's pieces in both, each of
+which must be in this tree's text where it belongs) in full, then again with only this tree's cost line
 grafted into it (digest_snapshot --graft-cost-line): that must be identical
 for all 12 months, which proves the cost line is the only USD change.
 """
@@ -63,7 +63,6 @@ def main():
     raw_diff = None
 
     print("1. USD byte-identity")
-    picks, newsletter, dv = ds.install(ROOT)
     usd_only = _snapshot_in_child(ROOT, "USD")
     with open(GOLDEN, encoding="utf-8") as f:
         golden = json.load(f)["sha256"]
@@ -84,21 +83,26 @@ def main():
             usd_cmp, linked = ds.without_cheap_link(usd_only["USD"])
             results.append(ok(linked and len(usd_cmp) == 12,
                               "this tree's USD text carries the /cheapest line once in every month"))
-            # Review 3's changes are undone too, and each must be where it
-            # belongs: the safety note and the callout in every month, the
-            # issue's own year (and its quote) in months 1-9 of the snapshot.
-            found = {}
+            # Review 3's pieces come out of both texts (digest_snapshot.REVIEW3),
+            # and must each be in this tree's: a source on every 🛡️ grade, the
+            # callout, the intro's year and the closing quote once.
+            placed = []
             for m in usd_cmp:
-                usd_cmp[m][1], found[m] = ds.as_4788fd2(usd_cmp[m][1], int(m), newsletter._quote_for)
-            want = {m: {"safety note", "callout"} | ({"year"} if int(m) < ds.TODAY.month else set())
-                    for m in usd_cmp}
-            results.append(ok(all(want[m] <= set(found[m]) for m in usd_cmp),
-                              "review 3's USD changes are each in place: the safety-source footer and the "
-                              "AI callout in all 12 months, the issue's own year in months 1-9%s"
-                              % ("" if all(want[m] <= set(found[m]) for m in usd_cmp) else " -> %r" % found)))
+                body, n = ds.without_review3(usd_cmp[m][1])
+                grades = usd_cmp[m][1].count("\U0001f6e1")
+                if not (n.get("src") == grades > 0 and n.get("ai") == 1 and n.get("year") == 1
+                        and n.get("quote") == 1):
+                    placed.append((m, n, grades))
+                usd_cmp[m] = [usd_cmp[m][0], body]
+            results.append(ok(not placed, "review 3's pieces are in this tree's USD text every month: each 🛡️ "
+                              "grade's source, the AI callout, the intro's year, the closing quote%s"
+                              % ("" if not placed else " -> %r" % placed[:3])))
+            strip = lambda per: {m: [sb[0], ds.without_review3(sb[1])[0]] for m, sb in per.items()}
+            old["USD"] = strip(old["USD"])
             diffs = [m for m in old["USD"] if old["USD"][m] != usd_cmp.get(m)]
             raw_diff = sorted(int(m) for m in diffs)          # checked in 2c
             grafted = _snapshot_in_child(tmp, "USD", graft=ROOT)
+            grafted["USD"] = strip(grafted["USD"])
             gdiffs = [m for m in grafted["USD"] if grafted["USD"][m] != usd_cmp.get(m)]
             results.append(ok(not gdiffs and len(grafted["USD"]) == 12,
                               "%s with only this tree's cost line grafted in renders this tree's USD "
@@ -107,9 +111,18 @@ def main():
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    picks, newsletter, dv = ds.install(ROOT)
     snap, datas = ds.snapshot(ROOT, tuple(dv.PICKER_ORDER), keep_data=True)
     results.append(ok(snap["USD"] == usd_only["USD"],
                       "the USD edition built per-currency (gather + build_variant) is the same text"))
+
+    # A grade's source is the list's own government, or the one that filled its gap.
+    by = picks.advisory_sources([{"iso": "TH", "level": 1}, {"iso": "CI", "level": 2, "via": "ca"},
+                                 {"iso": "PS", "level": 3}, {"iso": "PS", "level": 4, "via": "de"}], "us")
+    line = newsletter._gem_line(dict(datas["USD"][1]["gems"][0], advBy=by["CI"]), 1)
+    results.append(ok(by == {"TH": "US State Dept", "CI": "Global Affairs Canada", "PS": "German Foreign Office"}
+                      and "per Global Affairs Canada</span>" in line,
+                      "a 🛡️ grade names the government whose level it is, the gap-filler where one filled it (%s)" % by))
 
     print("2. the ten editions x 12 months")
     V = dv.VARIANTS
@@ -150,7 +163,17 @@ def main():
             want = "https://wandergrade.com/cheapest/%s'" % newsletter._MONTH_SLUGS[m - 1]
             if n_links != (1 if c == "USD" else 0) or (c == "USD" and want not in snap[c][str(m)][1]):
                 problems.append((c, m, "cheapest link", n_links))
-    results.append(ok(not problems, "subjects unique per month; wording, footer, emoji, home exclusion, "
+    # Every edition's issue names its month's next occurrence (render_cheapest.year_for,
+    # the /cheapest page's own year) and the quote for that year; 4788fd2 printed
+    # the default month's year for an explicit month (January 2026 on 2026-10-03).
+    import fxtracker.render_cheapest as RCH
+    for c in V:
+        for m in range(1, 13):
+            y = RCH.year_for(m, ds.TODAY)
+            body = snap[c][str(m)][1]
+            if "<b>%s %d</b>" % (picks.MONTHS[m - 1], y) not in body or newsletter._quote_for(y, m) not in body:
+                problems.append((c, m, "year", y))
+    results.append(ok(not problems, "subjects unique per month; wording, footer, emoji, home exclusion, year, "
                       "markup all right (%d renders)%s" % (12 * len(V), "" if not problems else
                                                              " -> %r" % problems[:4])))
     # Wording samples from the spec.

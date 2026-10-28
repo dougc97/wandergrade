@@ -144,6 +144,37 @@ CHEAP_LINK = re.compile(
     r"to visit in [A-Za-z]+ →</a></p>")
 
 
+# Review 3's USD changes (2026-10-28), one alternation per changed piece, so
+# a comparison with 4788fd2 strips exactly these from both texts (as
+# CHEAP_LINK is) and still proves nothing else moved:
+#  src    each 🛡️ grade names whose level it is ("per US State Dept", or the
+#         government that filled the gap), as the site's pills do;
+#  ai     the AI callout drops the July "New:" and names the four AIs the
+#         guide's button offers (either wording is stripped);
+#  apos   "route’s" takes the typographic apostrophe (either is stripped);
+#  year   the issue's year: an explicit --month N prints N's next occurrence
+#         (render_cheapest.year_for) where 4788fd2 printed the default
+#         month's, in the intro and in send_digest's "Digest for" line;
+#  quote  the closing quote, which newsletter._quote_for picks by that year.
+REVIEW3 = re.compile(
+    r"(?P<src> <span style='color:#888'>per (?:US State Dept|Global Affairs Canada|German Foreign Office)</span>)"
+    r"|(?P<ai><div style='background:#eef7f0;border:1px solid #cfe8d6;border-radius:10px;padding:12px 14px;"
+    r"margin:2px 0 18px;font-size:14px;color:#1a5e33'>✨ (?:[^<]|<b>[^<]*</b>)*</div>)"
+    r"|(?P<apos>(?<=this month vs the )route['’]s(?= usual))"
+    r"|(?P<year> 20\d\d(?=</b>\? WanderGrade grades| \(rates as of ))"
+    r"|(?P<quote><p style=\"font-size:13px;line-height:1\.6;color:#666;font-style:italic;[^\"]*\">“[^”]*”<br>"
+    r"<span style=\"font-style:normal;color:#888\">— [^<]*<i>[^<]*</i></span></p>)")
+
+
+def without_review3(text):
+    """`text` with REVIEW3's pieces taken out, and {piece: how many were}."""
+    found = {}
+    def cut(m):
+        found[m.lastgroup] = found.get(m.lastgroup, 0) + 1
+        return ""
+    return REVIEW3.sub(cut, text), found
+
+
 def without_cheap_link(per_month):
     """{month: [subject, body]} with that line taken out of each body, and
     True when every body carried it exactly once."""
@@ -153,65 +184,6 @@ def without_cheap_link(per_month):
         once = once and n == 1
         out[m] = [subj, body]
     return out, once
-
-
-# Review 3's deliberate USD changes (2026-10-28), each undone by as_4788fd2 so a
-# comparison with 4788fd2 still proves nothing else moved:
-#  * the footer names whose levels the 🛡️ letters are (SAFETY_NOTE);
-#  * the AI callout drops "New:" (it ran since July) and names the four AIs
-#    the guide's button offers (CALLOUT_NEW -> CALLOUT_OLD);
-#  * "route’s" takes the typographic apostrophe the rest of the email uses;
-#  * an explicit --month issue prints its own month's next occurrence: on
-#    TODAY (2026-10-03) months 1-9 are 2027, where 4788fd2 printed the
-#    default month's 2026, and the closing quote follows the year
-#    (newsletter._quote_for). The default month (12) is unchanged.
-SAFETY_NOTE = re.compile(
-    r" Safety grades are the U\.S\. State Department’s travel-advisory levels "
-    r"\(Level 1 = A, 2 = B, 3 = D\), Canada’s or Germany’s where it publishes none\.")
-CALLOUT_NEW = ("✨ Open any country’s guide and tap <b>Plan with AI</b> for a tailored, "
-               "month-aware itinerary — ChatGPT, Claude, Grok or Perplexity, your call.")
-CALLOUT_OLD = ("✨ <b>New:</b> open any country’s guide and tap <b>Plan with AI</b> for a "
-               "tailored, month-aware itinerary — ChatGPT or Claude, your call.")
-MONTH_NAMES = ("January", "February", "March", "April", "May", "June", "July", "August",
-               "September", "October", "November", "December")
-
-
-def issue_years(month, today=TODAY):
-    """(4788fd2's year, this tree's year) for an issue of `month` built on `today`."""
-    return (today.year + (1 if today.month + 2 > 12 else 0),
-            today.year + (1 if month < today.month else 0))
-
-
-def as_4788fd2(body, month, quote_for, today=TODAY):
-    """A USD body of this tree with review 3's changes undone (see above), and
-    the list of those it found; `quote_for` is newsletter._quote_for (the same
-    function and list in both trees). The /cheapest line is left to
-    without_cheap_link."""
-    found = []
-    body, n = SAFETY_NOTE.subn("", body)
-    if n == 1:
-        found.append("safety note")
-    if body.count(CALLOUT_NEW) == 1:
-        body = body.replace(CALLOUT_NEW, CALLOUT_OLD)
-        found.append("callout")
-    if "route’s usual" in body:
-        body = body.replace("route’s usual", "route's usual")
-        found.append("apostrophe")
-    old_y, new_y = issue_years(month, today)
-    if old_y != new_y:
-        mn = MONTH_NAMES[month - 1]
-        a, b = "<b>%s %d</b>" % (mn, new_y), "<b>%s %d</b>" % (mn, old_y)
-        if body.count(a) == 1 and body.count(quote_for(new_y, month)) == 1:
-            body = body.replace(a, b).replace(quote_for(new_y, month), quote_for(old_y, month))
-            found.append("year")
-    return body, found
-
-
-def summary_as_4788fd2(out, month, today=TODAY):
-    """send_digest's printed "Digest for <Month> <year>" lines with 4788fd2's year."""
-    old_y, new_y = issue_years(month, today)
-    mn = MONTH_NAMES[month - 1]
-    return out.replace("Digest for %s %d " % (mn, new_y), "Digest for %s %d " % (mn, old_y))
 
 
 def graft_cost_line(newsletter, new_root):

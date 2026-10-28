@@ -471,7 +471,8 @@ def _advisory_items(source="us"):
         return rates.fetch_json(SITE + "/api/advisories")["items"]
     except Exception as e:
         print("WARNING: site advisories unavailable ({0}); using Canada's.".format(e))
-    return advisories.get_advisories("ca")["items"]
+    # Canada's own levels standing in for the whole US list: each says so.
+    return [dict(it, via=it.get("via") or "ca") for it in advisories.get_advisories("ca")["items"]]
 
 
 def advisory_levels(items):
@@ -483,6 +484,23 @@ def advisory_levels(items):
         if iso and lvl and lvl > out.get(iso, 0):
             out[iso] = lvl
     return out
+
+
+# Whose level a grade is, in app.js ADV_SRC_SHORT's words ("per US State
+# Dept" on the site's pills).
+ADV_SRC_SHORT = {"us": "US State Dept", "ca": "Global Affairs Canada", "de": "German Foreign Office"}
+
+
+def advisory_sources(items, source="us"):
+    """{iso: short name of the government whose level advisory_levels kept}:
+    the list's own (`source`), or the one that filled its gap (`via`: Côte
+    d'Ivoire's Canada level on the US list)."""
+    best = {}
+    for it in items:
+        iso, lvl = it.get("iso"), it.get("level")
+        if iso and lvl and lvl > best.get(iso, (0, None))[0]:
+            best[iso] = (lvl, it.get("via") or source)
+    return {iso: ADV_SRC_SHORT.get(by, by) for iso, (_l, by) in best.items()}
 
 
 def _popular_set():
@@ -533,10 +551,12 @@ def gather(month=None):
     if month is None:
         # Feature ~2 months out so readers have booking lead time.
         month = (today.month - 1 + 2) % 12 + 1
-    # The featured month's next occurrence, this one counting: an explicit
-    # --month 1 run in October is January next year (it used to print the
-    # default month's year: "January 2026"), --month 11 in November this year.
-    year = today.year + (1 if month < today.month else 0)
+    # The featured month's next occurrence, this month counted, as the
+    # /cheapest/<month> page the issue links names it (render_cheapest.year_for):
+    # an explicit --month 1 in October is January next year. This used to be
+    # the default month's year, so --month 1 in October printed "January 2026".
+    from .render_cheapest import year_for
+    year = year_for(month, today)
 
     ppp = _load("ppp.json")
     climate = _load("climate.json")
@@ -544,13 +564,15 @@ def gather(month=None):
 
     fav = rates.compute_favorability()
     rate_by_code = {r["code"]: r["rate_now"] for r in fav["rows"]}
-    adv = {"us": advisory_levels(_advisory_items())}
+    us_items = _advisory_items()
+    adv = {"us": advisory_levels(us_items)}
+    adv_by = {"us": advisory_sources(us_items, "us")}
     popular = _popular_set()
     fit = pricelevel.plausibility_fit(ppp, rate_by_code, CUR_BY_ISO)
     return {
         "month": month, "year": year, "ppp": ppp, "climate": climate, "acts": acts,
         "rate_by_code": rate_by_code, "fit": fit, "popular": popular,
-        "adv": adv, "fav_by_base": {"USD": fav}, "fares_by_origin": {}, "cover_memo": {},
+        "adv": adv, "adv_by": adv_by, "fav_by_base": {"USD": fav}, "fares_by_origin": {}, "cover_memo": {},
     }
 
 
@@ -599,7 +621,9 @@ def fares_for(shared, origin):
 def _adv_for(shared, source):
     memo = shared["adv"]
     if source not in memo:
-        memo[source] = advisory_levels(_advisory_items(source))
+        items = _advisory_items(source)
+        memo[source] = advisory_levels(items)
+        shared.setdefault("adv_by", {})[source] = advisory_sources(items, source)
     return memo[source]
 
 
@@ -642,6 +666,10 @@ def build_variant(shared, v, n_picks=5, n_gems=3):
     memo = shared["cover_memo"]
     picks = [_enrich(s, acts, with_photo=True, memo=memo) for s in picks]
     gems = [_enrich(s, acts, with_photo=False, memo=memo) for s in gems]
+    # Whose level each 🛡️ grade is: the email names it as the site does.
+    by = (shared.get("adv_by") or {}).get(v.adv_source) or {}
+    for s in picks + gems:
+        s["advBy"] = by.get(s["iso"])
 
     return {
         "month": month, "month_name": MONTHS[month - 1], "year": shared["year"],
