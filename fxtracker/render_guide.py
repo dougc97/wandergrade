@@ -259,6 +259,27 @@ _COST_TAILS = [" Travel Costs vs US, Safety & Best Time", " Costs vs US, Safety 
                " Travel Costs vs US", " Costs vs US", ""]
 
 
+# The fallback for the Search Console check of 9 November 2026: if the 4 October
+# retitle (449496e) cost the guides their "best time to visit X" positions,
+# TITLE_BEST_TIME puts that phrase back at the head of the title, followed by
+# what the question titles carry, in the TITLE_MAX ladder. Off by default;
+# TITLE_BEST_TIME_ONLY (a set of ISO codes) limits it to those guides. A Level 4
+# guide keeps "Is X Safe to Visit?": the site sells no trips there. Turning it
+# on: re-word guide-facts.json's titles with scripts/retitle_guide_facts.py.
+TITLE_BEST_TIME = False
+TITLE_BEST_TIME_ONLY = None
+_BEST_TIME_TAILS = {
+    "cost": [": Weather, Costs vs US & Safety", ": Weather & Costs vs US", ": Weather & Costs", ""],
+    "safety": [": Weather & Travel Advisory", ": Weather & Safety", ""],
+    "guide": [": Weather & Things to Do", ": Weather", ""],
+}
+
+
+def best_time_title_on(iso, f):
+    return (TITLE_BEST_TIME and (TITLE_BEST_TIME_ONLY is None or iso in TITLE_BEST_TIME_ONLY)
+            and f.get("adv") != 4)
+
+
 def _title(iso, f):
     """A question nobody else's page answers. Never a number or a level: a stale
     snapshot can only change which question is asked, and a question claims
@@ -268,7 +289,10 @@ def _title(iso, f):
     n = _load()["names"].get(iso, iso)
     nt = name_in_text(iso)
     adv, has_p = f.get("adv"), f.get("pct") is not None
-    if adv == 4 or (adv == 3 and not has_p):
+    if best_time_title_on(iso, f):
+        kind = "safety" if adv == 3 and not has_p else "cost" if has_p else "guide"
+        ladder = ["Best Time to Visit %s%s" % (nt, t) for t in _BEST_TIME_TAILS[kind]]
+    elif adv == 4 or (adv == 3 and not has_p):
         rest = " Travel Advisory, Costs & Weather" if has_p else " Travel Advisory & Weather"
         ladder = ["Is %s Safe to Visit?%s" % (nt, rest),
                   "Is %s Safe to Visit? Travel Advisory" % nt,
