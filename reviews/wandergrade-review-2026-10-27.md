@@ -3,7 +3,7 @@
 Live site https://wandergrade.com reviewed on 2026-10-28 (UTC) against `main` at a1c6d84, GET requests only, analytics beacon blocked in every headless-Chrome load. Seven area reviewers ran in parallel (one Chrome at a time), then a separate skeptic pass tried to disprove every finding.
 
 **Totals:** 68 raw findings → 5 duplicates merged → 5 dropped by the skeptic pass → **58 confirmed: 2 High, 17 Medium, 39 Low.**
-**Fixed: 44** — 33 on `review3/fixes` (guides byte-identical to `main`), 11 on `review3/after-nov9` (change guide HTML or guide words; merge after 2026-11-09). **Not fixed: 14** (5 owned by the other session, 9 with reasons below).
+**Fixed: 47** — 36 on `review3/fixes` (guides byte-identical to `main`; includes the newsletter copy NL-1, NL-3 and NL-5, done after Doug's go-ahead on 2026-10-28), 11 on `review3/after-nov9` (change guide HTML or guide words; merge after 2026-11-09). **Not fixed: 11** (5 owned by the other session, 6 with reasons below).
 
 Branches: `review3/report` (this file only, from `origin/main`), `review3/fixes` (from `origin/main`), `review3/after-nov9` (from `review3/fixes`, so it merges cleanly after it). Nothing merged.
 
@@ -13,10 +13,10 @@ Branches: `review3/report` (this file only, from `origin/main`), `review3/fixes`
 | 2. Guides | 0 | 4 | 9 | 10 | 3 |
 | 3. Data tabs | 0 | 2 | 6 | 7 | 1 |
 | 4. List pages | 1 | 2 | 5 | 7 | 1 |
-| 5. Newsletter | 0 | 2 | 3 | 1 | 4 |
+| 5. Newsletter | 0 | 2 | 3 | 4 | 1 |
 | 6. Technical | 0 | 0 | 7 | 4 | 3 |
 | 7. Accessibility & mobile | 0 | 5 | 4 | 8 | 1 |
-| **Total** | **2** | **17** | **39** | **44** | **14** |
+| **Total** | **2** | **17** | **39** | **47** | **11** |
 
 Severity in this file is the final (post-skeptic) severity. Where a finding needs a production observation, the quoted output is from production unless it says "local".
 
@@ -71,7 +71,7 @@ Severity in this file is the final (post-skeptic) severity. Where a finding need
 ### TP-9 · Low · copy — Under "Any time" the grade-table header tips say "your chosen month" / "this month's fare"
 - **Where:** `app.js` `renderGradeTable` header titles (~8262–8277); `index.html` `#valueTable` header (~411–412).
 - **Evidence:** header tips `weather comfort for your chosen month` and `this month's fare vs the route's usual…` while the rows read `Best in Nov`, `Best in Feb`.
-- **Fix:** app.js says "each row's month" under Any time (`review3/fixes` 4b70f03); the template's static tips say "the month graded" (`review3/after-nov9` ffdee50, template = guide HTML).
+- **Fix:** app.js says "each row's month" under Any time (`review3/fixes` 4b70f03); the template's static tips say "the month graded" (`review3/after-nov9` d6c58f7, template = guide HTML).
 
 ---
 
@@ -83,7 +83,7 @@ Sampled 43 on production, raw and hydrated: antarctica, england, scotland, wales
 - **Where:** `/guide/syria` (also yemen, afghanistan, russia) `#ssrGuide p.afflink`; `fxtracker/render_guide.py` ~595.
 - **Evidence:** right after `<p>🛡️ Level 4 · Do not travel — Safety · per US State Dept (Oct 2026)</p>`: `<a class="staybtn" href="https://tp.media/r?campaign_id=225&amp;marker=738472&amp;p=5869&amp;sub_id=guide-syria…" rel="sponsored nofollow noopener">🛡️ Travel insurance (EKTA)</a>`; after hydration `#guideInsurance` is hidden. Crawlers and no-JS readers see it, contradicting app.js's "never flashes on a Level 4 page".
 - **Fix:** the crawler block omits the insurance line when the snapshot's level is 4.
-- **Branch:** `review3/after-nov9` d93f6c7.
+- **Branch:** `review3/after-nov9` 6371264.
 
 ### GD-2 · Medium · bug (layout) — Unrated guides show a 228–250px blank where Safety would be
 - **Where:** `/guide/western-sahara`, `/guide/french-southern-territories` `#guideSafety`; `styles.css` ~1268 (`display:block` beats `[hidden]`) + the `:empty` min-height hold.
@@ -95,19 +95,19 @@ Sampled 43 on production, raw and hydrated: antarctica, england, scotland, wales
 - **Where:** `nav.guidejump button[data-go="guideStay"]` on syria, yemen, afghanistan, russia, venezuela, antarctica; `app.js` ~10811.
 - **Evidence:** Syria hydrated: `{'go': 'guideStay', 't': '🏨 Where to stay', 'vis': True}` while `#guideStay` is hidden; the handler falls back to `$("subscribe")`.
 - **Fix:** `#tab-guide[data-nostay] .guidejump [data-go="guideStay"] { display: none; }` (removes visible guide words).
-- **Branch:** `review3/after-nov9` bd0e07c.
+- **Branch:** `review3/after-nov9` 81c804b.
 
 ### GD-4 · Medium · policy (attribution) — Canada's "📍 Avoid all travel" lines sit under "Safety · per U.S. State Department"
 - **Where:** Level 1–2 guides (thailand, mexico, peru, morocco, egypt) `#guideSafety .woreg`; `app.js` `renderWatchouts` calm branch (~3626); `guide_sizers._watchouts`.
 - **Evidence:** Thailand: `Safety · per U.S. State Department: “Exercise normal precaution in Thailand…”` then `📍 Avoid all travel: the area within 50 kilometres of the Thailand-Cambodia border ⓘ` … then `🧭 Safety notes (8) — nothing unusual for a Level 1 country (per Global Affairs Canada — details ↗)`. Level 1 is the US level (Canada rates Thailand 2), and "nothing unusual" is the site's own judgement.
 - **Fix:** Canada's lines follow a "Regional advice (per Global Affairs Canada — details ↗)" heading; the fold reads "🧭 Safety notes (8)" with the source; app.js and its server stand-in alike. Local check: stand-in height equals hydrated height (Thailand 335/335, Mexico 355/355, Japan 166/166).
-- **Branch:** `review3/after-nov9` 844118c.
+- **Branch:** `review3/after-nov9` 0053fc4.
 
 ### GD-5 · Low · copy — State Department quotes cut mid-word, sentences run together
 - **Where:** `#guideSafety .advwhy` and stand-in; `fxtracker/advisories.py` `_summary` (`out[:277] + "..."`).
 - **Evidence:** Afghanistan `“Do not travel to Afghanistan for any reason We urge American citizens … and U.S. pas...”`; Aruba `“Exercise normal precaution in Aruba Aruba is generally a safe destination…”`; UAE `“… restrictions U.S. government employees … due to U...”`.
 - **Fix:** cut at the last sentence end (not after an initial like "U.S.") or the last word + "…"; an unpunctuated block end ends its sentence; styled section titles ("Crime", Gabon's "Unrest", Guinea's bold line before a break) are dropped. 20 of 214 current summaries change (checked one by one); DR Congo loses a spurious "Other" chip.
-- **Branch:** `review3/after-nov9` 010cc23.
+- **Branch:** `review3/after-nov9` 8cd1f3a.
 
 ### GD-6 · Low · consistency — Guernsey/Isle of Man (GBP) and Faroes/Greenland (DKK) show the plain exchange-rate move beside England's after-inflation figure
 - **Where:** `#guideFx`; `app.js` ~2931, `GUIDE_PARENT` (~1843) covers only England/Scotland/Wales.
@@ -125,19 +125,19 @@ Sampled 43 on production, raw and hydrated: antarctica, england, scotland, wales
 - **Where:** `public/visa.json` GL, BG, RO.
 - **Evidence:** Greenland `Visa-free entry · Schengen 90 days.` (Greenland is outside Schengen; the Faroes already read without it); BG/RO `90 days` (full members since 2025-01-01).
 - **Fix:** GL "90 days"; BG/RO "Schengen 90 days".
-- **Branch:** `review3/after-nov9` f88617b.
+- **Branch:** `review3/after-nov9` a674d77.
 
 ### GD-9 · Low · copy — "Your USD in United Kingdom", "Add United Kingdom to my trip", "Plan United Kingdom with AI"
 - **Where:** `app.js` renderGuideFx (~2977/3001), renderGuideAI (~7435/7441); `server.py` → `guide_sizers.ai`.
 - **Evidence:** UK guide shows those three beside `Things to do in the United Kingdom`; same for the US, UAE, Isle of Man.
 - **Fix:** `countryNameInText` / `render_guide.name_in_text` at those sites.
-- **Branch:** `review3/after-nov9` afa9ae4.
+- **Branch:** `review3/after-nov9` cc11c15.
 
 ### GD-10 · Low · data — French Southern Territories offers "Where to stay"
 - **Where:** `public/stay-coords.json` "TF".
 - **Evidence:** `Where to stay near Kerguelen | Kerguelen | Crozet Islands | Île Amsterdam | Île Saint-Paul | Booking.com | Hostelworld` while its summary says "reachable only by research/supply ship from Réunion" (URLs inspected, not clicked).
 - **Fix:** TF dropped from stay-coords.json; `gen_stay_spots.NO_STAYS = {"TF"}` stops a rebuild bringing it back; test_stay_near expects none.
-- **Branch:** `review3/after-nov9` e975f8d.
+- **Branch:** `review3/after-nov9` ba833ce.
 
 ### GD-11 · Low · perf — Small Wikimedia originals are hotlinked full size
 - **Where:** `app.js` activity thumbs (~9969 `/(\d+)px-/` → `/330px-`), hero (~3939), `pithumbsize=1600` (~3709).
@@ -213,7 +213,7 @@ Checked clean: the dollar-strength chart starts 4 Jan 1999, the cost chart 1990;
 - **Where:** `app.js` `NAME_FIX` (~10054).
 - **Evidence:** those strings in the Cost of living table; `ppp.json` names.
 - **Fix:** `MO: "Macau", FM: "Micronesia"` (mirrored in picks.py). On after-nov9 because a guide's FX tip names MO for a reader whose home currency is the pataca.
-- **Branch:** `review3/after-nov9` 61db23d.
+- **Branch:** `review3/after-nov9` 939dab0.
 
 ---
 
@@ -225,7 +225,7 @@ Checked clean: the 12 month pages name the right year everywhere (October–Dece
 - **Where:** `/cheapest/october`, `/cheapest` "Left out" note; `/guide/cote-d-ivoire`, `/guide/republic-of-the-congo`; Top Picks pills; newsletter gem letters; `fxtracker/advisories.py` `_norm` and `ALIASES`.
 - **Evidence:** feed titles `Côte d’Ivoire - Level 2: Exercise Increased Caution`, `Republic of Congo - Level 2: …`; `_norm('Côte d’Ivoire')` → `'cote divoire'` (U+2019 vanishes in the ASCII fold) vs alias `cote d ivoire`; no alias for "republic of congo" or "Naoero" (Nauru). Pages: `Left out: … countries missing from the State Department's feed (this month: Côte d'Ivoire)`; Top Picks pill `US State Dept publishes no advisory here; level per Global Affairs Canada`.
 - **Fix:** curly apostrophes fold to a straight one before the ASCII fold; aliases `republic of congo`, `naoero`. The live feed then matches all 214 titles.
-- **Branch:** `review3/after-nov9` 09261ce (the two guides' safety line changes).
+- **Branch:** `review3/after-nov9` 0c8b094 (the two guides' safety line changes).
 
 ### LP-2 · Medium · policy (nominal claim) — /safe-and-cheap shows Turkmenistan's plain exchange-rate move as after inflation
 - **Where:** Turkmenistan row `td[data-l="Dollar vs 1-yr avg"]`; `render_lists.py` `real_fx`/`_fx_cell` (~323–343).
@@ -279,13 +279,13 @@ Checked clean: the 12 month pages name the right year everywhere (October–Dece
 
 ## 5. Newsletter
 
-**Tests (on `main` and on both fix branches):** `parity.py --all` 0 mismatches (159 countries × 11 fields, every edition; also `--month 1`, `--month 11`); `test_digest_variants` 24/24; `--against 4788fd2` 27/27; `test_send_digest` 40/40. The Nov 1 cron builds the **January 2027** issue: subject `🧭 Where your dollar goes furthest this January`; picks Thailand A, Vietnam A, Dominican Rep. B+, Argentina B+, Philippines B+; gems El Salvador A, Cape Verde A, Côte d'Ivoire A. Every link returned 200; month/year, preheader, /cheapest/january link, "after inflation" wording and the unsubscribe placeholder are right; no Level 3/4 or do-not-travel pick or gem.
+**Tests:** on `main` `parity.py --all` 0 mismatches (159 countries × 11 fields, every edition; also `--month 1`, `--month 11`), `test_digest_variants` 24/24, `--against 4788fd2` 27/27, `test_send_digest` 40/40; on both fix branches the same, with `--against 4788fd2` 28/28 (one new check that review 3's copy changes are each in place). The Nov 1 cron builds the **January 2027** issue: subject `🧭 Where your dollar goes furthest this January`; picks Thailand A, Vietnam A, Dominican Rep. B+, Argentina B+, Philippines B+; gems El Salvador A, Cape Verde A, Côte d'Ivoire A. Every link returned 200; month/year, preheader, /cheapest/january link, "after inflation" wording and the unsubscribe placeholder are right; no Level 3/4 or do-not-travel pick or gem.
 
 ### NL-1 · Medium · policy (safety wording) — The email's 🛡️ letters never name a source; a gem's "B" is Canada's level
 - **Where:** `fxtracker/newsletter.py` ~530, 550, 564, 691.
 - **Evidence:** `grep -c "State Department\|advisory\|Canada"` → 0 in the live render and in the archived December issue; gem line `Côte d'Ivoire — A · 💰 A+ · 🛡️ B · 🌤️ A+ · ✈️ B+` with CI `via: 'ca'` (itself caused by LP-1).
-- **Fix (proposed):** one key line, e.g. "🛡️ Safety = U.S. State Department advisory level; where it publishes none, Canada's or Germany's (marked *)".
-- **Branch:** not fixed — any USD-text change breaks `test_digest_variants --against 4788fd2` and `test_send_digest`'s call-for-call proof unless their allowed-difference logic is extended, and this review was told not to edit test_digest_variants. Needs Doug's go-ahead to change the USD text and those proofs together.
+- **Fix:** the footer says once whose levels the letters are: "Safety grades are the U.S. State Department’s travel-advisory levels (Level 1 = A, 2 = B, 3 = D), Canada’s or Germany’s where it publishes none." (per edition from `adv_source`; every edition uses the US today).
+- **Branch:** `review3/fixes` 20e6ccd (with NL-3, NL-5; goldens regenerated, `--against 4788fd2` and `test_send_digest` undo exactly these changes via `digest_snapshot.as_4788fd2` and require each where it belongs).
 
 ### NL-2 · Medium · consistency — The email uses the map data's abbreviated names ("Dominican Rep.")
 - **Where:** `fxtracker/picks.py` ~426 (name from climate.json).
@@ -296,13 +296,14 @@ Checked clean: the 12 month pages name the right year everywhere (October–Dece
 ### NL-3 · Low · bug — `send_digest.py --month N` prints the wrong year
 - **Where:** `picks.py` ~524 `year = today.year + (1 if today.month + 2 > 12 else 0)` ignores an explicit month.
 - **Evidence:** on 2026-10-03 with `--month 1`: `… January 2026`; on 2026-11-01 with `--month 11`: `November 2027`. The cron passes no `--month`, so sends are right.
-- **Fix (proposed):** one rule for heading and fare lookup, e.g. `year = today.year + (1 if month < today.month else 0)`, and the fare fallback the same.
-- **Branch:** not fixed — the frozen goldens render months 1–9 with explicit `--month` and would all change year and quote; same test constraint as NL-1.
+- **Fix:** `year = today.year + (1 if month < today.month else 0)` (the default month gives the same year as before). The fare-key fallback (`month > today.month`, mirroring app.js) is left as is; it differs only for an issue of the current month.
+- **Branch:** `review3/fixes` 20e6ccd.
 
 ### NL-5 · Low · copy — "✨ New:" AI callout since July; names two of the four AIs; one straight apostrophe
 - **Where:** `newsletter.py` ~514, 655–657.
 - **Evidence:** callout since 79101d3 (2026-07-10); "ChatGPT or Claude" vs the button's "ChatGPT, Claude, Grok or Perplexity"; `route's` with U+0027.
-- **Branch:** not fixed — USD text; same test constraint as NL-1.
+- **Fix:** "✨ Open any country’s guide and tap **Plan with AI** for a tailored, month-aware itinerary — ChatGPT, Claude, Grok or Perplexity, your call."; `route’s`.
+- **Branch:** `review3/fixes` 20e6ccd.
 
 ### NL-6 · Low · consistency — Archive URL/utm_campaign come from the emoji subject; the archive's unsubscribe link is empty
 - **Where:** `newsletter.py` ~160 (no `slug` in the USD `send()` payload).
@@ -377,7 +378,7 @@ Covered at 390×844 and 1280×900, light and dark: Top Picks, each Data tab, Tri
 - **Where:** `select#safeFloor`, `#beenFilter`, `#pickCount` (index.html ~225–249).
 - **Evidence:** accessibility tree `#safeFloor role=combobox name="" nameFrom=` (same for the other two).
 - **Fix:** each caption gets an id and its select `aria-labelledby` (checked in Chrome: "🛡️ Safety at least / Been-to / Show").
-- **Branch:** `review3/after-nov9` ffdee50 (template).
+- **Branch:** `review3/after-nov9` d6c58f7 (template).
 
 ### AX-3 · Medium · a11y — Photo lightbox is `aria-modal` but Tab walks into the page behind it
 - **Where:** `#lightbox`; `app.js` ~3947–4035.
@@ -407,7 +408,7 @@ Covered at 390×844 and 1280×900, light and dark: Top Picks, each Data tab, Tri
 - **Where:** `index.html` (app shell and guides).
 - **Evidence:** `main:0 nav:3 header:1 footer:1` on home, tabs and guides; no skip link; `#tabs` and `.guideindex-links` unnamed.
 - **Fix:** "Skip to content" link (off-screen until focused), `<main id="main">` around the five tabs (each keeps its positioning), `aria-label`s on both navs. Chrome: first Tab lands on the skip link at top 8px; no overflow; no console errors.
-- **Branch:** `review3/after-nov9` ffdee50 (template).
+- **Branch:** `review3/after-nov9` d6c58f7 (template).
 
 ### AX-8 · Low · a11y — "Browse all 190 country guides" links fail target spacing at 390px
 - **Where:** `nav.guideindex-links > a` (`styles.css` ~2372 `gap: 4px 14px`).
@@ -427,5 +428,5 @@ Covered at 390×844 and 1280×900, light and dark: Top Picks, each Data tab, Tri
 
 - **Guide byte-diff (`review3/fixes` vs `main`):** both servers `FX_PUBLIC=1`, 30 s start, every `/guide/` URL in `/sitemap.xml` fetched once to warm and again to compare, `?v=` stripped, a mismatch re-fetched up to three times. **Result: 190 of 190 identical.** Across three full runs one guide per run (Austria, Greece, Trinidad and Tobago) first differed only by the Safety stand-in that Canada's feed fills, missing on whichever server's fetch through this machine's proxy had just failed (`ws_closed_mid_exchange` to data.international.gc.ca); each was byte-identical once both servers were warm.
 - Fare-dependent guide markup (`_fare_strip_hint`, `_fare_col_hints`, fare lines) is invisible to that diff (no fare token here); no fix touched it.
-- **Tests:** every `scripts/test_*.py` passes on `main`, `review3/fixes` and `review3/after-nov9` (test_accounts with `scripts/mock_upstash.py`); `test_digest_variants --against 4788fd2` 27/27 and `parity.py --all` 0 mismatches on all three.
+- **Tests:** every `scripts/test_*.py` passes on `main`, `review3/fixes` and `review3/after-nov9` (test_accounts with `scripts/mock_upstash.py`); `parity.py --all` 0 mismatches on all three; `test_digest_variants --against 4788fd2` 27/27 on `main`, 28/28 on both fix branches (test_digest_variants, test_send_digest, digest_snapshot.py and the USD goldens updated for the newsletter copy with Doug's go-ahead).
 - **Could not run / observe:** production layout shift of the photo strip (Wikipedia/Wikimedia 429 this VM); Buttondown (no credentials); Upstash-stored advisory history (DT-5); fares locally (no Travelpayouts token).
