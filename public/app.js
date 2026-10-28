@@ -7816,8 +7816,13 @@ function whyLine(s, month) {
   if (bf && !bf.impossible && !bf.estOut) bits.push(budgetWords(s, bf));
   if (s.wx >= 75) bits.push(`great weather in ${MONTHS[month - 1]}`);
   else if (s.wx >= 55) bits.push(`decent weather in ${MONTHS[month - 1]}`);
-  if (s.advLvl === 1) bits.push("safest travel rating");
-  else if (s.advLvl === 3) bits.push("⚠️ has a reconsider-travel advisory");
+  // The level in its government's words, credited as the pill credits it:
+  // "safest travel rating" read as the site's own safety call.
+  if (s.advLvl === 1 || s.advLvl === 3) {
+    const meta = advisoryMetaByIso()[s.iso];
+    bits.push((s.advLvl === 3 ? "⚠️ " : "") + advLevelText(s.iso, s.advLvl)
+      + " per " + ((meta && meta.via && advViaShort(meta)) || advSrcName(true)));
+  }
   // The deal grade's own (shrunk) ratio, so this never contradicts the pill;
   // a month grade has no ratio and speaks for the month instead.
   if (s.flyBasis === "month" || (s.dealRatio != null && !s.fareEst)) {
