@@ -12033,10 +12033,14 @@ function buildRankShareSVG() {
       + (s.month ? '<tspan font-size="13" font-weight="600" fill="' + MUTE + '">' + esc2("  ·  best " + (lastPicksWx ? "weather " : "") + "in " + MON_ABBR[s.month - 1]) + "</tspan>" : "")
       + "</text>";
     const bits = [];
-    // s.fare is the cached AVERAGE round trip (or a distance estimate), never
-    // a minimum — so not "from". The price line is the pill's own framing with
-    // the yardstick named (an image travels; "home" means nothing to its reader).
-    if (s.fare != null) bits.push("avg flight ~" + shareMoney(s.fare) + (s.fareEst ? " (est.)" : ""));
+    // s.fare is, on a month basis (flyBasis "month"), that month's cheapest
+    // cached fare — so "from", with the month; otherwise the cached AVERAGE
+    // round trip (or a distance estimate), never a minimum. The price line is
+    // the pill's own framing with the yardstick named (an image travels;
+    // "home" means nothing to its reader).
+    if (s.fare != null) bits.push(s.flyBasis === "month"
+      ? "flights from ~" + shareMoney(s.fare) + " in " + MON_ABBR[(s.month || lastPicksMonth || curMonth()) - 1]
+      : "avg flight ~" + shareMoney(s.fare) + (s.fareEst ? " (est.)" : ""));
     // s.pl comes from valueScores, already divided by the home anchor — dividing
     // by it again squared the anchor (DE→BG read 136, the guide card said 170).
     if (s.pl) bits.push("prices " + plPhrase(s.pl, A.name));
