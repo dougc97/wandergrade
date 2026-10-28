@@ -3037,6 +3037,9 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 /* A guide with no stay spots at all (data-nostay, from the server): none of
    its places is outside the zones Canada says to avoid (Ethiopia). */
 #tab-guide[data-nostay] #guideStay:empty { display: none; }
+/* …and no "Where to stay" jump chip pointing at it (it scrolled to the
+   newsletter box on Syria, Yemen, Antarctica). */
+#tab-guide[data-nostay] .guidejump [data-go="guideStay"] { display: none; }
 #tab-guide[data-level="4"] #guideSafety:is(:empty, .filling) { min-height: 243px; }
 @media (max-width: 560px) {
   #tab-guide[data-level="4"] #guideVisa:empty { min-height: 78px; }
