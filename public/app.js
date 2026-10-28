@@ -914,76 +914,6 @@ function buildBaseSelect() {
   enhanceSelect(sel);
 }
 
-function buildWatchlist(allCodes, selected) {
-  const sel = new Set(selected || []);
-  const box = $("watchlist");
-  box.innerHTML = "";
-  for (const c of allCodes) {
-    const id = "w_" + c;
-    const lbl = document.createElement("label");
-    lbl.innerHTML = `<input type="checkbox" id="${id}" value="${c}" ${sel.has(c) ? "checked" : ""}> ${c}`;
-    box.appendChild(lbl);
-  }
-}
-
-function selectedWatch() {
-  return Array.from(document.querySelectorAll("#watchlist input:checked")).map((i) => i.value);
-}
-
-async function loadConfig() {
-  const cfg = await getJSON("/api/config");
-  $("baseline_days").value = cfg.baseline_days;
-  $("threshold_pct").value = cfg.threshold_pct;
-  $("alert_cooldown_hours").value = cfg.alert_cooldown_hours;
-  const e = cfg.email || {};
-  $("email_enabled").checked = !!e.enabled;
-  $("smtp_host").value = e.smtp_host || "";
-  $("smtp_port").value = e.smtp_port || 587;
-  $("username").value = e.username || "";
-  $("password").value = ""; // never echo stored secret
-  $("password").placeholder = e.password ? "•••••• (stored — leave blank to keep)" : "(set here or via FX_SMTP_PASSWORD)";
-  $("from_addr").value = e.from_addr || "";
-  $("to_addr").value = e.to_addr || "";
-
-  // Watchlist needs the full currency universe; pull from current rates.
-  const codes = (lastRates ? lastRates.rows.map((r) => r.code) : []).sort();
-  buildWatchlist(codes, cfg.watch);
-}
-
-async function saveConfig() {
-  const email = {
-    enabled: $("email_enabled").checked,
-    smtp_host: $("smtp_host").value.trim(),
-    smtp_port: parseInt($("smtp_port").value, 10) || 587,
-    username: $("username").value.trim(),
-    from_addr: $("from_addr").value.trim(),
-    to_addr: $("to_addr").value.trim(),
-  };
-  const pw = $("password").value;
-  if (pw) email.password = pw; // only send if user typed a new one
-
-  const body = {
-    watch: selectedWatch(),
-    baseline_days: parseInt($("baseline_days").value, 10),
-    threshold_pct: parseFloat($("threshold_pct").value),
-    alert_cooldown_hours: parseInt($("alert_cooldown_hours").value, 10),
-    email,
-  };
-  status("Saving…");
-  try {
-    await postJSON("/api/config", body);
-    status("Settings saved. Reloading rates…", "ok");
-    // The server keys its rates on baseline_days, threshold and the watchlist
-    // just saved; fetchBaseRates answers a currency from _baseRatesCache for
-    // the whole session, so a non-USD Data table would reload the old dataset.
-    for (const k in _baseRatesCache) delete _baseRatesCache[k];
-    await loadRates();
-    status("Settings saved.", "ok");
-  } catch (e) {
-    status("Save failed: " + e.message, "err");
-  }
-}
-
 async function checkNow() {
   status("Checking and emailing…");
   try {
@@ -994,7 +924,7 @@ async function checkNow() {
     } else if (res.email_sent) {
       status(`${n} favorable — alert emailed.`, "ok");
     } else if (!res.email_configured) {
-      status(`${n} favorable, but email isn't configured (see Settings).`, "err");
+      status(`${n} favorable, but email isn't configured (see config.json).`, "err");
     } else {
       status(`${n} favorable, but send failed: ${res.error}`, "err");
     }
@@ -2202,12 +2132,6 @@ function affordColor(pl) {
 
 // ---- wiring ---------------------------------------------------------------
 $("check").addEventListener("click", checkNow);
-$("save").addEventListener("click", saveConfig);
-$("toggleSettings").addEventListener("click", async () => {
-  const s = $("settings");
-  s.hidden = !s.hidden;
-  if (!s.hidden) await loadConfig();
-});
 
 // ===========================================================================
 //  Region grouping (ISO -> region) for the travel tabs
@@ -2571,6 +2495,50 @@ function renderGuideInsurance(iso) {
 // travel month, the reader's Top Picks priorities. Static host (#guideGrades,
 // height reserved in styles.css), so filling it moves nothing.
 let _guideAskedFares = false, _guideFarePend = null, _guideFareLate = false;
+// A guide's served grades line and fares strip (server.py _guide_lines,
+// fxtracker/guide_lines.py): what this page draws for a first visit — from
+// the US, Any time, the default priorities — in the page's HTML for readers
+// that don't run this script. index.html's pre-paint script has already
+// emptied them for a reader they aren't for (data-gssr is then gone). For the
+// rest they stay until this page's rates, advisories, fares and settled month
+// curves are in, and are then drawn over with the same line and strip, so
+// nothing moves: drawn before that, the line was a "—" or grey boxes and the
+// strip was hidden and shown again. A change of view or SERVED_HOLD_MS ends it.
+let servedGuide = (() => {
+  const g = $("tab-guide"), w = g && g.getAttribute("data-gssr");
+  return w ? { iso: window.__WGGC__, month: +w.split(",")[0] } : null;
+})();
+let servedFaresOnScreen = !!servedGuide && !!$("guideFares") && !$("guideFares").hidden;
+function servedGuideReady() {
+  return !!(lastRates && ppp && advisories) && valueFlightsSettled
+    && (!flightsData || !flightsData.configured
+        || !!(flightValue && flightValue.origin === "US" && !flightValue.filling));
+}
+function holdServedGuide(iso) {
+  if (!servedGuide) return false;
+  const view = iso === servedGuide.iso && travelMonth() === servedGuide.month && originIso() === "US"
+    && homeBase === "USD" && flightDisplayCur() === "USD" && advisorySource() === "us"
+    && JSON.stringify(loadWeights()) === _servedWeights;   // the boot priorities (Top Picks' hold)
+  if (view && !servedGuideReady()) return true;
+  releaseServedGuide();
+  return false;
+}
+function releaseServedGuide() {
+  servedGuide = null;
+  const g = $("tab-guide");
+  if (g) g.removeAttribute("data-gssr");
+}
+if (servedGuide) {
+  const t0 = Date.now(), tick = setInterval(() => {
+    if (!servedGuide) { clearInterval(tick); return; }
+    if (servedGuideReady() || Date.now() - t0 > SERVED_HOLD_MS) {
+      const iso = servedGuide.iso;
+      releaseServedGuide();
+      if (ccGuideIso === iso) { renderGuideGrades(iso); renderGuideFares(iso); }
+    }
+  }, 250);
+}
+
 async function renderGuideGrades(iso) {
   const host = $("guideGrades");
   if (!host) return;
@@ -2590,6 +2558,7 @@ async function renderGuideGrades(iso) {
     // Fares still out after 2.5s: the line is drawn without them (below).
     setTimeout(() => { if (_guideFarePend) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); } }, 2500);
   }
+  if (holdServedGuide(iso)) return;   // the served line stays (above)
   const month = travelMonth();
   let s = null;
   try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), plAnchor(originIso()).pl); } catch (e) {}
@@ -2858,9 +2827,14 @@ function fareShort(n) {
 async function renderGuideFares(iso) {
   const host = $("guideFares");
   if (!host) return;
-  host.hidden = true;
+  if (holdServedGuide(iso)) return;   // the served strip stays (renderGuideGrades)
+  // Over the served strip, it stays on screen while the curve is fetched.
+  const served = servedFaresOnScreen && iso === window.__WGGC__;
+  servedFaresOnScreen = false;
+  if (!served) host.hidden = true;
   const fm = await ensureFareMonths(iso);
-  if (ccGuideIso !== iso || !fm || !fm.months) return;
+  if (ccGuideIso !== iso) return;
+  if (!fm || !fm.months) { host.hidden = true; return; }
   const now2 = new Date();
   const prices = [];
   for (let m = 1; m <= 12; m++) {
@@ -2871,7 +2845,7 @@ async function renderGuideFares(iso) {
   const known = prices.filter((p) => p != null);
   // Under three months there is no curve to read (the Trip strip's floor,
   // fareStripHTML minMonths): two bars would claim a season.
-  if (known.length < 3) return;
+  if (known.length < 3) { host.hidden = true; return; }
   host.hidden = false;
   // Origin name from the strip's own payload — flightsData may be null on a
   // direct guide load (that null is what hid the first production version).
@@ -6141,6 +6115,7 @@ async function loadValueFlights(silent) {
     if (seq !== _vfSeq) return;
     if (say) status("Could not load flights: " + e.message, "err");
   }
+  if (seq === _vfSeq) valueFlightsSettled = true;   // fares in, or known not to come
   // renderValue redraws the trip list too; a Trip-only session has no Top
   // Picks to render, but its rows' Flights links come from these fares.
   if (loaded.value) renderValue();
@@ -6310,7 +6285,7 @@ function buildValueTab() {
   renderValue();
   // Data-backed popularity (tourist arrivals) loads in the background, then the
   // top/gems split re-renders with it — the fallback set covers the meantime.
-  ensurePopularity().then(() => renderValue()).catch(() => {});
+  ensurePopularity().catch(() => {}).then(() => { popularitySettled = true; renderValue(); });
 }
 
 // ---- the ranking Top Picks last drew ----------------------------------------
@@ -7920,6 +7895,7 @@ function whyLine(s, month) {
 
 // How many answer cards to show (persisted per browser; default 5 so the map
 // stays visible below the fold).
+const PICK_COUNT_DEFAULT = 5;
 function pickCount() {
   const sel = $("pickCount");
   const v = parseInt((sel && sel.value) || localStorage.getItem("fx_pickcount") || "5", 10);
@@ -8306,6 +8282,9 @@ function advMovedMark(iso) {
 
 function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   if (!host) return;
+  // Over served rows (holdServedPicks), the numbers are already on screen.
+  const served = host.id === "topCards" && servedOnScreen;
+  if (host.id === "topCards") { servedOnScreen = false; releaseServedPicks(); }
   if (!list.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
   // Sortable tables reorder the same set by the chosen column; rank (#i+1)
   // renumbers to match. Each table gets its own sort state (picks vs gems).
@@ -8368,7 +8347,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <th class="ovh ${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (sortable) markSort("#" + host.id, state);   // sort buttons + aria-sort
-  if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
+  if (!reducedMotion() && !served) host.querySelectorAll(".grnum").forEach(countUp);
   fillRowFareStrips("#" + host.id, month);
 }
 // Tooltip for the merged Affordability cell: explains both the price level and
@@ -8552,6 +8531,51 @@ function cheapestFareMonth(c, keys) {
   return best;
 }
 
+// The homepage's served Top Picks (server.py _home_picks,
+// fxtracker/home_picks.py): the table and the line above it for the view a
+// first visit opens on — from the US, Any time, every filter at its default —
+// in the page's HTML for readers that don't run this script. index.html's
+// pre-paint script has already swapped in the skeleton for a reader they
+// aren't for (data-ssr is then gone). For the rest they stay until this
+// page's own data is in (the activities, popularity, fares and settled month
+// curves) and are then drawn over with the same rows, so nothing moves; an
+// earlier draw, without the fares, would have shrunk the rows and grown them
+// back. Any change of view, a sort, or SERVED_HOLD_MS ends the hold.
+let servedPicks = (() => { const h = $("topCards"); return (h && h.getAttribute("data-ssr")) || null; })();
+let servedOnScreen = !!servedPicks;   // #topCards still shows the served rows
+const SERVED_HOLD_MS = 15000;
+const _servedWeights = JSON.stringify(loadWeights());
+let popularitySettled = false, valueFlightsSettled = false;
+function servedPicksReady() {
+  return !!activities && popularitySettled && valueFlightsSettled
+    && (!flightsData || !flightsData.configured
+        || !!(flightValue && flightValue.origin === "US" && !flightValue.filling));
+}
+function holdServedPicks(flex, win) {
+  if (!servedPicks) return false;
+  const view = flex && win.join() === servedPicks && originIso() === "US" && homeBase === "USD"
+    && regionSel === "all" && pickCount() === PICK_COUNT_DEFAULT && safetyFloor() === "b"
+    && valueMapMode === "score" && advisorySource() === "us" && !budgetOf().total
+    && !loadInterests().size && !ownVisited().size && JSON.stringify(loadWeights()) === _servedWeights;
+  if (view && !servedPicksReady()) return true;
+  releaseServedPicks();
+  return false;
+}
+function releaseServedPicks() {
+  servedPicks = null;
+  const h = $("topCards");
+  if (h) h.removeAttribute("data-ssr");
+}
+if (servedPicks) {
+  const t0 = Date.now(), tick = setInterval(() => {
+    if (!servedPicks) { clearInterval(tick); return; }
+    if (loaded.value && (servedPicksReady() || Date.now() - t0 > SERVED_HOLD_MS)) {
+      if (!servedPicksReady()) releaseServedPicks();
+      renderValue();
+    }
+  }, 250);
+}
+
 function renderValue() {
   const region = regionSel;
   // "Any time" ranks each country on its best month of the window; month is
@@ -8559,6 +8583,8 @@ function renderValue() {
   // Trip tab's month, a row with no month of its own).
   const flex = picksFlex();
   const win = flex ? flexWindow() : null;
+  // The served rows and note stay while held (holdServedPicks).
+  const held = holdServedPicks(flex, win || []);
   // win[0], not travelMonth(): that is the month of a row the reader opened
   // (flexFocusMonth), and the ranking is of the window, whichever row it was.
   const month = flex ? win[0] : travelMonth();
@@ -8752,13 +8778,13 @@ function renderValue() {
   // (the Been-to filter's own "Include visited", so it persists the same way).
   const beenNote = hiddenVisited
     ? ` <span class="beennote">${hiddenVisited} you've been to hidden · <button type="button" class="linkbtn" id="showBeen">show</button></span>` : "";
-  if (picksNote) picksNote.innerHTML = (popular.length
+  if (picksNote && !held) picksNote.innerHTML = (popular.length
     ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
     : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + beenNote + budNote;
   // lastPicksMonth stays a real month (the Trip tab and the stays plan for
   // one); lastPicksFlex tells the exports to word "the next 6 months".
   lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex; lastPicksWx = weatherMode;   // for the share image + re-sort
-  renderGradeTable($("topCards"), picks, month, false, true);
+  if (!held) renderGradeTable($("topCards"), picks, month, false, true);
   // Pulse the picked countries on the map so table and map visibly agree.
   if (!reducedMotion()) {
     const pickSet = new Set(picks.map((s) => s.iso));
@@ -13397,12 +13423,12 @@ document.addEventListener("scroll", _hideTip, true);
   // taking the newsletter box and footer with it. The rows' pills, marks
   // and booking links fill in once their data lands (activateTab).
   if (document.documentElement.getAttribute("data-tab") === "trip") renderTripBar();
-  // Settings + manual email exist only off a public deployment: the group
+  // The manual check-and-email exists only off a public deployment: the group
   // ships hidden and is shown here when the server isn't read-only. Hiding it
   // on the answer instead (the public case) let the two buttons wrap the Data
   // bar to a second row on every phone until /api/config returned, then pulled
   // the whole Currency view up 46px (CLS 0.034 per phone load). And the group
-  // as a whole, not just its buttons: an empty .actions still took a slot in
+  // as a whole, not just its button: an empty .actions still took a slot in
   // the bar's space-between row and parked the Region picker mid-page.
   getJSON("/api/config").then((c) => {
     if (!c.readonly) $("check").parentElement.hidden = false;

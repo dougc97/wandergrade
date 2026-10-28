@@ -263,7 +263,7 @@
              usual one), so it wraps where the real one will: empty, it took
              no room beside the button and then grew to two lines on a phone
              (41 -> 77px), dropping the table and everything under it. -->
-        <p class="picksnote" id="picksNote"><span class="skeltext" aria-hidden="true">🌍 Popular destinations, ranked by value ⓘ — more finds under 💎 Hidden gems.</span></p>
+        <p class="picksnote" id="picksNote"><span class="skeltext" aria-hidden="true"{{NOTE_SKEL_HIDDEN}}>🌍 Popular destinations, ranked by value ⓘ — more finds under 💎 Hidden gems.</span>{{PICKS_NOTE}}</p>
         <button id="rankShare" class="themebtn shareimg" type="button"
           title="Download the ranked list as an image — grades, fares and sourcing included">📸 <span class="btxt">Share ranking</span></button>
       </div>
@@ -277,8 +277,8 @@
            visitor gets; a returning one with ?pc=10 still shifts by the extra
            five. renderGradeTable overwrites this wholesale, so nothing clears
            it. -->
-      <div id="topCards" class="gradewrap">
-        <table class="gradetable skeleton" aria-hidden="true">
+      <div id="topCards" class="gradewrap"{{TOP_SSR}}>
+        <table class="gradetable skeleton" aria-hidden="true"{{TOP_SKEL_HIDDEN}}>
           <thead><tr><th></th><th class="dest">Destination</th>
             <th>💰 <span class="thword">Affordability</span></th>
             <th>🛡️ <span class="thword">Safety</span></th>
@@ -292,7 +292,7 @@
             <tr><td class="rank">#4</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span><span class="seasonstrip skel"></span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
             <tr><td class="rank">#5</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span><span class="seasonstrip skel"></span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
           </tbody>
-        </table>
+        </table>{{TOP_PICKS}}
         <!-- As many placeholder rows as the Top N the table will show (the
              head script's data-pc: Top 10 or 20); and on a weather-ranked
              link the note's stand-in says what renderValue will (a line
@@ -302,7 +302,7 @@
           for(var i=6;i<=n&&r;i++){var c=r.cloneNode(true);c.querySelector(".rank").textContent="#"+i;b.appendChild(c);}
           var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),k=document.querySelector("#picksNote > .skeltext");
           if(k&&q.get("vmm")==="weather"){if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
-            k.textContent="🌤️ Popular destinations, ranked by weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]+" ⓘ — more finds under 💎 Hidden gems.";}})();</script>
+            k.textContent="🌤️ Popular destinations, ranked by weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]+" ⓘ — more finds under 💎 Hidden gems.";}})();</script>{{TOP_HOLD}}
       </div>
       <button id="showMore" class="showmore" type="button" hidden>Show top 10 ↓</button>
 
@@ -455,7 +455,7 @@
           <h1 class="cardtitle" id="guideH1"{{GUIDE_H1_HIDDEN}}>{{GUIDE_H1}}</h1>
           <!-- The grades the share card prints, on the page (renderGuideGrades).
                Static, height reserved in styles.css — the CLS rule. -->
-          <div id="guideGrades" class="guidegrades"></div>
+          <div id="guideGrades" class="guidegrades">{{GUIDE_GRADES}}</div>
           <!-- No subtitle: the one it had named three of the page's ten blocks
                and said "right now" even when another month was chosen. -->
         </div>
@@ -507,7 +507,7 @@
         <div class="farecol loading">
           <!-- Fare-by-month strip: the flights answer to "when should I go".
                Static host (CLS rule); renderGuideFares fills or leaves hidden. -->
-          <div id="guideFares" class="guidefares" hidden></div>
+          <div id="guideFares" class="guidefares"{{FARES_HIDDEN}}>{{GUIDE_FARES}}</div>{{GUIDE_HOLD}}
           <!-- The price level the share card and AI prompt assert, said on the
                page too (renderGuideCost). Own host: the FX line below it is
                empty for a traveller whose currency the country uses. -->
@@ -636,7 +636,6 @@
              sat on every sub-tab, three of which it didn't redraw. "As of …"
              in the Currency bar says how fresh the data is. -->
         <button id="check">Check &amp; email now</button>
-        <button id="toggleSettings">Settings</button>
       </div>
     </div>
 
@@ -711,44 +710,6 @@
           <p class="chartnote" id="chartnote">Index: Jan 1999 = 100. Higher = the dollar buys more of 28 other currencies (before inflation).<span class="skeltext" aria-hidden="true"> ⓘ</span></p>
         </section>
       </div>
-
-      <section id="settings" class="settings" hidden>
-        <h2>Settings</h2>
-        <p class="hint">⚠️ On free hosting, settings saved here reset to the repo defaults whenever the
-        service redeploys or restarts. For permanent changes, edit <code>config.json</code> in the repo.</p>
-        <div class="grid">
-          <label>Baseline window (days)
-            <input type="number" id="baseline_days" min="30" max="3650" step="1">
-            <small>Average over this many days = the "normal" the dollar is compared to.</small>
-          </label>
-          <label>Favorable threshold (%)
-            <input type="number" id="threshold_pct" min="0" max="50" step="0.5">
-            <small>USD must be this % above its average to count as favorable.</small>
-          </label>
-          <label>Alert cooldown (hours)
-            <input type="number" id="alert_cooldown_hours" min="1" max="2160" step="1">
-            <small>Won't re-alert the same currency within this window. 720 = ~monthly.</small>
-          </label>
-        </div>
-
-        <h3>Watchlist</h3>
-        <p class="hint">Pick the currencies you care about, or leave all unchecked to watch every currency.</p>
-        <div id="watchlist" class="watchlist"></div>
-
-        <h3>Email alerts</h3>
-        <div class="grid">
-          <label class="checkbox"><input type="checkbox" id="email_enabled"> Enable email alerts</label>
-          <label>SMTP host <input type="text" id="smtp_host" placeholder="smtp.gmail.com"></label>
-          <label>SMTP port <input type="number" id="smtp_port" placeholder="587"></label>
-          <label>Username <input type="text" id="username" placeholder="you@gmail.com"></label>
-          <label>Password / app password <input type="password" id="password" placeholder="(leave blank to keep / use env var)"></label>
-          <label>From address <input type="text" id="from_addr" placeholder="you@gmail.com"></label>
-          <label>To address <input type="text" id="to_addr" placeholder="you@gmail.com"></label>
-        </div>
-        <p class="hint">Tip: for Gmail, use a 16-char <b>App Password</b> (not your login password). You can also leave the password blank here and set the <code>FX_SMTP_PASSWORD</code> environment variable instead.</p>
-
-        <div class="actions"><button id="save">Save settings</button></div>
-      </section>
 
       <div class="filterbar">
         <input id="curFilter" class="tablefilter" type="search" placeholder="🔍 Filter by currency or country…">

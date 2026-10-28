@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
-    flightvalue, guide_facts, guide_sizers, health, llms_txt, mailer, map_picks, picks, popularity, rates,
+    flightvalue, guide_facts, guide_lines, guide_sizers, health, home_picks, llms_txt, mailer, map_picks, picks, popularity, rates,
     render_cheapest, render_guide, render_lists, render_privacy, store, watchouts
 )
 
@@ -213,7 +213,7 @@ _HTML_DEFAULTS = {
     # the header: +62px at 768-895 (the title and tagline re-wrapped around
     # it), the whole tab below moving with it (CLS 0.26 at 768).
     "ACCT_HIDDEN": "" if accounts.enabled() else " hidden",
-    # The Data tab's owner-only action bar ("Check & email now", Settings):
+    # The Data tab's owner-only action bar ("Check & email now"):
     # app.js un-hides it once /api/config says the server isn't read-only,
     # which on a private server grew the bar 46px after first paint (CLS
     # 0.034-0.041 at 390). Served visible exactly where init() would show it.
@@ -261,6 +261,16 @@ _HTML_DEFAULTS = {
                     '<span style="width:9.2em"></span><span style="width:9.5em"></span>'
                     '<span style="width:8.2em"></span></div>',
     "FLIGHTS_OFF": "",
+    # Top Picks' table and the line above it for the view a first visit opens
+    # on (fxtracker/home_picks.py, _home_picks), served on the homepage with
+    # index.html's skeleton kept beside them, hidden; a guide (which never
+    # paints Top Picks first) keeps index.html's bytes.
+    "TOP_SSR": "", "TOP_SKEL_HIDDEN": "", "TOP_PICKS": "", "TOP_HOLD": "",
+    "NOTE_SKEL_HIDDEN": "", "PICKS_NOTE": "",
+    # A guide's grades line and fares-by-month strip for a first visit
+    # (fxtracker/guide_lines.py, _guide_lines); empty, the strip hidden, as
+    # index.html had them, wherever they aren't served.
+    "GUIDE_GRADES": "", "FARES_HIDDEN": " hidden", "GUIDE_FARES": "", "GUIDE_HOLD": "",
 }
 _html_tpl = None
 
@@ -1413,6 +1423,143 @@ def _home_sizers():
     return out
 
 
+# Before first paint, on the homepage only: the served Top Picks (data-ssr: the
+# six months they rank) stay for a reader they are for, and give way to
+# index.html's skeleton — today's page, which app.js then fills — for a reader
+# they aren't: a link that sets the view (any query but tab=value and the
+# tracking ones), a saved home country, currency, Top N, safety floor, budget,
+# interests, factors, priorities, advisory source or visited list, or a local
+# date whose six months differ from the server's (flexWindow; the server's
+# date is UTC). app.js holdServedPicks keeps the served rows until its data is
+# in. ES5, like index.html's other inline scripts.
+_TOP_HOLD = (
+    '<script>(function(){var h=document.getElementById("topCards"),w=h&&h.getAttribute("data-ssr");if(!w)return;'
+    'var off=false,q=new URLSearchParams(location.search);'
+    'q.forEach(function(x,k){if(!/^(utm_[a-z]+|gclid|fbclid|ref)$/.test(k)&&!(k==="tab"&&x==="value"))off=true;});'
+    'try{var L=localStorage,v=function(k){return L.getItem(k)};'
+    'if((v("fx_origin")||"US")!=="US"||(v("fx_homecur")||"USD")!=="USD"||(v("fx_pickcount")||"5")!=="5"'
+    '||(v("fx_safefloor")||"b")!=="b"||v("wg_budget")||v("fx_factors2")||v("fx_priorities2")'
+    '||(v("wg_advsrc")||"us")!=="us"||JSON.parse(v("wg_interests")||"[]").length'
+    '||JSON.parse(v("fx_visited")||"[]").length)off=true;}catch(e){}'
+    'var d=new Date(),m=d.getMonth(),s=new Date(d.getFullYear(),m+1,0).getDate()-d.getDate()+1<10?m+1:m,x=[];'
+    'for(var i=0;i<6;i++)x.push((s+i)%12+1);if(x.join()!==w)off=true;'
+    'var t=h.getElementsByTagName("table"),n=document.getElementById("picksNote");'
+    'if(off){h.removeAttribute("data-ssr");t[0].hidden=false;h.removeChild(t[1]);n.firstChild.hidden=false;'
+    'while(n.childNodes.length>1)n.removeChild(n.lastChild);}'
+    'else{h.removeChild(t[0]);n.removeChild(n.firstChild);}})();</script>')
+
+
+# Before first paint, on a guide whose grades line and fares strip are served
+# (#tab-guide data-gssr: the month they grade, then the server's month): they
+# stay for a reader they are for and are emptied — today's page, which app.js
+# then fills — for one they aren't: a link with any query but the tracking
+# ones (?vmn= sets the month), a saved home country, currency, factors,
+# priorities, advisory source or fare currency, or a local date whose month
+# or six-month window differs from the server's (UTC). app.js holdServedGuide
+# keeps them until its data is in. ES5, like index.html's other inline scripts.
+_GUIDE_HOLD = (
+    '<script>(function(){var g=document.getElementById("tab-guide"),w=g&&g.getAttribute("data-gssr");if(!w)return;'
+    'var off=false,q=new URLSearchParams(location.search);'
+    'q.forEach(function(x,k){if(!/^(utm_[a-z]+|gclid|fbclid|ref)$/.test(k))off=true;});'
+    'try{var L=localStorage,v=function(k){return L.getItem(k)};'
+    'if((v("fx_origin")||"US")!=="US"||(v("fx_homecur")||"USD")!=="USD"||v("fx_factors2")||v("fx_priorities2")'
+    '||(v("wg_advsrc")||"us")!=="us"||(v("wg_flightcur")||"USD")!=="USD")off=true;}catch(e){}'
+    'var d=new Date(),m=d.getMonth(),s=new Date(d.getFullYear(),m+1,0).getDate()-d.getDate()+1<10?m+1:m;'
+    'if((s%12+1)+","+(m+1)!==w)off=true;'
+    'if(off){g.removeAttribute("data-gssr");document.getElementById("guideGrades").innerHTML="";'
+    'var f=document.getElementById("guideFares");f.hidden=true;f.innerHTML="";}})();</script>')
+
+
+def _guide_lines(iso):
+    """A guide's grades line and fares strip for a first visit
+    (fxtracker/guide_lines.py), as tokens, from the caches alone — the
+    payloads the browser fetches: the US advisory list, the USD rates, the
+    PPP table, and the default origin's fares, curves and this country's
+    curve once its warm pass has run. Anything missing: {} (empty, as
+    before)."""
+    hit = _adv_cache.get("us")
+    adv = hit[1] if hit else None
+    rp, ppp = _fx_inputs()
+    if not (adv and rp and ppp):
+        return {}
+    fares = fv = curve = None
+    if flights.is_configured():
+        if not flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN):
+            return {}
+        fh = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
+        fares = fh[1] if fh else None
+        if not fares:
+            return {}
+        fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares)
+        row = next((r for r in fares.get("countries") or [] if r.get("iso") == iso), None)
+        curve = flights.get_country_monthly(flightvalue.DEFAULT_ORIGIN, row, lookup=flights.monthly_cached) \
+            if row else None
+    d = render_guide._load()
+    today = datetime(*time.gmtime()[:3]).date()
+    inputs = {"rates": rp, "ppp": ppp, "climate": d["clim"], "activities": d["acts"],
+              "advisories": adv, "flights": fares, "fv": fv}
+    strip = guide_lines.fares(iso, curve, fv, today, render_guide.name_for_iso) if curve else ""
+    return {"_ATTRS": ' data-gssr="%d,%d"' % (guide_lines.guide_month(today), today.month),
+            "GUIDE_GRADES": guide_lines.grades(iso, inputs, today),
+            "FARES_HIDDEN": "" if strip else " hidden", "GUIDE_FARES": strip,
+            "GUIDE_HOLD": "\n          " + _GUIDE_HOLD}
+
+
+def _warm_popularity():
+    """Fetch the tourism figures /api/popularity serves in the background
+    (once at a time), so the homepage's Top Picks can be served next render."""
+    if _pop_cache.get("busy"):
+        return
+    _pop_cache["busy"] = True
+
+    def run():
+        try:
+            _pop_cache.update(at=time.time(), data={"arrivals": popularity.get_arrivals()})
+        except Exception as e:
+            print("[home-picks] popularity: %s" % e, file=sys.stderr, flush=True)
+        finally:
+            _pop_cache["busy"] = False
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _home_picks():
+    """The homepage's Top Picks table and note for the view a first visit
+    opens on (fxtracker/home_picks.py), as tokens, from the caches alone —
+    the same payloads the browser fetches: the US advisory list, the USD
+    rates, the PPP table, the popularity figures, and the default origin's
+    fares and curves once its warm pass has run (before that the browser's
+    own rows would still move). Anything missing: {} (index.html's skeleton,
+    as before), and the popularity figures are fetched for next time."""
+    hit = _adv_cache.get("us")
+    adv = hit[1] if hit else None
+    rp, ppp = _fx_inputs()
+    pop = (_pop_cache.get("data") or {}).get("arrivals")
+    if not pop:
+        _warm_popularity()
+    if not (adv and rp and ppp and pop):
+        return {}
+    fares = fv = None
+    if flights.is_configured():
+        if not flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN):
+            return {}
+        fh = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
+        fares = fh[1] if fh else None
+        if not fares:
+            return {}
+        fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares)
+    d = render_guide._load()
+    r = home_picks.build({"rates": rp, "ppp": ppp, "climate": d["clim"], "activities": d["acts"],
+                          "advisories": adv, "flights": fares, "fv": fv,
+                          "popular": home_picks.popular_set(pop)},
+                         d["iso2slug"], datetime(*time.gmtime()[:3]).date())
+    if not r:
+        return {}
+    return {"TOP_SSR": ' data-ssr="%s"' % r["window"], "TOP_SKEL_HIDDEN": " hidden",
+            "TOP_PICKS": "\n        " + r["table"], "TOP_HOLD": "\n        " + _TOP_HOLD,
+            "NOTE_SKEL_HIDDEN": " hidden", "PICKS_NOTE": r["note"]}
+
+
 def _render_index(gc_iso=None):
     """Fill index.html's tokens. gc_iso=None -> homepage defaults; otherwise a
     country page with server-rendered <title>/meta/canonical and body."""
@@ -1421,6 +1568,10 @@ def _render_index(gc_iso=None):
     vals["GUIDE_COUNT"] = str(_guide_count())
     if not gc_iso:
         vals.update(_home_sizers())
+        try:
+            vals.update(_home_picks())
+        except Exception as e:   # the skeleton, as before: never the page
+            print("[home-picks] %s" % e, file=sys.stderr, flush=True)
         vals["JSONLD"] = _IMPACT_VERIFY + vals["JSONLD"]
     if gc_iso:
         no_book = _guide_no_bookings(gc_iso)
@@ -1469,6 +1620,13 @@ def _render_index(gc_iso=None):
         sz = _guide_sizers(gc_iso, r.get("adv"), no_book)
         vals["GUIDE_DATA"] += sz.pop("_ATTRS", "")
         vals.update(sz)
+        try:
+            gl = _guide_lines(gc_iso)
+        except Exception as e:   # empty, as before: never the page
+            print("[guide-lines] %s %s" % (gc_iso, e), file=sys.stderr, flush=True)
+            gl = {}
+        vals["GUIDE_DATA"] += gl.pop("_ATTRS", "")
+        vals.update(gl)
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
     out = _guide_template() if gc_iso else _index_template()

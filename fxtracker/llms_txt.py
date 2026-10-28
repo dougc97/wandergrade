@@ -3,9 +3,11 @@
 Every major AI fetcher is let in (robots.txt allows all; 2026-10-13 check:
 GPTBot, ChatGPT-User, ClaudeBot, PerplexityBot, Meta's agents, Google-Extended
 all get 200), but most of them read HTML without running JavaScript. Those
-see the country guides and the list pages in full and an EMPTY Top Picks
-table, so an assistant asked "where does WanderGrade say to go in November"
-had nothing to quote. This file tells it which pages carry the answers
+see the country guides and the list pages in full, and the homepage's Top
+Picks table and each guide's grades line and fares strip for a traveller from
+the US (fxtracker/home_picks.py, guide_lines.py; until 2026-11 the table
+was empty without JavaScript). Every other view of the ranking is drawn in
+the browser. This file tells an assistant which pages carry the answers
 without JavaScript, how a ranking link is built for a reader who has a
 browser, where each grade's data comes from, and how to cite it.
 
@@ -31,16 +33,19 @@ WanderGrade answers "where should I go, and when?" for a traveller from a given 
 
 ## Pages that work without JavaScript
 
-- [Country guides]({site}/guide/japan): one page per country, {n} in all (index below). Each has the visa rule, the safety level in the government's own words, health notes, the best months and hazard months, local prices versus the US, top things to do and what is in season.
+- [Top Picks]({site}/): the five best-value popular destinations for a traveller from the US, each graded on its best month of the next six: A+ to F for affordability, safety, weather and flights, and an overall score out of 100.
+- [Country guides]({site}/guide/japan): one page per country, {n} in all (index below). Each has the visa rule, the safety level in the government's own words, health notes, the best months and hazard months, local prices versus the US, top things to do and what is in season, and the country's A+ to F grades for a traveller from the US in the first month of the next six; where enough fares are cached, the US round-trip fare for each departure month.
 - [Safest cheap countries]({site}/safe-and-cheap): countries at U.S. Level 1 with local prices at or under 60% of the US, with Canada's and Germany's levels, best months and health notes.
 - [Do Not Travel list]({site}/do-not-travel): every country rated "do not travel" by the US, Canada or Germany, in each government's own words, with dates and reasons.
 - [Cheapest countries by month, from the US]({site}/cheapest): one ranked list per month ({site}/cheapest/january to {site}/cheapest/december) of the countries at U.S. Level 1 or 2, rated "do not travel" by none of the US, Canada or Germany, at or under 50% of US prices and with a weather score of 70 or more that month, graded as Top Picks grades them for a traveller from the US, with the month's US round-trip fare where one is cached.
 - [Where the US dollar is strongest]({site}/dollar-strength): every currency ranked by the US dollar's move against its one-year average after inflation, with the move before inflation, where each currency is used and local prices versus the US, plus the site's overall dollar index (January 1999 = 100, before inflation).
 - [Sitemap]({site}/sitemap.xml)
 
+The homepage's ranking and the guides' grades and fares come from the site's cached data: for several minutes after the site restarts they can be missing from the page. The list pages always say when their data isn't available.
+
 ## The interactive ranking (needs JavaScript)
 
-The homepage ({site}/) ranks countries in the browser; without JavaScript its table is empty, so use the guides and list pages above instead. For a reader with a browser, a link can preset the view:
+The homepage ({site}/) serves one view of its ranking: from the US, the next six months, the top five. Every other view (another home country, month, region or currency, the top 10 or 20, ranked by weather) is drawn in the browser; without JavaScript, use the guides and list pages above. For a reader with a browser, a link can preset the view:
 
 - `?vmn=11`: travel month, 1-12 (also works on a guide: {site}/guide/japan?vmn=11)
 - `?vmf=1`: "Any time", each country on its best month of the next six

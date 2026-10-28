@@ -67,6 +67,19 @@ results.append(ok("inflation" in txt.split("/dollar-strength)", 1)[1].split("\n"
                   and "before inflation" in txt.split("/dollar-strength)", 1)[1].split("\n", 1)[0],
                   "the dollar page's entry says after inflation, and the index before it"))
 
+# What renders without JavaScript: the homepage's one served view and the guides'
+# grades, as fxtracker/home_picks.py and guide_lines.py build them.
+from fxtracker import home_picks, guide_lines  # noqa: E402
+results.append(ok(home_picks.PICK_COUNT == 5 and home_picks.FLEX_MONTHS == 6 and "_home_picks()" in SERVER
+                  and "the five best-value popular destinations for a traveller from the US" in txt
+                  and "best month of the next six" in txt and "the top five" in txt,
+                  "the homepage entry says what home_picks serves: the US's top five over the next six months"))
+results.append(ok("_guide_lines(" in SERVER and hasattr(guide_lines, "grades") and hasattr(guide_lines, "fares")
+                  and "first month of the next six" in txt and "round-trip fare for each departure month" in txt,
+                  "the guides' entry says what guide_lines serves: the grades and the fares by month"))
+results.append(ok("table is empty" not in txt and "for several minutes after the site restarts" in txt,
+                  "no longer says the homepage table is empty; says when the served parts can be missing"))
+
 results.append(ok('path == "/llms.txt"' in SERVER and "llms_txt.build(render_guide.all_slugs()" in SERVER,
                   "server.py serves it from the sitemap's slug list"))
 
