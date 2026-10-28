@@ -610,6 +610,16 @@ function cheapestFare(c) {
   const vals = [Number(c.min), ...Object.values(curve).map((x) => x[0])].filter((x) => x > 0);
   return vals.length ? Math.min(...vals) : null;
 }
+// "Avg round-trip": c.avg is the mean of the cached rows, and one row is no
+// average — Uruguay read 720 under Avg and Cheapest beside a 1,021 December.
+// With one row it averages that fare with the month curve's (each distinct
+// fare once), and with nothing else to average is null (a dash).
+function avgFare(c) {
+  if (!(Number(c.n) < 2)) return Number(c.avg) || null;
+  const curve = (c._fv && c._fv.c && c._fv.c.curve) || {};
+  const vals = [...new Set([Number(c.avg), ...Object.values(curve).map((x) => x[0])].filter((x) => x > 0))];
+  return vals.length > 1 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
 // Flights: ranked by the chosen month's fare vs the route's own typical year
 // (renderFlights stamps each row's _fv), most below typical first. Band first,
 // then the %: the band is judged against each route's own middle-half range
@@ -618,7 +628,7 @@ function cheapestFare(c) {
 const FV_ORDER = { low: -100, typical: 0, high: 100 };
 const FLIGHT_GET = { dest: (c) => countryName(c.iso),
                      vs: (c) => (c._fv && c._fv.dev != null ? FV_ORDER[c._fv.band] + c._fv.dev : null),
-                     mfare: (c) => c._fv && c._fv.price, avg: (c) => c.avg, min: (c) => cheapestFare(c),
+                     mfare: (c) => c._fv && c._fv.price, avg: (c) => avgFare(c), min: (c) => cheapestFare(c),
                      dur: (c) => c.dur, stops: (c) => c.stops };
 const flightSort = { key: "vs", asc: true };
 wireSort("#flightTable", flightSort, {}, () => { if (flightsData) renderFlights(); });
@@ -9220,7 +9230,8 @@ function renderFlights() {
   if (mth) mth.textContent = MON_ABBR[m - 1] + " fare";
   $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET, FLIGHT_GET.dest).map((c) => {
     const v = c._fv;
-    const fare = Number(c.avg) ? esc(money(Number(c.avg))) : `${esc(cur)} ?`;
+    const avg = avgFare(c);
+    const fare = avg ? esc(money(avg)) : Number(c.avg) ? "—" : `${esc(cur)} ?`;
     const cheapest = cheapestFare(c);   // the lower of the cached rows and the month curve
     const url = flightSearchURL(c.dest);
     // revisit: Kiwi — decided Aviasales-only here (2026-07). A Kiwi booking CTA
@@ -9230,10 +9241,11 @@ function renderFlights() {
     // affiliate-setup memory note for the full rationale.
     const seen = fmtSeen(c.seen);
     const seenTip = seen ? ` · cheapest fare seen ${seen}` : "";
+    const oneTip = avg ? "" : Number(c.avg) ? "One cached fare, so no average (it is under Cheapest)" : "";
     const fareCell = url
       ? `<a class="farelink" href="${url}" target="_blank" rel="sponsored nofollow noopener"
-            title="Cached fare${seenTip} — click to search ${esc(countryName(c.iso))} live on Aviasales"><b>${fare}</b>&nbsp;<span class="ext">↗</span></a>`
-      : `<b>${fare}</b>`;
+            title="${oneTip || "Cached fare"}${seenTip} — click to search ${esc(countryName(c.iso))} live on Aviasales"><b>${fare}</b>&nbsp;<span class="ext">↗</span></a>`
+      : oneTip ? `<span class="muted" title="${oneTip}">—</span>` : `<b>${fare}</b>`;
     // The month's own fare links to that month, on the city that has the
     // price — on a phone it is the one fare link left standing.
     const murl = v.price != null ? flightSearchURL(v.city || c.dest, key) : null;
