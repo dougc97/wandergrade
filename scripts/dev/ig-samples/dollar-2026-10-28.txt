@@ -1,0 +1,28 @@
+WanderGrade story: Your dollar after inflation: TRY Turkish Lira, Turkey (Türkiye)
+Posting date: 2026-10-28
+As of: 28 Oct 2026
+
+Frames, in order:
+  1. the question, quiz band
+  2. the answer: the after-inflation figure and the inflation pair
+  3. where it did go further (top 4), link sticker band
+
+Link sticker URL (exact):
+  https://wandergrade.com/dollar-strength?utm_source=instagram&utm_medium=story&utm_campaign=dollar-2026-10
+
+Quiz sticker (frame 1):
+  Question: After inflation, does it go further in Turkey (Türkiye)?
+  Option 1: Yes, ~9.7% further
+  Option 2: About the same
+  Option 3: No, ~4.2% less far
+  Correct answer: No, ~4.2% less far
+
+Caption:
+  $1 buys 9.7% more Turkish Lira than its 1-year average, but after inflation it goes ~4.2% less far in Turkey (Türkiye). Every currency at the link.
+
+Notes:
+  - Bolivia (BOB) is left off every frame: its jump comes from an official-rate change a frame can't explain, and moving it down would show the list out of order.
+  - Quiz figures from /dollar-strength's TRY row: before inflation +9.7%, after inflation −4.2% ("After inflation: Turkey ~35%/yr vs the US ~3%/yr (World Bank).").
+  - Frame 3 rows, in the page's order: LKR (Sri Lanka) +7.7%, MAD (Morocco) +7.0%, PLN (Poland) +6.8%, CLP (Chile) +6.8%. Kept: US State Dept Level 1-2 per /guide-facts.json (src "us" only), no † figure, not Bolivia.
+
+Nothing here was posted or scheduled. Post by hand.

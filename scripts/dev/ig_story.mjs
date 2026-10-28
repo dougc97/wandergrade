@@ -9,8 +9,9 @@
 // beacon blocked), the top five rows of the ranked table are read from the
 // DOM, and the shared ig_frame.mjs panel is drawn INSIDE the server-rendered
 // /cheapest/<month> page (so the site's CSS variables, grade pills and Plus
-// Jakarta Sans apply) and screenshotted. Nothing is posted anywhere.
-import { blockBeacon, openCanvas, renderFrame, brand, band, foot, pill, esc } from './ig_frame.mjs';
+// Jakarta Sans apply) and screenshotted, with a sidecar .txt beside OUT (posting
+// date from POSTED, default today; link-sticker URL; caption). Nothing is posted anywhere.
+import { blockBeacon, openCanvas, renderFrame, writeSidecar, brand, band, foot, pill, esc } from './ig_frame.mjs';
 const SITE = process.env.SITE || 'https://wandergrade.com';
 const MONTH = +(process.env.MONTH || (new Date().getMonth() + 1));
 const ORIGIN = (process.env.ORIGIN || 'US').toUpperCase();
@@ -96,5 +97,14 @@ export default async (t) => {
     ${foot(`As of ${asOf}`, 'Tap the link for the full ranking · free, no sign-up')}`;
   await openCanvas(t, `${SITE}/cheapest/${MONTHS[MONTH - 1].toLowerCase()}`);
   await renderFrame(t, { html, out: OUT, allowClip: '.igname.clip, .igwhy.clamp', css: TIGHT });
-  console.log('wrote', OUT, '; console errors', errs.length);
+  const posting = process.env.POSTED || new Date().toISOString().slice(0, 10);
+  const link = `${SITE}/?vmn=${MONTH}&vo=${ORIGIN}&utm_source=instagram&utm_medium=story&utm_campaign=toppicks-${posting.slice(0, 7)}`;
+  const names = rows.map((r) => r.name);
+  const side = writeSidecar(OUT.replace(/\.png$/i, '') + '.txt', {
+    series: `Top Picks: where to go in ${MONTHS[MONTH - 1]}, from ${homeName}`, posting, asOf, link,
+    frames: ['the top five picks, link sticker band'],
+    caption: `Where to go in ${MONTHS[MONTH - 1]} from ${homeName}: ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} top WanderGrade's value ranking. Full ranking at the link.`,
+    notes: rows.map((r, i) => `#${i + 1} ${r.name}: ${r.grade} ${r.score}`),
+  });
+  console.log('wrote', OUT, 'and', side, '; console errors', errs.length);
 };

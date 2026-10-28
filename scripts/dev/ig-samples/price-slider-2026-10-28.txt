@@ -1,0 +1,23 @@
+WanderGrade story: Price slider: Mexico
+Posting date: 2026-10-28
+As of: 28 Oct 2026
+
+Frames, in order:
+  1. the question, slider band
+  2. the reveal, link sticker band
+
+Link sticker URL (exact):
+  https://wandergrade.com/guide/mexico?utm_source=instagram&utm_medium=story&utm_campaign=pricequiz-2026-10&utm_content=mx
+
+Emoji slider sticker (frame 1):
+  Question: Mexico: everyday prices are what % of the US?
+  Option 1: 0% (left) to 100% = US prices (right)
+  Correct answer: 56% of the US
+
+Caption:
+  Everyday prices in Mexico: 56% of the US, as a national average. The guide's at the link.
+
+Notes:
+  - 165 countries have a price figure on /guide-facts.json (England, Scotland and Wales repeat the UK's figure and count once); 48 of them have a higher one.
+
+Nothing here was posted or scheduled. Post by hand.

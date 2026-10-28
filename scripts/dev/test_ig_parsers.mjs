@@ -128,7 +128,7 @@ test('dollar: Level 3-4, gap-fills, missing entries, † rows and Bolivia are ou
   ok(!codes.includes('TWD'), '† row dropped'); ok(!codes.includes('BOB'), 'Bolivia dropped');
   ok(!codes.includes('TOP'), 'Tonga (no /guide-facts entry) dropped');
   eq(D.usLevel(facts, 'CI'), null, "Côte d'Ivoire's level is Canada's gap-fill"); eq(D.usLevel(facts, 'TO'), null);
-  eq(D.wentFurther(el).map((r) => r.place), ['Sri Lanka', 'Morocco', 'Chile', 'Poland']);
+  eq(D.wentFurther(el).map((r) => r.place), ['Sri Lanka', 'Morocco', 'Poland', 'Chile'], "the page's order (Poland and Chile both +6.8%)");
   ok(ds.rows[0].code === 'BOB' && D.wentFurther(el)[0].code !== 'BOB', 'Bolivia, #1 on the page, never in the lead slot');
 });
 test('dollar: the sign flip, and skipping when nothing flips', () => {
@@ -167,21 +167,25 @@ test('dollar plan skips when no allowlisted currency flips', async () => {
 test('price: N counts England/Scotland/Wales once; sets need 2 points and US Level 1-2', () => {
   const facts = json('guide-facts.json');
   eq(D.priceCount(facts), 165);
-  eq(D.priceSetProblem(facts, ['JP', 'ES', 'IT', 'FR']), null);
+  eq(D.priceSetProblem(facts, ['AR', 'CL', 'BR', 'PE']), null);
+  ok(/under 2 points/.test(D.priceSetProblem(facts, ['JP', 'ES', 'IT', 'FR'])), 'JP 62 vs ES 63');
   ok(/under 2 points/.test(D.priceSetProblem(facts, ['GB', 'DE', 'AT', 'DK'])), 'DK 90 vs GB 91');
   ok(/under 2 points/.test(D.priceSetProblem(facts, ['PT', 'CZ', 'JP', 'FR'])), 'PT 59 vs CZ 59');
   ok(/isn't US State Dept Level 1-2/.test(D.priceSetProblem(facts, ['JP', 'CO', 'IT', 'FR'])), 'Colombia is Level 3');
   ok(/isn't US State Dept Level 1-2/.test(D.priceSetProblem(facts, ['JP', 'CI', 'IT', 'FR'])), "a gap-fill isn't the State Department's");
   ok(/no price figure/.test(D.priceSetProblem(facts, ['JP', 'TW', 'IT', 'FR'])), 'Taiwan has no pct');
-  for (const s of D.PRICE_SETS) eq(D.priceSetProblem(facts, s), null, s.join('/'));
+  // Today two of the eight sets fail the gap (JP/ES 62/63, CA/NZ 82/82); the rest pass.
+  eq(D.PRICE_SETS.filter((s) => D.priceSetProblem(facts, s)).map((s) => s[0]), ['JP', 'SG']);
 });
 test('price: rotation by ISO week, fall-through, and skip when no set passes', () => {
   const facts = json('guide-facts.json');
   eq(D.pickPriceSet(facts, '2026-10-28').set, D.PRICE_SETS[44 % 8]);
-  eq(D.pickPriceSet(facts, '2026-11-04').set, D.PRICE_SETS[45 % 8]);
+  // Week 45 lands on SG/CA/NZ/AU (CA and NZ both 82): it falls through to the next set.
+  const w45 = D.pickPriceSet(facts, '2026-11-04');
+  eq(w45.set, D.PRICE_SETS[6]); ok(/^SG\/CA\/NZ\/AU: prices .* under 2 points/.test(w45.tried[0]), w45.tried[0]);
   const lvl3 = { ...facts, AR: { ...facts.AR, adv: 3 } };   // week 44's set loses Argentina
   const r = D.pickPriceSet(lvl3, '2026-10-28');
-  eq(r.set, D.PRICE_SETS[5]); ok(/AR isn't US State Dept/.test(r.tried[0]), 'says why');
+  eq(r.set, D.PRICE_SETS[6]); ok(/AR isn't US State Dept/.test(r.tried[0]), 'says why');
   const none = Object.fromEntries(Object.entries(facts).map(([k, v]) => [k, k === '_asof' ? v : { ...v, adv: 3 }]));
   eq(D.pickPriceSet(none, '2026-10-28').set, null);
 });
@@ -232,14 +236,16 @@ test('flip: full-letter drops, ties to the higher rank, both pages only', () => 
   const p1 = D.parseCheapest(read('cheapest-november.html'), '', 11), p2 = D.parseCheapest(read('cheapest-december.html'), '', 12);
   ok(D.fullLetterDrop('A', 'B+') && D.fullLetterDrop('A', 'B') && D.fullLetterDrop('A+', 'B'), 'full-letter drops');
   ok(!D.fullLetterDrop('A+', 'A') && !D.fullLetterDrop('B+', 'B') && !D.fullLetterDrop('B', 'A'), 'not full-letter drops');
-  const za = p1.rows.find((r) => r.slug === 'south-africa'), za2 = p2.rows.find((r) => r.slug === 'south-africa');
-  const ma = p1.rows.find((r) => r.slug === 'morocco'), ma2 = p2.rows.find((r) => r.slug === 'morocco');
-  eq([za.grade, za.score, za2.grade, za2.score, ma.grade, ma.score, ma2.grade, ma2.score], ['A', 87, 'B', 77, 'A', 90, 'B+', 80]);
+  const g = (p, slug) => { const r = p.rows.find((x) => x.slug === slug); return [r.rank, r.grade, r.score]; };
+  eq([g(p1, 'egypt'), g(p2, 'egypt')], [[2, 'A', 92], [6, 'B+', 83]]);
+  eq([g(p1, 'south-africa'), g(p2, 'south-africa')], [[4, 'A', 87], [22, 'B+', 78]]);
+  eq(g(p1, 'vietnam').slice(1).concat(g(p2, 'vietnam').slice(1)), ['B+', 84, 'B', 70], 'B+ -> B: 14 points, not a full letter');
   const f = D.pickFlip(p1, p2);
-  eq([f.a.name, f.drop], ['Morocco', 10], 'tie at 10 goes to Morocco, #3 vs #5');
-  // Without Morocco on December's page it doesn't count (no grade inferred): South Africa.
-  eq(D.pickFlip(p1, { ...p2, rows: p2.rows.filter((r) => r.slug !== 'morocco') }).a.name, 'South Africa');
-  eq(D.pickFlip(p1, { ...p2, rows: p2.rows.filter((r) => !['morocco', 'south-africa'].includes(r.slug)) }).a.name, 'Egypt', 'A 92 -> B+ 83');
+  eq([f.a.name, f.drop], ['Egypt', 9], 'tie at 9 goes to Egypt, #2 vs #4');
+  // Without Egypt on December's page it doesn't count (no grade inferred): South Africa.
+  eq(D.pickFlip(p1, { ...p2, rows: p2.rows.filter((r) => r.slug !== 'egypt') }).a.name, 'South Africa');
+  // Then Algeria (#6, A 86 -> B+ 81) and Morocco (#7, A 85 -> B+ 80) tie at 5: Algeria.
+  eq(D.pickFlip(p1, { ...p2, rows: p2.rows.filter((r) => !['egypt', 'south-africa'].includes(r.slug)) }).a.name, 'Algeria');
   eq(D.pickFlip(p1, p1), null, 'no drop, no pick');
   eq(D.pickFlip(p1, { ...p2, rows: p2.rows.filter((r) => !p1.rows.slice(0, 10).some((x) => x.slug === r.slug)) }), null, 'none of the top 10 listed next month');
 });
@@ -249,22 +255,22 @@ test('flip: fares only with the same destination city both months', () => {
   eq(D.fareCity(fv, 'TH', 5).city, 'HKT');
   eq(D.fareCity(fv, 'TH', 4), null, 'missing month');
   eq(D.fareCity({ ...fv, countries: { XX: { pending: true } } }, 'XX', 11), null, 'pending');
-  eq([D.fareCity(fv, 'MA', 11).city, D.fareCity(fv, 'MA', 12).city], ['RAK', 'CMN']);
-  eq([D.fareCity(fv, 'ZA', 11).city, D.fareCity(fv, 'ZA', 12).city], ['CPT', 'CPT']);
+  eq([D.fareCity(fv, 'DO', 11).city, D.fareCity(fv, 'DO', 12).city], ['STI', 'SDQ']);
+  eq([D.fareCity(fv, 'EG', 11).city, D.fareCity(fv, 'EG', 12).city], ['CAI', 'CAI']);
 });
-test('flip plan: Morocco, no fares (RAK vs CMN), link, and skip with no drop', async () => {
+test('flip plan: Egypt with fares (CAI both months), no fares on a city change, link, and skip with no drop', async () => {
   const p = await cheapestPlan({ env: env({ FLIP: '1' }), getter: getter(), site: SITE });
-  eq(p.sidecar.sticker.question, 'Morocco: November or December?');
-  ok(!/\$\d/.test(allHtml(p)), 'no fare on any frame');
-  ok(p.sidecar.notes.some((n) => /RAK in November, CMN in December/.test(n)), 'says why');
+  eq(p.sidecar.sticker.question, 'Egypt: November or December?');
+  eq(p.sidecar.sticker.answer, 'November grades better: A 92 in November, B+ 83 in December');
+  const h = allHtml(p);
+  ok(h.includes('<b>$414</b>, Low for this route · round trip from New York (cached)') && h.includes('<b>$535</b>, Typical for this route'), 'both fares, each with its band');
   eq(p.sidecar.link, 'https://wandergrade.com/cheapest/november?utm_source=instagram&utm_medium=story&utm_campaign=flip-2026-10');
-  ok(!/last chance|deadline/i.test(allHtml(p)), 'no deadline wording');
-  // With South Africa picked (Morocco gone from December), CPT both months keeps the fares.
-  const za = await cheapestPlan({ env: env({ FLIP: '1' }), site: SITE,
-    getter: getter({ '/cheapest/december': (b) => b.replace(/<tr><td class="num" data-l="#">\d+<\/td><td class="name" data-l="Country"><span class="rk">\d+\.<\/span> 🇲🇦[\s\S]*?<\/tr>/, '')
-      .replace(/<strong>32<\/strong> countries/, '<strong>31</strong> countries') }) });
-  eq(za.sidecar.sticker.question, 'South Africa: November or December?');
-  ok(allHtml(za).includes('<b>$778</b>, Low for this route'), 'November fare kept: ' + allHtml(za).match(/\$\d[^<]*/g));
+  ok(!/last chance|deadline/i.test(h), 'no deadline wording');
+  // A different destination city in December (CAI -> SSH): no fare on any frame, and the sidecar says why.
+  const moved = await cheapestPlan({ env: env({ FLIP: '1' }), site: SITE,
+    getter: getter({ '/api/flight-value': (b) => b.replace(/("EG": \{"curve": \{[^}]*"2026-12": \[\d+, )"CAI"/, '$1"SSH"') }) });
+  ok(!/\$\d/.test(allHtml(moved)), 'no fare on any frame: ' + allHtml(moved).match(/\$\d[^<]*/g));
+  ok(moved.sidecar.notes.some((n) => /CAI in November, SSH in December/.test(n)), 'says why');
   const none = await cheapestPlan({ env: env({ FLIP: '1' }), site: SITE, getter: getter({ '/cheapest/december': () => read('cheapest-november.html').replace(/November/g, 'December').replace('/cheapest/december', '/cheapest/january') }) });
   ok(none.skip && /drops a full letter/.test(none.skip), 'skip this month: ' + none.skip);
 });
