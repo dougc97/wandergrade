@@ -8381,11 +8381,12 @@ async function goToDetail(go, iso) {
 // lead "above the fold"; the rest (high value but off the beaten path) become
 // Hidden Gems. The curated set below is only a fallback if the data won't load.
 const POPULAR_N = 60;
-let popularSet = new Set((
+const POPULAR_FALLBACK = (
   "FR ES IT GB DE GR PT NL AT CH IE HR CZ IS NO SE DK PL HU BE TR " +
   "US MX CA BR AR PE CO CR CU DO JM CL " +
   "JP TH CN IN VN ID PH KR SG MY KH LK NP AE IL JO TW " +
-  "EG MA ZA KE TZ AU NZ").split(" "));
+  "EG MA ZA KE TZ AU NZ").split(" ");
+let popularSet = new Set(POPULAR_FALLBACK);
 let popularDataBacked = false;
 let _arrivals = null;
 async function ensurePopularity() {
@@ -8396,7 +8397,10 @@ async function ensurePopularity() {
     const ranked = Object.keys(CUR_BY_ISO)
       .filter((iso) => _arrivals[iso] != null)
       .sort((a, b) => _arrivals[b] - _arrivals[a]);
-    popularSet = new Set(ranked.slice(0, POPULAR_N));
+    // A curated country with no figure stays popular (picks.py _popular_set):
+    // the feed blanked Spain, the UK, Canada and China, which became gems.
+    popularSet = new Set([...ranked.slice(0, POPULAR_N),
+                          ...POPULAR_FALLBACK.filter((iso) => _arrivals[iso] == null)]);
     popularDataBacked = true;
   }
 }
