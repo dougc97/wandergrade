@@ -4080,7 +4080,10 @@ function buildBestPickers(initialIso) {
   // Render ONE country: the one being opened, else Japan. Drawing Afghanistan
   // (first option) and Japan first fired their fare, FX and photo requests on
   // every guide landing, and each render's syncURL rewrote the history entry.
-  ctry.value = has(initialIso) ? initialIso : has("JP") ? "JP" : ((ctry.options[0] || {}).value || "");
+  // A country with no guide (Malta, Monaco) has no option: the box is left
+  // empty and openGuideFor draws it; Japan in the box put /guide/japan in
+  // the address bar under Malta's page.
+  ctry.value = has(initialIso) ? initialIso : initialIso ? "" : has("JP") ? "JP" : ((ctry.options[0] || {}).value || "");
   // A pick in the box is a navigation (Thailand -> Japan), so it gets its own
   // history entry first: every render ends in a replacing syncURL(), which
   // rewrote the entry of the guide being left, and Back from Japan went to
@@ -4102,7 +4105,7 @@ async function openGuideFor(iso, push) {
   try { await activateTab("guide", push); }
   finally { if (_guideTarget === iso) _guideTarget = null; }
   const ctry = $("bestCountry");
-  if ([...ctry.options].some((o) => o.value === iso)) ctry.value = iso;
+  ctry.value = [...ctry.options].some((o) => o.value === iso) ? iso : "";   // no guide: none picked
   if (ctry._sync) ctry._sync();
   if (!(fresh && ccGuideIso === iso)) renderGuide(iso);   // the build just drew it
   setGuideMeta(iso);
@@ -10593,7 +10596,7 @@ async function activateTab(name, push) {
   if (name !== "guide") {
     setDocMeta(_DEFAULT_META, _DEFAULT_URL);
   } else {
-    const iso = _guideTarget || ($("bestCountry") || {}).value;
+    const iso = _guideTarget || ($("bestCountry") || {}).value || ccGuideIso;
     if (iso) setGuideMeta(iso);
   }
   for (const b of document.querySelectorAll("#tabs button")) {
@@ -11347,7 +11350,7 @@ function buildShareURL(forShare) {
     // bare path (setDocMeta), so the query adds no duplicate for search.
     // Same-origin so history.pushState in syncURL accepts it.
   } else if (tab === "guide") {
-    const u = location.origin + guidePath(_guideTarget || $("bestCountry").value || "JP");
+    const u = location.origin + guidePath(_guideTarget || $("bestCountry").value || ccGuideIso || "JP");
     const mp = monthParam();
     return mp && (forShare || travelMonthChosen) ? u + "?" + mp[0] + "=" + mp[1] : u;
   } else if (tab === "visited") {
