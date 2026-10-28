@@ -8277,12 +8277,14 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="ovnums"><span class="grnum" title="value score out of 100">${s.value}</span>${coverageMark(s)}</span></td>
     </tr>`;
   }).join("");
+  // "Any time": each row is graded on its own month, so the tips say so.
+  const flexRows = list.some((s) => s.month);
   host.innerHTML = `<table class="gradetable">
     <thead><tr><th><span class="vh">Rank</span></th><th class="dest${sc}"${sa("dest")}>Destination</th>
       <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></th>
       <th class="${sc.trim()}"${sa("safety")} title="${esc(advSafetyTitle())}"><span aria-hidden="true">🛡️</span> <span class="thword">Safety</span></th>
-      <th class="${sc.trim()}"${sa("weather")} title="weather comfort for your chosen month"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></th>
-      <th class="${sc.trim()}"${sa("flights")} title="this month's fare vs the route's usual where we have cached months; otherwise the year-round fare vs a typical fare for the distance (the strip shows each month)"><span aria-hidden="true">✈️</span> <span class="thword">Flights</span></th>
+      <th class="${sc.trim()}"${sa("weather")} title="weather comfort for ${flexRows ? "each row's month" : "your chosen month"}"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></th>
+      <th class="${sc.trim()}"${sa("flights")} title="${flexRows ? "the fare in each row's month" : "this month's fare"} vs the route's usual where we have cached months; otherwise the year-round fare vs a typical fare for the distance (the strip shows each month)"><span aria-hidden="true">✈️</span> <span class="thword">Flights</span></th>
       <th class="ovh ${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (sortable) markSort("#" + host.id, state);   // sort buttons + aria-sort
