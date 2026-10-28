@@ -5984,6 +5984,7 @@ async function loadValueFlights(silent) {
     if (seq !== _vfSeq) return;
     if (say) status("Could not load flights: " + e.message, "err");
   }
+  if (seq === _vfSeq) valueFlightsSettled = true;   // fares in, or known not to come
   // renderValue redraws the trip list too; a Trip-only session has no Top
   // Picks to render, but its rows' Flights links come from these fares.
   if (loaded.value) renderValue();
@@ -6153,7 +6154,7 @@ function buildValueTab() {
   renderValue();
   // Data-backed popularity (tourist arrivals) loads in the background, then the
   // top/gems split re-renders with it — the fallback set covers the meantime.
-  ensurePopularity().then(() => renderValue()).catch(() => {});
+  ensurePopularity().catch(() => {}).then(() => { popularitySettled = true; renderValue(); });
 }
 
 // ---- the ranking Top Picks last drew ----------------------------------------
@@ -7756,6 +7757,7 @@ function whyLine(s, month) {
 
 // How many answer cards to show (persisted per browser; default 5 so the map
 // stays visible below the fold).
+const PICK_COUNT_DEFAULT = 5;
 function pickCount() {
   const sel = $("pickCount");
   const v = parseInt((sel && sel.value) || localStorage.getItem("fx_pickcount") || "5", 10);
@@ -8142,6 +8144,9 @@ function advMovedMark(iso) {
 
 function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   if (!host) return;
+  // Over served rows (holdServedPicks), the numbers are already on screen.
+  const served = host.id === "topCards" && servedOnScreen;
+  if (host.id === "topCards") { servedOnScreen = false; releaseServedPicks(); }
   if (!list.length) { host.innerHTML = "<p class='hint'>No destinations match these filters.</p>"; return; }
   // Sortable tables reorder the same set by the chosen column; rank (#i+1)
   // renumbers to match. Each table gets its own sort state (picks vs gems).
@@ -8202,7 +8207,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <th class="ovh ${sc.trim()}"${sa("overall")} title="everything blended, weighted by your priorities">Overall</th></tr></thead>
     <tbody>${rows}</tbody></table>`;
   if (sortable) markSort("#" + host.id, state);   // sort buttons + aria-sort
-  if (!reducedMotion()) host.querySelectorAll(".grnum").forEach(countUp);
+  if (!reducedMotion() && !served) host.querySelectorAll(".grnum").forEach(countUp);
   fillRowFareStrips("#" + host.id, month);
 }
 // Tooltip for the merged Affordability cell: explains both the price level and
@@ -8382,6 +8387,51 @@ function cheapestFareMonth(c, keys) {
   return best;
 }
 
+// The homepage's served Top Picks (server.py _home_picks,
+// fxtracker/home_picks.py): the table and the line above it for the view a
+// first visit opens on — from the US, Any time, every filter at its default —
+// in the page's HTML for readers that don't run this script. index.html's
+// pre-paint script has already swapped in the skeleton for a reader they
+// aren't for (data-ssr is then gone). For the rest they stay until this
+// page's own data is in (the activities, popularity, fares and settled month
+// curves) and are then drawn over with the same rows, so nothing moves; an
+// earlier draw, without the fares, would have shrunk the rows and grown them
+// back. Any change of view, a sort, or SERVED_HOLD_MS ends the hold.
+let servedPicks = (() => { const h = $("topCards"); return (h && h.getAttribute("data-ssr")) || null; })();
+let servedOnScreen = !!servedPicks;   // #topCards still shows the served rows
+const SERVED_HOLD_MS = 15000;
+const _servedWeights = JSON.stringify(loadWeights());
+let popularitySettled = false, valueFlightsSettled = false;
+function servedPicksReady() {
+  return !!activities && popularitySettled && valueFlightsSettled
+    && (!flightsData || !flightsData.configured
+        || !!(flightValue && flightValue.origin === "US" && !flightValue.filling));
+}
+function holdServedPicks(flex, win) {
+  if (!servedPicks) return false;
+  const view = flex && win.join() === servedPicks && originIso() === "US" && homeBase === "USD"
+    && regionSel === "all" && pickCount() === PICK_COUNT_DEFAULT && safetyFloor() === "b"
+    && valueMapMode === "score" && advisorySource() === "us" && !budgetOf().total
+    && !loadInterests().size && !ownVisited().size && JSON.stringify(loadWeights()) === _servedWeights;
+  if (view && !servedPicksReady()) return true;
+  releaseServedPicks();
+  return false;
+}
+function releaseServedPicks() {
+  servedPicks = null;
+  const h = $("topCards");
+  if (h) h.removeAttribute("data-ssr");
+}
+if (servedPicks) {
+  const t0 = Date.now(), tick = setInterval(() => {
+    if (!servedPicks) { clearInterval(tick); return; }
+    if (loaded.value && (servedPicksReady() || Date.now() - t0 > SERVED_HOLD_MS)) {
+      if (!servedPicksReady()) releaseServedPicks();
+      renderValue();
+    }
+  }, 250);
+}
+
 function renderValue() {
   const region = regionSel;
   // "Any time" ranks each country on its best month of the window; month is
@@ -8389,6 +8439,8 @@ function renderValue() {
   // Trip tab's month, a row with no month of its own).
   const flex = picksFlex();
   const win = flex ? flexWindow() : null;
+  // The served rows and note stay while held (holdServedPicks).
+  const held = holdServedPicks(flex, win || []);
   // win[0], not travelMonth(): that is the month of a row the reader opened
   // (flexFocusMonth), and the ranking is of the window, whichever row it was.
   const month = flex ? win[0] : travelMonth();
@@ -8582,13 +8634,13 @@ function renderValue() {
   // (the Been-to filter's own "Include visited", so it persists the same way).
   const beenNote = hiddenVisited
     ? ` <span class="beennote">${hiddenVisited} you've been to hidden · <button type="button" class="linkbtn" id="showBeen">show</button></span>` : "";
-  if (picksNote) picksNote.innerHTML = (popular.length
+  if (picksNote && !held) picksNote.innerHTML = (popular.length
     ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
     : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + beenNote + budNote;
   // lastPicksMonth stays a real month (the Trip tab and the stays plan for
   // one); lastPicksFlex tells the exports to word "the next 6 months".
   lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex; lastPicksWx = weatherMode;   // for the share image + re-sort
-  renderGradeTable($("topCards"), picks, month, false, true);
+  if (!held) renderGradeTable($("topCards"), picks, month, false, true);
   // Pulse the picked countries on the map so table and map visibly agree.
   if (!reducedMotion()) {
     const pickSet = new Set(picks.map((s) => s.iso));

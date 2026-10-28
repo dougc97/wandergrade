@@ -263,7 +263,7 @@
              usual one), so it wraps where the real one will: empty, it took
              no room beside the button and then grew to two lines on a phone
              (41 -> 77px), dropping the table and everything under it. -->
-        <p class="picksnote" id="picksNote"><span class="skeltext" aria-hidden="true">🌍 Popular destinations, ranked by value ⓘ — more finds under 💎 Hidden gems.</span></p>
+        <p class="picksnote" id="picksNote"><span class="skeltext" aria-hidden="true"{{NOTE_SKEL_HIDDEN}}>🌍 Popular destinations, ranked by value ⓘ — more finds under 💎 Hidden gems.</span>{{PICKS_NOTE}}</p>
         <button id="rankShare" class="themebtn shareimg" type="button"
           title="Download the ranked list as an image — grades, fares and sourcing included">📸 <span class="btxt">Share ranking</span></button>
       </div>
@@ -277,8 +277,8 @@
            visitor gets; a returning one with ?pc=10 still shifts by the extra
            five. renderGradeTable overwrites this wholesale, so nothing clears
            it. -->
-      <div id="topCards" class="gradewrap">
-        <table class="gradetable skeleton" aria-hidden="true">
+      <div id="topCards" class="gradewrap"{{TOP_SSR}}>
+        <table class="gradetable skeleton" aria-hidden="true"{{TOP_SKEL_HIDDEN}}>
           <thead><tr><th></th><th class="dest">Destination</th>
             <th>💰 <span class="thword">Affordability</span></th>
             <th>🛡️ <span class="thword">Safety</span></th>
@@ -292,7 +292,7 @@
             <tr><td class="rank">#4</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span><span class="seasonstrip skel"></span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
             <tr><td class="rank">#5</td><td class="dest">&nbsp;</td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span></td><td><span class="gr skel">&nbsp;</span><span class="seasonstrip skel"></span></td><td><span class="gr big skel">&nbsp;</span></td></tr>
           </tbody>
-        </table>
+        </table>{{TOP_PICKS}}
         <!-- As many placeholder rows as the Top N the table will show (the
              head script's data-pc: Top 10 or 20); and on a weather-ranked
              link the note's stand-in says what renderValue will (a line
@@ -302,7 +302,7 @@
           for(var i=6;i<=n&&r;i++){var c=r.cloneNode(true);c.querySelector(".rank").textContent="#"+i;b.appendChild(c);}
           var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),k=document.querySelector("#picksNote > .skeltext");
           if(k&&q.get("vmm")==="weather"){if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
-            k.textContent="🌤️ Popular destinations, ranked by weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]+" ⓘ — more finds under 💎 Hidden gems.";}})();</script>
+            k.textContent="🌤️ Popular destinations, ranked by weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]+" ⓘ — more finds under 💎 Hidden gems.";}})();</script>{{TOP_HOLD}}
       </div>
       <button id="showMore" class="showmore" type="button" hidden>Show top 10 ↓</button>
 
