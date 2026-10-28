@@ -11446,7 +11446,9 @@ function buildShareURL(forShare) {
   } else if (tab === "guide") {
     const u = location.origin + guidePath(_guideTarget || $("bestCountry").value || ccGuideIso || "JP");
     const mp = monthParam();
-    return mp && (forShare || travelMonthChosen) ? u + "?" + mp[0] + "=" + mp[1] : u;
+    // guidePath has a query of its own for a country with no guide page
+    // (/?tab=guide&gc=MT): join with "&" there, or gc reads "MT?vmf=1".
+    return mp && (forShare || travelMonthChosen) ? u + (u.includes("?") ? "&" : "?") + mp[0] + "=" + mp[1] : u;
   } else if (tab === "visited") {
     loadVisited();
     // The visited list persists in localStorage already; only embed it for an

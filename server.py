@@ -86,7 +86,7 @@ CONTENT_TYPES = {
 }
 
 # Sent on every response. The CSP allows our own assets plus the few external
-# origins the app genuinely uses: the Stay22 map iframe, Wikipedia/Wikimedia
+# origins the app genuinely uses: Wikipedia/Wikimedia
 # image+API fetches, and inline <style>/<script> the page relies on. form-action
 # is intentionally left unset so the newsletter form can POST to Buttondown.
 SECURITY_HEADERS = {
