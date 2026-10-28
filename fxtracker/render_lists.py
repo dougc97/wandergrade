@@ -337,10 +337,28 @@ def real_fx(iso, fx, ppp):
         return None
 
 
-def _fx_cell(real):
+# The Dollar column's mark where the country has no inflation figure, so its
+# "after inflation" figure is the exchange-rate move alone (as /dollar-strength
+# marks it). ‡, since this page's † is already the official-rate price's.
+NO_INFL_NOTE = "‡ No inflation figure for that country: the exchange-rate move alone."
+
+
+def _plural(n, one, many):
+    return one if n == 1 else many
+
+
+def _fx_cell(real, iso=None, ppp=None):
+    """The Dollar vs 1-yr avg cell: app.js signedPct's figure (a true minus,
+    "0.0%" unsigned), ‡-marked when the country has no inflation figure."""
     if real is None:
         return "—"
-    return "%+.1f%%" % real
+    from .render_strength import signed_pct  # render_strength imports this module
+    txt = signed_pct(real)
+    if iso and ppp is not None and pricelevel.infl_rate(iso, ppp) is None:
+        tip = ("No inflation figure for %s: the exchange-rate move alone, rising local prices not netted out."
+               % _name(iso))
+        return '<span title="%s">%s</span><sup class="fn">‡</sup>' % (html.escape(tip, quote=True), txt)
+    return txt
 
 
 def safe_rows(us, facts):
@@ -411,10 +429,10 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
              and (de_own.get(iso) or {}).get("level") == LOWEST["de"]]
     near = near_rows(us_own, facts)
     show_fx = bool(fx and ppp)
-    alt_used = False
+    alt_used = no_infl = False
 
     def row(n, pct, iso, nearly=False):
-        nonlocal alt_used
+        nonlocal alt_used, no_infl
         f = facts.get(iso) or {}
         mark = ""
         if iso in agree:
@@ -431,7 +449,9 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
             # The space is for the text alone ("21% very cheap" copied or
             # crawled); the CSS draws a dot on phones and a new line from 900px.
             pct_txt += ' <span class="band">%s</span>' % html.escape(band)
-        cells = [_country_cell(iso, _name(iso), mark), _cell("Prices vs US", pct_txt)]
+        # The rank rides in the name on a phone, where the # column is hidden (as /cheapest's).
+        cells = ['<td class="name" data-l="Country"><span class="rk">%d.</span> %s%s</td>'
+                 % (n, _country(iso, _name(iso)), mark), _cell("Prices vs US", pct_txt)]
         if nearly:
             it = us_own.get(iso) or {}
             cells.append(_cell("US", _pill("us", it) + _chips(it.get("risks") or [], title=it.get("summary") or None)))
@@ -440,7 +460,10 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
         cells.append(_gov_cell("ca", ca_own.get(iso), "not loaded" if "ca" in missing else "no rating"))
         cells.append(_gov_cell("de", de_own.get(iso), "not loaded" if "de" in missing else "no rating"))
         if show_fx and not nearly:
-            cells.append(_cell("Dollar vs 1-yr avg", _fx_cell(real_fx(iso, fx, ppp))))
+            real = real_fx(iso, fx, ppp)
+            if real is not None and pricelevel.infl_rate(iso, ppp) is None:
+                no_infl = True
+            cells.append(_cell("Dollar vs 1-yr avg", _fx_cell(real, iso, ppp)))
         cells.append(_cell("Best months", html.escape(_months((clim or {}).get(iso))) or "—"))
         if not nearly:
             h = hc.get(iso)
@@ -471,16 +494,25 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
                      "".join(row(i + 1, p, iso, nearly=True) for i, (p, iso) in enumerate(near))
                      or '<tr><td class="name" data-l="Country">None today.</td></tr>'))
 
+    if len(rows) == 1:
+        also = ("it is also at the lowest level for Canada and Germany" if agree
+                else "Canada and Germany don't both have it at their lowest level")
+    else:
+        also = ("<strong>%d</strong> of them %s also at the lowest level for Canada and Germany"
+                % (len(agree), _plural(len(agree), "is", "are")))
     lede = ("The rule: <strong>US State Department Level %d</strong> (“exercise normal precautions”) "
-            "and <strong>local prices at or under %d%% of the US</strong>. <strong>%d</strong> countries "
-            "qualify today, cheapest first; <strong>%d</strong> of them are also at the lowest level for "
-            "Canada and Germany." % (SAFE_US_LEVEL, SAFE_PCT, len(rows), len(agree)))
+            "and <strong>local prices at or under %d%% of the US</strong>. <strong>%d</strong> %s "
+            "today, cheapest first; %s." % (SAFE_US_LEVEL, SAFE_PCT, len(rows),
+                                            _plural(len(rows), "country qualifies", "countries qualify"), also))
     body = table
     body += ('<h2>Nearly made it: cheap, but US Level 2</h2>'
-             '<p class="sub"><strong>%d</strong> countries under %d%% of US prices where the State Department '
-             "says “exercise increased caution”, with its reasons.</p>%s" % (len(near), NEAR_PCT, near_table))
+             '<p class="sub"><strong>%d</strong> %s under %d%% of US prices where the State Department '
+             "says “exercise increased caution”, with its reasons.</p>%s"
+             % (len(near), _plural(len(near), "country", "countries"), NEAR_PCT, near_table))
     if alt_used:
         notes.append(ALT_NOTE)
+    if no_infl:
+        notes.append(NO_INFL_NOTE)
     notes.append("Prices are national averages vs the US (100%%), from World Bank PPP at the snapshot's "
                  "exchange rates. Best months: the guide's hand-picked months, or the best-weather months "
                  "where it has none. Health notes are Canada's risk-to-travellers list (* in certain areas).%s"
@@ -496,12 +528,13 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
     h1 = "Safest cheap countries to visit in %s" % year
     title = _fit(["Safest Cheap Countries to Visit in %s (Data, Not Opinion)" % year,
                   "Safest Cheap Countries to Visit in %s (Data)" % year], TITLE_MAX)
-    desc = _fit(["%d countries at US State Dept Level 1 with prices at or under %d%% of the US, cheapest "
+    cn = _plural(len(rows), "country", "countries")
+    desc = _fit(["%d %s at US State Dept Level 1 with prices at or under %d%% of the US, cheapest "
                  "first, with Canada's and Germany's levels, best months and health notes. As of %s."
-                 % (len(rows), SAFE_PCT, _day(facts.get("_asof")) or _day(today)),
-                 "%d countries at US Level 1 with prices at or under %d%% of the US, with Canada's and "
+                 % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today)),
+                 "%d %s at US Level 1 with prices at or under %d%% of the US, with Canada's and "
                  "Germany's levels, best months and health notes. As of %s."
-                 % (len(rows), SAFE_PCT, _day(facts.get("_asof")) or _day(today))], DESC_MAX)
+                 % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today))], DESC_MAX)
     return {
         "path": "/safe-and-cheap",
         "title": title, "desc": desc, "h1": h1,
@@ -597,11 +630,12 @@ def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
                   'own record.</p>' % RECENT_DAYS)
 
     n_any = len(all3) + len(some)
-    lede = ("<strong>%d</strong> countries are “do not travel” for at least one of the three governments "
+    lede = ("<strong>%d</strong> %s “do not travel” for at least one of the three governments "
             "WanderGrade follows: <strong>%d</strong> for all three, <strong>%d</strong> for one or two. "
-            "A further <strong>%d</strong> are “reconsider travel” for the US or “avoid non-essential "
+            "A further <strong>%d</strong> %s “reconsider travel” for the US or “avoid non-essential "
             "travel” for Canada. Each in the government's own words, with its date and reasons."
-            % (n_any, len(all3), len(some), len(three)))
+            % (n_any, _plural(n_any, "country is", "countries are"), len(all3), len(some), len(three),
+               _plural(len(three), "is", "are")))
     body = ("<h2>Recent changes</h2>%s"
             "<h2>Do not travel: all three governments agree (%d)</h2>%s"
             "<h2>Do not travel for one or two governments (%d)</h2>"
@@ -621,11 +655,12 @@ def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
     sources = _sources_line(fetched, own, stale=stale, today=today)
     h1 = "Do not travel list %s: US, Canada and Germany compared" % year
     title = _fit(["Do Not Travel List %s: US, Canada & Germany Compared" % year], TITLE_MAX)
-    desc = _fit(["%d countries rated do not travel by the US, Canada or Germany, %d by all three, each in "
+    cn = _plural(n_any, "country", "countries")
+    desc = _fit(["%d %s rated do not travel by the US, Canada or Germany, %d by all three, each in "
                  "the government's own words with dates and reasons, plus the Level 3 list. %s."
-                 % (n_any, len(all3), _day(today)),
-                 "%d countries rated do not travel by the US, Canada or Germany (%d by all three), in each "
-                 "government's own words, with dates and reasons." % (n_any, len(all3))], DESC_MAX)
+                 % (n_any, cn, len(all3), _day(today)),
+                 "%d %s rated do not travel by the US, Canada or Germany (%d by all three), in each "
+                 "government's own words, with dates and reasons." % (n_any, cn, len(all3))], DESC_MAX)
     return {
         "path": "/do-not-travel",
         "title": title, "desc": desc, "h1": h1,

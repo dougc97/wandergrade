@@ -250,8 +250,7 @@ def _rule_html(month_name=None):
             % (US_LEVELS[0], US_LEVELS[1], MAX_PCT, MIN_WX, (" in %s" % month_name) if month_name else " that month"))
 
 
-def _plural(n, one, many):
-    return one if n == 1 else many
+_plural = RL._plural
 
 
 def _and(names):
