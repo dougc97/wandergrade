@@ -9,6 +9,8 @@ month 0-100. Top destinations get curated best-month overrides on top (the
 
 Run once (re-run to refresh): python3 -m fxtracker.build_climate
 Only some countries:          python3 -m fxtracker.build_climate FR NO CL
+Rain only (the guide's month table; nothing else in a row changes):
+                              python3 -m fxtracker.build_climate --rain [FR NO CL]
 It writes a static file the website reads, so there are no live weather calls.
 """
 
@@ -37,6 +39,11 @@ ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
 _LAST_COMPLETE = time.gmtime().tm_year - 1
 WINDOW_YEARS = 5
 YEAR = ("%d-01-01" % (_LAST_COMPLETE - WINDOW_YEARS + 1), "%d-12-31" % _LAST_COMPLETE)
+# The same window as the guide's month table words it ("2021–2025"), stored on
+# each row a run writes, since a merge can leave rows from different runs.
+WINDOW = "%s–%s" % (YEAR[0][:4], YEAR[1][:4])
+# A rainy day: more than this much rain (mm) in the day.
+RAIN_DAY_MM = 1.0
 
 # Curated best-months for major destinations (1=Jan). Overlaid on weather scores
 # so the "best months" reflect travel knowledge (shoulder seasons, dry seasons,
@@ -197,7 +204,10 @@ def comfort(temp, rain):
     return max(0, min(100, round(100 - t_pen - r_pen)))
 
 
-def monthly_scores(lat, lon):
+def monthly_climate(lat, lon):
+    """(scores, temps, rain_mm, rain_days), twelve of each: comfort 0-100, mean
+    °C, the month's rain total in mm and its days with more than RAIN_DAY_MM,
+    both averaged over the window's years."""
     url = ("{0}?latitude={1:.3f}&longitude={2:.3f}&start_date={3}&end_date={4}"
            "&daily=temperature_2m_mean,precipitation_sum&timezone=auto").format(
         ARCHIVE, lat, lon, YEAR[0], YEAR[1])
@@ -213,19 +223,27 @@ def monthly_scores(lat, lon):
     # driving nearly every score to the floor.
     mt = defaultdict(list)                          # month -> daily temps
     mr = defaultdict(lambda: defaultdict(float))    # month -> year -> total mm
+    md = defaultdict(lambda: defaultdict(int))      # month -> year -> rainy days
     for t, tp, rn in zip(times, temps, rains):
         y, m = int(t[0:4]), int(t[5:7])
         if tp is not None:
             mt[m].append(tp)
         if rn is not None:
             mr[m][y] += rn
-    scores, temps = [], []
+            md[m][y] += rn > RAIN_DAY_MM
+    scores, temps, rain_mm, rain_days = [], [], [], []
     for m in range(1, 13):
         at = sum(mt[m]) / len(mt[m]) if mt[m] else None
         tr = (sum(mr[m].values()) / len(mr[m])) if mr[m] else 0
         scores.append(comfort(at, tr))
         temps.append(round(at) if at is not None else None)  # avg °C, shown in the guide
-    return scores, temps
+        rain_mm.append(round(tr) if mr[m] else None)
+        rain_days.append(round(sum(md[m].values()) / len(md[m])) if md[m] else None)
+    return scores, temps, rain_mm, rain_days
+
+
+def monthly_scores(lat, lon):
+    return monthly_climate(lat, lon)[:2]
 
 
 def season_order(months):
@@ -251,12 +269,44 @@ def best_months(scores, iso):
     return season_order(m + 1 for m in ranked[:3])
 
 
-def main(only=None):
-    """Rebuild every country, or only the ISO codes in `only`."""
+# Rain-only mode measures rain where the committed row's numbers were measured:
+# the point that reproduces its temps and scores, give or take Open-Meteo's
+# revisions of the same point between runs (a degree, a few points). Four
+# committed rows (AZ HK KP MA, 2026-10) still come from the old vertex average
+# (centroid()), from before the points moved; a row neither point reproduces
+# (Singapore) gets no rain, rather than rain from somewhere else.
+REVISION_TEMP = 1
+REVISION_SCORE = 3
+
+
+def _reproduces(scores, temps, row):
+    """Whether freshly fetched scores/temps are the committed row's, up to
+    Open-Meteo's revisions."""
+    def close(a, b, tol):
+        return (len(a or []) == len(b or []) == 12
+                and all((x is None) == (y is None) and (x is None or abs(x - y) <= tol) for x, y in zip(a, b)))
+    return close(temps, row.get("temps"), REVISION_TEMP) and close(scores, row.get("scores"), REVISION_SCORE)
+
+
+def main(only=None, rain_only=False):
+    """Rebuild every country, or only the ISO codes in `only`. rain_only writes
+    rain_mm, rain_days and window onto the rows already committed and nothing
+    else: a full run rewrites scores, temps and best, and best feeds every
+    guide's description, its best-time sentence and guide-facts.json. It
+    reports any country whose scores or temps would have come out different."""
     with open(GEOJSON, encoding="utf-8") as f:
         geo_data = json.load(f)
 
     out = {}
+    moved = []      # rain_only: countries a full run would have re-scored
+    at_old = []     # rain_only: rows measured at the old vertex average
+    unmatched = []  # rain_only: rows no point reproduces (no rain written)
+    previous = {}
+    try:
+        with open(OUT, encoding="utf-8") as f:
+            previous = json.load(f)
+    except (OSError, ValueError):
+        pass
     feats = [f for f in geo_data["features"]
              if f["properties"].get("iso") and f["properties"]["iso"] != "-99"
              # Northern Ireland carries iso "GB"; the UK is its own feature.
@@ -266,7 +316,7 @@ def main(only=None):
     for i, f in enumerate(feats):
         iso = f["properties"]["iso"]
         name = f["properties"].get("name", iso)
-        if iso in out:
+        if iso in out or (rain_only and iso not in previous):
             continue
         pt = sample_point(iso, f["geometry"])
         if pt is None:
@@ -274,20 +324,39 @@ def main(only=None):
             continue
         lon, lat = pt
         try:
-            scores, temps = monthly_scores(lat, lon)
-            out[iso] = {
-                "name": name,
-                "scores": scores,
-                "temps": temps,
-                "best": best_months(scores, iso),
-                "curated": iso in CURATED,
-            }
-            # Where the temperatures are measured, for the guide's ⓘ. Unset
-            # (not null) on the geometric path, so a country whose point moved
-            # from a city back to geometry loses the stale name on the merge.
+            scores, temps, rain_mm, rain_days = monthly_climate(lat, lon)
+            rain = {"rain_mm": rain_mm, "rain_days": rain_days, "window": WINDOW}
             at = sample_place(iso, pt)
-            if at:
-                out[iso]["at"] = at
+            if rain_only:
+                p = previous[iso]
+                if (scores, temps, best_months(scores, iso), at) != (p.get("scores"), p.get("temps"),
+                                                                      p.get("best"), p.get("at")):
+                    moved.append(iso)
+                if not _reproduces(scores, temps, p):
+                    old = centroid(f["geometry"])
+                    s2, t2, rain_mm, rain_days = (monthly_climate(old[1], old[0]) if old[0] is not None
+                                                  else (None, None, None, None))
+                    if not _reproduces(s2, t2, p):
+                        unmatched.append(iso)
+                        print("  [{0}/{1}] {2} {3} no rain: neither point reproduces its committed "
+                              "numbers".format(i + 1, len(feats), iso, name))
+                        continue
+                    at_old.append(iso)
+                    rain = {"rain_mm": rain_mm, "rain_days": rain_days, "window": WINDOW}
+                out[iso] = rain
+            else:
+                out[iso] = dict({
+                    "name": name,
+                    "scores": scores,
+                    "temps": temps,
+                    "best": best_months(scores, iso),
+                    "curated": iso in CURATED,
+                }, **rain)
+                # Where the temperatures are measured, for the guide's ⓘ. Unset
+                # (not null) on the geometric path, so a country whose point
+                # moved from a city back to geometry loses the stale name.
+                if at:
+                    out[iso]["at"] = at
             print("  [{0}/{1}] {2} {3} ok".format(i + 1, len(feats), iso, name))
         except (urllib.error.HTTPError, urllib.error.URLError, Exception) as e:
             print("  [{0}/{1}] {2} {3} FAILED: {4}".format(i + 1, len(feats), iso, name, e))
@@ -301,12 +370,6 @@ def main(only=None):
     # 39 (Singapore, the Maldives, most of the Caribbean) before this existed.
     # Stale data for a country beats no data for it. A refreshed country keeps
     # any fields this script doesn't produce.
-    previous = {}
-    try:
-        with open(OUT, encoding="utf-8") as f:
-            previous = json.load(f)
-    except (OSError, ValueError):
-        pass
     kept = [k for k in previous if k not in out]
     merged = dict(previous)
     for iso, row in out.items():
@@ -314,7 +377,8 @@ def main(only=None):
         # "at" is this script's own field: a country whose override was
         # removed (or rejected as off-land) must not keep naming a city its
         # numbers no longer come from.
-        prev.pop("at", None)
+        if not rain_only:
+            prev.pop("at", None)
         merged[iso] = dict(prev, **row)
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(merged, f, separators=(",", ":"), sort_keys=True)
@@ -322,7 +386,16 @@ def main(only=None):
           .format(len(merged), OUT, len(out), len(kept)))
     if kept and not only:
         print("  kept: {0}".format(", ".join(sorted(kept)[:20])))
+    if rain_only:
+        print("rain only: {0} rows gained rain_mm, rain_days, window {1}; scores/temps/best/at left as "
+              "committed. A full run would have changed {2}: {3}".format(
+                  len(out), WINDOW, len(moved), " ".join(sorted(moved)) or "none"))
+        print("  rain measured at the old vertex average, where the committed numbers are from: {0}".format(
+            " ".join(sorted(at_old)) or "none"))
+        print("  no rain (no point reproduces the committed numbers): {0}".format(
+            " ".join(sorted(unmatched)) or "none"))
 
 
 if __name__ == "__main__":
-    main(set(a.upper() for a in sys.argv[1:]) or None)
+    args = sys.argv[1:]
+    main(set(a.upper() for a in args if a != "--rain") or None, rain_only="--rain" in args)
