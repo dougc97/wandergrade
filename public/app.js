@@ -11043,7 +11043,7 @@ function subscribeFormHTML() {
     <form action="https://buttondown.com/api/emails/embed-subscribe/${BUTTONDOWN_USER}"
           method="post" target="popupwindow"
           onsubmit="window.open('${base}','popupwindow')" class="subform subform-cur">
-      <input type="email" name="email" placeholder="you@email.com" required>
+      <input type="email" name="email" placeholder="you@email.com" aria-label="Email address" required>
       <span class="subcurwrap"><select name="tag" class="subcur" aria-label="Newsletter currency">${subCurOptions(subCurDefault(), true)}</select><span class="muted subcurtip" data-tip="${esc(tip)}" title="">ⓘ</span></span>
       <input type="hidden" name="embed" value="1">
       <button type="submit">Subscribe</button>
@@ -11056,7 +11056,7 @@ function subscribeFormHTML() {
     <form action="https://buttondown.com/api/emails/embed-subscribe/${BUTTONDOWN_USER}"
           method="post" target="popupwindow"
           onsubmit="window.open('${base}','popupwindow')" class="subform">
-      <input type="email" name="email" placeholder="you@email.com" required>
+      <input type="email" name="email" placeholder="you@email.com" aria-label="Email address" required>
       <input type="hidden" name="embed" value="1">
       <button type="submit">Subscribe</button>
     </form>
