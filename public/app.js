@@ -2461,6 +2461,50 @@ function renderGuideInsurance(iso) {
 // travel month, the reader's Top Picks priorities. Static host (#guideGrades,
 // height reserved in styles.css), so filling it moves nothing.
 let _guideAskedFares = false, _guideFarePend = null, _guideFareLate = false;
+// A guide's served grades line and fares strip (server.py _guide_lines,
+// fxtracker/guide_lines.py): what this page draws for a first visit — from
+// the US, Any time, the default priorities — in the page's HTML for readers
+// that don't run this script. index.html's pre-paint script has already
+// emptied them for a reader they aren't for (data-gssr is then gone). For the
+// rest they stay until this page's rates, advisories, fares and settled month
+// curves are in, and are then drawn over with the same line and strip, so
+// nothing moves: drawn before that, the line was a "—" or grey boxes and the
+// strip was hidden and shown again. A change of view or SERVED_HOLD_MS ends it.
+let servedGuide = (() => {
+  const g = $("tab-guide"), w = g && g.getAttribute("data-gssr");
+  return w ? { iso: window.__WGGC__, month: +w.split(",")[0] } : null;
+})();
+let servedFaresOnScreen = !!servedGuide && !!$("guideFares") && !$("guideFares").hidden;
+function servedGuideReady() {
+  return !!(lastRates && ppp && advisories) && valueFlightsSettled
+    && (!flightsData || !flightsData.configured
+        || !!(flightValue && flightValue.origin === "US" && !flightValue.filling));
+}
+function holdServedGuide(iso) {
+  if (!servedGuide) return false;
+  const view = iso === servedGuide.iso && travelMonth() === servedGuide.month && originIso() === "US"
+    && homeBase === "USD" && flightDisplayCur() === "USD" && advisorySource() === "us"
+    && JSON.stringify(loadWeights()) === _servedWeights;   // the boot priorities (Top Picks' hold)
+  if (view && !servedGuideReady()) return true;
+  releaseServedGuide();
+  return false;
+}
+function releaseServedGuide() {
+  servedGuide = null;
+  const g = $("tab-guide");
+  if (g) g.removeAttribute("data-gssr");
+}
+if (servedGuide) {
+  const t0 = Date.now(), tick = setInterval(() => {
+    if (!servedGuide) { clearInterval(tick); return; }
+    if (servedGuideReady() || Date.now() - t0 > SERVED_HOLD_MS) {
+      const iso = servedGuide.iso;
+      releaseServedGuide();
+      if (ccGuideIso === iso) { renderGuideGrades(iso); renderGuideFares(iso); }
+    }
+  }, 250);
+}
+
 async function renderGuideGrades(iso) {
   const host = $("guideGrades");
   if (!host) return;
@@ -2480,6 +2524,7 @@ async function renderGuideGrades(iso) {
     // Fares still out after 2.5s: the line is drawn without them (below).
     setTimeout(() => { if (_guideFarePend) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); } }, 2500);
   }
+  if (holdServedGuide(iso)) return;   // the served line stays (above)
   const month = travelMonth();
   let s = null;
   try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), plAnchor(originIso()).pl); } catch (e) {}
@@ -2744,9 +2789,14 @@ function fareShort(n) {
 async function renderGuideFares(iso) {
   const host = $("guideFares");
   if (!host) return;
-  host.hidden = true;
+  if (holdServedGuide(iso)) return;   // the served strip stays (renderGuideGrades)
+  // Over the served strip, it stays on screen while the curve is fetched.
+  const served = servedFaresOnScreen && iso === window.__WGGC__;
+  servedFaresOnScreen = false;
+  if (!served) host.hidden = true;
   const fm = await ensureFareMonths(iso);
-  if (ccGuideIso !== iso || !fm || !fm.months) return;
+  if (ccGuideIso !== iso) return;
+  if (!fm || !fm.months) { host.hidden = true; return; }
   const now2 = new Date();
   const prices = [];
   for (let m = 1; m <= 12; m++) {
@@ -2757,7 +2807,7 @@ async function renderGuideFares(iso) {
   const known = prices.filter((p) => p != null);
   // Under three months there is no curve to read (the Trip strip's floor,
   // fareStripHTML minMonths): two bars would claim a season.
-  if (known.length < 3) return;
+  if (known.length < 3) { host.hidden = true; return; }
   host.hidden = false;
   // Origin name from the strip's own payload — flightsData may be null on a
   // direct guide load (that null is what hid the first production version).

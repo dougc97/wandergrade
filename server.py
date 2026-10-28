@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
-    flightvalue, guide_facts, guide_sizers, health, home_picks, llms_txt, mailer, map_picks, picks, popularity, rates,
+    flightvalue, guide_facts, guide_lines, guide_sizers, health, home_picks, llms_txt, mailer, map_picks, picks, popularity, rates,
     render_cheapest, render_guide, render_lists, render_privacy, store, watchouts
 )
 
@@ -260,6 +260,10 @@ _HTML_DEFAULTS = {
     # paints Top Picks first) keeps index.html's bytes.
     "TOP_SSR": "", "TOP_SKEL_HIDDEN": "", "TOP_PICKS": "", "TOP_HOLD": "",
     "NOTE_SKEL_HIDDEN": "", "PICKS_NOTE": "",
+    # A guide's grades line and fares-by-month strip for a first visit
+    # (fxtracker/guide_lines.py, _guide_lines); empty, the strip hidden, as
+    # index.html had them, wherever they aren't served.
+    "GUIDE_GRADES": "", "FARES_HIDDEN": " hidden", "GUIDE_FARES": "", "GUIDE_HOLD": "",
     # The footer's link to /privacy, at the end of the commission line: a
     # homepage-only token, in the footer's own bytes with no space of its own,
     # so a guide (which fills it with "") stays byte-identical while
@@ -1426,6 +1430,62 @@ _TOP_HOLD = (
     'else{h.removeChild(t[0]);n.removeChild(n.firstChild);}})();</script>')
 
 
+# Before first paint, on a guide whose grades line and fares strip are served
+# (#tab-guide data-gssr: the month they grade, then the server's month): they
+# stay for a reader they are for and are emptied — today's page, which app.js
+# then fills — for one they aren't: a link with any query but the tracking
+# ones (?vmn= sets the month), a saved home country, currency, factors,
+# priorities, advisory source or fare currency, or a local date whose month
+# or six-month window differs from the server's (UTC). app.js holdServedGuide
+# keeps them until its data is in. ES5, like index.html's other inline scripts.
+_GUIDE_HOLD = (
+    '<script>(function(){var g=document.getElementById("tab-guide"),w=g&&g.getAttribute("data-gssr");if(!w)return;'
+    'var off=false,q=new URLSearchParams(location.search);'
+    'q.forEach(function(x,k){if(!/^(utm_[a-z]+|gclid|fbclid|ref)$/.test(k))off=true;});'
+    'try{var L=localStorage,v=function(k){return L.getItem(k)};'
+    'if((v("fx_origin")||"US")!=="US"||(v("fx_homecur")||"USD")!=="USD"||v("fx_factors2")||v("fx_priorities2")'
+    '||(v("wg_advsrc")||"us")!=="us"||(v("wg_flightcur")||"USD")!=="USD")off=true;}catch(e){}'
+    'var d=new Date(),m=d.getMonth(),s=new Date(d.getFullYear(),m+1,0).getDate()-d.getDate()+1<10?m+1:m;'
+    'if((s%12+1)+","+(m+1)!==w)off=true;'
+    'if(off){g.removeAttribute("data-gssr");document.getElementById("guideGrades").innerHTML="";'
+    'var f=document.getElementById("guideFares");f.hidden=true;f.innerHTML="";}})();</script>')
+
+
+def _guide_lines(iso):
+    """A guide's grades line and fares strip for a first visit
+    (fxtracker/guide_lines.py), as tokens, from the caches alone — the
+    payloads the browser fetches: the US advisory list, the USD rates, the
+    PPP table, and the default origin's fares, curves and this country's
+    curve once its warm pass has run. Anything missing: {} (empty, as
+    before)."""
+    hit = _adv_cache.get("us")
+    adv = hit[1] if hit else None
+    rp, ppp = _fx_inputs()
+    if not (adv and rp and ppp):
+        return {}
+    fares = fv = curve = None
+    if flights.is_configured():
+        if not flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN):
+            return {}
+        fh = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
+        fares = fh[1] if fh else None
+        if not fares:
+            return {}
+        fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares)
+        row = next((r for r in fares.get("countries") or [] if r.get("iso") == iso), None)
+        curve = flights.get_country_monthly(flightvalue.DEFAULT_ORIGIN, row, lookup=flights.monthly_cached) \
+            if row else None
+    d = render_guide._load()
+    today = datetime(*time.gmtime()[:3]).date()
+    inputs = {"rates": rp, "ppp": ppp, "climate": d["clim"], "activities": d["acts"],
+              "advisories": adv, "flights": fares, "fv": fv}
+    strip = guide_lines.fares(iso, curve, fv, today, render_guide.name_for_iso) if curve else ""
+    return {"_ATTRS": ' data-gssr="%d,%d"' % (guide_lines.guide_month(today), today.month),
+            "GUIDE_GRADES": guide_lines.grades(iso, inputs, today),
+            "FARES_HIDDEN": "" if strip else " hidden", "GUIDE_FARES": strip,
+            "GUIDE_HOLD": "\n          " + _GUIDE_HOLD}
+
+
 def _warm_popularity():
     """Fetch the tourism figures /api/popularity serves in the background
     (once at a time), so the homepage's Top Picks can be served next render."""
@@ -1540,6 +1600,13 @@ def _render_index(gc_iso=None):
         sz = _guide_sizers(gc_iso, r.get("adv"), no_book)
         vals["GUIDE_DATA"] += sz.pop("_ATTRS", "")
         vals.update(sz)
+        try:
+            gl = _guide_lines(gc_iso)
+        except Exception as e:   # empty, as before: never the page
+            print("[guide-lines] %s %s" % (gc_iso, e), file=sys.stderr, flush=True)
+            gl = {}
+        vals["GUIDE_DATA"] += gl.pop("_ATTRS", "")
+        vals.update(gl)
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
     out = _guide_template() if gc_iso else _index_template()

@@ -451,7 +451,7 @@
           <h1 class="cardtitle" id="guideH1"{{GUIDE_H1_HIDDEN}}>{{GUIDE_H1}}</h1>
           <!-- The grades the share card prints, on the page (renderGuideGrades).
                Static, height reserved in styles.css — the CLS rule. -->
-          <div id="guideGrades" class="guidegrades"></div>
+          <div id="guideGrades" class="guidegrades">{{GUIDE_GRADES}}</div>
           <!-- No subtitle: the one it had named three of the page's ten blocks
                and said "right now" even when another month was chosen. -->
         </div>
@@ -503,7 +503,7 @@
         <div class="farecol loading">
           <!-- Fare-by-month strip: the flights answer to "when should I go".
                Static host (CLS rule); renderGuideFares fills or leaves hidden. -->
-          <div id="guideFares" class="guidefares" hidden></div>
+          <div id="guideFares" class="guidefares"{{FARES_HIDDEN}}>{{GUIDE_FARES}}</div>{{GUIDE_HOLD}}
           <!-- The price level the share card and AI prompt assert, said on the
                page too (renderGuideCost). Own host: the FX line below it is
                empty for a traveller whose currency the country uses. -->

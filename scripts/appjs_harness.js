@@ -74,3 +74,14 @@ function Event() {} function CustomEvent() {}
 var performance = { now: function () { return 0; } };
 var console = { log: function () {}, warn: function () {}, error: function () {}, info: function () {} };
 var Intl = this.Intl;
+// A jsc built without ICU locale data (Ubuntu's libjavascriptcoregtk) groups no
+// digits: (1527).toLocaleString() is "1527" there and "1,527" in the browsers
+// the page runs in (and macOS's jsc). Give it en-US's.
+(function () {
+  if ((1527).toLocaleString() === "1,527") return;
+  Number.prototype.toLocaleString = function () {
+    var n = +this, neg = n < 0, p = String(Math.round(Math.abs(n) * 1000) / 1000).split(".");
+    p[0] = p[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return (neg ? "-" : "") + p.join(".");
+  };
+})();
