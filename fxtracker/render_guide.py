@@ -592,7 +592,10 @@ def render(iso):
     vline = _visa_line(v, d["visa"].get("_verified"))
     if vline:
         p.append(vline)
-    p.append(_insurance_link(slug))
+    # No insurance under Level 4, as app.js renderGuideInsurance and
+    # styles.css (data-level) have it for the default US reader.
+    if _facts(iso, doc).get("adv") != 4:
+        p.append(_insurance_link(slug))
 
     return {
         "iso": iso,
