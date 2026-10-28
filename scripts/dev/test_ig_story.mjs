@@ -1,6 +1,6 @@
 // test_ig_story.mjs — ig_story.mjs's row picking and the frame's wording
 // guards (no network, no browser):  cd scripts/dev && node test_ig_story.mjs
-import { pickRows, safetyFact } from './ig_story.mjs';
+import { pickRows, safetyFact, siteUnsettled } from './ig_story.mjs';
 import { wordingProblems, sidecarText } from './ig_frame.mjs';
 
 let pass = 0, fail = 0;
@@ -34,6 +34,14 @@ test('wording: "safe"/"safest", Airbnb and deadline wording never pass, on a fra
   ok(threw, 'sidecar refuses "safest"');
   const s = sidecarText({ series: 'Top Picks', posting: '2026-10-28', asOf: 'Oct 28, 2026', link: 'https://wandergrade.com/?vmn=11', caption: 'c', notes: ['#1 Thailand: A+ 93'] });
   ok(s.includes('Link sticker URL (exact):\n  https://wandergrade.com/?vmn=11') && s.includes('  - #1 Thailand: A+ 93'), 'sidecar layout');
+});
+
+test('refuses while the site is unsettled: no-store, a non-200 or a failed GET', async () => {
+  const reply = (status, cc) => async () => ({ status, headers: new Headers({ 'cache-control': cc }) });
+  eq(await siteUnsettled(11, reply(200, 'public, max-age=300')), null, 'cached page: settled');
+  ok(/served uncached/.test(await siteUnsettled(11, reply(200, 'no-store'))), 'no-store: refuse');
+  ok(/\/cheapest\/november returned 403/.test(await siteUnsettled(11, reply(403, ''))), 'blocked GET: refuse');
+  ok(/failed/.test(await siteUnsettled(12, async () => { throw new Error('ECONNRESET'); })), 'network failure: refuse');
 });
 
 for (const [name, fn] of tests) {
