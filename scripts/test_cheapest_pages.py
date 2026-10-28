@@ -41,9 +41,10 @@ What it holds the code to:
     state, a new UTC day), no upstream call on the request path with the
     rates, PPP and a list cold (urlopen and the fetchers patched to record
     and raise), the sitemap's 13 URLs at the data's date, llms.txt;
-  * the footer: the homepage's Lists line links both new pages through the
-    {{FOOTER_LISTS}} token, the shell pages always, and every guide renders
-    byte-identical to the same template with the token taken out.
+  * the footer: Cheapest by month, Dollar strength and Privacy linked exactly
+    once in the footer of the homepage, the guides, /data, 404, /privacy and
+    the list pages (index.html's own footer and _shell_page's), with no
+    {{FOOTER_*}} token left to fill.
 """
 import copy
 import html.parser
@@ -669,29 +670,26 @@ results.append(ok(not fetches and all(st == 200 and hd.get("Cache-Control") == "
                   "upstream call on the request path (urlopen, get_advisories, fetch_json, get_flights: %s)"
                   % (fetches or "none")))
 
-# --- the footer: homepage token, shell pages, guides byte-identical ------------------------
-LINKS = ('<a href="/cheapest">Cheapest by month</a>', '<a href="/dollar-strength">Dollar strength</a>')
-st, hd, home = get("/")
-foot = home[home.find("<footer>"):home.find("</footer>")]
-results.append(ok(all(l in foot for l in LINKS) and "{{" not in home, "the homepage footer links both new pages"))
-shell = server._render_404_page("x").decode("utf-8") + server._shell_page("t", "b").decode("utf-8")
-results.append(ok(all(shell.count(l) >= 2 for l in LINKS), "the shell pages' footer links both (404, any shell page)"))
+# --- the footer: both links once on every page, guides included -------------------------------
+# index.html's footer (the homepage and every guide, since the Search Console check of
+# 9 November 2026) and _shell_page's (/data, 404, /privacy and the list pages) each link
+# the two pages exactly once; the list pages' bodies may link them again under See also.
+LINKS = ('<a href="/cheapest">Cheapest by month</a>', '<a href="/dollar-strength">Dollar strength</a>',
+         '<a href="/privacy">Privacy</a>')
 SAMPLE = ["JP", "TH", "PT", "VN", "MX", "FR", "US", "ET", "GG", "GB-ENG", "AQ", "PR", "AR", "EG"]
-guides = {iso: server._render_index(iso).decode("utf-8") for iso in SAMPLE}
-results.append(ok(all("/cheapest" not in g and "/dollar-strength" not in g and "{{FOOTER_LISTS}}" not in g
-                      for g in guides.values()), "no guide carries the links or the bare token"))
-tpl_now, gtpl_now = server._index_template(), server._guide_template()
-try:
-    server._html_tpl = tpl_now.replace("{{FOOTER_LISTS}}", "")
-    server._guide_tpl = None
-    without = {iso: server._render_index(iso).decode("utf-8") for iso in SAMPLE}
-finally:
-    server._html_tpl, server._guide_tpl = tpl_now, gtpl_now
-same = [iso for iso in SAMPLE if without[iso] == guides[iso]]
-results.append(ok(len(same) == len(SAMPLE) and tpl_now.count("{{FOOTER_LISTS}}") == 1
-                  and "Safest cheap countries</a>{{FOOTER_LISTS}} &amp; " in tpl_now,
-                  "every guide is byte-identical to the token-less template's (%d of %d), the token "
-                  "sits in the line with no space of its own" % (len(same), len(SAMPLE))))
+foot = {}
+for p in ("/", "/data", "/privacy", "/safe-and-cheap", "/do-not-travel", "/cheapest", "/cheapest/november",
+          "/dollar-strength", "/guide/japan/x") + tuple("/guide/" + sl for sl, iso in server.render_guide.all_slugs() if iso in SAMPLE):
+    st, hd, body = get(p)
+    foot[p] = (st, body[body.find("<footer>"):body.find("</footer>")], "{{" in body)
+bad = [p for p, (st, f, tok) in foot.items()
+       if st != (404 if p.endswith("/x") else 200) or tok or any(f.count(l) != 1 for l in LINKS)]
+results.append(ok(not bad, "each footer links Cheapest by month, Dollar strength and Privacy exactly once, no bare "
+                  "token: the homepage, %d guides, /data, 404, /privacy and the list pages (%s)"
+                  % (len(SAMPLE), ", ".join(bad) or "all %d pages" % len(foot))))
+tpl_now = server._index_template()
+results.append(ok("{{FOOTER_" not in tpl_now and "FOOTER_" not in open(server.__file__, encoding="utf-8").read(),
+                  "index.html carries the links in its own footer: no FOOTER_ token left to fill"))
 safe = RL.safe_and_cheap(FIX["adv_us"], FIX["adv_ca"], FIX["adv_de"], FACTS, CLIM, {}, {})
 dnt = RL.do_not_travel(FIX["adv_us"], FIX["adv_ca"], FIX["adv_de"])
 results.append(ok(all('href="/cheapest"' in p["html"] and 'href="/dollar-strength"' in p["html"] for p in (safe, dnt)),

@@ -254,19 +254,6 @@ _HTML_DEFAULTS = {
                     '<span style="width:9.2em"></span><span style="width:9.5em"></span>'
                     '<span style="width:8.2em"></span></div>',
     "FLIGHTS_OFF": "",
-    # The footer's link to /privacy, at the end of the commission line: a
-    # homepage-only token, in the footer's own bytes with no space of its own,
-    # so a guide (which fills it with "") stays byte-identical while
-    # /guide/* is under its Search Console measurement (until November 2026).
-    # The shell pages (/data, the lists, 404) carry it in _shell_page. The
-    # no-break space keeps the dot with the link when a phone wraps the line.
-    "FOOTER_PRIVACY": ' &middot;&nbsp;<a href="/privacy">Privacy</a>',
-    # The footer's "Lists:" line gains the month lists and the dollar page on
-    # the homepage only, the same way: a token in the line's own bytes, which a
-    # guide fills with "" so it stays byte-identical (Search Console freeze).
-    # Every shell page carries the two links in _shell_page.
-    "FOOTER_LISTS": ', <a href="/cheapest">Cheapest by month</a>, '
-                    '<a href="/dollar-strength">Dollar strength</a>',
 }
 _html_tpl = None
 
@@ -1444,7 +1431,6 @@ def _render_index(gc_iso=None):
             # and the guides' HTML stays byte-identical to before them.
             ACTIONS_HIDDEN=" hidden",
             VISITED_STATS="", VISITED_PICK="", VISITED_HOLD="",
-            FOOTER_PRIVACY="", FOOTER_LISTS="",
         )
         sz = _guide_sizers(gc_iso, r.get("adv"), no_book)
         vals["GUIDE_DATA"] += sz.pop("_ATTRS", "")

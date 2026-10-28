@@ -27,10 +27,8 @@ What it holds the code to:
   * it names each partner app.js links to with a partner ID, each AI site
     the guide's buttons open, the services accounts.py hands an email to, and
     the one cookie server.py sets;
-  * the footer: the homepage links /privacy; every guide doesn't, and renders
-    byte-identical to the same template with the {{FOOTER_PRIVACY}} token
-    taken out (the Search Console freeze on /guide/* until November 2026);
-    the shell pages (/data, the lists, 404) link it.
+  * the footer: the homepage, every guide, /privacy itself and the shell
+    pages (/data, the lists, 404) link /privacy exactly once in it.
 """
 import html.parser
 import json
@@ -238,23 +236,13 @@ results.append(ok(cookie and cookie[0] in text and SERVER_SRC.count('"Set-Cookie
 
 # --- the footer ---------------------------------------------------------------------------
 LINK = '<a href="/privacy">Privacy</a>'
-foot = home[home.find("<footer>"):home.find("</footer>")]
-results.append(ok(st4 == 200 and LINK in foot and "{{" not in home, "the homepage's footer links /privacy"))
-results.append(ok(all("/privacy" not in g and "{{FOOTER_PRIVACY}}" not in g for g in guides.values()),
-                  "no guide carries the link or the bare token (%s)" % ", ".join(GUIDES)))
-# The same guides from the template with the token taken out: byte for byte.
-tpl_now, gtpl_now = server._index_template(), server._guide_template()
-try:
-    server._html_tpl = tpl_now.replace("{{FOOTER_PRIVACY}}", "")
-    server._guide_tpl = None
-    without = {iso: server._render_index(iso).decode("utf-8") for iso in GUIDES}
-finally:
-    server._html_tpl, server._guide_tpl = tpl_now, gtpl_now
-same = [iso for iso in GUIDES if without[iso] == guides[iso]]
-results.append(ok(len(same) == len(GUIDES) and tpl_now.count("{{FOOTER_PRIVACY}}") == 1,
-                  "every guide is byte-identical to the token-less template's (%d of %d)" % (len(same), len(GUIDES))))
-results.append(ok(LINK in shell and LINK in server._render_404_page("x").decode("utf-8"),
-                  "the shell pages' footer (/data, the lists, 404) links /privacy"))
+footer = lambda doc: doc[doc.find("<footer>"):doc.find("</footer>")]
+docs = dict({"/": home, "/privacy": served, "a shell page": shell,
+             "404": server._render_404_page("x").decode("utf-8")}, **guides)
+bad = [k for k, doc in docs.items() if footer(doc).count(LINK) != 1 or "{{" in doc]
+results.append(ok(st4 == 200 and not bad,
+                  "the footer links /privacy exactly once, no bare token: the homepage, /privacy, the shell "
+                  "pages (/data, the lists, 404) and the guides %s (%s)" % (", ".join(GUIDES), ", ".join(bad) or "all")))
 
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)
