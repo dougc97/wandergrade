@@ -3185,6 +3185,9 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .listtable td.name { display: block; font-weight: 800; font-size: 15.5px; padding-bottom: 4px; }
 .listtable td.name::before { content: none; }
 .listtable td.num { display: none; }
+/* The rank rides in the name cell below 1024px, where the # column is hidden
+   (render_lists, render_cheapest, render_strength: <span class="rk">N.</span>). */
+.listtable .rk { color: var(--gray); font-weight: 700; margin-right: 2px; }
 @media (min-width: 520px) and (max-width: 1023px) {
   .listtable tbody tr { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
   .listtable td.name { grid-column: 1 / -1; }
@@ -3204,6 +3207,7 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
   .listtable th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .02em;
     color: var(--gray); padding: 9px 8px; background: var(--tablehead); }
   .listtable .chips { display: flex; }
+  .listtable .rk { display: none; }
   /* Nine columns (once the dollar column is cached) ran to 1285px inside a
      box of at most 1158px, and the base overflow: hidden cut the Health notes
      off at every desktop width. Headers and names wrap (no nowrap above) so
@@ -3243,14 +3247,12 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 
 /* /cheapest */
 /* The month lists (fxtracker/render_cheapest.py) in the list pages' look:
-   the rank rides in the name on a phone, where the # column is hidden, and
-   the State Department's words may wrap inside their pill there. */
+   the rank rides in the name on a phone (.listtable .rk), and the State
+   Department's words may wrap inside their pill there. */
 .cheap .monthnav { font-size: 14px; margin: 2px 0 6px; }
-.cheap .rk { color: var(--gray); font-weight: 700; margin-right: 2px; }
 .cheap .lvl { white-space: normal; line-height: 1.35; border-radius: 9px; }
 .cheap .gr { min-width: 24px; padding: 1px 6px; font-size: 12px; vertical-align: 1px; margin-right: 2px; }
 .cheap .fvband { min-width: 0; padding: 1px 7px; font-size: 11.5px; margin-left: 2px; }
 @media (min-width: 1024px) {
-  .cheap .rk { display: none; }
   .cheap .listtable td.num { width: 2em; }
 }

@@ -489,9 +489,10 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
                 RL._cell("Before inflation", signed_pct(row["nominal"])),
                 RL._cell("After inflation", _after(row, ppp)),
                 RL._cell("Prices vs US", _prices(row, ppp))))
-        counts = ('<p class="sub"><strong>%d</strong> currencies, the strongest dollar after inflation first: '
-                  '<strong>%d</strong> are stronger than usual <span class="dstip" title="%s">ⓘ</span></p>'
-                  % (len(ranked), strong, html.escape(
+        counts = ('<p class="sub"><strong>%d</strong> %s, the strongest dollar after inflation first: '
+                  '<strong>%d</strong> %s stronger than usual <span class="dstip" title="%s">ⓘ</span></p>'
+                  % (len(ranked), RL._plural(len(ranked), "currency", "currencies"), strong,
+                     RL._plural(strong, "is", "are"), html.escape(
                       "At least %s%% above its 1-year average before inflation, and still ahead after the "
                       "inflation gap between the two countries — the Currency tab's green rows."
                       % js_fixed((rates_payload or {}).get("threshold_pct", 2.0), 0), quote=True)))
@@ -540,11 +541,12 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
     if ranked:
         top = ranked[0]
         top_name = place_name(top["iso"], ppp) if top["iso"] and top["code"] not in CUR_SUPRA_FLAG else top["name"]
+        cn = RL._plural(len(ranked), "currency", "currencies")
         desc = RL._fit([
-            "%d currencies ranked by the US dollar's move vs its 1-year average after inflation: %d stronger than "
-            "usual, %s first at %s. As of %s." % (len(ranked), strong, top_name, signed_pct(top["real"]), day),
-            "%d currencies ranked by the US dollar's move vs its 1-year average after inflation; %d stronger than "
-            "usual. As of %s." % (len(ranked), strong, day)], DESC_MAX)
+            "%d %s ranked by the US dollar's move vs its 1-year average after inflation: %d stronger than "
+            "usual, %s first at %s. As of %s." % (len(ranked), cn, strong, top_name, signed_pct(top["real"]), day),
+            "%d %s ranked by the US dollar's move vs its 1-year average after inflation; %d stronger than "
+            "usual. As of %s." % (len(ranked), cn, strong, day)], DESC_MAX)
     else:
         desc = RL._fit(["Where the US dollar goes furthest right now: every currency ranked by its move vs its "
                         "1-year average after inflation, with local prices vs the US."], DESC_MAX)

@@ -223,6 +223,32 @@ results.append(ok('<span class="hnote">Dengue</span><span class="hnote" title="i
                   "Canada's health notes where the document has them, areas marked"))
 results.append(ok("Dollar vs 1-yr avg" in S["html"] and re.search(r'data-l="Dollar vs 1-yr avg"><span class="v">[+-]\d+\.\d%<', vn),
                   "the inflation-adjusted dollar column from the cached rates"))
+# The dollar column as app.js signedPct prints it (a true minus, "0.0%" unsigned), and a
+# country with no inflation figure (Turkmenistan: TMT pegged, no "infl") ‡-marked with the
+# /dollar-strength note's words: its figure is the exchange-rate move alone.
+SX = RL.safe_and_cheap(US, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED,
+                       fx=dict(fx, TMT=0.0), ppp=ppp, today=TODAY)
+cell = lambda page, slug: re.search(r'<tr>.*?/guide/%s.*?data-l="Dollar vs 1-yr avg"><span class="v">(.*?)</span></td>'
+                                    % slug, page["html"], re.S).group(1)
+results.append(ok(cell(SX, "bhutan") == "\u22122.5%" and cell(SX, "vietnam").startswith("+")
+                  and "%+." not in SX["html"] and not re.search(r'data-l="Dollar vs 1-yr avg"><span class="v">-', SX["html"]),
+                  "the dollar column's minus is U+2212: Bhutan %r" % cell(SX, "bhutan")))
+results.append(ok(cell(SX, "turkmenistan").endswith('>0.0%</span><sup class="fn">‡</sup>')
+                  and "No inflation figure for Turkmenistan" in cell(SX, "turkmenistan")
+                  and RL.NO_INFL_NOTE in SX["html"] and RL.NO_INFL_NOTE not in S["html"]
+                  and "‡" not in cell(SX, "vietnam") and SX["html"].count("‡") == 2,
+                  "Turkmenistan (no inflation figure): \"0.0%‡\", never \"+0.0%\" as if after inflation, and the "
+                  "‡ note; no mark or note where every figure is adjusted"))
+# The rank rides in the name on a phone card, where # is hidden (as /cheapest's .rk).
+results.append(ok(re.search(r'<td class="name" data-l="Country"><span class="rk">1\.</span> \S+ <a href="/guide/bhutan"', S["html"])
+                  and re.search(r'<span class="rk">4\.</span> \S+ <a href="/guide/portugal"', S["html"])
+                  and re.search(r'<span class="rk">1\.</span> \S+ <a href="/guide/albania"', S["html"]),
+                  "each row's rank rides in its name cell, both tables"))
+css = open(os.path.join(ROOT, "public", "styles.css"), encoding="utf-8").read()
+wide = css[css.index("  .listtable thead { display: table-header-group; }"):]
+results.append(ok(".listtable .rk { color: var(--gray)" in css
+                  and "  .listtable .rk { display: none; }" in wide[:wide.index("\n}\n")],
+                  "CSS: the card rank shows on every list table below 1024px and hides where # shows"))
 S2 = RL.safe_and_cheap(US, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
 results.append(ok("Dollar vs 1-yr avg" not in S2["html"] and S2["counts"] == S["counts"],
                   "without cached rates the dollar column is left out, nothing else changes"))
@@ -314,6 +340,32 @@ SF = RL.safe_and_cheap(US_FUT, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED
 results.append(ok(newest_ok and RL._newest(RL.own_by_iso(US_FUT)) == "2026-12-02"
                   and all("2 Dec 2026" not in p["html"] and "newest advisory dated" in p["html"] for p in (DF, SF)),
                   "a future-dated feed item is not the newest advisory on either page (today caps it; no today: no cap)"))
+
+# --- one of a kind: the counts read in the singular ------------------------------------
+S1 = RL.safe_and_cheap(US, CA, DE, {"_asof": FACTS["_asof"], "BT": FACTS["BT"], "AL": FACTS["AL"]},
+                       CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+D1 = RL.do_not_travel(payload("us", [item("AF", 4, "us"), item("CO", 3, "us")]),
+                      payload("ca", [item("AF", 4, "ca"), item("CO", 2, "ca")]),
+                      payload("de", [item("AF", 4, "de")]), fetched=FETCHED, today=TODAY)
+results.append(ok("<strong>1</strong> country qualifies today, cheapest first; it is also at the lowest level for "
+                  "Canada and Germany." in S1["html"]
+                  and "<strong>1</strong> country under 50% of US prices" in S1["html"]
+                  and S1["desc"].startswith("1 country at US")
+                  and "<strong>1</strong> country is “do not travel”" in D1["html"]
+                  and "A further <strong>1</strong> is “reconsider travel”" in D1["html"]
+                  and D1["desc"].startswith("1 country rated")
+                  and "<strong>4</strong> countries qualify today" in S["html"]
+                  and "<strong>2</strong> of them are also" in S["html"]
+                  and "<strong>4</strong> countries are “do not travel”" in D["html"],
+                  "one country is \"1 country qualifies\" / \"1 country is\" / \"A further 1 is\", never \"1 countries\""))
+from fxtracker import render_strength as RS  # noqa: E402
+P1 = RS.dollar_strength({"as_of": "2026-10-06", "threshold_pct": 2.0,
+                         "rows": [{"code": "VND", "strength_pct": 4.0, "favorable": True, "rate_now": 26000.0}]},
+                        ppp, today=TODAY)
+results.append(ok("<strong>1</strong> currency, the strongest dollar after inflation first: <strong>1</strong> is "
+                  "stronger than usual" in P1["html"] and P1["desc"].startswith("1 currency ranked"),
+                  "/dollar-strength: \"1 currency … 1 is stronger than usual\": %r"
+                  % re.search(r'<p class="sub">.*?</p>', P1["html"]).group(0)[:140]))
 
 # --- no "None", no forbidden names, on both pages' full output --------------------------
 results.append(ok(all(" None" not in p["html"] and ">None<" not in p["html"] for p in (S, S3, S4, S5, S6, S7, D, D2, D3, D4)),
