@@ -46,11 +46,13 @@ export function pickRows(rows, n = 5) {
 // restart, the server sends /cheapest/<month> uncached (no-store) and the
 // homepage's grades shift from minute to minute: a frame then would carry
 // numbers that change. Returns why not to render, or null when settled.
+// The ?cb= query bypasses Cloudflare, which keeps a settled copy of the plain
+// URL for up to 5 minutes (max-age=300) after the server behind it restarts.
 // fetchFn is injectable for the tests.
 export async function siteUnsettled(month, fetchFn = fetch) {
   const url = `${SITE}/cheapest/${MONTHS[month - 1].toLowerCase()}`;
   let r;
-  try { r = await fetchFn(url); } catch (e) { return `GET ${url} failed (${(e.cause && e.cause.code) || e.message})`; }
+  try { r = await fetchFn(`${url}?cb=${Date.now()}`); } catch (e) { return `GET ${url} failed (${(e.cause && e.cause.code) || e.message})`; }
   if (r.body && r.body.cancel) await r.body.cancel().catch(() => {});
   if (r.status !== 200) return `GET ${url} returned ${r.status}`;
   if (/no-store/i.test(r.headers.get('cache-control') || '')) {

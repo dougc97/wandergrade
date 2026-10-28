@@ -42,6 +42,9 @@ test('refuses while the site is unsettled: no-store, a non-200 or a failed GET',
   ok(/served uncached/.test(await siteUnsettled(11, reply(200, 'no-store'))), 'no-store: refuse');
   ok(/\/cheapest\/november returned 403/.test(await siteUnsettled(11, reply(403, ''))), 'blocked GET: refuse');
   ok(/failed/.test(await siteUnsettled(12, async () => { throw new Error('ECONNRESET'); })), 'network failure: refuse');
+  let asked = '';
+  await siteUnsettled(11, async (u) => { asked = u; return { status: 200, headers: new Headers({ 'cache-control': 'public' }) }; });
+  ok(/\/cheapest\/november\?cb=\d+$/.test(asked), 'bypasses the CDN cache: ' + asked);
 });
 
 for (const [name, fn] of tests) {
