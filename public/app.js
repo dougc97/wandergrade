@@ -3661,10 +3661,14 @@ function renderWatchouts(iso) {
     const tabLink = ' <button type="button" class="linkbtn wotab">full picture → Safety tab</button>';
     // chips already arrives wrapped in .wochips — wrapping again indented the
     // chip row differently from every other line in the block.
+    // Canada's 📍 lines follow a heading naming Canada: drawn straight under
+    // the State Department's quote they read as its words, and "nothing
+    // unusual for a Level 1 country (per Global Affairs Canada)" paired the
+    // US level with Canada and judged safety in the site's own words.
     host.innerHTML = calm
-      ? reg + '<details class="wofold"><summary>🧭 Safety notes ('
-        + w.watchouts.length + ") — nothing unusual for a Level " + lvl
-        + " country " + srcNote + "</summary>" + chips + "</details>"
+      ? (reg ? '<span class="wohead">Regional advice ' + srcNote + "</span>" + reg : "")
+        + '<details class="wofold"><summary>🧭 Safety notes (' + w.watchouts.length + ")"
+        + (reg ? "" : " " + srcNote) + "</summary>" + chips + "</details>"
       : '<span class="wohead">Safety notes ' + srcNote + "</span>"
         + chips + reg
         + '<span class="advsrcnote">' + tabLink.trim() + "</span>";
