@@ -1,18 +1,15 @@
-// ig_frame.mjs — the shared 1080x1920 Instagram-story frame for ig_story.mjs,
-// ig_cheapest.mjs and ig_quiz.mjs, so every series looks the same: a dark
-// gradient, Plus Jakarta Sans 800, big rounded cards and the site's own .gr
-// grade pills, drawn INSIDE a server-rendered page of the live site so its
+// ig_frame.mjs — the 1080x1920 Instagram-story frame ig_story.mjs draws: a
+// dark gradient, Plus Jakarta Sans 800, big rounded cards and the site's own
+// .gr grade pills, drawn INSIDE a server-rendered page of the live site so its
 // CSS variables, pills and self-hosted font apply.
 //
 // Safe areas: Instagram's own UI covers roughly the top 250px (progress bars,
-// name) and the bottom 280px (reply bar): no text of ours goes there. Sticker
-// spots (poll, quiz, slider, link) are empty .igband boxes inside the safe
-// area; checkLayout() fails a frame whose text enters one, leaves the safe
-// area or is clipped. Nothing is posted anywhere: the output is PNG files.
+// name) and the bottom 280px (reply bar): no text of ours goes there. The link
+// sticker's spot is an empty .igband box inside the safe area; renderFrame()
+// fails a frame whose text enters it, leaves the safe area or is clipped.
+// Nothing is posted anywhere: the output is PNG files.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { wordingProblems } from './ig_data.mjs';
 
 export const W = 1080, H = 1920, SAFE_TOP = 250, SAFE_BOTTOM = 280, SIDE = 72;
 
@@ -23,16 +20,10 @@ export const FRAME_CSS = `
     font-family: "Plus Jakarta Sans", system-ui, sans-serif; display: flex; flex-direction: column; line-height: 1.3; }
   #igstory * { box-sizing: border-box; }
   #igstory .igbrand { font-weight: 800; font-size: 40px; color: #2bb24c; letter-spacing: -.01em; }
-  #igstory .igkick { font-weight: 800; font-size: 30px; letter-spacing: .02em; text-transform: uppercase; opacity: .6; margin-top: 18px; }
   #igstory .igh1 { font-weight: 800; font-size: 82px; line-height: 1.02; letter-spacing: -.025em; margin: 22px 0 14px; }
-  #igstory .igh1.m { font-size: 66px; line-height: 1.06; }
-  #igstory .igh1.s { font-size: 56px; line-height: 1.08; }
   #igstory .igsub { font-size: 29px; line-height: 1.35; opacity: .72; margin-bottom: 36px; max-width: 900px; }
   #igstory .igc { display: flex; align-items: center; gap: 26px; background: var(--card); border: 1px solid var(--line, rgba(255,255,255,.08));
     border-radius: 26px; padding: 24px 30px; margin-bottom: 16px; }
-  #igstory .igc.col { flex-direction: column; align-items: stretch; gap: 14px; }
-  #igstory .igc.win { border: 3px solid #2bb24c; }
-  #igstory .igrow { display: flex; align-items: center; gap: 26px; }
   #igstory .igrank { font-weight: 800; font-size: 34px; opacity: .45; width: 64px; }
   #igstory .igflag { font-size: 64px; line-height: 1; }
   #igstory .igmain { flex: 1; min-width: 0; }
@@ -41,26 +32,9 @@ export const FRAME_CSS = `
   /* ig_story's one-line names and two-line why-lines: truncated on purpose (renderFrame's allowClip) */
   #igstory .igname.clip { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #igstory .igwhy.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  #igstory .green { color: #2bb24c; }
-  #igstory .igfacts { font-size: 27px; line-height: 1.4; }
-  #igstory .igfacts div { opacity: .85; }
-  #igstory .igfacts b { font-weight: 800; opacity: 1; }
   #igstory .igpill { display: flex; align-items: center; gap: 14px; }
   #igstory .igpill .gr { font-size: 40px; min-width: 100px; height: 80px; line-height: 80px; border-radius: 20px; padding: 0 16px; font-weight: 800; }
-  #igstory .igpill.big .gr { font-size: 72px; min-width: 170px; height: 140px; line-height: 140px; border-radius: 32px; }
   #igstory .igscore { font-weight: 800; font-size: 34px; opacity: .6; min-width: 56px; text-align: right; }
-  #igstory .igpill.big .igscore { font-size: 56px; }
-  #igstory .igchips { display: flex; flex-wrap: wrap; gap: 14px; }
-  #igstory .igchip { background: var(--card); border: 1px solid var(--line, rgba(255,255,255,.08)); border-radius: 999px;
-    padding: 14px 28px; font-size: 30px; font-weight: 700; line-height: 1.25; }
-  #igstory .igbig { font-weight: 800; font-size: 200px; line-height: 1; letter-spacing: -.04em; margin: 10px 0 18px; }
-  #igstory .igbig.pos { color: #3fb95f; } #igstory .igbig.neg { color: #ff9f6b; }
-  #igstory .igquote { font-size: 27px; line-height: 1.4; opacity: .8; }
-  #igstory .iggrid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-  #igstory .iggrid .igc { flex-direction: column; justify-content: center; gap: 10px; margin: 0; padding: 30px 20px; text-align: center; }
-  #igstory .iggrid .igflag { font-size: 110px; }
-  #igstory .iggrid .igname { font-size: 40px; }
-  #igstory .igval { font-weight: 800; font-size: 54px; }
   #igstory .igband { flex-shrink: 0; }   /* a sticker's spot: kept clear on purpose */
   #igstory .igspace { margin-top: auto; }
   #igstory .igfoot { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px; font-size: 26px; opacity: .72; }
@@ -71,14 +45,14 @@ export const FRAME_CSS = `
 `;
 
 export const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-// A clear sticker band. kind: poll | quiz | slider | link; h in px.
+// A sticker's clear spot (kind: link), h px tall.
 export const band = (kind, h) => `<div class="igband" data-band="${kind}" style="height:${h}px"></div>`;
 export const brand = () => '<div class="igbrand">🌍 WanderGrade</div>';
-// The footer every frame carries: the site on the left, "As of <date>" (and any caveat) on the right.
+// The footer every frame carries: the site on the left, "As of <date>" on the right.
 export const foot = (asOfLine, left = 'Tap the link · free, no sign-up') =>
   `<div class="igfoot"><div><b>wandergrade.com</b><br><small>${esc(left)}</small></div><div class="r"><small>${esc(asOfLine)}</small></div></div>`;
-export const pill = (cls, grade, score, big = false) =>
-  `<div class="igpill${big ? ' big' : ''}"><span class="${esc(cls)}">${esc(grade)}</span>${score != null ? `<span class="igscore">${esc(score)}</span>` : ''}</div>`;
+export const pill = (cls, grade, score) =>
+  `<div class="igpill"><span class="${esc(cls)}">${esc(grade)}</span>${score != null ? `<span class="igscore">${esc(score)}</span>` : ''}</div>`;
 
 // ---- the browser side -------------------------------------------------------------
 
@@ -114,19 +88,6 @@ export async function openCanvas(t, url) {
   throw new Error('Plus Jakarta Sans 800 never loaded on ' + url);
 }
 
-// Is a flag drawn as a colour emoji (not two letters)? Draws it on a canvas
-// and looks for coloured pixels: letters in black have none.
-export async function flagCheck(evaluate, flag) {
-  return evaluate(`(() => {
-    const c = document.createElement('canvas'); c.width = 120; c.height = 120; const x = c.getContext('2d');
-    x.fillStyle = '#000'; x.font = '96px "Plus Jakarta Sans", system-ui, sans-serif'; x.textBaseline = 'top';
-    x.fillText(${JSON.stringify(flag)}, 4, 4);
-    const d = x.getImageData(0, 0, 120, 120).data; let col = 0;
-    for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 0 && Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]) > 40) col++;
-    return { flag: ${JSON.stringify(flag)}, colouredPixels: col, emoji: col > 200 };
-  })()`);
-}
-
 // Text inside the safe area and the side margins, never in a sticker band,
 // never outside its card, never clipped; the panel itself never taller than 1920.
 const CHECK = (allowClip) => `(() => {
@@ -138,7 +99,7 @@ const CHECK = (allowClip) => `(() => {
   while ((n = w.nextNode())) {
     if (!n.textContent.trim() || n.parentElement.closest('style')) continue;
     const rg = document.createRange(); rg.selectNodeContents(n);
-    const card = n.parentElement.closest('.igc, .igchip');
+    const card = n.parentElement.closest('.igc');
     const cr = card && card.getBoundingClientRect();
     for (const r of rg.getClientRects()) {
       if (!r.width) continue; texts++;
@@ -163,7 +124,7 @@ const CHECK = (allowClip) => `(() => {
 
 // Draws one frame over the canvas page and writes a 1080x1920 PNG. A frame
 // that breaks the layout rules or the wording rules is not written. `css`:
-// a series' own additions after FRAME_CSS.
+// additions after FRAME_CSS.
 export async function renderFrame(t, { html, out, allowClip = null, css = '' }) {
   const { send, evaluate, setSize, sleep } = t;
   await setSize(W, H, false);
@@ -200,21 +161,24 @@ export function pngSize(file) {
   return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
 }
 
-// ---- the sidecar ----------------------------------------------------------------------
+// ---- wording and the sidecar ---------------------------------------------------------------
 
-// The text file Doug types stickers from: posting date, "as of" date, the
-// exact link-sticker URL, the poll/quiz question with its options and answer,
-// a one-line caption, and any notes. Same wording rules as the frames.
-export function sidecarText({ series, posting, asOf, link, sticker, caption, frames = [], notes = [] }) {
+// The site never writes its own safety claims, and there's no Airbnb anywhere:
+// any of these words on a frame or in a sidecar stops the run.
+export function wordingProblems(s) {
+  const out = [];
+  if (/\bsafe(st|r)?\b/i.test(s)) out.push('the word "safe"/"safest"');
+  if (/airbnb/i.test(s)) out.push('Airbnb');
+  if (/last chance|deadline|hurry|before it'?s gone/i.test(s)) out.push('deadline wording');
+  return out;
+}
+
+// The text file beside the PNG: posting date, "as of" date, the exact
+// link-sticker URL, a one-line caption and any notes. Same wording rules as the frames.
+export function sidecarText({ series, posting, asOf, link, caption, frames = [], notes = [] }) {
   const L = [`WanderGrade story: ${series}`, `Posting date: ${posting}`, `As of: ${asOf}`, ''];
   if (frames.length) L.push('Frames, in order:', ...frames.map((f, i) => `  ${i + 1}. ${f}`), '');
   if (link) L.push('Link sticker URL (exact):', `  ${link}`, '');
-  if (sticker) {
-    L.push(`${sticker.kind} sticker${sticker.frame ? ` (frame ${sticker.frame})` : ''}:`, `  Question: ${sticker.question}`);
-    (sticker.options || []).forEach((o, i) => L.push(`  Option ${i + 1}: ${o}`));
-    if (sticker.answer != null) L.push(`  Correct answer: ${sticker.answer}`);
-    L.push('');
-  }
   if (caption) L.push('Caption:', `  ${caption}`, '');
   if (notes.length) L.push('Notes:', ...notes.map((n) => `  - ${n}`), '');
   L.push('Nothing here was posted or scheduled. Post by hand.');
@@ -228,6 +192,3 @@ export function writeSidecar(file, fields) {
   fs.writeFileSync(file, sidecarText(fields));
   return file;
 }
-
-// Where output goes: OUT_DIR, else scripts/dev/shots/ig/ (gitignored).
-export const outDir = () => path.resolve(process.env.OUT_DIR || path.join(path.dirname(fileURLToPath(import.meta.url)), 'shots', 'ig'));

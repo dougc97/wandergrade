@@ -52,6 +52,11 @@ export default async (t) => {
   const { send, evaluate, setSize, nav, sleep, errs } = t;
   await setSize(1280, 900, false);
   await blockBeacon(send);
+  // app.js counts each score up from 0 over 650ms after every re-render
+  // (countUp), so a read mid-count got 92 for a 93. With reduced motion asked
+  // for, it skips the count and the number shown is the final one.
+  const rm = await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+  if (rm.error) throw new Error('reduced-motion emulation failed: ' + JSON.stringify(rm.error));
   // No vmn=/vo= in the URL: with both set the page stopped answering CDP in
   // headless Chrome (probe 2026-10-09). The ranking loads for the current
   // month and the locale's origin; a different month is picked through the
@@ -68,7 +73,9 @@ export default async (t) => {
         const adv = tr.querySelector('td[data-go="advisory"] .gr');
         return { rank: i + 1, iso: tr.dataset.iso, flag: flag.trim(), name: link.textContent.replace(flag, '').trim(),
                  grade: pill ? pill.textContent.trim() : '', gradeCls: pill ? pill.className : 'gr',
-                 score: (tr.querySelector('td.overall .grnum') || {}).textContent || '',
+                 // The pill's title ("Overall value score 93/100") is never animated.
+                 score: ((pill && pill.getAttribute('title') || '').match(/value score (\\d+)\\/100/) || [])[1] || '',
+                 shown: (tr.querySelector('td.overall .grnum') || {}).textContent || '',
                  why: tr.getAttribute('title') || '', advTitle: adv ? adv.getAttribute('title') || '' : '',
                  advLetter: adv ? adv.textContent.trim() : '' };
       });
@@ -104,6 +111,9 @@ export default async (t) => {
   for (const r of skipped) console.log(`skipped #${r.rank} ${r.name}: safety pill "${r.advLetter}" (${r.advTitle}), not Level 1-2`);
   if (!picked.length) { console.log('REFUSED: no Level 1-2 country in the top', rows.length); return; }
   rows = picked;
+  // The number on the frame is the pill's; the one on screen must agree.
+  const off = rows.filter((r) => !r.score || r.score !== r.shown);
+  if (off.length) { console.log('REFUSED: score mismatch', off.map((r) => `${r.name} title ${r.score} vs shown ${r.shown}`).join('; ')); return; }
   const origin = await evaluate(`(() => (document.getElementById('valueOrigin') || {}).value || '')()`);
   const month = await evaluate(`(() => (document.getElementById('valueMonth') || {}).value || '')()`);
   console.log('origin', origin, 'month', month, 'rows', rows.map((r) => `${r.name} ${r.grade} ${r.score}`).join(' | '));
