@@ -2923,7 +2923,10 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    second rule for a browser without :has(): all but the block's margin). */
 #tab-guide[data-level="4"] #guideInsurance:has(> .gsizer) { display: none; }
 #tab-guide[data-level="4"] #guideInsurance > .gsizer { display: none; }
-.besthead .gh2 { margin: 0; font-size: 18px; font-weight: 800; }   /* the chart stand-in's h2 */
+.besthead .gh2 { margin: 0; font-size: 18px; font-weight: 700; }   /* the chart stand-in's h2 */
+/* "Best time to visit" stays 700 for now (its stand-in, this h2 and their
+   held heights belong to the climate rework on another branch). */
+#bestDetail .besthead h2 { font-weight: 700; }
 #guideVisa:empty { min-height: 40px; }
 #guideSafety:is(:empty, .filling) { min-height: 168px; }
 /* No government rates it (Western Sahara, the French Southern Territories:
