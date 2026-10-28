@@ -8985,11 +8985,16 @@ let travelMonthChosen = false;
 // the one every tab reads), except an unchosen default after the 15th, which
 // shows next month. Display only — nothing is written back (Top Picks keeps
 // ranking the travel month) until the reader picks here.
+// The advance is from the calendar month (map_picks.month_key, the stand-in's
+// rule): under "Any time" travelMonth() is already the window's first month,
+// which skips a month's last days, and advancing that again opened December
+// on Oct 28. A row the reader opened (flexFocusMonth) shows its own month.
 function flightMonthNum(now) {
   ensureMonthOptions();
   const vm = travelMonth();
-  if (travelMonthChosen || (now || new Date()).getDate() <= 15) return vm;
-  return vm % 12 + 1;
+  if (travelMonthChosen || flexFocusMonth) return vm;
+  const m = curMonth();
+  return (now || new Date()).getDate() <= 15 ? m : m % 12 + 1;
 }
 // A month number as a departure month key: its NEXT occurrence, the guide
 // chart's rule. The server's own 12-month window wins when present, so a
