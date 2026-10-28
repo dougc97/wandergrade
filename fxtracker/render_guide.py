@@ -249,6 +249,11 @@ def _months_ranges(best):
 TITLE_MAX = 60
 DESC_MAX = 155
 
+# A second name people search a country by, given once in its description:
+# "Turkey (Türkiye)". The name stays Turkey everywhere else — the title, the
+# h1, country-names.json and the footer index on every guide (Doug, 2026-10).
+ALSO_NAMED = {"TR": "Türkiye"}
+
 
 # The cost clause after the question, longest first. "Costs", not "Prices":
 # "<country> travel cost" is the query, and it is a character shorter. "Travel"
@@ -315,24 +320,28 @@ def _desc(iso, f, asof):
     src = f.get("src")
     has_p = f.get("pct") is not None
 
-    def build(ranges=False, words=True, band=True):
+    def build(ranges=False, words=True, band=True, aka=True):
         # No "(very cheap)" beside "Do not travel": a bargain verdict is the
         # wrong thing to say about a place the government says to stay out of.
         band = band and lvl != 4
+        # Each rung names the country once (P's label, else B's sentence):
+        # there, and only there, the second name (ALSO_NAMED).
+        n_, nt_ = (("%s (%s)" % (x, ALSO_NAMED[iso]) for x in (n, nt)) if aka and iso in ALSO_NAMED
+                   else (n, nt))
         P = None
         if has_p:
             extra = ([f["band"]] if band and f.get("band") else []) + (
                 ["%s-wide figure" % ("UK" if f.get("plof") == "GB" else d["names"].get(f["plof"], f["plof"]))]
                 if f.get("plof") else [])
             P = "%s: local prices ≈ %d%% of the US%s." % (
-                n, f["pct"], (" (%s)" % "; ".join(extra)) if extra else "")
+                n_, f["pct"], (" (%s)" % "; ".join(extra)) if extra else "")
         B = None
         if best:
             mt = _months_ranges(best) if ranges else _join_and(MON_FULL[m - 1] for m in best)
             if P:
                 B = ("Best months to visit: %s." if curated else "Best weather: %s.") % mt
             else:
-                B = ("Best months to visit %s: %s." if curated else "Best weather in %s: %s.") % (nt, mt)
+                B = ("Best months to visit %s: %s." if curated else "Best weather in %s: %s.") % (nt_, mt)
         S = None
         if lvl:
             if src == "de":
@@ -346,12 +355,14 @@ def _desc(iso, f, asof):
         return " ".join(core)
 
     # Cumulative rungs until it fits: month ranges, then the level words for
-    # Levels 1-2, then the band, then Level 3's words. "Do not travel" stays.
+    # Levels 1-2, then the band, then Level 3's words, then the second name.
+    # "Do not travel" stays.
     lv = lvl or 0
     s = ""
     for opts in (dict(), dict(ranges=True), dict(ranges=True, words=lv >= 3 or src == "de"),
                  dict(ranges=True, words=lv >= 3 or src == "de", band=False),
-                 dict(ranges=True, words=lv >= 4 or src == "de", band=False)):
+                 dict(ranges=True, words=lv >= 4 or src == "de", band=False),
+                 dict(ranges=True, words=lv >= 4 or src == "de", band=False, aka=False)):
         s = build(**opts)
         if len(s) <= DESC_MAX:
             break

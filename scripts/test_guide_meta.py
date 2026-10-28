@@ -16,6 +16,9 @@ What it holds the code to:
   * names that take "the" have it inside every sentence, on both sides;
   * Level 3/4 titles ask "safe?", Level 4 never "cheap?" or "(very cheap)";
   * descriptions never end mid-phrase;
+  * Turkey's description names it "Turkey (Türkiye)" once on every rung that
+    fits (render_guide.ALSO_NAMED), the served page nowhere else, and no other
+    guide, title or h1 says Türkiye;
   * no guide carries FAQPage JSON-LD (its questions were never visible on the
     page, which Google requires; FAQ rich results are gov/health-only since
     2023) and the homepage keeps its WebSite block; the staleness guard drops
@@ -309,6 +312,30 @@ try:
                       "past 90 days a guide's lastmod moves to the day its figures dropped out"))
 finally:
     GF.get_doc = real_get_doc
+
+# --- Turkey (Türkiye): the second name, once, in the description only ----------------
+# render_guide.ALSO_NAMED. Every rung of the ladder (Levels 1-3, fresh and
+# number-free) names the country exactly once, as "Turkey (Türkiye)", within DESC_MAX;
+# the served /guide/turkey has it in its description and nowhere else; no other guide
+# says Türkiye in its title, description or h1; the name itself stays Turkey.
+AKA = "Turkey (T\u00fcrkiye)"
+rungs = [rg._desc("TR", dict(facts["TR"], adv=lv), asof) for lv in (None, 1, 2, 3)] + \
+        [rg._desc("TR", {}, None), rg.meta("TR")["desc"], facts["TR"]["d"], facts["TR"]["dn"]]
+# A rung that can't fit it (a Level 4 Turkey: 159) drops the second name, not the limit.
+lv4 = rg._desc("TR", dict(facts["TR"], adv=4), asof)
+results.append(ok(len(lv4) <= rg.DESC_MAX and lv4.count("Turkey") == 1 and "Do not travel" in lv4,
+                  "a Level 4 Turkey drops the second name to fit: %s" % lv4))
+results.append(ok(all(r.count(AKA) == 1 and r.count("Turkey") == 1 and len(r) <= rg.DESC_MAX for r in rungs),
+                  "every TR description rung names it once as %r, within %d: %s" % (AKA, rg.DESC_MAX, rungs[6])))
+tr_page = server._render_index("TR").decode("utf-8")
+tr_desc = re.search(r'<meta name="description" content="([^"]*)"', tr_page).group(1)
+results.append(ok(AKA in html.unescape(tr_desc)
+                  and tr_page.count("T\u00fcrkiye") == len(re.findall(r'<meta (?:name|property)="(?:og:|twitter:)?description"', tr_page)),
+                  "/guide/turkey: Türkiye only in its description (and that description's og/twitter copies)"))
+results.append(ok(R["TR"]["title"] == facts["TR"]["t"] and "T\u00fcrkiye" not in R["TR"]["title"] + rg.h1_html("TR")
+                  and names.get("TR") == "Turkey" and rg.name_in_text("TR") == "Turkey"
+                  and not [i for i in guides if i != "TR" and "T\u00fcrkiye" in R[i]["title"] + R[i]["desc"] + rg.h1_html(i)],
+                  "the title, h1 and country name stay Turkey; no other guide says Türkiye"))
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)
