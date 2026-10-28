@@ -10157,7 +10157,9 @@ let _displayNames = null;
 const NAME_FIX = { US: "United States", BA: "Bosnia and Herzegovina", CD: "DR Congo",
   CG: "Republic of the Congo", CF: "Central African Republic", DO: "Dominican Republic",
   GQ: "Equatorial Guinea", SS: "South Sudan", SB: "Solomon Islands",
-  EH: "Western Sahara", TF: "French Southern Territories" };
+  EH: "Western Sahara", TF: "French Southern Territories",
+  // World Bank names for places the map data lacks ("Macao SAR, China").
+  MO: "Macau", FM: "Micronesia" };
 function countryName(iso) {
   if (EXTRA_PLACES[iso]) return EXTRA_PLACES[iso];   // flag-emoji places
   if (NAME_FIX[iso]) return NAME_FIX[iso];
