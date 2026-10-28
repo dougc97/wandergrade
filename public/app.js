@@ -3006,6 +3006,9 @@ async function renderGuideFx(iso) {
   const path = pts.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1)).join(" ");
   // Same thresholds as the Currency tab's strong/typical/weak labels.
   const col = nominal ? "#8891a0" : pct >= 2 ? "#2f9e44" : pct <= -2 ? "#d9480f" : "#8891a0";
+  // The figure takes theme tokens (the sparkline keeps the hex): #2f9e44,
+  // #8891a0 and #d9480f were 3.45, 3.18 and 4.30:1 as text on the card.
+  const cls = nominal ? "flat" : pct >= 2 ? "pos" : pct <= -2 ? "neg" : "flat";
   const verdict = pct >= 2 ? "goes further than usual" : pct <= -2 ? "goes less far than usual" : "about typical";
   const mLabel = (m) => MON_ABBR[parseInt(m.slice(5), 10) - 1] + " '" + m.slice(2, 4);
   const cn = countryName(iso);
@@ -3033,7 +3036,7 @@ async function renderGuideFx(iso) {
     : nominal ? " (nominal — inflation data isn't current)"
     : gap ? ", after inflation" : " (exchange rate only)";
   host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b>: `
-    + `<b style="color:${col}">${signedPct(pct, 1)}</b> vs its 12-month average${basis}`
+    + `<b class="${cls}">${signedPct(pct, 1)}</b> vs its 12-month average${basis}`
     + (noInfl || nominal || !gap ? "" : ` <span class="muted">— ${verdict}</span>`)
     + `<span class="fxinfo" data-tip="${esc(tip)}" title="">ⓘ</span></span>`
     + `<svg class="fxspark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
