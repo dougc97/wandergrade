@@ -18,13 +18,26 @@ const ORIGIN = (process.env.ORIGIN || 'US').toUpperCase();
 const OUT = process.env.OUT || `wandergrade-story-${new Date().toISOString().slice(0, 7)}.png`;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-// app.js whyLine adds "safest travel rating" for advisory Level 1. The site
+// app.js whyLine added "safest travel rating" for advisory Level 1 until
+// 57ae54b (it now quotes the level with its source); kept for an older page. The site
 // never makes its own safety claim on a frame: it becomes the State
 // Department's level when the row's safety pill says the level is theirs
 // ("… — per US State Dept"), and is dropped when it's Canada's or Germany's
 // gap-fill ("US State Dept publishes no advisory here; level per …").
 export const safetyFact = (fact, advTitle) => (fact !== 'safest travel rating' ? fact
   : /— per US State Dept$/.test(advTitle || '') ? 'US State Dept Level 1' : null);
+
+// No country under advisory Level 3-4 goes on a frame. The row's safety pill
+// letter is app.js SAFE_GRADE[level] (A 1, B 2, D 3, F 4; "—" unrated), the
+// level the row is ranked on: the State Department's, or Canada's/Germany's
+// gap-fill where it publishes none. Keeps the first n rows at A or B, in rank
+// order; each keeps its own Top Picks rank, so a skipped place stays visible.
+export function pickRows(rows, n = 5) {
+  const ok = (r) => r.advLetter === 'A' || r.advLetter === 'B';
+  const picked = rows.filter(ok).slice(0, n);
+  const last = picked.length ? picked[picked.length - 1].rank : 0;
+  return { picked, skipped: rows.filter((r) => !ok(r) && r.rank < last) };
+}
 
 // Five cards with two-line why-lines, the link band and the footer have to fit
 // between the 250px top and the 280px bottom safe areas: slightly tighter
@@ -44,35 +57,58 @@ export default async (t) => {
   // month and the locale's origin; a different month is picked through the
   // page's own select below, the way a reader would.
   await nav(`${SITE}/?tab=value&cb=${Date.now()}`, 4000);
-  const pageMonth = await evaluate(`(() => (document.getElementById('valueMonth') || {}).value || '')()`);
-  if (String(pageMonth) !== String(MONTH)) {
-    await evaluate(`(() => { const s = document.getElementById('valueMonth'); if (!s) return; s.value = ${JSON.stringify(String(MONTH))}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-    await sleep(3000);
-  }
-  // The ranking fills after the fares and advisories arrive: wait for real rows.
-  let rows = null;
-  for (let i = 0; i < 40 && !rows; i++) {
-    rows = await evaluate(`(() => {
+  // The ranked rows, top 20 at most, read from the DOM (null until there are 5).
+  const READ = `(() => {
       const trs = [...document.querySelectorAll('#topCards table.gradetable:not(.skeleton) tbody tr[data-iso]')];
       if (trs.length < 5) return null;
-      return trs.slice(0, 5).map((tr) => {
+      return trs.slice(0, 20).map((tr, i) => {
         const link = tr.querySelector('.destlink');
         const flag = (link.querySelector('span') || {}).textContent || '';
         const pill = tr.querySelector('td.overall .gr');
         const adv = tr.querySelector('td[data-go="advisory"] .gr');
-        return { iso: tr.dataset.iso, flag: flag.trim(), name: link.textContent.replace(flag, '').trim(),
+        return { rank: i + 1, iso: tr.dataset.iso, flag: flag.trim(), name: link.textContent.replace(flag, '').trim(),
                  grade: pill ? pill.textContent.trim() : '', gradeCls: pill ? pill.className : 'gr',
                  score: (tr.querySelector('td.overall .grnum') || {}).textContent || '',
-                 why: tr.getAttribute('title') || '', advTitle: adv ? adv.getAttribute('title') || '' : '' };
+                 why: tr.getAttribute('title') || '', advTitle: adv ? adv.getAttribute('title') || '' : '',
+                 advLetter: adv ? adv.textContent.trim() : '' };
       });
-    })()`);
-    if (!rows) await sleep(500);
+    })()`;
+  // The ranking fills after the fares and advisories arrive: wait for real rows.
+  const waitRows = async () => {
+    for (let i = 0; i < 40; i++) { const r = await evaluate(READ); if (r) return r; await sleep(500); }
+    return null;
+  };
+  let rows = await waitRows();
+  // The month is picked once the ranking is in: on a slow load the select
+  // wasn't ready 4s after navigation, and the change was silently lost.
+  const pageMonth = await evaluate(`(() => (document.getElementById('valueMonth') || {}).value || '')()`);
+  if (rows && String(pageMonth) !== String(MONTH)) {
+    await evaluate(`(() => { const s = document.getElementById('valueMonth'); if (!s) return; s.value = ${JSON.stringify(String(MONTH))}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+    await sleep(3000);
+    rows = await waitRows();
+  }
+  // Top Picks shows 5 rows by default (app.js pickCount). Once the ranking is
+  // in (the picker isn't there before), ask for 20 through the page's own
+  // picker, so a row left off for its advisory level (pickRows) has a replacement.
+  if (rows && rows.length < 20) {
+    const asked = await evaluate(`(() => { const s = document.getElementById('pickCount'); if (!s || s.value === '20') return false; s.value = '20'; s.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
+    for (let i = 0; i < 20 && asked === true; i++) {
+      await sleep(500);
+      const more = await evaluate(READ);
+      if (more && more.length > rows.length) { rows = more; break; }
+    }
+    console.log('rows read after asking for the top 20:', rows.length);
   }
   if (!rows) { console.log('no ranked rows after 20s'); return; }
+  const { picked, skipped } = pickRows(rows);
+  for (const r of skipped) console.log(`skipped #${r.rank} ${r.name}: safety pill "${r.advLetter}" (${r.advTitle}), not Level 1-2`);
+  if (!picked.length) { console.log('REFUSED: no Level 1-2 country in the top', rows.length); return; }
+  rows = picked;
   const origin = await evaluate(`(() => (document.getElementById('valueOrigin') || {}).value || '')()`);
   const month = await evaluate(`(() => (document.getElementById('valueMonth') || {}).value || '')()`);
   console.log('origin', origin, 'month', month, 'rows', rows.map((r) => `${r.name} ${r.grade} ${r.score}`).join(' | '));
-  if (String(month) !== String(MONTH)) console.log('WARNING: page month differs from MONTH');
+  // Another month's grades under this month's heading would be wrong numbers on a frame.
+  if (String(month) !== String(MONTH)) { console.log(`REFUSED: the page ranks month ${month}, not ${MONTH}`); return; }
   if (origin !== ORIGIN) console.log('WARNING: page origin ' + origin + ' differs from ORIGIN ' + ORIGIN + ' (set From in the page or run from that locale)');
 
   // One line per pick: the row's first two facts; "home" reads oddly on a
@@ -81,9 +117,9 @@ export default async (t) => {
   const why = (r) => r.why.replace(/than home\b/g, 'than ' + homeName).split(/\s*[·;]\s*|,\s(?=[a-z])/)
     .filter(Boolean).map((f) => safetyFact(f, r.advTitle)).filter(Boolean).slice(0, 2).join(' · ');
   const asOf = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const cards = rows.map((r, i) => `
+  const cards = rows.map((r) => `
     <div class="igc">
-      <div class="igrank">#${i + 1}</div>
+      <div class="igrank">#${r.rank}</div>
       <div class="igflag">${esc(r.flag)}</div>
       <div class="igmain"><div class="igname clip">${esc(r.name)}</div><div class="igwhy clamp">${esc(why(r))}</div></div>
       ${pill(r.gradeCls, r.grade, r.score)}
@@ -102,9 +138,11 @@ export default async (t) => {
   const names = rows.map((r) => r.name);
   const side = writeSidecar(OUT.replace(/\.png$/i, '') + '.txt', {
     series: `Top Picks: where to go in ${MONTHS[MONTH - 1]}, from ${homeName}`, posting, asOf, link,
-    frames: ['the top five picks, link sticker band'],
-    caption: `Where to go in ${MONTHS[MONTH - 1]} from ${homeName}: ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} top WanderGrade's value ranking. Full ranking at the link.`,
-    notes: rows.map((r, i) => `#${i + 1} ${r.name}: ${r.grade} ${r.score}`),
+    frames: [`the top ${rows.length} picks at advisory Level 1-2, link sticker band`],
+    caption: `Where to go in ${MONTHS[MONTH - 1]} from ${homeName}: ${names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' : ''}${names[names.length - 1]} `
+      + `${skipped.length ? 'lead WanderGrade\'s value ranking among countries at advisory Level 1-2' : 'top WanderGrade\'s value ranking'}. Full ranking at the link.`,
+    notes: rows.map((r) => `#${r.rank} ${r.name}: ${r.grade} ${r.score}`)
+      .concat(skipped.map((r) => `#${r.rank} ${r.name} left off: its safety pill is "${r.advLetter}" (${r.advTitle}), not Level 1-2.`)),
   });
   console.log('wrote', OUT, 'and', side, '; console errors', errs.length);
 };
