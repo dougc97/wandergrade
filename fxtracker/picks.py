@@ -484,7 +484,10 @@ def _popular_set():
         ranked = sorted((iso for iso in receipts if iso in CUR_BY_ISO),
                         key=lambda i: receipts[i], reverse=True)
         if len(ranked) >= 20:
-            return set(ranked[:POPULAR_N])
+            # A curated country the feed has no figure for stays popular: the
+            # World Bank's 2026-10-08 update blanked receipts for Spain, the UK,
+            # Canada, China and 37 others, which made them "hidden gems".
+            return set(ranked[:POPULAR_N]) | {i for i in FALLBACK_POPULAR if receipts.get(i) is None}
     except Exception:
         pass
     return set(FALLBACK_POPULAR)
