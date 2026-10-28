@@ -1091,6 +1091,10 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .guidefx { display: block; margin: 10px 0 4px; font-size: 12.5px; color: var(--gray); }
 .guidefx .fxhead { display: block; margin-bottom: 4px; }
 .guidefx .fxhead b { color: var(--ink); }
+/* The ±% figure: theme tokens, >= 4.5:1 on the card in both themes. */
+.guidefx .fxhead b.pos { color: var(--green); }
+.guidefx .fxhead b.neg { color: var(--red); }
+.guidefx .fxhead b.flat { color: var(--gray); }
 .guidefx .fxinfo { margin-left: 5px; cursor: help; }
 /* One ⓘ on the section header instead of two legend lines of body copy —
    per the house rule: explanations live in hovers. */
