@@ -338,14 +338,16 @@
         <section class="mapcard">
           <div class="charthead compact">
             <h2 id="valueMapTitle">Best value destinations</h2>
-            <!-- The month renderValue adds to the title, added before first
-                 paint (the same month: the link's vmn, else this month), so
-                 a phone doesn't re-wrap the heading to two lines when it
-                 lands. -->
-            <script>(function(){var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),
+            <!-- What renderValue will write, written before first paint so a
+                 phone doesn't re-wrap the heading when it lands: Any time
+                 ("in the next 6 months"), Top Picks' opening view, unless the
+                 link names a real month (vmn=1-12 with no vmf=1), which takes
+                 the month's own words. -->
+            <script>(function(){var q=new URLSearchParams(location.search),m=q.get("vmn"),w=q.get("vmm")==="weather",
               M=["January","February","March","April","May","June","July","August","September","October","November","December"];
-              if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
-              document.getElementById("valueMapTitle").textContent=(q.get("vmm")==="weather"?"Weather comfort in ":"Best value destinations in ")+M[m-1];})();</script>
+              document.getElementById("valueMapTitle").textContent=q.get("vmf")!=="1"&&/^([1-9]|1[0-2])$/.test(m||"")
+                ?(w?"Weather comfort in ":"Best value destinations in ")+M[m-1]
+                :(w?"Best weather":"Best value")+" in the next 6 months";})();</script>
             <span class="muted" id="valueMapSub" data-tip="Greener = better overall value this month." title="">ⓘ</span>
             <button id="valueShare" class="themebtn shareimg" type="button" title="Download this map as an image — title and caveat included">📸 <span class="btxt">Share image</span></button>
             <span class="brk" aria-hidden="true"></span>
@@ -379,13 +381,15 @@
                typical names long like the default Top 5: created on the first
                render, it grew the card 28-52px. -->
           <div class="pickslot" data-picks-slot="valueMap"><div class="mappicksrow skel" data-for="valueMap" aria-hidden="true"><strong>Best value in October</strong><span style="width:5.4em"></span><span style="width:5.2em"></span><span style="width:4.2em"></span><span style="width:4.8em"></span><span style="width:4.4em"></span></div></div>
-          <!-- Its month is the map title's (the link's vmn, else this month);
-               the weather map has no list, so none is held. -->
-          <script>(function(){var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),
+          <!-- Its words follow the map title's (Any time unless the link
+               names a real month); the weather map has no list, so none is
+               held. -->
+          <script>(function(){var q=new URLSearchParams(location.search),m=q.get("vmn"),
             r=document.querySelector('.mappicksrow.skel[data-for="valueMap"]');if(!r)return;
             if(q.get("vmm")==="weather"){r.remove();return;}
-            if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
-            r.firstChild.textContent="Best value in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1];})();</script>
+            r.firstChild.textContent=q.get("vmf")!=="1"&&/^([1-9]|1[0-2])$/.test(m||"")
+              ?"Best value in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]
+              :"Best value · next 6 months";})();</script>
         </section>
       </div>
 
