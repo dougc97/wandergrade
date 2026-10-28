@@ -4009,6 +4009,13 @@ let lbOpener = null;
 function lbTakeFocus(lb) {
   const a = document.activeElement;
   if (a && a !== document.body && !lb.contains(a)) lbOpener = a;
+  // aria-modal alone doesn't stop Tab walking out to the page behind: the rest
+  // of body goes inert while the viewer is up, as openMapFullscreen does
+  // (already-inert nodes are left alone, so closing never un-inerts those).
+  if (!lb._inerted) {
+    lb._inerted = [...document.body.children].filter((el) => el !== lb && el !== _tipEl && !el.inert);
+    lb._inerted.forEach((el) => { el.inert = true; });
+  }
   lb.querySelector(".lbclose").focus();   // dialog gets focus; Escape/✕ leave it
 }
 // The credit for whatever the viewer shows (a single photo or the carousel's).
@@ -4058,6 +4065,8 @@ function closeLightbox() {
   lbSingle = null;
   document.body.style.overflow = "";
   document.removeEventListener("keydown", lbKey);
+  // Un-inert first: the opener can't take focus back while inert.
+  if (lb && lb._inerted) { lb._inerted.forEach((el) => { el.inert = false; }); lb._inerted = null; }
   if (wasOpen && lbOpener && lbOpener.isConnected) lbOpener.focus();
   lbOpener = null;
 }
@@ -13121,9 +13130,16 @@ let _tipFor = null;   // the element the tooltip is currently displaying for
 function _tipUnlink() {
   if (_tipFor && _tipFor.getAttribute("aria-describedby") === "wgtip") _tipFor.removeAttribute("aria-describedby");
 }
-function _hideTip() { _tipUnlink(); _tipEl.hidden = true; _tipFor = null; }
+function _hideTip() { clearTimeout(_tipHideT); _tipUnlink(); _tipEl.hidden = true; _tipFor = null; }
 
+// WCAG 1.4.13: the pointer can move onto the tip (to read a long one) without
+// it vanishing. Leaving the element for somewhere that isn't another tip — or
+// is only the row/cell around it, on the way to the tip — waits a moment
+// before hiding; reaching the tip in that time keeps it up. A move straight
+// onto a different tipped element still switches at once.
+let _tipHideT = 0, _tipHovered = false;
 function _showTipFor(t) {
+  clearTimeout(_tipHideT);
   if (!t || !t.dataset.tip) { _hideTip(); return; }
   // Already showing for this exact element — don't reposition, that just jitters.
   if (t === _tipFor && !_tipEl.hidden) return;
@@ -13143,16 +13159,27 @@ function _showTipFor(t) {
   _tipEl.style.left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2)) + "px";
   // Above the element, else below — and never past the bottom of the screen:
   // a phone's tip for Mexico's full text is taller than the room on either
-  // side of its ⓘ, and below it ran off the screen (it may cover the ⓘ; it
-  // takes no pointer events).
+  // side of its ⓘ, and below it ran off the screen (it may cover the ⓘ; the
+  // pointer resting on the tip keeps it shown).
   const vh = document.documentElement.clientHeight || window.innerHeight;
   let top = r.top - h - 8 > 8 ? r.top - h - 8 : r.bottom + 8;
   if (vh && top + h > vh - 8) top = Math.max(8, vh - h - 8);
   _tipEl.style.top = top + "px";
 }
 
-const _tipShowFor = (e) => _showTipFor(e.target.closest && e.target.closest("[data-tip]"));
-document.addEventListener("mouseover", _tipShowFor);
+// A pointer or tap on the tip itself leaves it as it is.
+const _tipShowFor = (e) => { if (!_tipEl.contains(e.target)) _showTipFor(e.target.closest && e.target.closest("[data-tip]")); };
+document.addEventListener("mouseover", (e) => {
+  _tipHovered = _tipEl.contains(e.target);
+  if (_tipHovered) { clearTimeout(_tipHideT); return; }
+  const t = e.target.closest && e.target.closest("[data-tip]");
+  if (!_tipEl.hidden && _tipFor && _tipFor.isConnected && t !== _tipFor && (!t || t.contains(_tipFor))) {
+    clearTimeout(_tipHideT);
+    _tipHideT = setTimeout(() => _showTipFor(t && t.isConnected ? t : null), 300);
+    return;
+  }
+  _showTipFor(t);
+});
 
 // mouseover fires on ENTERING an element — which never happens when the cursor
 // is stationary and the DOM changes underneath it. Two ways that bit people:
@@ -13202,7 +13229,7 @@ document.addEventListener("click", (e) => {
 // The engine was mouse/touch-only — content that exists ONLY in tips was
 // unreachable for keyboard and screen-reader users.
 document.addEventListener("focusin", _tipShowFor);
-document.addEventListener("focusout", () => _hideTip());
+document.addEventListener("focusout", () => { if (!_tipHovered) _hideTip(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") _hideTip(); });
 
 // ...but a <span>ⓘ</span> can't take focus, so that path never fired for the
