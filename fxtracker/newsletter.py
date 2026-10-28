@@ -363,6 +363,12 @@ def render_markdown(rows, as_of, baseline_days):
 # Renders the payload from fxtracker.picks.build() into an HTML email.
 
 _FLAG = {1: "A", 2: "B", 3: "D"}   # safety grade by advisory level (picks.SAFE_GRADE)
+# Whose levels the 🛡️ letters are, said once in the footer: bare letters read as
+# WanderGrade's own safety rating. A government with no level of its own for a
+# country is filled in by the others, as on the site (advisories' gap-fills).
+_ADV_SOURCE = {"us": ("the U.S. State Department", "Canada’s or Germany’s"),
+               "ca": ("Global Affairs Canada", "the U.S.’s or Germany’s"),
+               "de": ("the German Foreign Office", "the U.S.’s or Canada’s")}
 USD = VARIANTS["USD"]              # the edition every render defaults to
 SITE = "https://wandergrade.com"
 UNSUB = "{{ unsubscribe_url }}"    # Buttondown fills this on send
@@ -511,7 +517,7 @@ def _fly(s, compact=False):
     # route's own typical, or — where a route has too few cached months —
     # the year-round fare vs a distance-typical one.
     basis = "" if compact else (" <span style='color:#6b7681'>(%s)</span>"
-                                % ("this month vs the route's usual" if s.get("fly_basis") == "month"
+                                % ("this month vs the route’s usual" if s.get("fly_basis") == "month"
                                    else "year-round, for the distance"))
     return ((" &middot; ✈️ %s" if compact else " &nbsp;&middot;&nbsp; ✈️ Flights <b>%s</b>%s")
             % ((_grade(s["fly"]),) if compact else (_grade(s["fly"]), basis)))
@@ -640,6 +646,9 @@ def render_digest(data):
         " Want another currency’s edition? Reply and say which, or change it in your account"
         " on wandergrade.com (sign in with this address).")
     nstrong = sum(1 for s in picks if (s.get("fx") or 0) >= 3)
+    who, fill = _ADV_SOURCE.get(v.adv_source, _ADV_SOURCE["us"])
+    safety_note = ("Safety grades are %s’s travel-advisory levels (Level 1 = A, 2 = B, 3 = D), "
+                   "%s where it publishes none." % (who, fill))
 
     subject = digest_subject(v, mn)
     if nstrong:
@@ -652,9 +661,9 @@ def render_digest(data):
     hero = _hero_card(picks[0], m, v) if picks else ""
     rest = "".join(_compact_card(s, m, v) for s in picks[1:])
     ai_callout = ("<div style='background:#eef7f0;border:1px solid #cfe8d6;border-radius:10px;"
-                  "padding:12px 14px;margin:2px 0 18px;font-size:14px;color:#1a5e33'>✨ <b>New:</b> "
-                  "open any country’s guide and tap <b>Plan with AI</b> for a tailored, month-aware "
-                  "itinerary — ChatGPT or Claude, your call.</div>")
+                  "padding:12px 14px;margin:2px 0 18px;font-size:14px;color:#1a5e33'>✨ Open any country’s "
+                  "guide and tap <b>Plan with AI</b> for a tailored, month-aware itinerary — "
+                  "ChatGPT, Claude, Grok or Perplexity, your call.</div>")
     gems_block = ""
     if gems:
         gems_block = ("<h2 style='font-size:18px;margin:20px 0 4px;color:#111'>\U0001f48e Hidden gems</h2>"
@@ -688,11 +697,11 @@ def render_digest(data):
   <p style="font-size:13px;color:#555;margin:16px 0 0">\U0001f4ac Tell me where you’re headed — just hit reply, or write to <a href="mailto:hello@wandergrade.com" style="color:#555"><b>hello@wandergrade.com</b></a>. I read every message.</p>
   %s
   <p style="font-size:12px;color:#888;line-height:1.6;border-top:1px solid #e0e0e0;margin-top:14px;padding-top:14px">
-    Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s Currency data as of %s. Photos via Wikimedia Commons.<br>
+    Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s %s Currency data as of %s. Photos via Wikimedia Commons.<br>
     <b>WanderGrade</b> · once a month, no spam · <a href="%s" style="color:#888">wandergrade.com</a> · <a href="%s" style="color:#888">unsubscribe</a>
   </p>
 </div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), pick_link, GREEN, hero, rest,
              ai_callout, gems_block, cheap_link, month_link, GREEN, _quote_for(yr, m),
-             _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]), SITE, UNSUB)
+             _esc(v.traveler), _esc(mn), _esc(switch), _esc(safety_note), _esc(data["as_of"]), SITE, UNSUB)
 
     return subject, body

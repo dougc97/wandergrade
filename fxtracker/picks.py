@@ -533,7 +533,10 @@ def gather(month=None):
     if month is None:
         # Feature ~2 months out so readers have booking lead time.
         month = (today.month - 1 + 2) % 12 + 1
-    year = today.year + (1 if today.month + 2 > 12 else 0)
+    # The featured month's next occurrence, this one counting: an explicit
+    # --month 1 run in October is January next year (it used to print the
+    # default month's year: "January 2026"), --month 11 in November this year.
+    year = today.year + (1 if month < today.month else 0)
 
     ppp = _load("ppp.json")
     climate = _load("climate.json")

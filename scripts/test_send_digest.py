@@ -12,7 +12,10 @@ from them.
     /usr/bin/python3 scripts/test_send_digest.py [--against <rev>]
 
 --against <rev> (default 4788fd2) is the tree whose USD-only calls must be
-matched; it is extracted with `git archive` into a temp dir.
+matched; it is extracted with `git archive` into a temp dir. This tree's
+bodies are compared without the /cheapest line and with review 3's copy
+changes undone (digest_snapshot.as_4788fd2), each required where it belongs,
+and its printed summary with that tree's year.
 """
 import contextlib, io, json, os, random, re, shutil, subprocess, sys, tempfile, urllib.parse
 
@@ -152,14 +155,22 @@ class FakeButtondown:
 CHEAP_LINK = ds.CHEAP_LINK
 
 
-def without_cheap_link(calls):
+def without_cheap_link(calls, month=None, quote_for=None):
     """(calls with that line taken out of every email body, True when each
-    body carried it exactly once)."""
+    body carried it exactly once). With `month` and `quote_for`
+    (newsletter._quote_for), review 3's changes are undone too
+    (digest_snapshot.as_4788fd2), and True also needs each of them in every
+    body: the safety note and callout always, the year where it differs."""
     out, once = [], True
     for c in calls:
         if len(c) > 2 and isinstance(c[2], dict) and isinstance(c[2].get("body"), str):
             body, n = CHEAP_LINK.subn("", c[2]["body"])
             once = once and n == 1
+            if month:
+                body, found = ds.as_4788fd2(body, month, quote_for)
+                want = {"safety note", "callout"} | (
+                    {"year"} if len(set(ds.issue_years(month))) == 2 else set())
+                once = once and want <= set(found)
             c = [c[0], c[1], dict(c[2], body=body)] + list(c[3:])
         out.append(c)
     return out, once
@@ -282,8 +293,9 @@ def main():
 
         # 1. USD-only: the same calls (and output) as the old code, for a send,
         #    a draft, and a send whose issue is already out.
-        print("1. USD-only run == %s (+ this tree's cost line, less the /cheapest link), call for call"
-              % against)
+        print("1. USD-only run == %s (+ this tree's cost line, less the /cheapest link and review 3's "
+              "copy), call for call" % against)
+        _p, newsletter, _dv = ds.install(ROOT)
         base_subs = subs({"a@x.test": "", "b@x.test": "currency-eur", "c@x.test": "cadence-monthly"})
         sent_before = [{"id": "em900", "subject": "\U0001f9ed Where your dollar goes furthest this December",
                         "status": "sent", "creation_date": "2026-10-01", "metadata": {},
@@ -297,12 +309,14 @@ def main():
             new = run_tree(ROOT, sc)
             raw = run_tree(tmp, sc)
             old = run_tree(tmp, dict(sc, graft=ROOT))
-            new_calls, linked = without_cheap_link(new["calls"])
-            same_raw = raw["calls"] == new_calls and raw["out"] == new["out"]
-            results.append(ok(old["calls"] == new_calls and linked and old["out"] == new["out"]
+            month = int(argv[1]) if argv[:1] == ["--month"] else (ds.TODAY.month + 1) % 12 + 1
+            new_calls, linked = without_cheap_link(new["calls"], month, newsletter._quote_for)
+            new_out = ds.summary_as_4788fd2(new["out"], month)
+            same_raw = raw["calls"] == new_calls and raw["out"] == new_out
+            results.append(ok(old["calls"] == new_calls and linked and old["out"] == new_out
                               and old["code"] == new["code"],
-                              "%s: %d identical calls once the /cheapest link (in every body, once) is "
-                              "taken out, identical output, exit %s (ungrafted: %s)"
+                              "%s: %d identical calls once the /cheapest link and review 3's copy (in "
+                              "every body, once) are undone, identical output, exit %s (ungrafted: %s)"
                               % (name, len(new["calls"]), new["code"],
                                  "identical too" if same_raw else "differs in the cost line only")))
             if old["calls"] != new_calls:

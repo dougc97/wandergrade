@@ -2,10 +2,14 @@
 """The digest's home-currency editions, rendered offline from frozen inputs
 (scripts/digest_snapshot.py; nothing leaves this machine):
 
-  1. USD is byte-for-byte what 4788fd2 renders, but for two deliberate
+  1. USD is byte-for-byte what 4788fd2 renders, but for deliberate
      changes: the cost line now uses the site's ±10% "about the same" band on
-     the two printed decimals (newsletter._pl_band), and since 2026-10-24 a
-     line after the hidden gems links the issue month's /cheapest page. The 12 months' sha256
+     the two printed decimals (newsletter._pl_band), since 2026-10-24 a
+     line after the hidden gems links the issue month's /cheapest page, and
+     since 2026-10-28 (review 3) the footer names whose levels the 🛡️ letters
+     are, the AI callout drops "New:" and names the four AIs, "route’s" is
+     typographic and an explicit --month issue prints its own year
+     (digest_snapshot.as_4788fd2 undoes each). The 12 months' sha256
      match scripts/digest_golden/usd_sha256.json, and the USD edition built
      the per-currency way (gather + build_variant) is the same text. The
      band is checked against JavaScript's own toFixed under jsc.
@@ -19,7 +23,7 @@
 
 --against <rev> also extracts that tree with `git archive` and diffs its USD
 text against this tree's (less the /cheapest line, which must be in every
-month once) in full, then again with only this tree's cost line
+month once, and with review 3's changes undone, each where it belongs) in full, then again with only this tree's cost line
 grafted into it (digest_snapshot --graft-cost-line): that must be identical
 for all 12 months, which proves the cost line is the only USD change.
 """
@@ -59,13 +63,14 @@ def main():
     raw_diff = None
 
     print("1. USD byte-identity")
+    picks, newsletter, dv = ds.install(ROOT)
     usd_only = _snapshot_in_child(ROOT, "USD")
     with open(GOLDEN, encoding="utf-8") as f:
         golden = json.load(f)["sha256"]
     mine = ds.digest_hashes(usd_only)["USD"]
     bad = [m for m in golden if golden[m] != mine.get(m)]
     results.append(ok(len(golden) == 12 and not bad,
-                      "12 months match the golden hashes (4788fd2's text + the cost band)%s"
+                      "12 months match the golden hashes (4788fd2's text + its deliberate changes)%s"
                       % (" (differ: %s)" % bad if bad else "")))
     if against:
         tmp = tempfile.mkdtemp(prefix="digest-old-")
@@ -79,6 +84,18 @@ def main():
             usd_cmp, linked = ds.without_cheap_link(usd_only["USD"])
             results.append(ok(linked and len(usd_cmp) == 12,
                               "this tree's USD text carries the /cheapest line once in every month"))
+            # Review 3's changes are undone too, and each must be where it
+            # belongs: the safety note and the callout in every month, the
+            # issue's own year (and its quote) in months 1-9 of the snapshot.
+            found = {}
+            for m in usd_cmp:
+                usd_cmp[m][1], found[m] = ds.as_4788fd2(usd_cmp[m][1], int(m), newsletter._quote_for)
+            want = {m: {"safety note", "callout"} | ({"year"} if int(m) < ds.TODAY.month else set())
+                    for m in usd_cmp}
+            results.append(ok(all(want[m] <= set(found[m]) for m in usd_cmp),
+                              "review 3's USD changes are each in place: the safety-source footer and the "
+                              "AI callout in all 12 months, the issue's own year in months 1-9%s"
+                              % ("" if all(want[m] <= set(found[m]) for m in usd_cmp) else " -> %r" % found)))
             diffs = [m for m in old["USD"] if old["USD"][m] != usd_cmp.get(m)]
             raw_diff = sorted(int(m) for m in diffs)          # checked in 2c
             grafted = _snapshot_in_child(tmp, "USD", graft=ROOT)
@@ -90,7 +107,6 @@ def main():
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    picks, newsletter, dv = ds.install(ROOT)
     snap, datas = ds.snapshot(ROOT, tuple(dv.PICKER_ORDER), keep_data=True)
     results.append(ok(snap["USD"] == usd_only["USD"],
                       "the USD edition built per-currency (gather + build_variant) is the same text"))
