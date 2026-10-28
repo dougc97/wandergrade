@@ -293,8 +293,9 @@ results.append(ok("<title>%s</title>" % html.escape(th["title"]) in page
                   "...and so does the served page's <title> and meta description"))
 sm = server._sitemap().decode("utf-8")
 slug = {iso: s for s, iso in rg.all_slugs()}
-results.append(ok("/guide/thailand</loc><lastmod>%s<" % D.isoformat() in sm
-                  and "/guide/%s</loc><lastmod>%s<" % (slug["TF"], max("2026-09-24", COMMITTED["TF"]["m"])) in sm
+stamp = open(os.path.join(ROOT, "public", "content-stamp.txt"), encoding="utf-8").read().strip()[:10]
+results.append(ok("/guide/thailand</loc><lastmod>%s<" % max(stamp, D.isoformat()) in sm
+                  and "/guide/%s</loc><lastmod>%s<" % (slug["TF"], max(stamp, COMMITTED["TF"]["m"])) in sm
                   and doc["TF"]["m"] == COMMITTED["TF"]["m"],
                   "sitemap: Thailand re-dated %s; the French Southern Territories (no figure, so no "
                   "\"As of\" to move) keep %s" % (D, COMMITTED["TF"]["m"])))

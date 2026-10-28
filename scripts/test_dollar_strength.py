@@ -479,9 +479,13 @@ try:
     sm = server._sitemap().decode("utf-8")
     lines = sm.splitlines()
     i = next(n for n, l in enumerate(lines) if "/do-not-travel<" in l)
-    results.append(ok("<loc>https://wandergrade.com/dollar-strength</loc><lastmod>2026-10-23</lastmod>" in lines[i + 1]
+    # Dated by the rates, floored at content-stamp.txt like every sitemap date.
+    stamp = open(os.path.join(ROOT, "public", "content-stamp.txt"), encoding="utf-8").read().strip()[:10]
+    lm = max(stamp, "2026-10-23")
+    results.append(ok("<loc>https://wandergrade.com/dollar-strength</loc><lastmod>%s</lastmod>" % lm in lines[i + 1]
                       and sm.count("/dollar-strength<") == 1,
-                      "sitemap: one /dollar-strength line, right after /do-not-travel, dated by the rates (2026-10-23)"))
+                      "sitemap: one /dollar-strength line, right after /do-not-travel, dated by the rates (2026-10-23) "
+                      "floored at the content stamp (%s)" % lm))
     # An HTTP round trip: the route, the slash variant, deeper paths, HEAD.
     httpd = server.ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
