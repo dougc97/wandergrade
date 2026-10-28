@@ -2083,13 +2083,21 @@ def from_feed(iso, raw):
 
 
 def get_watchouts(iso):
+    return lookup(iso)[0]
+
+
+def lookup(iso):
+    """(answer, failed): get_watchouts' answer, and whether it is the empty
+    stand-in for a feed failure (nothing good cached) rather than an answer —
+    the server sends that one no-store, so no cache holds it past FAIL_TTL.
+    The answer itself is the same either way."""
     iso = (iso or "").strip().lower()[:2]
     if not re.fullmatch(r"[a-z]{2}", iso):
-        return {"iso": iso.upper(), "watchouts": [], "regional": []}
+        return {"iso": iso.upper(), "watchouts": [], "regional": []}, False
     now = time.time()
     hit = _cache.get(iso)
     if hit and now - hit[0] < (FAIL_TTL if hit[1].get("_failed") else TTL):
-        return {k: v for k, v in hit[1].items() if k != "_failed"}
+        return {k: v for k, v in hit[1].items() if k != "_failed"}, bool(hit[1].get("_failed"))
     out = {"iso": iso.upper(), "source": "Global Affairs Canada",
            "link": "", "watchouts": [], "regional": []}
     try:
@@ -2105,8 +2113,8 @@ def get_watchouts(iso):
         if (getattr(e, "code", None) or 0) not in (404, 410):
             if hit and not hit[1].get("_failed"):
                 _cache[iso] = (now - TTL + FAIL_TTL, hit[1])
-                return hit[1]
+                return hit[1], False
             _cache[iso] = (now, dict(out, _failed=True))
-            return out
+            return out, True
     _cache[iso] = (now, out)
-    return out
+    return out, False

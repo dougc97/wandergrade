@@ -2079,18 +2079,20 @@ class Handler(BaseHTTPRequestHandler):
             qs = parse_qs(urlparse(self.path).query)
             cur = (qs.get("cur", [""])[0] or "").strip().upper()[:3]
             base = _base_param(qs)
-            t = None
+            t, failed = None, False
             # Unknown base: the same empty answer, but without buying a
             # full-year upstream fetch per made-up code.
             if base and re.fullmatch(r"[A-Z]{3}", cur):
                 try:
                     t = rates.get_trend(cur, base)
                 except Exception:
-                    t = None
+                    t, failed = None, True
             base = base or (qs.get("base", ["USD"])[0] or "USD").strip().upper()[:3]
             # null is an answer (unknown currency / provider gap) — the guide
-            # simply doesn't render the sparkline.
-            self._send_json(t or {"code": cur, "base": base, "months": []})
+            # simply doesn't render the sparkline. A provider failure gets the
+            # same body, but no-store: no cache may hold the gap as an answer.
+            self._send_json(t or {"code": cur, "base": base, "months": []},
+                            extra=[("Cache-Control", "no-store")] if failed else None)
             return
         if path == "/api/geo":
             # Visitor's country from Cloudflare's CF-IPCountry header — pure
@@ -2109,7 +2111,9 @@ class Handler(BaseHTTPRequestHandler):
             from urllib.parse import parse_qs, urlparse
             qs = parse_qs(urlparse(self.path).query)
             iso = (qs.get("iso", [""])[0] or "")[:2]
-            self._send_json(watchouts.get_watchouts(iso))
+            # A feed failure answers the same empty body, but no-store.
+            notes, failed = watchouts.lookup(iso)
+            self._send_json(notes, extra=[("Cache-Control", "no-store")] if failed else None)
             return
         if path == "/api/flights":
             self._handle_flights()
