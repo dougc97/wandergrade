@@ -270,6 +270,8 @@ header { padding-top: 28px; }
    <p> on country pages (their <h1> belongs to the country). Styled together so
    the demotion is invisible. */
 h1, .sitetitle { margin: 0 0 4px; font-size: 27px; font-weight: 800; letter-spacing: -0.4px; }
+/* Headings are Plus Jakarta Sans 800 (the UA gave h2/h3 700). */
+h2, h3 { font-weight: 800; }
 .sub { color: var(--gray); margin: 0 0 16px; }
 
 .bar {
@@ -557,7 +559,7 @@ html.mapfs-open, html.mapfs-open body { overflow: hidden; }
            max(12px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
 .mapfs-head { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px;
   padding-right: 48px; min-height: 36px; }
-.mapfs-head h2 { margin: 0; font-size: 18px; font-weight: 700; }
+.mapfs-head h2 { margin: 0; font-size: 18px; font-weight: 800; }
 .mapfs-head h2 .muted { color: var(--gray); font-weight: 400; font-size: 14px; }
 .mapfs-head .legend:empty { display: none; }
 .mapfs-close { position: absolute; top: 0; right: 0; width: 36px; height: 36px; border-radius: 8px;
@@ -625,7 +627,7 @@ html.mapfs-open, html.mapfs-open body { overflow: hidden; }
 .windowtoggle button.active { background: var(--card); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
 
 .charthead { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
-.charthead h2, .charthead h1.cardtitle { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0; }
+.charthead h2, .charthead h1.cardtitle { margin: 0; font-size: 18px; font-weight: 800; letter-spacing: 0; }
 /* On a country guide the page's heading is the guide's own h1, so the generic
    site h1 and its homepage pitch stand down: one h1 per page, and it names the
    country. Every /guide/ page used to inherit "Where Should I Travel to Next?" —
@@ -1494,7 +1496,7 @@ html[data-theme="dark"] .fvband.high { background: #3a151c; }
 .disclosure { display: block; margin-top: 8px; font-size: 12px; color: var(--gray); }
 /* Travel Guide "Where to stay" Stay22 map. */
 .guidestay { margin-top: 20px; }
-.staytitle { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
+.staytitle { font-size: 18px; font-weight: 800; margin: 0 0 8px; }
 .staynear { font-weight: 400; font-size: 14px; color: var(--gray); }
 /* Compact stay-provider buttons (replaced the embedded Stay22 map). */
 .staychips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
@@ -2921,7 +2923,7 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    second rule for a browser without :has(): all but the block's margin). */
 #tab-guide[data-level="4"] #guideInsurance:has(> .gsizer) { display: none; }
 #tab-guide[data-level="4"] #guideInsurance > .gsizer { display: none; }
-.besthead .gh2 { margin: 0; font-size: 18px; font-weight: 700; }   /* the chart stand-in's h2 */
+.besthead .gh2 { margin: 0; font-size: 18px; font-weight: 800; }   /* the chart stand-in's h2 */
 #guideVisa:empty { min-height: 40px; }
 #guideSafety:is(:empty, .filling) { min-height: 168px; }
 /* No government rates it (Western Sahara, the French Southern Territories:
