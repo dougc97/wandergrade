@@ -706,12 +706,23 @@ function renderRates(data) {
     const real = c ? realFxPct(c, r.strength_pct) : null;
     return r.favorable && r.watched && real != null && real > 0;
   };
-  const fav = tableRows.filter(realGain);
+  // Every region a row is used in, its pegged currencies' too: the euro row
+  // shows under Europe, the West African franc (folded into it) under Africa.
+  const rowRegions = (r) => [...new Set([...currencyCountries(r.code), ...(folded[r.code] || []).flatMap(currencyCountries)]
+    .map(regionOf).filter(Boolean))];
+  // The summary counts the rows the table shows (applyCurrencyFilter's risk
+  // and region tests), as Cost of living's does: "139 currencies" sat over 99.
+  // Before the advisories say which rows are Level 3-4 (the wait below) the
+  // stand-in keeps the line: a count of every row would then drop to the shown.
+  const adv = advisoryByIso();
+  const shown = tableRows.filter((r) => (showRisky || (adv[currencyCountry(r.code)] || 0) < 3)
+    && (regionSel === "all" || rowRegions(r).includes(regionSel)));
+  const fav = shown.filter(realGain);
   // "364-day avg" was the history cap leaking into the copy; the column header one
   // line over already calls the same number a 1-year average, so say that here too.
   // Hyphenate as a compound modifier: "1 year" -> "1-year avg", "6 months" -> "6-month".
   const avgSpan = dayLabel(data.baseline_days).replace(/^(\d+) (\w+?)s?$/, "$1-$2");
-  $("summary").innerHTML = esc(`${tableRows.length} currencies · ${fav.length} stronger than usual after inflation`)
+  if (ratesRiskKnown()) $("summary").innerHTML = esc(`${shown.length} currencies · ${fav.length} stronger than usual after inflation`)
     + ` <span class="muted" data-tip="${esc(`≥ +${data.threshold_pct}% vs its ${avgSpan} average, net of the inflation gap `
       + "between the two countries (a nominal rise that local inflation eats isn't counted; a low-inflation "
       + "country with no current figure keeps its nominal move, a high-inflation one isn't counted). "
@@ -744,11 +755,10 @@ function renderRates(data) {
   // keeps the table's room meanwhile.
   if (!showRisky && !advisories && !_ratesRiskWait) {
     _ratesRiskWait = true;
-    const go = () => { if (dataRates === data) renderRates(data); };
+    const go = () => { _ratesRiskDone = true; if (dataRates) renderRates(dataRates); };
     Promise.race([ensureAdvisories(), new Promise((r) => setTimeout(r, 2000))]).then(go, go);
     return;
   }
-  const adv = advisoryByIso();
   const tbody = $("rows");
   tbody.innerHTML = "";
   updateCurSortIndicators();
@@ -766,9 +776,7 @@ function renderRates(data) {
     // hide-higher-risk filter (so the Iranian rial isn't row one).
     const ctry = currencyCountry(r.code);
     tr.dataset.adv = String((ctry && adv[ctry]) || 0);
-    // Every region a currency is used in: the euro row shows under Europe, the
-    // West African franc under Africa (regionRowOk).
-    tr.dataset.regions = [...new Set(currencyCountries(r.code).map(regionOf).filter(Boolean))].join(" ");
+    tr.dataset.regions = rowRegions(r).join(" ");   // regionRowOk
     // Row links to the representative country's Travel Guide (shared currencies
     // point at a primary country, e.g. EUR→Germany; XCD has none, so no link).
     // Only where a guide exists: Tonga's row must not open a near-empty page.
@@ -813,7 +821,10 @@ function renderRates(data) {
 // Newest request wins: a first fetch for a base is uncached server-side and
 // slow, so after a quick currency switch an earlier response could land last
 // and repaint the table in the old currency under the new picker.
-let _ratesSeq = 0, _ratesRiskWait = false;
+let _ratesSeq = 0, _ratesRiskWait = false, _ratesRiskDone = false;
+// Whether the Currency view knows which rows the risk filter hides: its
+// summary count and the map's gains list wait for it (the stand-ins hold).
+const ratesRiskKnown = () => showRisky || !!advisories || _ratesRiskDone;
 async function loadRates() {
   // Quiet: a polite live region would otherwise read this out on every load.
   status("Fetching rates…", "", false, true);
@@ -1763,8 +1774,13 @@ function renderMap(rows, base) {
   // read as "wins" while prices there rose faster than the currency fell
   // (Turkey: +9% nominal, -4% real). No inflation figure, no claimed gain.
   // Named by country (a currency union by its own name): "BOB" meant little.
-  const gains = rows.filter((r) => !(r.pegged_to && byCode[r.pegged_to])
-      && currencyCountries(r.code).some(inRegion))
+  // A pegged currency counts with its anchor, except in a region the anchor
+  // isn't used in (the West African franc under Africa). Level 3-4 rows only
+  // with the higher-risk box ticked, as in the table (data-adv).
+  const adv = advisoryByIso();
+  const gains = rows.filter((r) => !(r.pegged_to && byCode[r.pegged_to] && currencyCountries(r.pegged_to).some(inRegion))
+      && currencyCountries(r.code).some(inRegion)
+      && (showRisky || (adv[currencyCountry(r.code)] || 0) < 3))
     .map((r) => {
       const iso = currencyCountry(r.code);
       return { r, iso, real: iso ? realFxPct(iso, r.strength_pct) : null };
@@ -1772,7 +1788,7 @@ function renderMap(rows, base) {
     .filter((g) => g.real != null && g.real > 0 && fxInflBasis(g.iso).adj)
     .sort((a, b) => b.real - a.real).slice(0, 8);
   // "Your dollar's", "Your euro's", "Your money's" — never a bare code.
-  renderDimPicks("map", baseWord(base).replace(/^(the|your) /, "Your ") + "'s biggest gains, after inflation",
+  if (ratesRiskKnown()) renderDimPicks("map", baseWord(base).replace(/^(the|your) /, "Your ") + "'s biggest gains, after inflation",
     gains.map((g) => (g.r.code in PRIMARY_COUNTRY ? g.r.name : countryName(g.iso)) + " " + sgn(g.real)),
     gains.flatMap((g) => currencyCountries(g.r.code)));
 
@@ -9669,7 +9685,9 @@ function setShowRisky(on, persist) {
     const el = $(id);
     if (el && el.checked !== showRisky) el.checked = showRisky;
   }
-  applyCurrencyFilter(); applyAffordFilter(); applyFlightFilter();
+  // renderRates redraws the summary count and the map's gains list, then filters.
+  if (dataRates) renderRates(dataRates); else applyCurrencyFilter();
+  applyAffordFilter(); applyFlightFilter();
   // The "cheapest" lists under the maps mirror their tables' risk filter.
   if (loaded.afford && ppp) renderAfford();
   if (loaded.flights && flightsData && flightsData.configured) renderFlights();
