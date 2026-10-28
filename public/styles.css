@@ -61,7 +61,13 @@ body {
   pointer-events: none;
   z-index: 0;
 }
-body > *:not(.bgdoodle):not(.bgseason):not(.lightbox):not(.wgtip):not(.submodal):not(.spinover):not(.mapfs) { position: relative; z-index: 1; }
+body > *:not(.bgdoodle):not(.bgseason):not(.lightbox):not(.wgtip):not(.submodal):not(.spinover):not(.mapfs):not(.skiplink) { position: relative; z-index: 1; }
+/* Off screen until focused: the first Tab stop skips the header and tabs. */
+.skiplink { position: absolute; left: 8px; top: -60px; z-index: 30; padding: 8px 12px; border-radius: 8px;
+  background: var(--card); color: var(--ink); font-weight: 700; }
+.skiplink:focus { top: 8px; }
+/* The tabs moved into <main>: each keeps the positioning it had as a body child. */
+#main > * { position: relative; z-index: 1; }
 
 header, .bar, .settings, .tablewrap, footer, .tabs, .cardwide, .filterbar, .shellmain { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
 

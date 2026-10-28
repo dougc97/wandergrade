@@ -102,6 +102,7 @@
   {{ACCOUNTS}}
 </head>
 <body>
+  <a class="skiplink" href="#main">Skip to content</a>
   <div class="bgdoodle" aria-hidden="true"></div>
   <div class="bgseason" aria-hidden="true"></div>
   <header>
@@ -130,7 +131,7 @@
   <!-- Five tabs. The emoji sit in .temoji so a phone can drop them (they are
        what pushed "Data" onto a row of its own at 390), and Travel Guide has a
        short twin for the narrowest screens — see the phone rules in styles.css. -->
-  <nav class="tabs" id="tabs">
+  <nav class="tabs" id="tabs" aria-label="Sections">
     <button data-tab="value"{{VALUE_ACTIVE}}><span class="temoji" aria-hidden="true">🧭 </span>Top Picks</button>
     <button data-tab="guide"{{GUIDE_ACTIVE}}><span class="temoji" aria-hidden="true">📅 </span><span class="lbl-tab-lg">Travel Guide</span><span class="lbl-tab-sm">Guide</span></button>
     <button data-tab="trip"><span class="temoji" aria-hidden="true">🧳 </span><span id="tripTabLabel">Trip</span></button>
@@ -160,6 +161,7 @@
   <div id="acctnote" class="status" role="status" aria-live="polite" hidden></div>
 
   <!-- ============ TAB: TOP PICKS ============ -->
+  <main id="main">
   <section class="tab" id="tab-value"{{VALUE_HIDDEN}}>
     <div class="cardwide">
       <div class="charthead">
@@ -223,8 +225,8 @@
             <select id="homeCur"></select>
           </span>
           <span class="pickgroup" data-tip="hide countries below this safety grade from both Top Picks and Hidden Gems" title="">
-            <span class="picklabel">🛡️ Safety at least</span>
-            <select id="safeFloor">
+            <span class="picklabel" id="safeFloorLbl">🛡️ Safety at least</span>
+            <select id="safeFloor" aria-labelledby="safeFloorLbl">
               <option value="a">A — Level 1 only</option>
               <option value="b" selected>B — Levels 1–2</option>
               <option value="any">Any level</option>
@@ -234,8 +236,8 @@
             <span class="picklabel">Into</span>
           </span>
           <span class="pickgroup" data-tip="countries marked ✓ been on your travel map — hide them from picks, or include them" title="">
-            <span class="picklabel">Been-to</span>
-            <select id="beenFilter">
+            <span class="picklabel" id="beenFilterLbl">Been-to</span>
+            <select id="beenFilter" aria-labelledby="beenFilterLbl">
               <option value="hide" selected>Somewhere new</option>
               <option value="show">Include visited</option>
             </select>
@@ -244,8 +246,8 @@
             <span class="picklabel">Count</span>
           </span>
           <span class="pickgroup" data-tip="how many picks to show" title="">
-            <span class="picklabel">Show</span>
-            <select id="pickCount">
+            <span class="picklabel" id="pickCountLbl">Show</span>
+            <select id="pickCount" aria-labelledby="pickCountLbl">
               <option value="5" selected>Top 5</option>
               <option value="10">Top 10</option>
               <option value="20">Top 20</option>
@@ -408,8 +410,8 @@
               <th class="dest sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th>
               <th class="num sortable" aria-sort="none" data-sk="afford" title="cost of living vs home + how strong your currency is now"><button type="button" class="sortbtn"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></button></th>
               <th class="num sortable" aria-sort="none" data-sk="safety" title="government travel-advisory level — source picked under Data → Safety"><button type="button" class="sortbtn"><span aria-hidden="true">🛡️</span> <span class="thword">Safety</span></button></th>
-              <th class="num sortable" aria-sort="none" data-sk="weather" title="weather comfort for your chosen month"><button type="button" class="sortbtn"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></button></th>
-              <th class="num sortable" aria-sort="none" data-sk="flight" title="this month's fare vs the route's usual where we have cached months; otherwise the year-round fare vs a typical fare for the distance · ~ = no cached fare, counted as typical"><button type="button" class="sortbtn"><span aria-hidden="true">✈️</span> <span class="thword">Flights</span></button></th>
+              <th class="num sortable" aria-sort="none" data-sk="weather" title="weather comfort in the month graded"><button type="button" class="sortbtn"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></button></th>
+              <th class="num sortable" aria-sort="none" data-sk="flight" title="the graded month's fare vs the route's usual where we have cached months; otherwise the year-round fare vs a typical fare for the distance · ~ = no cached fare, counted as typical"><button type="button" class="sortbtn"><span aria-hidden="true">✈️</span> <span class="thword">Flights</span></button></th>
               <th class="num sortable ovh" aria-sort="none" data-sk="value" title="everything blended, weighted by your priorities"><button type="button" class="sortbtn">Overall</button></th>
             </tr></thead>
             <tbody id="valueRows"><tr><td colspan="7">Loading…</td></tr></tbody>
@@ -1032,6 +1034,7 @@
       </section>
     </div>
   </section>
+  </main>
 
   <section class="subscribe" id="subscribe"></section>
 
@@ -1044,7 +1047,7 @@
        still in the HTML and still crawled. -->
   <details class="guideindex">
     <summary>Browse all {{GUIDE_COUNT}} country guides</summary>
-    <nav class="guideindex-links">{{GUIDE_LINKS}}</nav>
+    <nav class="guideindex-links" aria-label="All country guides">{{GUIDE_LINKS}}</nav>
   </details>
 
   <footer>
