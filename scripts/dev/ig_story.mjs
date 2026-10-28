@@ -1,24 +1,43 @@
 // ig_story.mjs — a 1080x1920 Instagram-story PNG of this month's Top Picks,
 // rendered from the live site so the grades, copy and font are the real ones.
 //
-//   cd scripts/dev && MONTH=11 OUT=/path/to/story.png CDP_TIMEOUT=90 node cdp.mjs ./ig_story.mjs
+//   cd scripts/dev && MONTH=11 OUT=/path/to/story.png CDP_TIMEOUT=55 node cdp.mjs ./ig_story.mjs
 //
 // MONTH defaults to the current month; ORIGIN (ISO, default US) is the
 // "From" country the ranking is scored for; SITE overrides the base URL for a
-// local server. The page is loaded at /?tab=value&vmn=<month>, the top five
-// rows of the ranked table are read from the DOM, and a fixed 1080x1920 panel
-// is drawn INSIDE the page (so the site's CSS variables, grade pills and Plus
+// local server. The page is loaded at /?tab=value&vmn=<month> (analytics
+// beacon blocked), the top five rows of the ranked table are read from the
+// DOM, and the shared ig_frame.mjs panel is drawn INSIDE the server-rendered
+// /cheapest/<month> page (so the site's CSS variables, grade pills and Plus
 // Jakarta Sans apply) and screenshotted. Nothing is posted anywhere.
-import fs from 'node:fs';
+import { blockBeacon, openCanvas, renderFrame, brand, band, foot, pill, esc } from './ig_frame.mjs';
 const SITE = process.env.SITE || 'https://wandergrade.com';
 const MONTH = +(process.env.MONTH || (new Date().getMonth() + 1));
 const ORIGIN = (process.env.ORIGIN || 'US').toUpperCase();
 const OUT = process.env.OUT || `wandergrade-story-${new Date().toISOString().slice(0, 7)}.png`;
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
+// app.js whyLine adds "safest travel rating" for advisory Level 1. The site
+// never makes its own safety claim on a frame: it becomes the State
+// Department's level when the row's safety pill says the level is theirs
+// ("… — per US State Dept"), and is dropped when it's Canada's or Germany's
+// gap-fill ("US State Dept publishes no advisory here; level per …").
+export const safetyFact = (fact, advTitle) => (fact !== 'safest travel rating' ? fact
+  : /— per US State Dept$/.test(advTitle || '') ? 'US State Dept Level 1' : null);
+
+// Five cards with two-line why-lines, the link band and the footer have to fit
+// between the 250px top and the 280px bottom safe areas: slightly tighter
+// cards than the shared frame's (it was 24px padding, 16px apart, 36px under the sub; now 18, 10 and 20).
+const TIGHT = `
+  #igstory .igh1 { margin: 18px 0 10px; }
+  #igstory .igsub { margin-bottom: 20px; }
+  #igstory .igc { padding: 18px 30px; margin-bottom: 10px; }
+  #igstory .igwhy { font-size: 24px; line-height: 1.25; }`;
+
 export default async (t) => {
   const { send, evaluate, setSize, nav, sleep, errs } = t;
   await setSize(1280, 900, false);
+  await blockBeacon(send);
   // No vmn=/vo= in the URL: with both set the page stopped answering CDP in
   // headless Chrome (probe 2026-10-09). The ranking loads for the current
   // month and the locale's origin; a different month is picked through the
@@ -39,10 +58,11 @@ export default async (t) => {
         const link = tr.querySelector('.destlink');
         const flag = (link.querySelector('span') || {}).textContent || '';
         const pill = tr.querySelector('td.overall .gr');
+        const adv = tr.querySelector('td[data-go="advisory"] .gr');
         return { iso: tr.dataset.iso, flag: flag.trim(), name: link.textContent.replace(flag, '').trim(),
                  grade: pill ? pill.textContent.trim() : '', gradeCls: pill ? pill.className : 'gr',
                  score: (tr.querySelector('td.overall .grnum') || {}).textContent || '',
-                 why: tr.getAttribute('title') || '' };
+                 why: tr.getAttribute('title') || '', advTitle: adv ? adv.getAttribute('title') || '' : '' };
       });
     })()`);
     if (!rows) await sleep(500);
@@ -54,62 +74,27 @@ export default async (t) => {
   if (String(month) !== String(MONTH)) console.log('WARNING: page month differs from MONTH');
   if (origin !== ORIGIN) console.log('WARNING: page origin ' + origin + ' differs from ORIGIN ' + ORIGIN + ' (set From in the page or run from that locale)');
 
-  // One line per pick: the row's why-line, trimmed to its first two facts.
   // One line per pick: the row's first two facts; "home" reads oddly on a
   // story with no reader context, so it becomes the origin country's name.
   const homeName = ORIGIN === 'US' ? 'the US' : ORIGIN;
-  const why = (s) => s.replace(/than home\b/g, 'than ' + homeName).split(/\s*[·;]\s*|,\s(?=[a-z])/).filter(Boolean).slice(0, 2).join(' · ');
+  const why = (r) => r.why.replace(/than home\b/g, 'than ' + homeName).split(/\s*[·;]\s*|,\s(?=[a-z])/)
+    .filter(Boolean).map((f) => safetyFact(f, r.advTitle)).filter(Boolean).slice(0, 2).join(' · ');
   const asOf = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const cards = rows.map((r, i) => `
     <div class="igc">
       <div class="igrank">#${i + 1}</div>
       <div class="igflag">${esc(r.flag)}</div>
-      <div class="igmain"><div class="igname">${esc(r.name)}</div><div class="igwhy">${esc(why(r.why))}</div></div>
-      <div class="igpill"><span class="${esc(r.gradeCls)}">${esc(r.grade)}</span><span class="igscore">${esc(r.score)}</span></div>
+      <div class="igmain"><div class="igname clip">${esc(r.name)}</div><div class="igwhy clamp">${esc(why(r))}</div></div>
+      ${pill(r.gradeCls, r.grade, r.score)}
     </div>`).join('');
-  const html = `
-    <style>
-      #igstory { position: fixed; inset: 0; width: 1080px; height: 1920px; z-index: 99999; box-sizing: border-box;
-        /* Instagram's own UI covers roughly the top 250px (progress bars, name) and the bottom 280px
-           (reply bar): nothing of ours goes there, and the clear band between the last card and the
-           footer line is where the link sticker goes. */
-        padding: 250px 72px 240px; background: var(--bg); color: var(--fg, var(--text, #e8eaed));
-        font-family: "Plus Jakarta Sans", system-ui, sans-serif; display: flex; flex-direction: column; }
-      #igstory .igbrand { font-weight: 800; font-size: 40px; color: #2bb24c; letter-spacing: -.01em; }
-      #igstory .igh1 { font-weight: 800; font-size: 82px; line-height: 1.02; letter-spacing: -.025em; margin: 22px 0 14px; }
-      #igstory .igsub { font-size: 29px; line-height: 1.35; opacity: .72; margin-bottom: 36px; max-width: 900px; }
-      #igstory .igc { display: flex; align-items: center; gap: 26px; background: var(--card); border: 1px solid var(--line, rgba(255,255,255,.08));
-        border-radius: 26px; padding: 24px 30px; margin-bottom: 16px; }
-      #igstory .igrank { font-weight: 800; font-size: 34px; opacity: .45; width: 64px; }
-      #igstory .igflag { font-size: 64px; line-height: 1; }
-      #igstory .igmain { flex: 1; min-width: 0; }
-      #igstory .igname { font-weight: 800; font-size: 46px; line-height: 1.1; letter-spacing: -.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      #igstory .igwhy { font-size: 25px; line-height: 1.3; opacity: .72; margin-top: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-      #igstory .igpill { display: flex; align-items: center; gap: 14px; }
-      #igstory .igpill .gr { font-size: 40px; min-width: 100px; height: 80px; line-height: 80px; border-radius: 20px; padding: 0 16px; font-weight: 800; }
-      #igstory .igscore { font-weight: 800; font-size: 34px; opacity: .6; width: 56px; text-align: right; }
-      #igstory .igsticker { margin-top: auto; height: 130px; flex-shrink: 0; }  /* the link sticker's spot: kept clear on purpose */
-      #igstory .igfoot { display: flex; justify-content: space-between; align-items: flex-end; font-size: 26px; opacity: .72; }
-      #igstory .igfoot b { font-weight: 800; opacity: 1; color: #2bb24c; font-size: 34px; }
-      #igstory .igfoot small { font-size: 24px; }
-    </style>
-    <div class="igbrand">🌍 WanderGrade</div>
+  // The clear band between the last card and the footer is where the link sticker goes.
+  const html = `${brand()}
     <div class="igh1">Where to go in ${esc(MONTHS[MONTH - 1])}</div>
     <div class="igsub">Top value picks for travelers from the US — prices vs home, safety, weather and flights, graded A+ to F.</div>
     ${cards}
-    <div class="igsticker"></div>
-    <div class="igfoot"><div><b>wandergrade.com</b><br><small>Tap the link for the full ranking · free, no sign-up</small></div><div><small>As of ${esc(asOf)}</small></div></div>`;
-  await evaluate(`(() => {
-    document.documentElement.setAttribute('data-theme', 'dark');
-    const d = document.createElement('div'); d.id = 'igstory'; d.innerHTML = ${JSON.stringify(html)};
-    document.body.appendChild(d);
-  })()`);
-  await setSize(1080, 1920, false);
-  await sleep(1200);   // font + pill styles settle
-  const fits = await evaluate(`(() => { const s = document.getElementById('igstory'); const f = s.querySelector('.igfoot'); const st = s.querySelector('.igsticker'); const c = [...s.querySelectorAll('.igc')].pop(); return { h: s.scrollHeight, lastCardBottom: Math.round(c.getBoundingClientRect().bottom), stickerZone: [Math.round(st.getBoundingClientRect().top), Math.round(st.getBoundingClientRect().bottom)], footBottom: Math.round(f.getBoundingClientRect().bottom) }; })()`);
-  console.log('panel', JSON.stringify(fits));
-  const shot = await send('Page.captureScreenshot', { format: 'png', clip: { x: 0, y: 0, width: 1080, height: 1920, scale: 1 }, captureBeyondViewport: true });
-  fs.writeFileSync(OUT, Buffer.from(shot.result.data, 'base64'));
-  console.log('wrote', OUT, fs.statSync(OUT).size, 'bytes; console errors', errs.length);
+    <div class="igspace"></div>${band('link', 130)}
+    ${foot(`As of ${asOf}`, 'Tap the link for the full ranking · free, no sign-up')}`;
+  await openCanvas(t, `${SITE}/cheapest/${MONTHS[MONTH - 1].toLowerCase()}`);
+  await renderFrame(t, { html, out: OUT, allowClip: '.igname.clip, .igwhy.clamp', css: TIGHT });
+  console.log('wrote', OUT, '; console errors', errs.length);
 };
