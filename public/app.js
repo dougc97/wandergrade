@@ -3035,7 +3035,7 @@ async function renderGuideFx(iso) {
   const basis = noInfl ? " (exchange rate only)"
     : nominal ? " (nominal — inflation data isn't current)"
     : gap ? ", after inflation" : " (exchange rate only)";
-  host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(cn)}</b>: `
+  host.innerHTML = `<span class="fxhead">💱 <b>Your ${esc(base)} in ${esc(countryNameInText(iso))}</b>: `
     + `<b class="${cls}">${signedPct(pct, 1)}</b> vs its 12-month average${basis}`
     + (noInfl || nominal || !gap ? "" : ` <span class="muted">— ${verdict}</span>`)
     + `<span class="fxinfo" data-tip="${esc(tip)}" title="">ⓘ</span></span>`
@@ -7497,7 +7497,7 @@ function buildCountryAIPrompt(iso) {
 function renderGuideAI(iso) {
   const host = $("guideAI");
   if (!host) return;
-  const name = countryName(iso);
+  const name = countryNameInText(iso);   // "Add the United Kingdom to my trip"
   // The button alone reads as "an AI writes your trip", which is not what this
   // does and oversells it. It writes the *prompt* — with the month, the visa
   // rules for your passport, the season, and the local price level already
