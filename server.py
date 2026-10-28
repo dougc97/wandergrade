@@ -110,7 +110,10 @@ SECURITY_HEADERS = {
         "img-src 'self' data: blob: https:; "
         "font-src 'self' data:; "
         "connect-src 'self' https:; "
-        "frame-src https://www.stay22.com https://stay22.com; "
+        # Nothing is framed (no embedded Stay22 map: the stay links open
+        # the partner's own page), and no plugin content.
+        "frame-src 'none'; "
+        "object-src 'none'; "
         "frame-ancestors 'self'; "
         "base-uri 'self'"
     ),
