@@ -592,9 +592,12 @@ def _subjects(iso, act):
     """(subject, cap, alias, chip name) for every place the guide names, in
     its order: "top things to do" first (up to MAX_SPOTS), then the gallery
     (topping up to GALLERY_SPOTS). A pinned Commons file's place is its
-    label; a label that isn't a Wikipedia title finds no coordinates."""
+    label; a label that isn't a Wikipedia title finds no coordinates. An
+    activity's photo pinned to a Commons file ("p": "File:...", Iceland's
+    northern lights) names a picture, not a place: it is left out."""
     aliases = ALIASES.get(iso, {})
-    subjects = [(p, MAX_SPOTS) for x in (act.get("activities") or []) for p in act_places(x)]
+    subjects = [(p, MAX_SPOTS) for x in (act.get("activities") or []) for p in act_places(x)
+                if not p.startswith("File:")]
     subjects += [(gallery_entry.label(e), GALLERY_SPOTS) for e in act.get("gallery") or []]
     for subject, cap in subjects:
         # curated alias: phrase -> real Wikipedia title (+ optional chip label,
