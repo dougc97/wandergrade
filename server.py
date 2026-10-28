@@ -206,7 +206,7 @@ _HTML_DEFAULTS = {
     # the header: +62px at 768-895 (the title and tagline re-wrapped around
     # it), the whole tab below moving with it (CLS 0.26 at 768).
     "ACCT_HIDDEN": "" if accounts.enabled() else " hidden",
-    # The Data tab's owner-only action bar ("Check & email now", Settings):
+    # The Data tab's owner-only action bar ("Check & email now"):
     # app.js un-hides it once /api/config says the server isn't read-only,
     # which on a private server grew the bar 46px after first paint (CLS
     # 0.034-0.041 at 390). Served visible exactly where init() would show it.

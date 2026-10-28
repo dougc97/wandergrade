@@ -150,13 +150,13 @@ results.append(ok(all("cost" not in rg.h1_topics(i) for i in no_cost)
                   "the h1 names only topics the guide has data for (%d without a price figure)" % len(no_cost)))
 tpl = server._guide_template()
 results.append(ok(not re.search(r"<h[23][\s>]", tpl), "the /guide/ template has no static h2/h3"))
-results.append(ok(tpl.count('data-h="2"') == 14 and tpl.count('data-h="3"') == 2,
-                  "14 shell h2s and 2 h3s demoted to <div data-h> (%d, %d)"
+results.append(ok(tpl.count('data-h="2"') == 13 and tpl.count('data-h="3"') == 0,
+                  "13 shell h2s demoted to <div data-h>, no h3 left (%d, %d)"
                   % (tpl.count('data-h="2"'), tpl.count('data-h="3"'))))
 results.append(ok(all('id="%s" data-nosnippet' % t in tpl for t in server._SHELL_TABS),
                   "the four non-guide tabs are data-nosnippet"))
 home = server._render_index(None).decode("utf-8")
-results.append(ok(home.count("<h2") >= 14 and "data-h=" not in home and "data-nosnippet" not in home
+results.append(ok(home.count("<h2") >= 13 and "data-h=" not in home and "data-nosnippet" not in home
                   and '<h1 class="cardtitle" id="guideH1" hidden>Travel Guide</h1>' in home,
                   "the homepage keeps its real headings and the hidden guide h1"))
 LD = lambda page: re.findall(r'<script type="application/ld\+json">(.*?)</script>', page, re.S)

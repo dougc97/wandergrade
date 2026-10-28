@@ -885,76 +885,6 @@ function buildBaseSelect() {
   enhanceSelect(sel);
 }
 
-function buildWatchlist(allCodes, selected) {
-  const sel = new Set(selected || []);
-  const box = $("watchlist");
-  box.innerHTML = "";
-  for (const c of allCodes) {
-    const id = "w_" + c;
-    const lbl = document.createElement("label");
-    lbl.innerHTML = `<input type="checkbox" id="${id}" value="${c}" ${sel.has(c) ? "checked" : ""}> ${c}`;
-    box.appendChild(lbl);
-  }
-}
-
-function selectedWatch() {
-  return Array.from(document.querySelectorAll("#watchlist input:checked")).map((i) => i.value);
-}
-
-async function loadConfig() {
-  const cfg = await getJSON("/api/config");
-  $("baseline_days").value = cfg.baseline_days;
-  $("threshold_pct").value = cfg.threshold_pct;
-  $("alert_cooldown_hours").value = cfg.alert_cooldown_hours;
-  const e = cfg.email || {};
-  $("email_enabled").checked = !!e.enabled;
-  $("smtp_host").value = e.smtp_host || "";
-  $("smtp_port").value = e.smtp_port || 587;
-  $("username").value = e.username || "";
-  $("password").value = ""; // never echo stored secret
-  $("password").placeholder = e.password ? "•••••• (stored — leave blank to keep)" : "(set here or via FX_SMTP_PASSWORD)";
-  $("from_addr").value = e.from_addr || "";
-  $("to_addr").value = e.to_addr || "";
-
-  // Watchlist needs the full currency universe; pull from current rates.
-  const codes = (lastRates ? lastRates.rows.map((r) => r.code) : []).sort();
-  buildWatchlist(codes, cfg.watch);
-}
-
-async function saveConfig() {
-  const email = {
-    enabled: $("email_enabled").checked,
-    smtp_host: $("smtp_host").value.trim(),
-    smtp_port: parseInt($("smtp_port").value, 10) || 587,
-    username: $("username").value.trim(),
-    from_addr: $("from_addr").value.trim(),
-    to_addr: $("to_addr").value.trim(),
-  };
-  const pw = $("password").value;
-  if (pw) email.password = pw; // only send if user typed a new one
-
-  const body = {
-    watch: selectedWatch(),
-    baseline_days: parseInt($("baseline_days").value, 10),
-    threshold_pct: parseFloat($("threshold_pct").value),
-    alert_cooldown_hours: parseInt($("alert_cooldown_hours").value, 10),
-    email,
-  };
-  status("Saving…");
-  try {
-    await postJSON("/api/config", body);
-    status("Settings saved. Reloading rates…", "ok");
-    // The server keys its rates on baseline_days, threshold and the watchlist
-    // just saved; fetchBaseRates answers a currency from _baseRatesCache for
-    // the whole session, so a non-USD Data table would reload the old dataset.
-    for (const k in _baseRatesCache) delete _baseRatesCache[k];
-    await loadRates();
-    status("Settings saved.", "ok");
-  } catch (e) {
-    status("Save failed: " + e.message, "err");
-  }
-}
-
 async function checkNow() {
   status("Checking and emailing…");
   try {
@@ -965,7 +895,7 @@ async function checkNow() {
     } else if (res.email_sent) {
       status(`${n} favorable — alert emailed.`, "ok");
     } else if (!res.email_configured) {
-      status(`${n} favorable, but email isn't configured (see Settings).`, "err");
+      status(`${n} favorable, but email isn't configured (see config.json).`, "err");
     } else {
       status(`${n} favorable, but send failed: ${res.error}`, "err");
     }
@@ -2168,12 +2098,6 @@ function affordColor(pl) {
 
 // ---- wiring ---------------------------------------------------------------
 $("check").addEventListener("click", checkNow);
-$("save").addEventListener("click", saveConfig);
-$("toggleSettings").addEventListener("click", async () => {
-  const s = $("settings");
-  s.hidden = !s.hidden;
-  if (!s.hidden) await loadConfig();
-});
 
 // ===========================================================================
 //  Region grouping (ISO -> region) for the travel tabs
@@ -13268,12 +13192,12 @@ document.addEventListener("scroll", _hideTip, true);
   // taking the newsletter box and footer with it. The rows' pills, marks
   // and booking links fill in once their data lands (activateTab).
   if (document.documentElement.getAttribute("data-tab") === "trip") renderTripBar();
-  // Settings + manual email exist only off a public deployment: the group
+  // The manual check-and-email exists only off a public deployment: the group
   // ships hidden and is shown here when the server isn't read-only. Hiding it
   // on the answer instead (the public case) let the two buttons wrap the Data
   // bar to a second row on every phone until /api/config returned, then pulled
   // the whole Currency view up 46px (CLS 0.034 per phone load). And the group
-  // as a whole, not just its buttons: an empty .actions still took a slot in
+  // as a whole, not just its button: an empty .actions still took a slot in
   // the bar's space-between row and parked the Region picker mid-page.
   getJSON("/api/config").then((c) => {
     if (!c.readonly) $("check").parentElement.hidden = false;
