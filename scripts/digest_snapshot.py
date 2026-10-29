@@ -156,6 +156,10 @@ CHEAP_LINK = re.compile(
 #         (render_cheapest.year_for) where 4788fd2 printed the default
 #         month's, in the intro and in send_digest's "Digest for" line;
 #  quote  the closing quote, which newsletter._quote_for picks by that year.
+# And one change since (2026-10-29), stripped the same way:
+#  btn/btnend  the two green buttons' labels sit in two spans, since
+#         Buttondown's CSS turned their white text blue (newsletter.GREEN's
+#         note); the spans go, the label stays.
 REVIEW3 = re.compile(
     r"(?P<src> <span style='color:#888'>per (?:US State Dept|Global Affairs Canada|German Foreign Office)</span>)"
     r"|(?P<ai><div style='background:#eef7f0;border:1px solid #cfe8d6;border-radius:10px;padding:12px 14px;"
@@ -163,7 +167,8 @@ REVIEW3 = re.compile(
     r"|(?P<apos>(?<=this month vs the )route['’]s(?= usual))"
     r"|(?P<year> 20\d\d(?=</b>\? WanderGrade grades| \(rates as of ))"
     r"|(?P<quote><p style=\"font-size:13px;line-height:1\.6;color:#666;font-style:italic;[^\"]*\">“[^”]*”<br>"
-    r"<span style=\"font-style:normal;color:#888\">— [^<]*<i>[^<]*</i></span></p>)")
+    r"<span style=\"font-style:normal;color:#888\">— [^<]*<i>[^<]*</i></span></p>)"
+    r"|(?P<btn><span><span style=\"color:#ffffff\">)|(?P<btnend></span></span>(?=</a>))")
 
 
 def without_review3(text):

@@ -1,18 +1,18 @@
 {
- "note": "Regenerated 2026-10-28 for review 3's USD copy, the second deliberate change after the /cheapest line: each 🛡️ grade names whose level it is (\" <span style='color:#888'>per US State Dept</span>\", or the government that filled the gap), the AI callout drops \"New:\" and names ChatGPT, Claude, Grok or Perplexity, \"route’s\" takes the typographic apostrophe, and an explicit --month issue prints its month's next occurrence (render_cheapest.year_for: on the snapshot's 2026-10-03, months 1-9 read 2027 with the quote for 2027, where they read 2026). scripts/digest_snapshot.py on 4788fd2 (with this tree's cost line grafted) and on this tree: every month's text identical once CHEAP_LINK and REVIEW3's pieces are taken out of both; test_digest_variants --against 4788fd2 asserts that, and that each piece is in this tree's text where it belongs. Regenerated 2026-10-24 for the USD edition's new line after the hidden gems: 💰 On a budget? (💸 until the same day, Doug's pick) \"The cheapest countries to visit in <Month> →\" linking https://wandergrade.com/cheapest/<month> for the issue's month (scripts/digest_snapshot.py on HEAD 4f15187 and on the change: every month's text identical once that one paragraph is removed; test_digest_variants --against 4788fd2 compares with it taken out). Regenerated 2026-10-14 again for the tie rule (a tie on the shown score breaks on the unrounded one, then the name; list order used to decide). Regenerated 2026-10-14 for the default priorities moving to every factor Med (picks.WEIGHTS afford 3 -> 2; affordability had been High since the FX-tracker days). Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
+ "note": "Regenerated 2026-10-29 for the two green buttons' labels (\"See <Country>’s guide →\", \"See every country’s grades →\"), now inside <span><span style=\"color:#ffffff\">…</span></span>: Buttondown's inlined a{color:#0069FF!important} had turned their white text blue on green in the delivered Oct 2026 issue. With those spans unwrapped (digest_snapshot.REVIEW3's btn/btnend) every month hashes to the 2026-10-28 values. Regenerated 2026-10-28 for review 3's USD copy, the second deliberate change after the /cheapest line: each 🛡️ grade names whose level it is (\" <span style='color:#888'>per US State Dept</span>\", or the government that filled the gap), the AI callout drops \"New:\" and names ChatGPT, Claude, Grok or Perplexity, \"route’s\" takes the typographic apostrophe, and an explicit --month issue prints its month's next occurrence (render_cheapest.year_for: on the snapshot's 2026-10-03, months 1-9 read 2027 with the quote for 2027, where they read 2026). scripts/digest_snapshot.py on 4788fd2 (with this tree's cost line grafted) and on this tree: every month's text identical once CHEAP_LINK and REVIEW3's pieces are taken out of both; test_digest_variants --against 4788fd2 asserts that, and that each piece is in this tree's text where it belongs. Regenerated 2026-10-24 for the USD edition's new line after the hidden gems: 💰 On a budget? (💸 until the same day, Doug's pick) \"The cheapest countries to visit in <Month> →\" linking https://wandergrade.com/cheapest/<month> for the issue's month (scripts/digest_snapshot.py on HEAD 4f15187 and on the change: every month's text identical once that one paragraph is removed; test_digest_variants --against 4788fd2 compares with it taken out). Regenerated 2026-10-14 again for the tie rule (a tie on the shown score breaks on the unrounded one, then the name; list order used to decide). Regenerated 2026-10-14 for the default priorities moving to every factor Med (picks.WEIGHTS afford 3 -> 2; affordability had been High since the FX-tracker days). Re-checked 2026-10-04 after the cost line moved to the site's ±10% band on the printed decimals (newsletter._pl_band): unchanged, because on these frozen fixtures the five countries that change band (DK, FO, GB, LU, MH) are never a USD pick printed with a cost line. scripts/test_digest_variants.py --against 4788fd2 asserts both facts.",
  "sha256": {
-  "1": "7a3082ad92f816d7ef81dd9cea17e33c59ea4f0eeca7761999b07b8040506ab1",
-  "2": "f3b88e1a37500b6f04f38f243c80c64e87d0cb60d431565a88f1946a89a7edb9",
-  "3": "84262d8dae5105224cdac99f8503611dd25cf5d792517881330ded856cb2dd89",
-  "4": "b8df9164473716c42751819aacb14a738b58d94c26b75500684e4ad1b878d6a6",
-  "5": "8b53bb62921e34b9b9fa9974f2432e14ad1da13f7d96d357df7ae4f2d832f057",
-  "6": "b998a0bebbaa308fb4e50d685d14fb30964b9ec151398858d421a978964742fa",
-  "7": "74758197c4052b91ec90cbb89b55bba484abb904953a9cf0d3911329e73e455f",
-  "8": "357f3697a84f7382a5dc2c69c0916b085b0fcc7845350247562ce0cd1641e563",
-  "9": "69bb435650dcce0208b8f06ad2b560f7918b1a657948d86e5c267718e58ba5d2",
-  "10": "acd289e784ff1469328a81ffb7691a0c915cc6899da34e3e6c583204bf7dd849",
-  "11": "02c6fc59a9e4f579b5b16c75b048f238a5bd004dde79a4a7835ab0801ea9575d",
-  "12": "bad340e827e5c529489613941dd209c09b12760fdef7a9ca763d8c8fc5986915"
+  "1": "1a1c686f46129ec20c15ac55998296bf5cda1bdc5a886e7a6ac93a935cc4bcdd",
+  "2": "35ab94eb2c4e18cb30f4bb2e12c64760a2ea9898e7599cd1ffa5cd31a69ca7ca",
+  "3": "8d149092d97e9222d629d47879a8d3ac9ee616e0b0878a1c4c65b337eae95cb3",
+  "4": "b509fd848b7dd51d4ea313f1ba13cf017d56c58a7bcba537a910255309fa5ae3",
+  "5": "437607278676fbbf0a06c4950749c7c33723c6a601701e4918c293be4139f961",
+  "6": "46432b96203f00210d3da15736653b2c466e26196c70f647c3294dacaa1d2685",
+  "7": "54bd1b8068c03bf2e5b7abebb1f8c31a061301352f828f9442849828262820a9",
+  "8": "01a6528a4526e85486a8b2083e779b65659c3e3ba920b8977fdb77ddf4efe00f",
+  "9": "da02518c8b1fe3f5933cdeeb813221ed46e0d4deec507d176e066af4f38c9f2c",
+  "10": "636a218edf929e1424d48776aad24864a4009f063e4e9800312cb3c52326ea6e",
+  "11": "996ae38aab4f518fad53ee634a04ba9a2c4346069dbed7fa4cb25b11740ebd55",
+  "12": "9f77881e447c9b2b2b84e0917ed19611447c528235e8f5be352ebc6ce0453b93"
  },
  "source": "git archive 4788fd2 fxtracker public | tar -x (scripts/digest_snapshot.py, frozen fixtures, today 2026-10-03)"
 }

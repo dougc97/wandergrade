@@ -367,6 +367,11 @@ USD = VARIANTS["USD"]              # the edition every render defaults to
 SITE = "https://wandergrade.com"
 UNSUB = "{{ unsubscribe_url }}"    # Buttondown fills this on send
 GREEN = "#0a7d28"
+# The two green buttons' labels sit in two spans: Buttondown inlines its
+# template CSS into each issue, where a{color:#0069FF!important} turned their
+# white text blue on GREEN (the Oct 2026 issue went out that way) and
+# a>*{color:inherit!important} takes a single wrapper with it. The inner span is
+# out of both rules' reach, so its own white stays.
 
 
 def _esc(x):
@@ -536,7 +541,7 @@ def _hero_card(s, month, v=USD):
         <div style="font-size:20px;font-weight:800;color:#111">%s<a href="%s" style="color:%s;text-decoration:none">%s</a> <span style="color:#666">— Overall %s</span></div>
         <div style="font-size:14px;color:#444;margin:5px 0 0">\U0001f4b0 Affordability <b>%s</b> &nbsp;&middot;&nbsp; \U0001f6e1️ Safety <b>%s</b>%s &nbsp;&middot;&nbsp; \U0001f324️ Weather <b>%s</b>%s</div>
         %s%s%s%s
-        <div style="margin:14px 0 0"><a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 18px;border-radius:9px">See %s’s guide →</a></div>
+        <div style="margin:14px 0 0"><a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 18px;border-radius:9px"><span><span style="color:#ffffff">See %s’s guide →</span></span></a></div>
       </div>
     </div>""" % (photo, _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
                  _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]), _fly(s),
@@ -690,7 +695,7 @@ def render_digest(data):
   %s
   %s%s
   <div style="text-align:center;margin:22px 0 6px">
-    <a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px">See every country’s grades →</a>
+    <a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px"><span><span style="color:#ffffff">See every country’s grades →</span></span></a>
   </div>
   <p style="font-size:13px;color:#555;margin:16px 0 0">\U0001f4ac Tell me where you’re headed — just hit reply, or write to <a href="mailto:hello@wandergrade.com" style="color:#555"><b>hello@wandergrade.com</b></a>. I read every message.</p>
   %s

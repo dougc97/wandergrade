@@ -223,6 +223,12 @@ def cover(query, width=1024, height=420):
         so the photos silently fail to load.
     weserv sidesteps both: it fetches the original, resizes to any width, and
     serves a cache-friendly JPEG that Gmail's proxy loads fine.
+
+    weserv is handed a thumb.wikimedia.org thumbnail, never an
+    upload.wikimedia.org original (_thumb): since Oct 2026 Wikimedia answers
+    weserv's fetches of originals with 429, which weserv passes on as a 404,
+    so Vietnam's Ha Long Bay showed as a broken image while every thumbnail
+    loaded.
     """
     if not query:
         return None
@@ -232,20 +238,46 @@ def cover(query, width=1024, height=420):
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
             d = json.load(r)
-        orig = (d.get("originalimage") or {}).get("source")
+        oi = d.get("originalimage") or {}
+        orig = oi.get("source")
         # Only freely licensed Commons files: an en.wikipedia-hosted image is
         # usually fair-use, which doesn't extend to a newsletter.
         credit = photo_credit(orig) if orig else None
         if not credit:
             return None
         # strip scheme (weserv wants ssl:host/path) and Wikipedia's utm_* query
-        bare = orig.split("//", 1)[1].split("?", 1)[0]
+        bare = _thumb(orig.split("//", 1)[1].split("?", 1)[0], oi.get("width"))
         return {"url": ("https://images.weserv.nl/?url="
                         + urllib.parse.quote("ssl:" + bare, safe="")
                         + "&w={0}&h={1}&fit=cover&a=attention&output=jpg&q=80".format(width, height)),
                 "credit": credit}
     except Exception:
         return None
+
+
+# Wikimedia's standard thumbnail widths (scripts/dev/thumb_check.mjs has the
+# full list), widest first; the banner is 1024 wide, so 1280 is plenty.
+_THUMB_STEPS = (1280, 960, 500)
+_THUMB_EXT = (".jpg", ".jpeg", ".png", ".gif", ".webp")
+
+
+def _thumb(bare, width):
+    """`bare` (host/path) of a Commons original as the thumb.wikimedia.org
+    thumbnail at the widest step its `width` allows; anything else (already a
+    thumbnail, a format whose thumbnail is renamed, a width unknown or under
+    500) comes back unchanged."""
+    host, _, path = bare.partition("/")
+    parts = path.split("/")
+    # wikipedia/commons/<a>/<ab>/<File.jpg>
+    if (host != "upload.wikimedia.org" or len(parts) != 5 or parts[:2] != ["wikipedia", "commons"]
+            or not parts[4].lower().endswith(_THUMB_EXT) or not isinstance(width, int)):
+        return bare
+    step = next((s for s in _THUMB_STEPS if width >= s), None)
+    if step is None:
+        return bare
+    name = parts[4]
+    return "thumb.wikimedia.org/wikipedia/commons/thumb/%s/%s/%s/%dpx-%s" % (
+        parts[2], parts[3], name, step, name)
 
 
 def _price_level(iso, ppp, rate_by_code, fit=None):

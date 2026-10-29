@@ -91,11 +91,12 @@ def main():
                 body, n = ds.without_review3(usd_cmp[m][1])
                 grades = usd_cmp[m][1].count("\U0001f6e1")
                 if not (n.get("src") == grades > 0 and n.get("ai") == 1 and n.get("year") == 1
-                        and n.get("quote") == 1):
+                        and n.get("quote") == 1 and n.get("btn") == n.get("btnend") == 2):
                     placed.append((m, n, grades))
                 usd_cmp[m] = [usd_cmp[m][0], body]
             results.append(ok(not placed, "review 3's pieces are in this tree's USD text every month: each 🛡️ "
-                              "grade's source, the AI callout, the intro's year, the closing quote%s"
+                              "grade's source, the AI callout, the intro's year, the closing quote, both buttons' "
+                              "label spans%s"
                               % ("" if not placed else " -> %r" % placed[:3])))
             strip = lambda per: {m: [sb[0], ds.without_review3(sb[1])[0]] for m, sb in per.items()}
             old["USD"] = strip(old["USD"])
@@ -409,6 +410,28 @@ def main():
     results.append(ok(n_memo == 3 and len(calls) == 27 and same and rates.get_latest.__name__ == "<lambda>",
                       "9 bases: %d provider fetches (27 without the memo), identical results, "
                       "functions restored" % n_memo))
+
+    print("5. cover photos go to weserv as thumbnails (Wikimedia 429s weserv's fetches of originals)")
+    up = "upload.wikimedia.org/wikipedia/commons/7/79/Ha_Long_Bay_in_2019.jpg"
+    cases = [
+        ((up, 3251), "thumb.wikimedia.org/wikipedia/commons/thumb/7/79/Ha_Long_Bay_in_2019.jpg/"
+                     "1280px-Ha_Long_Bay_in_2019.jpg"),
+        ((up, 1100), "thumb.wikimedia.org/wikipedia/commons/thumb/7/79/Ha_Long_Bay_in_2019.jpg/"
+                     "960px-Ha_Long_Bay_in_2019.jpg"),
+        (("upload.wikimedia.org/wikipedia/commons/a/ab/Flag.PNG", 600),
+         "thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Flag.PNG/500px-Flag.PNG"),
+        ((up, 400), up),                                   # under the smallest step
+        ((up, None), up),                                  # width unknown
+        (("upload.wikimedia.org/wikipedia/commons/a/ab/Map.svg", 2000),
+         "upload.wikimedia.org/wikipedia/commons/a/ab/Map.svg"),   # thumbnail renamed (.svg.png)
+        (("thumb.wikimedia.org/wikipedia/commons/thumb/2/2a/X.jpg/3840px-X.jpg", 3840),
+         "thumb.wikimedia.org/wikipedia/commons/thumb/2/2a/X.jpg/3840px-X.jpg"),
+        (("upload.wikimedia.org/wikipedia/en/a/ab/Poster.jpg", 2000),
+         "upload.wikimedia.org/wikipedia/en/a/ab/Poster.jpg"),     # not Commons
+    ]
+    bad = [(a, P._thumb(*a)) for a, want in cases if P._thumb(*a) != want]
+    results.append(ok(not bad, "_thumb: a Commons original becomes the widest step its width allows; "
+                      "anything else is left alone (%d cases)%s" % (len(cases), bad or "")))
 
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1

@@ -169,14 +169,16 @@ def without_cheap_link(calls):
 
 def without_review3(run):
     """A run's calls and output less digest_snapshot.REVIEW3's pieces (review
-    3's copy, 2026-10-28), and True when every body carried them: a source on
-    each 🛡️ grade, the AI callout, the intro's year and the closing quote."""
+    3's copy, 2026-10-28, and the button label spans since), and True when every
+    body carried them: a source on each 🛡️ grade, the AI callout, the intro's
+    year, the closing quote and both buttons' label spans."""
     calls, placed = [], True
     for c in run["calls"]:
         if len(c) > 2 and isinstance(c[2], dict) and isinstance(c[2].get("body"), str):
             body, n = ds.without_review3(c[2]["body"])
             placed = placed and (n.get("src") == c[2]["body"].count("\U0001f6e1") > 0 and n.get("ai") == 1
-                                 and n.get("year") == 1 and n.get("quote") == 1)
+                                 and n.get("year") == 1 and n.get("quote") == 1
+                                 and n.get("btn") == n.get("btnend") == 2)
             c = [c[0], c[1], dict(c[2], body=body)] + list(c[3:])
         calls.append(c)
     return dict(run, calls=calls, out=ds.without_review3(run["out"])[0]), placed
