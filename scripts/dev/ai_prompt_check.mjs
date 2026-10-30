@@ -108,7 +108,10 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot }) => {
     console.log('ROW', JSON.stringify(ok));
     await sleep(2500);
     if (process.env.SWITCH) {
-      console.log('SWITCH', await evaluate(`(() => { const c = document.getElementById('bestCountry'); c.value = '${process.env.SWITCH}';
+      // The box holds only the guide on show until used (fillGuideCountries;
+      // absent from an older APPJS): filled first, as a reader's focus does.
+      console.log('SWITCH', await evaluate(`(() => { if (typeof fillGuideCountries === 'function') fillGuideCountries();
+        const c = document.getElementById('bestCountry'); c.value = '${process.env.SWITCH}';
         c.dispatchEvent(new Event('change')); return { guide: ccGuideIso, travelMonth: travelMonth(), flexFocusMonth }; })()`));
       await sleep(2500);
     }

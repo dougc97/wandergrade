@@ -4191,24 +4191,41 @@ const PHOTO_BAD = /map|flag|locator|coat|orthographic|projection|seal|logo|icon|
 // scripts/gallery_entry.py LICENCE_OK mirrors it.
 const PHOTO_LICENCE_OK = /^(?:cc[- ]by(?:-sa)?(?:[- ]\d(?:\.\d)?(?:[- ](?:[a-z]{2}|igo))?)?|cc0(?:[- ]1\.0)?|pd(?:[- ][a-z0-9.-]+)?|public domain(?: mark(?: 1\.0)?)?)$/i;
 const INTERESTS = ["Beach & islands", "Nature", "City", "Culture", "Adventure", "Food", "Shopping"];
+// The guide's country box: every country, always. The region/interest
+// narrowing that used to live here duplicated Top Picks' filters with its own
+// state, and this list is a type-to-search combo — the filters were saving a
+// keystroke at the cost of two controls that could disagree with the ones on
+// the main tab.
+const guideCountries = () => Object.keys(climate)
+  .map((iso) => ({ iso, name: climate[iso].name }))
+  .sort((a, b) => a.name.localeCompare(b.name));
+const guideCountryOptions = (list) => list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
+// It holds just the country on show until a reader goes to pick another: the
+// other 189 names were words a crawler running the JS read on every guide, in
+// a select nobody sees (the combo above it shows the one chosen). The box's
+// first focus fills the list (enhanceSelect's fill), and so does openGuideFor
+// for a country it doesn't hold.
+let guideListFull = false;
+function fillGuideCountries() {
+  if (guideListFull) return;
+  guideListFull = true;
+  const ctry = $("bestCountry"), v = ctry.value;
+  ctry.innerHTML = guideCountryOptions(guideCountries());
+  ctry.value = v;
+}
 function buildBestPickers(initialIso) {
   const ctry = $("bestCountry");
-  // Every country, always: the region/interest narrowing that used to live here
-  // duplicated Top Picks' filters with its own state, and this list is a
-  // type-to-search combo — the filters were saving a keystroke at the cost of two
-  // controls that could disagree with the ones on the main tab.
-  const list = Object.keys(climate)
-    .map((iso) => ({ iso, name: climate[iso].name }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  ctry.innerHTML = list.map((c) => `<option value="${esc(c.iso)}">${esc(c.name)}</option>`).join("");
-  const has = (iso) => !!iso && [...ctry.options].some((o) => o.value === iso);
+  const list = guideCountries();
+  const has = (iso) => !!iso && list.some((c) => c.iso === iso);
   // Render ONE country: the one being opened, else Japan. Drawing Afghanistan
   // (first option) and Japan first fired their fare, FX and photo requests on
   // every guide landing, and each render's syncURL rewrote the history entry.
   // A country with no guide (Malta, Monaco) has no option: the box is left
   // empty and openGuideFor draws it; Japan in the box put /guide/japan in
   // the address bar under Malta's page.
-  ctry.value = has(initialIso) ? initialIso : initialIso ? "" : has("JP") ? "JP" : ((ctry.options[0] || {}).value || "");
+  const first = has(initialIso) ? initialIso : initialIso ? "" : has("JP") ? "JP" : ((list[0] || {}).iso || "");
+  ctry.innerHTML = guideCountryOptions(list.filter((c) => c.iso === first));
+  ctry.value = first;
   // A pick in the box is a navigation (Thailand -> Japan), so it gets its own
   // history entry first: every render ends in a replacing syncURL(), which
   // rewrote the entry of the guide being left, and Back from Japan went to
@@ -4218,7 +4235,7 @@ function buildBestPickers(initialIso) {
   // direct load's canonicalising replace and popstate's restore stay as
   // they are (syncURL is a no-op while restoringHistory).
   ctry.onchange = () => { syncURL(true); renderGuide(ctry.value); };
-  enhanceSelect(ctry);
+  enhanceSelect(ctry, fillGuideCountries);
   if (ctry.value) renderGuide(ctry.value);
 }
 
@@ -4229,8 +4246,9 @@ async function openGuideFor(iso, push) {
   _guideTarget = iso;       // the first build renders it, and a push names it
   try { await activateTab("guide", push); }
   finally { if (_guideTarget === iso) _guideTarget = null; }
-  const ctry = $("bestCountry");
-  ctry.value = [...ctry.options].some((o) => o.value === iso) ? iso : "";   // no guide: none picked
+  const ctry = $("bestCountry"), held = () => [...ctry.options].some((o) => o.value === iso);
+  if (!held()) fillGuideCountries();   // the box held only the guide on show
+  ctry.value = held() ? iso : "";      // no guide: none picked
   if (ctry._sync) ctry._sync();
   if (!(fresh && ccGuideIso === iso)) renderGuide(iso);   // the build just drew it
   setGuideMeta(iso);
@@ -6215,8 +6233,11 @@ function isoAliases(v) {
   }
   return _isoAliases[v] || "";
 }
-function enhanceSelect(sel) {
-  if (!sel || sel.dataset.combo || sel.options.length < 10) return;
+// fill: a select whose options come when it is first used (the guide's
+// country box holds only the country on show): enhanced whatever its size,
+// and fill() runs once, on the first focus, before the list draws.
+function enhanceSelect(sel, fill) {
+  if (!sel || sel.dataset.combo || (sel.options.length < 10 && !fill)) return;
   sel.dataset.combo = "1";
   const wrap = document.createElement("span");
   wrap.className = "combo";
@@ -6273,7 +6294,10 @@ function enhanceSelect(sel) {
     sel.dispatchEvent(new Event("pick"));
     input.value = labelFor(); setOpen(false);
   };
-  input.addEventListener("focus", () => { input.value = ""; render(""); setOpen(true); });
+  input.addEventListener("focus", () => {
+    if (fill) { fill(); fill = null; }
+    input.value = ""; render(""); setOpen(true);
+  });
   input.addEventListener("input", () => { render(input.value); setOpen(true); });
   input.addEventListener("blur", () => setTimeout(() => { setOpen(false); input.value = labelFor(); }, 150));
   input.addEventListener("keydown", (e) => {

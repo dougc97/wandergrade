@@ -65,10 +65,13 @@ const SNAP = (sel) => `(() => {
   // the selected attribute: that one is the choice when the options were
   // written (a deferred "My currency" picker is written in the currency
   // picked since; drawn at boot, it keeps the dollar's attribute and holds
-  // EUR as its value).
+  // EUR as its value). The guide's country box, hidden behind its combo,
+  // holds one option until it is used, so its options are left out too
+  // (guide_countries_check.mjs checks them); its value is compared.
   const picks = [...s.querySelectorAll('select')].map((x) => (x.id || x.name) + '=' + x.value).join(' ');
   return { shown: !!s.getClientRects().length, marks, text: s.innerText, boxes: boxes.join(' ') + ' | ' + picks,
-           html: s.outerHTML.replace(/\\bcl\\d+/g, 'cl#').replace(/(<option\\b[^>]*?) selected=""/g, '$1') };
+           html: s.outerHTML.replace(/\\bcl\\d+/g, 'cl#').replace(/(<option\\b[^>]*?) selected=""/g, '$1')
+             .replace(/(<select id="bestCountry"[^>]*>)[\\s\\S]*?(<\\/select>)/, '$1$2') };
 })()`;
 const STATE = `(() => ({ marks: document.documentElement.outerHTML.split('<!--t').length - 1,
   json: !!document.getElementById('shellText'), rows: document.querySelectorAll('#rows tr').length,
