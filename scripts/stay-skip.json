@@ -873,7 +873,7 @@
   }
  },
  "marks": {
-  "about": "The guide places inside one of the blocks above that carry an ⓘ with Canada's own words for it (fxtracker/avoid_marks.py, public/avoid-marks.json, generated from here). Per place: its surface ('activity' or 'seasonal') and item (the activity's label or the season row's 'what', as activities.json has them), the place it names and where it falls, its class in the 2026-10 audit (A inside, A~ partly inside; the thin-margin A* rows such as Nigeria's Zuma Rock are Doug's call and never marked here), the block's heading and the fingerprint of the block it was checked against (the block's own fp above), Canada's words verbatim (' … ' where words are left out; the bullets are Canada's) and the day they were checked against the live feed. Doug, 2026-10-30: avoid-all blocks only; none in the 22 guides Canada says to avoid entirely; Ethiopia, Chad, Cameroon and Tajikistan keep their places, marked. Summary lines carry no marker: each one's place is an activity marked in the same list, and Chad's and Pakistan's already say to check advisories.",
+  "about": "The guide places inside one of the blocks above that carry an ⓘ with Canada's own words for it (fxtracker/avoid_marks.py, public/avoid-marks.json, generated from here). Per place: its surface ('activity' or 'seasonal') and item (the activity's label or the season row's 'what', as activities.json has them), the place it names and where it falls, its class in the 2026-10 audit (A inside, A~ partly inside; the thin-margin A* rows such as Nigeria's Zuma Rock are Doug's call and never marked here), the block's heading and the fingerprint of the block it was checked against (the block's own fp above), Canada's words verbatim (' … ' only where words are left out, neighbouring lines joined by Canada's own line break, which the tip shows; the bullets are Canada's) and the day they were checked against the live feed. Doug, 2026-10-30: avoid-all blocks only; none in the 22 guides Canada says to avoid entirely; Ethiopia, Chad, Cameroon and Tajikistan keep their places, marked. Summary lines carry no marker: each one's place is an activity marked in the same list, and Chad's and Pakistan's already say to check advisories.",
   "countries": {
    "BI": [
     {
@@ -883,7 +883,7 @@
      "cls": "A",
      "block": "Regional Advisory - Avoid all travel",
      "fp": "8bb719f80e27",
-     "words": "Avoid all travel to the following areas, due to clashes between the military and armed groups: … • Cibitoke province",
+     "words": "Avoid all travel to the following areas, due to clashes between the military and armed groups:\n• Cibitoke province",
      "checked": "2026-10-30"
     }
    ],
@@ -895,7 +895,7 @@
      "cls": "A",
      "block": "Border areas with Burkina Faso, Niger, Nigeria and Togo - Avoid all travel",
      "fp": "01d8e2d8ad2c",
-     "words": "This advisory includes the W National Park and the Pendjari National Park.",
+     "words": "Avoid all travel to the following areas due to the threat of terrorism, banditry, and the risk of kidnapping: … This advisory includes the W National Park and the Pendjari National Park.",
      "checked": "2026-10-30"
     }
    ],
@@ -971,7 +971,7 @@
      "cls": "A",
      "block": "Northern regions - Avoid all travel",
      "fp": "cd863c97dbe3",
-     "words": "Avoid all travel to the following northern regions due to ongoing armed conflict, civil unrest, disruptions to flights and communications, and the unpredictable security situation: … • Afar",
+     "words": "Avoid all travel to the following northern regions due to ongoing armed conflict, civil unrest, disruptions to flights and communications, and the unpredictable security situation:\n• Afar",
      "checked": "2026-10-30"
     },
     {
@@ -1027,7 +1027,7 @@
      "cls": "A~",
      "block": "Northern and eastern Mauritania - Avoid all travel",
      "fp": "895214c020df",
-     "words": "Avoid all travel to the following areas due to the risk of banditry, kidnapping and the presence of prohibited military zones: … • northern and eastern Mauritania, especially: … ◦ all of the following regions: … ▪ Tiris Zemmour",
+     "words": "Avoid all travel to the following areas due to the risk of banditry, kidnapping and the presence of prohibited military zones:\n• northern and eastern Mauritania, especially:\n◦ all of the following regions:\n▪ Tiris Zemmour",
      "checked": "2026-10-30"
     },
     {
@@ -1037,7 +1037,7 @@
      "cls": "A~",
      "block": "Northern and eastern Mauritania - Avoid all travel",
      "fp": "895214c020df",
-     "words": "Avoid all travel to the following areas due to the risk of banditry, kidnapping and the presence of prohibited military zones: … • east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions: … ◦ Adrar",
+     "words": "Avoid all travel to the following areas due to the risk of banditry, kidnapping and the presence of prohibited military zones: … • east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions:\n◦ Adrar",
      "checked": "2026-10-30"
     }
    ],
@@ -1071,7 +1071,7 @@
      "cls": "A",
      "block": "Regional advisory - Avoid all travel",
      "fp": "4926a3196d03",
-     "words": "Avoid all travel to: … • the areas within 10 km of the borders with China, India and Iran, except the following official border crossings where you should exercise a high degree of caution: … ◦ Wagah (which is currently closed) and the Grand Trunk Road leading there … ◦ Khunjerab Pass and the Karakorum Highway leading there … ◦ the Kartarpur Corridor (which is intermittently open) for people visiting Gurdwara Darbar Sahib",
+     "words": "Avoid all travel to: … • the areas within 10 km of the borders with China, India and Iran, except the following official border crossings where you should exercise a high degree of caution:\n◦ Wagah (which is currently closed) and the Grand Trunk Road leading there\n◦ Khunjerab Pass and the Karakorum Highway leading there\n◦ the Kartarpur Corridor (which is intermittently open) for people visiting Gurdwara Darbar Sahib",
      "checked": "2026-10-30"
     }
    ],

@@ -13278,6 +13278,11 @@ function _showTipFor(t) {
   // health and chart tips past 480 characters keep their measure.
   _tipEl.classList.toggle("wide", t.classList.contains("wotip") && t.dataset.tip.length > 480);
   _tipEl.hidden = false;
+  _placeTip(t);
+}
+// The shown tip's place beside its element t (again on a scroll that moves t
+// under a keyboard user's focus: see the scroll handler at the end).
+function _placeTip(t) {
   const r = t.getBoundingClientRect();
   const w = _tipEl.offsetWidth, h = _tipEl.offsetHeight;
   // clientWidth, not innerWidth — the latter reads 0 in some headless/embedded contexts
@@ -13475,7 +13480,25 @@ new MutationObserver((muts) => {
   }
 }).observe(document.body, { childList: true });
 
-document.addEventListener("scroll", _hideTip, true);
+// Any scroll hides the tip (a trackpad twitch counts; the mousemove fallback
+// above brings a hovered one back) — except the scroll that focus itself
+// makes. Tab to an ⓘ below the fold shows its tip on focusin, then the page
+// scrolls the ⓘ into view, and hiding it there left a keyboard user with
+// "More info" and none of the words (Ethiopia's Lalibela ⓘ, Canada's quote).
+// A tip for the focused element, reached from the keyboard, follows it while
+// it is on screen; one hidden from view while its element keeps focus stays
+// linked to it (aria-describedby, the tip's text), so a screen reader still
+// gets the words, until focus moves or another tip shows.
+document.addEventListener("scroll", () => {
+  const t = _tipFor;
+  if (!t || t !== document.activeElement || !t.isConnected) { _hideTip(); return; }
+  if (_tipEl.hidden) return;
+  const r = t.getBoundingClientRect();
+  const vh = document.documentElement.clientHeight || window.innerHeight;
+  if (_kbdNav && r.bottom > 0 && r.top < vh) { _placeTip(t); return; }
+  clearTimeout(_tipHideT);
+  _tipEl.hidden = true;
+}, true);
 
 (async function init() {
   initTheme();

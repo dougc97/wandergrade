@@ -896,14 +896,17 @@ def canada_review(data, mirror=None):
 
 
 def quoted(words, text):
-    """True when Canada's words, as a mark quotes them (" … " where words are
-    left out), are still in the block's text, in order."""
-    pos = 0
+    """True when Canada's words, as a mark quotes them, are still in the
+    block's text, verbatim (case, accents and all) and in order, and each
+    " … " in them stands for words left out: two neighbouring lines are
+    joined by Canada's own line break, never by an omission mark over
+    nothing (the reader sees it inside the quotation marks)."""
+    text, pos, end = text or "", 0, None
     for seg in (words or "").split(" … "):
-        i = (text or "").find(seg, pos)
-        if not seg or i < 0:
+        i = text.find(seg, pos)
+        if not seg or i < 0 or (end is not None and not text[end:i].strip()):
             return False
-        pos = i + len(seg)
+        pos = end = i + len(seg)
     return True
 
 
@@ -935,7 +938,8 @@ def marks_review(mirror=None, skip=None):
                 out.append("%s: block reworded since %s — the page hides the quote; re-check the row"
                            % (what, r.get("checked")))
             elif not quoted(r.get("words"), b.get("text")):
-                out.append("%s: its words are not in Canada's block" % what)
+                out.append("%s: its words are not in Canada's block, verbatim and in order (each \" … \" over"
+                           " words left out)" % what)
     return out
 
 

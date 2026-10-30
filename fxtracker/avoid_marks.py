@@ -17,11 +17,12 @@ season row's "what" — exactly as activities.json has them), its class in the
 2026-10 audit (A: inside; A~: partly inside — the A* thin-margin rows are
 Doug's call, never marked here), the block's heading, the fingerprint of the
 block it was checked against (it must equal the block's own fp in the same
-file), Canada's words for it verbatim (" … " where words are left out; the
-bullets are Canada's), and the day they were checked. Doug's rule
-(2026-10-30): avoid-all blocks only, never the 22 guides Canada says to
-avoid entirely, and Ethiopia, Chad, Cameroon and Tajikistan keep their
-places, marked.
+file), Canada's words for it verbatim (" … " only where words are left out:
+neighbouring lines keep Canada's own line break, which the tip shows, so no
+omission mark ever stands over nothing; the bullets are Canada's), and the
+day they were checked. Doug's rule (2026-10-30): avoid-all blocks only,
+never the 22 guides Canada says to avoid entirely, and Ethiopia, Chad,
+Cameroon and Tajikistan keep their places, marked.
 
 public/avoid-marks.json is generated from that table (build(); run
 `/usr/bin/python3 -m fxtracker.avoid_marks` after editing it, and
