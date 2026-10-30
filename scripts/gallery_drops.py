@@ -11,9 +11,11 @@ in the 2026-10-18 audit, places-in-avoid-zones-audit-2026-10-18.md) is
 dropped where the guide keeps enough other good photos. Ethiopia, Chad,
 Cameroon and Tajikistan keep theirs (EXEMPT), and the 22 guides Canada says
 to avoid entirely are out of scope (WHOLE_COUNTRY). The thin-margin A* rows
-are Doug's call: Nigeria's Zuma Rock stays in its gallery until he decides
-(PENDING). Where a drop left a hero short, places outside every Canada
-avoid-all block and US "Do not travel" area were appended (ADD).
+are Doug's call: he reviewed Nigeria's Zuma Rock and keeps it (KEEP: OSM
+puts it in the Federal Capital Territory, which Canada's Niger State block
+doesn't name). Where a drop left a hero short, places outside every Canada
+avoid-all block and US "Do not travel" area were appended (ADD), and where
+the new opener crops badly in the hero another photo leads (FIRST).
 
 public/activities.json is one line, so merging a branch that also touches it
 conflicts as a whole: take the other side, run this script, and
@@ -52,7 +54,8 @@ ADD = {
 EXEMPT = ("CM", "ET", "TD", "TJ")
 WHOLE_COUNTRY = ("AF", "BF", "BY", "CD", "CF", "HT", "IQ", "IR", "KP", "LB", "LY", "ML", "MM", "NE", "RU",
                  "SD", "SO", "SS", "SY", "UA", "VE", "YE")
-PENDING = {"NG": ["Zuma Rock"]}             # A*, Doug's call
+KEEP = {"NG": ["Zuma Rock"]}                # A*: Doug's reviewed keep, 2026-10-30
+FIRST = {"CO": "Cocora Valley"}             # Caño Cristales crops to trees in the hero (Doug, 2026-10-30)
 
 
 def load(path=ACTS):
@@ -70,14 +73,15 @@ def dump(acts):
 
 
 def apply(acts):
-    """A copy with every DROP title out of its gallery and every ADD title at
-    its end; nothing else changes."""
+    """A copy with every DROP title out of its gallery, every ADD title at
+    its end and each FIRST title moved to the front; nothing else changes."""
     out = copy.deepcopy(acts)
-    for iso in sorted(set(DROP) | set(ADD)):
+    for iso in sorted(set(DROP) | set(ADD) | set(FIRST)):
         assert iso not in EXEMPT + WHOLE_COUNTRY, iso
         g = out[iso]["gallery"]
         g[:] = [e for e in g if gallery_entry.label(e) not in DROP.get(iso, [])]
         g += [t for t in ADD.get(iso, []) if t not in [gallery_entry.label(e) for e in g]]
+        g.sort(key=lambda e: gallery_entry.label(e) != FIRST.get(iso))     # stable: only the opener moves
     return out
 
 
@@ -96,12 +100,16 @@ def problems(acts, skip):
     for iso, titles in sorted(ADD.items()):
         labels = [gallery_entry.label(e) for e in acts[iso].get("gallery") or []]
         out += ["%s gallery lost %s (added for a dropped photo)" % (iso, t) for t in titles if t not in labels]
+    for iso, t in sorted(FIRST.items()):
+        g = acts[iso].get("gallery") or []
+        if not g or gallery_entry.label(g[0]) != t:
+            out.append("%s gallery doesn't open on %s" % (iso, t))
     for iso, places in sorted(skipped(skip).items()):
         if iso in EXEMPT + WHOLE_COUNTRY or iso not in acts:
             continue
         for e in acts[iso].get("gallery") or []:
             p = gallery_entry.label(e)
-            if p in places and p not in PENDING.get(iso, []):
+            if p in places and p not in KEEP.get(iso, []):
                 out.append("%s gallery shows %s, which scripts/stay-skip.json skips inside a Canada avoid-all block"
                            % (iso, p))
     return out
@@ -123,7 +131,7 @@ if __name__ == "__main__":
     else:
         with open(ACTS, "wb") as f:
             f.write(dump(new))
-        for iso in sorted(set(DROP) | set(ADD)):
+        for iso in sorted(set(DROP) | set(ADD) | set(FIRST)):
             if new[iso]["gallery"] != acts[iso]["gallery"]:
                 print("%s gallery: %s" % (iso, [gallery_entry.label(e) for e in new[iso]["gallery"]]))
     lines = problems(new, skip)

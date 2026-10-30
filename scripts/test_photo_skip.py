@@ -15,7 +15,8 @@
     dropped titles stay out, their replacements stay in, and no gallery
     outside Ethiopia, Chad, Cameroon, Tajikistan and the 22 guides Canada
     says to avoid entirely shows a place scripts/stay-skip.json skips under
-    a Canada avoid-all block (Zuma Rock waits for Doug); the script puts the
+    a Canada avoid-all block (Zuma Rock is Doug's reviewed keep), and
+    Colombia opens on Cocora Valley; the script puts the
     drops back on a file a merge took from the other side, and changes
     nothing once they hold;
   * app.js consults the list inside wikiIconic (the hero and the activity
@@ -115,7 +116,7 @@ with open(os.path.join(ROOT, "scripts", "stay-skip.json"), encoding="utf-8") as 
 gd = gallery_drops.problems(acts, stayskip)
 results.append(ok(not gd, "no gallery outside Ethiopia, Chad, Cameroon, Tajikistan and the 22 avoid-entirely guides shows a"
                           " place inside a Canada avoid-all zone: %d dropped photos stay out, their replacements in, and"
-                          " none shows a place stay-skip.json skips there (Zuma Rock waits for Doug) (%s)"
+                          " none shows a place stay-skip.json skips there (Zuma Rock is Doug's reviewed keep); Colombia opens on Cocora Valley (%s)"
                   % (sum(map(len, gallery_drops.DROP.values())), gd[:3])))
 undone = copy.deepcopy(acts)          # the file as a merge that took the other side would leave it
 for iso, ts in gallery_drops.DROP.items():
