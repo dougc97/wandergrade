@@ -3,7 +3,8 @@
 builders on both sides run on one fixture — app.js's under jsc, its own
 functions cut out of the file — and the served rows are compared to the
 spans renderDimPicks makes of the client's list. Also: a guide page keeps
-index.html's own rows (its HTML is fixed), the homepage serves the fixture's.
+index.html's own rows (its HTML is fixed; their words are served out of
+line, server.py _text_out), the homepage serves the fixture's.
 
     /usr/bin/python3 scripts/test_map_picks.py
 """
@@ -134,9 +135,15 @@ results.append(ok("{{ADV_PICKS}}" in tpl and "{{FLIGHT_PICKS}}" in tpl and 'hidd
 srv._adv_cache["us"] = (0, ADV)
 home = srv._render_index(None).decode("utf-8")
 guide = srv._render_index("TH").decode("utf-8")
+# A guide serves that row's words as a <!--tN--> mark (server.py _text_out):
+# put back from its #shellText strings, the row is index.html's own.
+words = re.search(r'id="shellText">(.*?)</script>', guide)
+row = re.search(r'<div class="mappicksrow skel" data-for="advMap".*?</div>', guide)
+row = re.sub(r"<!--t(\d+)-->", lambda m: json.loads(words.group(1))[int(m.group(1))], row.group(0)) if words and row else ""
 results.append(ok(map_picks.advisory_row(ADV, srv.render_guide.name_for_iso, TODAY) in home and D["ADV_PICKS"] not in home
-                  and D["ADV_PICKS"] in guide and "{{" not in home and "{{" not in guide,
-                  "the homepage serves the cached list's row, a guide index.html's own"))
+                  and row == D["ADV_PICKS"] and "<strong>Recently changed" not in guide
+                  and "{{" not in home and "{{" not in guide,
+                  "the homepage serves the cached list's row, a guide index.html's own (its words out of the HTML)"))
 results.append(ok((' data-nofares' in home) == (not srv.flights.is_configured()) and "data-nofares" not in guide,
                   "data-nofares on the homepage exactly when there is no fare token, never on a guide"))
 srv._adv_cache.pop("us", None)

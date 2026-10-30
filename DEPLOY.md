@@ -193,6 +193,32 @@ last good copy served) is noted by its fetch time and sent `no-store` too.
 Trailing slashes 301; anything deeper 404s. Tests, no network:
 `/usr/bin/python3 scripts/test_list_pages.py`.
 
+## Guide pages: the other tabs' words served out of line
+
+A `/guide/<slug>` page carries the whole app, and the four tabs it keeps
+hidden (Top Picks, Trip, Wander List, Data) held some 620 of its 1,550 served
+words, the same on every guide. On guides only, the server serves each of
+their text runs as a `<!--tN-->` comment with the strings in one
+`<script type="application/json" id="shellText">` (`server.py` `_text_out`),
+and app.js `restoreShellText()` puts them back as one of those tabs opens,
+before it shows; the hidden Data tab's currency table and "My currency" picker
+are drawn when that tab opens (`dataTabDeferred`). Readers see the same tabs
+(`scripts/dev/shell_text_check.mjs` compares them with a server from before);
+tests: `scripts/test_guide_meta.py`.
+
+- **Undo:** `FX_GUIDE_TEXTOUT=0` in Render → Environment (the server restarts)
+  serves every guide as before, byte for byte; the app.js parts do nothing on
+  a page without `#shellText`. Purge `/guide/*` in Cloudflare, or wait out the
+  5-minute edge cache.
+- **After a deploy:** a guide holds one `#shellText` and 258 marks, the
+  homepage none, and the stamped app.js has the restore:
+
+```bash
+curl -s https://wandergrade.com/guide/japan | grep -o '<!--t[0-9]*-->' | wc -l   # 258
+curl -s https://wandergrade.com/ | grep -c 'shellText'                           # 0
+curl -s "https://wandergrade.com$(curl -s https://wandergrade.com/guide/japan | grep -o '/app.js?v=[0-9]*')" | grep -c restoreShellText   # 1
+```
+
 ## Avoid-zone markers: Canada's words beside a place in its zone
 
 A guide place inside one of Global Affairs Canada's regional "Avoid all

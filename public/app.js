@@ -769,6 +769,7 @@ function renderRates(data) {
     Promise.race([ensureAdvisories(), new Promise((r) => setTimeout(r, 2000))]).then(go, go);
     return;
   }
+  if (dataTabDeferred()) return;   // its placeholder row stands meanwhile
   const tbody = $("rows");
   tbody.innerHTML = "";
   updateCurSortIndicators();
@@ -900,8 +901,16 @@ function pickerCurrencies() {
   return [...new Set(["USD", ...lastRates.rows.map((r) => r.code)])].sort();
 }
 
+// A guide landing leaves the hidden Data tab's currency table and "My
+// currency" picker undrawn: a row and an option for every currency, nearly
+// half the words a crawler running the JS read on every guide (1,577 of
+// Japan's 3,383), none of which a reader of the guide sees. Opening Currency
+// draws both before it paints (setDataMode sets loaded.curRisk, then
+// renderRates); once drawn they redraw as before.
+const dataTabDeferred = () => !!window.__WGGC__ && !loaded.curRisk && $("tab-data").hidden;
 // Populate the "My currency" picker once real data exists.
 function buildBaseSelect() {
+  if (dataTabDeferred()) return;
   const sel = $("dataBase");
   if (!sel || sel.options.length > 1 || !lastRates) return;
   const codes = pickerCurrencies();
@@ -10794,10 +10803,29 @@ function buildTabOnce(name, build) {
 }
 // /guide/<slug> HTML carries the other tabs' 16 h2/h3 as <div data-h="2|3">
 // (server.py _guide_template) so they don't tell a crawler the page is about
-// dollar strength and fares. Restored, attributes and children intact, before
-// a reader can see any of them: the same CSS then applies, so nothing moves.
-// A no-op on every other page.
+// dollar strength and fares, and their words as <!--tN--> comments with the
+// strings in #shellText (_text_out). Both are restored, attributes and
+// children intact, before a reader can see any of them: the same CSS then
+// applies, so nothing moves. A no-op on every other page.
+// The words go back once. A run that boot code already rewrote took its mark
+// with it, so only words still as served come back; a mark the head script
+// cloned (Top Picks' placeholder rows) gets its words in each copy.
+function restoreShellText() {
+  const src = $("shellText");
+  if (!src) return;
+  src.remove();
+  let words;
+  try { words = JSON.parse(src.textContent); } catch (e) { return; }
+  for (const id of ["tab-value", "tab-trip", "tab-visited", "tab-data"]) {
+    const root = $(id), marks = [];
+    if (!root) continue;
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_COMMENT);
+    for (let n; (n = walk.nextNode());) if (/^t\d+$/.test(n.data)) marks.push(n);
+    for (const n of marks) { const s = words[n.data.slice(1)]; if (s != null) n.replaceWith(s); }
+  }
+}
 function promoteShellHeadings() {
+  restoreShellText();
   for (const el of document.querySelectorAll("[data-h]")) {
     const h = document.createElement("h" + el.dataset.h);
     for (const a of el.attributes) if (a.name !== "data-h") h.setAttribute(a.name, a.value);
@@ -10817,8 +10845,9 @@ function promoteShellHeadings() {
   }
 }
 async function activateTab(name, push) {
-  // A /guide/ page serves the other tabs' headings as <div data-h> (server.py
-  // _guide_template); they become h2/h3 again before their tab is revealed.
+  // A /guide/ page serves the other tabs' headings as <div data-h> and their
+  // words as comments (server.py _guide_template); both are back before the
+  // tab is revealed.
   if (name !== "guide") promoteShellHeadings();
   clearTransientStatus();   // a note about the old tab shouldn't outlive it
   closeMapFullscreen();     // "Country guide →" from a full-screen map

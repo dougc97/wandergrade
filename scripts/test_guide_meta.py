@@ -16,6 +16,12 @@ What it holds the code to:
     the server's title, h1 and description;
   * the h1 is the same string on both sides, the raw page has exactly one h1
     and it is visible, and the /guide/ template carries no shell h2/h3;
+  * the four other tabs' words are out of every served guide (server.py
+    _text_out): each <!--tN--> mark is used once and puts back exactly the
+    text FX_GUIDE_TEXTOUT=0 serves, no letter or digit is left in those
+    tabs but scripts and .picklabel, no {{TOKEN}} is lost, and the rest of
+    the page — #tab-guide included — and the homepage are byte for byte
+    what the switch off serves;
   * weather-only countries never claim "best months to visit";
   * names that take "the" have it inside every sentence, on both sides;
   * Level 3/4 titles ask "safe?", Level 4 never "cheap?" or "(very cheap)";
@@ -59,6 +65,7 @@ import os
 import re
 import subprocess
 import sys
+from html.parser import HTMLParser
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -205,6 +212,128 @@ home = server._render_index(None).decode("utf-8")
 results.append(ok(home.count("<h2") >= 13 and "data-h=" not in home and "data-nosnippet" not in home
                   and '<h1 class="cardtitle" id="guideH1" hidden>Travel Guide</h1>' in home,
                   "the homepage keeps its real headings and the hidden guide h1"))
+
+# --- the four tabs' words, out of the served guide (server.py _text_out) -----------
+# Compared as a browser parses them (entities decoded, comments apart), against
+# the same server with the switch off: what FX_GUIDE_TEXTOUT=0 serves.
+class _Events(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.ev, self.stack, self.wordy = [], [], []
+
+    def handle_starttag(self, tag, attrs):
+        self.ev.append(("<", tag, tuple(attrs)))
+        if tag not in ("br", "img", "input", "hr", "wbr", "meta", "link", "source"):
+            self.stack.append((tag, "picklabel" in (dict(attrs).get("class") or "").split()))
+
+    def handle_endtag(self, tag):
+        self.ev.append((">", tag))
+        for i in range(len(self.stack) - 1, -1, -1):
+            if self.stack[i][0] == tag:
+                del self.stack[i:]
+                break
+
+    def handle_data(self, d):
+        self.ev.append(("", d))
+        if re.search(r"[^\W_]", d) and not (self.stack and self.stack[-1][0] in ("script", "style")) \
+                and not any(k for _t, k in self.stack):
+            self.wordy.append(d.strip()[:40])
+
+    def handle_comment(self, d):
+        self.ev.append(("!", d))
+
+
+def parsed(src, words=None):
+    """src's parse events, each <!--tN--> swapped for words[N] when given."""
+    p = _Events()
+    p.feed(src)
+    p.close()
+    out = []
+    for e in p.ev:
+        if words is not None and e[0] == "!" and re.fullmatch(r"t\d+", e[1]):
+            e = ("", words[int(e[1][1:])])
+        if e[0] == "" and out and out[-1][0] == "":
+            out[-1] = ("", out[-1][1] + e[1])
+        else:
+            out.append(e)
+    return out, p.wordy
+
+
+def tab_spans(page):
+    return [(a, server._section_end(page, a))
+            for a in (page.index('<section class="tab" id="%s"' % t) for t in server._SHELL_TABS)]
+
+
+def served(textout):
+    was = server.GUIDE_TEXTOUT
+    server.GUIDE_TEXTOUT, server._guide_tpl = textout, None
+    try:
+        return (server._guide_template(), server._render_index(None),
+                {i: server._render_index(i).decode("utf-8") for i in guides})
+    finally:
+        server.GUIDE_TEXTOUT, server._guide_tpl = was, None
+
+
+def outside(page):
+    """The page with the four tab sections cut out, as the list of pieces around them."""
+    sp = tab_spans(page)
+    return [page[b:c] for b, c in zip([0] + [e for _a, e in sp], [a for a, _e in sp] + [len(page)])]
+
+
+def guide_tab(page):
+    a = page.index('<section class="tab" id="tab-guide"')
+    return page[a:server._section_end(page, a)]
+
+
+TOK = lambda s: sorted(re.findall(r"\{\{[A-Z_]+\}\}", s))
+SHELL = re.compile(r'<script type="application/json" id="shellText">(.*?)</script>\n  ', re.S)
+tpl_on, home_on, on = served(True)
+tpl_off, home_off, off = served(False)
+bad_rest, bad_marks, bad_text, bad_words, words_n = [], [], [], [], set()
+for iso in guides:
+    page, ref = on[iso], off[iso]
+    js = SHELL.findall(page)
+    try:
+        words = json.loads(js[0]) if len(js) == 1 else None
+    except ValueError:
+        words = None
+    marks = sorted(int(n) for n in re.findall(r"<!--t(\d+)-->", page))
+    if words is None or marks != list(range(len(words))) or '</script>\n  <script src="/app.js' not in page:
+        bad_marks.append(iso)
+        continue
+    words_n.add(len(words))
+    # Everything but the four tabs and the JSON block: the switch-off bytes.
+    sp, rp = tab_spans(page), tab_spans(ref)
+    if outside(SHELL.sub("", page)) != outside(ref):
+        bad_rest.append(iso)
+    # Parsed on 8 (the four tabs are the template's on every guide, and the
+    # byte check above holds the rest of each page).
+    if iso in ("CO", "GB-ENG", "GB-WLS", "JP", "EH", "AF", "PR", "TD"):
+        for t, (a, b), (c, d) in zip(server._SHELL_TABS, sp, rp):
+            got, left = parsed(page[a:b], words)
+            if got != parsed(ref[c:d])[0]:
+                bad_text.append(iso + " " + t)
+            if left:
+                bad_words.append((iso, t, left[:3]))
+results.append(ok(not bad_marks and len(words_n) == 1,
+                  "every guide: one #shellText (before app.js) that parses, and marks t0..t%d each used once %s"
+                  % (max(words_n or {0}) - 1, bad_marks[:5] or "")))
+results.append(ok(not bad_text, "8 guides: putting each mark back gives exactly the four tabs FX_GUIDE_TEXTOUT=0 "
+                  "serves, tags, attributes and decoded text %s" % (bad_text or "")))
+results.append(ok(not bad_words, "no letter or digit left in those tabs but scripts and .picklabel %s" % (bad_words or "")))
+results.append(ok(not bad_rest, "every guide outside the four tabs and #shellText is the switch-off page byte for "
+                  "byte %s" % (bad_rest[:5] or "")))
+results.append(ok(all(guide_tab(on[i]) == guide_tab(off[i]) for i in guides),
+                  "#tab-guide is byte-identical with the switch on and off"))
+results.append(ok(home_on == home_off and not re.search(rb"<!--t\d|shellText", home_on),
+                  "the homepage is identical either way and holds no marks"))
+results.append(ok(TOK(tpl_off) == TOK(server._index_template())
+                  and TOK(tpl_on) == [t for t in TOK(tpl_off) if t[2:-2] not in server._TEXTOUT_FILLED]
+                  and all(server._HTML_DEFAULTS[k] in off["CO"] for k in server._TEXTOUT_FILLED),
+                  "no {{TOKEN}} lost: the template keeps all but %s, filled with the guide's own (constant) value"
+                  % ", ".join(server._TEXTOUT_FILLED)))
+results.append(ok(all(not re.search(r"<!--t\d|shellText", off[i]) for i in guides),
+                  "switch off: no marks and no #shellText (the guide as before)"))
 LD = lambda page: re.findall(r'<script type="application/ld\+json">(.*?)</script>', page, re.S)
 home_ld = [json.loads(b) for b in LD(home)]
 results.append(ok([d.get("@type") for d in home_ld] == ["WebSite"]

@@ -311,6 +311,56 @@ _SHELL_H = re.compile(r"<(/?)h([23])(?=[\s>])")
 _SHELL_TABS = ("tab-value", "tab-trip", "tab-visited", "tab-data")
 _SECTION_TAG = re.compile(r"<(/?)section(?=[\s>])")
 _guide_tpl = None
+# Their words too: some 620 of a guide's 1,550 served words, the same on every
+# guide. On /guide/* each run of text in those four tabs with a letter or
+# digit in it is served as a <!--tN--> comment, and the strings go in one JSON
+# block (#shellText) that app.js restoreShellText() puts back in the same
+# moment as the headings, before any of those tabs is revealed. Every element,
+# id and attribute stays, so boot code finds all it finds today. Kept:
+# script/style contents, and the .picklabel words enhanceSelect names its
+# combos from at boot. Two tokens there hold words and are constants on a
+# guide (_render_index never changes them for one), so they are filled first.
+# FX_GUIDE_TEXTOUT=0 (Render → Environment, which restarts the server) serves
+# every guide as before, byte for byte.
+GUIDE_TEXTOUT = os.environ.get("FX_GUIDE_TEXTOUT", "1").strip() != "0"
+_TEXTOUT_FILLED = ("ADV_PICKS", "FLIGHT_PICKS")
+_TX_PART = re.compile(r"<!--.*?-->|<(script|style|template|svg|textarea)\b.*?</\1\s*>|<[^>]+>|\{\{[A-Z_]+\}\}",
+                      re.S | re.I)
+_TX_TAG = re.compile(r"<(/?)([a-zA-Z][a-zA-Z0-9-]*)")
+_TX_PICKLABEL = re.compile(r'\sclass="[^"]*\bpicklabel\b')
+_TX_WORDY = re.compile(r"[^\W_]")   # a letter or a digit
+
+
+def _text_out(sec, strings):
+    """sec with every wordy text run outside a .picklabel swapped for
+    <!--tN-->, N its index in strings (which gets the run as the DOM holds
+    it: entities decoded, whitespace kept)."""
+    out, pos, keep, depth = [], 0, None, 0   # keep: the open .picklabel's tag name
+
+    def text(t):
+        if keep or not _TX_WORDY.search(t):
+            out.append(t)
+        else:
+            strings.append(html.unescape(t))
+            out.append("<!--t%d-->" % (len(strings) - 1))
+
+    for m in _TX_PART.finditer(sec):
+        text(sec[pos:m.start()])
+        part, pos = m.group(0), m.end()
+        out.append(part)
+        t = _TX_TAG.match(part) if not m.group(1) else None
+        if not t:
+            continue
+        name = t.group(2).lower()
+        if keep:                      # nested same-name tags until its close
+            if name == keep:
+                depth += -1 if t.group(1) else 1
+                if not depth:
+                    keep = None
+        elif not t.group(1) and _TX_PICKLABEL.search(part):
+            keep, depth = name, 1
+    text(sec[pos:])
+    return "".join(out)
 
 
 def _section_end(tpl, a):
@@ -327,14 +377,22 @@ def _section_end(tpl, a):
 def _guide_template():
     global _guide_tpl
     if _guide_tpl is None:
-        tpl = _index_template()
+        tpl, strings = _index_template(), []
+        if GUIDE_TEXTOUT:
+            for k in _TEXTOUT_FILLED:
+                tpl = tpl.replace("{{%s}}" % k, _HTML_DEFAULTS[k])
         for t in _SHELL_TABS:
             a = tpl.index('<section class="tab" id="%s"' % t)
             b = _section_end(tpl, a)
             sec = _SHELL_H.sub(lambda m: "</div" if m.group(1) else '<div data-h="%s"' % m.group(2),
                                tpl[a:b])
             sec = sec.replace('id="%s"' % t, 'id="%s" data-nosnippet' % t, 1)
+            if GUIDE_TEXTOUT:
+                sec = _text_out(sec, strings)
             tpl = tpl[:a] + sec + tpl[b:]
+        if strings:   # "<" escaped: no string can end the script or open a comment in it
+            tpl = tpl.replace('<script src="/app.js', '<script type="application/json" id="shellText">%s</script>\n'
+                              '  <script src="/app.js' % json.dumps(strings, ensure_ascii=False).replace("<", "\\u003c"), 1)
         _guide_tpl = tpl
     return _guide_tpl
 
