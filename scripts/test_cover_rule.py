@@ -29,9 +29,11 @@ override) and then the gallery entries the guide hero shows.
     from 800, 960, 1280) and the credit the email prints; a page whose free
     lead differs from its any-licence one gives the free one; a pinned file
     asks Commons once;
-  * the data: `photo` is left only on the ten override countries, each a
-    photo of its own gallery, and app.js reads `photo` only for a country
-    without a gallery, which none is.
+  * the data: `photo` is left only on the twelve override countries, each a
+    photo of its own gallery (Doug's 2026-10-30 picks among them: Batu Caves,
+    Tower Bridge, Bran Castle, Pena Palace; Congo's gallery lead won over
+    Lefini), and app.js reads `photo` only for a country without a gallery,
+    which none is.
 """
 import io
 import json
@@ -361,14 +363,16 @@ finally:
     urllib.request.urlopen = real_urlopen
 
 print("4. the data")
-OVERRIDES = {"CG", "DJ", "FK", "GL", "GQ", "MW", "PY", "TG", "UG", "MY"}
+OVERRIDES = {"DJ", "FK", "GL", "GQ", "MW", "PY", "TG", "UG", "MY", "GB", "RO", "PT"}
 with_photo = {iso for iso, a in ACTS.items() if "photo" in a}
 results.append(ok(with_photo == OVERRIDES,
                   "`photo` is left on exactly the %d override countries%s"
                   % (len(OVERRIDES), "" if with_photo == OVERRIDES else " (got %s)" % sorted(with_photo ^ OVERRIDES))))
 odd = [iso for iso in with_photo if ACTS[iso]["photo"] not in (ACTS[iso].get("gallery") or [])[:picks.GALLERY_SHOWN]]
-results.append(ok(not odd and ACTS["MY"]["photo"] == "Batu Caves",
-                  "each override is a photo of its own guide gallery (Malaysia's Batu Caves, Doug's pick)%s"
+DOUG = {"MY": "Batu Caves", "GB": "Tower Bridge", "RO": "Bran Castle", "PT": "Pena Palace"}
+results.append(ok(not odd and all(ACTS[iso]["photo"] == t for iso, t in DOUG.items()),
+                  "each override is a photo of its own guide gallery (Doug's picks: Malaysia's Batu Caves, the UK's "
+                  "Tower Bridge, Romania's Bran Castle, Portugal's Pena Palace)%s"
                   % (" -> %s" % odd if odd else "")))
 fn = APP[APP.index("function photoSubjects(iso)"):]
 fn = fn[:fn.index("\n}\n")]
