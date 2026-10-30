@@ -96,8 +96,6 @@ results.append(ok(all(r.get("cls") in AM.CLASSES for _, r in rows),
 results.append(ok(not set(marked) & set(AM.WHOLE_COUNTRY) and len(AM.WHOLE_COUNTRY) == 22,
                   "none in the 22 guides Canada says to avoid entirely (%s)" % sorted(set(marked) & set(AM.WHOLE_COUNTRY))))
 results.append(ok({"ET", "TD", "CM", "TJ"} <= set(marked), "Ethiopia, Chad, Cameroon and Tajikistan keep their places, marked"))
-results.append(ok("NG" not in marked and not any("zuma" in (r.get("place", "") + r["item"]).lower() for _, r in rows),
-                  "Zuma Rock (A*, Doug's call) is not marked"))
 results.append(ok(all(r.get("surface") in AM.SURFACES for _, r in rows), "no summary line is marked: activities and season rows only"))
 
 
@@ -108,6 +106,15 @@ def items(iso, surface):
 
 missing = [(iso, r["surface"], r["item"]) for iso, r in rows if items(iso, r["surface"]).count(r["item"]) != 1]
 results.append(ok(not missing, "every marked item is in activities.json once, as labelled (missing: %s)" % missing))
+declined = [(iso, d) for iso, ds in ((table.get("marks") or {}).get("declined") or {}).items() for d in ds]
+results.append(ok({(iso, d["item"]) for iso, d in declined}
+                  == {("NG", "Rock & capital (Abuja, Zuma Rock)"), ("IN", "Golden Triangle & Rajasthan (cool, dry)")}
+                  and all(d.get("why", "").startswith("Doug, ") and d["item"] in items(iso, d["surface"])
+                          for iso, d in declined)
+                  and not {(iso, d["surface"], d["item"]) for iso, d in declined}
+                  & {(iso, r["surface"], r["item"]) for iso, r in rows}
+                  and not any("zuma" in (r.get("place", "") + r["item"]).lower() for _, r in rows),
+                  "the rows Doug declined (Zuma Rock, India's Rajasthan season row) are listed with why and never marked"))
 results.append(ok(all(re.fullmatch(r"\d{4}-\d{2}-\d{2}", r.get("checked") or "") and r.get("words") and r.get("place")
                       and re.fullmatch(r"[0-9a-f]{12}", r.get("fp") or "") for _, r in rows),
                   "every mark has its place, Canada's words, a fingerprint and the day it was checked"))

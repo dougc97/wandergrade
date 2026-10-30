@@ -1,5 +1,5 @@
 Global Affairs Canada's per-country feed (https://data.international.gc.ca/travel-voyage/cta-cap-<iso>.json)
-for the 13 guides with avoid-zone marks (scripts/stay-skip.json "marks"), fetched 2026-10-30 01:35 EDT and
+for the guides with avoid-zone marks (13 when fetched; India's mark was declined the same day, so its copy was removed) (scripts/stay-skip.json "marks"), fetched 2026-10-30 01:35 EDT and
 trimmed to data.country-iso, data.advisory-state and data.eng's name, url-slug and advisories (what
 fxtracker/watchouts.py reads for the regional blocks; the trimmed copy parses to the same blocks as the whole
 page). The day the marks' words were checked: scripts/test_avoid_marks.py finds the words of every mark
