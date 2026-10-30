@@ -10,8 +10,9 @@
 // no guide (/?tab=guide&gc=MT), leaves the box empty. No JS error. Every
 // third-party request is refused (photos, Wikipedia: Wikimedia asks for at
 // most 2 a second). Prints a PASS/FAIL line per step and a summary. On a
-// server from before the change only the first line fails (190 options):
-// every step a reader takes behaves the same.
+// server from before the change, or on this one run with FX_GUIDE_TEXTOUT=0
+// (the box is held only on a guide served with #shellText), only the first
+// line fails (190 options): every step a reader takes behaves the same.
 const BASE = process.env.BASE || 'http://127.0.0.1:9022';
 const W = +process.env.W || 1280;
 export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {

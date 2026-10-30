@@ -4204,8 +4204,10 @@ const guideCountryOptions = (list) => list.map((c) => `<option value="${esc(c.is
 // other 189 names were words a crawler running the JS read on every guide, in
 // a select nobody sees (the combo above it shows the one chosen). The box's
 // first focus fills the list (enhanceSelect's fill), and so does openGuideFor
-// for a country it doesn't hold.
-let guideListFull = false;
+// for a country it doesn't hold. Only on a guide served with its other tabs'
+// words out (SHELL_TEXT_OUT): with FX_GUIDE_TEXTOUT=0, and on every other
+// page, the box holds all 190 from the start, as before.
+let guideListFull = !SHELL_TEXT_OUT;
 function fillGuideCountries() {
   if (guideListFull) return;
   guideListFull = true;
@@ -4224,7 +4226,7 @@ function buildBestPickers(initialIso) {
   // empty and openGuideFor draws it; Japan in the box put /guide/japan in
   // the address bar under Malta's page.
   const first = has(initialIso) ? initialIso : initialIso ? "" : has("JP") ? "JP" : ((list[0] || {}).iso || "");
-  ctry.innerHTML = guideCountryOptions(list.filter((c) => c.iso === first));
+  ctry.innerHTML = guideCountryOptions(guideListFull ? list : list.filter((c) => c.iso === first));
   ctry.value = first;
   // A pick in the box is a navigation (Thailand -> Japan), so it gets its own
   // history entry first: every render ends in a replacing syncURL(), which

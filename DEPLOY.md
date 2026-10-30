@@ -202,18 +202,21 @@ their text runs as a `<!--tN-->` comment with the strings in one
 `<script type="application/json" id="shellText">` (`server.py` `_text_out`),
 and app.js `restoreShellText()` puts them back as one of those tabs opens,
 before it shows; the hidden Data tab's currency table and "My currency" picker
-are drawn when that tab opens (`dataTabDeferred`). Readers see the same tabs
-(`scripts/dev/shell_text_check.mjs` compares them with a server from before,
+are drawn when that tab opens (`dataTabDeferred`), and the guide's country
+box holds only the country on show until it is first used
+(`fillGuideCountries`; `scripts/dev/guide_countries_check.mjs`). Readers see
+the same tabs (`scripts/dev/shell_text_check.mjs` compares them with a server
+from before,
 `scripts/dev/slow_adv_check.mjs` with `/api/advisories` slow to answer);
 tests: `scripts/test_guide_meta.py`.
 
 - **Undo:** `FX_GUIDE_TEXTOUT=0` in Render → Environment (the server restarts)
   serves every guide as before, byte for byte, and app.js holds nothing back
   on a page without `#shellText` (`SHELL_TEXT_OUT`), so a guide renders as
-  before too: the Data tab's table and picker drawn at landing
-  (`scripts/dev/shell_text_switch_check.mjs` compares the rendered guides with
-  a server from before). Purge `/guide/*` in Cloudflare, or wait out the
-  5-minute edge cache.
+  before too: the Data tab's table and picker drawn at landing, the country
+  box full (`scripts/dev/shell_text_switch_check.mjs` compares the rendered
+  guides with a server from before). Purge `/guide/*` in Cloudflare, or wait
+  out the 5-minute edge cache.
 - **After a deploy:** purge `/guide/*` in Cloudflare first, or wait 5 minutes:
   until then the edge serves its pre-deploy copy of a guide, with the old
   app.js stamp, and the lines below read 0 marks and no restore. Then a guide
