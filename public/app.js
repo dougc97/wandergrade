@@ -26,6 +26,12 @@ const ASSET_V = (() => {
   return m ? m[1] : "";
 })();
 const stamped = (path) => (ASSET_V ? path + "?v=" + ASSET_V : path);
+// Whether the server sent this guide's hidden tabs without their words
+// (server.py _text_out; FX_GUIDE_TEXTOUT=0 turns it off). Read at top level,
+// before restoreShellText() removes the block: everything app.js holds back
+// on a guide for a crawler's sake keys off it, so with the switch off a guide
+// renders exactly as it did before the text-out.
+const SHELL_TEXT_OUT = !!document.getElementById("shellText");
 let lastRates = null;   // always USD-based — feeds the Top Picks scoring
 let dataRates = null;   // whatever the Explore-the-Data currency view shows
 
@@ -905,9 +911,14 @@ function pickerCurrencies() {
 // currency" picker undrawn: a row and an option for every currency, nearly
 // half the words a crawler running the JS read on every guide (1,577 of
 // Japan's 3,383), none of which a reader of the guide sees. Opening Currency
-// draws both before it paints (setDataMode sets loaded.curRisk, then
-// renderRates); once drawn they redraw as before.
-const dataTabDeferred = () => !!window.__WGGC__ && !loaded.curRisk && $("tab-data").hidden;
+// draws both before it paints (setDataMode, ratesHeld); once drawn they
+// redraw as before. Only while the text-out is on (SHELL_TEXT_OUT).
+let ratesHeld = false;
+function dataTabDeferred() {
+  if (!SHELL_TEXT_OUT || loaded.curRisk || !$("tab-data").hidden) return false;
+  ratesHeld = true;
+  return true;
+}
 // Populate the "My currency" picker once real data exists.
 function buildBaseSelect() {
   if (dataTabDeferred()) return;
@@ -11137,6 +11148,15 @@ async function setDataMode(mode) {
     // used to be loaded for the currency table alone, which is half of why Cost
     // of living showed Iran: no filter, and nothing to filter with.
     if (mode !== "advisory" && !loaded.risk) {
+      // Currency's table and picker that a guide landing held back
+      // (dataTabDeferred) come with the tab, not after this wait, which has
+      // no time limit (a cold or expired server cache fetches upstream): the
+      // picker now, and the rows if renderRates' own wait for the advisories
+      // (2 s at most) is over, else when it ends. As they stood without the
+      // hold.
+      if (mode === "currency" && ratesHeld && dataRates) {
+        if (ratesRiskKnown()) renderRates(dataRates); else buildBaseSelect();
+      }
       await ensureAdvisories().catch(() => {});
       loaded.risk = true;
     }

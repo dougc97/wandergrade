@@ -203,20 +203,27 @@ their text runs as a `<!--tN-->` comment with the strings in one
 and app.js `restoreShellText()` puts them back as one of those tabs opens,
 before it shows; the hidden Data tab's currency table and "My currency" picker
 are drawn when that tab opens (`dataTabDeferred`). Readers see the same tabs
-(`scripts/dev/shell_text_check.mjs` compares them with a server from before);
+(`scripts/dev/shell_text_check.mjs` compares them with a server from before,
+`scripts/dev/slow_adv_check.mjs` with `/api/advisories` slow to answer);
 tests: `scripts/test_guide_meta.py`.
 
 - **Undo:** `FX_GUIDE_TEXTOUT=0` in Render → Environment (the server restarts)
-  serves every guide as before, byte for byte; the app.js parts do nothing on
-  a page without `#shellText`. Purge `/guide/*` in Cloudflare, or wait out the
+  serves every guide as before, byte for byte, and app.js holds nothing back
+  on a page without `#shellText` (`SHELL_TEXT_OUT`), so a guide renders as
+  before too: the Data tab's table and picker drawn at landing
+  (`scripts/dev/shell_text_switch_check.mjs` compares the rendered guides with
+  a server from before). Purge `/guide/*` in Cloudflare, or wait out the
   5-minute edge cache.
-- **After a deploy:** a guide holds one `#shellText` and 258 marks, the
-  homepage none, and the stamped app.js has the restore:
+- **After a deploy:** purge `/guide/*` in Cloudflare first, or wait 5 minutes:
+  until then the edge serves its pre-deploy copy of a guide, with the old
+  app.js stamp, and the lines below read 0 marks and no restore. Then a guide
+  holds one `#shellText` and 258 marks, the homepage none, and the stamped
+  app.js has the restore (with the switch off, the first line reads 0):
 
 ```bash
 curl -s https://wandergrade.com/guide/japan | grep -o '<!--t[0-9]*-->' | wc -l   # 258
 curl -s https://wandergrade.com/ | grep -c 'shellText'                           # 0
-curl -s "https://wandergrade.com$(curl -s https://wandergrade.com/guide/japan | grep -o '/app.js?v=[0-9]*')" | grep -c restoreShellText   # 1
+curl -s "https://wandergrade.com$(curl -s https://wandergrade.com/guide/japan | grep -o '/app.js?v=[0-9]*')" | grep -c 'function restoreShellText'   # 1
 ```
 
 ## Avoid-zone markers: Canada's words beside a place in its zone
