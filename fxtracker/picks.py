@@ -180,9 +180,17 @@ def _strip_html(v):
 # A featured country's cover is the first candidate the site's own photo
 # checks pass (cover_for): its activities.json `photo` where it has one (an
 # optional override, for a gallery whose lead is weak at email size), then
-# the guide gallery's entries in order, so a reader clicking through finds the
-# photo at the top of the guide. The checks are app.js wikiIconic's and
-# commonsPhoto's, plus one of the email's own (COVER_MIN_W).
+# the guide gallery's first six entries in order, the photos the guide hero
+# is drawn from. That is not always the hero's first photo: the hero leaves
+# out a photo the activity rows below it show as a thumbnail, while two or
+# more remain (app.js loadHeroPhotos), and the cover doesn't, so on
+# 2026-10-30 eleven of the 57 countries that can be featured with a cover
+# (CN HR HU IE LK MX NO PE TW VN ZA) lead with a photo their guide shows as
+# an activity thumbnail, not as its hero (Vietnam's cover is Ho Chi Minh City
+# Hall, its hero opens on Ban Gioc Falls); an override (MY) or a lead the
+# email refuses (CZ's FAL licence) moves two more. The checks are app.js
+# wikiIconic's and commonsPhoto's, plus two of the email's own: the licence
+# list on every cover (LICENCE_OK) and the 800px floor (COVER_MIN_W).
 
 # Mirrors PHOTO_BAD in app.js (scripts/photo_sweep.py has the same copy): no
 # map, flag, seal, logo, collage... matched on the file name.
@@ -306,25 +314,32 @@ def _banner(bare, credit, width, height):
 
 def cover(query, width=1024, height=420):
     """A Wikipedia page title (a gallery entry, or activities.json `photo`) as
-    an email-ready cover, {url, credit}: the page's lead image from the REST
-    summary, through _cover_of's checks. None on any failure, so a missing
-    photo never breaks the email; cover_for then tries the next candidate."""
+    an email-ready cover, {url, credit}: the page's lead image, asked for as
+    app.js wikiIconic asks (prop=pageimages, which only names a free image),
+    through _cover_of's checks. The REST summary can lead with a non-free
+    one: France's Eiffel Tower page led there with the tower's logo, hosted
+    on en.wikipedia, while pageimages and the guide hero give the Commons
+    photo. The file is page.pageimage, the name the hero tests against
+    photo-skip.json; two requests in all, with _cover_of's imageinfo. None
+    on any failure, so a missing photo never breaks the email; cover_for
+    then tries the next candidate."""
     if not query:
         return None
-    url = ("https://en.wikipedia.org/api/rest_v1/page/summary/"
-           + urllib.parse.quote(query.replace(" ", "_")))
+    url = ("https://en.wikipedia.org/w/api.php?action=query&format=json&prop=pageimages"
+           "&piprop=original|name&redirects=1&titles=" + urllib.parse.quote(query, safe=""))
     try:
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
-            d = json.load(r)
-        path = urllib.parse.urlsplit((d.get("originalimage") or {}).get("source") or "").path
-        # Only Commons files: an en.wikipedia-hosted image is usually fair use,
-        # which doesn't extend to a newsletter.
-        if "/wikipedia/commons/" not in path:
+            pages = (json.load(r).get("query") or {}).get("pages") or {}
+        page = next(iter(pages.values()), None) or {}
+        path = urllib.parse.urlsplit((page.get("original") or {}).get("source") or "").path
+        # Only Commons files: one hosted on en.wikipedia instead is a file
+        # Commons can't take (fair use, or a modern building where there is
+        # no freedom of panorama: the UAE's, Kuwait's and Oman's leads), which
+        # doesn't extend to a newsletter.
+        if not page.get("pageimage") or "/wikipedia/commons/" not in path:
             return None
-        parts = path.split("/")
-        return _cover_of(urllib.parse.unquote(parts[-2] if "/thumb/" in path else parts[-1]),
-                         width, height)
+        return _cover_of(page["pageimage"], width, height)
     except Exception:
         return None
 

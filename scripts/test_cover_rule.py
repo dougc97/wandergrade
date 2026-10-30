@@ -11,18 +11,24 @@ override) and then the gallery entries the guide hero shows.
     app.js photoSubjects' slice;
   * the selection order, with the two lookups (cover() for a title,
     cover_file() for a pinned {file, label}) stubbed: `photo` first, then the
-    gallery in order, each entry once, stopping at the first that passes,
-    never past the sixth gallery entry, never more than seven lookups;
+    gallery in order, each entry once (an override the gallery repeats too,
+    with nothing passing), stopping at the first that passes, never past the
+    sixth gallery entry, never more than seven lookups;
   * the memo: a candidate is looked up once a run, across countries and
     editions, and a title never shares a pinned file's answer;
   * each rejection, with Wikipedia and Commons answered from a fixture
-    (urlopen stubbed): PHOTO_BAD (no Commons request), the skip list (by the
-    name and by Commons' canonical spelling), a licence outside the site's,
-    an en.wikipedia-hosted image, no lead image, a missing file, an original
-    under 800px wide, one with no thumbnail at a step (.tif), a failed
-    request; and what passes: the weserv banner of a thumb.wikimedia.org
-    thumbnail at the widest step under the original (500 from 800, 960,
-    1280) and the credit the email prints; a pinned file asks Commons once;
+    (urlopen stubbed; a title's lead image is its pageimages answer, as app.js
+    wikiIconic asks, which names only a free image where the REST summary can
+    lead with a non-free one): PHOTO_BAD (no Commons request), the skip list
+    (by the name, and by Commons' canonical spelling where the two differ),
+    a licence outside the site's (either half of the check, the short name
+    or the code, can pass it), an en.wikipedia-hosted image, no lead image, a
+    missing file, an original under 800px wide, one with no thumbnail at a
+    step (.tif), a failed request; and what passes: the weserv banner of a
+    thumb.wikimedia.org thumbnail at the widest step under the original (500
+    from 800, 960, 1280) and the credit the email prints; a page whose free
+    lead differs from its any-licence one gives the free one; a pinned file
+    asks Commons once;
   * the data: `photo` is left only on the ten override countries, each a
     photo of its own gallery, and app.js reads `photo` only for a country
     without a gallery, which none is.
@@ -113,6 +119,11 @@ try:
     results.append(ok(run({"photo": "G2", "gallery": g}) == ("T:G2", [("title", "G2")])
                       and run({"photo": "G4", "gallery": g})[1].count(("title", "G4")) == 1,
                       "an override that is also a gallery entry is looked up once"))
+    PASS.clear()
+    results.append(ok(run({"photo": "G4", "gallery": g}) == (None, [("title", "G4"), ("title", "G1"), ("title", "G2"),
+                                                                ("file", "P3.jpg"), ("title", "G5"),
+                                                                ("title", "G6")]),
+                      "with nothing passing, an override the gallery repeats is still looked up once, first"))
     results.append(ok(run({}) == (None, []) and run({"photo": "", "gallery": []}) == (None, []),
                       "no photo and no gallery: no cover, no lookup"))
 
@@ -149,30 +160,61 @@ finally:
 print("3. each check, against a Wikipedia/Commons fixture")
 
 
+def canon(name):
+    """A title as MediaWiki normalises it: runs of spaces and underscores to
+    one space, trimmed, first letter capitalised."""
+    name = re.sub(r"[ _]+", " ", name).strip()
+    return name[:1].upper() + name[1:]
+
+
 class Wiki:
-    """REST summaries by title and Commons imageinfo by file name."""
+    """en.wikipedia pageimages (and REST summaries) by title, Commons imageinfo
+    by file name."""
 
     def __init__(self):
         self.calls = []
-        # title -> lead image URL (None: the page has none)
+        # title -> its free lead image URL (None: the page has none), what
+        # pageimages names by default (pilicense=free)
         self.lead = {}
+        # title -> a non-free lead image, which the REST summary and
+        # pageimages with pilicense=any lead with instead
+        self.nonfree = {}
         # canonical name (spaces) -> imageinfo
         self.files = {}
 
     def file(self, name, width=4000, short="CC BY-SA 4.0", code="cc-by-sa-4.0", artist="<a href='//x'>Jane Doe</a>"):
-        self.files[name.replace("_", " ")] = {"width": width, "short": short, "code": code, "artist": artist}
+        self.files[canon(name)] = {"width": width, "short": short, "code": code, "artist": artist}
 
     def __call__(self, req, timeout=None, context=None):
         url = req.full_url if isinstance(req, urllib.request.Request) else req
         self.calls.append(url)
         u = urllib.parse.urlsplit(url)
-        if u.netloc == "en.wikipedia.org" and u.path.startswith("/api/rest_v1/page/summary/"):
-            title = urllib.parse.unquote(u.path.rsplit("/", 1)[1]).replace("_", " ")
+        if u.netloc == "en.wikipedia.org" and u.path == "/w/api.php":
+            q = urllib.parse.parse_qs(u.query)
+            assert q["action"] == ["query"] and q["prop"] == ["pageimages"] and q["redirects"] == ["1"] \
+                and {"original", "name"} <= set(q["piprop"][0].split("|")), url
+            title = canon(q["titles"][0])
             if title == "Boom":
                 raise urllib.error.HTTPError(url, 503, "down", {}, None)
             if title not in self.lead:
+                return io.BytesIO(json.dumps({"query": {"pages": {"-1": {"ns": 0, "title": title,
+                                                                         "missing": ""}}}}).encode())
+            src = (self.nonfree.get(title) or self.lead[title]) if q.get("pilicense") == ["any"] else self.lead[title]
+            page = {"pageid": 7, "ns": 0, "title": title}
+            if src:
+                path = urllib.parse.urlsplit(src).path.split("/")
+                page["original"] = {"source": src + "?utm_source=en.wikipedia.org&utm_campaign=api"
+                                    "&utm_content=original", "width": 4000, "height": 3000}
+                page["pageimage"] = urllib.parse.unquote(path[-2] if "/thumb/" in src else path[-1])
+            return io.BytesIO(json.dumps({"batchcomplete": "", "query": {"pages": {"7": page}}}).encode())
+        if u.netloc == "en.wikipedia.org" and u.path.startswith("/api/rest_v1/page/summary/"):
+            # Not what cover() asks since 2026-10-30; answered (with the
+            # non-free lead where a page has one) so going back to it fails
+            # the free-lead check rather than the fixture.
+            title = canon(urllib.parse.unquote(u.path.rsplit("/", 1)[1]))
+            if title not in self.lead:
                 raise urllib.error.HTTPError(url, 404, "no page", {}, None)
-            src = self.lead[title]
+            src = self.nonfree.get(title) or self.lead[title]
             body = {"type": "standard", "title": title}
             if src:
                 body["originalimage"] = {"source": src, "width": 4000, "height": 3000}
@@ -180,17 +222,16 @@ class Wiki:
         if u.netloc == "commons.wikimedia.org" and u.path == "/w/api.php":
             q = urllib.parse.parse_qs(u.query)
             assert q["prop"] == ["imageinfo"] and "url" in q["iiprop"][0] and "size" in q["iiprop"][0], url
-            name = q["titles"][0][len("File:"):].replace("_", " ")
-            canon = name[:1].upper() + name[1:]
-            info = self.files.get(canon)
+            name = canon(q["titles"][0][len("File:"):])
+            info = self.files.get(name)
             if not info:
-                return io.BytesIO(json.dumps({"query": {"pages": {"-1": {"title": "File:" + canon,
+                return io.BytesIO(json.dumps({"query": {"pages": {"-1": {"title": "File:" + name,
                                                                           "missing": ""}}}}).encode())
-            enc = urllib.parse.quote(canon.replace(" ", "_"))
+            enc = urllib.parse.quote(name.replace(" ", "_"))
             md = {"Artist": {"value": info["artist"]}, "LicenseShortName": {"value": info["short"]},
                   "LicenseUrl": {"value": "https://creativecommons.org/licenses/by-sa/4.0"},
                   "License": {"value": info["code"]}}
-            return io.BytesIO(json.dumps({"query": {"pages": {"7": {"title": "File:" + canon, "imageinfo": [
+            return io.BytesIO(json.dumps({"query": {"pages": {"7": {"title": "File:" + name, "imageinfo": [
                 {"url": "https://upload.wikimedia.org/wikipedia/commons/a/ab/" + enc, "width": info["width"],
                  "height": 600, "extmetadata": md}]}}}}).encode())
         raise AssertionError("unexpected request " + url)
@@ -221,7 +262,12 @@ W.lead.update({
     "Big": up("Big_photo.jpg"),
     "Tiff": up("Scan_photo.tif"),
     "Thumbed": "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cd/Large_photo.jpg/3840px-Large_photo.jpg",
+    "Igo": up("Igo_photo.jpg"),
+    "Tower": up("Tower_photo.jpg"),
 })
+# France's Eiffel Tower on 2026-10-30: the REST summary led with the tower's
+# logo, an en.wikipedia upload; pageimages names the Commons photo.
+W.nonfree["Tower"] = "https://upload.wikimedia.org/wikipedia/en/b/ba/Tower_logo.svg"
 W.file("Good_view.jpg", 3000)
 W.file(skipped, 3000)
 W.file("Nc_photo.jpg", short="CC BY-NC-SA 4.0", code="cc-by-nc-sa-4.0")
@@ -236,6 +282,9 @@ W.file("Large_photo.jpg", 9000)
 W.file("Plage de Roume.jpg", 2048, artist="<a href='https://commons.wikimedia.org/wiki/User:Someone'>Some One</a>")
 W.file("Under par.jpg", 640)
 W.file("Odd licence.jpg", short="FAL", code="fal")
+# Virunga National Park-107997.jpg's licence: a short name the list takes, no code.
+W.file("Igo_photo.jpg", short="CC BY-SA 3.0 igo", code="")
+W.file("Tower_photo.jpg", 2900)
 
 real_urlopen = urllib.request.urlopen
 urllib.request.urlopen = W
@@ -264,13 +313,21 @@ try:
     for t in ("Logo", "Map", "Svg", "Skipped", "Fair", "Bare", "Missing page", "Boom"):
         refused[t] = look(t)
     results.append(ok(all(refused[t] == (None, ["en.wikipedia.org"]) for t in refused),
-                      "refused on the summary alone, Commons never asked: PHOTO_BAD (a logo, a locator map, "
+                      "refused on the page's lead image alone, Commons never asked: PHOTO_BAD (a logo, a locator map, "
                       "an .svg), the skip list, an en.wikipedia-hosted image, no lead image, no page, a failed "
                       "request -> %s" % {t: v[0] for t, v in refused.items() if v != (None, ["en.wikipedia.org"])}))
     results.append(ok(look("NC")[0] is None and look("Gfdl")[0] is None and lookf("Odd licence.jpg")[0] is None,
                       "a licence outside the site's: NC, GFDL-only, FAL"))
     results.append(ok(look("CodeOnly")[0] is not None,
                       "a short name the regex misses passes on its code (cc-by-sa-3.0), as on the site"))
+    results.append(ok(look("Igo")[0] is not None,
+                      "a short name the list takes passes with no code ('CC BY-SA 3.0 igo', as Virunga's)"))
+    c, hosts = look("Tower")
+    results.append(ok(c and "Tower_photo.jpg%2F1280px-Tower_photo.jpg" in c["url"]
+                      and hosts == ["en.wikipedia.org", "commons.wikimedia.org"]
+                      and "pilicense" not in W.calls[-2] and "/w/api.php" in W.calls[-2],
+                      "a page whose any-licence lead is an en.wikipedia logo gives its free Commons lead, as the "
+                      "guide hero does (France's Eiffel Tower): pageimages, no pilicense"))
     results.append(ok(look("Gone")[0] is None, "a lead image Commons has no record of"))
     edge, mid, big = look("Edge")[0], look("Mid")[0], look("Big")[0]
     results.append(ok(look("Narrow")[0] is None and lookf("Under par.jpg")[0] is None
@@ -282,7 +339,7 @@ try:
                       "weserv is never handed an original"))
     th = look("Thumbed")[0]
     results.append(ok(th and "%2F1280px-Large_photo.jpg" in th["url"] and "3840px" not in th["url"],
-                      "a summary that leads with a thumbnail (large files) resolves to its original's file"))
+                      "a lead image given as a thumbnail resolves to its original's file (pageimage)"))
     c, hosts = lookf("Plage de Roume.jpg")
     results.append(ok(c and hosts == ["commons.wikimedia.org"]
                       and c["credit"]["page"] == "https://commons.wikimedia.org/wiki/File%3APlage_de_Roume.jpg"
@@ -294,6 +351,12 @@ try:
                       and lookf("Sierra Leone location map.jpg") == (None, []) and lookf("") == (None, []),
                       "a pinned name the skip list holds (as written: %r) or PHOTO_BAD refuses costs no request"
                       % lower))
+    # MediaWiki collapses a run of spaces or underscores: a name written with
+    # two is a different key until Commons spells it.
+    doubled = skipped.replace("_", "__", 1)
+    results.append(ok(picks._file_key(doubled) not in SKIP and lookf(doubled) == (None, ["commons.wikimedia.org"]),
+                      "a pinned name the skip list holds only in Commons' spelling (%r) is refused after its one "
+                      "request" % doubled))
 finally:
     urllib.request.urlopen = real_urlopen
 
