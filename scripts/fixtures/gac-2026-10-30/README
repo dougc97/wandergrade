@@ -1,0 +1,7 @@
+Global Affairs Canada's per-country feed (https://data.international.gc.ca/travel-voyage/cta-cap-<iso>.json)
+for the 13 guides with avoid-zone marks (scripts/stay-skip.json "marks"), fetched 2026-10-30 01:35 EDT and
+trimmed to data.country-iso, data.advisory-state and data.eng's name, url-slug and advisories (what
+fxtracker/watchouts.py reads for the regional blocks; the trimmed copy parses to the same blocks as the whole
+page). The day the marks' words were checked: scripts/test_avoid_marks.py finds each mark's words, verbatim,
+in the block whose fingerprint the mark carries. A mark re-checked later against a reworded block is checked
+by gen_stay_spots.py --check on the live feed instead; refetch these only together with the marks.

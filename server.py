@@ -1576,7 +1576,9 @@ def _render_index(gc_iso=None):
     if gc_iso:
         no_book = _guide_no_bookings(gc_iso)
         fv, fares_at = _guide_fv(gc_iso)
-        r = render_guide.render(gc_iso, fv, fares_at, no_book)
+        # Canada's notes as cached: a marked place's ⓘ drops a quote they
+        # show gone or reworded (fxtracker/avoid_marks.py).
+        r = render_guide.render(gc_iso, fv, fares_at, no_book, watchouts.cached(gc_iso))
         vals.update(
             TITLE=html.escape(r["title"]),
             DESC=html.escape(r["desc"], quote=True),

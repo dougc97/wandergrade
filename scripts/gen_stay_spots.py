@@ -50,12 +50,12 @@ galleries change:
   /usr/bin/python3 scripts/gen_stay_spots.py NI SL      # just these; merged into the file
   /usr/bin/python3 scripts/gen_stay_spots.py --prune    # drop skip-listed spots, fetch nothing
   /usr/bin/python3 scripts/gen_stay_spots.py --check    # validate the file (its neighbourhood chips against
-                                                        # a rebuild) + Canada's and the US's live words
+                                                        # a rebuild) + Canada's and the US's live words,
+                                                        # and the guide's avoid-zone marks (stay-skip.json "marks")
   /usr/bin/python3 scripts/gen_stay_spots.py --check --dir <feed copy> --us <rss copy>   # from local copies
 """
 
 import contextlib
-import hashlib
 import html
 import io
 import json
@@ -444,8 +444,11 @@ def skip_hit(iso, spot, skip=None):
 
 def fingerprint(text):
     """Canada's words without their layout: the parser's bullets, spacing and
-    punctuation can change while Canada's advice doesn't."""
-    return hashlib.sha1(re.sub(r"[\W_]+", "", _fold(text)).encode("utf-8")).hexdigest()[:12]
+    punctuation can change while Canada's advice doesn't. One implementation,
+    watchouts.fingerprint: the server checks the guide's avoid-zone marks
+    against the live blocks with it (each /api/watchouts block's "fp")."""
+    from fxtracker import watchouts
+    return watchouts.fingerprint(text)
 
 
 def review_problems(iso, blocks, skip=None):
@@ -851,30 +854,89 @@ def save(path, data):
         json.dump(data, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
 
 
-def canada_review(data, mirror=None):
-    """review_problems for every country with spots, from Canada's live feed
-    or a local copy of it (<mirror>/<iso>.json, as fetched)."""
-    from fxtracker import rates, watchouts
+_BLOCKS = {}    # (iso, mirror) -> Canada's regional blocks, or the line saying why there are none
 
-    def one(iso):
+
+def canada_blocks(iso, mirror=None):
+    """watchouts.from_feed's regional blocks for `iso` from Canada's live feed
+    or a local copy of it (<mirror>/<iso>.json, as fetched): [] where Canada
+    has no page, a str saying why where it couldn't be read. Fetched once a
+    run (canada_review, then marks_review)."""
+    from fxtracker import rates, watchouts
+    key = (iso, mirror)
+    if key not in _BLOCKS:
         if mirror:
             p = os.path.join(mirror, iso.lower() + ".json")
             if not os.path.exists(p):
-                return review_problems(iso, [])
-            with open(p, encoding="utf-8") as f:
-                raw = json.load(f)
+                _BLOCKS[key] = []
+            else:
+                with open(p, encoding="utf-8") as f:
+                    _BLOCKS[key] = watchouts.from_feed(iso, json.load(f))["regional"]
         else:
             try:
-                raw = rates.fetch_json(watchouts.API.format(iso=iso.lower()))
+                _BLOCKS[key] = watchouts.from_feed(iso, rates.fetch_json(watchouts.API.format(iso=iso.lower())))["regional"]
             except Exception as e:
-                if getattr(e, "code", None) in (404, 410):    # no Canada page
-                    return review_problems(iso, [])
-                return ["%s Canada's page unreadable (%s): nothing checked" % (iso, e)]
-        return review_problems(iso, watchouts.from_feed(iso, raw)["regional"])
+                _BLOCKS[key] = [] if getattr(e, "code", None) in (404, 410) else "%s" % e   # 404: no Canada page
+    return _BLOCKS[key]
 
-    isos = sorted(k for k in data if re.fullmatch(r"[A-Z]{2}", k))
+
+def canada_review(data, mirror=None):
+    """review_problems for every country with spots or marks, from Canada's
+    live feed or a local copy of it (<mirror>/<iso>.json, as fetched)."""
+    def one(iso):
+        blocks = canada_blocks(iso, mirror)
+        if isinstance(blocks, str):
+            return ["%s Canada's page unreadable (%s): nothing checked" % (iso, blocks)]
+        return review_problems(iso, blocks)
+
+    marked = ((SKIP.get("marks") or {}).get("countries") or {})
+    isos = sorted(set(k for k in data if re.fullmatch(r"[A-Z]{2}", k)) | set(marked))
     with ThreadPoolExecutor(max_workers=8) as ex:
         return [line for lines in ex.map(one, isos) for line in lines]
+
+
+def quoted(words, text):
+    """True when Canada's words, as a mark quotes them (" … " where words are
+    left out), are still in the block's text, in order."""
+    pos = 0
+    for seg in (words or "").split(" … "):
+        i = (text or "").find(seg, pos)
+        if not seg or i < 0:
+            return False
+        pos = i + len(seg)
+    return True
+
+
+def marks_review(mirror=None, skip=None):
+    """Every guide place marked with Canada's words (stay-skip.json "marks",
+    fxtracker/avoid_marks.py) whose quote no longer stands: its block is new
+    to the table, gone from Canada's page or reworded since the check, or
+    its words are not in the block any more. Until the row is checked again
+    the page drops that quote wherever Canada's live block is in hand; the
+    review is by hand (re-read the block, then update the row's words, fp
+    and checked, and the block's fp) and public/avoid-marks.json is rebuilt
+    with /usr/bin/python3 -m fxtracker.avoid_marks."""
+    skip = skip or SKIP
+    out = []
+    for iso, rows in sorted(((skip.get("marks") or {}).get("countries") or {}).items()):
+        blocks = canada_blocks(iso, mirror)
+        if isinstance(blocks, str):
+            out.append("%s marks not checked: Canada's page unreadable (%s)" % (iso, blocks))
+            continue
+        table = (skip.get("countries") or {}).get(iso) or {}
+        for r in rows:
+            what = '%s mark "%s" (%s)' % (iso, r.get("item"), r.get("block"))
+            b = next((x for x in blocks if x.get("t") == r.get("block")), None)
+            if (table.get(r.get("block")) or {}).get("fp") != r.get("fp"):
+                out.append("%s: its fp is not the table's for that block — re-check the row" % what)
+            if b is None:
+                out.append("%s: block gone from Canada's page — the page hides the quote; re-check the row" % what)
+            elif fingerprint(b.get("text") or "") != r.get("fp"):
+                out.append("%s: block reworded since %s — the page hides the quote; re-check the row"
+                           % (what, r.get("checked")))
+            elif not quoted(r.get("words"), b.get("text")):
+                out.append("%s: its words are not in Canada's block" % what)
+    return out
 
 
 def us_review(data, rss=None):
@@ -996,5 +1058,11 @@ if __name__ == "__main__":
             print(line)
         print("%d US \"Do not travel\" list(s) to review against the spots (%s), then update %s"
               % (len(us), rss or "live feed", os.path.relpath(SKIP_PATH, ROOT)))
-        sys.exit(1 if bad or left or stale or us else 0)
+        marks = marks_review(mirror)
+        for line in marks:
+            print(line)
+        print("%d guide mark(s) whose quote of Canada no longer stands (%s): re-check them in %s \"marks\", then"
+              " /usr/bin/python3 -m fxtracker.avoid_marks" % (len(marks), mirror or "live feed",
+                                                              os.path.relpath(SKIP_PATH, ROOT)))
+        sys.exit(1 if bad or left or stale or us or marks else 0)
     main({a.upper() for a in argv} or None)

@@ -1,0 +1,11 @@
+{
+ "data": {
+  "country-iso": "SA",
+  "advisory-state": 2,
+  "eng": {
+   "name": "Saudi Arabia",
+   "url-slug": "saudi-arabia",
+   "advisories": "<div class=\"AdvisoryContainer AvoidNonEssential\"><h3>SAUDI ARABIA - AVOID NON-ESSENTIAL TRAVEL</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to Saudi Arabia due to the volatile security situation in the region.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>King Khalid International Airport (RUH) and King Fahd International Airport (DMM) - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to King Khalid International Airport in Riyadh and to King Fahd International Airport in Dammam due to ongoing military activity, which is disrupting airport operations.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Provinces of Asir, Jazan and Najran - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to the provinces of Asir, Jazan and Najran due to the risk of armed strikes, drone attacks and military debris from interception.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Border with Yemen - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to areas within 30 km of the border with Yemen, due to the ongoing armed conflict in Yemen and the risk of violent clashes and spillovers across the border.</p><p>&nbsp;</p></div>"
+  }
+ }
+}

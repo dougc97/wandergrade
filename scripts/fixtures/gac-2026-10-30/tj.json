@@ -1,0 +1,11 @@
+{
+ "data": {
+  "country-iso": "TJ",
+  "advisory-state": 1,
+  "eng": {
+   "name": "Tajikistan",
+   "url-slug": "tajikistan",
+   "advisories": "<div class=\"AdvisoryContainer ExHigh\"><h3>Tajikistan - Exercise a high degree of caution</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Exercise a high degree of caution</a> in Tajikistan due to the threat of terrorism.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Border with Afghanistan - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to within 10 km of the border with Afghanistan due to the dangerous security situation and the threat of terrorism.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>The Gorno Badakhshan Autonomous Oblast - Avoid non-essential travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to the Gorno Badakhshan Autonomous Oblast due to the risk of civil unrest and the threat of terrorism.</p><p>&nbsp;</p></div><p></p>"
+  }
+ }
+}

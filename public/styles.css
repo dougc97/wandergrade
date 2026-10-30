@@ -158,6 +158,16 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .actlist li { margin: 0 0 11px; font-size: 14px; display: flex; align-items: flex-start; gap: 9px; }
 .actmain { display: flex; flex-direction: column; }
 .actlabel { font-weight: 600; }
+/* Canada's words beside a place inside one of its avoid-all zones (app.js
+   zoneMarkHTML): the guide's ⓘ, not bold in the bold label. One whose every
+   quote went stale keeps its place unseen, so nothing around it moves. */
+.zonemark { font-weight: 400; }
+.zonemark.stale { visibility: hidden; }
+/* The crawler block (#ssrGuide) carries the same marker markup, unseen: its tip
+   needs app.js, which wipes that block's words as it draws the list above with
+   working markers, and the glyph's width took Ethiopia's block a line longer at
+   390px, a longer move for the newsletter box under it when the block goes. */
+.ssrguide .zonemark { display: none; }
 .actdesc { color: var(--gray); font-size: 13px; line-height: 1.45; margin-top: 2px; }
 .seasdesc { flex-basis: 100%; color: var(--gray); font-size: 13px; line-height: 1.45; margin-top: 3px; }
 .actemoji { flex: none; width: 1.3em; text-align: center; }
