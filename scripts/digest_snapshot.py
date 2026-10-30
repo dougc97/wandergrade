@@ -18,7 +18,9 @@ is replaced through seams that exist in the old and new code alike:
   rates.fetch_json                       .../flights_<ISO>.json and flight_value_<ISO>.json
                                          by origin; any other URL raises
   flights.is_configured                  False
-  picks.cover                            a deterministic fake (None for some)
+  picks.cover / picks.cover_file        deterministic fakes keyed on the title or
+                                         the pinned file's name (None for some);
+                                         cover_file only where the tree has it
   urllib.request.urlopen                 raises: a live call fails the run
 
 The fixtures are copies, frozen on purpose: refreshing scripts/parity's own
@@ -72,8 +74,9 @@ def _fixture(name):
 
 
 def fake_cover(query, width=1024, height=420):
-    """Deterministic stand-in for the Wikipedia/Commons lookup: about one
-    query in four has no usable photo, as in real life."""
+    """Deterministic stand-in for the Wikipedia/Commons lookup of a title
+    (picks.cover): about one query in four has no usable photo, as in real
+    life (the site's checks refuse it, or the page has none)."""
     if not query:
         return None
     h = hashlib.sha256(query.encode("utf-8")).hexdigest()
@@ -84,6 +87,31 @@ def fake_cover(query, width=1024, height=420):
             "credit": {"artist": "Artist %s" % h[2:6], "license": "CC BY-SA 4.0",
                        "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
                        "page": "https://commons.wikimedia.org/wiki/File:%s.jpg" % slug}}
+
+
+def fake_cover_file(name, width=1024, height=420):
+    """The same for a gallery's pinned Commons file (picks.cover_file),
+    keyed on "File:<name>", so a file never shares a title's answer."""
+    if not name:
+        return None
+    return fake_cover("File:" + name, width, height)
+
+
+def fake_rule_cover(a):
+    """The cover the rule must pick for activities.json entry `a` under the
+    fakes, worked out here rather than by the code under test: `photo` where
+    there is one, then the first six gallery entries, each once; the first
+    the fakes answer wins (fake_cover for a title, fake_cover_file for a
+    pinned {file, label}). None when none answers."""
+    seen = []
+    for e in ([a["photo"]] if a.get("photo") else []) + list(a.get("gallery") or [])[:6]:
+        if e in seen:
+            continue
+        seen.append(e)
+        c = fake_cover_file(e["file"]) if isinstance(e, dict) else fake_cover(e)
+        if c:
+            return c
+    return None
 
 
 def _no_network(*a, **k):
@@ -130,6 +158,8 @@ def install(root):
     rates.fetch_json = fetch_json
     flights.is_configured = lambda: False
     picks.cover = fake_cover
+    if hasattr(picks, "cover_file"):        # the cover rule's file lookup (old trees lack it)
+        picks.cover_file = fake_cover_file
     return picks, newsletter, digest_variants
 
 
@@ -180,25 +210,50 @@ def without_review3(text):
     return REVIEW3.sub(cut, text), found
 
 
-# Each country's cover title (activities.json "photo") is content, re-picked as
-# Wikipedia's lead images drift (2026-10-30: the Dominican Republic's Club Med
-# resort aerial, Malaysia's Petronas Towers logo), not rendering code: an old
-# tree extracted for a comparison takes this tree's titles, so the diff still
-# shows only what the code changed.
-def graft_photos(old_root, new_root):
-    """Give `old_root`'s public/activities.json `new_root`'s cover titles."""
-    path = os.path.join(old_root, "public", "activities.json")
-    with open(path, encoding="utf-8") as f:
-        old = json.load(f)
-    with open(os.path.join(new_root, "public", "activities.json"), encoding="utf-8") as f:
-        new = json.load(f)
-    for iso, a in old.items():
-        if "photo" in new.get(iso, {}):
-            a["photo"] = new[iso]["photo"]
+# The cover rule (2026-10-30): a pick's cover is the first photo of its guide
+# gallery the site's own checks pass (picks.cover_for; activities.json `photo`
+# only an optional override), where 4788fd2 looked up `photo` alone. A
+# comparison with an older tree takes out of both texts each card's cover
+# image (the hero's <a><img>, a compact card's thumbnail cell) and its
+# "Photo:" credit line, and checks this tree's against fake_rule_cover.
+COVERS = re.compile(
+    r"(?P<hero><a href='[^']*'><img src='(?P<hero_src>[^']*)' width='560' alt='[^']*' "
+    r"style='width:100%;max-width:560px;height:220px;object-fit:cover;display:block'></a>)"
+    r"|(?P<thumb><td width='110' valign='top'><a href='[^']*'><img src='(?P<thumb_src>[^']*)' width='110' "
+    r"alt='[^']*' style='width:110px;height:84px;object-fit:cover;border-radius:8px;display:block'></a></td>)"
+    r"|(?P<credit><div style='font-size:11px;color:#888;margin:4px 0 0'>Photo: <a href='(?P<credit_page>[^']*)' "
+    r"style='color:#888'>[^<]*</a> &middot; (?:<a href='[^']*' style='color:#888'>[^<]*</a>|[^<]*)</div>)")
+
+
+def without_covers(text):
+    """`text` with every cover image and "Photo:" credit taken out, and the
+    covers in order as [(image URL, credit page)] (a card's credit follows
+    its image)."""
+    found = []
+    def cut(m):
+        if m.group("hero") or m.group("thumb"):
+            found.append([m.group("hero_src") or m.group("thumb_src"), None])
+        elif found and found[-1][1] is None:
+            found[-1][1] = m.group("credit_page")
         else:
-            a.pop("photo", None)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(old, f, ensure_ascii=False, separators=(",", ":"))
+            found.append([None, m.group("credit_page")])
+        return ""
+    return COVERS.sub(cut, text), [tuple(f) for f in found]
+
+
+def expected_covers(root, picks_):
+    """[(image URL, credit page)] the rule must give `picks_` (build data's
+    picks, in order) under the fakes, from `root`'s activities.json; picks
+    the fakes give no photo print none."""
+    import html
+    with open(os.path.join(root, "public", "activities.json"), encoding="utf-8") as f:
+        acts = json.load(f)
+    out = []
+    for s_ in picks_:
+        c = fake_rule_cover(acts.get(s_["iso"], {}))
+        if c:       # as newsletter prints them: the image URL as is, the page escaped
+            out.append((c["url"], html.escape(c["credit"]["page"])))
+    return out
 
 
 def without_cheap_link(per_month):

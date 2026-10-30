@@ -12,10 +12,14 @@ from them.
     /usr/bin/python3 scripts/test_send_digest.py [--against <rev>]
 
 --against <rev> (default 4788fd2) is the tree whose USD-only calls must be
-matched; it is extracted with `git archive` into a temp dir and given this
-tree's cover titles (digest_snapshot.graft_photos). Both trees' calls
-and output are compared less digest_snapshot.REVIEW3's pieces (review 3's
-copy), which must each be in this tree's bodies.
+matched; it is extracted with `git archive` into a temp dir. Both trees'
+calls and output are compared less digest_snapshot.REVIEW3's pieces (review
+3's copy), which must each be in this tree's bodies, and less every cover
+image and "Photo:" credit line (digest_snapshot.COVERS): since 2026-10-30 a
+pick's cover is the first photo of its guide gallery the site's checks pass
+(picks.cover_for), where that tree looked up activities.json `photo` alone,
+and this tree's covers must be the ones digest_snapshot.fake_rule_cover
+works out for each body's month.
 """
 import contextlib, io, json, os, random, re, shutil, subprocess, sys, tempfile, urllib.parse
 
@@ -185,6 +189,19 @@ def without_review3(run):
     return dict(run, calls=calls, out=ds.without_review3(run["out"])[0]), placed
 
 
+def without_covers(run):
+    """A run's calls and output less every cover image and "Photo:" credit
+    (digest_snapshot.COVERS), and each body's covers [(image, credit page)]."""
+    calls, covers = [], []
+    for c in run["calls"]:
+        if len(c) > 2 and isinstance(c[2], dict) and isinstance(c[2].get("body"), str):
+            body, found = ds.without_covers(c[2]["body"])
+            covers.append(found)
+            c = [c[0], c[1], dict(c[2], body=body)] + list(c[3:])
+        calls.append(c)
+    return dict(run, calls=calls, out=ds.without_covers(run["out"])[0]), covers
+
+
 # ---- running a tree against the fake -----------------------------------------
 
 def _child(root, scenario):
@@ -299,7 +316,10 @@ def main():
         if arch.returncode != 0:
             print("git archive failed:", arch.stderr)
             return 1
-        ds.graft_photos(tmp, ROOT)              # cover titles are content
+        # The picks each scenario's issue features (the same frozen inputs),
+        # for the covers the rule must give them.
+        _snap, month_data = ds.snapshot(ROOT, months=(12, 3), keep_data=True)
+        want_covers = {m: ds.expected_covers(ROOT, month_data["USD"][m]["picks"]) for m in (12, 3)}
 
         # 1. USD-only: the same calls (and output) as the old code, for a send,
         #    a draft, and a send whose issue is already out.
@@ -309,24 +329,26 @@ def main():
         sent_before = [{"id": "em900", "subject": "\U0001f9ed Where your dollar goes furthest this December",
                         "status": "sent", "creation_date": "2026-10-01", "metadata": {},
                         "filters": {"predicate": "and", "groups": [], "filters": []}}]
-        for name, argv, fake in (
-                ("send", [], {"subscribers": base_subs}),
-                ("send --month 3", ["--month", "3"], {"subscribers": base_subs}),
-                ("--draft", ["--draft"], {"subscribers": base_subs}),
-                ("already sent", [], {"subscribers": base_subs, "emails": sent_before})):
+        for name, argv, fake, month in (
+                ("send", [], {"subscribers": base_subs}, 12),
+                ("send --month 3", ["--month", "3"], {"subscribers": base_subs}, 3),
+                ("--draft", ["--draft"], {"subscribers": base_subs}, 12),
+                ("already sent", [], {"subscribers": base_subs, "emails": sent_before}, 12)):
             sc = {"argv": argv, "fake": fake}
             new, placed = without_review3(run_tree(ROOT, sc))
-            raw = without_review3(run_tree(tmp, sc))[0]
-            old = without_review3(run_tree(tmp, dict(sc, graft=ROOT)))[0]
+            new, covers = without_covers(new)
+            raw = without_covers(without_review3(run_tree(tmp, sc))[0])[0]
+            old = without_covers(without_review3(run_tree(tmp, dict(sc, graft=ROOT)))[0])[0]
             new_calls, linked = without_cheap_link(new["calls"])
             linked = linked and placed
+            covered = all(cv == want_covers[month] for cv in covers)
             same_raw = raw["calls"] == new_calls and raw["out"] == new["out"]
-            results.append(ok(old["calls"] == new_calls and linked and old["out"] == new["out"]
+            results.append(ok(old["calls"] == new_calls and linked and covered and old["out"] == new["out"]
                               and old["code"] == new["code"],
-                              "%s: %d identical calls once the /cheapest link (in every body, once) and "
-                              "review 3's copy (each in place) are taken out, identical output, exit %s "
-                              "(ungrafted: %s)"
-                              % (name, len(new["calls"]), new["code"],
+                              "%s: %d identical calls once the /cheapest link (in every body, once), "
+                              "review 3's copy (each in place) and the covers (the rule's %d picks, in %d "
+                              "bodies) are taken out, identical output, exit %s (ungrafted: %s)"
+                              % (name, len(new["calls"]), len(want_covers[month]), len(covers), new["code"],
                                  "identical too" if same_raw else "differs in the cost line only")))
             if old["calls"] != new_calls:
                 print("    old:", json.dumps(old["calls"])[:600])

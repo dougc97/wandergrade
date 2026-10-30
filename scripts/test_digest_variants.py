@@ -8,10 +8,15 @@
      line after the hidden gems links the issue month's /cheapest page, and
      since 2026-10-28 (review 3) each 🛡️ grade names its source, the AI
      callout drops "New:", "route’s" is typographic and an explicit --month
-     issue prints its own year (digest_snapshot.REVIEW3). The 12 months' sha256
-     match scripts/digest_golden/usd_sha256.json, and the USD edition built
-     the per-currency way (gather + build_variant) is the same text. The
-     band is checked against JavaScript's own toFixed under jsc.
+     issue prints its own year (digest_snapshot.REVIEW3), and since 2026-10-30
+     a pick's cover is the first photo of its guide gallery the site's own
+     checks pass (picks.cover_for; activities.json `photo` is an optional
+     override), where 4788fd2 looked up `photo` alone: every edition's
+     covers and "Photo:" credits, every month, are the ones
+     digest_snapshot.fake_rule_cover works out under the fakes. The 12
+     months' sha256 match scripts/digest_golden/usd_sha256.json, and the USD
+     edition built the per-currency way (gather + build_variant) is the same
+     text. The band is checked against JavaScript's own toFixed under jsc.
   2. Each of the ten editions, every month: its own subject, wording, footer,
      banknote, no home country in its picks, balanced markup, and FX measured
      in its own currency.
@@ -20,11 +25,12 @@
 
     /usr/bin/python3 scripts/test_digest_variants.py [--against <rev>]
 
---against <rev> also extracts that tree with `git archive` (given this tree's
-cover titles, digest_snapshot.graft_photos) and diffs its USD
+--against <rev> also extracts that tree with `git archive` and diffs its USD
 text against this tree's (less the /cheapest line, which must be in every
-month once, and less digest_snapshot.REVIEW3's pieces in both, each of
-which must be in this tree's text where it belongs) in full, then again with only this tree's cost line
+month once, less digest_snapshot.REVIEW3's pieces in both, each of
+which must be in this tree's text where it belongs, and less every cover
+image and "Photo:" credit line in both, digest_snapshot.COVERS: 1 checks
+this tree's are the rule's) in full, then again with only this tree's cost line
 grafted into it (digest_snapshot --graft-cost-line): that must be identical
 for all 12 months, which proves the cost line is the only USD change.
 """
@@ -77,7 +83,6 @@ def main():
         try:
             subprocess.check_call("git -C '%s' archive '%s' fxtracker public | tar -x -C '%s'"
                                   % (ROOT, against, tmp), shell=True, timeout=50)
-            ds.graft_photos(tmp, ROOT)          # cover titles are content
             # With this tree's default priorities (every factor Med since
             # 2026-10-14), so the raw diff is the cost band's alone.
             old = _snapshot_in_child(tmp, "USD", weights=ROOT)
@@ -100,7 +105,12 @@ def main():
                               "grade's source, the AI callout, the intro's year, the closing quote, both buttons' "
                               "label spans%s"
                               % ("" if not placed else " -> %r" % placed[:3])))
-            strip = lambda per: {m: [sb[0], ds.without_review3(sb[1])[0]] for m, sb in per.items()}
+            # The covers come out of both: the cover rule picks this tree's
+            # (checked below, every edition), 4788fd2 looked up `photo`.
+            for m in usd_cmp:
+                usd_cmp[m] = [usd_cmp[m][0], ds.without_covers(usd_cmp[m][1])[0]]
+            strip = lambda per: {m: [sb[0], ds.without_covers(ds.without_review3(sb[1])[0])[0]]
+                                 for m, sb in per.items()}
             old["USD"] = strip(old["USD"])
             diffs = [m for m in old["USD"] if old["USD"][m] != usd_cmp.get(m)]
             raw_diff = sorted(int(m) for m in diffs)          # checked in 2c
@@ -118,6 +128,23 @@ def main():
     snap, datas = ds.snapshot(ROOT, tuple(dv.PICKER_ORDER), keep_data=True)
     results.append(ok(snap["USD"] == usd_only["USD"],
                       "the USD edition built per-currency (gather + build_variant) is the same text"))
+
+    # The cover rule, under the fakes: each pick's cover and credit are the
+    # first of `photo` + the gallery's first six that answers, in every
+    # edition and month; no cover markup is left once they are taken out.
+    wrong, n_cov, n_none = [], 0, 0
+    for c in snap:
+        for m in range(1, 13):
+            rest, got = ds.without_covers(snap[c][str(m)][1])
+            want = ds.expected_covers(ROOT, datas[c][m]["picks"])
+            if got != want or "<img src='https://images.example/" in rest or "Photo: " in rest:
+                wrong.append((c, m, got, want))
+            n_cov += len(got)
+            n_none += len(datas[c][m]["picks"]) - len(got)
+    results.append(ok(not wrong and n_cov > 0,
+                      "every edition's covers and credits, all 12 months, are the rule's picks under the fakes "
+                      "(%d covers, %d picks the fakes give none)%s"
+                      % (n_cov, n_none, "" if not wrong else " -> %r" % (wrong[:2],))))
 
     # A grade's source is the list's own government, or the one that filled its gap.
     by = picks.advisory_sources([{"iso": "TH", "level": 1}, {"iso": "CI", "level": 2, "via": "ca"},

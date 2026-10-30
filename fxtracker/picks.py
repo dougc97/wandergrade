@@ -35,6 +35,7 @@ import copy
 import datetime
 import json
 import os
+import re
 import urllib.parse
 import urllib.request
 
@@ -172,64 +173,142 @@ def cover_photo(query, width=1024, height=420):
 
 
 def _strip_html(v):
-    import re as _re
-    return _re.sub(r"\s+", " ", _re.sub(r"<[^>]+>", "", v or "")).strip()
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", v or "")).strip()
 
 
-def photo_credit(orig_url):
-    """Author + licence for a Wikimedia Commons file, from its extmetadata.
+# ---- the cover photo ---------------------------------------------------------
+# A featured country's cover is the first candidate the site's own photo
+# checks pass (cover_for): its activities.json `photo` where it has one (an
+# optional override, for a gallery whose lead is weak at email size), then
+# the guide gallery's entries in order, so a reader clicking through finds the
+# photo at the top of the guide. The checks are app.js wikiIconic's and
+# commonsPhoto's, plus one of the email's own (COVER_MIN_W).
 
-    Most Commons photos are CC BY or CC BY-SA, which require naming the author
-    and the licence wherever the image appears — a footer "Photos via Wikimedia
-    Commons" doesn't satisfy that. Returns None when it can't be resolved.
-    """
-    try:
-        path = urllib.parse.urlsplit(orig_url).path
-        if "/wikipedia/commons/" not in path:
+# Mirrors PHOTO_BAD in app.js (scripts/photo_sweep.py has the same copy): no
+# map, flag, seal, logo, collage... matched on the file name.
+PHOTO_BAD = re.compile(
+    r"map|flag|locator|coat|orthographic|projection|seal|logo|icon|diagram"
+    r"|\.svg|location|adm[_ ]|administrative|emblem|wikidata|collage|montage", re.I)
+# Mirrors PHOTO_LICENCE_OK in app.js (scripts/gallery_entry.py LICENCE_OK):
+# CC BY and CC BY-SA in any version or port, CC0 and public domain, matched
+# against extmetadata's short name and its code. The site asks it of a pinned
+# file; the email asks it of every cover, as the credit under it is all the
+# licence gets.
+LICENCE_OK = re.compile(
+    r"^(?:cc[- ]by(?:-sa)?(?:[- ]\d(?:\.\d)?(?:[- ](?:[a-z]{2}|igo))?)?|cc0(?:[- ]1\.0)?"
+    r"|pd(?:[- ][a-z0-9.-]+)?|public domain(?: mark(?: 1\.0)?)?)$", re.I)
+# The original must be at least this wide (the guide hero's own bar), so
+# _thumb always hands weserv a thumbnail at one of Wikimedia's steps, never
+# an upload.wikimedia.org original, which Wikimedia answers with 429 when
+# weserv asks (Venezuela's and Vanuatu's small files showed broken).
+COVER_MIN_W = 800
+# The guide hero shows a gallery's first six entries (app.js photoSubjects):
+# with the override, at most seven lookups for a country, each once a run.
+GALLERY_SHOWN = 6
+
+_SKIP = None
+
+
+def _skip_files():
+    """public/photo-skip.json, the lead images the October 2026 photo sweep
+    rejected, which the guide hero leaves out too; read once. An unreadable
+    list skips nothing, as on the site."""
+    global _SKIP
+    if _SKIP is None:
+        try:
+            _SKIP = frozenset(_load("photo-skip.json").get("files") or [])
+        except Exception:
+            _SKIP = frozenset()
+    return _SKIP
+
+
+def _file_key(name):
+    """A Commons file name as page.pageimage and photo-skip.json spell it: no
+    File: prefix, underscores, first letter capitalised."""
+    n = re.sub(r"^file:", "", (name or "").strip(), flags=re.I).replace(" ", "_")
+    return n[:1].upper() + n[1:]
+
+
+def _commons_file(name):
+    """One Commons imageinfo request for File:<name>: the original's URL and
+    width, its licence (short name and code) and the credit the email prints.
+    CC BY / BY-SA ask for the author and the licence wherever the photo
+    appears; a footer "Photos via Wikimedia Commons" doesn't do it. None when
+    Commons has no such file."""
+    url = ("https://commons.wikimedia.org/w/api.php?action=query&format=json"
+           "&prop=imageinfo&iiprop=url|size|extmetadata"
+           "&iiextmetadatafilter=Artist|LicenseShortName|LicenseUrl|License&titles="
+           + urllib.parse.quote("File:" + name))
+    req = urllib.request.Request(url, headers={"User-Agent": _UA})
+    with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
+        pages = (json.load(r).get("query") or {}).get("pages") or {}
+    for pg in pages.values():
+        ii = (pg.get("imageinfo") or [None])[0]
+        if not ii or not pg.get("title"):
             return None
-        parts = path.split("/")
-        name = parts[-2] if "/thumb/" in path else parts[-1]
-        name = urllib.parse.unquote(name)
-        url = ("https://commons.wikimedia.org/w/api.php?action=query&format=json"
-               "&prop=imageinfo&iiprop=extmetadata&titles="
-               + urllib.parse.quote("File:" + name))
-        req = urllib.request.Request(url, headers={"User-Agent": _UA})
-        with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
-            pages = (json.load(r).get("query") or {}).get("pages") or {}
-        for pg in pages.values():
-            md = ((pg.get("imageinfo") or [{}])[0].get("extmetadata")) or {}
-            val = lambda k: _strip_html((md.get(k) or {}).get("value"))
-            return {"artist": val("Artist")[:80] or "Unknown author",
-                    "license": val("LicenseShortName") or "see file page",
-                    "license_url": (md.get("LicenseUrl") or {}).get("value") or "",
-                    "page": "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(
-                        "File:" + name.replace(" ", "_"))}
-    except Exception:
-        return None
+        md = ii.get("extmetadata") or {}
+        val = lambda k: _strip_html((md.get(k) or {}).get("value"))
+        file = _file_key(pg["title"])
+        return {"file": file, "url": ii.get("url") or "", "width": ii.get("width"),
+                "licence": val("LicenseShortName"), "code": val("License"),
+                "credit": {"artist": val("Artist")[:80] or "Unknown author",
+                           "license": val("LicenseShortName") or "see file page",
+                           "license_url": (md.get("LicenseUrl") or {}).get("value") or "",
+                           "page": "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(
+                               "File:" + file)}}
     return None
 
 
-def cover(query, width=1024, height=420):
-    """Resolve a landmark query (from activities.json `photo`) to an email-ready
-    cover image URL. Returns None on any failure so a missing photo never breaks
-    the email.
+def _cover_of(name, width, height):
+    """Commons file `name` as a cover, or None where the checks leave it out:
+    PHOTO_BAD on its name, photo-skip.json, a licence LICENCE_OK refuses, an
+    original under COVER_MIN_W wide, or one _thumb can't make a thumbnail of
+    (a .tif: weserv would fetch the original). The name's checks cost no
+    request; the rest is one imageinfo request."""
+    name = (name or "").strip()
+    if not name or PHOTO_BAD.search(name) or _file_key(name) in _skip_files():
+        return None
+    info = _commons_file(name)
+    # Commons' canonical spelling of the name is the skip list's too.
+    if not info or not info["url"] or info["file"] in _skip_files():
+        return None
+    if not (LICENCE_OK.match(info["licence"]) or LICENCE_OK.match(info["code"])):
+        return None
+    w = info["width"]
+    if not isinstance(w, int) or w < COVER_MIN_W:
+        return None
+    # strip scheme (weserv wants ssl:host/path) and any utm_* query
+    bare = _thumb(info["url"].split("//", 1)[1].split("?", 1)[0], w)
+    if not bare.startswith("thumb.wikimedia.org/"):
+        return None
+    return _banner(bare, info["credit"], width, height)
 
-    We look up the Wikipedia article's image via the REST summary, then serve it
+
+def _banner(bare, credit, width, height):
+    """The email's banner for `bare`, a thumb.wikimedia.org host/path, served
     through the free images.weserv.nl proxy (resized to a banner crop). Two
     reasons we can't hotlink Wikimedia directly in email:
-      * Wikimedia now rejects arbitrary thumbnail widths ("use thumbnail sizes
+      * Wikimedia rejects arbitrary thumbnail widths ("use thumbnail sizes
         list" — 400), and the valid sizes differ per image.
       * Gmail's image proxy can't fetch raw upload.wikimedia.org URLs (403/400),
         so the photos silently fail to load.
-    weserv sidesteps both: it fetches the original, resizes to any width, and
-    serves a cache-friendly JPEG that Gmail's proxy loads fine.
-
-    weserv is handed a thumb.wikimedia.org thumbnail, never an
-    upload.wikimedia.org original (_thumb): since Oct 2026 Wikimedia answers
+    weserv sidesteps both: it fetches the thumbnail, resizes to any width, and
+    serves a cache-friendly JPEG that Gmail's proxy loads fine. It is handed a
+    thumbnail, never an original (_thumb): since Oct 2026 Wikimedia answers
     weserv's fetches of originals with 429, which weserv passes on as a 404,
     so Vietnam's Ha Long Bay showed as a broken image while every thumbnail
-    loaded.
-    """
+    loaded."""
+    return {"url": ("https://images.weserv.nl/?url="
+                    + urllib.parse.quote("ssl:" + bare, safe="")
+                    + "&w={0}&h={1}&fit=cover&a=attention&output=jpg&q=80".format(width, height)),
+            "credit": credit}
+
+
+def cover(query, width=1024, height=420):
+    """A Wikipedia page title (a gallery entry, or activities.json `photo`) as
+    an email-ready cover, {url, credit}: the page's lead image from the REST
+    summary, through _cover_of's checks. None on any failure, so a missing
+    photo never breaks the email; cover_for then tries the next candidate."""
     if not query:
         return None
     url = ("https://en.wikipedia.org/api/rest_v1/page/summary/"
@@ -238,21 +317,49 @@ def cover(query, width=1024, height=420):
         req = urllib.request.Request(url, headers={"User-Agent": _UA})
         with urllib.request.urlopen(req, timeout=15, context=rates._SSL) as r:
             d = json.load(r)
-        oi = d.get("originalimage") or {}
-        orig = oi.get("source")
-        # Only freely licensed Commons files: an en.wikipedia-hosted image is
-        # usually fair-use, which doesn't extend to a newsletter.
-        credit = photo_credit(orig) if orig else None
-        if not credit:
+        path = urllib.parse.urlsplit((d.get("originalimage") or {}).get("source") or "").path
+        # Only Commons files: an en.wikipedia-hosted image is usually fair use,
+        # which doesn't extend to a newsletter.
+        if "/wikipedia/commons/" not in path:
             return None
-        # strip scheme (weserv wants ssl:host/path) and Wikipedia's utm_* query
-        bare = _thumb(orig.split("//", 1)[1].split("?", 1)[0], oi.get("width"))
-        return {"url": ("https://images.weserv.nl/?url="
-                        + urllib.parse.quote("ssl:" + bare, safe="")
-                        + "&w={0}&h={1}&fit=cover&a=attention&output=jpg&q=80".format(width, height)),
-                "credit": credit}
+        parts = path.split("/")
+        return _cover_of(urllib.parse.unquote(parts[-2] if "/thumb/" in path else parts[-1]),
+                         width, height)
     except Exception:
         return None
+
+
+def cover_file(name, width=1024, height=420):
+    """A gallery's pinned Commons file ({file, label}: one photo pinned by
+    name where no page leads with a good one) as a cover, through the same
+    checks as a page's lead image; one imageinfo request, app.js
+    commonsPhoto's. None on any failure."""
+    try:
+        return _cover_of(name, width, height)
+    except Exception:
+        return None
+
+
+def cover_candidates(a):
+    """What a country's cover is chosen from, in order (`a` its
+    activities.json entry): `photo` where it has one, then the gallery
+    entries the guide hero shows, each once."""
+    out = [a["photo"]] if a.get("photo") else []
+    for g in (a.get("gallery") or [])[:GALLERY_SHOWN]:
+        if g not in out:
+            out.append(g)
+    return out
+
+
+def cover_for(a, memo=None):
+    """A featured country's cover, {url, credit}: the first of its
+    cover_candidates that passes the site's own photo checks (cover() for a
+    title, cover_file() for a pinned file), or None when none does."""
+    for entry in cover_candidates(a):
+        c = _cover_memo(entry, memo)
+        if c:
+            return c
+    return None
 
 
 # Wikimedia's standard thumbnail widths (scripts/dev/thumb_check.mjs has the
@@ -553,24 +660,30 @@ def _popular_set():
 
 
 def _enrich(s, acts, with_photo, memo=None):
-    """Attach flag, things-to-do, and (optionally) a resolved cover photo.
-    `memo` caches cover lookups across editions (the same country's photo is
-    one lookup, not ten); it calls the module-level cover() at call time."""
+    """Attach flag, things-to-do, and (optionally) the cover photo cover_for
+    picks. `memo` caches cover lookups across editions (a candidate is one
+    lookup a run, not ten)."""
     a = acts.get(s["iso"], {})
     s["flag"] = flag(s["iso"])
     s["activities"] = a.get("activities", [])[:2]
-    c = _cover_memo(a.get("photo"), memo) if with_photo else None
+    c = cover_for(a, memo) if with_photo else None
     s["photo"] = c and c["url"]
     s["photo_credit"] = c and c["credit"]
     return s
 
 
-def _cover_memo(query, memo):
-    if memo is None:
-        return cover(query)
-    if query not in memo:
-        memo[query] = cover(query)
-    return memo[query]
+def _cover_memo(entry, memo):
+    """One cover candidate, looked up once a run when `memo` is given. It
+    calls the module-level cover() / cover_file() at call time (the digest
+    tests swap fakes in)."""
+    pinned = isinstance(entry, dict)
+    key = ("file", entry.get("file")) if pinned else ("title", entry)
+    if memo is not None and key in memo:
+        return memo[key]
+    c = cover_file(entry.get("file")) if pinned else cover(entry)
+    if memo is not None:
+        memo[key] = c
+    return c
 
 
 def gather(month=None):
