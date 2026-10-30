@@ -13,7 +13,10 @@
      checks pass (picks.cover_for; activities.json `photo` is an optional
      override), where 4788fd2 looked up `photo` alone: every edition's
      covers and "Photo:" credits, every month, are the ones
-     digest_snapshot.fake_rule_cover works out under the fakes. The 12
+     digest_snapshot.fake_rule_cover works out under the fakes, each piece
+     of them (link, image, alt text, file page, artist, licence and its
+     link), and with every cover lookup failing each card renders as it
+     does with a cover, less the cover and its credit. The 12
      months' sha256 match scripts/digest_golden/usd_sha256.json, and the USD
      edition built the per-currency way (gather + build_variant) is the same
      text. The band is checked against JavaScript's own toFixed under jsc.
@@ -131,20 +134,37 @@ def main():
 
     # The cover rule, under the fakes: each pick's cover and credit are the
     # first of `photo` + the gallery's first six that answers, in every
-    # edition and month; no cover markup is left once they are taken out.
+    # edition and month, every piece the --against comparisons take out (the
+    # card's guide link, the image, the country's name as alt text, the file
+    # page, artist, licence and its link); no cover markup is left once they
+    # are taken out.
     wrong, n_cov, n_none = [], 0, 0
     for c in snap:
         for m in range(1, 13):
             rest, got = ds.without_covers(snap[c][str(m)][1])
-            want = ds.expected_covers(ROOT, datas[c][m]["picks"])
+            want = ds.expected_covers(ROOT, datas[c][m]["picks"],
+                                      lambda iso: newsletter._guide_url(iso, m, dv.VARIANTS[c]))
             if got != want or "<img src='https://images.example/" in rest or "Photo: " in rest:
                 wrong.append((c, m, got, want))
             n_cov += len(got)
             n_none += len(datas[c][m]["picks"]) - len(got)
     results.append(ok(not wrong and n_cov > 0,
-                      "every edition's covers and credits, all 12 months, are the rule's picks under the fakes "
+                      "every edition's covers and credits, all 12 months, are the rule's picks under the fakes, "
+                      "each with its card's guide link, the country's name as alt text and the whole credit "
                       "(%d covers, %d picks the fakes give none)%s"
                       % (n_cov, n_none, "" if not wrong else " -> %r" % (wrong[:2],))))
+    # No cover: the fakes give every frozen pick one, so the no-photo cards
+    # are checked here, every lookup failing (Wikipedia or Commons down, a
+    # 429) through the tree's own cover() and cover_file(): each edition,
+    # each month must be its covered text less the covers and credits,
+    # nothing left in their place.
+    bare = ds.snapshot(ROOT, tuple(dv.PICKER_ORDER), offline_covers=True)
+    off = [(c, m) for c in snap for m in snap[c]
+           if (bare.get(c) or {}).get(m) != [snap[c][m][0], ds.without_covers(snap[c][m][1])[0]]]
+    results.append(ok(not off and sorted(bare) == sorted(snap) and all(len(bare[c]) == 12 for c in bare),
+                      "with every cover lookup failing, all %d renders are their text less the covers and "
+                      "credits, nothing in their place%s"
+                      % (sum(len(v) for v in bare.values()), "" if not off else " -> %r" % off[:4])))
 
     # A grade's source is the list's own government, or the one that filled its gap.
     by = picks.advisory_sources([{"iso": "TH", "level": 1}, {"iso": "CI", "level": 2, "via": "ca"},

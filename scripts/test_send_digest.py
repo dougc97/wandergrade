@@ -191,7 +191,8 @@ def without_review3(run):
 
 def without_covers(run):
     """A run's calls and output less every cover image and "Photo:" credit
-    (digest_snapshot.COVERS), and each body's covers [(image, credit page)]."""
+    (digest_snapshot.COVERS), and each body's covers as
+    digest_snapshot.without_covers reads them (link, image, alt, credit)."""
     calls, covers = [], []
     for c in run["calls"]:
         if len(c) > 2 and isinstance(c[2], dict) and isinstance(c[2].get("body"), str):
@@ -319,7 +320,9 @@ def main():
         # The picks each scenario's issue features (the same frozen inputs),
         # for the covers the rule must give them.
         _snap, month_data = ds.snapshot(ROOT, months=(12, 3), keep_data=True)
-        want_covers = {m: ds.expected_covers(ROOT, month_data["USD"][m]["picks"]) for m in (12, 3)}
+        nl = sys.modules["fxtracker.newsletter"]        # this tree's, as ds.snapshot left it
+        want_covers = {m: ds.expected_covers(ROOT, month_data["USD"][m]["picks"],
+                                             lambda iso, m=m: nl._guide_url(iso, m)) for m in (12, 3)}
 
         # 1. USD-only: the same calls (and output) as the old code, for a send,
         #    a draft, and a send whose issue is already out.

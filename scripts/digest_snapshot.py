@@ -20,7 +20,10 @@ is replaced through seams that exist in the old and new code alike:
   flights.is_configured                  False
   picks.cover / picks.cover_file        deterministic fakes keyed on the title or
                                          the pinned file's name (None for some);
-                                         cover_file only where the tree has it
+                                         cover_file only where the tree has it;
+                                         snapshot(offline_covers=True) keeps the
+                                         tree's own, every lookup failing on the
+                                         frozen urlopen (no pick gets a cover)
   urllib.request.urlopen                 raises: a live call fails the run
 
 The fixtures are copies, frozen on purpose: refreshing scripts/parity's own
@@ -118,6 +121,11 @@ def _no_network(*a, **k):
     raise RuntimeError("digest_snapshot: live network call attempted: %r" % (a[:1],))
 
 
+# The tree's own cover lookups, as install() found them before the fakes
+# went in (snapshot(offline_covers=True) puts them back).
+REAL_COVERS = {}
+
+
 def install(root):
     """Import `root`'s fxtracker with every outside seam frozen; returns
     (picks, newsletter, variants-module-or-None)."""
@@ -157,6 +165,8 @@ def install(root):
     popularity.get_arrivals = get_arrivals
     rates.fetch_json = fetch_json
     flights.is_configured = lambda: False
+    REAL_COVERS.clear()
+    REAL_COVERS.update(cover=picks.cover, cover_file=getattr(picks, "cover_file", None))
     picks.cover = fake_cover
     if hasattr(picks, "cover_file"):        # the cover rule's file lookup (old trees lack it)
         picks.cover_file = fake_cover_file
@@ -215,44 +225,64 @@ def without_review3(text):
 # only an optional override), where 4788fd2 looked up `photo` alone. A
 # comparison with an older tree takes out of both texts each card's cover
 # image (the hero's <a><img>, a compact card's thumbnail cell) and its
-# "Photo:" credit line, and checks this tree's against fake_rule_cover.
+# "Photo:" credit line, and checks every piece taken out of this tree's (the
+# link, image, alt text, file page, artist, licence and its link) against
+# expected_covers.
 COVERS = re.compile(
-    r"(?P<hero><a href='[^']*'><img src='(?P<hero_src>[^']*)' width='560' alt='[^']*' "
+    r"(?P<hero><a href='(?P<hero_href>[^']*)'><img src='(?P<hero_src>[^']*)' width='560' "
+    r"alt='(?P<hero_alt>[^']*)' "
     r"style='width:100%;max-width:560px;height:220px;object-fit:cover;display:block'></a>)"
-    r"|(?P<thumb><td width='110' valign='top'><a href='[^']*'><img src='(?P<thumb_src>[^']*)' width='110' "
-    r"alt='[^']*' style='width:110px;height:84px;object-fit:cover;border-radius:8px;display:block'></a></td>)"
-    r"|(?P<credit><div style='font-size:11px;color:#888;margin:4px 0 0'>Photo: <a href='(?P<credit_page>[^']*)' "
-    r"style='color:#888'>[^<]*</a> &middot; (?:<a href='[^']*' style='color:#888'>[^<]*</a>|[^<]*)</div>)")
+    r"|(?P<thumb><td width='110' valign='top'><a href='(?P<thumb_href>[^']*)'><img src='(?P<thumb_src>[^']*)' "
+    r"width='110' alt='(?P<thumb_alt>[^']*)' "
+    r"style='width:110px;height:84px;object-fit:cover;border-radius:8px;display:block'></a></td>)"
+    r"|(?P<credit><div style='font-size:11px;color:#888;margin:4px 0 0'>Photo: <a href='(?P<page>[^']*)' "
+    r"style='color:#888'>(?P<artist>[^<]*)</a> &middot; "
+    r"(?:<a href='(?P<lic_url>[^']*)' style='color:#888'>(?P<lic_a>[^<]*)</a>|(?P<lic_t>[^<]*))</div>)")
 
 
 def without_covers(text):
     """`text` with every cover image and "Photo:" credit taken out, and the
-    covers in order as [(image URL, credit page)] (a card's credit follows
-    its image)."""
+    covers in order, one tuple a card, as the markup has them: (kind, link,
+    image URL, alt, credit page, artist, licence URL or None, licence), kind
+    "hero" or "thumb"; a card's credit follows its image, and a missing
+    half reads None."""
     found = []
     def cut(m):
-        if m.group("hero") or m.group("thumb"):
-            found.append([m.group("hero_src") or m.group("thumb_src"), None])
-        elif found and found[-1][1] is None:
-            found[-1][1] = m.group("credit_page")
+        kind = "hero" if m.group("hero") else "thumb" if m.group("thumb") else None
+        if kind:
+            found.append([kind, m.group(kind + "_href"), m.group(kind + "_src"), m.group(kind + "_alt")]
+                         + [None] * 4)
         else:
-            found.append([None, m.group("credit_page")])
+            credit = [m.group("page"), m.group("artist"), m.group("lic_url"),
+                      m.group("lic_a") if m.group("lic_url") is not None else m.group("lic_t")]
+            if found and found[-1][4] is None:
+                found[-1][4:] = credit
+            else:
+                found.append([None] * 4 + credit)
         return ""
     return COVERS.sub(cut, text), [tuple(f) for f in found]
 
 
-def expected_covers(root, picks_):
-    """[(image URL, credit page)] the rule must give `picks_` (build data's
-    picks, in order) under the fakes, from `root`'s activities.json; picks
-    the fakes give no photo print none."""
+def expected_covers(root, picks_, link):
+    """The covers the rule must give `picks_` (build data's picks, in order,
+    the first on the hero card) under the fakes, from `root`'s
+    activities.json, as without_covers reads them: the card's guide link
+    (link(iso), the URL its name links to), the image, the country's name
+    as alt text and the whole credit, each as newsletter prints it (the
+    link and image as they are, the rest escaped). Picks the fakes give no
+    photo print none."""
     import html
     with open(os.path.join(root, "public", "activities.json"), encoding="utf-8") as f:
         acts = json.load(f)
     out = []
-    for s_ in picks_:
+    for i, s_ in enumerate(picks_):
         c = fake_rule_cover(acts.get(s_["iso"], {}))
-        if c:       # as newsletter prints them: the image URL as is, the page escaped
-            out.append((c["url"], html.escape(c["credit"]["page"])))
+        if c:
+            cr = c["credit"]
+            out.append(("hero" if i == 0 else "thumb", link(s_["iso"]), c["url"], html.escape(s_["name"]),
+                        html.escape(cr["page"]), html.escape(cr["artist"]),
+                        html.escape(cr["license_url"]) if cr.get("license_url") else None,
+                        html.escape(cr["license"])))
     return out
 
 
@@ -333,8 +363,15 @@ def graft_weights(newsletter, new_root):
         old_picks.WEIGHTS = dict(weights)
 
 
-def snapshot(root, codes=("USD",), months=range(1, 13), keep_data=False, graft=None, weights=None):
+def snapshot(root, codes=("USD",), months=range(1, 13), keep_data=False, graft=None, weights=None,
+             offline_covers=False):
     picks, newsletter, dv = install(root)
+    if offline_covers:
+        # The tree's own lookups on the frozen urlopen: each fails, as with
+        # Wikipedia or Commons down, and no pick gets a cover.
+        picks.cover = REAL_COVERS["cover"]
+        if REAL_COVERS["cover_file"]:
+            picks.cover_file = REAL_COVERS["cover_file"]
     if graft:
         graft_cost_line(newsletter, graft)
     elif weights:
