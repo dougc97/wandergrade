@@ -180,6 +180,27 @@ def without_review3(text):
     return REVIEW3.sub(cut, text), found
 
 
+# Each country's cover title (activities.json "photo") is content, re-picked as
+# Wikipedia's lead images drift (2026-10-30: the Dominican Republic's Club Med
+# resort aerial, Malaysia's Petronas Towers logo), not rendering code: an old
+# tree extracted for a comparison takes this tree's titles, so the diff still
+# shows only what the code changed.
+def graft_photos(old_root, new_root):
+    """Give `old_root`'s public/activities.json `new_root`'s cover titles."""
+    path = os.path.join(old_root, "public", "activities.json")
+    with open(path, encoding="utf-8") as f:
+        old = json.load(f)
+    with open(os.path.join(new_root, "public", "activities.json"), encoding="utf-8") as f:
+        new = json.load(f)
+    for iso, a in old.items():
+        if "photo" in new.get(iso, {}):
+            a["photo"] = new[iso]["photo"]
+        else:
+            a.pop("photo", None)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(old, f, ensure_ascii=False, separators=(",", ":"))
+
+
 def without_cheap_link(per_month):
     """{month: [subject, body]} with that line taken out of each body, and
     True when every body carried it exactly once."""

@@ -20,7 +20,8 @@
 
     /usr/bin/python3 scripts/test_digest_variants.py [--against <rev>]
 
---against <rev> also extracts that tree with `git archive` and diffs its USD
+--against <rev> also extracts that tree with `git archive` (given this tree's
+cover titles, digest_snapshot.graft_photos) and diffs its USD
 text against this tree's (less the /cheapest line, which must be in every
 month once, and less digest_snapshot.REVIEW3's pieces in both, each of
 which must be in this tree's text where it belongs) in full, then again with only this tree's cost line
@@ -76,6 +77,7 @@ def main():
         try:
             subprocess.check_call("git -C '%s' archive '%s' fxtracker public | tar -x -C '%s'"
                                   % (ROOT, against, tmp), shell=True, timeout=50)
+            ds.graft_photos(tmp, ROOT)          # cover titles are content
             # With this tree's default priorities (every factor Med since
             # 2026-10-14), so the raw diff is the cost band's alone.
             old = _snapshot_in_child(tmp, "USD", weights=ROOT)

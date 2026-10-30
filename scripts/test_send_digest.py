@@ -12,7 +12,8 @@ from them.
     /usr/bin/python3 scripts/test_send_digest.py [--against <rev>]
 
 --against <rev> (default 4788fd2) is the tree whose USD-only calls must be
-matched; it is extracted with `git archive` into a temp dir. Both trees' calls
+matched; it is extracted with `git archive` into a temp dir and given this
+tree's cover titles (digest_snapshot.graft_photos). Both trees' calls
 and output are compared less digest_snapshot.REVIEW3's pieces (review 3's
 copy), which must each be in this tree's bodies.
 """
@@ -298,6 +299,7 @@ def main():
         if arch.returncode != 0:
             print("git archive failed:", arch.stderr)
             return 1
+        ds.graft_photos(tmp, ROOT)              # cover titles are content
 
         # 1. USD-only: the same calls (and output) as the old code, for a send,
         #    a draft, and a send whose issue is already out.
