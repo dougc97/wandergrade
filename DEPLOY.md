@@ -193,6 +193,36 @@ last good copy served) is noted by its fetch time and sent `no-store` too.
 Trailing slashes 301; anything deeper 404s. Tests, no network:
 `/usr/bin/python3 scripts/test_list_pages.py`.
 
+## Avoid-zone markers: Canada's words beside a place in its zone
+
+A guide place inside one of Global Affairs Canada's regional "Avoid all
+travel" blocks (Lalibela, Mount Cameroon, the Pamir Highway's Panj stretch)
+carries an ⓘ after its label in "Top things to do" or "What's in season":
+"Global Affairs Canada: “…” (travel.gc.ca, checked 2026-10-30)". Canada's
+words only, never ours (`fxtracker/avoid_marks.py` says what is marked and
+why). The table is the `marks` section of `scripts/stay-skip.json`, beside
+the blocks' fingerprints and the stay chips' skips; `public/avoid-marks.json`
+is generated from it, and the server's crawler block and app.js both draw
+from that file (10 min browser cache, like the other data JSONs).
+
+- **Monthly:** `gen_stay_spots.py --check` lists any marked row whose block
+  is new, gone or reworded on Canada's live page, or whose words left it.
+  Meanwhile the page drops that quote wherever Canada's live block is in hand
+  (the server's cached notes; `/api/watchouts`, whose blocks carry `fp`).
+- **Re-check a row:** read the block on travel.gc.ca, update the `words`
+  (Canada's, verbatim: ` … ` only where words are left out, neighbouring
+  lines joined by a line break), `fp` and `checked` of every row quoting
+  that block, and the block's `fp`, then
+  `/usr/bin/python3 -m fxtracker.avoid_marks` and
+  `/usr/bin/python3 scripts/test_avoid_marks.py`. Leave
+  `scripts/fixtures/gac-2026-10-30` alone: the test holds only rows checked
+  that day to it, and a row checked later to the table, its words verified
+  on the live feed by the monthly `--check` (the folder's README says how to
+  move the offline copies to a new day). Guide HTML changes, so it ships
+  like any guide change (the edge cache follows the origin's 5 min).
+- **Keyboard:** each ⓘ is a Tab stop whose tip shows on focus, also when Tab
+  scrolls the page to reach it: `scripts/dev/zonemark_kbd_check.mjs`.
+
 ## Hero photos: Wikipedia titles, a skip list, and the sweep
 
 A guide's hero carousel shows the lead image of each title in

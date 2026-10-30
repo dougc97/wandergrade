@@ -15,10 +15,12 @@ theirs is the only feed that ships the structured text as data; the LEVEL
 shown beside it still follows the traveler's own government.
 """
 
+import hashlib
 import html as _html
 import re
 import sys
 import time
+import unicodedata
 from html.parser import HTMLParser
 
 from . import rates
@@ -2055,6 +2057,19 @@ def cached(iso):
     return None if not hit or hit[1].get("_failed") else {k: v for k, v in hit[1].items() if k != "_failed"}
 
 
+def fingerprint(text):
+    """A regional block's words without their layout: the parser's bullets,
+    spacing and punctuation can change while Canada's advice doesn't
+    ('Limbé' and 'Limbe' are one word). scripts/stay-skip.json records each
+    "Avoid all travel" block's fingerprint as reviewed, and the guide's ⓘ
+    beside a place inside one quotes its words only while the live block
+    still has that fingerprint (fxtracker/avoid_marks.py); from_feed gives
+    every block its "fp" for that check."""
+    folded = "".join(c for c in unicodedata.normalize("NFKD", text or "")
+                     if not unicodedata.combining(c)).casefold()
+    return hashlib.sha1(re.sub(r"[\W_]+", "", folded).encode("utf-8")).hexdigest()[:12]
+
+
 def from_feed(iso, raw):
     """The /api/watchouts answer for one country from Canada's per-country
     JSON as fetched (the tests and scripts/dev/avoid_lines_dump.py read it
@@ -2074,7 +2089,7 @@ def from_feed(iso, raw):
     if len(regional) > REGIONAL_CAP:
         print("[watchouts] %s: %d regional blocks, the first %d kept" % (iso.upper(), len(regional), REGIONAL_CAP),
               file=sys.stderr, flush=True)
-    out["regional"] = regional[:REGIONAL_CAP]
+    out["regional"] = [dict(r, fp=fingerprint(r["text"])) for r in regional[:REGIONAL_CAP]]
     secs = _sections(eng.get("security", "")) + _sections(eng.get("disasters-climate", ""))
     secs = [s for s in secs if not re.fullmatch(r"\[.*\]", s.get("t", ""))
             and not re.fullmatch(r"\[.*\]", s.get("d", "") or "")]

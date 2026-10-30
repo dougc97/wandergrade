@@ -1,6 +1,6 @@
 {
- "asof": "2026-10-18",
- "about": "Canada's regional 'Avoid all travel' blocks the stay spots were checked against (Global Affairs Canada's feed of 2026-10-15, then its live feed on 2026-10-18): per country, each block by its heading, a fingerprint of its words, and the places inside it that never become stay anchors. Under 'us', the same for the US State Department's regional 'Do not travel' areas where it names them (its RSS feed of 2026-10-18): per country below level 4, a fingerprint of the feed's 'Do Not Travel to' words and the places inside an area they name. Where the feed says some areas have increased risk but names none (Mexico, India), the whole row is fingerprinted and its 'note' records the review by hand against travel.state.gov. A skipped place may carry its point ('ll') and other names ('aka'); a candidate within 5 km of that point, or under one of those names, is skipped too. scripts/gen_stay_spots.py --check flags a block or a US list that is new, gone or reworded.",
+ "asof": "2026-10-30",
+ "about": "Canada's regional 'Avoid all travel' blocks the stay spots were checked against (Global Affairs Canada's feed of 2026-10-15, then its live feed on 2026-10-18, again on 2026-10-30: Ethiopia's border band now takes in Eritrea, Saudi Arabia's Asir, Jazan and Najran block lost a doubled 'to', and its Riyadh airport block became one naming Dammam's airport too; no place moved in or out): per country, each block by its heading, a fingerprint of its words, and the places inside it that never become stay anchors. Under 'us', the same for the US State Department's regional 'Do not travel' areas where it names them (its RSS feed of 2026-10-18): per country below level 4, a fingerprint of the feed's 'Do Not Travel to' words and the places inside an area they name. Where the feed says some areas have increased risk but names none (Mexico, India), the whole row is fingerprinted and its 'note' records the review by hand against travel.state.gov. A skipped place may carry its point ('ll') and other names ('aka'); a candidate within 5 km of that point, or under one of those names, is skipped too. Under 'marks', the guide places inside a block that carry an ⓘ with Canada's words for it (fxtracker/avoid_marks.py). scripts/gen_stay_spots.py --check flags a block or a US list that is new, gone or reworded, and a mark whose block is.",
  "countries": {
   "AM": {
    "Eastern border with Azerbaijan - Avoid all travel": {
@@ -250,7 +250,7 @@
     "fp": "12a868785809"
    },
    "Border areas - Avoid all travel": {
-    "fp": "fe018d105e3a"
+    "fp": "f4ee514a8dbe"
    }
   },
   "GE": {
@@ -465,11 +465,11 @@
    }
   },
   "SA": {
-   "King Khalid International Airport (RUH) - Avoid all travel": {
-    "fp": "470230c86003"
+   "King Khalid International Airport (RUH) and King Fahd International Airport (DMM) - Avoid all travel": {
+    "fp": "53b422cb7e43"
    },
    "Provinces of Asir, Jazan and Najran - Avoid all travel": {
-    "fp": "1ca85863518a"
+    "fp": "3d7e38f8f8a3"
    },
    "Border with Yemen - Avoid all travel": {
     "fp": "c48514173c1b"
@@ -870,6 +870,291 @@
      }
     }
    }
+  }
+ },
+ "marks": {
+  "about": "The guide places inside one of the blocks above that carry an ⓘ with Canada's own words for it (fxtracker/avoid_marks.py, public/avoid-marks.json, generated from here). Per place: its surface ('activity' or 'seasonal') and item (the activity's label or the season row's 'what', as activities.json has them), the place it names and where it falls, its class in the 2026-10 audit (A inside, A~ partly inside; the thin-margin A* rows are Doug's call and never marked here; 'declined' lists the rows he reviewed and chose not to mark, with why, so a later pass doesn't add them back), the block's heading and the fingerprint of the block it was checked against (the block's own fp above), Canada's words verbatim (' … ' only where words are left out, neighbouring lines joined by Canada's own line break, which the tip shows; the bullets are Canada's) and the day they were checked against the live feed. Doug, 2026-10-30: avoid-all blocks only; none in the 22 guides Canada says to avoid entirely; Ethiopia, Chad, Cameroon and Tajikistan keep their places, marked. Summary lines carry no marker: each one's place is an activity marked in the same list, and Chad's and Pakistan's already say to check advisories.",
+  "countries": {
+   "BI": [
+    {
+     "surface": "activity",
+     "item": "Rainforest (Kibira)",
+     "place": "Kibira National Park",
+     "cls": "A",
+     "block": "Regional Advisory - Avoid all travel",
+     "fp": "8bb719f80e27",
+     "words": "Avoid all travel to the following areas, due to clashes between the military and armed groups:\n• Cibitoke province",
+     "checked": "2026-10-30"
+    }
+   ],
+   "BJ": [
+    {
+     "surface": "activity",
+     "item": "Safari (Pendjari)",
+     "place": "Pendjari National Park",
+     "cls": "A",
+     "block": "Border areas with Burkina Faso, Niger, Nigeria and Togo - Avoid all travel",
+     "fp": "01d8e2d8ad2c",
+     "words": "Avoid all travel to the following areas due to the threat of terrorism, banditry, and the risk of kidnapping: … This advisory includes the W National Park and the Pendjari National Park.",
+     "checked": "2026-10-30"
+    }
+   ],
+   "CM": [
+    {
+     "surface": "activity",
+     "item": "Volcano hike (Mt Cameroon)",
+     "place": "Mount Cameroon",
+     "cls": "A",
+     "block": "North-West and South-West regions - Avoid all travel",
+     "fp": "f2c693268ba1",
+     "words": "Avoid all travel to the North-West and South-West regions due to clashes between armed groups and security forces, civil unrest, armed attacks, the risk of kidnappings and banditry.",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Safari (Waza)",
+     "place": "Waza National Park",
+     "cls": "A",
+     "block": "Far North region and Mayo-Louti Department - Avoid all travel",
+     "fp": "779015241d1b",
+     "words": "Avoid all travel to the Far North region and Mayo-Louti Department in the North region due to military operations, the risk of terrorism, armed attacks and the risk of kidnappings.",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Highlands (Ring Road)",
+     "place": "Ring Road / Northwest highlands",
+     "cls": "A",
+     "block": "North-West and South-West regions - Avoid all travel",
+     "fp": "f2c693268ba1",
+     "words": "Avoid all travel to the North-West and South-West regions due to clashes between armed groups and security forces, civil unrest, armed attacks, the risk of kidnappings and banditry.",
+     "checked": "2026-10-30"
+    }
+   ],
+   "DZ": [
+    {
+     "surface": "activity",
+     "item": "Sahara (Tassili n'Ajjer)",
+     "place": "Tassili n'Ajjer (eastern edge of the plateau; Djanet outside)",
+     "cls": "A~",
+     "block": "Border areas - Avoid all travel",
+     "fp": "f6fa40df7a7b",
+     "words": "Avoid all travel to the following border areas due to the high threat of terrorism, banditry and kidnapping: … • within 50 km of the border with Libya",
+     "checked": "2026-10-30"
+    }
+   ],
+   "ET": [
+    {
+     "surface": "activity",
+     "item": "Rock churches (Lalibela)",
+     "place": "Lalibela",
+     "cls": "A",
+     "block": "Northern regions - Avoid all travel",
+     "fp": "cd863c97dbe3",
+     "words": "Avoid all travel to the following northern regions due to ongoing armed conflict, civil unrest, disruptions to flights and communications, and the unpredictable security situation: … • Amhara",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Castles (Gondar)",
+     "place": "Gondar (Fasil Ghebbi)",
+     "cls": "A",
+     "block": "Northern regions - Avoid all travel",
+     "fp": "cd863c97dbe3",
+     "words": "Avoid all travel to the following northern regions due to ongoing armed conflict, civil unrest, disruptions to flights and communications, and the unpredictable security situation: … • Amhara",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Danakil Depression",
+     "place": "Danakil Depression",
+     "cls": "A",
+     "block": "Northern regions - Avoid all travel",
+     "fp": "cd863c97dbe3",
+     "words": "Avoid all travel to the following northern regions due to ongoing armed conflict, civil unrest, disruptions to flights and communications, and the unpredictable security situation:\n• Afar",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Simien Mountains trek",
+     "place": "Simien Mountains",
+     "cls": "A",
+     "block": "Northern regions - Avoid all travel",
+     "fp": "cd863c97dbe3",
+     "words": "Avoid all travel to the following northern regions due to ongoing armed conflict, civil unrest, disruptions to flights and communications, and the unpredictable security situation: … • Amhara",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "seasonal",
+     "item": "Timkat festival",
+     "place": "Gondar (\"especially in Gondar\")",
+     "cls": "A",
+     "block": "Northern regions - Avoid all travel",
+     "fp": "cd863c97dbe3",
+     "words": "Avoid all travel to the following northern regions due to ongoing armed conflict, civil unrest, disruptions to flights and communications, and the unpredictable security situation: … • Amhara",
+     "checked": "2026-10-30"
+    }
+   ],
+   "IL": [
+    {
+     "surface": "activity",
+     "item": "Desert (Masada, Negev)",
+     "place": "Negev (its north-western corner)",
+     "cls": "A~",
+     "block": "Border with the Gaza Strip - Avoid all travel",
+     "fp": "f564410fa00b",
+     "words": "Avoid all travel to the area within 10km of the border with the Gaza Strip due to the risk of rocket and mortar fire, gunfire and military activity.",
+     "checked": "2026-10-30"
+    }
+   ],
+   "MR": [
+    {
+     "surface": "activity",
+     "item": "Iron-ore train ride",
+     "place": "Iron-ore train (Zouérat end, Tiris Zemmour)",
+     "cls": "A~",
+     "block": "Northern and eastern Mauritania - Avoid all travel",
+     "fp": "895214c020df",
+     "words": "Avoid all travel to the following areas due to the risk of banditry, kidnapping and the presence of prohibited military zones:\n• northern and eastern Mauritania, especially:\n◦ all of the following regions:\n▪ Tiris Zemmour",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Dunes & oases (Adrar)",
+     "place": "Adrar region (east of the line; Atar/Chinguetti/Terjit west of it)",
+     "cls": "A~",
+     "block": "Northern and eastern Mauritania - Avoid all travel",
+     "fp": "895214c020df",
+     "words": "Avoid all travel to the following areas due to the risk of banditry, kidnapping and the presence of prohibited military zones: … • east of the Zouerate-Ouadane-Tidjikdja-Kiffa-Sélibali line in the following regions:\n◦ Adrar",
+     "checked": "2026-10-30"
+    }
+   ],
+   "MZ": [
+    {
+     "surface": "activity",
+     "item": "Island beaches (Bazaruto, Quirimbas)",
+     "place": "Quirimbas Archipelago (Bazaruto is outside)",
+     "cls": "A",
+     "block": "Cabo Delgado Province - Avoid all travel",
+     "fp": "a97d946e61e5",
+     "words": "Avoid all travel to to Cabo Delgado Province due to ongoing insurgency by militants.",
+     "checked": "2026-10-30"
+    }
+   ],
+   "PK": [
+    {
+     "surface": "activity",
+     "item": "Karakoram Highway (Hunza)",
+     "place": "Karakoram Highway, Mansehra-Chilas section (Hunza is outside)",
+     "cls": "A~",
+     "block": "Regional advisory - Avoid all travel",
+     "fp": "4926a3196d03",
+     "words": "Avoid all travel to: … • the section of the Karakoram Highway from Mansehra to Chilas",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Mountains (Skardu, K2)",
+     "place": "K2 / the trek toward K2 base camp (Skardu is outside)",
+     "cls": "A",
+     "block": "Regional advisory - Avoid all travel",
+     "fp": "4926a3196d03",
+     "words": "Avoid all travel to: … • the areas within 10 km of the borders with China, India and Iran, except the following official border crossings where you should exercise a high degree of caution:\n◦ Wagah (which is currently closed) and the Grand Trunk Road leading there\n◦ Khunjerab Pass and the Karakorum Highway leading there\n◦ the Kartarpur Corridor (which is intermittently open) for people visiting Gurdwara Darbar Sahib",
+     "checked": "2026-10-30"
+    }
+   ],
+   "SA": [
+    {
+     "surface": "activity",
+     "item": "Empty Quarter desert",
+     "place": "Empty Quarter (its south-west, in Najran)",
+     "cls": "A~",
+     "block": "Provinces of Asir, Jazan and Najran - Avoid all travel",
+     "fp": "3d7e38f8f8a3",
+     "words": "Avoid all travel to the provinces of Asir, Jazan and Najran due to the risk of armed strikes, drone attacks and military debris from interception.",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Empty Quarter desert",
+     "place": "Empty Quarter (its edge on the Yemen border)",
+     "cls": "A~",
+     "block": "Border with Yemen - Avoid all travel",
+     "fp": "c48514173c1b",
+     "words": "Avoid all travel to areas within 30 km of the border with Yemen, due to the ongoing armed conflict in Yemen and the risk of violent clashes and spillovers across the border.",
+     "checked": "2026-10-30"
+    }
+   ],
+   "TD": [
+    {
+     "surface": "activity",
+     "item": "Arches & oasis (Ennedi)",
+     "place": "Ennedi Massif",
+     "cls": "A",
+     "block": "Regional advisory - Avoid all travel",
+     "fp": "cee066ccc4a5",
+     "words": "Avoid all travel to the following areas: … • the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Desert lakes (Ounianga)",
+     "place": "Lakes of Ounianga",
+     "cls": "A",
+     "block": "Regional advisory - Avoid all travel",
+     "fp": "cee066ccc4a5",
+     "words": "Avoid all travel to the following areas: … • the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Volcanoes (Tibesti)",
+     "place": "Tibesti Mountains",
+     "cls": "A",
+     "block": "Regional advisory - Avoid all travel",
+     "fp": "cee066ccc4a5",
+     "words": "Avoid all travel to the following areas: … • the northern regions of Tibesti, Ennedi and Borkou (except the town of Faya Largeau)",
+     "checked": "2026-10-30"
+    }
+   ],
+   "TJ": [
+    {
+     "surface": "activity",
+     "item": "Pamir Highway road trip",
+     "place": "Pamir Highway (Khorog-Ishkoshim-Langar stretch along the Panj)",
+     "cls": "A~",
+     "block": "Border with Afghanistan - Avoid all travel",
+     "fp": "9536794a1ec8",
+     "words": "Avoid all travel to within 10 km of the border with Afghanistan due to the dangerous security situation and the threat of terrorism.",
+     "checked": "2026-10-30"
+    },
+    {
+     "surface": "activity",
+     "item": "Valley homestays (Wakhan)",
+     "place": "Wakhan Valley",
+     "cls": "A",
+     "block": "Border with Afghanistan - Avoid all travel",
+     "fp": "9536794a1ec8",
+     "words": "Avoid all travel to within 10 km of the border with Afghanistan due to the dangerous security situation and the threat of terrorism.",
+     "checked": "2026-10-30"
+    }
+   ]
+  },
+  "declined": {
+   "IN": [
+    {
+     "surface": "seasonal",
+     "item": "Golden Triangle & Rajasthan (cool, dry)",
+     "why": "Doug, 2026-10-30: not marked. The row names Rajasthan only as a state; Canada's block is the 10 km strip along the Pakistan border, hundreds of km from the Golden Triangle places the row is about, so an ⓘ would read as a warning on Jaipur."
+    }
+   ],
+   "NG": [
+    {
+     "surface": "activity",
+     "item": "Rock & capital (Abuja, Zuma Rock)",
+     "why": "Doug, 2026-10-30: reviewed keep, not marked, photo kept. Class A* in the audit: OSM puts Zuma Rock in the Federal Capital Territory, 3 km from Niger State; Canada's block names Niger State, not the FCT."
+    }
+   ]
   }
  }
 }

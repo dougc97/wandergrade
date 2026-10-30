@@ -23,7 +23,7 @@ import os
 import re
 import sys
 
-from . import flightvalue, guide_facts, guide_sizers, pricelevel
+from . import avoid_marks, flightvalue, guide_facts, guide_sizers, pricelevel
 
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public")
 SITE = "https://wandergrade.com"
@@ -612,10 +612,13 @@ def month_table(iso, fv=None, fares_at=None, no_bookings=False):
             % (e(cap), "".join(head), "".join(rows), lines))
 
 
-def render(iso, fv=None, fares_at=None, no_bookings=False):
+def render(iso, fv=None, fares_at=None, no_bookings=False, notes=None):
     """Return the token values for a country page: title, description, og title,
     canonical URL, the h1 (served as #guideH1 itself), the crawlable body and
-    the month table (month_table's arguments)."""
+    the month table (month_table's arguments). notes: Canada's watchouts for
+    the country as the server holds them (watchouts.cached), or None — a
+    marked place's ⓘ drops a quote whose block they show gone or reworded
+    (avoid_marks.live)."""
     d = _load()
     name = name_in_text(iso)          # every use below sits inside a sentence or heading
     slug = d["iso2slug"].get(iso, iso.lower())
@@ -681,7 +684,10 @@ def render(iso, fv=None, fares_at=None, no_bookings=False):
         p.append('<h3 style="font-size:1em">🎒 Top things to do</h3><ul>')
         for x in acts:
             t, ins = _label(x), _insight(x)
-            li = "<li><strong>%s</strong>" % html.escape(t or "")
+            # A place inside one of Canada's "Avoid all travel" zones: its ⓘ
+            # with Canada's words, the markup app.js renderActivity writes
+            # after the same label (fxtracker/avoid_marks.py).
+            li = "<li><strong>%s</strong>%s" % (html.escape(t or ""), avoid_marks.html(iso, "activity", t, notes))
             if ins:
                 li += " — %s" % html.escape(ins)
             p.append(li + "</li>")
@@ -690,7 +696,8 @@ def render(iso, fv=None, fares_at=None, no_bookings=False):
         p.append('<h3 style="font-size:1em">🗓️ What\'s in season</h3><ul>')
         for s in seasonal:
             months = [MON[m - 1] for m in (s.get("months") or []) if 1 <= m <= 12]
-            li = "<li><strong>%s</strong>" % html.escape(s.get("what", ""))
+            li = "<li><strong>%s</strong>%s" % (html.escape(s.get("what", "")),
+                                                avoid_marks.html(iso, "seasonal", s.get("what"), notes))
             if months:
                 li += " (%s)" % ", ".join(months)
             if s.get("d"):

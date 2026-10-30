@@ -3615,6 +3615,7 @@ function watchoutsBlockHTML(w) {
 }
 function renderWatchouts(iso) {
   const paint = (w) => {
+    syncZoneMarks(iso);
     const host = $("guideWatchouts");
     if (!host || ccGuideIso !== iso) return;
     if (!w || (!w.watchouts.length && !w.regional.length)) return;
@@ -9986,9 +9987,68 @@ function viatorURL(q) {
          "&pid=" + VIATOR_PID + "&mcid=" + VIATOR_MCID + "&medium=link";
 }
 
+// ---- Canada's words beside a place inside one of its avoid-all zones -----------
+// An ⓘ after the label of a "Top things to do" or "What's in season" item whose
+// place is inside one of Global Affairs Canada's regional "Avoid all travel"
+// blocks: "Global Affairs Canada: “Avoid all travel to … • Amhara”
+// (travel.gc.ca, checked 2026-10-30)". Never words of ours. The table is
+// scripts/stay-skip.json's "marks", served as /avoid-marks.json; the server's
+// crawler block writes the same markup from the same file
+// (fxtracker/avoid_marks.py: html, span, tip, live — keep them in step;
+// scripts/test_avoid_marks.py runs both). Loaded with the guide's other data
+// (activateTab), so the list draws with its markers once and nothing is added
+// to it later. A quote whose block Canada's answer in hand (/api/watchouts,
+// each block with its "fp") shows gone or reworded drops out; a marker left
+// with none stays in place, invisible (.zonemark.stale), so a late answer
+// moves nothing.
+let avoidMarks = null;
+function ensureAvoidMarks() {
+  if (avoidMarks) return Promise.resolve(avoidMarks);
+  return getJSON("/avoid-marks.json").then((d) => (avoidMarks = d || {}));
+}
+function zoneLive(q, w) {
+  if (!w || !w.link) return true;
+  const b = (w.regional || []).find((r) => r.t === q.b);
+  return b ? b.fp == null || b.fp === q.fp : false;
+}
+function zoneTip(qs) {
+  return "Global Affairs Canada: " + qs.map((q) => "“" + q.w + "”").join("\n")
+    + " (travel.gc.ca, checked " + qs.map((q) => q.c).sort()[0] + ")";
+}
+// The tip entry k of a country's marks shows with Canada's answer w, or "" when
+// every quote it had is stale.
+function zoneTipFor(iso, k, w) {
+  const e = (((avoidMarks && avoidMarks.countries) || {})[iso] || [])[k];
+  const qs = e ? e.q.filter((q) => zoneLive(q, w)) : [];
+  return qs.length ? zoneTip(qs) : "";
+}
+function zoneSpan(iso, k, w) {
+  const tip = zoneTipFor(iso, k, w);
+  // The no-break space holding it to the label's last word is inside it, so
+  // the crawler block's hidden copy (styles.css) takes no room.
+  return tip ? '<span class="muted zonemark" data-zm="' + k + '" data-tip="' + esc(tip) + '" title="">&nbsp;ⓘ</span>'
+    : '<span class="muted zonemark stale" data-zm="' + k + '" aria-hidden="true">&nbsp;ⓘ</span>';
+}
+// After an item's label; "" for an unmarked item.
+function zoneMarkHTML(iso, surface, item, w) {
+  const k = (((avoidMarks && avoidMarks.countries) || {})[iso] || []).findIndex((e) => e.s === surface && e.i === item);
+  return k < 0 ? "" : zoneSpan(iso, k, w);
+}
+// Canada's answer landed after the list drew (renderWatchouts): each marker
+// takes the tip it now has, in place, and only where that changed.
+let zoneDrawnIso = null;
+function syncZoneMarks(iso) {
+  if (zoneDrawnIso !== iso || ccGuideIso !== iso) return;
+  const w = _watchoutCache[iso];
+  for (const el of document.querySelectorAll("#actDetail .zonemark[data-zm]")) {
+    if (zoneTipFor(iso, +el.dataset.zm, w) !== (el.dataset.tip || "")) el.outerHTML = zoneSpan(iso, +el.dataset.zm, w);
+  }
+}
+
 function renderActivity(iso) {
   const a = activities[iso];
   const name = countryName(iso), nameT = countryNameInText(iso);   // nameT: "in the Bahamas"
+  zoneDrawnIso = iso;   // its markers, drawn below, are the ones syncZoneMarks may touch
   if (!a) { $("actDetail").innerHTML = `<div class="besthead"><h2>Things to do in ${esc(nameT)}</h2></div><p class="hint">No curated activity profile yet.</p>`; return; }
   // The travel month the rest of the page plans for (?vmn=, a month-bar
   // click), not the calendar month: stays and the AI prompt already followed
@@ -9996,6 +10056,8 @@ function renderActivity(iso) {
   const m = travelMonth();
   const tags = a.profile.map((p) =>
     `<span class="chip2">${PROFILE_EMOJI[p] ? PROFILE_EMOJI[p] + " " : ""}${esc(p)}</span>`).join("");
+  // Canada's notes, if in hand: a marker never quotes a block they show changed.
+  const zw = _watchoutCache[iso];
   // Each activity is either a plain label or { t: label, d: one-line insight }.
   const acts = a.activities.map((x) => {
     const label = actLabel(x);
@@ -10005,17 +10067,19 @@ function renderActivity(iso) {
     // Thumb loads async; rows without a clean photo just stay text-only.
     const subj = activitySubject(x);
     return `<li><span class="actemoji">${activityEmoji(label)}</span><span class="actmain">`
-      + `<span class="actlabel">${esc(label)}</span>`
+      + `<span class="actlabel">${esc(label)}${zoneMarkHTML(iso, "activity", label, zw)}</span>`
       + (desc ? `<span class="actdesc">${esc(desc)}</span>` : "")
       + `</span><span class="actthumbslot" data-subj="${esc(subj)}"></span></li>`;
   }).join("");
   const seas = (a.seasonal || []).map((s) => {
     const on = s.months.includes(m);
+    // A marked row's words and ⓘ are one flex item, as an activity's label is.
+    const zm = zoneMarkHTML(iso, "seasonal", s.what, zw);
     // "not in <month>", never "off season": that reads as the tourist low
     // season, which this list (what nature and the calendar are doing) does
     // not measure and must not claim.
     return `<div class="seasrow">
-      <span class="what"><span class="actemoji">${activityEmoji(s.what)}</span>${esc(s.what)}</span>
+      <span class="what"><span class="actemoji">${activityEmoji(s.what)}</span>${zm ? `<span>${esc(s.what)}${zm}</span>` : esc(s.what)}</span>
       <span class="months">${s.months.map((x) => MON_ABBR[x - 1]).join(", ")}</span>
       <span class="${on ? "inseason" : "offseason"}">${on ? "in season" : "not in " + MON_ABBR[m - 1]}</span>
       ${s.d ? `<span class="seasdesc">${esc(s.d)}</span>` : ""}
@@ -10753,8 +10817,10 @@ async function activateTab(name, push) {
       await buildTabOnce("guide", async () => {
         // Prices are one line of a guide: without ppp.json it still renders
         // (its FX line says the inflation figures didn't load).
+        // The avoid-zone markers come with the list's own data, so it draws
+        // with them; without them it draws plain.
         await Promise.all([ensurePPP().catch(() => {}), ensureClimate(), ensureActivities(),
-                           ensureVisa().catch(() => {})]);
+                           ensureVisa().catch(() => {}), ensureAvoidMarks().catch(() => {})]);
         buildBestPickers(_guideTarget); loaded.guide = true;
       });
     } else if (name === "visited" && !loaded.visited) {
@@ -13212,6 +13278,11 @@ function _showTipFor(t) {
   // health and chart tips past 480 characters keep their measure.
   _tipEl.classList.toggle("wide", t.classList.contains("wotip") && t.dataset.tip.length > 480);
   _tipEl.hidden = false;
+  _placeTip(t);
+}
+// The shown tip's place beside its element t (again on a scroll that moves t
+// under a keyboard user's focus: see the scroll handler at the end).
+function _placeTip(t) {
   const r = t.getBoundingClientRect();
   const w = _tipEl.offsetWidth, h = _tipEl.offsetHeight;
   // clientWidth, not innerWidth — the latter reads 0 in some headless/embedded contexts
@@ -13409,7 +13480,25 @@ new MutationObserver((muts) => {
   }
 }).observe(document.body, { childList: true });
 
-document.addEventListener("scroll", _hideTip, true);
+// Any scroll hides the tip (a trackpad twitch counts; the mousemove fallback
+// above brings a hovered one back) — except the scroll that focus itself
+// makes. Tab to an ⓘ below the fold shows its tip on focusin, then the page
+// scrolls the ⓘ into view, and hiding it there left a keyboard user with
+// "More info" and none of the words (Ethiopia's Lalibela ⓘ, Canada's quote).
+// A tip for the focused element, reached from the keyboard, follows it while
+// it is on screen; one hidden from view while its element keeps focus stays
+// linked to it (aria-describedby, the tip's text), so a screen reader still
+// gets the words, until focus moves or another tip shows.
+document.addEventListener("scroll", () => {
+  const t = _tipFor;
+  if (!t || t !== document.activeElement || !t.isConnected) { _hideTip(); return; }
+  if (_tipEl.hidden) return;
+  const r = t.getBoundingClientRect();
+  const vh = document.documentElement.clientHeight || window.innerHeight;
+  if (_kbdNav && r.bottom > 0 && r.top < vh) { _placeTip(t); return; }
+  clearTimeout(_tipHideT);
+  _tipEl.hidden = true;
+}, true);
 
 (async function init() {
   initTheme();

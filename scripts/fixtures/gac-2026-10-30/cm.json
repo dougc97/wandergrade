@@ -1,0 +1,11 @@
+{
+ "data": {
+  "country-iso": "CM",
+  "advisory-state": 1,
+  "eng": {
+   "name": "Cameroon",
+   "url-slug": "cameroon",
+   "advisories": "<div class=\"AdvisoryContainer ExHigh\"><h3>Cameroon - Exercise a high degree of caution</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Exercise a high degree of caution</a> in Cameroon due to the high level of violent crime in some regions and the tensions that exist in the Sahel region.</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Far North region and Mayo-Louti Department - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to the Far North region and Mayo-Louti Department in the North region due to military operations, the risk of terrorism, armed attacks and the risk of kidnappings.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>Borders with Nigeria, Chad and the Central African Republic - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to areas within 30 km of the borders with Nigeria, Chad and the Central African Republic, due to military operations, the risk of terrorism, armed attacks and the risk of kidnappings.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>North-West and South-West regions - Avoid all travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid all travel</a> to the North-West and South-West regions due to clashes between armed groups and security forces, civil unrest, armed attacks, the risk of kidnappings and banditry.</p><p>&nbsp;</p></div><div class=\"AdvisoryContainer RegionalAdv\"><h3>North and Adamaoua regions - Avoid non-essential travel</h3><p><a class=\"wb-lbx\" title=\"Risk Levels\" href=\"#levels\">Avoid non-essential travel</a> to the North and Adamaoua regions due to the risk of kidnappings and armed attacks.</p><p>&nbsp;</p></div>"
+  }
+ }
+}

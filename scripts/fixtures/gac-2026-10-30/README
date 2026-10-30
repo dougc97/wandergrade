@@ -1,0 +1,12 @@
+Global Affairs Canada's per-country feed (https://data.international.gc.ca/travel-voyage/cta-cap-<iso>.json)
+for the guides with avoid-zone marks (13 when fetched; India's mark was declined the same day, so its copy was removed) (scripts/stay-skip.json "marks"), fetched 2026-10-30 01:35 EDT and
+trimmed to data.country-iso, data.advisory-state and data.eng's name, url-slug and advisories (what
+fxtracker/watchouts.py reads for the regional blocks; the trimmed copy parses to the same blocks as the whole
+page). The day the marks' words were checked: scripts/test_avoid_marks.py finds the words of every mark
+checked on 2026-10-30 (FIXDAY in the test), verbatim and in order, in the block whose fingerprint the mark
+carries.
+Re-checking a mark (DEPLOY.md, "Re-check a row") leaves these files alone: its later "checked" date takes it
+off them, the test holds it to the table only, and gen_stay_spots.py --check verifies its words on the live
+feed. Never edit or refetch one file here (the other marks of that day are held to it). To move the offline
+proof to a later day: fetch every marked country into a new gac-<date> folder, re-check every mark against
+it, and point FIXDIR and FIXDAY in the test at it.
