@@ -10,6 +10,14 @@
     and a label. The licence rule needs the network, so only the shape is
     checked here. Fewer than 4 entries is reported (the 2026-10 sweep could
     not find four good photos for a few small countries), none is a failure;
+  * no gallery photo of a place inside a Global Affairs Canada "Avoid all
+    travel" zone (scripts/gallery_drops.py, Doug's 2026-10-30 rule): the
+    dropped titles stay out, their replacements stay in, and no gallery
+    outside Ethiopia, Chad, Cameroon, Tajikistan and the 22 guides Canada
+    says to avoid entirely shows a place scripts/stay-skip.json skips under
+    a Canada avoid-all block (Zuma Rock waits for Doug); the script puts the
+    drops back on a file a merge took from the other side, and changes
+    nothing once they hold;
   * app.js consults the list inside wikiIconic (the hero and the activity
     thumbs both go through it) and gen_og_images.py reads it too;
   * app.js's handling of a file entry, run under jsc on a fixture: the
@@ -22,6 +30,7 @@
     relicensed or shrunk is flagged, and the hero strip it saves for raters
     is the desktop hero's 1158x300 centre crop.
 """
+import copy
 import json
 import os
 import re
@@ -31,6 +40,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PUBLIC = os.path.join(ROOT, "public")
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
+import gallery_drops  # noqa: E402
 import gallery_entry  # noqa: E402
 
 ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or c
@@ -96,6 +106,25 @@ CASES = [("Galle Fort", None), ("  ", "blank"), ({"file": "Lumley Beach Freetown
 miss = [(e, want, entry_problem(e)) for e, want in CASES
         if (want is None) != (entry_problem(e) is None) or (want and want not in entry_problem(e))]
 results.append(ok(not miss, "the entry validator accepts a title and a {file, label}, refuses the malformed (%s)" % (miss[:1] or "%d cases" % len(CASES))))
+
+# Gallery photos of places inside a Canada "Avoid all travel" zone stay out:
+# activities.json is one line, so a merge resolved by taking the other side
+# brings them back with every other test green — this one turns red.
+with open(os.path.join(ROOT, "scripts", "stay-skip.json"), encoding="utf-8") as f:
+    stayskip = json.load(f)
+gd = gallery_drops.problems(acts, stayskip)
+results.append(ok(not gd, "no gallery outside Ethiopia, Chad, Cameroon, Tajikistan and the 22 avoid-entirely guides shows a"
+                          " place inside a Canada avoid-all zone: %d dropped photos stay out, their replacements in, and"
+                          " none shows a place stay-skip.json skips there (Zuma Rock waits for Doug) (%s)"
+                  % (sum(map(len, gallery_drops.DROP.values())), gd[:3])))
+undone = copy.deepcopy(acts)          # the file as a merge that took the other side would leave it
+for iso, ts in gallery_drops.DROP.items():
+    undone[iso]["gallery"][:0] = ts
+for iso, ts in gallery_drops.ADD.items():
+    undone[iso]["gallery"] = [e for e in undone[iso]["gallery"] if gallery_entry.label(e) not in ts]
+results.append(ok(gallery_drops.apply(acts) == acts and gallery_drops.apply(undone) == acts
+                  and len(gallery_drops.problems(undone, stayskip)) > len(gallery_drops.DROP),
+                  "gallery_drops.py puts the drops back on such a file, and changes nothing once they hold"))
 
 results.append(ok("photo-skip.json" in app and "photoSkip()" in app and "(await skipP).has(page.pageimage)" in app,
                   "app.js wikiIconic consults the skip list"))
