@@ -34,14 +34,16 @@ generator's rules for a sound point, without the network.
     blocks as reviewed and flags one that is new, gone or reworded; the US
     feed's "Do not travel" words are read from its RSS (level 4 left to
     app.js) and reviewed the same way; a row that says some areas have
-    increased risk but names none (Mexico, India) is reviewed by hand on
-    travel.state.gov and re-flagged at any reissue; a row whose title maps to
+    increased risk but names none (Mexico, India), or whose list the feed's
+    markup hides (Oman's split "Do not trave/l to:"), is reviewed by hand
+    and re-flagged at any reissue, each with a note; a row whose title maps to
     no country is reported, and "Côte d’Ivoire" and "Republic of Congo" map;
   * a US line that names no place or distance is reviewed by hand, not a
     skip (Doug, 2026-10-19): Brazil's Iguazú Falls stays under "International
     land borders" and Benin's Tanougou Falls under "the border region in
-    northern ... Benin", each with a note; Mauritania's Amojjar Pass and
-    Togo's Fazao-Malfakassa chips sit on their OSM points.
+    northern ... Benin", and Oman's chips under "The Yemen border area",
+    each with a note; Mauritania's Amojjar Pass and Togo's Fazao-Malfakassa
+    chips sit on their OSM points.
 """
 import contextlib
 import importlib.util
@@ -353,20 +355,26 @@ results.append(ok(not g.us_review_problems("MX", w2["MX"], skip=seen_mx)
                   and any("not reviewed" in x and "travel.state.gov" in x
                           for x in g.us_review_problems("MX", w2["MX"], skip={"us": {"countries": {}}})),
                   "--check asks for travel.state.gov on an unreviewed unlisted row, passes it reviewed, asks again at a reissue"))
-unlisted_rows = ("MX", "IN", "CI", "MA", "MG", "CY", "KG", "CV")
+# Oman's row (reissued 2026-10-23) is read the same way: its markup splits the
+# lead word ("<b>Do not trave</b>l to:"), so the feed shows no list and the
+# whole row is fingerprinted and noted.
+unlisted_rows = ("MX", "IN", "CI", "MA", "MG", "CY", "KG", "CV", "OM")
 results.append(ok(all(us_countries.get(iso, {}).get("note") and re.fullmatch(r"[0-9a-f]{12}", us_countries[iso].get("fp", ""))
                       for iso in unlisted_rows)
-                  and "Guerrero" in us_countries["MX"]["note"] and "Kashmir" in us_countries["IN"]["note"],
-                  "Mexico's, India's and the other unlisted rows with chips are reviewed, each with a note"))
+                  and "Guerrero" in us_countries["MX"]["note"] and "Kashmir" in us_countries["IN"]["note"]
+                  and "Musandam" in us_countries["OM"]["note"],
+                  "Mexico's, India's, Oman's and the other unlisted rows with chips are reviewed, each with a note"))
 br = us_countries.get("BR") or {}
 bjn = us_countries.get("BJ") or {}
+omn = us_countries.get("OM") or {}
 results.append(ok(bool(not br.get("skip") and "Reviewed keep" in br.get("note", "") and "International land borders" in br["note"]
                   and [s["n"] for s in stays["BR"]] == ["Rio de Janeiro", "Salvador", "Manaus", "Iguazú Falls"]
                   and not bjn.get("skip") and "Reviewed keep" in bjn.get("note", "") and "Tanougou" in bjn["note"]
-                  and re.fullmatch(r"[0-9a-f]{12}", br.get("fp", "")) and re.fullmatch(r"[0-9a-f]{12}", bjn.get("fp", ""))),
+                  and not omn.get("skip") and "Reviewed keep" in omn.get("note", "") and "The Yemen border area" in omn["note"]
+                  and all(re.fullmatch(r"[0-9a-f]{12}", e.get("fp", "")) for e in (br, bjn, omn))),
                   "a US line with no place or distance is a reviewed keep, not a skip: Brazil keeps Iguazú Falls under"
-                  " \"International land borders\", Benin's Tanougou note stands, both still fingerprinted (%s)"
-                  % [s["n"] for s in stays["BR"]]))
+                  " \"International land borders\", Benin's Tanougou note stands, Oman's \"The Yemen border area\" is"
+                  " noted, all still fingerprinted (%s)" % [s["n"] for s in stays["BR"]]))
 amo = next((s["ll"] for s in stays["MR"] if s["n"] == "Amojjar Pass"), None)
 faz = next((s["ll"] for s in stays["TG"] if s["n"] == "Fazao-Malfakassa National Park"), None)
 results.append(ok(amo == [20.53933, -12.79186] and faz == [8.76571, 0.76086],
