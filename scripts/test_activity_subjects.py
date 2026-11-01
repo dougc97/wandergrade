@@ -9,22 +9,29 @@ else the title without brackets, NP -> National Park, Mt -> Mount. A bare
 name can land on the wrong page: the 2026-10-31 audit
 (scripts/dev/activity_thumb_audit.py) found Colombia's Salento showing Italy's
 Salento, Côte d'Ivoire's Man a portrait of a man, Tajikistan's Wakhan a map
-of the Afghan side, and 33 more (wrong country, a person, the space
-station Mir, a map, a diagram, a collage), and gave each a precise "p". Ten
-more wrong rows are left for Doug: their titles have no parenthetical, so
-scripts/gen_stay_spots.py takes their "p" as a "Where to stay" place too, and
-a new one would change those countries' stay chips at the next rebuild.
+of the Afghan side, and 38 more (wrong country, a person, the space
+station Mir, a map, a diagram, a collage, a cash machine, a town instead of
+its park or salt flat), and gave each a precise "p": a Wikipedia title, or,
+where no article leads with a usable photo, a pinned Commons file ("File:
+Name.jpg", as Iceland's northern lights did first; pageimages answers a File:
+page with the file itself). Ten more wrong rows are left for Doug: their
+titles have no parenthetical, so scripts/gen_stay_spots.py takes their "p" as
+a "Where to stay" place too, and a new one would change those countries' stay
+chips at the next rebuild (a File: pin there would drop the row's chip).
 
   1. public/activities.json keeps its format: one line, compact separators,
      unescaped UTF-8, no trailing newline, keys in sorted order (an activity
      is d, p, t), every activity a {d, t[, p]} object;
-  2. every "p" is a non-empty string with no stray whitespace;
+  2. every "p" is a non-empty string with no stray whitespace; a pinned
+     Commons file names an image, and sits on a row whose title has a
+     parenthetical (gen_stay_spots then never reads the "p") unless it is
+     one of the pins frozen below as pictures rather than places;
   3. the Python mirror of activitySubject below gives app.js's own answer,
      run under jsc, for every row and for an edge-case table, so neither can
      drift silently (and scripts/dev/activity_thumb_audit.py's copy agrees),
      and actPhoto still tries subject, "subject, Country", "subject
      (Country)" at the 700x500 gate the audit assumes;
-  4. the 36 rows the audit fixed keep their subjects (pinned with their
+  4. the 41 rows the audit fixed keep their subjects (pinned with their
      titles, so a reordered list fails here rather than moving a photo);
   5. no subject equals a title in its country's gallery[:6] (the hero would
      lose that photo to the row) beyond the 139 pairs that already did on
@@ -77,7 +84,9 @@ FIXED = {
     "AM:2": ("Alpine lake (Sevan)", "Sevan National Park"),                 # Sevan, Armenia: a six-photo collage
     "AW:3": ("Colourful capital (Oranjestad)", "Paardenbaai"),              # a collage ("I love Aruba")
     "BY:1": ("Castles (Mir, Nesvizh)", "Nesvizh Castle"),                   # Mir: the space station
+    "BO:0": ("Salt flats (Uyuni)", "Tunupa"),                               # Uyuni: an aerial of the town, no salt flat
     "BY:2": ("Bison forest (Białowieża)", "Belovezhskaya Pushcha National Park"),  # Białowieża: a village in Poland
+    "BZ:2": ("Caves (ATM)", "File:Actun Tunichil Muknal 2010 1.jpg"),       # ATM: a cash machine (the cave's lead image is on photo-skip.json)
     "CI:3": ("Mountains & bridges (Man)", "Man, Ivory Coast"),              # Man: a portrait of a man
     "CL:2": ("Wine country (Casablanca)", "Casablanca, Chile"),             # Casablanca, Morocco
     "CM:3": ("Highlands (Ring Road)", "Lake Oku"),                          # Ring road: a map of London's M25
@@ -92,6 +101,7 @@ FIXED = {
     "HN:1": ("Maya ruins (Copán)", "Copán Ruinas"),                         # Santa Rosa de Copán's church (the gallery's photo)
     "HT:3": ("Northern beaches", "Cap-Haïtien"),                            # Northern Beaches, Sydney
     "LU:3": ("Wine villages (Moselle)", "Wormeldange"),                     # Moselle: Schweich, Germany
+    "MW:2": ("Boat safari (Liwonde)", "File:Liwonde Park - view of Shire River.jpg"),  # Liwonde: the town's market (the park's page has no image)
     "MW:3": ("Treks (Mt Mulanje)", "Chambe Peak"),                          # a rendered Landsat terrain model
     "MZ:3": ("Safari (Gorongosa)", "Gorongosa National Park"),              # Gorongosa town's council building
     "NI:0": ("Colonial cities (Granada, León)", "León Viejo"),              # Granada, Spain
@@ -101,9 +111,11 @@ FIXED = {
     "RO:0": ("Castles (Bran, Transylvania)", "Bran, Brașov"),               # Bran: a diagram of wheat bran
     "RO:2": ("Mountains (Carpathians)", "Retezat National Park"),           # Carpathians: Morskie Oko, Poland
     "SR:2": ("Turtles (Galibi)", "Leatherback sea turtle"),                 # Galibi -> Kalina people: schoolchildren
-    "TJ:2": ("Valley homestays (Wakhan)", "Ishkoshim, Tajikistan"),         # Wakhan.png, a map of the Afghan side
+    "TJ:2": ("Valley homestays (Wakhan)", "File:Wakhan valley, Ishkashim (31895209480).jpg"),  # Wakhan.png, a map of the Afghan side
     "TL:1": ("Whales & dolphins (season)", "Spinner dolphin"),              # Season: a diagram of the seasons
+    "TN:3": ("Beaches (Hammamet)", "File:Beach in Hammamet.jpg"),           # Hammamet, Tunisia: a six-photo collage
     "TW:3": ("Hot springs", "Thermal Valley"),                              # Hot spring: Yellowstone's Grand Prismatic
+    "UG:3": ("Chimps (Kibale)", "File:013 Alpha male chimpanzee at Kibale forest National Park Photo by Giles Laurent.jpg"),  # Kibale -> Kibaale, another place: a road in Kibaale District
     "UY:2": ("Wine country (Carmelo)", "Carmelo, Uruguay"),                 # Carmelo: an Italian architect's portrait
     "VN:0": ("Bays & islands (Ha Long)", "Bai Tu Long Bay"),                # Hạ Long city: a museum facade
     "YE:0": ("Dragon-blood trees (Socotra)", "Socotra Governorate"),        # Socotra_satview.jpg, a satellite view
@@ -143,6 +155,13 @@ GALLERY_OVERLAP_2026_10_31 = {
     "ZW|Victoria Falls",
 }
 
+# Pinned Commons files on rows whose title has no parenthetical, where
+# gen_stay_spots would otherwise take the "p" as a stay place: the pin names a
+# picture, not a place, so the row has no stay chip (Iceland's aurora, pinned
+# 2026-10-28 in ca56abb). Frozen: a new one would drop that row's stay chip
+# silently, which is Doug's call.
+PICTURE_PINS = {"IS:1": "Northern lights"}
+
 rows = [(iso, i, x) for iso in acts for i, x in enumerate(acts[iso].get("activities") or [])]
 
 # ---- 1. the file's format --------------------------------------------------------------------
@@ -162,8 +181,18 @@ print("2. every \"p\" is a usable title")
 ps = [(iso, i, x["p"]) for iso, i, x in rows if isinstance(x, dict) and "p" in x]
 bad_p = [(iso, i, p) for iso, i, p in ps if not isinstance(p, str) or not p.strip() or p != p.strip()
          or "  " in p or "|" in p or "#" in p]
-results.append(ok(not bad_p and len(ps) >= 214,          # 183 before the audit, +31 new (5 more replaced)
+results.append(ok(not bad_p and len(ps) >= 219,          # 183 before the audit, +36 new (5 more replaced)
                   "%d rows carry a \"p\": non-empty strings, trimmed, no '|' or '#' (bad: %s)" % (len(ps), bad_p[:5])))
+pins = [("%s:%d" % (iso, i), p) for iso, i, p in ps if isinstance(p, str) and p.startswith("File:")]
+bad_pin = [k for k, p in pins if not re.fullmatch(r"File:[^/\\:]+\.(?:jpe?g|png|gif|tiff?|webp)", p, re.I)]
+results.append(ok(len(pins) >= 6 and not bad_pin, "%d pinned Commons files, each an image file name (bad: %s)"
+                  % (len(pins), bad_pin)))
+by_key = {"%s:%d" % (iso, i): x for iso, i, x in rows}
+loose = [k for k, p in pins if not re.search(r"\(([^)]*)\)", act_label(by_key[k]))
+         and PICTURE_PINS.get(k) != act_label(by_key[k])]
+results.append(ok(not loose and all(k in dict(pins) for k in PICTURE_PINS),
+                  "every pin sits on a row with a parenthetical (gen_stay_spots never reads its \"p\"), "
+                  "but the %d frozen picture pins (loose: %s)" % (len(PICTURE_PINS), loose)))
 
 # ---- 3. the mirror is app.js's own rule ----------------------------------------------------------
 print("3. activitySubject: Python mirror vs app.js under jsc")
@@ -221,11 +250,11 @@ results.append(ok(all(a in ap for a in asks) and ap.index(asks[0]) < ap.index(as
                   "actPhoto still asks subject, \"subject, Country\", \"subject (Country)\" at 700x500"))
 
 # ---- 4. the fixed rows ---------------------------------------------------------------------------
-print("4. the 36 rows fixed on 2026-10-31 keep their subjects")
+print("4. the 41 rows fixed on 2026-10-31 keep their subjects")
 by = {"%s:%d" % (iso, i): x for iso, i, x in rows}
 moved = [(k, act_label(by.get(k)), activity_subject(by[k]) if k in by else None) for k, (t, s) in FIXED.items()
          if k not in by or act_label(by[k]) != t or activity_subject(by[k]) != s]
-results.append(ok(len(FIXED) == 36 and not moved, "%d rows: title and subject as pinned (moved: %s)"
+results.append(ok(len(FIXED) == 41 and not moved, "%d rows: title and subject as pinned (moved: %s)"
                   % (len(FIXED), moved[:3])))
 results.append(ok(all(by[k].get("p") == s for k, (_, s) in FIXED.items() if k in by),
                   "each gets its subject from its own \"p\" (not from the title)"))

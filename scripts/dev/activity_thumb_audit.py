@@ -15,8 +15,14 @@ for: the page's coordinates (prop=coordinates), short description,
 disambiguation flag and Wikidata item, then the item's P17 (country), P31
 (instance of) and P625 (coordinates) via wbgetentities, and a point-in-
 polygon test against public/world.geojson. Every response is cached on disk
-(--cache, default the session scratch dir), so a rerun asks nothing twice
-and a long run can be resumed in <60 s slices.
+(--cache DIR, default /tmp/activity-thumb-audit, which a reboot clears), so
+a rerun asks nothing twice and a long run can be resumed in <60 s slices.
+
+A "p" may also pin a Commons file ("File:Name.jpg", as Iceland's northern
+lights did first): pageimages answers a File: page with the file itself, so
+the same chain shows it, and gen_stay_spots.py leaves such a pin out of the
+stay places. A pin carries no coordinates or Wikidata item: vet it with
+`filemeta` (licence, camera/object coordinates, categories, description).
 
     /usr/bin/python3 scripts/dev/activity_thumb_audit.py resolve  [--cache DIR] [--acts FILE]
         rows.json: one record per activity row (subject, attempts, title,
@@ -47,6 +53,10 @@ and a long run can be resumed in <60 s slices.
         REF's file and from this tree's, with this script's cached Wikipedia
         coordinates, and print SAME/DIFF (DIFF = the next gen_stay_spots run
         would change that country's chips)
+    /usr/bin/python3 scripts/dev/activity_thumb_audit.py filemeta "File:Name.jpg" [...]
+        Commons metadata of candidate pinned files: size, licence, author,
+        date, coordinates (camera/object, with the site-map check when
+        --iso XX is given), categories, description
 
 User-Agent "WanderGrade-dev/1.0 (hello@wandergrade.com)"; requests are
 sequential, 0.3 s apart. No Nominatim.
@@ -65,8 +75,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 PUBLIC = os.path.join(ROOT, "public")
 UA = "WanderGrade-dev/1.0 (hello@wandergrade.com)"
 PAUSE = 0.3
-DEFAULT_CACHE = ("/private/tmp/claude-501/-Users-doug-Desktop-Claude-Workspace/"
-                 "5f5f209c-3c7f-483b-8747-bd588d9b4133/scratchpad/thumbs-scratch")
+DEFAULT_CACHE = "/tmp/activity-thumb-audit"
 
 
 def _opt(argv, flag, default):
@@ -661,6 +670,38 @@ def cmd_try():
                           "row_clash": others.get(fk) if fk else None}, ensure_ascii=False))
 
 
+def cmd_filemeta():
+    """Commons metadata for candidate pinned files ("File:Name.jpg" or a
+    bare name), 50 a request: what a pin must be vetted on, since it has no
+    article coordinates or Wikidata item (licence, where it was taken, the
+    categories it is filed under)."""
+    iso = _opt(ARGV, "--iso", None)
+    skip = {CACHE, iso}
+    names = [a for a in ARGV[1:] if not a.startswith("--") and a not in skip]
+    names = [re.sub(r"^File:", "", n).replace("_", " ") for n in names]
+    for i in range(0, len(names), 50):
+        j = get("https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode({
+            "action": "query", "format": "json", "prop": "coordinates|imageinfo|categories",
+            "iiprop": "extmetadata|size", "coprop": "type", "coprimary": "all", "cllimit": "max",
+            "clshow": "!hidden", "iiextmetadatafilter":
+            "ImageDescription|LicenseShortName|Artist|DateTimeOriginal",
+            "titles": "|".join("File:" + n for n in names[i:i + 50])}))
+        for pg in ((j.get("query") or {}).get("pages") or {}).values():
+            ii = (pg.get("imageinfo") or [{}])[0]
+            md = ii.get("extmetadata") or {}
+
+            def v(k):
+                return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", (md.get(k) or {}).get("value", ""))).strip()
+            coords = [[c.get("type") or "object", c["lat"], c["lon"]] for c in pg.get("coordinates") or []]
+            print(json.dumps({
+                "file": pg["title"], "missing": "missing" in pg, "size": [ii.get("width"), ii.get("height")],
+                "licence": v("LicenseShortName"), "artist": v("Artist")[:80], "date": v("DateTimeOriginal")[:25],
+                "coords": coords,
+                "geo": [geo_check(iso, c[1], c[2]) for c in coords] if iso else None,
+                "categories": [c["title"].split(":", 1)[1] for c in pg.get("categories") or []],
+                "desc": v("ImageDescription")[:300]}, ensure_ascii=False))
+
+
 def cmd_stays():
     import contextlib
     import io
@@ -696,4 +737,5 @@ def cmd_stays():
 if __name__ == "__main__":
     cmd = ARGV[0] if ARGV else ""
     {"resolve": cmd_resolve, "wikidata": cmd_wikidata, "flag": cmd_flag, "thumbs": cmd_thumbs,
-     "sheet": cmd_sheet, "try": cmd_try, "stays": cmd_stays}.get(cmd, lambda: print(__doc__))()
+     "sheet": cmd_sheet, "try": cmd_try, "stays": cmd_stays,
+     "filemeta": cmd_filemeta}.get(cmd, lambda: print(__doc__))()
