@@ -1133,6 +1133,17 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
   .guidegrid .staycol { grid-row: 2; grid-column: 2; }
   #bestDetail { grid-row: 3; grid-column: 1; }
   .guidegrid .farecol { grid-row: 3; grid-column: 2; }
+  /* Placed, not in reading order: the stays + insurance (row 2) come after
+     the chart, month table and fare column (rows 3-4) in the HTML, as the AI
+     block (row 1) comes after the advisory (row 2) — the DOM order is the
+     phone's order and a screen reader's. A frame painted while the page was
+     still arriving, before the stays, showed rows 3-4 where they were, and
+     the stays then grew row 2 and dropped them 74px (1280, Puerto Rico; CLS
+     0.002-0.005 a load). Until anything follows the grid, so all of it is
+     in, every row under the first stays unseen in its place (the advisory
+     too, should the AI block ever outgrow the visa line beside it); without
+     :has() the rule is skipped. */
+  .guidegrid:not(:has(+ *)) > :not(#guideVisa, #guideAI) { visibility: hidden; }
   /* "Top things to do" beside "What's in season" (renderActivity): three
      short season rows were each stretched across the whole card, label at
      the left edge and months a thousand pixels away. */

@@ -2643,9 +2643,15 @@ function renderGuide(iso) {
   // scrolled 700px down: the newsletter box rose into view, then the photos
   // pushed it back out, an 864px move that made Chrome score every 12px move
   // in that frame at full distance (CLS 0.044 on Iceland).
+  // Its height is pinned before its words go: emptied, it was 0px tall for
+  // every layout this function forces before the line below sets what is left
+  // of it, and a reader already at the bottom of the page (on a slow phone
+  // the guide is readable seconds before app.js runs) was scrolled up by it,
+  // the newsletter box dropping 288px down the screen at 390 on Puerto Rico,
+  // 338 on Ethiopia — a scroll, so no CLS figure ever showed it.
   const ssr = $("ssrGuide"), ssrH = ssr ? ssr.offsetHeight : 0;
   const actH0 = ssr ? $("actDetail").offsetHeight : 0;
-  if (ssr) { ssr.innerHTML = ""; ssr.id = ""; ssr.setAttribute("aria-hidden", "true"); }
+  if (ssr) { ssr.style.height = ssrH + "px"; ssr.innerHTML = ""; ssr.id = ""; ssr.setAttribute("aria-hidden", "true"); }
   // The server's month table (#when-to-go, render_guide.month_table) stays:
   // it is the page's own guide. Another country opened in-app hides it.
   const wtg = $("when-to-go");
@@ -2708,10 +2714,24 @@ function renderGuide(iso) {
   const acts = renderActivity(iso);
   if (ssr) {
     // Only what the activities didn't take: held whole, the newsletter box
-    // and the footer would drop by the activities' full height instead.
-    ssr.style.height = Math.max(0, ssrH - ($("actDetail").offsetHeight - actH0)) + "px";
+    // and the footer would drop by the activities' full height instead. It
+    // goes on giving up what they take as their photos and tours line land
+    // (never taking any back), so a reader already down at the newsletter
+    // box doesn't see it pushed down a row at a time either: in the same
+    // task, from a MutationObserver. A ResizeObserver corrected it only after
+    // Chrome had scored the drop: one frame logged the box 51px down and
+    // 51px back up as two shifts (768, Puerto Rico).
+    const act = $("actDetail");
+    let room = Math.max(0, ssrH - (act.offsetHeight - actH0));
+    ssr.style.height = room + "px";
+    const fit = () => {
+      const h = Math.max(0, ssrH - (act.offsetHeight - actH0));
+      if (h < room) { room = h; ssr.style.height = h + "px"; }
+    };
+    const mo = typeof MutationObserver === "function" ? new MutationObserver(fit) : null;
+    if (mo) mo.observe(act, { childList: true, subtree: true, characterData: true, attributes: true });
     Promise.race([Promise.allSettled([acts, ensureAdvisories()]), new Promise((r) => setTimeout(r, 8000))])
-      .then(() => ssr.remove());
+      .then(() => { if (mo) mo.disconnect(); fit(); releaseSsrRoom(ssr); });
   }
   renderGuideStay(iso);
   // The fare column (fares by month, local prices, FX) fills in three
@@ -2727,6 +2747,25 @@ function renderGuide(iso) {
   syncURL();
 }
 let _fareColSeq = 0;
+// The crawler block's leftover room goes once the activities have settled.
+// For a reader who has scrolled down to it or past it, the page keeps what
+// they are looking at where it is: the newsletter box and footer under it
+// would otherwise rise by its height (338px at 390 on Ethiopia, CLS 0.23-0.26)
+// whenever the activities above it are on screen too, as Chrome's scroll
+// anchoring then stays with those. The newsletter box stays unless more of the
+// screen is activities than newsletter and footer; the scroll that holds it
+// is measured, so it is zero where anchoring already did it, and nothing
+// moves for a reader above the room.
+function releaseSsrRoom(ssr) {
+  const r = ssr.getBoundingClientRect(), vh = window.innerHeight;
+  const ref = $("subscribe") || document.querySelector("footer");
+  const above = Math.max(0, Math.min(r.top, vh)), below = Math.max(0, vh - Math.max(r.bottom, 0));
+  const y0 = ref && r.top < vh && below >= above ? ref.getBoundingClientRect().top : null;
+  ssr.remove();
+  if (y0 === null) return;
+  const d = ref.getBoundingClientRect().top - y0;
+  if (Math.abs(d) >= 1) window.scrollBy(0, d);
+}
 
 // ---- Fare-by-month strip ----------------------------------------------------
 // The flights answer to "when should I go": /api/flight-months serves the
