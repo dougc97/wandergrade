@@ -2649,9 +2649,15 @@ function renderGuide(iso) {
   // the guide is readable seconds before app.js runs) was scrolled up by it,
   // the newsletter box dropping 288px down the screen at 390 on Puerto Rico,
   // 338 on Ethiopia — a scroll, so no CLS figure ever showed it.
+  // Emptied, it is no scroll anchor (overflow-anchor): pinned, it was the one
+  // Chrome picked for a reader whose screen started inside it, and the
+  // activities filling above then carried that reader down by their whole
+  // height (765px at 390 on Ethiopia) onto blank room and the newsletter box;
+  // left out, the reader stays put and the activities fill in where the
+  // crawler's words were.
   const ssr = $("ssrGuide"), ssrH = ssr ? ssr.offsetHeight : 0;
   const actH0 = ssr ? $("actDetail").offsetHeight : 0;
-  if (ssr) { ssr.style.height = ssrH + "px"; ssr.innerHTML = ""; ssr.id = ""; ssr.setAttribute("aria-hidden", "true"); }
+  if (ssr) { ssr.style.height = ssrH + "px"; ssr.style.overflowAnchor = "none"; ssr.innerHTML = ""; ssr.id = ""; ssr.setAttribute("aria-hidden", "true"); }
   // The server's month table (#when-to-go, render_guide.month_table) stays:
   // it is the page's own guide. Another country opened in-app hides it.
   const wtg = $("when-to-go");
@@ -2730,8 +2736,14 @@ function renderGuide(iso) {
     };
     const mo = typeof MutationObserver === "function" ? new MutationObserver(fit) : null;
     if (mo) mo.observe(act, { childList: true, subtree: true, characterData: true, attributes: true });
+    // Released two frames on, once the frame with the last photos is painted:
+    // in that same frame, the room going (the newsletter box coming up into
+    // view under a reader in the activities) made Chrome score every photo
+    // row's 19px move at the box's 319px (CLS 0.26 at 390 on Ethiopia, 0.03
+    // with the two apart).
+    const release = () => { if (mo) mo.disconnect(); fit(); releaseSsrRoom(ssr); };
     Promise.race([Promise.allSettled([acts, ensureAdvisories()]), new Promise((r) => setTimeout(r, 8000))])
-      .then(() => { if (mo) mo.disconnect(); fit(); releaseSsrRoom(ssr); });
+      .then(() => requestAnimationFrame(() => requestAnimationFrame(release)));
   }
   renderGuideStay(iso);
   // The fare column (fares by month, local prices, FX) fills in three
@@ -2748,19 +2760,20 @@ function renderGuide(iso) {
 }
 let _fareColSeq = 0;
 // The crawler block's leftover room goes once the activities have settled.
-// For a reader who has scrolled down to it or past it, the page keeps what
-// they are looking at where it is: the newsletter box and footer under it
-// would otherwise rise by its height (338px at 390 on Ethiopia, CLS 0.23-0.26)
-// whenever the activities above it are on screen too, as Chrome's scroll
-// anchoring then stays with those. The newsletter box stays unless more of the
-// screen is activities than newsletter and footer; the scroll that holds it
-// is measured, so it is zero where anchoring already did it, and nothing
-// moves for a reader above the room.
+// The newsletter box and the footer under it stay where they are on screen
+// whenever the box is on screen or would come up into view as the room goes.
+// Left to rise by the room's height (338px at 390 on Ethiopia) the box was
+// scored 0.21-0.26 on screen and about 0.1 coming up into view, while what
+// moves instead, the activities above sliding down into the room, is a
+// scroll, which Chrome doesn't score. The scroll that holds it is measured,
+// so it is zero where anchoring or the clamp at the page's foot already did
+// it. Nothing moves for a reader the box wouldn't reach: the room wholly
+// below their screen, or only peeking in at its foot.
 function releaseSsrRoom(ssr) {
   const r = ssr.getBoundingClientRect(), vh = window.innerHeight;
   const ref = $("subscribe") || document.querySelector("footer");
-  const above = Math.max(0, Math.min(r.top, vh)), below = Math.max(0, vh - Math.max(r.bottom, 0));
-  const y0 = ref && r.top < vh && below >= above ? ref.getBoundingClientRect().top : null;
+  const top = ref ? ref.getBoundingClientRect().top : 0;
+  const y0 = ref && top - (r.bottom - r.top) < vh ? top : null;
   ssr.remove();
   if (y0 === null) return;
   const d = ref.getBoundingClientRect().top - y0;
