@@ -7,6 +7,10 @@ What it holds the code to:
   * every <title> <= 60 characters, every description <= 155; none repeated;
   * public/guide-facts.json's t/d/dn are exactly render_guide.meta() (the one
     implementation) — a stale or hand-edited file fails here;
+  * Oman's summary and number-free description carry Doug's 2026-11-01
+    wording, with no "fjord" or "Musandam" (a merge that brings back the old
+    one-line activities.json fails here, and scripts/dev/om_summary_reapply.py
+    re-applies it);
   * app.js names every guide as country-names.json does (EXTRA_PLACES ->
     NAME_FIX -> climate.json's Natural Earth name), so client headings match
     the server's title, h1 and description;
@@ -100,6 +104,21 @@ fresh = rg.snapshot_fresh()
 results.append(ok(not fresh or all(R[i]["title"] == facts[i]["t"] and R[i]["desc"] == facts[i]["d"] for i in guides),
                   "render() serves the file's strings while the snapshot is fresh"))
 results.append(ok(set(guides) <= set(facts), "every guide has a snapshot entry"))
+# Oman's opening line and number-free description sold "a dramatic fjord-like
+# coast", which is Musandam, a province the US advisory (reissued 2026-10-23)
+# now says not to visit. Doug's wording of 2026-11-01 replaces it. Both files
+# hold it: a merge that takes another branch's one-line activities.json (or
+# guide-facts.json) brings the old line back, and this fails until the new one
+# is re-applied with scripts/dev/om_summary_reapply.py.
+OM_SUMMARY = "Wadis, dunes, desert forts and turtle beaches."
+om_summ = " ".join(((rg._load()["acts"].get("OM") or {}).get("summary") or "").split())
+om_blob = " ".join([om_summ, facts["OM"]["d"], facts["OM"].get("dn", ""), R["OM"]["desc"]])
+om_ok = (om_summ == OM_SUMMARY and facts["OM"].get("dn", "").endswith(" " + OM_SUMMARY)
+         and not re.search(r"fjord|musandam", om_blob, re.I))
+results.append(ok(om_ok, "Oman: summary and dn are %r, with no fjord or Musandam (summary %r, dn %r)%s"
+                  % (OM_SUMMARY, om_summ, facts["OM"].get("dn"), "" if om_ok else
+                     "\n        a merge brought back the old line: re-set OM summary to the new sentence"
+                     " (and dn to match) with /usr/bin/python3 scripts/dev/om_summary_reapply.py")))
 results.append(ok(all("pct" not in facts[i] for i in ("US",) if i in facts), "no price figure for the US itself"))
 
 # --- client names: EXTRA_PLACES -> NAME_FIX -> climate name ------------------------

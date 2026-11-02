@@ -1,6 +1,6 @@
 {
  "asof": "2026-10-30",
- "about": "Canada's regional 'Avoid all travel' blocks the stay spots were checked against (Global Affairs Canada's feed of 2026-10-15, then its live feed on 2026-10-18, again on 2026-10-30: Ethiopia's border band now takes in Eritrea, Saudi Arabia's Asir, Jazan and Najran block lost a doubled 'to', and its Riyadh airport block became one naming Dammam's airport too; no place moved in or out): per country, each block by its heading, a fingerprint of its words, and the places inside it that never become stay anchors. Under 'us', the same for the US State Department's regional 'Do not travel' areas where it names them (its RSS feed of 2026-10-18): per country below level 4, a fingerprint of the feed's 'Do Not Travel to' words and the places inside an area they name. Where the feed says some areas have increased risk but names none (Mexico, India), the whole row is fingerprinted and its 'note' records the review by hand against travel.state.gov. A skipped place may carry its point ('ll') and other names ('aka'); a candidate within 5 km of that point, or under one of those names, is skipped too. Under 'marks', the guide places inside a block that carry an ⓘ with Canada's words for it (fxtracker/avoid_marks.py). scripts/gen_stay_spots.py --check flags a block or a US list that is new, gone or reworded, and a mark whose block is.",
+ "about": "Canada's regional 'Avoid all travel' blocks the stay spots were checked against (Global Affairs Canada's feed of 2026-10-15, then its live feed on 2026-10-18, again on 2026-10-30: Ethiopia's border band now takes in Eritrea, Saudi Arabia's Asir, Jazan and Najran block lost a doubled 'to', and its Riyadh airport block became one naming Dammam's airport too; no place moved in or out): per country, each block by its heading, a fingerprint of its words, and the places inside it that never become stay anchors. Under 'us', the same for the US State Department's regional 'Do not travel' areas where it names them (its RSS feed of 2026-10-18, again on 2026-10-31: Tunisia's words are unchanged but the feed now lists it once, and Oman's advisory reissued on 23 October adds Duqm city and Musandam province; no chip moved in or out): per country below level 4, a fingerprint of the feed's 'Do Not Travel to' words and the places inside an area they name. Where the feed says some areas have increased risk but names none (Mexico, India), the whole row is fingerprinted and its 'note' records the review by hand against travel.state.gov. A skipped place may carry its point ('ll') and other names ('aka'); a candidate within 5 km of that point, or under one of those names, is skipped too. Under 'marks', the guide places inside a block that carry an ⓘ with Canada's words for it (fxtracker/avoid_marks.py). scripts/gen_stay_spots.py --check flags a block or a US list that is new, gone or reworded, and a mark whose block is.",
  "countries": {
   "AM": {
    "Eastern border with Azerbaijan - Avoid all travel": {
@@ -600,7 +600,7 @@
   }
  },
  "us": {
-  "asof": "2026-10-18",
+  "asof": "2026-10-31",
   "countries": {
    "AM": {
     "fp": "0a348f97071e"
@@ -752,7 +752,8 @@
     "fp": "c12fdd2df248"
    },
    "OM": {
-    "fp": "12d1dac6f430"
+    "fp": "46c9e1848989",
+    "note": "Re-checked 2026-10-31: the advisory was reissued on 23 October 2026 and its list now reads \"Do not travel to: The Yemen border area due to terrorism and armed conflict. Duqm city or Musandam province due to safety risks.\" (on 2026-10-18 only \"Do Not Travel to the Yemen border area due to terrorism and armed conflict.\"). The feed's markup splits its lead word (\"<b>Do not trave</b>l to:\"), so --check finds no list in the row and fingerprints all of it: any edit to the row asks again. No chip or guide place is in Duqm city or Musandam province. Duqm, a port town of Al Wusta, is more than 350 km from every chip at its Wikipedia point (Wadi Bani Khalid the nearest) and 285 km from the Wahiba Sands' point, sands that lie in the two Sharqiyah governorates. Musandam's nearest part, the Madha exclave on Natural Earth's admin-1 shape (Wikimedia Commons), is 263 km from the Jebel Akhdar chip, the nearest, and 243 km from Jebel Shams, the nearest guide place. Reviewed keep (Doug, 2026-10-19): \"The Yemen border area\" names no distance, so it is reviewed by hand, not a skip: every chip is 716 km or more from Yemen on the map, and the nearest guide place, Salalah (the khareef season row), about 112 km, beyond even the staff rule's \"within 20 miles of the Yemen border\"."
    },
    "PA": {
     "fp": "425a960ee4a3"
@@ -835,7 +836,8 @@
     }
    },
    "TN": {
-    "fp": "d119b4ab1168"
+    "fp": "6e58fe473293",
+    "note": "Re-checked 2026-10-31: the words are the same as on 2026-10-18. That day the feed listed Tunisia twice (its new destination.tun.html page and the old tunisia-travel-advisory.html one, both dated 21 May 2026, the same words but for the spacing of three commas), so the fingerprint was of both rows; the old row is gone and it is now of one. \"Do Not Travel to: Within 16 km of the Algerian border due to terrorism, except for the cities of Tabarka and Ain Draham. Within 16 km of the border with Libya due to terrorism. Mount Chaambi National Park, Mount Salloum, Mount Sammamma, and Mount Mghila in Kasserine governorate due to terrorism. Mount Orbata area in the Gafsa governorate due to terrorism. The desert south of Remada as it is a military zone.\" No chip or guide place is in them. Measured to the borders on Natural Earth's admin-1 shapes (Wikimedia Commons; they put Tabarka and Ain Draham, which the US excepts, 14 and 8 km from Algeria): Douz, the chip nearest Algeria, is 95 km from it and about 103 km from Djebel Orbata's point; Tunis, Carthage, Hammamet and El Djem are 137 km or more from Algeria; every chip is 222 km or more from Libya. Guide places: Sbeitla is 63 km from Algeria and about 25 km from Djebel Mghila's point, and stays skipped under Canada's Kasserine block; Ksar Ouled Soltane is about 80 km from Libya and 54 km north of Remada; Djerba is about 90 km from Libya; the gallery's Chott el Djerid is 73 km from Algeria at its Wikipedia point, and frwiki puts the salt flat's western end about 20 km from the border, outside the 16 km band but near it (a gallery photo, not a chip: the gallery only tops up a list under four, and Tunisia's things to do give five)."
    },
    "TR": {
     "fp": "71be50805268"
