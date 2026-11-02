@@ -23,6 +23,9 @@ lights did first): pageimages answers a File: page with the file itself, so
 the same chain shows it, and gen_stay_spots.py leaves such a pin out of the
 stay places. A pin carries no coordinates or Wikidata item: vet it with
 `filemeta` (licence, camera/object coordinates, categories, description).
+A row with no parenthetical may carry "sp", its stay place (2026-11-01):
+gen_stay_spots then reads "sp", not "p", so its photo can change without
+moving a chip (`stays` proves it); app.js never reads "sp".
 
     /usr/bin/python3 scripts/dev/activity_thumb_audit.py resolve  [--cache DIR] [--acts FILE]
         rows.json: one record per activity row (subject, attempts, title,
@@ -46,13 +49,15 @@ stay places. A pin carries no coordinates or Wikidata item: vet it with
         actPhoto chain: the page and file it would show, coords and the
         site-map check, P17, and whether the file is one the country's hero
         gallery or another of its rows already shows (hero_clash/row_clash)
-    /usr/bin/python3 scripts/dev/activity_thumb_audit.py stays [--ref 85b827d]
+    /usr/bin/python3 scripts/dev/activity_thumb_audit.py stays [--ref 85b827d] [--ref-tree DIR] [--all] [--acts FILE]
         "p" is also a "Where to stay" place for a row whose title has no
-        parenthetical (scripts/gen_stay_spots.py act_places): rebuild the
-        stay chips of every country whose activities differ from REF, from
-        REF's file and from this tree's, with this script's cached Wikipedia
-        coordinates, and print SAME/DIFF (DIFF = the next gen_stay_spots run
-        would change that country's chips)
+        parenthetical and no "sp" (scripts/gen_stay_spots.py act_places):
+        rebuild the stay chips of every country whose activities differ from
+        REF (--all: every country), from REF's file and from this tree's,
+        with this script's cached Wikipedia coordinates, and print SAME/DIFF
+        (DIFF = the next gen_stay_spots run would change that country's
+        chips); --ref-tree DIR builds REF's side with an export of REF's
+        tree, so its gen_stay_spots.py is compared as well
     /usr/bin/python3 scripts/dev/activity_thumb_audit.py filemeta "File:Name.jpg" [...]
         Commons metadata of candidate pinned files: size, licence, author,
         date, coordinates (camera/object, with the site-map check when
@@ -682,7 +687,9 @@ def cmd_filemeta():
     for i in range(0, len(names), 50):
         j = get("https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode({
             "action": "query", "format": "json", "prop": "coordinates|imageinfo|categories",
-            "iiprop": "extmetadata|size", "coprop": "type", "coprimary": "all", "cllimit": "max",
+            # colimit: prop=coordinates answers 10 pages a request by default,
+            # so files past the tenth of a batch came back with no coordinates
+            "iiprop": "extmetadata|size", "coprop": "type", "coprimary": "all", "colimit": "max", "cllimit": "max",
             "clshow": "!hidden", "iiextmetadatafilter":
             "ImageDescription|LicenseShortName|Artist|DateTimeOriginal",
             "titles": "|".join("File:" + n for n in names[i:i + 50])}))
@@ -704,6 +711,7 @@ def cmd_filemeta():
 
 def cmd_stays():
     import contextlib
+    import importlib.util
     import io
     import subprocess
     sys.path.insert(0, os.path.join(ROOT, "scripts"))
@@ -718,15 +726,30 @@ def cmd_stays():
         return out
     g._wiki = wiki
     ref = _opt(ARGV, "--ref", "85b827d")
+    # --ref-tree DIR: an export of REF (git archive REF | tar -x -C DIR) whose
+    # own gen_stay_spots.py (and the stay-aliases/stay-skip files beside it)
+    # builds REF's side, so a change to the code is compared too, not only
+    # one to activities.json. --all compares every country, not only those
+    # whose activities differ (to check a code change on unchanged data, run
+    # it with --acts DIR/public/activities.json).
+    g_old = g
+    if _opt(ARGV, "--ref-tree", None):
+        spec = importlib.util.spec_from_file_location(
+            "gen_stay_spots_ref", os.path.join(_opt(ARGV, "--ref-tree", None), "scripts", "gen_stay_spots.py"))
+        g_old = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(g_old)
+        g_old._wiki = wiki
     old = json.loads(subprocess.run(["git", "-C", ROOT, "show", ref + ":public/activities.json"],
                                     capture_output=True, text=True, check=True).stdout)
     new = acts()
     with open(os.path.join(PUBLIC, "stay-coords.json"), encoding="utf-8") as f:
         stays = json.load(f)
     diff = 0
-    for iso in sorted(i for i in new if new[i] != old.get(i)):
+    for iso in sorted(i for i in new if "--all" in ARGV or new[i] != old.get(i)):
         with contextlib.redirect_stdout(io.StringIO()):
-            b_old = g._build_country((iso, old[iso], NAMES, stays.get(iso)))[1]
+            g_old.prefetch_country(iso, old[iso], NAMES)     # 50 titles a request, not one by one
+            g.prefetch_country(iso, new[iso], NAMES)
+            b_old = g_old._build_country((iso, old[iso], NAMES, stays.get(iso)))[1]
             b_new = g._build_country((iso, new[iso], NAMES, stays.get(iso)))[1]
         same = [(x["n"], x["ll"]) for x in b_old] == [(x["n"], x["ll"]) for x in b_new]
         diff += not same
