@@ -98,7 +98,7 @@ FIXED = {
     "BF:0": ("Old mosque (Bobo-Dioulasso)", "File:BoboDioulasso-GrandMosqueN.JPG"),  # the town's market (the mosque's lead photo is the hero's)
     "BJ:2": ("Royal palaces (Abomey)", "File:Abomey-Königspalast3.jpg"),    # an empty street (the palaces' lead photo is on photo-skip.json)
     "BO:0": ("Salt flats (Uyuni)", "Tunupa"),                               # Uyuni: an aerial of the town, no salt flat
-    "BS:2": ("Blue holes & diving", "Dean's Blue Hole"),                    # Blue hole: Belize's Great Blue Hole (sp)
+    "BS:2": ("Blue holes & diving", "File:Dean Blue Hole Long Island Bahamas 20110210.JPG"),  # Blue hole: Belize's Great Blue Hole, then (8533fea) Dean's Blue Hole's lead photo, a lagoon panorama with a signature watermark (sp)
     "BW:2": ("Kalahari Desert", "File:Kalahari thunder.JPG"),               # Kalahari.png, an orbital globe view (sp)
     "BW:3": ("Makgadikgadi salt pans", "File:Ntwetwe Pan (48592128051).jpg"),  # DeltaOkawango.jpg, a satellite view (sp)
     "BY:1": ("Castles (Mir, Nesvizh)", "Nesvizh Castle"),                   # Mir: the space station
@@ -120,7 +120,7 @@ FIXED = {
     "HT:3": ("Northern beaches", "Cap-Haïtien"),                            # Northern Beaches, Sydney
     "JM:3": ("Blue Mountains coffee", "Blue and John Crow Mountains National Park"),  # a coffee packet (sp)
     "KP:2": ("DMZ from the north", "File:2016-10-16 buildings with visitors and soldiers at the border of North and South Korea at Panmunjom, from North Korean side.jpg"),  # the JSA seen from the South (sp)
-    "KW:2": ("Grand Mosque", "File:Kuwait City Grand Mosque Exterior West Facade at Night.jpg"),  # Congregational mosque: Mecca's Great Mosque (sp)
+    "KW:2": ("Grand Mosque", "File:Kuwait City Grand Mosque Exterior South Facade 3.jpg"),  # Congregational mosque: Mecca's Great Mosque, then (8533fea) the west facade at night, no dome or minaret, a car park (sp)
     "LU:3": ("Wine villages (Moselle)", "Wormeldange"),                     # Moselle: Schweich, Germany
     "ML:3": ("Niger River life", "Lake Débo"),                               # Niamey, in Niger (sp)
     "MW:2": ("Boat safari (Liwonde)", "File:Liwonde Park - view of Shire River.jpg"),  # Liwonde: the town's market (the park's page has no image)

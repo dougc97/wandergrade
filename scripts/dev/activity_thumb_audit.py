@@ -57,7 +57,9 @@ moving a chip (`stays` proves it); app.js never reads "sp".
         with this script's cached Wikipedia coordinates, and print SAME/DIFF
         (DIFF = the next gen_stay_spots run would change that country's
         chips); --ref-tree DIR builds REF's side with an export of REF's
-        tree, so its gen_stay_spots.py is compared as well
+        tree, so its gen_stay_spots.py, and the fxtracker/geo.py and
+        scripts/gallery_entry.py it imports, are compared as well (the
+        files each side loaded are printed first)
     /usr/bin/python3 scripts/dev/activity_thumb_audit.py filemeta "File:Name.jpg" [...]
         Commons metadata of candidate pinned files: size, licence, author,
         date, coordinates (camera/object, with the site-map check when
@@ -734,11 +736,34 @@ def cmd_stays():
     # it with --acts DIR/public/activities.json).
     g_old = g
     if _opt(ARGV, "--ref-tree", None):
-        spec = importlib.util.spec_from_file_location(
-            "gen_stay_spots_ref", os.path.join(_opt(ARGV, "--ref-tree", None), "scripts", "gen_stay_spots.py"))
-        g_old = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(g_old)
+        ref_tree = os.path.abspath(_opt(ARGV, "--ref-tree", None))
+        # REF's helpers as well: gen_stay_spots imports fxtracker.geo and
+        # gallery_entry, which this tree's import above already put in
+        # sys.modules (with this tree's scripts/ first on sys.path), so REF's
+        # module would reuse them. They are set aside while REF's module
+        # loads from REF's paths and put back after; REF's module keeps the
+        # ones it imported (stays reaches no other fxtracker module).
+        mine = lambda k: k in ("gallery_entry", "fxtracker") or k.startswith("fxtracker.")
+        ours = {k: sys.modules.pop(k) for k in list(sys.modules) if mine(k)}
+        path0 = list(sys.path)
+        sys.path[:0] = [os.path.join(ref_tree, "scripts"), ref_tree]
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "gen_stay_spots_ref", os.path.join(ref_tree, "scripts", "gen_stay_spots.py"))
+            g_old = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(g_old)
+        finally:
+            for k in [k for k in sys.modules if mine(k)]:
+                del sys.modules[k]
+            sys.modules.update(ours)
+            sys.path[:] = path0
         g_old._wiki = wiki
+        loaded = [m.__file__ for m in (g_old, g_old.geo, g_old.gallery_entry)]
+        print("REF side:", *(os.path.relpath(f, ref_tree) if f.startswith(ref_tree + os.sep)
+                             else "NOT REF'S " + f for f in loaded))
+        print("this side:", *(os.path.relpath(m.__file__, ROOT) for m in (g, g.geo, g.gallery_entry)))
+        if not all(f.startswith(ref_tree + os.sep) for f in loaded):
+            sys.exit("stays: REF's side did not load REF's own files, so it would not compare them")
     old = json.loads(subprocess.run(["git", "-C", ROOT, "show", ref + ":public/activities.json"],
                                     capture_output=True, text=True, check=True).stdout)
     new = acts()

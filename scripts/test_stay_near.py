@@ -46,7 +46,8 @@
     any, so no other country's candidates change;
   * a row's "sp" (its stay place, 2026-11-01) beats its photo subject "p"
     when the title has no parenthetical, a parenthetical beats "sp", and a
-    pinned Commons "p" with an "sp" keeps the "sp" as the row's place.
+    pinned Commons "p" with an "sp" keeps the "sp" as the row's place,
+    taken as written (not expanded like a label).
 """
 import importlib.util
 import io
@@ -532,7 +533,7 @@ results.append(ok(all(g.qualifier(w) for w in ("guided", "when held", "season", 
 # "Stockholm Archipelago"); a parenthetical still names the places itself,
 # and a pinned Commons photo no longer drops the row's place when "sp" names
 # it (Kuwait's Grand Mosque row).
-kw_pin = {"t": "Grand Mosque", "p": "File:Kuwait City Grand Mosque Exterior West Facade at Night.jpg",
+kw_pin = {"t": "Grand Mosque", "p": "File:Kuwait City Grand Mosque Exterior South Facade 3.jpg",
           "sp": "Grand Mosque"}
 results.append(ok(g.act_places({"t": "Archipelago islands", "p": "Fjäderholmarna", "sp": "Stockholm Archipelago"})
                   == ["Stockholm Archipelago"]
@@ -545,6 +546,13 @@ results.append(ok(g.act_places({"t": "Royal palaces (Abomey)", "p": "File:Abomey
                   and g.act_places({"t": "Mass Games (when held)", "p": "Arirang Festival", "sp": "Pyongyang"}) == []
                   and g.act_places({"t": "Tea country & trains (Ella, Kandy)", "sp": "Colombo"}) == ["Ella", "Kandy"],
                   "a parenthetical beats \"sp\" (its places, or none for qualifier words alone)"))
+# "sp" is taken as written, as "p" is: it holds the very title act_places gave
+# the row before (already spelt out where it came from the label), so it is
+# not expanded again ("NP"/"Mt" stay as typed; a label still is expanded).
+results.append(ok(g.act_places({"t": "Desert scenery", "sp": "Iona NP"}) == ["Iona NP"]
+                  and g.act_places({"t": "Treks", "p": "Chambe Peak", "sp": "Mt Mulanje"}) == ["Mt Mulanje"]
+                  and g.act_places({"t": "Iona NP"}) == ["Iona National Park"],
+                  "\"sp\" is the row's place exactly as written (no NP/Mt expansion), unlike a label"))
 kw_subjects = [s for s, cap, al, n in g._subjects("KW", {"activities": [kw_pin]})]
 results.append(ok(g.act_places(kw_pin) == ["Grand Mosque"] and kw_subjects == ["Grand Mosque"]
                   and [s for s, cap, al, n in g._subjects("KW", {"activities": [dict(kw_pin, sp="")]})] == [],
