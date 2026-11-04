@@ -14,12 +14,19 @@ from them.
 --against <rev> (default 4788fd2) is the tree whose USD-only calls must be
 matched; it is extracted with `git archive` into a temp dir. Both trees'
 calls and output are compared less digest_snapshot.REVIEW3's pieces (review
-3's copy), which must each be in this tree's bodies, and less every cover
+3's copy, and the 2026-11 wording's preheader, standouts, 📅 sentence and
+hero fare basis), which must each be in this tree's bodies, and less every cover
 image and "Photo:" credit line (digest_snapshot.COVERS): since 2026-10-30 a
 pick's cover is the first photo of its guide gallery the site's checks pass
 (picks.cover_for), where that tree looked up activities.json `photo` alone,
 and this tree's covers must be the ones digest_snapshot.fake_rule_cover
-works out for each body's month.
+works out for each body's month. Since 2026-11 the subject leads with the
+month ("{Month} trips: where your {noun} goes furthest"): that tree's
+subject is mapped to it (digest_snapshot.subject_as_new) in each create and
+in the duplicate check's ?subject= needle, and its already-sent email is
+the old-wording twin of this tree's (subject_as_old), so both must find
+their own issue. 22 checks that every edition's subject, every month, is
+found by its own duplicate check (plain ASCII after the emoji).
 """
 import contextlib, io, json, os, random, re, shutil, subprocess, sys, tempfile, urllib.parse
 
@@ -174,19 +181,49 @@ def without_cheap_link(calls):
 
 def without_review3(run):
     """A run's calls and output less digest_snapshot.REVIEW3's pieces (review
-    3's copy, 2026-10-28, and the button label spans since), and True when every
-    body carried them: a source on each 🛡️ grade, the AI callout, the intro's
-    year, the closing quote and both buttons' label spans."""
+    3's copy, 2026-10-28, the button label spans since, and the 2026-11
+    wording), and True when every body carried them: a source on each 🛡️
+    grade, the AI callout, the intro's year, the closing quote, both buttons'
+    label spans, the preheader, the standouts, the 📅 sentence and the hero
+    fare's basis wherever it has one."""
     calls, placed = [], True
     for c in run["calls"]:
         if len(c) > 2 and isinstance(c[2], dict) and isinstance(c[2].get("body"), str):
             body, n = ds.without_review3(c[2]["body"])
             placed = placed and (n.get("src") == c[2]["body"].count("\U0001f6e1") > 0 and n.get("ai") == 1
                                  and n.get("year") == 1 and n.get("quote") == 1
-                                 and n.get("btn") == n.get("btnend") == 2)
+                                 and n.get("btn") == n.get("btnend") == 2
+                                 and n.get("pre") == n.get("standouts") == n.get("cal") == 1
+                                 and n.get("basis", 0) == c[2]["body"].count(" vs the route’s usual)"))
             c = [c[0], c[1], dict(c[2], body=body)] + list(c[3:])
         calls.append(c)
     return dict(run, calls=calls, out=ds.without_review3(run["out"])[0]), placed
+
+
+def as_new_subject(run):
+    """An old tree's run with its subject in the 2026-11 wording
+    (digest_snapshot.subject_as_new), in each create's payload and in the
+    duplicate check's url-encoded ?subject= needle, so the call-for-call
+    comparison holds them to this tree's exactly."""
+    def needle(m):
+        return m.group(1) + urllib.parse.quote_plus(ds.subject_as_new(urllib.parse.unquote_plus(m.group(2))))
+    calls = []
+    for c in run["calls"]:
+        p = c[2]
+        if isinstance(p, dict) and isinstance(p.get("subject"), str):
+            p = dict(p, subject=ds.subject_as_new(p["subject"]))
+        calls.append([c[0], re.sub(r"([?&]subject=)([^&]*)", needle, c[1]), p] + list(c[3:]))
+    return dict(run, calls=calls)
+
+
+def in_old_wording(scenario):
+    """The scenario for an old tree: its fake Buttondown's emails carry the
+    old-wording twin of each subject (digest_snapshot.subject_as_old), so
+    'already sent' has that tree find its own issue as this tree finds its."""
+    fake = dict(scenario.get("fake", {}))
+    if fake.get("emails"):
+        fake["emails"] = [dict(e, subject=ds.subject_as_old(e["subject"])) for e in fake["emails"]]
+    return dict(scenario, fake=fake)
 
 
 def without_covers(run):
@@ -332,7 +369,7 @@ def main():
         print("1. USD-only run == %s (+ this tree's cost line, less the /cheapest link), call for call"
               % against)
         base_subs = subs({"a@x.test": "", "b@x.test": "currency-eur", "c@x.test": "cadence-monthly"})
-        sent_before = [{"id": "em900", "subject": "\U0001f9ed Where your dollar goes furthest this December",
+        sent_before = [{"id": "em900", "subject": "\U0001f9ed December trips: where your dollar goes furthest",
                         "status": "sent", "creation_date": "2026-10-01", "metadata": {},
                         "filters": {"predicate": "and", "groups": [], "filters": []}}]
         for name, argv, fake, month in (
@@ -343,19 +380,30 @@ def main():
             sc = {"argv": argv, "fake": fake}
             new, placed = without_review3(run_tree(ROOT, sc))
             new, covers = without_covers(new)
-            raw = without_covers(without_review3(run_tree(tmp, sc))[0])[0]
-            old = without_covers(without_review3(run_tree(tmp, dict(sc, graft=ROOT)))[0])[0]
+            # That tree in the old wording: its already-sent email is the
+            # old-subject twin, and its subject is mapped to the new one.
+            old_sc = in_old_wording(sc)
+            raw = without_covers(without_review3(as_new_subject(run_tree(tmp, old_sc)))[0])[0]
+            old = without_covers(without_review3(as_new_subject(run_tree(tmp, dict(old_sc, graft=ROOT))))[0])[0]
             new_calls, linked = without_cheap_link(new["calls"])
             linked = linked and placed
             covered = all(cv == want_covers[month] for cv in covers)
             same_raw = raw["calls"] == new_calls and raw["out"] == new["out"]
+            # 'already sent' must be the duplicate check finding this tree's
+            # own (new-wording) subject: one list call, nothing created.
+            deduped = name != "already sent" or (
+                [c[0] for c in new_calls] == ["GET"] and "already went out; nothing sent" in new["out"]
+                and urllib.parse.parse_qs(urllib.parse.urlsplit(new_calls[0][1]).query)["subject"]
+                == ["December trips: where your dollar goes furthest"])
             results.append(ok(old["calls"] == new_calls and linked and covered and old["out"] == new["out"]
-                              and old["code"] == new["code"],
+                              and old["code"] == new["code"] and deduped,
                               "%s: %d identical calls once the /cheapest link (in every body, once), "
-                              "review 3's copy (each in place) and the covers (the rule's %d picks, in %d "
-                              "bodies) are taken out, identical output, exit %s (ungrafted: %s)"
+                              "review 3's and the 2026-11 wording's copy (each in place) and the covers (the "
+                              "rule's %d picks, in %d bodies) are taken out and that tree's subject is in the "
+                              "new wording, identical output, exit %s (ungrafted: %s)%s"
                               % (name, len(new["calls"]), len(want_covers[month]), len(covers), new["code"],
-                                 "identical too" if same_raw else "differs in the cost line only")))
+                                 "identical too" if same_raw else "differs in the cost line only",
+                                 "; found the new subject, nothing created" if name == "already sent" else "")))
             if old["calls"] != new_calls:
                 print("    old:", json.dumps(old["calls"])[:600])
                 print("    new:", json.dumps(new_calls)[:600])
@@ -467,7 +515,7 @@ def main():
         print("10. USD out excluding EUR, EUR not out")
         f = FakeButtondown(subs({"e@x": "currency-eur", "u@x": ""}), tags10)
         eur_id = next(t["id"] for t in f.tags if t["name"] == "currency-eur")
-        f.emails.append({"id": "em500", "subject": "\U0001f9ed Where your dollar goes furthest this December",
+        f.emails.append({"id": "em500", "subject": "\U0001f9ed December trips: where your dollar goes furthest",
                          "status": "sent", "creation_date": "2026-10-02", "metadata": None,
                          "filters": {"predicate": "and", "groups": [], "filters": [
                              {"field": "subscriber.tags", "operator": "not_contains", "value": eur_id}]},
@@ -586,7 +634,7 @@ def main():
 
         # 17. partially_sent counts as out in variant mode only.
         print("17. an edition partially_sent")
-        eur_subj = "\U0001f9ed Where your euro goes furthest this December"
+        eur_subj = "\U0001f9ed December trips: where your euro goes furthest"
         f = FakeButtondown(subs({"e@x": "currency-eur", "u@x": ""}), tags10, emails=[
             {"id": "em700", "subject": eur_subj, "status": "partially_sent", "creation_date": "2026-10-02",
              "metadata": {"wg_variant": "EUR"}, "filters": None, "recipients": ["e@x"]}])
@@ -663,6 +711,37 @@ def main():
         code, out = H.run(["--month", "x"], f)
         results.append(ok(code == 2 and out.strip() == "--month needs a number 1-12",
                           "a bad --month says what it always said"))
+
+        # 22. Every edition's subject, every month, is found by its own
+        #     duplicate check. find_sent asks Buttondown for the subject with
+        #     its non-ASCII taken out (a contains-match), then insists on the
+        #     exact subject, so that needle must sit inside the real subject:
+        #     a ’ or — in the middle ("Januarys", "now  where") would never be
+        #     found, and every re-run would mail the list again.
+        print("22. every subject is found by its own duplicate check")
+        nl = H.newsletter
+        missed = []
+        for v in H.dv.VARIANTS.values():
+            for mn in H.picks.MONTHS:
+                subj = nl.digest_subject(v, mn)
+                needle = subj.encode("ascii", "ignore").decode("ascii").strip()
+                f = FakeButtondown(emails=[{"id": "em1", "subject": subj, "status": "sent",
+                                            "creation_date": "2026-10-01", "metadata": None, "filters": None}])
+                nl._call = f.call
+                rec = nl.find_sent(subj)
+                asked = [urllib.parse.parse_qs(urllib.parse.urlsplit(c[1]).query)["subject"] for c in f.calls]
+                if not (needle and needle in subj and asked == [[needle]] and (rec or {}).get("id") == "em1"
+                        and mn in needle and "your %s " % v.noun in needle):
+                    missed.append((v.code, mn, subj, needle))
+        # The trap this guards, as a control: a ’ inside is never found.
+        trap = "\U0001f9ed January’s trips: where your dollar goes furthest"
+        f = FakeButtondown(emails=[{"id": "em1", "subject": trap, "status": "sent",
+                                    "creation_date": "2026-10-01", "metadata": None, "filters": None}])
+        nl._call = f.call
+        results.append(ok(not missed and nl.find_sent(trap) is None,
+                          "all %d editions x 12 months: the ASCII needle is inside the subject, names the month "
+                          "and 'your <noun> ', and find_sent finds the issue (a subject with ’ inside is not "
+                          "found: the trap)%s" % (len(H.dv.VARIANTS), "" if not missed else " -> %r" % missed[:3])))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))

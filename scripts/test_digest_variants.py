@@ -16,13 +16,22 @@
      digest_snapshot.fake_rule_cover works out under the fakes, each piece
      of them (link, image, alt text, file page, artist, licence and its
      link), and with every cover lookup failing each card renders as it
-     does with a cover, less the cover and its credit. The 12
+     does with a cover, less the cover and its credit; and since 2026-11
+     (Doug's 2026-11-03 wording: a Nov 1 issue features January) every
+     "this month" names the issue's month: the subject leads with it
+     ("{Month} trips: where your {noun} goes furthest", plain ASCII after
+     the emoji), the preheader opens "Plan ahead:" and says "{Month}’s
+     picks" / "for {Month}", the intro's "{Month}’s standouts", the 📅
+     sentence ("{Month} picks, sent two months ahead so there’s time to
+     plan and book.") and the hero fare's "({Month} vs the route’s usual)"
+     (digest_snapshot.REVIEW3's pre, standouts, cal and basis; the old
+     subject is mapped, digest_snapshot.subject_as_new). The 12
      months' sha256 match scripts/digest_golden/usd_sha256.json, and the USD
      edition built the per-currency way (gather + build_variant) is the same
      text. The band is checked against JavaScript's own toFixed under jsc.
   2. Each of the ten editions, every month: its own subject, wording, footer,
      banknote, no home country in its picks, balanced markup, and FX measured
-     in its own currency.
+     in its own currency; the 2026-11 wording, each piece naming the month.
   3. pricelevel.real_fx_pct's home-side guard (high inflation at home that
      can't be dated: no direction), with the US unaffected.
 
@@ -31,10 +40,12 @@
 --against <rev> also extracts that tree with `git archive` and diffs its USD
 text against this tree's (less the /cheapest line, which must be in every
 month once, less digest_snapshot.REVIEW3's pieces in both, each of
-which must be in this tree's text where it belongs, and less every cover
+which must be in this tree's text where it belongs, less every cover
 image and "Photo:" credit line in both, digest_snapshot.COVERS: 1 checks
-this tree's are the rule's) in full, then again with only this tree's cost line
-grafted into it (digest_snapshot --graft-cost-line): that must be identical
+this tree's are the rule's, and with that tree's subject in the 2026-11
+wording, which must then be this tree's exactly) in full, then again with
+only this tree's cost line grafted into it (digest_snapshot
+--graft-cost-line): that must be identical
 for all 12 months, which proves the cost line is the only USD change.
 """
 import json, os, re, shutil, subprocess, sys, tempfile
@@ -99,24 +110,32 @@ def main():
                               "this tree's USD text carries the /cheapest line once in every month"))
             # Review 3's pieces come out of both texts (digest_snapshot.REVIEW3),
             # and must each be in this tree's: a source on every 🛡️ grade, the
-            # callout, the intro's year and the closing quote once.
+            # callout, the intro's year and the closing quote once; and the
+            # 2026-11 wording's: the preheader, the standouts, the 📅
+            # sentence once, a basis on the hero's fare wherever it has one.
             placed = []
             for m in usd_cmp:
                 body, n = ds.without_review3(usd_cmp[m][1])
                 grades = usd_cmp[m][1].count("\U0001f6e1")
+                bases = usd_cmp[m][1].count(" vs the route’s usual)")
                 if not (n.get("src") == grades > 0 and n.get("ai") == 1 and n.get("year") == 1
-                        and n.get("quote") == 1 and n.get("btn") == n.get("btnend") == 2):
+                        and n.get("quote") == 1 and n.get("btn") == n.get("btnend") == 2
+                        and n.get("pre") == n.get("standouts") == n.get("cal") == 1
+                        and n.get("basis", 0) == bases):
                     placed.append((m, n, grades))
                 usd_cmp[m] = [usd_cmp[m][0], body]
-            results.append(ok(not placed, "review 3's pieces are in this tree's USD text every month: each 🛡️ "
-                              "grade's source, the AI callout, the intro's year, the closing quote, both buttons' "
-                              "label spans%s"
+            results.append(ok(not placed, "review 3's and the 2026-11 wording's pieces are in this tree's USD "
+                              "text every month: each 🛡️ grade's source, the AI callout, the intro's year, the "
+                              "closing quote, both buttons' label spans, the preheader, the standouts, the 📅 "
+                              "sentence, the hero fare's basis%s"
                               % ("" if not placed else " -> %r" % placed[:3])))
             # The covers come out of both: the cover rule picks this tree's
             # (checked below, every edition), 4788fd2 looked up `photo`.
             for m in usd_cmp:
                 usd_cmp[m] = [usd_cmp[m][0], ds.without_covers(usd_cmp[m][1])[0]]
-            strip = lambda per: {m: [sb[0], ds.without_covers(ds.without_review3(sb[1])[0])[0]]
+            # That tree's subject in the 2026-11 wording: then it must be this
+            # tree's exactly (the noun and the month, the duplicate key's parts).
+            strip = lambda per: {m: [ds.subject_as_new(sb[0]), ds.without_covers(ds.without_review3(sb[1])[0])[0]]
                                  for m, sb in per.items()}
             old["USD"] = strip(old["USD"])
             diffs = [m for m in old["USD"] if old["USD"][m] != usd_cmp.get(m)]
@@ -230,9 +249,47 @@ def main():
     results.append(ok(not problems, "subjects unique per month; wording, footer, emoji, home exclusion, year, "
                       "markup all right (%d renders)%s" % (12 * len(V), "" if not problems else
                                                              " -> %r" % problems[:4])))
+    # The 2026-11 wording (Doug, 2026-11-03): an issue sent on the 1st
+    # features the month two ahead, so each piece names that month instead
+    # of "this month" (which read as the month it arrived in).
+    import html as _html
+    worded = []
+    n_basis = 0
+    for c, v in V.items():
+        for m in range(1, 13):
+            subj, body = snap[c][str(m)]
+            d = datas[c][m]
+            mn = picks.MONTHS[m - 1]
+            nstrong = sum(1 for s_ in d["picks"] if (s_.get("fx") or 0) >= 3)
+            pre = ("Plan ahead: after inflation, your %s goes further than usual in %d of %s’s picks."
+                   % (v.noun, nstrong, mn) if nstrong else
+                   "Plan ahead: %d destinations graded A+ to F on value, safety, weather and flights for %s."
+                   % (len(d["picks"]), mn))
+            hero = d["picks"][0]
+            month_fare = hero.get("fly") is not None and hero.get("fly_basis") == "month"
+            n_basis += month_fare
+            want = [
+                subj == "\U0001f9ed %s trips: where your %s goes furthest" % (mn, v.noun),
+                body.startswith('<div style="display:none;') and body.count("&#847;") == 10
+                and ('overflow:hidden">%s&#847;' % _html.escape(pre)) in body,
+                "</b>. %s’s standouts \U0001f447</p>" % mn in body,
+                ("\U0001f4c5 <b>%s</b> picks, sent two months ahead so there’s time to plan and book. "
+                 "Going a different time? <a href=" % mn) in body,
+                body.count(" vs the route’s usual)") == month_fare
+                and (not month_fare or "(%s vs the route’s usual)" % mn in body),
+                "this month" not in body.lower() and "sweet spot" not in body,
+            ]
+            if not all(want):
+                worded.append((c, m, want))
+    results.append(ok(not worded and n_basis > 0,
+                      "the 2026-11 wording in all %d renders: subject '{Month} trips: where your {noun} goes "
+                      "furthest', preheader 'Plan ahead: …' naming the month (FX-strong and plain forms), "
+                      "'{Month}’s standouts', the 📅 sentence, the hero fare '({Month} vs the route’s usual)' "
+                      "(%d heroes), no 'this month' or 'sweet spot' left%s"
+                      % (12 * len(V), n_basis, "" if not worded else " -> %r" % worded[:3])))
     # Wording samples from the spec.
     eur1 = snap["EUR"]["1"]
-    results.append(ok(eur1[0] == "\U0001f9ed Where your euro goes furthest this January"
+    results.append(ok(eur1[0] == "\U0001f9ed January trips: where your euro goes furthest"
                       and "below German levels." in eur1[1]
                       and "Grades are for a traveler from Germany (paying in euros) planning January travel;"
                       in eur1[1], "EUR: spec's subject, 'below German levels', footer"))

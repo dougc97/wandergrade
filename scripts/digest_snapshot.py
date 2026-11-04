@@ -191,7 +191,6 @@ CHEAP_LINK = re.compile(
 #         government that filled the gap), as the site's pills do;
 #  ai     the AI callout drops the July "New:" and names the four AIs the
 #         guide's button offers (either wording is stripped);
-#  apos   "route’s" takes the typographic apostrophe (either is stripped);
 #  year   the issue's year: an explicit --month N prints N's next occurrence
 #         (render_cheapest.year_for) where 4788fd2 printed the default
 #         month's, in the intro and in send_digest's "Digest for" line;
@@ -200,15 +199,66 @@ CHEAP_LINK = re.compile(
 #  btn/btnend  the two green buttons' labels sit in two spans, since
 #         Buttondown's CSS turned their white text blue (newsletter.GREEN's
 #         note); the spans go, the label stays.
+# And the 2026-11 wording (Doug, 2026-11-03: an issue sent on Nov 1 features
+# January, so every "this month" names the month instead), each piece in
+# both wordings:
+#  pre    the hidden preheader's whole sentence, in its four forms (FX
+#         strong or not, before and after): "Plan ahead:" leads, and
+#         "this month’s picks — here’s where it’s worth going" / "this
+#         {Month}" became "{Month}’s picks" / "for {Month}";
+#  standouts  the intro's "This month’s standouts" became "{Month}’s";
+#  cal    the 📅 sentence: "Featured for {Month} — about two months out, the
+#         sweet spot for booking." became "{Month} picks, sent two months
+#         ahead so there’s time to plan and book.";
+#  basis  the hero fare's basis, "(this month vs the route’s usual)", became
+#         "({Month} vs the route’s usual)": the whole "… vs the route’s" is
+#         stripped, either apostrophe, so this group also takes review 3's
+#         old "apos" piece (route's became route’s), whose fixed-width
+#         lookbehind on "this month vs the " no new text has.
+# The subject's change is not stripped but mapped: subject_as_new below.
 REVIEW3 = re.compile(
     r"(?P<src> <span style='color:#888'>per (?:US State Dept|Global Affairs Canada|German Foreign Office)</span>)"
     r"|(?P<ai><div style='background:#eef7f0;border:1px solid #cfe8d6;border-radius:10px;padding:12px 14px;"
     r"margin:2px 0 18px;font-size:14px;color:#1a5e33'>✨ (?:[^<]|<b>[^<]*</b>)*</div>)"
-    r"|(?P<apos>(?<=this month vs the )route['’]s(?= usual))"
+    r"|(?P<basis>(?:this month|[A-Z][a-z]+) vs the route['’]s(?= usual\)))"
     r"|(?P<year> 20\d\d(?=</b>\? WanderGrade grades| \(rates as of ))"
     r"|(?P<quote><p style=\"font-size:13px;line-height:1\.6;color:#666;font-style:italic;[^\"]*\">“[^”]*”<br>"
     r"<span style=\"font-style:normal;color:#888\">— [^<]*<i>[^<]*</i></span></p>)"
-    r"|(?P<btn><span><span style=\"color:#ffffff\">)|(?P<btnend></span></span>(?=</a>))")
+    r"|(?P<btn><span><span style=\"color:#ffffff\">)|(?P<btnend></span></span>(?=</a>))"
+    r"|(?P<pre>(?<=;opacity:0;overflow:hidden\">)(?:"
+    r"After inflation, your [A-Za-z ]+ goes further than usual in \d+ of this month’s picks"
+    r" — here’s where it’s worth going\."
+    r"|Plan ahead: after inflation, your [A-Za-z ]+ goes further than usual in \d+ of [A-Z][a-z]+’s picks\."
+    r"|\d+ destinations graded A\+ to F on value, safety, weather and flights this [A-Z][a-z]+\."
+    r"|Plan ahead: \d+ destinations graded A\+ to F on value, safety, weather and flights for [A-Z][a-z]+\.)"
+    r"(?=&#847;))"
+    r"|(?P<standouts>(?:This month|[A-Z][a-z]+)(?=’s standouts \U0001f447))"
+    r"|(?P<cal>\U0001f4c5 (?:Featured for <b>[A-Z][a-z]+</b> — about two months out, the sweet spot for booking\."
+    r"|<b>[A-Z][a-z]+</b> picks, sent two months ahead so there’s time to plan and book\.)"
+    r"(?= Going a different time\?))")
+
+# The subject, 4788fd2's wording and the 2026-11 one (newsletter.digest_subject).
+# A comparison maps the old tree's subject to the new wording, which must
+# then equal this tree's exactly (same noun, same month), instead of
+# stripping it: the subject is the duplicate-send key, so its parts are
+# checked, not dropped. Each also takes the ASCII needle find_sent searches
+# with (no emoji): test_send_digest maps the old tree's ?subject= with it.
+SUBJECT_OLD = re.compile(r"Where your (?P<noun>[A-Za-z ]+?) goes furthest this (?P<month>[A-Z][a-z]+)")
+SUBJECT_NEW = re.compile(r"(?P<month>[A-Z][a-z]+) trips: where your (?P<noun>[A-Za-z ]+?) goes furthest")
+
+
+def subject_as_new(subject):
+    """An old-wording subject (or needle) in the 2026-11 wording; anything
+    else as it is."""
+    return SUBJECT_OLD.sub(lambda m: "%s trips: where your %s goes furthest" % (m["month"], m["noun"]),
+                           subject)
+
+
+def subject_as_old(subject):
+    """The reverse, for a fake Buttondown's already-sent email an old tree
+    must find as this tree finds the new-wording one."""
+    return SUBJECT_NEW.sub(lambda m: "Where your %s goes furthest this %s" % (m["noun"], m["month"]),
+                           subject)
 
 
 def without_review3(text):

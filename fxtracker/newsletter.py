@@ -514,16 +514,20 @@ def _credit(s):
             "style='color:#888'>%s</a> &middot; %s</div>" % (_esc(c["page"]), _esc(c["artist"]), lic))
 
 
-def _fly(s, compact=False):
+def _fly(s, compact=False, month=None):
     # Flights is in the Overall whenever there is fare data, so every line that
     # shows the Overall shows it too (the gem lines used to leave it out).
     if s.get("fly") is None:
         return ""
     # The grade's basis, in the hero line: the featured month's fare vs the
     # route's own typical, or — where a route has too few cached months —
-    # the year-round fare vs a distance-typical one.
+    # the year-round fare vs a distance-typical one. The month is named
+    # ("January vs the route’s usual"): the issue goes out two months ahead,
+    # so "this month" read as the month it arrived in. _hero_card passes it;
+    # the name comes from _MONTH_SLUGS, not strftime (the machine's locale).
+    named = _MONTH_SLUGS[month - 1].capitalize() if month else "this month"
     basis = "" if compact else (" <span style='color:#6b7681'>(%s)</span>"
-                                % ("this month vs the route’s usual" if s.get("fly_basis") == "month"
+                                % ("%s vs the route’s usual" % named if s.get("fly_basis") == "month"
                                    else "year-round, for the distance"))
     return ((" &middot; ✈️ %s" if compact else " &nbsp;&middot;&nbsp; ✈️ Flights <b>%s</b>%s")
             % ((_grade(s["fly"]),) if compact else (_grade(s["fly"]), basis)))
@@ -544,8 +548,8 @@ def _hero_card(s, month, v=USD):
         <div style="margin:14px 0 0"><a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 18px;border-radius:9px"><span><span style="color:#ffffff">See %s’s guide →</span></span></a></div>
       </div>
     </div>""" % (photo, _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
-                 _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]), _fly(s),
-                 _fx_line(s, v=v), _cost_line(s, v=v), _dont_miss(s), _credit(s), g, GREEN,
+                 _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]),
+                 _fly(s, month=month), _fx_line(s, v=v), _cost_line(s, v=v), _dont_miss(s), _credit(s), g, GREEN,
                  _esc(s["name"]))
 
 
@@ -633,8 +637,15 @@ def _quote_for(year, month):
 def digest_subject(v, month_name):
     """The issue's subject. A function of the edition and the month alone, so
     send_digest can ask whether an edition already went out even when it
-    couldn't be rendered this run."""
-    return "\U0001f9ed Where your %s goes furthest this %s" % (v.noun, month_name)
+    couldn't be rendered this run. The month leads ("January trips: ..."), as
+    the issue features the month two ahead of the one it arrives in.
+
+    Plain ASCII after the leading emoji: find_sent searches Buttondown with
+    the non-ASCII taken out, so a ’ or — inside would leave a needle that is
+    not in the real subject, the duplicate check would never find the issue,
+    and a re-run would mail the list again (test_send_digest 22 checks every
+    edition and month)."""
+    return "\U0001f9ed %s trips: where your %s goes furthest" % (month_name, v.noun)
 
 
 def render_digest(data):
@@ -654,11 +665,13 @@ def render_digest(data):
     nstrong = sum(1 for s in picks if (s.get("fx") or 0) >= 3)
 
     subject = digest_subject(v, mn)
+    # The inbox snippet: "Plan ahead:", and the featured month by name (two
+    # months out, so "this month" read as the month the issue arrived in).
     if nstrong:
-        preheader = ("After inflation, your %s goes further than usual in %d of this "
-                     "month’s picks — here’s where it’s worth going." % (v.noun, nstrong))
+        preheader = ("Plan ahead: after inflation, your %s goes further than usual in %d of %s’s picks."
+                     % (v.noun, nstrong, mn))
     else:
-        preheader = ("%d destinations graded A+ to F on value, safety, weather and flights this %s."
+        preheader = ("Plan ahead: %d destinations graded A+ to F on value, safety, weather and flights for %s."
                      % (len(picks), mn))
 
     hero = _hero_card(picks[0], m, v) if picks else ""
@@ -687,8 +700,8 @@ def render_digest(data):
     <div style="font-size:22px;font-weight:800;color:#111">\U0001f30d WanderGrade</div>
     <div style="font-size:14px;color:#555">Where Should I Travel Next?</div>
   </div>
-  <p style="font-size:15px;line-height:1.5;color:#111">Where’s worth it in <b>%s %s</b>? WanderGrade grades every country <b>A+ to F</b> on what your trip actually hinges on — how far your money goes, safety, weather and flights. The twist: we flag where <b>your %s is unusually strong right now</b>. This month’s standouts \U0001f447</p>
-  <p style="font-size:13px;color:#555;background:#eef7f0;border-radius:8px;padding:10px 12px">\U0001f4c5 Featured for <b>%s</b> — about two months out, the sweet spot for booking. Going a different time? <a href="%s" style="color:%s;font-weight:600;text-decoration:none">Pick your travel month →</a></p>
+  <p style="font-size:15px;line-height:1.5;color:#111">Where’s worth it in <b>%s %s</b>? WanderGrade grades every country <b>A+ to F</b> on what your trip actually hinges on — how far your money goes, safety, weather and flights. The twist: we flag where <b>your %s is unusually strong right now</b>. %s’s standouts \U0001f447</p>
+  <p style="font-size:13px;color:#555;background:#eef7f0;border-radius:8px;padding:10px 12px">\U0001f4c5 <b>%s</b> picks, sent two months ahead so there’s time to plan and book. Going a different time? <a href="%s" style="color:%s;font-weight:600;text-decoration:none">Pick your travel month →</a></p>
   <h2 style="font-size:18px;margin:22px 0 10px;color:#111">\U0001f31f Top picks</h2>
   %s
   %s
@@ -703,7 +716,7 @@ def render_digest(data):
     Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s Currency data as of %s. Photos via Wikimedia Commons.<br>
     <b>WanderGrade</b> · once a month, no spam · <a href="%s" style="color:#888">wandergrade.com</a> · <a href="%s" style="color:#888">unsubscribe</a>
   </p>
-</div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), pick_link, GREEN, hero, rest,
+</div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), _esc(mn), pick_link, GREEN, hero, rest,
              ai_callout, gems_block, cheap_link, month_link, GREEN, _quote_for(yr, m),
              _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]), SITE, UNSUB)
 
