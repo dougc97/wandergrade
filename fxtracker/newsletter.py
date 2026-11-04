@@ -515,6 +515,10 @@ def _credit(s):
 
 
 def _fly(s, compact=False, month=None):
+    # The hero line names the featured month (below), so it can't go without
+    # one: no "this month" fallback, the very wording the month replaced.
+    if not compact and not month:
+        raise ValueError("_fly: the hero line names the featured month; pass month=1-12")
     # Flights is in the Overall whenever there is fare data, so every line that
     # shows the Overall shows it too (the gem lines used to leave it out).
     if s.get("fly") is None:
@@ -525,10 +529,9 @@ def _fly(s, compact=False, month=None):
     # ("January vs the route’s usual"): the issue goes out two months ahead,
     # so "this month" read as the month it arrived in. _hero_card passes it;
     # the name comes from _MONTH_SLUGS, not strftime (the machine's locale).
-    named = _MONTH_SLUGS[month - 1].capitalize() if month else "this month"
     basis = "" if compact else (" <span style='color:#6b7681'>(%s)</span>"
-                                % ("%s vs the route’s usual" % named if s.get("fly_basis") == "month"
-                                   else "year-round, for the distance"))
+                                % ("%s vs the route’s usual" % _MONTH_SLUGS[month - 1].capitalize()
+                                   if s.get("fly_basis") == "month" else "year-round, for the distance"))
     return ((" &middot; ✈️ %s" if compact else " &nbsp;&middot;&nbsp; ✈️ Flights <b>%s</b>%s")
             % ((_grade(s["fly"]),) if compact else (_grade(s["fly"]), basis)))
 

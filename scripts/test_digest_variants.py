@@ -268,7 +268,19 @@ def main():
             hero = d["picks"][0]
             month_fare = hero.get("fly") is not None and hero.get("fly_basis") == "month"
             n_basis += month_fare
+            # The --against runs see USD's FX-strong forms only (USD is strong
+            # in all 12 frozen months): here every render's preheader, in its
+            # new and its 4788fd2 wording (strong or plain), must be
+            # digest_snapshot's pre group once, leaving the same text.
+            old_pre = ("After inflation, your %s goes further than usual in %d of this month’s picks"
+                       " — here’s where it’s worth going." % (v.noun, nstrong) if nstrong else
+                       "%d destinations graded A+ to F on value, safety, weather and flights this %s."
+                       % (len(d["picks"]), mn))
+            at = 'overflow:hidden">%s&#847;'
+            new_cut, new_n = ds.without_review3(body)
+            old_cut, old_n = ds.without_review3(body.replace(at % _html.escape(pre), at % _html.escape(old_pre), 1))
             want = [
+                new_n.get("pre") == old_n.get("pre") == 1 and new_cut == old_cut,
                 subj == "\U0001f9ed %s trips: where your %s goes furthest" % (mn, v.noun),
                 body.startswith('<div style="display:none;') and body.count("&#847;") == 10
                 and ('overflow:hidden">%s&#847;' % _html.escape(pre)) in body,
@@ -285,7 +297,8 @@ def main():
                       "the 2026-11 wording in all %d renders: subject '{Month} trips: where your {noun} goes "
                       "furthest', preheader 'Plan ahead: …' naming the month (FX-strong and plain forms), "
                       "'{Month}’s standouts', the 📅 sentence, the hero fare '({Month} vs the route’s usual)' "
-                      "(%d heroes), no 'this month' or 'sweet spot' left%s"
+                      "(%d heroes), no 'this month' or 'sweet spot' left; each preheader, new or 4788fd2's "
+                      "wording, is REVIEW3's pre once and strips to the same text%s"
                       % (12 * len(V), n_basis, "" if not worded else " -> %r" % worded[:3])))
     # Wording samples from the spec.
     eur1 = snap["EUR"]["1"]

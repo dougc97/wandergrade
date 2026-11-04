@@ -721,24 +721,31 @@ def main():
         print("22. every subject is found by its own duplicate check")
         nl = H.newsletter
         missed = []
-        for v in H.dv.VARIANTS.values():
-            for mn in H.picks.MONTHS:
-                subj = nl.digest_subject(v, mn)
-                needle = subj.encode("ascii", "ignore").decode("ascii").strip()
-                f = FakeButtondown(emails=[{"id": "em1", "subject": subj, "status": "sent",
-                                            "creation_date": "2026-10-01", "metadata": None, "filters": None}])
-                nl._call = f.call
-                rec = nl.find_sent(subj)
-                asked = [urllib.parse.parse_qs(urllib.parse.urlsplit(c[1]).query)["subject"] for c in f.calls]
-                if not (needle and needle in subj and asked == [[needle]] and (rec or {}).get("id") == "em1"
-                        and mn in needle and "your %s " % v.noun in needle):
-                    missed.append((v.code, mn, subj, needle))
-        # The trap this guards, as a control: a ’ inside is never found.
-        trap = "\U0001f9ed January’s trips: where your dollar goes furthest"
-        f = FakeButtondown(emails=[{"id": "em1", "subject": trap, "status": "sent",
-                                    "creation_date": "2026-10-01", "metadata": None, "filters": None}])
-        nl._call = f.call
-        results.append(ok(not missed and nl.find_sent(trap) is None,
+        # Each fake goes in here, outside H.run: put _call back after, so no
+        # later case talks to this case's last fake (the trap) by mistake.
+        saved_call = nl._call
+        try:
+            for v in H.dv.VARIANTS.values():
+                for mn in H.picks.MONTHS:
+                    subj = nl.digest_subject(v, mn)
+                    needle = subj.encode("ascii", "ignore").decode("ascii").strip()
+                    f = FakeButtondown(emails=[{"id": "em1", "subject": subj, "status": "sent",
+                                                "creation_date": "2026-10-01", "metadata": None, "filters": None}])
+                    nl._call = f.call
+                    rec = nl.find_sent(subj)
+                    asked = [urllib.parse.parse_qs(urllib.parse.urlsplit(c[1]).query)["subject"] for c in f.calls]
+                    if not (needle and needle in subj and asked == [[needle]] and (rec or {}).get("id") == "em1"
+                            and mn in needle and "your %s " % v.noun in needle):
+                        missed.append((v.code, mn, subj, needle))
+            # The trap this guards, as a control: a ’ inside is never found.
+            trap = "\U0001f9ed January’s trips: where your dollar goes furthest"
+            f = FakeButtondown(emails=[{"id": "em1", "subject": trap, "status": "sent",
+                                        "creation_date": "2026-10-01", "metadata": None, "filters": None}])
+            nl._call = f.call
+            trap_found = nl.find_sent(trap)
+        finally:
+            nl._call = saved_call
+        results.append(ok(not missed and trap_found is None,
                           "all %d editions x 12 months: the ASCII needle is inside the subject, names the month "
                           "and 'your <noun> ', and find_sent finds the issue (a subject with ’ inside is not "
                           "found: the trap)%s" % (len(H.dv.VARIANTS), "" if not missed else " -> %r" % missed[:3])))
