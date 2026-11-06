@@ -19,18 +19,21 @@ What it holds the code to:
   * weather-only countries never claim "best months to visit";
   * names that take "the" have it inside every sentence, on both sides;
   * Level 3/4 titles ask "safe?", Level 4 never "cheap?" or "(very cheap)";
+  * a title with a price figure says "Costs vs US" wherever its rung fits in
+    TITLE_MAX, on the best-time fallback too (only the Dominican Republic's
+    ": Weather & Costs vs US" rung, 64, is too long);
   * descriptions never end mid-phrase;
   * Turkey's description names it "Turkey (Türkiye)" once on every rung that
     fits (render_guide.ALSO_NAMED), the served page nowhere else, and no other
     guide, title or h1 says Türkiye;
   * the title fallback (render_guide.TITLE_BEST_TIME) is on for exactly the
     Dominican Republic, Morocco and the Isle of Man (Doug, 2026-11-05): "Best
-    Time to Visit X" leads their stored and served titles, every other guide
-    keeps the title it has with the switch off and a Level 4 one its safety
-    question; switched off, scripts/retitle_guide_facts.py re-words exactly
-    those three back, and on for every guide "Best Time to Visit X" leads every
-    title but a Level 4 one within TITLE_MAX and the script re-words exactly
-    those;
+    Time to Visit X" leads their stored and served titles, which are exactly
+    the three committed that day; every other guide keeps the title it has
+    with the switch off and a Level 4 one its safety question; switched off,
+    scripts/retitle_guide_facts.py re-words exactly those three back, and on
+    for every guide "Best Time to Visit X" leads every title but a Level 4 one
+    within TITLE_MAX and the script re-words exactly those;
   * no guide carries FAQPage JSON-LD (its questions were never visible on the
     page, which Google requires; FAQ rich results are gov/health-only since
     2023) and the homepage keeps its WebSite block; the staleness guard drops
@@ -84,7 +87,11 @@ results.append(ok(not any(re.search(r"\d", R[i]["title"]) for i in guides),
 results.append(ok(not any("Cheap" in R[i]["title"] for i in guides if (facts[i].get("adv") == 4)),
                   "no Level 4 country is asked \"cheap?\""))
 # The question-title checks skip a guide on the best-time fallback (below): it
-# has its own ladder. A Level 4 guide is never on it.
+# has its own ladder. A Level 4 guide is never on it. The price wording does not
+# skip it: with a price figure it says "Costs vs US" whenever its shortest such
+# rung fits (Morocco's is 49 characters); only the Dominican Republic's, 64,
+# goes without. The rung is spelled out here, not read from the ladder, so a
+# ladder that drops "vs US" fails.
 unsafe = [i for i in guides if facts[i].get("adv") in (3, 4) and not rg.best_time_title_on(i, facts[i])
           and not R[i]["title"].startswith("Is %s Safe" % rg.name_in_text(i))]
 l3_cheap = [i for i in guides if facts[i].get("adv") == 3 and facts[i].get("band") in ("cheap", "very cheap")
@@ -95,10 +102,17 @@ results.append(ok(not unsafe and not l3_cheap and sum(1 for i in guides if facts
 l4_band = [i for i in guides if facts[i].get("adv") == 4
            and re.search(r"\((very cheap|cheap|about the same|pricey)", R[i]["desc"] + R[i]["body"])]
 results.append(ok(not l4_band, "no Level 4 description or fact line gives a bargain band %s" % (l4_band or "")))
-no_cost_t = [i for i in guides if "pct" in facts[i] and facts[i].get("adv") in (None, 1, 2)
-             and "Costs vs US" not in R[i]["title"] and not rg.best_time_title_on(i, facts[i])
-             and len("Is %s %s to Visit? Costs vs US" % (rg.name_in_text(i), rg._band_q(facts[i]))) <= rg.TITLE_MAX]
-results.append(ok(not no_cost_t, "price question titles say \"Costs vs US\" wherever it fits %s" % (no_cost_t or "")))
+def cost_vs_us_fits(i):
+    nt = rg.name_in_text(i)
+    if rg.best_time_title_on(i, facts[i]):
+        return len("Best Time to Visit %s: Weather & Costs vs US" % nt) <= rg.TITLE_MAX
+    return (facts[i].get("adv") in (None, 1, 2)
+            and len("Is %s %s to Visit? Costs vs US" % (nt, rg._band_q(facts[i]))) <= rg.TITLE_MAX)
+no_cost_t = [i for i in guides if "pct" in facts[i] and "Costs vs US" not in R[i]["title"] and cost_vs_us_fits(i)]
+fb_cost = sorted(i for i in guides if "pct" in facts[i] and rg.best_time_title_on(i, facts[i]))
+results.append(ok(not no_cost_t, "price titles say \"Costs vs US\" wherever it fits, on the best-time fallback too "
+                  "(fallback with a price: %s; no room: %s) %s"
+                  % (fb_cost, [i for i in fb_cost if not cost_vs_us_fits(i)], no_cost_t or "")))
 
 # --- the snapshot file is meta()'s own output --------------------------------------
 bad = []
@@ -369,17 +383,24 @@ results.append(ok(R["TR"]["title"] == facts["TR"]["t"] and "T\u00fcrkiye" not in
 # --- the title fallback (render_guide.TITLE_BEST_TIME): on for DO, MA and IM ---------
 # Doug's call of 2026-11-05, after the Search Console read: "Best Time to Visit X"
 # leads exactly the Dominican Republic's, Morocco's and the Isle of Man's titles,
-# stored and served, within TITLE_MAX and unique; every other guide's is the
-# title it has with the switch off (meta() switched off here), and a Level 4
-# guide keeps its safety question. Both modes are still exercised by switching
-# it here, not by the default: off, scripts/retitle_guide_facts.py re-words
-# exactly those three stored t's back; on for every guide, "Best Time to Visit X"
-# leads every title but a Level 4 one and the script re-words exactly those
-# stored t's, touching nothing else; TITLE_BEST_TIME_ONLY limits it.
+# stored and served, within TITLE_MAX and unique, and each is word for word the
+# title committed that day (BEST_TIME_TITLES: a ladder change that re-words one
+# fails here, even with the stored copy re-worded to match); every other guide's
+# is the title it has with the switch off (meta() switched off here), and a
+# Level 4 guide keeps its safety question. Both modes are still exercised by
+# switching it here, not by the default: off, scripts/retitle_guide_facts.py
+# re-words exactly those three stored t's back; on for every guide, "Best Time
+# to Visit X" leads every title but a Level 4 one and the script re-words
+# exactly those stored t's, touching nothing else; TITLE_BEST_TIME_ONLY limits it.
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import retitle_guide_facts as RT  # noqa: E402
 raw_facts = open(os.path.join(ROOT, "public", "guide-facts.json"), encoding="utf-8").read()
-BEST_TIME_ONLY = ["DO", "IM", "MA"]
+BEST_TIME_TITLES = {
+    "DO": "Best Time to Visit the Dominican Republic: Weather & Costs",
+    "IM": "Best Time to Visit the Isle of Man: Weather & Things to Do",
+    "MA": "Best Time to Visit Morocco: Weather, Costs vs US & Safety",
+}
+BEST_TIME_ONLY = sorted(BEST_TIME_TITLES)
 default = (rg.TITLE_BEST_TIME, rg.TITLE_BEST_TIME_ONLY)
 figs = lambda i: {k: v for k, v in facts[i].items() if k not in ("t", "d", "dn", "m")}
 same_but_t = lambda new: (all(dict(new[i], t=None) == dict(facts[i], t=None) for i in guides)
@@ -398,10 +419,12 @@ results.append(ok(rg.TITLE_BEST_TIME is True and set(rg.TITLE_BEST_TIME_ONLY or 
                   and sorted(led) == sorted(led_t) == BEST_TIME_ONLY
                   and all(R[i]["title"] == facts[i]["t"] != off[i] and len(R[i]["title"]) <= rg.TITLE_MAX
                           and R[i]["title"].startswith("Best Time to Visit %s" % rg.name_in_text(i)) for i in BEST_TIME_ONLY)
-                  and len({R[i]["title"] for i in BEST_TIME_ONLY}) == len(BEST_TIME_ONLY),
-                  "on by default for exactly %s (stored %s, served %s): \"Best Time to Visit X\" leads, <= %d and "
-                  "unique: %s" % (BEST_TIME_ONLY, sorted(led_t), sorted(led), rg.TITLE_MAX,
-                                  "; ".join("%s (%d)" % (R[i]["title"], len(R[i]["title"])) for i in BEST_TIME_ONLY))))
+                  and len({R[i]["title"] for i in BEST_TIME_ONLY}) == len(BEST_TIME_ONLY)
+                  and all(R[i]["title"] == BEST_TIME_TITLES[i] for i in BEST_TIME_ONLY),
+                  "on by default for exactly %s (stored %s, served %s): \"Best Time to Visit X\" leads, <= %d, "
+                  "unique and word for word the 2026-11-05 titles: %s"
+                  % (BEST_TIME_ONLY, sorted(led_t), sorted(led), rg.TITLE_MAX,
+                     "; ".join("%s (%d)" % (R[i]["title"], len(R[i]["title"])) for i in BEST_TIME_ONLY))))
 others = [i for i in guides if i not in BEST_TIME_ONLY and not (facts[i]["t"] == R[i]["title"] == off[i])]
 results.append(ok(not others, "every other guide's stored and served title (%d) is the one it has with the switch off %s"
                   % (len(guides) - len(BEST_TIME_ONLY), others[:5] or "")))
