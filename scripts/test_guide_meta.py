@@ -23,6 +23,10 @@ What it holds the code to:
   * Turkey's description names it "Turkey (Türkiye)" once on every rung that
     fits (render_guide.ALSO_NAMED), the served page nowhere else, and no other
     guide, title or h1 says Türkiye;
+  * the title fallback (render_guide.TITLE_BEST_TIME) is off by default and
+    then changes nothing; on, "Best Time to Visit X" leads every guide's title
+    but a Level 4 one within TITLE_MAX, and scripts/retitle_guide_facts.py
+    re-words exactly the stored titles to match;
   * no guide carries FAQPage JSON-LD (its questions were never visible on the
     page, which Google requires; FAQ rich results are gov/health-only since
     2023) and the homepage keeps its WebSite block; the staleness guard drops
@@ -355,6 +359,40 @@ results.append(ok(R["TR"]["title"] == facts["TR"]["t"] and "T\u00fcrkiye" not in
                   and names.get("TR") == "Turkey" and rg.name_in_text("TR") == "Turkey"
                   and not [i for i in guides if i != "TR" and "T\u00fcrkiye" in R[i]["title"] + R[i]["desc"] + rg.h1_html(i)],
                   "the title, h1 and country name stay Turkey; no other guide says Türkiye"))
+
+# --- the title fallback (render_guide.TITLE_BEST_TIME), off by default ------------------
+# Off: every title is the question title above (the file == meta() checks). On:
+# "Best Time to Visit X" leads every guide's title but a Level 4 one, within
+# TITLE_MAX and unique, and scripts/retitle_guide_facts.py re-words exactly the
+# stored t's to match, touching nothing else; TITLE_BEST_TIME_ONLY limits it.
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+import retitle_guide_facts as RT  # noqa: E402
+raw_facts = open(os.path.join(ROOT, "public", "guide-facts.json"), encoding="utf-8").read()
+results.append(ok(not rg.TITLE_BEST_TIME and rg.TITLE_BEST_TIME_ONLY is None and RT.retitle(raw_facts)[1] == [],
+                  "the fallback is off by default, and off it changes no stored title"))
+try:
+    rg.TITLE_BEST_TIME = True
+    on = {i: rg.meta(i, facts[i], asof)["title"] for i in guides}
+    lv4 = [i for i in guides if facts[i].get("adv") == 4]
+    out, changed = RT.retitle(raw_facts)
+    new = json.loads(out)
+    results.append(ok(all(len(t) <= rg.TITLE_MAX for t in on.values()) and len(set(on.values())) == len(guides)
+                      and all(on[i].startswith("Best Time to Visit " + rg.name_in_text(i)) for i in guides if i not in lv4)
+                      and all(on[i] == facts[i]["t"] for i in lv4),
+                      "on: \"Best Time to Visit X\" leads %d titles, <= %d and unique; the %d Level 4 guides keep "
+                      "their safety question (%s)" % (len(guides) - len(lv4), rg.TITLE_MAX, len(lv4), on.get("PT"))))
+    results.append(ok(len(changed) == len(guides) - len(lv4)
+                      and all(new[i]["t"] == on[i] for i in guides)
+                      and all(dict(new[i], t=None) == dict(facts[i], t=None) for i in guides)
+                      and {k: v for k, v in new.items() if k not in guides} == {k: v for k, v in facts.items() if k not in guides}
+                      and len(out.splitlines()) == len(raw_facts.splitlines()),
+                      "retitle_guide_facts re-words exactly the stored t's (%d) to meta(), nothing else" % len(changed)))
+    rg.TITLE_BEST_TIME_ONLY = {"PT", "AU", "AF"}
+    only = [i for i in guides if rg.meta(i, facts[i], asof)["title"] != facts[i]["t"]]
+    results.append(ok(sorted(only) == ["AU", "PT"],
+                      "TITLE_BEST_TIME_ONLY limits it to its guides (Level 4 Afghanistan still keeps its own): %s" % only))
+finally:
+    rg.TITLE_BEST_TIME, rg.TITLE_BEST_TIME_ONLY = False, None
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)
