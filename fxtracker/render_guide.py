@@ -267,12 +267,16 @@ _COST_TAILS = [" Travel Costs vs US, Safety & Best Time", " Costs vs US, Safety 
 # The fallback for the Search Console check of 9 November 2026: if the 4 October
 # retitle (449496e) cost the guides their "best time to visit X" positions,
 # TITLE_BEST_TIME puts that phrase back at the head of the title, followed by
-# what the question titles carry, in the TITLE_MAX ladder. Off by default;
+# what the question titles carry, in the TITLE_MAX ladder. Off, nothing changes;
 # TITLE_BEST_TIME_ONLY (a set of ISO codes) limits it to those guides. A Level 4
 # guide keeps "Is X Safe to Visit?": the site sells no trips there. Turning it
 # on: re-word guide-facts.json's titles with scripts/retitle_guide_facts.py.
-TITLE_BEST_TIME = False
-TITLE_BEST_TIME_ONLY = None
+# On for three guides only, Doug's call of 5 November 2026 after the Search
+# Console read: the Dominican Republic, Morocco and the Isle of Man lost their
+# "best time to visit" positions and show little or no "cheap" demand; every
+# other guide keeps its value title.
+TITLE_BEST_TIME = True
+TITLE_BEST_TIME_ONLY = frozenset({"DO", "MA", "IM"})
 _BEST_TIME_TAILS = {
     "cost": [": Weather, Costs vs US & Safety", ": Weather & Costs vs US", ": Weather & Costs", ""],
     "safety": [": Weather & Travel Advisory", ": Weather & Safety", ""],

@@ -23,10 +23,14 @@ What it holds the code to:
   * Turkey's description names it "Turkey (Türkiye)" once on every rung that
     fits (render_guide.ALSO_NAMED), the served page nowhere else, and no other
     guide, title or h1 says Türkiye;
-  * the title fallback (render_guide.TITLE_BEST_TIME) is off by default and
-    then changes nothing; on, "Best Time to Visit X" leads every guide's title
-    but a Level 4 one within TITLE_MAX, and scripts/retitle_guide_facts.py
-    re-words exactly the stored titles to match;
+  * the title fallback (render_guide.TITLE_BEST_TIME) is on for exactly the
+    Dominican Republic, Morocco and the Isle of Man (Doug, 2026-11-05): "Best
+    Time to Visit X" leads their stored and served titles, every other guide
+    keeps the title it has with the switch off and a Level 4 one its safety
+    question; switched off, scripts/retitle_guide_facts.py re-words exactly
+    those three back, and on for every guide "Best Time to Visit X" leads every
+    title but a Level 4 one within TITLE_MAX and the script re-words exactly
+    those;
   * no guide carries FAQPage JSON-LD (its questions were never visible on the
     page, which Google requires; FAQ rich results are gov/health-only since
     2023) and the homepage keeps its WebSite block; the staleness guard drops
@@ -79,20 +83,22 @@ results.append(ok(not any(re.search(r"\d", R[i]["title"]) for i in guides),
                   "titles state no number or level (they ask a question)"))
 results.append(ok(not any("Cheap" in R[i]["title"] for i in guides if (facts[i].get("adv") == 4)),
                   "no Level 4 country is asked \"cheap?\""))
-unsafe = [i for i in guides if facts[i].get("adv") in (3, 4)
+# The question-title checks skip a guide on the best-time fallback (below): it
+# has its own ladder. A Level 4 guide is never on it.
+unsafe = [i for i in guides if facts[i].get("adv") in (3, 4) and not rg.best_time_title_on(i, facts[i])
           and not R[i]["title"].startswith("Is %s Safe" % rg.name_in_text(i))]
 l3_cheap = [i for i in guides if facts[i].get("adv") == 3 and facts[i].get("band") in ("cheap", "very cheap")
-            and "Safe & Cheap to Visit?" not in R[i]["title"]]
+            and not rg.best_time_title_on(i, facts[i]) and "Safe & Cheap to Visit?" not in R[i]["title"]]
 results.append(ok(not unsafe and not l3_cheap and sum(1 for i in guides if facts[i].get("adv") in (3, 4)) >= 40,
-                  "every Level 3/4 title asks \"Is X Safe…\"; Level 3 cheap ones \"Safe & Cheap\" %s"
+                  "every Level 3/4 question title asks \"Is X Safe…\"; Level 3 cheap ones \"Safe & Cheap\" %s"
                   % ((unsafe + l3_cheap) or "")))
 l4_band = [i for i in guides if facts[i].get("adv") == 4
            and re.search(r"\((very cheap|cheap|about the same|pricey)", R[i]["desc"] + R[i]["body"])]
 results.append(ok(not l4_band, "no Level 4 description or fact line gives a bargain band %s" % (l4_band or "")))
 no_cost_t = [i for i in guides if "pct" in facts[i] and facts[i].get("adv") in (None, 1, 2)
-             and "Costs vs US" not in R[i]["title"]
+             and "Costs vs US" not in R[i]["title"] and not rg.best_time_title_on(i, facts[i])
              and len("Is %s %s to Visit? Costs vs US" % (rg.name_in_text(i), rg._band_q(facts[i]))) <= rg.TITLE_MAX]
-results.append(ok(not no_cost_t, "price titles say \"Costs vs US\" wherever it fits %s" % (no_cost_t or "")))
+results.append(ok(not no_cost_t, "price question titles say \"Costs vs US\" wherever it fits %s" % (no_cost_t or "")))
 
 # --- the snapshot file is meta()'s own output --------------------------------------
 bad = []
@@ -360,39 +366,74 @@ results.append(ok(R["TR"]["title"] == facts["TR"]["t"] and "T\u00fcrkiye" not in
                   and not [i for i in guides if i != "TR" and "T\u00fcrkiye" in R[i]["title"] + R[i]["desc"] + rg.h1_html(i)],
                   "the title, h1 and country name stay Turkey; no other guide says Türkiye"))
 
-# --- the title fallback (render_guide.TITLE_BEST_TIME), off by default ------------------
-# Off: every title is the question title above (the file == meta() checks). On:
-# "Best Time to Visit X" leads every guide's title but a Level 4 one, within
-# TITLE_MAX and unique, and scripts/retitle_guide_facts.py re-words exactly the
-# stored t's to match, touching nothing else; TITLE_BEST_TIME_ONLY limits it.
+# --- the title fallback (render_guide.TITLE_BEST_TIME): on for DO, MA and IM ---------
+# Doug's call of 2026-11-05, after the Search Console read: "Best Time to Visit X"
+# leads exactly the Dominican Republic's, Morocco's and the Isle of Man's titles,
+# stored and served, within TITLE_MAX and unique; every other guide's is the
+# title it has with the switch off (meta() switched off here), and a Level 4
+# guide keeps its safety question. Both modes are still exercised by switching
+# it here, not by the default: off, scripts/retitle_guide_facts.py re-words
+# exactly those three stored t's back; on for every guide, "Best Time to Visit X"
+# leads every title but a Level 4 one and the script re-words exactly those
+# stored t's, touching nothing else; TITLE_BEST_TIME_ONLY limits it.
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import retitle_guide_facts as RT  # noqa: E402
 raw_facts = open(os.path.join(ROOT, "public", "guide-facts.json"), encoding="utf-8").read()
-results.append(ok(not rg.TITLE_BEST_TIME and rg.TITLE_BEST_TIME_ONLY is None and RT.retitle(raw_facts)[1] == [],
-                  "the fallback is off by default, and off it changes no stored title"))
+BEST_TIME_ONLY = ["DO", "IM", "MA"]
+default = (rg.TITLE_BEST_TIME, rg.TITLE_BEST_TIME_ONLY)
+figs = lambda i: {k: v for k, v in facts[i].items() if k not in ("t", "d", "dn", "m")}
+same_but_t = lambda new: (all(dict(new[i], t=None) == dict(facts[i], t=None) for i in guides)
+                          and {k: v for k, v in new.items() if k not in guides}
+                          == {k: v for k, v in facts.items() if k not in guides})
+lv4 = [i for i in guides if facts[i].get("adv") == 4]
 try:
-    rg.TITLE_BEST_TIME = True
-    on = {i: rg.meta(i, facts[i], asof)["title"] for i in guides}
-    lv4 = [i for i in guides if facts[i].get("adv") == 4]
-    out, changed = RT.retitle(raw_facts)
+    rg.TITLE_BEST_TIME, rg.TITLE_BEST_TIME_ONLY = False, None
+    off = {i: rg.meta(i, figs(i), asof)["title"] for i in guides}
+    off_raw, off_changed = RT.retitle(raw_facts)
+finally:
+    rg.TITLE_BEST_TIME, rg.TITLE_BEST_TIME_ONLY = default
+led = [i for i in guides if R[i]["title"].startswith("Best Time to Visit ")]
+led_t = [i for i in guides if facts[i]["t"].startswith("Best Time to Visit ")]
+results.append(ok(rg.TITLE_BEST_TIME is True and set(rg.TITLE_BEST_TIME_ONLY or ()) == set(BEST_TIME_ONLY)
+                  and sorted(led) == sorted(led_t) == BEST_TIME_ONLY
+                  and all(R[i]["title"] == facts[i]["t"] != off[i] and len(R[i]["title"]) <= rg.TITLE_MAX
+                          and R[i]["title"].startswith("Best Time to Visit %s" % rg.name_in_text(i)) for i in BEST_TIME_ONLY)
+                  and len({R[i]["title"] for i in BEST_TIME_ONLY}) == len(BEST_TIME_ONLY),
+                  "on by default for exactly %s (stored %s, served %s): \"Best Time to Visit X\" leads, <= %d and "
+                  "unique: %s" % (BEST_TIME_ONLY, sorted(led_t), sorted(led), rg.TITLE_MAX,
+                                  "; ".join("%s (%d)" % (R[i]["title"], len(R[i]["title"])) for i in BEST_TIME_ONLY))))
+others = [i for i in guides if i not in BEST_TIME_ONLY and not (facts[i]["t"] == R[i]["title"] == off[i])]
+results.append(ok(not others, "every other guide's stored and served title (%d) is the one it has with the switch off %s"
+                  % (len(guides) - len(BEST_TIME_ONLY), others[:5] or "")))
+results.append(ok(lv4 and all(R[i]["title"].startswith("Is %s Safe to Visit?" % rg.name_in_text(i)) for i in lv4),
+                  "the %d Level 4 guides keep their safety question" % len(lv4)))
+off_new = json.loads(off_raw)
+results.append(ok(sorted(i for i, _old, _new in off_changed) == BEST_TIME_ONLY
+                  and all(off_new[i]["t"] == off[i] for i in guides) and same_but_t(off_new)
+                  and len(off_raw.splitlines()) == len(raw_facts.splitlines()),
+                  "switched off, retitle_guide_facts re-words exactly %s back, nothing else"
+                  % sorted(i for i, _old, _new in off_changed)))
+try:
+    rg.TITLE_BEST_TIME, rg.TITLE_BEST_TIME_ONLY = True, None
+    on = {i: rg.meta(i, figs(i), asof)["title"] for i in guides}
+    out, changed = RT.retitle(off_raw)
     new = json.loads(out)
     results.append(ok(all(len(t) <= rg.TITLE_MAX for t in on.values()) and len(set(on.values())) == len(guides)
                       and all(on[i].startswith("Best Time to Visit " + rg.name_in_text(i)) for i in guides if i not in lv4)
-                      and all(on[i] == facts[i]["t"] for i in lv4),
-                      "on: \"Best Time to Visit X\" leads %d titles, <= %d and unique; the %d Level 4 guides keep "
-                      "their safety question (%s)" % (len(guides) - len(lv4), rg.TITLE_MAX, len(lv4), on.get("PT"))))
+                      and all(on[i] == off[i] for i in lv4) and all(on[i] == facts[i]["t"] for i in BEST_TIME_ONLY),
+                      "on for every guide: \"Best Time to Visit X\" leads %d titles, <= %d and unique; the %d Level 4 "
+                      "guides keep their safety question (%s)" % (len(guides) - len(lv4), rg.TITLE_MAX, len(lv4), on.get("PT"))))
     results.append(ok(len(changed) == len(guides) - len(lv4)
-                      and all(new[i]["t"] == on[i] for i in guides)
-                      and all(dict(new[i], t=None) == dict(facts[i], t=None) for i in guides)
-                      and {k: v for k, v in new.items() if k not in guides} == {k: v for k, v in facts.items() if k not in guides}
+                      and all(new[i]["t"] == on[i] for i in guides) and same_but_t(new)
                       and len(out.splitlines()) == len(raw_facts.splitlines()),
-                      "retitle_guide_facts re-words exactly the stored t's (%d) to meta(), nothing else" % len(changed)))
+                      "on for every guide, retitle_guide_facts re-words exactly the switched-off file's t's (%d) to "
+                      "meta(), nothing else" % len(changed)))
     rg.TITLE_BEST_TIME_ONLY = {"PT", "AU", "AF"}
-    only = [i for i in guides if rg.meta(i, facts[i], asof)["title"] != facts[i]["t"]]
+    only = [i for i in guides if rg.meta(i, figs(i), asof)["title"] != off[i]]
     results.append(ok(sorted(only) == ["AU", "PT"],
                       "TITLE_BEST_TIME_ONLY limits it to its guides (Level 4 Afghanistan still keeps its own): %s" % only))
 finally:
-    rg.TITLE_BEST_TIME, rg.TITLE_BEST_TIME_ONLY = False, None
+    rg.TITLE_BEST_TIME, rg.TITLE_BEST_TIME_ONLY = default
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)
