@@ -19,7 +19,7 @@ What it holds the code to:
     app.js fetches or loads images from by a literal URL, and the hosts of
     the guides' hero photos (public/og-images.json, the same Wikipedia lead
     images the guide loads), and each host the newsletter's images come
-    from (newsletter.py's <img> literals, picks.cover()'s photo proxy);
+    from (newsletter.py's <img> literals, the photo proxy picks._banner() builds);
   * it makes no claim the code breaks: not "no tracking cookies" (the
     Wikimedia photos set a year-long ID cookie, which the page names), not
     "everything that leaves"; and the server log it describes keeps a
@@ -193,10 +193,11 @@ from_app = set()
 for line in APP.splitlines():
     if re.search(r"fetch\(|\bapi = |new Image|\.src = ", line):
         from_app |= {h for h in re.findall(r"[\"'`]https://([a-z0-9.-]+)", line) if h not in OWN}
-# The newsletter: hosts in its <img> literals, and the photo proxy picks.cover() builds.
+# The newsletter: hosts in its <img> literals, and the photo proxy picks._banner()
+# builds for every cover.
 from_mail = {h for line in NEWS_SRC.splitlines() if "<img" in line
              for h in re.findall(r"https://([a-z0-9.-]+)", line)}
-cover_src = re.search(r"^def cover\(.*?^def ", PICKS_SRC, re.M | re.S)
+cover_src = re.search(r"^def _banner\(.*?^def ", PICKS_SRC, re.M | re.S)
 from_mail |= set(re.findall(r'"url": \("https://([a-z0-9.-]+)', cover_src.group(0) if cover_src else ""))
 results.append(ok({"flagcdn.com", "images.weserv.nl"} <= from_mail,
                   "the computed list finds the newsletter's image hosts (%s)" % sorted(from_mail)))

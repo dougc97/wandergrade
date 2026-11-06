@@ -8,10 +8,18 @@
      line after the hidden gems links the issue month's /cheapest page, and
      since 2026-10-28 (review 3) each 🛡️ grade names its source, the AI
      callout drops "New:", "route’s" is typographic and an explicit --month
-     issue prints its own year (digest_snapshot.REVIEW3). The 12 months' sha256
-     match scripts/digest_golden/usd_sha256.json, and the USD edition built
-     the per-currency way (gather + build_variant) is the same text. The
-     band is checked against JavaScript's own toFixed under jsc.
+     issue prints its own year (digest_snapshot.REVIEW3), and since 2026-10-30
+     a pick's cover is the first photo of its guide gallery the site's own
+     checks pass (picks.cover_for; activities.json `photo` is an optional
+     override), where 4788fd2 looked up `photo` alone: every edition's
+     covers and "Photo:" credits, every month, are the ones
+     digest_snapshot.fake_rule_cover works out under the fakes, each piece
+     of them (link, image, alt text, file page, artist, licence and its
+     link), and with every cover lookup failing each card renders as it
+     does with a cover, less the cover and its credit. The 12
+     months' sha256 match scripts/digest_golden/usd_sha256.json, and the USD
+     edition built the per-currency way (gather + build_variant) is the same
+     text. The band is checked against JavaScript's own toFixed under jsc.
   2. Each of the ten editions, every month: its own subject, wording, footer,
      banknote, no home country in its picks, balanced markup, and FX measured
      in its own currency.
@@ -22,8 +30,10 @@
 
 --against <rev> also extracts that tree with `git archive` and diffs its USD
 text against this tree's (less the /cheapest line, which must be in every
-month once, and less digest_snapshot.REVIEW3's pieces in both, each of
-which must be in this tree's text where it belongs) in full, then again with only this tree's cost line
+month once, less digest_snapshot.REVIEW3's pieces in both, each of
+which must be in this tree's text where it belongs, and less every cover
+image and "Photo:" credit line in both, digest_snapshot.COVERS: 1 checks
+this tree's are the rule's) in full, then again with only this tree's cost line
 grafted into it (digest_snapshot --graft-cost-line): that must be identical
 for all 12 months, which proves the cost line is the only USD change.
 """
@@ -95,13 +105,19 @@ def main():
                 body, n = ds.without_review3(usd_cmp[m][1])
                 grades = usd_cmp[m][1].count("\U0001f6e1")
                 if not (n.get("src") == grades > 0 and n.get("ai") == 1 and n.get("year") == 1
-                        and n.get("quote") == 1):
+                        and n.get("quote") == 1 and n.get("btn") == n.get("btnend") == 2):
                     placed.append((m, n, grades))
                 usd_cmp[m] = [usd_cmp[m][0], body]
             results.append(ok(not placed, "review 3's pieces are in this tree's USD text every month: each 🛡️ "
-                              "grade's source, the AI callout, the intro's year, the closing quote%s"
+                              "grade's source, the AI callout, the intro's year, the closing quote, both buttons' "
+                              "label spans%s"
                               % ("" if not placed else " -> %r" % placed[:3])))
-            strip = lambda per: {m: [sb[0], ds.without_review3(sb[1])[0]] for m, sb in per.items()}
+            # The covers come out of both: the cover rule picks this tree's
+            # (checked below, every edition), 4788fd2 looked up `photo`.
+            for m in usd_cmp:
+                usd_cmp[m] = [usd_cmp[m][0], ds.without_covers(usd_cmp[m][1])[0]]
+            strip = lambda per: {m: [sb[0], ds.without_covers(ds.without_review3(sb[1])[0])[0]]
+                                 for m, sb in per.items()}
             old["USD"] = strip(old["USD"])
             diffs = [m for m in old["USD"] if old["USD"][m] != usd_cmp.get(m)]
             raw_diff = sorted(int(m) for m in diffs)          # checked in 2c
@@ -119,6 +135,40 @@ def main():
     snap, datas = ds.snapshot(ROOT, tuple(dv.PICKER_ORDER), keep_data=True)
     results.append(ok(snap["USD"] == usd_only["USD"],
                       "the USD edition built per-currency (gather + build_variant) is the same text"))
+
+    # The cover rule, under the fakes: each pick's cover and credit are the
+    # first of `photo` + the gallery's first six that answers, in every
+    # edition and month, every piece the --against comparisons take out (the
+    # card's guide link, the image, the country's name as alt text, the file
+    # page, artist, licence and its link); no cover markup is left once they
+    # are taken out.
+    wrong, n_cov, n_none = [], 0, 0
+    for c in snap:
+        for m in range(1, 13):
+            rest, got = ds.without_covers(snap[c][str(m)][1])
+            want = ds.expected_covers(ROOT, datas[c][m]["picks"],
+                                      lambda iso: newsletter._guide_url(iso, m, dv.VARIANTS[c]))
+            if got != want or "<img src='https://images.example/" in rest or "Photo: " in rest:
+                wrong.append((c, m, got, want))
+            n_cov += len(got)
+            n_none += len(datas[c][m]["picks"]) - len(got)
+    results.append(ok(not wrong and n_cov > 0,
+                      "every edition's covers and credits, all 12 months, are the rule's picks under the fakes, "
+                      "each with its card's guide link, the country's name as alt text and the whole credit "
+                      "(%d covers, %d picks the fakes give none)%s"
+                      % (n_cov, n_none, "" if not wrong else " -> %r" % (wrong[:2],))))
+    # No cover: the fakes give every frozen pick one, so the no-photo cards
+    # are checked here, every lookup failing (Wikipedia or Commons down, a
+    # 429) through the tree's own cover() and cover_file(): each edition,
+    # each month must be its covered text less the covers and credits,
+    # nothing left in their place.
+    bare = ds.snapshot(ROOT, tuple(dv.PICKER_ORDER), offline_covers=True)
+    off = [(c, m) for c in snap for m in snap[c]
+           if (bare.get(c) or {}).get(m) != [snap[c][m][0], ds.without_covers(snap[c][m][1])[0]]]
+    results.append(ok(not off and sorted(bare) == sorted(snap) and all(len(bare[c]) == 12 for c in bare),
+                      "with every cover lookup failing, all %d renders are their text less the covers and "
+                      "credits, nothing in their place%s"
+                      % (sum(len(v) for v in bare.values()), "" if not off else " -> %r" % off[:4])))
 
     # A grade's source is the list's own government, or the one that filled its gap.
     by = picks.advisory_sources([{"iso": "TH", "level": 1}, {"iso": "CI", "level": 2, "via": "ca"},
@@ -413,6 +463,28 @@ def main():
     results.append(ok(n_memo == 3 and len(calls) == 27 and same and rates.get_latest.__name__ == "<lambda>",
                       "9 bases: %d provider fetches (27 without the memo), identical results, "
                       "functions restored" % n_memo))
+
+    print("5. cover photos go to weserv as thumbnails (Wikimedia 429s weserv's fetches of originals)")
+    up = "upload.wikimedia.org/wikipedia/commons/7/79/Ha_Long_Bay_in_2019.jpg"
+    cases = [
+        ((up, 3251), "thumb.wikimedia.org/wikipedia/commons/thumb/7/79/Ha_Long_Bay_in_2019.jpg/"
+                     "1280px-Ha_Long_Bay_in_2019.jpg"),
+        ((up, 1100), "thumb.wikimedia.org/wikipedia/commons/thumb/7/79/Ha_Long_Bay_in_2019.jpg/"
+                     "960px-Ha_Long_Bay_in_2019.jpg"),
+        (("upload.wikimedia.org/wikipedia/commons/a/ab/Flag.PNG", 600),
+         "thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Flag.PNG/500px-Flag.PNG"),
+        ((up, 400), up),                                   # under the smallest step
+        ((up, None), up),                                  # width unknown
+        (("upload.wikimedia.org/wikipedia/commons/a/ab/Map.svg", 2000),
+         "upload.wikimedia.org/wikipedia/commons/a/ab/Map.svg"),   # thumbnail renamed (.svg.png)
+        (("thumb.wikimedia.org/wikipedia/commons/thumb/2/2a/X.jpg/3840px-X.jpg", 3840),
+         "thumb.wikimedia.org/wikipedia/commons/thumb/2/2a/X.jpg/3840px-X.jpg"),
+        (("upload.wikimedia.org/wikipedia/en/a/ab/Poster.jpg", 2000),
+         "upload.wikimedia.org/wikipedia/en/a/ab/Poster.jpg"),     # not Commons
+    ]
+    bad = [(a, P._thumb(*a)) for a, want in cases if P._thumb(*a) != want]
+    results.append(ok(not bad, "_thumb: a Commons original becomes the widest step its width allows; "
+                      "anything else is left alone (%d cases)%s" % (len(cases), bad or "")))
 
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1

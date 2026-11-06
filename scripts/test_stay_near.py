@@ -43,7 +43,11 @@
     Canada's downtown block;
   * a parenthetical's qualifier words ("guided", "when held", "season") are
     no places, and only North Korea's, Gabon's and Timor-Leste's labels hold
-    any, so no other country's candidates change.
+    any, so no other country's candidates change;
+  * a row's "sp" (its stay place, 2026-11-01) beats its photo subject "p"
+    when the title has no parenthetical, a parenthetical beats "sp", and a
+    pinned Commons "p" with an "sp" keeps the "sp" as the row's place,
+    taken as written (not expanded like a label).
 """
 import importlib.util
 import io
@@ -523,13 +527,47 @@ results.append(ok(all(g.qualifier(w) for w in ("guided", "when held", "season", 
                   and g.act_places({"t": "Tea country & trains (Ella, Kandy)"}) == ["Ella", "Kandy"],
                   "qualifier words are not places; a parenthetical of them alone names none (not the photo subject)"))
 
+# The stay place (E, Doug 2026-11-01): a row with no parenthetical may carry
+# "sp", which act_places reads before "p", so its photo can change without
+# moving its chip (Sweden's archipelago row shows Fjäderholmarna and stays
+# "Stockholm Archipelago"); a parenthetical still names the places itself,
+# and a pinned Commons photo no longer drops the row's place when "sp" names
+# it (Kuwait's Grand Mosque row).
+kw_pin = {"t": "Grand Mosque", "p": "File:Kuwait City Grand Mosque Exterior South Facade 3.jpg",
+          "sp": "Grand Mosque"}
+results.append(ok(g.act_places({"t": "Archipelago islands", "p": "Fjäderholmarna", "sp": "Stockholm Archipelago"})
+                  == ["Stockholm Archipelago"]
+                  and g.act_places({"t": "Archipelago islands", "p": "Fjäderholmarna"}) == ["Fjäderholmarna"]
+                  and g.act_places({"t": "Archipelago islands", "sp": "Stockholm Archipelago"}) == ["Stockholm Archipelago"]
+                  and g.act_places({"t": "Archipelago islands", "p": "Fjäderholmarna", "sp": ""}) == ["Fjäderholmarna"],
+                  "\"sp\" is a row's stay place over its photo subject \"p\"; an empty one is none"))
+results.append(ok(g.act_places({"t": "Royal palaces (Abomey)", "p": "File:Abomey-Königspalast3.jpg", "sp": "Cotonou"})
+                  == ["Abomey"]
+                  and g.act_places({"t": "Mass Games (when held)", "p": "Arirang Festival", "sp": "Pyongyang"}) == []
+                  and g.act_places({"t": "Tea country & trains (Ella, Kandy)", "sp": "Colombo"}) == ["Ella", "Kandy"],
+                  "a parenthetical beats \"sp\" (its places, or none for qualifier words alone)"))
+# "sp" is taken as written, as "p" is: it holds the very title act_places gave
+# the row before (already spelt out where it came from the label), so it is
+# not expanded again ("NP"/"Mt" stay as typed; a label still is expanded).
+results.append(ok(g.act_places({"t": "Desert scenery", "sp": "Iona NP"}) == ["Iona NP"]
+                  and g.act_places({"t": "Treks", "p": "Chambe Peak", "sp": "Mt Mulanje"}) == ["Mt Mulanje"]
+                  and g.act_places({"t": "Iona NP"}) == ["Iona National Park"],
+                  "\"sp\" is the row's place exactly as written (no NP/Mt expansion), unlike a label"))
+kw_subjects = [s for s, cap, al, n in g._subjects("KW", {"activities": [kw_pin]})]
+results.append(ok(g.act_places(kw_pin) == ["Grand Mosque"] and kw_subjects == ["Grand Mosque"]
+                  and [s for s, cap, al, n in g._subjects("KW", {"activities": [dict(kw_pin, sp="")]})] == [],
+                  "a pinned Commons \"p\" with an \"sp\" keeps the \"sp\" as the row's place (%s)" % kw_subjects))
+
 
 def old_act_places(x):
-    """act_places before the qualifier rule."""
+    """act_places before the qualifier rule (with the "sp" it reads since
+    2026-11-01, so the qualifier rule alone is compared below)."""
     label = x if isinstance(x, str) else x.get("t", "")
     m = re.search(r"\(([^)]*)\)", label)
     if m:
         return [g.expand(s.strip()) for s in m.group(1).split(",") if s.strip()]
+    if isinstance(x, dict) and x.get("sp"):
+        return [x["sp"]]
     if isinstance(x, dict) and x.get("p"):
         return [x["p"]]
     clean = re.sub(r"\s*\([^)]*\)", "", label).strip()

@@ -330,13 +330,21 @@ def qualifier(s):
 
 def act_places(x):
     """Every place an activity names: all parenthetical entries but the
-    qualifier words, else the photo-subject override, else the cleaned label.
-    A parenthetical of qualifiers alone names no place: the Mass Games' photo
-    subject is the Arirang festival, an event, not somewhere to stay."""
+    qualifier words, else the stay-place override ("sp"), else the
+    photo-subject override ("p"), else the cleaned label. A parenthetical of
+    qualifiers alone names no place: the Mass Games' photo subject is the
+    Arirang festival, an event, not somewhere to stay. "sp" lets a row with
+    no parenthetical change its photo without moving its chip (Doug,
+    2026-11-01): Dubai's desert safari shows dunes from a pinned Commons file
+    and stays "Desert safari", Sweden's archipelago shows Fjäderholmarna and
+    stays "Stockholm Archipelago". With a parenthetical "sp" is never read;
+    app.js reads only "p"."""
     label = x if isinstance(x, str) else x.get("t", "")
     m = re.search(r"\(([^)]*)\)", label)
     if m:
         return [expand(s.strip()) for s in m.group(1).split(",") if s.strip() and not qualifier(s)]
+    if isinstance(x, dict) and x.get("sp"):
+        return [x["sp"]]
     if isinstance(x, dict) and x.get("p"):
         return [x["p"]]
     clean = re.sub(r"\s*\([^)]*\)", "", label).strip()
@@ -597,7 +605,9 @@ def _subjects(iso, act):
     (topping up to GALLERY_SPOTS). A pinned Commons file's place is its
     label; a label that isn't a Wikipedia title finds no coordinates. An
     activity's photo pinned to a Commons file ("p": "File:...", Iceland's
-    northern lights) names a picture, not a place: it is left out."""
+    northern lights) names a picture, not a place: it is left out, unless
+    the row's "sp" names its place (act_places: Kuwait's Grand Mosque row
+    pins its photo and keeps "Grand Mosque")."""
     aliases = ALIASES.get(iso, {})
     subjects = [(p, MAX_SPOTS) for x in (act.get("activities") or []) for p in act_places(x)
                 if not p.startswith("File:")]
