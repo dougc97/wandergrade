@@ -65,7 +65,13 @@ BASE = "7a1491f"
 # Fields this tree adds to a pick or gem that BASE's payload doesn't have, each
 # with its reason. The payload comparison (test_digest_variants 1) sets these
 # aside and nothing else, so name every one.
-ADDED_FIELDS = ()
+ADDED_FIELDS = (
+    # A pick's cover at 220x168, for the compact cards (picks._banner's
+    # "thumb"): the same photo as "photo" from the same image service, where
+    # the cards used to load the 1024x420 banner into a 110x84 box. None on
+    # a pick with no cover and on every gem, as "photo" is.
+    "photo_thumb",
+)
 
 
 def extract_code(root, rev, dest):
@@ -115,6 +121,9 @@ def fake_cover(query, width=1024, height=420):
         return None
     slug = "".join(ch if ch.isalnum() else "_" for ch in query)[:40]
     return {"url": "https://images.example/%s_%dx%d.jpg?h=%s" % (slug, width, height, h[:8]),
+            # The compact cards' small copy (picks._banner's "thumb"); BASE's
+            # code doesn't read it, so its payload is the same as before.
+            "thumb": "https://images.example/%s_220x168.jpg?h=%s" % (slug, h[:8]),
             "credit": {"artist": "Artist %s" % h[2:6], "license": "CC BY-SA 4.0",
                        "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
                        "page": "https://commons.wikimedia.org/wiki/File:%s.jpg" % slug}}

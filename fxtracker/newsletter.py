@@ -21,6 +21,7 @@ import urllib.request
 
 from . import rates  # reuse verifying SSL context
 from .digest_variants import SEND_ORDER, VARIANTS, by_tag
+from .picks import ADV_SRC_SHORT
 from .pricelevel import js_round
 
 API = "https://api.buttondown.email/v1/emails"
@@ -391,10 +392,20 @@ GREEN = "#0a7d28"
 #     but it names every <div>, so one with no font-size of its own is 16px
 #     whatever its parent says.
 #     So text that must keep its size is a <div> with its own font-size,
-#     line-height and margin, and the intro is the only <p> left.
+#     line-height and margin, and the intro is the only <p> left. Every block
+#     that holds words (a button's wrapper too) has its own font-size AND
+#     line-height: Classic's 1.4em would otherwise set a row's height in one
+#     template and the mail app's default in the other.
 #   * Modern: div,table,td,p{color:#000}. A block with no colour of its own is
 #     painted black, not its parent's colour, so a <div> that holds text sets
 #     its own colour.
+#   * Classic: img{margin-left:0!important;margin-right:0!important}. An
+#     image's side margin is thrown away, which left every flag touching its
+#     country's name. No image of ours has one: the gap after a flag is in the
+#     text (_name).
+#   * Classic has no margin rule for p or h2 (the mail app's default applies),
+#     Modern forces 16px 0 on both. The intro <p> and the one <h2> carry their
+#     own margin, which is what Classic shows.
 # scripts/digest_check.py proofing() holds every render to these.
 SMALL = "#666"       # small print; was #888, 3.5:1 on white where 4.5:1 is the usual floor
 SMALL_PX = 12        # ... and its size: the footer, the quote's byline, the photo credits
@@ -419,11 +430,22 @@ def _link(href, label, color=GREEN, style="", underline=False):
                                     ";text-decoration:underline" if underline else "", label))
 
 
-def _adv_by(s):
-    """Whose level the 🛡️ grade is, as the site's pills say it ("per US State
-    Dept", or the government that filled the gap): a bare letter read as
-    WanderGrade's own safety rating."""
-    return (" <span style='color:%s'>per %s</span>" % (SMALL, _esc(s["advBy"]))) if s.get("advBy") else ""
+def _adv_main(v):
+    """The edition's main advisory source by its short name ("US State Dept"):
+    the government picks.build_variant grades safety on (v.adv_source) and the
+    one the footer's grade key names."""
+    return ADV_SRC_SHORT.get(v.adv_source, v.adv_source)
+
+
+def _adv_by(s, v=USD):
+    """Whose level a 🛡️ letter is, where it isn't the edition's main source
+    (" per Global Affairs Canada": the government that filled a gap in the US
+    list). The grade key names the main source once, so a row doesn't repeat
+    it; a bare letter must still never read as WanderGrade's own rating."""
+    by = s.get("advBy")
+    if not by or by == _adv_main(v):
+        return ""
+    return " <span style='color:%s'>per %s</span>" % (SMALL, _esc(by))
 
 
 def _grade(score):
@@ -433,6 +455,31 @@ def _grade(score):
     return ("A+" if score >= 93 else "A" if score >= 85 else "B+" if score >= 78
             else "B" if score >= 68 else "C" if score >= 55 else "D" if score >= 42
             else "F")
+
+
+# The Overall grade is a solid badge in the site's own grade colours:
+# public/styles.css, the fills .grAp to .grF and the letter colour under them
+# (.gr is white; ".grA, .grBp, .grB, .grC, .grD { color: #000 }", since white
+# only clears 4.5:1 on the darkest two fills, A+ and F). test_digest_variants
+# reads that file and holds these two tables to it.
+GRADE_FILL = {"A+": "#067a23", "A": "#2f9e44", "B+": "#74b816", "B": "#c9a200",
+              "C": "#e8590c", "D": "#d9480f", "F": "#b00020"}
+GRADE_INK = {"A+": "#ffffff", "A": "#000000", "B+": "#000000", "B": "#000000",
+             "C": "#000000", "D": "#000000", "F": "#ffffff"}
+# (letter size, line height, padding, corner) of the badge on the top card,
+# a compact card and a gem. The site's own pill is 13px, 18px on its Overall.
+BADGE_TOP, BADGE_CARD, BADGE_GEM = (16, 22, "1px 9px", 7), (13, 18, "1px 7px", 6), (12, 16, "1px 6px", 5)
+
+
+def _badge(score, size):
+    """The Overall grade as a solid badge. It sits after the name's link, not
+    in it, and its letter never wraps (A+ stays one piece). An Overall is
+    always a letter; a dash would take the grey of the site's .grx."""
+    g = _grade(score)
+    px, lh, pad, radius = size
+    return ("<span style='display:inline-block;background:%s;color:%s;font-size:%dpx;line-height:%dpx;"
+            "font-weight:800;padding:%s;border-radius:%dpx;white-space:nowrap'>%s</span>"
+            % (GRADE_FILL.get(g, "#f1f1f1"), GRADE_INK.get(g, SMALL), px, lh, pad, radius, g))
 
 
 def _vo(v):
@@ -454,9 +501,27 @@ def _guide_url(iso, month, v=USD):
 def _flag_img(iso):
     # Real PNG flags render everywhere (incl. Windows/Outlook, where emoji flags
     # collapse to letter-boxes). flagcdn serves free country-code flags.
+    # No side margin: Buttondown's Classic template zeroes an image's (the
+    # note above _link). _name puts the gap to the country's name in the text.
     return ("<img src='https://flagcdn.com/32x24/{0}.png' width='22' height='16' "
-            "alt='{1}' style='vertical-align:-2px;border-radius:2px;margin-right:7px'>"
+            "alt='{1}' style='vertical-align:-2px;border-radius:2px'>"
             .format(_esc(iso.lower()), _esc(iso)))
+
+
+def _name(s, g, weight, badge):
+    """A card's or gem's name row: the flag, the country's name linking to
+    its guide `g`, and the Overall badge.
+
+    The flag's gap is a non-breaking space, which every mail app keeps,
+    widened by 3px on the link to the 7px the cards were drawn with (the
+    flag's own margin-right, until Classic threw it away). The space before
+    the badge is an ordinary one on purpose: where a name fills its line the
+    badge drops to the next, whole. Were the row one unbreakable run, a
+    narrow card (110px of photo beside it on a phone) would be pushed wider
+    than the screen."""
+    return "%s&nbsp;%s %s" % (
+        _flag_img(s["iso"]), _link(g, _esc(s["name"]), style="font-weight:%d;margin-left:3px" % weight),
+        _badge(s["value"], badge))
 
 
 def _acts(s):
@@ -464,22 +529,74 @@ def _acts(s):
     return [x for x in labels if x][:2]
 
 
-def _fx_line(s, compact=False, v=USD):
-    """The WanderGrade hook: after inflation, the reader's money (v.noun, the
-    dollar in the USD edition) goes unusually far here.
-    s["fx"] is the inflation-adjusted move (picks.py); nominal strength in a
-    high-inflation country is a crawl, not a deal."""
+# ---- the four grades ----------------------------------------------------------
+# One grade is its icon, its name on the top card, and its letter, joined
+# with non-breaking spaces so no mail app parts an icon from its letter. Two
+# grades are parted by "&nbsp;&middot; ": the one place the row may break is
+# after a dot.
+_SEP = "&nbsp;&middot; "
+
+
+def _unit(icon, letter, word=""):
+    return "%s&nbsp;%s<b>%s</b>" % (icon, word + "&nbsp;" if word else "", letter)
+
+
+def _grades(s, v=USD, month=None):
+    """Affordability, Safety, Weather and Flights as one row. With `month`
+    (1-12) it is the top card's: each grade is named and the fare's basis
+    follows Flights. Without, a compact card's or a gem's: letters only, and
+    the safety letter names its government only where that isn't the
+    edition's main source (_adv_by)."""
+    top = month is not None
+    word = (lambda w: w) if top else (lambda w: "")
+    units = [_unit("\U0001f4b0", _grade(s["afford"]), word("Affordability")),
+             _unit("\U0001f6e1️", _FLAG.get(s["advLvl"], "B"), word("Safety")) + ("" if top else _adv_by(s, v)),
+             _unit("\U0001f324️", _grade(s["wx"]), word("Weather"))]
+    # Flights is in the Overall whenever there is fare data, so every row that
+    # shows the Overall shows it too.
+    if s.get("fly") is not None:
+        fly = _unit("✈️", _grade(s["fly"]), word("Flights"))
+        if top:
+            # The grade's basis: the featured month's fare vs the route's own
+            # typical, or — where a route has too few cached months — the
+            # year-round fare vs a distance-typical one. The month is named
+            # ("February vs the route’s usual"): the issue goes out two months
+            # ahead, so "this month" read as the month it arrived in. The name
+            # comes from _MONTH_SLUGS, not strftime (the machine's locale).
+            fly += " <span style='color:#6b7681'>(%s)</span>" % (
+                "%s vs the route’s usual" % _MONTH_SLUGS[month - 1].capitalize()
+                if s.get("fly_basis") == "month" else "year-round, for the distance")
+        units.append(fly)
+    return _SEP.join(units)
+
+
+def _source_line(s):
+    """The top card says whose advisories its safety grade is, in full, under
+    the grades ("" when the payload doesn't say)."""
+    if not s.get("advBy"):
+        return ""
+    return ("<div style='font-size:%dpx;line-height:18px;color:%s;margin:2px 0 0'>Safety grade from %s "
+            "advisories</div>" % (SMALL_PX, SMALL, _esc(s["advBy"])))
+
+
+# ---- the two money lines --------------------------------------------------------
+# The same two short lines on the top card and the compact cards, price
+# first. Neither carries 💰, which in this email means the Affordability grade
+# and nothing else.
+
+def _fx_text(s, v=USD):
+    """The WanderGrade hook: after inflation, the reader's money (v.noun_cap,
+    the dollar in the USD edition) goes further here than usual. "" under 3%.
+    s["fx"] is the inflation-adjusted move against the 1-year average
+    (picks.py); nominal strength in a high-inflation country is a crawl, not
+    a deal. The grade key in the footer says what "usual" means."""
     fx = s.get("fx")
     if fx is None or fx < 3:
         return ""
-    pct = js_round(fx)   # Math.round, as the site prints it
-    if compact:
-        return ("<div style='font-size:13px;color:%s;margin:4px 0 0'>%s %s goes ~%d%% "
-                "further than its 1-yr average here, after inflation</div>"
-                % (GREEN, v.fx_emoji, _esc(v.noun_cap), pct))
-    return ("<div style='font-size:14px;color:%s;font-weight:600;margin:8px 0 0'>%s "
-            "After inflation, your %s goes about %d%% further here than its 1-year average."
-            "</div>" % (GREEN, v.fx_emoji, _esc(v.noun), pct))
+    # Math.round, as the site prints it. The last two words are held
+    # together: beside a compact card's photo on a phone the line wraps, and
+    # "usual" alone on a line under four cards in a row read as a mistake.
+    return "%s %s goes ~%d%% further than&nbsp;usual" % (v.fx_emoji, _esc(v.noun_cap), js_round(fx))
 
 
 # "About the same as home" is one band on the site: within ±10%, judged on the
@@ -505,42 +622,43 @@ def _pl_band(pl):
     return -1 if r <= 1 - PL_SAME else 0 if r <= 1 + PL_SAME else 1
 
 
-def _cost_line(s, compact=False, v=USD):
+def _cost_text(s, v=USD):
     """Concrete, data-backed affordability (from the price level vs home: the
     US in the USD edition), in the site's bands and with its rounding
-    (plPhrase's Math.round of the raw value)."""
+    (plPhrase's Math.round of the raw value). "" without a price level.
+    A pricier place says so and no more: until Dec 2026 it added ", but
+    graded worth it", a claim about the Overall the badge now makes itself."""
     pl = s.get("pl")
     if not pl:
         return ""
     band = _pl_band(pl)
     if band < 0:
-        txt = "prices run about %d%% below %s levels" % (js_round((1 - pl) * 100), _esc(v.levels_adj))
-    elif band > 0:
-        # "but graded worth it" claims the Overall makes up for the prices.
-        # In the INR edition every pick is Affordability F and C overall, so
-        # the hero read "Everyday pricier than India, but graded worth it"
-        # over a C. Other editions say it only at B or better (68+); USD
-        # keeps its wording exactly.
-        worth = v.code == "USD" or (s.get("value") or 0) >= 68
-        txt = "pricier than %s%s" % (_esc(v.vs_place), ", but graded worth it" if worth else "")
-    else:
-        txt = "prices about on par with %s" % _esc(v.vs_place)
-    if compact:
-        return "<div style='font-size:13px;color:#555;margin:4px 0 0'>\U0001f4b0 %s</div>" % (
-            txt[0].upper() + txt[1:])
-    return "<div style='font-size:14px;color:#333;margin:6px 0 0'>\U0001f4b0 Everyday %s.</div>" % txt
+        # ("US levels" is held together, as "than usual" is in _fx_text.)
+        return "Prices ~%d%% below %s&nbsp;levels" % (js_round((1 - pl) * 100), _esc(v.levels_adj))
+    if band > 0:
+        return "Pricier than %s" % _esc(v.vs_place)
+    return "Prices about on par with %s" % _esc(v.vs_place)
 
 
-def _value_line(s, compact=False, v=USD):
-    """Lead with the FX hook when it's strong, else the cost anchor."""
-    return _fx_line(s, compact, v) or _cost_line(s, compact, v)
+def _money_lines(s, v=USD, top=False):
+    """The price line, then the dollar line where the card has one."""
+    px, lh, ink, gap = (14, 21, "#333", 8) if top else (13, 19, "#555", 3)
+    cost, fx = _cost_text(s, v), _fx_text(s, v)
+    out = ""
+    if cost:
+        out += "<div style='font-size:%dpx;line-height:%dpx;color:%s;margin:%dpx 0 0'>%s</div>" % (
+            px, lh, ink, gap, cost)
+    if fx:
+        out += ("<div style='font-size:%dpx;line-height:%dpx;color:%s;font-weight:600;margin:%dpx 0 0'>%s</div>"
+                % (px, lh, GREEN, 2 if cost else gap, fx))
+    return out
 
 
 def _dont_miss(s):
     labels = _acts(s)
     if not labels:
         return ""
-    return ("<div style='font-size:14px;color:#333;margin:8px 0 0'><b>Don’t miss:</b> %s</div>"
+    return ("<div style='font-size:14px;line-height:21px;color:#333;margin:8px 0 0'><b>Don’t miss:</b> %s</div>"
             % _esc(", ".join(labels)))
 
 
@@ -579,29 +697,12 @@ def _credits(picks):
             'Photos (cropped) via Wikimedia Commons. %s</div>' % (SMALL_PX, CREDIT, " &middot; ".join(items)))
 
 
-def _fly(s, compact=False, month=None):
-    # The hero line names the featured month (below), so it can't go without
-    # one: no "this month" fallback, the very wording the month replaced.
-    if not compact and not month:
-        raise ValueError("_fly: the hero line names the featured month; pass month=1-12")
-    # Flights is in the Overall whenever there is fare data, so every line that
-    # shows the Overall shows it too (the gem lines used to leave it out).
-    if s.get("fly") is None:
-        return ""
-    # The grade's basis, in the hero line: the featured month's fare vs the
-    # route's own typical, or — where a route has too few cached months —
-    # the year-round fare vs a distance-typical one. The month is named
-    # ("January vs the route’s usual"): the issue goes out two months ahead,
-    # so "this month" read as the month it arrived in. _hero_card passes it;
-    # the name comes from _MONTH_SLUGS, not strftime (the machine's locale).
-    basis = "" if compact else (" <span style='color:#6b7681'>(%s)</span>"
-                                % ("%s vs the route’s usual" % _MONTH_SLUGS[month - 1].capitalize()
-                                   if s.get("fly_basis") == "month" else "year-round, for the distance"))
-    return ((" &middot; ✈️ %s" if compact else " &nbsp;&middot;&nbsp; ✈️ Flights <b>%s</b>%s")
-            % ((_grade(s["fly"]),) if compact else (_grade(s["fly"]), basis)))
-
-
 def _hero_card(s, month, v=USD):
+    # The top card names the featured month beside its fare (_grades), so it
+    # can't go without one: no "this month" fallback, the very wording the
+    # month replaced.
+    if not month:
+        raise ValueError("_hero_card: the top card names the featured month; pass month=1-12")
     g = _guide_url(s["iso"], month, v)
     photo = ("<a href='%s'><img src='%s' width='560' alt='%s' style='width:100%%;max-width:560px;"
              "height:220px;object-fit:cover;display:block'></a>" % (g, s["photo"], _esc(s["name"]))
@@ -610,45 +711,41 @@ def _hero_card(s, month, v=USD):
     <div style="background:#ffffff;border:1px solid #e6e6e6;border-radius:12px;overflow:hidden;margin:0 0 16px">
       %s
       <div style="padding:15px">
-        <div style="font-size:20px;font-weight:800;color:#111">%s%s <span style="color:#666">— Overall %s</span></div>
-        <div style="font-size:14px;color:#444;margin:5px 0 0">\U0001f4b0 Affordability <b>%s</b> &nbsp;&middot;&nbsp; \U0001f6e1️ Safety <b>%s</b>%s &nbsp;&middot;&nbsp; \U0001f324️ Weather <b>%s</b>%s</div>
+        <div style="font-size:20px;line-height:28px;font-weight:800;color:#111">%s</div>
+        <div style="font-size:14px;line-height:22px;color:#444;margin:6px 0 0">%s</div>
         %s%s%s
-        <div style="margin:14px 0 0"><a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 18px;border-radius:9px"><span><span style="color:#ffffff">See %s’s guide →</span></span></a></div>
+        <div style="font-size:14px;line-height:20px;margin:14px 0 0"><a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:14px;line-height:20px;padding:10px 18px;border-radius:9px"><span><span style="color:#ffffff">See %s’s guide&nbsp;→</span></span></a></div>
       </div>
-    </div>""" % (photo, _flag_img(s["iso"]), _link(g, _esc(s["name"])), _grade(s["value"]),
-                 _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]),
-                 _fly(s, month=month), _fx_line(s, v=v), _cost_line(s, v=v), _dont_miss(s), g, GREEN,
-                 _esc(s["name"]))
+    </div>""" % (photo, _name(s, g, 800, BADGE_TOP), _grades(s, v, month), _source_line(s),
+                 _money_lines(s, v, top=True), _dont_miss(s), g, GREEN, _esc(s["name"]))
 
 
 def _compact_card(s, month, v=USD):
     g = _guide_url(s["iso"], month, v)
+    # The small photo is asked for at twice the 110x84 it is shown at
+    # (picks.THUMB_W x THUMB_H), not as the top card's 1024x420 banner; a
+    # payload without one (built before Dec 2026) falls back to the banner.
     thumb = ("<td width='110' valign='top'><a href='%s'><img src='%s' width='110' alt='%s' "
              "style='width:110px;height:84px;object-fit:cover;border-radius:8px;display:block'></a></td>"
-             % (g, s["photo"], _esc(s["name"]))) if s.get("photo") else ""
+             % (g, s.get("photo_thumb") or s["photo"], _esc(s["name"]))) if s.get("photo") else ""
     return """
     <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e6e6e6;border-radius:12px;margin:0 0 12px">
       <tr>%s
         <td valign="top" style="padding:11px 14px">
-          <div style="font-size:16px;font-weight:800;color:#111">%s%s <span style="color:#666">— %s</span></div>
-          <div style="font-size:13px;color:#555;margin:3px 0 0">\U0001f4b0 %s &middot; \U0001f6e1️ %s%s &middot; \U0001f324️ %s%s</div>
+          <div style="font-size:16px;line-height:24px;font-weight:800;color:#111">%s</div>
+          <div style="font-size:13px;line-height:20px;color:#555;margin:3px 0 0">%s</div>
           %s
-          <div style="font-size:13px;margin:6px 0 0">%s</div>
+          <div style="font-size:13px;line-height:19px;margin:5px 0 0">%s</div>
         </td>
       </tr>
-    </table>""" % (thumb, _flag_img(s["iso"]), _link(g, _esc(s["name"])), _grade(s["value"]),
-                   _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]),
-                   _fly(s, compact=True), _value_line(s, compact=True, v=v),
-                   _link(g, "See the guide →", style="font-weight:600"))
+    </table>""" % (thumb, _name(s, g, 800, BADGE_CARD), _grades(s, v), _money_lines(s, v),
+                   _link(g, "See the guide&nbsp;→", style="font-weight:600"))
 
 
 def _gem_line(s, month, v=USD):
     g = _guide_url(s["iso"], month, v)
-    return ("<div style='font-size:14px;margin:0 0 9px;color:#111'>%s%s "
-            "<span style='color:#666'>— %s &middot; \U0001f4b0 %s &middot; \U0001f6e1️ %s%s "
-            "&middot; \U0001f324️ %s%s</span></div>") % (
-        _flag_img(s["iso"]), _link(g, _esc(s["name"]), style="font-weight:700"), _grade(s["value"]),
-        _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]), _fly(s, compact=True))
+    return ("<div style='font-size:14px;line-height:24px;color:#555;margin:0 0 6px'>%s %s</div>"
+            % (_name(s, g, 700, BADGE_GEM), _grades(s, v)))
 
 
 # One line of human at the end of a page of grades. Every author here died long
@@ -720,6 +817,54 @@ def digest_subject(v, month_name):
     return "\U0001f9ed %s trips: where your %s goes furthest" % (month_name, v.noun)
 
 
+def _grade_key(v, mn):
+    """The footer's key to the grades, one short paragraph (under 70 words).
+    Every clause states what the scoring code does; change one only with the
+    code it cites. scripts/test_digest_variants.py 8 holds each to every pick
+    and gem of every frozen render.
+
+      the badge ... an equal mix of the others
+          picks.WEIGHTS gives each of afford, safe, wx and fly the same
+          weight, and picks._score's Overall is their weighted mean over the
+          ones a place has (a place with no weather or fare data is averaged
+          over the rest, hence "the others", not "the four").
+      mostly local prices against <home>, partly whether your <money> goes
+      further than usual (against its 1-year average, after inflation)
+          picks._score: afford = 0.7 x the price level against the edition's
+          home (pl = the place's level / the home's) + 0.3 x the currency
+          move; the move is rates.compute_favorability's rate now against its
+          average over MAX_HISTORY_DAYS (364 days, _span_words' "1-year"),
+          made real by pricelevel.real_fx_pct (the inflation gap). The 💵
+          lines and the intro say "further than usual" for the same figure.
+      the <main source> advisory level (Level 1 = A, Level 2 = B)
+      unless another government is named
+          _FLAG (picks.SAFE_GRADE) by the level; picks.build_variant leaves
+          out Level 3 and picks._score Level 4, so A and B are the only
+          letters an issue can show. The source is _adv_main(v); a place
+          graded on another government's level says so (_adv_by on a compact
+          card or gem, _source_line on the top card).
+      <Month>'s usual weather
+          picks._score reads climate.json's score for the month: five years
+          of daily temperature and rain (fxtracker/build_climate.py; its
+          curated list moves a country's "best" months, not these scores).
+      the fare against the usual for that route or distance
+          picks._score: the month's fare against the route's own median
+          (month_fare), else the year-round fare against a fare fitted to
+          distance (fare_context).
+    """
+    # Non-breaking spaces hold each icon to its "is" and each "Level 1 = A"
+    # together, so a line never starts with "= B)"; "1-year" can't break at
+    # its hyphen either.
+    return ("<b>Reading the grades:</b> the badge is the Overall grade, an equal mix of the others. "
+            "\U0001f4b0&nbsp;is mostly local prices against %s, partly whether your %s goes further than "
+            "usual (against its <span style=\"white-space:nowrap\">1-year</span> average, after inflation). "
+            "\U0001f6e1️&nbsp;is the %s advisory level (Level&nbsp;1&nbsp;=&nbsp;A, "
+            "Level&nbsp;2&nbsp;=&nbsp;B) unless another government is named. "
+            "\U0001f324️&nbsp;is %s’s usual weather. "
+            "✈️&nbsp;is the fare against the usual for that route or distance."
+            % (_esc(v.vs_place), _esc(v.noun), _esc(_adv_main(v)), _esc(mn)))
+
+
 def render_digest(data):
     """Return (subject, html_body) for the monthly graded-picks email, worded
     for data["variant"]'s reader (digest_variants; USD when absent)."""
@@ -729,8 +874,8 @@ def render_digest(data):
     month_link = "%s/?vmn=%s%s" % (SITE, m, _vo(v))
     # "Pick your travel month" opens Top Picks too: graded for this home.
     pick_link = SITE if v.code == "USD" else "%s/?vo=%s" % (SITE, v.home_iso)
-    # Only non-USD editions say how to switch: USD's text is frozen, and the
-    # public form can't switch anyone (a second subscribe ADDS a tag).
+    # Only non-USD editions say how to switch: the public form can't switch
+    # anyone (a second subscribe ADDS a tag).
     switch = "" if v.code == "USD" else (
         " Want another currency’s edition? Reply and say which, or change it in your account"
         " on wandergrade.com (sign in with this address).")
@@ -746,16 +891,29 @@ def render_digest(data):
         preheader = ("Plan ahead: %d destinations graded A+ to F on value, safety, weather and flights for %s."
                      % (len(picks), mn))
 
+    # The first screen is one brand line and one paragraph, then the top
+    # card (Dec 2026; before, a masthead with its tagline, a longer intro, a
+    # green calendar box and a "Top picks" heading stood above it, and on a
+    # phone the first photo began some 380px down, 740px in the Modern
+    # template). The 💵 sentence is there only when a pick has the dollar line.
+    intro = ("<b>%d best-value trip%s for %s</b>, graded A+ to F on money, safety, weather and flights.%s "
+             "Going another month? %s"
+             % (len(picks), "" if len(picks) == 1 else "s", _esc(mn),
+                " %s marks where your %s goes further than usual right now." % (v.fx_emoji, _esc(v.noun))
+                if nstrong else "",
+                _link(pick_link, "Pick your travel month&nbsp;→", style="font-weight:600")))
+
     hero = _hero_card(picks[0], m, v) if picks else ""
     rest = "".join(_compact_card(s, m, v) for s in picks[1:])
     ai_callout = ("<div style='background:#eef7f0;border:1px solid #cfe8d6;border-radius:10px;"
-                  "padding:12px 14px;margin:2px 0 18px;font-size:14px;color:#1a5e33'>✨ Open any country’s "
-                  "guide and tap <b>Plan with AI</b> for a tailored, month-aware itinerary — "
+                  "padding:12px 14px;margin:2px 0 18px;font-size:14px;line-height:20px;color:#1a5e33'>✨ Open any "
+                  "country’s guide and tap <b>Plan with AI</b> for a tailored, month-aware itinerary — "
                   "ChatGPT, Claude, Grok or Perplexity, your call.</div>")
     gems_block = ""
     if gems:
-        gems_block = ("<h2 style='font-size:18px;margin:20px 0 4px;color:#111'>\U0001f48e Hidden gems</h2>"
-                      "<div style='font-size:13px;line-height:19px;color:#555;margin:0 0 12px'>"
+        gems_block = ("<h2 style='font-size:18px;line-height:24px;margin:20px 0 4px;color:#111'>"
+                      "\U0001f48e Hidden gems</h2>"
+                      "<div style='font-size:13px;line-height:19px;color:#555;margin:0 0 10px'>"
                       "Under-the-radar, high-value spots the crowds miss:</div>"
                       + "".join(_gem_line(s, m, v) for s in gems))
 
@@ -765,37 +923,34 @@ def render_digest(data):
     cheap_link = "" if v.code != "USD" else (
         "<div style='font-size:14px;line-height:21px;color:#111;margin:18px 0 0'>\U0001f4b0 "
         "<b>On a budget?</b> %s</div>"
-        % _link(_cheapest_url(m), "The cheapest countries to visit in %s →" % _esc(mn),
+        % _link(_cheapest_url(m), "The cheapest countries to visit in %s&nbsp;→" % _esc(mn),
                 style="font-weight:600"))
 
+    small = "font-size:%dpx;line-height:18px;color:%s" % (SMALL_PX, SMALL)
     body = """<div style="display:none;font-size:1px;color:#f4f5f6;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">%s&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;</div>
 <div style="max-width:600px;margin:0 auto;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;background:#f4f5f6;padding:20px">
-  <div style="text-align:center;margin:0 0 18px">
-    <div style="font-size:22px;font-weight:800;color:#111">\U0001f30d WanderGrade</div>
-    <div style="font-size:14px;color:#555">Where Should I Travel Next?</div>
-  </div>
-  <p style="font-size:15px;line-height:1.5;color:#111">Where’s worth it in <b>%s %s</b>? WanderGrade grades every country <b>A+ to F</b> on what your trip actually hinges on — how far your money goes, safety, weather and flights. The twist: we flag where <b>your %s is unusually strong right now</b>. %s’s standouts \U0001f447</p>
-  <div style="font-size:13px;line-height:19px;color:#555;background:#eef7f0;border-radius:8px;margin:16px 0;padding:10px 12px">\U0001f4c5 <b>%s</b> picks, sent two months ahead so there’s time to plan and book. Going a different time? %s</div>
-  <h2 style="font-size:18px;margin:22px 0 10px;color:#111">\U0001f31f Top picks</h2>
+  <div style="font-size:20px;line-height:26px;font-weight:800;color:#111;text-align:center;margin:0 0 10px">\U0001f30d WanderGrade</div>
+  <p style="font-size:16px;line-height:24px;color:#111;margin:0 0 16px">%s</p>
   %s
   %s
   %s
   %s%s
-  <div style="text-align:center;margin:22px 0 6px">
-    <a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px"><span><span style="color:#ffffff">See every country’s grades →</span></span></a>
+  <div style="font-size:15px;line-height:20px;text-align:center;margin:22px 0 6px">
+    <a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:15px;line-height:20px;padding:12px 22px;border-radius:10px"><span><span style="color:#ffffff">See every country’s grades&nbsp;→</span></span></a>
   </div>
   <div style="font-size:14px;line-height:21px;color:#444;margin:16px 0 0">\U0001f4ac Tell me where you’re headed — just hit reply, or write to %s. I read every message.</div>
   %s
   %s
-  <div style="font-size:%dpx;line-height:18px;color:%s;border-top:1px solid #e0e0e0;margin:14px 0 0;padding:14px 0 0">Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s Currency data as of %s.</div>
-  <div style="font-size:%dpx;line-height:18px;color:%s;margin:0"><b>WanderGrade</b> · once a month, no spam · %s · %s</div>
-</div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), _esc(mn),
-             _link(pick_link, "Pick your travel month →", style="font-weight:600"), hero, rest,
+  <div style="%s;border-top:1px solid #e0e0e0;margin:14px 0 0;padding:14px 0 0">%s</div>
+  <div style="%s;margin:8px 0 0">Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s Currency data as of %s.</div>
+  <div style="%s;margin:8px 0 0"><b>WanderGrade</b> grades every country A+ to F · once a month, no spam · %s · %s</div>
+</div>""" % (_esc(preheader), intro, hero, rest,
              ai_callout, gems_block, cheap_link, month_link, GREEN,
              _link("mailto:hello@wandergrade.com", "<b>hello@wandergrade.com</b>", "#444", underline=True),
              _quote_for(yr, m), _credits(picks),
-             SMALL_PX, SMALL, _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]),
-             SMALL_PX, SMALL, _link(SITE, "wandergrade.com", SMALL, underline=True),
+             small, _grade_key(v, mn),
+             small, _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]),
+             small, _link(SITE, "wandergrade.com", SMALL, underline=True),
              _link(UNSUB, "unsubscribe", SMALL, underline=True))
 
     return subject, body

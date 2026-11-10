@@ -13,12 +13,18 @@ to hold on to. Three proofs replace it:
                 pre-redesign code's, field for field, every edition and
                 month (test_digest_variants 1, digest_snapshot.BASE);
   check()       the email is read back (Email, a small HTML reader) and
-                every visible line, link, image and photo credit in it must
-                be the one expected() works out from the payload: the email
-                says what the payload says, and nothing else;
+                every visible line, link, image, Overall badge and photo
+                credit in it must be the one expected() works out from the
+                payload: the email says what the payload says, and nothing
+                else;
   proofing()    the markup rules that stop Buttondown, the sender,
                 restyling it in either of the two templates the account has
                 used (the note above newsletter._link).
+
+A line's text is compared with its non-breaking spaces kept (NB below): they
+are what holds a flag's gap, an icon to its letter and an arrow to its last
+word, so expected() spells each one out and a plain space in its place is a
+difference.
 
 expected() is the email's spec, in plain text. When the email changes on
 purpose, change expected() and RULES to say the new thing. Don't loosen
@@ -26,10 +32,14 @@ check() or proofing().
 
 `nl` and `pk` below are a tree's newsletter and picks modules, as
 digest_snapshot.install returns them. expected() takes only facts from them
-(the site address, the quote list, the price band and the grade bands, each
-with its own test), never the functions that write the email's HTML.
+(the site address, the quote list, the price band, the grade bands and the
+advisory sources' names, each with its own test), never the functions that
+write the email's HTML. The Overall badge's colours are read from the site's
+own stylesheet (site_grade_colours).
 """
 import html.parser
+import io
+import os
 import re
 
 VOID = frozenset(("img", "br", "hr", "meta", "link", "input"))
@@ -48,6 +58,10 @@ PAD = "\u034f"
 # U+FE0F follows each of these in the email (the emoji form), spelled out
 # so an editor can't drop it.
 SHIELD, SUN, PLANE = "\U0001f6e1\ufe0f", "\U0001f324\ufe0f", "\u2708\ufe0f"
+MONEY = "\U0001f4b0"
+NB = "\xa0"               # a non-breaking space (&nbsp; in the HTML)
+SEP = NB + "\u00b7 "      # between two grades: a row may break only after the dot
+BRAND_TOP = "\U0001f30d WanderGrade"   # the brand line that opens the email
 
 
 # ---- reading an email back ---------------------------------------------------
@@ -94,7 +108,8 @@ class Node(object):
 
 
 def norm(s):
-    return re.sub(r"\s+", " ", s.replace("\xa0", " ")).strip()
+    """White space evened out; a non-breaking space is kept as it is (NB)."""
+    return re.sub(r"[ \t\r\n\f\v]+", " ", s).strip(" \t\r\n\f\v")
 
 
 class _Reader(html.parser.HTMLParser):
@@ -135,8 +150,8 @@ class _Reader(html.parser.HTMLParser):
 
 
 class Email(object):
-    """A body read back: .lines [(text, node)], .links, .images, .credits,
-    and .problems (markup that doesn't nest)."""
+    """A body read back: .lines [(text, node)], .links, .images, .badges,
+    .credits, and .problems (markup that doesn't nest)."""
 
     def __init__(self, body):
         r = _Reader()
@@ -151,6 +166,8 @@ class Email(object):
                                           if n.tag in BLOCK) if t]
         self.links = [_link(a) for a in r.root.walk() if a.tag == "a"]
         self.images = [_image(i) for i in r.root.walk() if i.tag == "img"]
+        # An Overall badge: a <span> with a fill of its own.
+        self.badges = [n for n in r.root.walk() if n.tag == "span" and "background" in n.style]
         self.credits_node = next((n for t, n in self.lines if t.startswith("Photos ")), None)
         self.credits = _credits(self.credits_node) if self.credits_node is not None else None
 
@@ -233,27 +250,64 @@ def _strong(s):
 
 
 def _cost(nl, pk, s, v):
-    """The price fact, in the site's three bands (the band and its rounding
-    are checked against JavaScript in test_digest_variants 2c)."""
+    """The price line, in the site's three bands (the band and its rounding
+    are checked against JavaScript in test_digest_variants 2c). None without
+    a price level."""
     pl = s.get("pl")
     if not pl:
         return None
     band = nl._pl_band(pl)
     if band < 0:
-        return "prices run about %d%% below %s levels" % (pk.js_round((1 - pl) * 100), v.levels_adj)
+        return "Prices ~%d%% below %s%slevels" % (pk.js_round((1 - pl) * 100), v.levels_adj, NB)
     if band > 0:
-        worth = v.code == "USD" or (s.get("value") or 0) >= 68
-        return "pricier than %s%s" % (v.vs_place, ", but graded worth it" if worth else "")
-    return "prices about on par with %s" % v.vs_place
+        return "Pricier than %s" % v.vs_place
+    return "Prices about on par with %s" % v.vs_place
+
+
+_HEX = r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})\b"
+_SITE_COLOURS = {}
+
+
+def _hex6(c):
+    c = c.lower()
+    return c if len(c) == 7 else "#" + "".join(ch * 2 for ch in c[1:])
+
+
+def site_grade_colours(css_path):
+    """{letter: (fill, letter colour)} as the site paints its grade pills,
+    read from its stylesheet (public/styles.css): each .grAp ... .grF rule's
+    background, and for the letter .gr's own colour unless a later rule
+    names the letter's class and sets another (".grA, .grBp, .grB, .grC,
+    .grD { color: #000; }"). Colours come back as six lower-case digits.
+    Raises ValueError when the stylesheet no longer says it this way."""
+    if css_path not in _SITE_COLOURS:
+        with io.open(css_path, encoding="utf-8") as f:
+            css = f.read()
+        letter = lambda cls: cls.replace("p", "+")
+        fills = dict((letter(c), _hex6(h)) for c, h in re.findall(
+            r"^\.gr(Ap|A|Bp|B|C|D|F)\s*\{\s*background:\s*(%s);\s*\}" % _HEX, css, re.M))
+        base = re.search(r"^\.gr\s*\{[^}]*?(?<![-\w])color:\s*(%s)" % _HEX, css, re.M)
+        over = re.findall(r"^((?:\.gr(?:Ap|A|Bp|B|C|D|F)\s*,?\s*)+)\{\s*color:\s*(%s);\s*\}" % _HEX, css, re.M)
+        if sorted(fills) != sorted(["A+", "A", "B+", "B", "C", "D", "F"]) or not base or len(over) != 1:
+            raise ValueError("%s: the grade pill rules aren't where site_grade_colours looks for them"
+                             % css_path)
+        ink = dict((g, _hex6(base.group(1))) for g in fills)
+        for cls in re.findall(r"\.gr(Ap|A|Bp|B|C|D|F)\b", over[0][0]):
+            ink[letter(cls)] = _hex6(over[0][1])
+        _SITE_COLOURS[css_path] = dict((g, (fills[g], ink[g])) for g in fills)
+    return _SITE_COLOURS[css_path]
 
 
 def expected(nl, pk, v, d):
-    """{subject, lines, links, images, credits} for edition `v`'s payload `d`.
+    """{subject, lines, links, images, badges, credits} for edition `v`'s
+    payload `d`.
 
     lines    [(key, text)]: every line a reader sees, top to bottom. A line
              is one block's own text; the key names the piece (RULES).
     links    [(kind, address, words, colour, underlined)] in order.
     images   [(kind, address, alt text, the address it links to)] in order.
+    badges   [(letter, fill, letter colour)]: the Overall badge of each card
+             and gem in order, in the site's colours for that letter.
     credits  [(country, photographer, file page, licence, licence link)]:
              one for each card that shows a photo, in card order."""
     usd = v.code == "USD"
@@ -262,11 +316,25 @@ def expected(nl, pk, v, d):
     site = nl.SITE
     vo = "" if usd else "&vo=" + v.home_iso
     grade, safe = pk.grade, lambda s: pk.SAFE_GRADE.get(s["advLvl"], "B")
-    by = lambda s: " per %s" % s["advBy"] if s.get("advBy") else ""
+    # The edition's main advisory source: the grade key names it once, and a
+    # compact card or gem names its own only where it is another government's.
+    main = pk.ADV_SRC_SHORT.get(v.adv_source, v.adv_source)
+    by = lambda s: " per %s" % s["advBy"] if s.get("advBy") and s["advBy"] != main else ""
     guide = lambda s: "%s/?tab=guide&gc=%s&vmn=%d%s" % (site, s["iso"], m, vo)
     flag = lambda s: ("flag", "https://flagcdn.com/32x24/%s.png" % s["iso"].lower(), s["iso"], None)
-    lines, links, images, credits = [], [], [], []
+    colours = site_grade_colours(os.path.join(pk.PUBLIC, "styles.css"))
+    lines, links, images, badges, credits = [], [], [], [], []
     line = lambda key, text: lines.append((key, text))
+    # A name row: the flag, its gap (a non-breaking space), the name, the badge.
+    name = lambda s: NB + "%s %s" % (s["name"], grade(s["value"]))
+    badge = lambda s: badges.append((grade(s["value"]),) + colours[grade(s["value"])])
+
+    def letters(s):
+        """A compact card's or a gem's four grades: each icon held to its letter."""
+        units = [MONEY + NB + grade(s["afford"]), SHIELD + NB + safe(s) + by(s), SUN + NB + grade(s["wx"])]
+        if s.get("fly") is not None:
+            units.append(PLANE + NB + grade(s["fly"]))
+        return SEP.join(units)
 
     nstrong = sum(1 for s in picks if (s.get("fx") or 0) >= 3)
     pre = ("Plan ahead: after inflation, your %s goes further than usual in %d of %s’s picks."
@@ -274,60 +342,60 @@ def expected(nl, pk, v, d):
            "Plan ahead: %d destinations graded A+ to F on value, safety, weather and flights for %s."
            % (len(picks), mn))
     line("pre", pre + PAD * 10)
-    line("masthead", "\U0001f30d WanderGrade")
-    line("tagline", "Where Should I Travel Next?")
-    line("intro", "Where’s worth it in %s %d? WanderGrade grades every country A+ to F on what your "
-                  "trip actually hinges on — how far your money goes, safety, weather and flights. "
-                  "The twist: we flag where your %s is unusually strong right now. %s’s standouts "
-                  "\U0001f447" % (mn, yr, v.noun, mn))
-    line("calendar", "\U0001f4c5 %s picks, sent two months ahead so there’s time to plan and book. "
-                     "Going a different time? Pick your travel month →" % mn)
+    line("brand_top", BRAND_TOP)
+    # The count is the number of picks; the banknote sentence is there only
+    # when a pick has the dollar line.
+    line("intro", "%d best-value trip%s for %s, graded A+ to F on money, safety, weather and flights.%s "
+                  "Going another month? Pick your travel month%s→"
+         % (len(picks), "" if len(picks) == 1 else "s", mn,
+            " %s marks where your %s goes further than usual right now." % (v.fx_emoji, v.noun) if nstrong else "",
+            NB))
     links.append(("text", site if usd else "%s/?vo=%s" % (site, v.home_iso),
-                  "Pick your travel month →", GREEN, False))
-    line("top_picks", "\U0001f31f Top picks")
+                  "Pick your travel month%s→" % NB, GREEN, False))
 
     for i, s in enumerate(picks):
         g, top = guide(s), i == 0
         if s.get("photo"):
-            images.append(("hero" if top else "thumb", s["photo"], s["name"], g))
+            # The top card shows the banner; a compact card the small copy,
+            # or the banner when the payload has none.
+            images.append(("hero", s["photo"], s["name"], g) if top else
+                          ("thumb", s.get("photo_thumb") or s["photo"], s["name"], g))
             links.append(("image", g, "", None, False))
             c = s.get("photo_credit")
             if c:
                 credits.append((s["name"], c["artist"], c["page"], c["license"], c.get("license_url") or None))
         images.append(flag(s))
         links.append(("text", g, s["name"], GREEN, False))
-        fly = s.get("fly") is not None
+        line("name", name(s))
+        badge(s)
         if top:
-            line("name", "%s — Overall %s" % (s["name"], grade(s["value"])))
-            basis = ("%s vs the route’s usual" % mn if s.get("fly_basis") == "month"
-                     else "year-round, for the distance")
-            line("grades", "\U0001f4b0 Affordability %s · %s Safety %s%s · %s Weather %s%s"
-                 % (grade(s["afford"]), SHIELD, safe(s), by(s), SUN, grade(s["wx"]),
-                    " · %s Flights %s (%s)" % (PLANE, grade(s["fly"]), basis) if fly else ""))
-            if _strong(s):
-                line("fx", "%s After inflation, your %s goes about %d%% further here than its 1-year average."
-                     % (v.fx_emoji, v.noun, pk.js_round(s["fx"])))
-            cost = _cost(nl, pk, s, v)
-            if cost:
-                line("cost", "\U0001f4b0 Everyday %s." % cost)
+            units = [MONEY + NB + "Affordability" + NB + grade(s["afford"]), SHIELD + NB + "Safety" + NB + safe(s),
+                     SUN + NB + "Weather" + NB + grade(s["wx"])]
+            if s.get("fly") is not None:
+                units.append(PLANE + NB + "Flights" + NB + grade(s["fly"]) + " (%s)" % (
+                    "%s vs the route’s usual" % mn if s.get("fly_basis") == "month"
+                    else "year-round, for the distance"))
+            line("grades", SEP.join(units))
+            if s.get("advBy"):
+                line("source", "Safety grade from %s advisories" % s["advBy"])
+        else:
+            line("grades", letters(s))
+        # The same two money lines on every card, price first; the dollar
+        # line only from 3%.
+        cost = _cost(nl, pk, s, v)
+        if cost:
+            line("cost", cost)
+        if _strong(s):
+            line("fx", "%s %s goes ~%d%% further than%susual"
+                 % (v.fx_emoji, v.noun_cap, pk.js_round(s["fx"]), NB))
+        if top:
             if _labels(s):
                 line("dont_miss", "Don’t miss: %s" % ", ".join(_labels(s)))
-            line("guide_button", "See %s’s guide →" % s["name"])
-            links.append(("button", g, "See %s’s guide →" % s["name"], WHITE, False))
+            line("guide_button", "See %s’s guide%s→" % (s["name"], NB))
+            links.append(("button", g, "See %s’s guide%s→" % (s["name"], NB), WHITE, False))
         else:
-            line("name", "%s — %s" % (s["name"], grade(s["value"])))
-            line("grades", "\U0001f4b0 %s · %s %s%s · %s %s%s"
-                 % (grade(s["afford"]), SHIELD, safe(s), by(s), SUN, grade(s["wx"]),
-                    " · %s %s" % (PLANE, grade(s["fly"])) if fly else ""))
-            # One money line on a small card: the dollar line where it has one, else the price.
-            cost = _cost(nl, pk, s, v)
-            if _strong(s):
-                line("fx", "%s %s goes ~%d%% further than its 1-yr average here, after inflation"
-                     % (v.fx_emoji, v.noun_cap, pk.js_round(s["fx"])))
-            elif cost:
-                line("cost", "\U0001f4b0 %s" % (cost[0].upper() + cost[1:]))
-            line("guide_link", "See the guide →")
-            links.append(("text", g, "See the guide →", GREEN, False))
+            line("guide_link", "See the guide%s→" % NB)
+            links.append(("text", g, "See the guide%s→" % NB, GREEN, False))
 
     line("ai", "✨ Open any country’s guide and tap Plan with AI for a tailored, month-aware "
                "itinerary — ChatGPT, Claude, Grok or Perplexity, your call.")
@@ -337,16 +405,15 @@ def expected(nl, pk, v, d):
     for s in gems:
         images.append(flag(s))
         links.append(("text", guide(s), s["name"], GREEN, False))
-        line("gem", "%s — %s · \U0001f4b0 %s · %s %s%s · %s %s%s"
-             % (s["name"], grade(s["value"]), grade(s["afford"]), SHIELD, safe(s), by(s), SUN, grade(s["wx"]),
-                " · %s %s" % (PLANE, grade(s["fly"])) if s.get("fly") is not None else ""))
+        line("gem", name(s) + " " + letters(s))
+        badge(s)
     if usd:
         # The month's /cheapest page is graded from the US: the USD edition only.
-        cheap = "The cheapest countries to visit in %s →" % mn
+        cheap = "The cheapest countries to visit in %s%s→" % (mn, NB)
         line("budget", "\U0001f4b0 On a budget? " + cheap)
         links.append(("text", "%s/cheapest/%s" % (site, mn.lower()), cheap, GREEN, False))
-    line("all_button", "See every country’s grades →")
-    links.append(("button", "%s/?vmn=%d%s" % (site, m, vo), "See every country’s grades →", WHITE, False))
+    line("all_button", "See every country’s grades%s→" % NB)
+    links.append(("button", "%s/?vmn=%d%s" % (site, m, vo), "See every country’s grades%s→" % NB, WHITE, False))
     line("reply", "\U0001f4ac Tell me where you’re headed — just hit reply, or write to "
                   "hello@wandergrade.com. I read every message.")
     links.append(("text", "mailto:hello@wandergrade.com", "hello@wandergrade.com", "#444", True))
@@ -359,26 +426,56 @@ def expected(nl, pk, v, d):
             links.append(("text", c[2], c[1], CREDIT, False))
             if c[4]:
                 links.append(("text", c[4], c[3], CREDIT, False))
+    # The grade key opens the footer: the edition's home, its money and its
+    # main advisory source, and the month. (newsletter._grade_key ties each
+    # clause to the scoring code; test_digest_variants 8 holds the facts.)
+    line("key", "Reading the grades: the badge is the Overall grade, an equal mix of the others. "
+                "{money}{nb}is mostly local prices against {home}, partly whether your {noun} goes further than "
+                "usual (against its 1-year average, after inflation). "
+                "{shield}{nb}is the {main} advisory level (Level{nb}1{nb}={nb}A, Level{nb}2{nb}={nb}B) "
+                "unless another government is named. "
+                "{sun}{nb}is {month}’s usual weather. "
+                "{plane}{nb}is the fare against the usual for that route or distance."
+         .format(money=MONEY, shield=SHIELD, sun=SUN, plane=PLANE, nb=NB, home=v.vs_place, noun=v.noun,
+                 main=main, month=mn))
     switch = "" if usd else (" Want another currency’s edition? Reply and say which, or change it in your "
                              "account on wandergrade.com (sign in with this address).")
     line("footer", "Grades are for %s planning %s travel; set your home country on the site to re-grade "
                    "for you.%s Currency data as of %s." % (v.traveler, mn, switch, d["as_of"]))
-    line("brand", "WanderGrade · once a month, no spam · wandergrade.com · unsubscribe")
+    line("brand", "WanderGrade grades every country A+ to F · once a month, no spam · wandergrade.com · unsubscribe")
     links.append(("text", site, "wandergrade.com", SMALL, True))
     links.append(("text", nl.UNSUB, "unsubscribe", SMALL, True))
     return {"subject": "\U0001f9ed %s trips: where your %s goes furthest" % (mn, v.noun),
-            "lines": lines, "links": links, "images": images, "credits": credits}
+            "lines": lines, "links": links, "images": images, "badges": badges, "credits": credits}
 
 
 # The block a line sits in: its tag, and the style it must carry (None: any
-# value, but its own). Small print is a <div> with its own size, line height
-# and margin, or Buttondown resizes it; the intro is the one <p>.
+# value, but its own). Every block of words is a <div> with its own size and
+# line height, or Buttondown resizes it; the intro is the one <p>, at the
+# 16px/24px it is delivered at, and it and the one heading have their own
+# margin.
 _SMALL = {"font-size": "12px", "line-height": "18px", "margin": None}
+_ROW = {"font-size": None, "line-height": None}
 RULES = {
-    "intro": ("p", {}),
-    "calendar": ("div", {"font-size": "13px", "line-height": "19px", "margin": None, "color": "#555"}),
+    # The brand line: the name alone, 800, about 20px, centred, a small gap under it.
+    "brand_top": ("div", {"font-size": "20px", "line-height": None, "margin": None, "color": "#111",
+                          "font-weight": "800", "text-align": "center"}),
+    "intro": ("p", {"font-size": "16px", "line-height": "24px", "margin": None, "color": "#111"}),
+    "name": ("div", dict(_ROW, color="#111")),
+    "grades": ("div", dict(_ROW, color=None, margin=None)),
+    # Whose advisories the top card's safety grade is: small print, like the footer.
+    "source": ("div", dict(_SMALL, color=SMALL)),
+    "cost": ("div", dict(_ROW, color=None, margin=None)),
+    "fx": ("div", dict(_ROW, color=GREEN, margin=None)),
+    "dont_miss": ("div", dict(_ROW, color=None, margin=None)),
+    "guide_button": ("div", dict(_ROW, margin=None)),
+    "guide_link": ("div", dict(_ROW, margin=None)),
+    "ai": ("div", dict(_ROW, color=None, margin=None)),
+    "gems": ("h2", {"font-size": "18px", "line-height": None, "margin": None, "color": "#111"}),
     "gems_sub": ("div", {"font-size": "13px", "line-height": "19px", "margin": None, "color": "#555"}),
+    "gem": ("div", dict(_ROW, color=None, margin=None)),
     "budget": ("div", {"font-size": "14px", "line-height": "21px", "margin": None, "color": "#111"}),
+    "all_button": ("div", dict(_ROW, margin=None)),
     "reply": ("div", {"font-size": "14px", "line-height": "21px", "margin": None, "color": "#444"}),
     # The quote as readers have always seen it (Buttondown delivered the old 13px <p> at 16px/24px).
     "quote": ("div", {"font-size": "16px", "line-height": "24px", "margin": None, "color": "#666",
@@ -386,7 +483,9 @@ RULES = {
     # The byline and the credits under it are the same size (newsletter._credits' note).
     "byline": ("div", dict(_SMALL, color=SMALL, **{"font-style": "normal"})),
     "credits": ("div", dict(_SMALL, color=CREDIT, **{"text-align": "center"})),
-    "footer": ("div", dict(_SMALL, color=SMALL, **{"border-top": "1px solid #e0e0e0"})),
+    # The grade key opens the footer (its top border); two more lines of small print follow.
+    "key": ("div", dict(_SMALL, color=SMALL, **{"border-top": "1px solid #e0e0e0"})),
+    "footer": ("div", dict(_SMALL, color=SMALL)),
     "brand": ("div", dict(_SMALL, color=SMALL)),
 }
 
@@ -398,6 +497,17 @@ def _first_diff(got, want):
         if g != w:
             return "#%d: got %r, want %r" % (i, g, w)
     return ""
+
+
+def _px(node, prop="font-size"):
+    m = re.match(r"^(\d+(?:\.\d+)?)px$", node.style.get(prop) or "")
+    return float(m.group(1)) if m else None
+
+
+def _colour(node, prop):
+    """A style's colour as six lower-case digits, None when it isn't a plain hex colour."""
+    val = node.style.get(prop) or ""
+    return _hex6(val) if re.match("^%s$" % _HEX, val) else None
 
 
 def check(nl, pk, v, d, subject, body):
@@ -418,9 +528,11 @@ def check(nl, pk, v, d, subject, body):
         bad.append("images " + _first_diff(images, want["images"]))
     if (got.credits or []) != want["credits"]:
         bad.append("credits: got %r, want %r" % (got.credits, want["credits"]))
-    node = {}
+    node, rows = {}, []
     for (key, _t), (_t2, n) in zip(want["lines"], got.lines):
         node.setdefault(key, n)
+        if key in ("name", "gem"):
+            rows.append((key, n))
         tag, style = RULES.get(key, (None, {}))
         if tag and n.tag != tag:
             bad.append("%s is a <%s>, want <%s>" % (key, n.tag, tag))
@@ -428,8 +540,30 @@ def check(nl, pk, v, d, subject, body):
         for prop, val in style.items():
             if prop not in st or (val is not None and st[prop] != val):
                 bad.append("%s: %s is %r, want %s" % (key, prop, st.get(prop), val or "its own"))
+    # The Overall badge: one on each card and gem, the letter the payload
+    # grades, in the site's colours for that letter. It comes right after the
+    # name's link and is no part of it, its letter can't wrap, and the top
+    # card's is the biggest.
+    badges = [(norm(b.text()), _colour(b, "background"), _colour(b, "color")) for b in got.badges]
+    if badges != want["badges"]:
+        bad.append("badges " + _first_diff(badges, want["badges"]))
+    for key, n in rows:
+        kids = n.elements()
+        b = kids[2] if len(kids) > 2 else None
+        # (a gem's letters follow its badge on the same row; a card's row ends with it)
+        if not ((len(kids) == 3 if key == "name" else len(kids) > 3) and kids[0].tag == "img"
+                and kids[1].tag == "a" and any(b is x for x in got.badges)):
+            bad.append("%s row %r is not flag, name link, badge" % (key, norm(n.own_text())[:30]))
+        elif b.style.get("white-space") != "nowrap" or b.style.get("display") != "inline-block":
+            bad.append("the badge after %r can wrap" % norm(kids[1].text()))
+    if len(got.badges) != len(rows) or any(_px(b) is None or _px(b, "line-height") is None for b in got.badges):
+        bad.append("%d badges for %d name rows, each with its own size" % (len(got.badges), len(rows)))
+    elif len(rows) > 1 and rows[0][0] == "name" and not all(_px(got.badges[0]) > _px(b) for b in got.badges[1:]):
+        bad.append("the top card's badge is not the biggest")
     # The byline belongs to the quote; the credits come right under the quote
-    # and before the footer, whose top border closes them off.
+    # and before the footer, whose top border (on the grade key, its first
+    # line) closes them off. The footer is the key, the line saying whose
+    # grades these are, and the brand line, and nothing after.
     if node["byline"].parent is not node["quote"]:
         bad.append("the byline is not inside the quote block")
     after = node["quote"].next_element()
@@ -437,16 +571,16 @@ def check(nl, pk, v, d, subject, body):
         if after is not node.get("credits") or "border-top" in node["credits"].style:
             bad.append("the credits block is not right under the quote")
         after = node["credits"].next_element()
-    if after is not node["footer"]:
-        bad.append("the footer does not follow the %s" % ("credits" if want["credits"] else "quote"))
+    if after is not node["key"]:
+        bad.append("the grade key does not follow the %s" % ("credits" if want["credits"] else "quote"))
+    if (node["key"].next_element() is not node["footer"] or node["footer"].next_element() is not node["brand"]
+            or node["brand"].next_element() is not None
+            or "border-top" in node["footer"].style or "border-top" in node["brand"].style):
+        bad.append("the footer is not the grade key, the grades-for line and the brand line, in that order")
     return bad
 
 
-def _block_of(n):
-    n = n.parent
-    while n is not None and n.tag not in BLOCK:
-        n = n.parent
-    return n
+_HEADINGS = frozenset(("h1", "h2", "h3", "h4", "h5", "h6"))
 
 
 def proofing(body):
@@ -464,12 +598,24 @@ def proofing(body):
     lists = sorted(set(n.tag for n in e.root.walk() if n.tag in ("ul", "ol", "li")))
     if lists:
         bad.append("list markup Buttondown resizes: %s" % ", ".join(lists))
+    # Classic has no margin rule for <p> or a heading (the mail app's default
+    # applies), Modern forces its own: each carries its own margin.
+    for n in e.root.walk():
+        if (n.tag == "p" or n.tag in _HEADINGS) and "margin" not in n.style:
+            bad.append("<%s> %r has no margin of its own" % (n.tag, norm(n.text())[:30]))
     # Every link with words arrives blue unless the words sit in two spans
     # with the colour on the inner one; our text-decoration:none survives.
     for x in e.links:
         if x["kind"] != "image" and not (x["color"] and x["plain"]):
             bad.append("link %r: its words need two spans with a colour on the inner one, and "
                        "text-decoration:none on the <a>" % x["text"][:40])
+    # Classic throws away an image's left and right margin
+    # (img{margin-left:0!important;margin-right:0!important}): no image has
+    # one, so a gap beside an image (a flag's) is the same in both templates.
+    for x in e.images:
+        if any(k in x["node"].style for k in ("margin", "margin-left", "margin-right")) or any(
+                k in x["node"].attrs for k in ("hspace", "align")):
+            bad.append("<img alt=%r> has a side margin, which Classic throws away" % x["alt"])
     # Nothing a reader sees is under 12px; the hidden preheader is the one exception.
     tops = e.root.elements()
     hidden = [n for n in e.root.walk() if n.style.get("display") == "none"]
@@ -490,16 +636,25 @@ def proofing(body):
     for n in e.root.walk():
         if n.tag in BLOCK and id(n) not in skip and norm(n.own_text(links=False)) and "color" not in n.style:
             bad.append("<%s> %r has no colour of its own" % (n.tag, norm(n.own_text())[:30]))
-    # Classic makes a <div> or <p> with no font-size of its own 16px, whatever
-    # its parent says (p,div{font-size:16px}), so one that shows words sets
-    # its own; a link's words may take the link's size instead (the buttons).
+    # Classic gives every <div> and <p> 16px and a 1.4em line height
+    # (p,div{font-size:16px;line-height:1.4em}), whatever its parent says, and
+    # Modern gives neither. So every block that directly holds words (a
+    # link's or a button's too: its line is the block's) sets both itself,
+    # and a link that sets its own size sets its own line height.
     for n in e.root.walk():
-        if n.tag not in ("div", "p") or id(n) in skip or "font-size" in n.style:
-            continue
-        loose = [x["text"] for x in e.links if x["text"] and "font-size" not in x["node"].style
-                 and _block_of(x["node"]) is n]
-        if norm(n.own_text(links=False)) or loose:
-            bad.append("<%s> %r has no font-size of its own" % (n.tag, norm(n.own_text())[:30]))
+        if n.tag in BLOCK and id(n) not in skip and norm(n.own_text()):
+            for prop in ("font-size", "line-height"):
+                if prop not in n.style:
+                    bad.append("<%s> %r has no %s of its own" % (n.tag, norm(n.own_text())[:30], prop))
+    for x in e.links:
+        if x["text"] and "font-size" in x["node"].style and "line-height" not in x["node"].style:
+            bad.append("link %r sets a font-size but no line-height" % x["text"][:40])
+    # The brand line: once, and the first thing in the panel (the block after
+    # the hidden preheader).
+    panel = tops[1].elements() if len(tops) > 1 else []
+    brand = [n for t, n in e.lines if t == BRAND_TOP]
+    if len(brand) != 1 or not panel or brand[0] is not panel[0]:
+        bad.append("the brand line %r must be there once, first in the panel (found %d)" % (BRAND_TOP, len(brand)))
     return bad
 
 

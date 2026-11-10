@@ -79,12 +79,12 @@ PASS = set()
 
 def stub_cover(q, width=1024, height=420):
     asked.append(("title", q))
-    return {"url": "T:" + q, "credit": {"page": q}} if q in PASS else None
+    return {"url": "T:" + q, "thumb": "t:" + q, "credit": {"page": q}} if q in PASS else None
 
 
 def stub_file(name, width=1024, height=420):
     asked.append(("file", name))
-    return {"url": "F:" + name, "credit": {"page": name}} if ("File:" + name) in PASS else None
+    return {"url": "F:" + name, "thumb": "f:" + name, "credit": {"page": name}} if ("File:" + name) in PASS else None
 
 
 picks.cover, picks.cover_file = stub_cover, stub_file
@@ -156,6 +156,17 @@ try:
                       and gem["photo"] is None,
                       "_enrich over ten editions: %d lookups for two countries' four candidates; a gem gets "
                       "no cover" % len(asked)))
+    # A pick carries its cover three ways: the banner, the compact cards'
+    # small copy of the same photo, and the credit. A cover with no small
+    # copy leaves that field empty (the card then shows the banner).
+    aa = picks._enrich({"iso": "AA"}, acts, with_photo=True, memo=shared_memo)
+    bare = picks._enrich({"iso": "AA"}, acts, with_photo=True,
+                         memo={("title", "A1"): {"url": "T:A1", "credit": {"page": "A1"}}})
+    results.append(ok((aa["photo"], aa["photo_thumb"], aa["photo_credit"]) == ("T:A2", "t:A2", {"page": "A2"})
+                      and (bare["photo"], bare["photo_thumb"]) == ("T:A1", None)
+                      and (gem["photo_thumb"], gem["photo_credit"]) == (None, None),
+                      "_enrich: a pick gets its cover's banner, small copy and credit; a cover without a small "
+                      "copy leaves it empty; a gem gets none"))
 finally:
     picks.cover, picks.cover_file = saved
 
@@ -305,12 +316,16 @@ try:
     thumb = "thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/Good_view.jpg/1280px-Good_view.jpg"
     want_url = ("https://images.weserv.nl/?url=" + urllib.parse.quote("ssl:" + thumb, safe="")
                 + "&w=1024&h=420&fit=cover&a=attention&output=jpg&q=80")
-    results.append(ok(c == {"url": want_url, "credit": {
+    # ... and the compact cards' small copy: the same thumbnail through the
+    # same service, at 220x168 (Dec 2026; the cards loaded the banner before).
+    want_small = want_url.replace("&w=1024&h=420&", "&w=220&h=168&")
+    results.append(ok(want_small != want_url and c == {"url": want_url, "thumb": want_small, "credit": {
         "artist": "Jane Doe", "license": "CC BY-SA 4.0",
         "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
         "page": "https://commons.wikimedia.org/wiki/File%3AGood_view.jpg"}}
         and hosts == ["en.wikipedia.org", "commons.wikimedia.org"],
-        "a title that passes: two requests, a weserv banner of the 1280px thumbnail, the credit"))
+        "a title that passes: two requests, a weserv banner of the 1280px thumbnail, its 220x168 small copy, "
+        "the credit"))
     refused = {}
     for t in ("Logo", "Map", "Svg", "Skipped", "Fair", "Bare", "Missing page", "Boom"):
         refused[t] = look(t)

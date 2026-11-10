@@ -292,6 +292,11 @@ def _cover_of(name, width, height):
     return _banner(bare, info["credit"], width, height)
 
 
+# A compact card shows its photo at 110x84 (newsletter._compact_card); it is
+# asked for at twice that, for sharp screens.
+THUMB_W, THUMB_H = 220, 168
+
+
 def _banner(bare, credit, width, height):
     """The email's banner for `bare`, a thumb.wikimedia.org host/path, served
     through the free images.weserv.nl proxy (resized to a banner crop). Two
@@ -306,9 +311,13 @@ def _banner(bare, credit, width, height):
     weserv's fetches of originals with 429, which weserv passes on as a 404,
     so Vietnam's Ha Long Bay showed as a broken image while every thumbnail
     loaded."""
-    return {"url": ("https://images.weserv.nl/?url="
-                    + urllib.parse.quote("ssl:" + bare, safe="")
-                    + "&w={0}&h={1}&fit=cover&a=attention&output=jpg&q=80".format(width, height)),
+    src = urllib.parse.quote("ssl:" + bare, safe="")
+    size = "&w={0}&h={1}&fit=cover&a=attention&output=jpg&q=80"
+    return {"url": ("https://images.weserv.nl/?url=" + src + size.format(width, height)),
+            # The same photo for a compact card: the same service and the same
+            # crop rule, at twice the size the card shows it (THUMB_W x THUMB_H).
+            # The cards used to load the whole 1024x420 banner into a 110x84 box.
+            "thumb": "https://images.weserv.nl/?url=" + src + size.format(THUMB_W, THUMB_H),
             "credit": credit}
 
 
@@ -683,6 +692,9 @@ def _enrich(s, acts, with_photo, memo=None):
     s["activities"] = a.get("activities", [])[:2]
     c = cover_for(a, memo) if with_photo else None
     s["photo"] = c and c["url"]
+    # The compact cards' small copy of the same photo (_banner). .get: a
+    # cover that carries none leaves the card on the banner.
+    s["photo_thumb"] = c and c.get("thumb")
     s["photo_credit"] = c and c["credit"]
     return s
 

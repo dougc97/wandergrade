@@ -18,18 +18,27 @@
      toFixed under jsc (2c).
   2. Each of the ten editions, every month: its own subject, wording, footer,
      banknote, no home country in its picks, balanced markup, and FX measured
-     in its own currency; the 2026-11 wording, each piece naming the month.
+     in its own currency; the 2026-11 wording, each piece naming the month;
+     the Dec 2026 first screen (one brand line, one paragraph, the top card).
   3. pricelevel.real_fx_pct's home-side guard (high inflation at home that
      can't be dated: no direction), with the US unaffected.
   6. Every email says what its payload says (scripts/digest_check.py): each
-     visible line, link, image and photo credit, every edition and month,
-     is the one worked out from the payload, and the checks report each of
-     a list of deliberate faults.
-  7. Buttondown, the sender, can't restyle it (digest_check.proofing): the
-     intro is the only <p>, every link's words sit in two spans with the
+     visible line, link, image, Overall badge and photo credit, every
+     edition and month, is the one worked out from the payload (the
+     non-breaking spaces that hold a flag's gap, an icon to its letter and
+     an arrow to its word included), and the checks report each of a list
+     of deliberate faults.
+  7. Buttondown, the sender, can't restyle it in either of its templates
+     (digest_check.proofing): the intro is the only <p>, it and the heading
+     have their own margin, every link's words sit in two spans with the
      colour on the inner one, nothing is under 12px but the hidden
-     preheader, no #888 is left, and every block of text has its own colour
-     and font-size.
+     preheader, no #888 is left, no image has a side margin, every block of
+     text has its own colour, font-size and line-height, and the brand line
+     is there once, first in the panel.
+  8. The Overall badge's colours are the site's (public/styles.css), the
+     compact cards' small photo is the banner's photo at 220x168 (and a
+     payload without one falls back to the banner), and the facts the
+     footer's grade key states are the scoring code's.
 
     /usr/bin/python3 scripts/test_digest_variants.py [--against <rev>]
 
@@ -172,16 +181,17 @@ def main():
         for m in range(1, 13):
             for s_ in datas[c][m]["picks"]:
                 want = ds.fake_rule_cover(acts.get(s_["iso"], {}))
-                got = {"url": s_["photo"], "credit": s_["photo_credit"]} if s_.get("photo") else None
-                if got != want or (not want and s_.get("photo_credit")):
+                got = ({"url": s_["photo"], "thumb": s_["photo_thumb"], "credit": s_["photo_credit"]}
+                       if s_.get("photo") else None)
+                if got != want or (not want and (s_.get("photo_credit") or s_.get("photo_thumb"))):
                     wrong.append((c, m, s_["iso"], got, want))
                 n_cov += bool(want)
                 n_none += not want
             wrong += [(c, m, s_["iso"], "a gem with a cover") for s_ in datas[c][m]["gems"]
-                      if s_.get("photo") or s_.get("photo_credit")]
+                      if s_.get("photo") or s_.get("photo_credit") or s_.get("photo_thumb")]
     results.append(ok(not wrong and n_cov > 0,
-                      "every edition's covers and credits, all 12 months, are the rule's picks under the fakes "
-                      "(%d covers, %d picks the fakes give none)%s"
+                      "every edition's covers, their small copies and credits, all 12 months, are the rule's "
+                      "picks under the fakes (%d covers, %d picks the fakes give none)%s"
                       % (n_cov, n_none, "" if not wrong else " -> %r" % (wrong[:2],))))
     # No cover: the fakes give every frozen pick one, so the no-photo cards
     # are checked here, every lookup failing (Wikipedia or Commons down, a
@@ -194,7 +204,8 @@ def main():
     off = []
     for c, m in cells:
         b, d = (bare.get(c) or {}).get(m), (bare_data.get(c) or {}).get(int(m))
-        if (not b or b[0] != snap[c][m][0] or any(s_.get("photo") or s_.get("photo_credit") for s_ in d["picks"])
+        if (not b or b[0] != snap[c][m][0]
+                or any(s_.get("photo") or s_.get("photo_credit") or s_.get("photo_thumb") for s_ in d["picks"])
                 or dc.canon(b[1]) != dc.canon(snap[c][m][1], covers=False)
                 # (a control: the covered render does differ wherever a pick has a cover)
                 or (dc.canon(b[1]) == dc.canon(snap[c][m][1])) == any(s_.get("photo") for s_ in datas[c][int(m)]["picks"])
@@ -209,10 +220,25 @@ def main():
     # A grade's source is the list's own government, or the one that filled its gap.
     by = picks.advisory_sources([{"iso": "TH", "level": 1}, {"iso": "CI", "level": 2, "via": "ca"},
                                  {"iso": "PS", "level": 3}, {"iso": "PS", "level": 4, "via": "de"}], "us")
-    line = newsletter._gem_line(dict(datas["USD"][1]["gems"][0], advBy=by["CI"]), 1)
+    gem = datas["USD"][1]["gems"][0]
+    line = newsletter._gem_line(dict(gem, advBy=by["CI"]), 1)
+    card = newsletter._compact_card(dict(datas["USD"][1]["picks"][1], advBy=by["PS"]), 1)
+    top = newsletter._hero_card(dict(datas["USD"][1]["picks"][0], advBy=by["CI"]), 1)
+    # The edition's main source (the one the footer's grade key names) is not
+    # repeated on a compact card or a gem; another government's always is;
+    # the top card names its own source in full either way.
+    own = (newsletter._gem_line(dict(gem, advBy=by["TH"]), 1)
+           + newsletter._compact_card(dict(datas["USD"][1]["picks"][1], advBy=by["TH"]), 1))
     results.append(ok(by == {"TH": "US State Dept", "CI": "Global Affairs Canada", "PS": "German Foreign Office"}
-                      and "per Global Affairs Canada</span>" in line,
-                      "a 🛡️ grade names the government whose level it is, the gap-filler where one filled it (%s)" % by))
+                      and "per Global Affairs Canada</span>" in line and "per German Foreign Office</span>" in card
+                      and ">Safety grade from Global Affairs Canada advisories</div>" in top
+                      and " per " not in top and " per " not in own and "State Dept" not in own
+                      and ">Safety grade from US State Dept advisories</div>"
+                      in newsletter._hero_card(datas["USD"][1]["picks"][0], 1)
+                      and all(picks.ADV_SRC_SHORT[v.adv_source] == newsletter._adv_main(v) for v in V.values()),
+                      "a 🛡️ grade names the government whose level it is: the top card in full, a compact card "
+                      "or gem only where it isn't the edition's main source, the gap-filler where one filled "
+                      "it (%s)" % by))
 
     print("2. the ten editions x 12 months")
     problems = []
@@ -238,8 +264,8 @@ def main():
                     problems.append((c, m, "home country in picks"))
                 if v.fx_emoji != "\U0001f4b5" and "\U0001f4b5" in body:
                     problems.append((c, m, "dollar banknote in a non-dollar edition"))
-            if ("goes about" in body and "%s After inflation, your %s goes about" % (v.fx_emoji, v.noun)
-                    not in body):
+            # The dollar line, in the edition's money and with its banknote.
+            if body.count(" goes ~") != body.count("%s %s goes ~" % (v.fx_emoji, v.noun_cap)):
                 problems.append((c, m, "FX line wording/emoji"))
             if re.search(r"Dollar goes ~|dollar goes ~", body) and c not in ("USD", "CAD", "AUD"):
                 problems.append((c, m, "compact FX line says dollar"))
@@ -252,15 +278,16 @@ def main():
             want = 'href="https://wandergrade.com/cheapest/%s"' % newsletter._MONTH_SLUGS[m - 1]
             if n_links != (1 if c == "USD" else 0) or (c == "USD" and want not in snap[c][str(m)][1]):
                 problems.append((c, m, "cheapest link", n_links))
-    # Every edition's issue names its month's next occurrence (render_cheapest.year_for,
-    # the /cheapest page's own year) and the quote for that year; 4788fd2 printed
-    # the default month's year for an explicit month (January 2026 on 2026-10-03).
+    # Every edition's issue is for its month's next occurrence (render_cheapest.year_for,
+    # the /cheapest page's own year): the payload carries that year and the
+    # quote is the one for it. (Until Dec 2026 the intro printed the year,
+    # "February 2027"; the one-paragraph intro names the month alone.)
     import fxtracker.render_cheapest as RCH
     for c in V:
         for m in range(1, 13):
             y = RCH.year_for(m, ds.TODAY)
             body = snap[c][str(m)][1]
-            if "<b>%s %d</b>" % (picks.MONTHS[m - 1], y) not in body or newsletter._quote_for(y, m) not in body:
+            if datas[c][m]["year"] != y or newsletter._quote_for(y, m) not in body:
                 problems.append((c, m, "year", y))
     results.append(ok(not problems, "subjects unique per month; wording, footer, emoji, home exclusion, year, "
                       "markup all right (%d renders)%s" % (12 * len(V), "" if not problems else
@@ -288,9 +315,6 @@ def main():
                 subj == "\U0001f9ed %s trips: where your %s goes furthest" % (mn, v.noun),
                 body.startswith('<div style="display:none;') and body.count("&#847;") == 10
                 and ('overflow:hidden">%s&#847;' % _html.escape(pre)) in body,
-                "</b>. %s’s standouts \U0001f447</p>" % mn in body,
-                ("\U0001f4c5 <b>%s</b> picks, sent two months ahead so there’s time to plan and book. "
-                 "Going a different time? <a href=" % mn) in body,
                 body.count(" vs the route’s usual)") == month_fare
                 and (not month_fare or "(%s vs the route’s usual)" % mn in body),
                 "this month" not in body.lower() and "sweet spot" not in body,
@@ -300,18 +324,61 @@ def main():
     results.append(ok(not worded and n_basis > 0,
                       "the 2026-11 wording in all %d renders: subject '{Month} trips: where your {noun} goes "
                       "furthest', preheader 'Plan ahead: …' naming the month (FX-strong and plain forms), "
-                      "'{Month}’s standouts', the 📅 sentence, the hero fare '({Month} vs the route’s usual)' "
-                      "(%d heroes), no 'this month' or 'sweet spot' left%s"
-                      % (12 * len(V), n_basis, "" if not worded else " -> %r" % worded[:3])))
+                      "the hero fare '({Month} vs the route’s usual)' (%d heroes), no 'this month' or 'sweet "
+                      "spot' left%s" % (12 * len(V), n_basis, "" if not worded else " -> %r" % worded[:3])))
+    # The Dec 2026 first screen (Doug, 2026-11-09): one brand line, then one
+    # paragraph that counts the picks and names the month, then the top card.
+    # The tagline, the long intro with "{Month}’s standouts", the 📅 box and
+    # the "Top picks" heading are gone (the two checks of them went with
+    # them); the banknote sentence is there exactly when a pick has the
+    # dollar line, in the edition's money.
+    screen, n_plain = [], 0
+    for c, v in V.items():
+        for m in range(1, 13):
+            body = snap[c][str(m)][1]
+            d = datas[c][m]
+            mn = picks.MONTHS[m - 1]
+            nstrong = sum(1 for s_ in d["picks"] if (s_.get("fx") or 0) >= 3)
+            n_plain += not nstrong
+            marks = "%s marks where your %s goes further than usual right now." % (v.fx_emoji, v.noun)
+            opens = ('<p style="font-size:16px;line-height:24px;color:#111;margin:0 0 16px"><b>%d best-value trips '
+                     'for %s</b>, graded A+ to F on money, safety, weather and flights.' % (len(d["picks"]), mn))
+            panel = body.split("\n", 2)[2].lstrip() if body.count("\n") > 1 else ""
+            want = [
+                panel.startswith('<div style="font-size:20px;line-height:26px;font-weight:800;color:#111;'
+                                 'text-align:center;margin:0 0 10px">\U0001f30d WanderGrade</div>\n  ' + opens),
+                (marks in body) == bool(nstrong) and (" marks where " in body) == bool(nstrong),
+                " Going another month? <a href=" in body and body.count("<p") == 1,
+                # ... straight above the top card
+                re.search(r"</a></p>\s*<div style=\"background:#ffffff;border:1px solid #e6e6e6", body) is not None,
+                not any(x in body for x in ("Where Should I Travel Next?", "standouts", "\U0001f4c5", "Top picks",
+                                            "two months ahead", "Where’s worth it", "unusually strong")),
+                "<b>WanderGrade</b> grades every country A+ to F · once a month, no spam · " in body,
+            ]
+            if not all(want):
+                screen.append((c, m, want))
+    results.append(ok(not screen and 0 < n_plain < len(cells),
+                      "the first screen in all %d renders: the brand line '🌍 WanderGrade' opens the panel, then "
+                      "one paragraph '<b>N best-value trips for {Month}</b>, graded A+ to F on money, safety, "
+                      "weather and flights.' with the real number of picks, '{banknote} marks where your {noun} "
+                      "goes further than usual right now.' exactly when a pick has the dollar line (%d renders "
+                      "have none), 'Going another month?' and its link, then the top card; no tagline, old "
+                      "intro, 📅 box or 'Top picks' heading; the footer's brand line says what WanderGrade is%s"
+                      % (len(cells), n_plain, "" if not screen else " -> %r" % screen[:3])))
     # Wording samples from the spec.
     eur1 = snap["EUR"]["1"]
     results.append(ok(eur1[0] == "\U0001f9ed January trips: where your euro goes furthest"
-                      and "below German levels." in eur1[1]
+                      and re.search(r">Prices ~\d+% below German&nbsp;levels</div>", eur1[1])
                       and "Grades are for a traveler from Germany (paying in euros) planning January travel;"
                       in eur1[1], "EUR: spec's subject, 'below German levels', footer"))
-    results.append(ok("your Canadian dollar is unusually strong" in snap["CAD"]["1"][1]
+    cad = "".join(b for _, b in snap["CAD"].values())
+    results.append(ok("\U0001f4b5 marks where your Canadian dollar goes further than usual right now." in cad
+                      and re.search(r">\U0001f4b5 Canadian dollar goes ~\d+% further than&nbsp;usual</div>", cad)
+                      and "partly whether your Canadian dollar goes further than usual" in snap["CAD"]["1"][1]
+                      and "local prices against Canada," in snap["CAD"]["1"][1]
                       and "\U0001f4b4" in "".join(b for _, b in snap["JPY"].values()),
-                      "CAD intro names the Canadian dollar; JPY uses the yen banknote"))
+                      "CAD: the intro, the dollar line and the grade key name the Canadian dollar and Canada; "
+                      "JPY uses the yen banknote"))
 
     # FX is measured in the edition's own currency.
     eur_rows = {r["code"]: r["strength_pct"] for r in ds._fixture("rates_EUR.json")["rows"]}
@@ -367,29 +434,23 @@ def main():
     sw = "Want another currency’s edition? Reply and say which"
     results.append(ok(all((sw in snap[c][str(m)][1]) == (c != "USD") for c in V for m in range(1, 13)),
                       "every non-USD footer says how to switch editions; USD's doesn't"))
-    worth = []
-    for c in V:
-        for m in range(1, 13):
-            d = datas[c][m]
-            for s_ in d["picks"]:
-                line = newsletter._cost_line(s_, False, V[c])
-                if "graded worth it" in line and c != "USD" and s_["value"] < 68:
-                    worth.append((c, m, s_["iso"], s_["value"]))
-    # Since the default priorities went even (2026-10-14) every INR hero
-    # grades B or better on these fixtures, so the plain wording is looked
-    # for among all INR picks (Philippines 67 in January, Greece 67 in April).
-    inr_picks = [s_ for m in range(1, 13) for s_ in datas["INR"][m]["picks"]]
-    inr_lines = [newsletter._cost_line(s_, False, V["INR"]) for s_ in inr_picks]
-    results.append(ok(not worth and any("pricier than India.</div>" in x for x in inr_lines),
-                      "non-USD 'pricier than …, but graded worth it' only at B or better (INR picks below B: "
-                      "'Everyday pricier than India.')%s" % ("" if not worth else " -> %r" % worth[:3])))
-    U, INR = V["USD"], V["INR"]
-    cl = newsletter._cost_line
-    results.append(ok("pricier than the US, but graded worth it" in cl({"pl": 1.5, "value": 40}, False, U)
-                      and "pricier than India, but graded worth it" in cl({"pl": 1.5, "value": 68}, False, INR)
-                      and "pricier than India.</div>" in cl({"pl": 1.5, "value": 67}, False, INR)
-                      and "Pricier than India</div>" in cl({"pl": 1.5, "value": 55}, True, INR),
-                      "USD keeps 'but graded worth it' at any grade; INR drops it below 68 (hero and compact)"))
+    # A pricier place says so and no more. Until Dec 2026 the line added ", but
+    # graded worth it" (USD at any grade, other editions only at B or better,
+    # after the INR edition read "pricier than India, but graded worth it"
+    # over a C); the Overall badge beside the name says that now, so the
+    # phrase is in no render and the line is the same at every grade.
+    ct = newsletter._cost_text
+    pricier = [(c, m, s_["iso"]) for c in V for m in range(1, 13) for s_ in datas[c][m]["picks"]
+               if newsletter._pl_band(s_["pl"]) > 0]
+    off = [x for x in pricier
+           if ">Pricier than %s</div>" % V[x[0]].vs_place not in snap[x[0]][str(x[1])][1]]
+    results.append(ok(pricier and not off and not any("worth it" in snap[c][str(m)][1] for c in V for m in range(1, 13))
+                      and ct({"pl": 1.5, "value": 40}, V["USD"]) == "Pricier than the US"
+                      and ct({"pl": 1.5, "value": 95}, V["INR"]) == ct({"pl": 1.5, "value": 40}, V["INR"])
+                      == "Pricier than India",
+                      "a pricier pick reads 'Pricier than {home}' at any grade (%d picks in the frozen months, "
+                      "INR's among them); no render says 'graded worth it'%s"
+                      % (len(pricier), "" if not off else " -> %r" % off[:3])))
     # CNY: estimated fares grade the neutral 70 (site and digest alike), so
     # the 1.4x-max cap no longer reads as an A+ deal for the far side of the world.
     shared = picks.gather(12)
@@ -430,14 +491,27 @@ def main():
     results.append(ok(len(site) == len(grid) and not off,
                       "printed decimals, band and percent equal JavaScript's for %d price levels%s"
                       % (len(grid), "" if not off else " -> %r" % off[:3])))
-    ex = {0.93: "prices about on par with the US", 0.904: "prices run about 10% below US levels",
-          0.95: "prices about on par with the US", 1.104: "prices about on par with the US",
-          1.105: "prices about on par with the US", 1.106: "pricier than the US, but graded worth it",
-          0.6: "prices run about 40% below US levels"}
-    got = {x: cl({"pl": x, "value": 80}) for x in ex}
-    results.append(ok(all("Everyday %s." % ex[x] in got[x] for x in ex),
-                      "edges: 0.93 and 0.95 on par (were '7%'/'5% below'), 0.904 '10% below', "
-                      "1.104/1.105 on par (1.104 was 'pricier'), 1.106 pricier"))
+    ex = {0.93: "Prices about on par with the US", 0.904: "Prices ~10% below US&nbsp;levels",
+          0.95: "Prices about on par with the US", 1.104: "Prices about on par with the US",
+          1.105: "Prices about on par with the US", 1.106: "Pricier than the US",
+          0.6: "Prices ~40% below US&nbsp;levels"}
+    got = {x: ct({"pl": x, "value": 80}) for x in ex}
+    money = newsletter._money_lines
+    results.append(ok(got == ex and ct({"value": 80}) == "" and ct({"pl": 0.6}, V["EUR"]) == "Prices ~40% below German&nbsp;levels"
+                      and ct({"pl": 1.0}, V["EUR"]) == "Prices about on par with Germany",
+                      "edges: 0.93 and 0.95 on par (were '7%'/'5% below'), 0.904 '~10% below', "
+                      "1.104/1.105 on par (1.104 was 'pricier'), 1.106 pricier; no price level, no line"))
+    # The two money lines, price first, on the top card and a compact card
+    # alike; the dollar line from 3% (the site's Math.round), no 💰 on either.
+    both = [money({"pl": 0.6, "fx": fx_}, V["USD"], top=t) for fx_ in (2.99, 3, 4.5, 5.49) for t in (True, False)]
+    results.append(ok(all("Prices ~40% below US&nbsp;levels</div>" in x and "\U0001f4b0" not in x for x in both)
+                      and ["further than&nbsp;usual" in x for x in both] == [False, False] + [True] * 6
+                      and [re.findall(r"goes ~(\d+)%", x) for x in both[2:]] == [["3"]] * 2 + [["5"]] * 4
+                      and all(x.index("Prices") < x.index("\U0001f4b5 Dollar goes ~") for x in both[2:])
+                      and ">\U0001f4b6 Euro goes ~4% further than&nbsp;usual</div>" in money({"pl": 0.6, "fx": 3.6}, V["EUR"])
+                      and money({"fx": 6}, V["USD"]).count("<div") == 1 and money({}, V["USD"]) == "",
+                      "the money lines: 'Prices …' first, then '{banknote} {Money} goes ~N% further than usual' "
+                      "only from 3% (2.99 none, 3 -> 3, 4.5 -> 5), the same on the top card and a compact card"))
     old_band = lambda x: -1 if x < 0.95 else 1 if x > 1.1 else 0
     usd_d = datas["USD"]
     moved = sorted(i for i in shared["ppp"]
@@ -548,7 +622,7 @@ def main():
                       "anything else is left alone (%d cases)%s" % (len(cases), bad or "")))
 
     print("6. every email says what its payload says (digest_check)")
-    said, n = [], {"lines": 0, "links": 0, "images": 0, "credits": 0}
+    said, n = [], {"lines": 0, "links": 0, "images": 0, "badges": 0, "credits": 0}
     for c, m in cells:
         subj, body = snap[c][m]
         probs = dc.check(newsletter, picks, V[c], datas[c][int(m)], subj, body)
@@ -557,14 +631,19 @@ def main():
         want = dc.expected(newsletter, picks, V[c], datas[c][int(m)])
         for k in n:
             n[k] += len(want[k])
-    results.append(ok(not said and n["credits"] == n_cov,
-                      "all %d renders: every visible line (%d), every link's address, words, colour and "
-                      "underline (%d), every image's address, alt text and the guide it links to (%d) and "
-                      "every photo credit's country, photographer, file page, licence and licence link (%d, "
-                      "one for each card with a photo, in card order) are the payload's; the credits sit "
-                      "right under the quote and above the footer's border; the small print is <div>s at "
-                      "their own sizes%s"
-                      % (len(cells), n["lines"], n["links"], n["images"], n["credits"],
+    results.append(ok(not said and n["credits"] == n_cov and n["badges"] == 8 * len(cells),
+                      "all %d renders: every visible line with its non-breaking spaces (%d: the intro's count "
+                      "and banknote sentence, each card's and gem's name, four letters, source and money "
+                      "lines, the grade key, the footer), every link's address, words, colour and underline "
+                      "(%d), every image's address, alt text and the guide it links to (%d: the top card's "
+                      "banner, the compact cards' small copies, the flags), every Overall badge's letter and "
+                      "its fill and letter colour as the site's stylesheet has them (%d, each right after "
+                      "its name's link and outside it, unable to wrap, the top card's the biggest) and every "
+                      "photo credit's country, photographer, file page, licence and licence link (%d, one "
+                      "for each card with a photo, in card order) are the payload's; the credits sit right "
+                      "under the quote and above the footer, which is the grade key, the grades-for line and "
+                      "the brand line; every line is a block with its own size and line height%s"
+                      % (len(cells), n["lines"], n["links"], n["images"], n["badges"], n["credits"],
                          "" if not said else " -> %r" % said[:3])))
     # Credits the frozen months don't have: a top card with no photo (no
     # entry, and the others keep their order), a licence with no link (plain
@@ -573,7 +652,7 @@ def main():
     d = copy.deepcopy(datas["USD"][2])
     P = d["picks"]
     odd = 'Ana "Nia" <b>O\u2019Neil</b> & S\u00f8n, Jr. \u00b7 flickr'
-    P[0]["photo"] = P[0]["photo_credit"] = None
+    P[0]["photo"] = P[0]["photo_thumb"] = P[0]["photo_credit"] = None
     P[1]["photo_credit"] = dict(P[1]["photo_credit"], license="Public domain", license_url="")
     P[2]["photo_credit"] = dict(P[2]["photo_credit"], artist=odd)
     subj, body = newsletter.render_digest(d)
@@ -595,31 +674,98 @@ def main():
     d, v = datas["USD"][2], V["USD"]
     a1, a2 = (cr(s_) for s_ in d["picks"][:2])
     swap = lambda x, y: body.replace(x, "\0").replace(y, x).replace("\0", y)
+    cut = lambda mm: body.replace(mm.group(0), "")
+    credits_div = re.search(r'<div style="[^"]*">Photos \(cropped\).*?</div>', body)
+    brand_div = re.search(r'<div style="[^"]*">\U0001f30d WanderGrade</div>', body)
+    badge1 = re.search(r" (<span style='display:inline-block;[^>]*>[^<]*</span>)", body)
+    fx_div = "<div style='font-size:14px;line-height:21px;color:#0a7d28;font-weight:600;margin:2px 0 0'>%s</div>"
     faults = [
-        ("a word added to a card", "check", body.replace("See the guide \u2192", "See the guide now \u2192", 1)),
-        ("a grade letter changed", "check", re.sub(r"(\u2014 Overall )(A\+|A|B\+|B|C|D|F)<",
-                                                   lambda mm: mm.group(1) + ("B<" if mm.group(2) != "B" else "C<"), body, 1)),
-        ("two photographers swapped", "check", swap(">%s<" % a1["artist"], ">%s<" % a2["artist"])),
-        ("a credit linked to another photo's page", "check", swap(a1["page"], a2["page"])),
-        ("a credit dropped", "check", re.sub(r"(Wikimedia Commons\. ).*?&middot; ", r"\1", body, 1)),
+        # -- what the cards say
+        ("a word added to a card", "check", body.replace("See the guide&nbsp;→", "See the guide now&nbsp;→", 1)),
+        ("an Overall letter changed", "check", re.sub(r"(white-space:nowrap'>)(A\+|A|B\+|B|C|D|F)<",
+                                                      lambda mm: mm.group(1) + ("B<" if mm.group(2) != "B" else "C<"), body, 1)),
+        ("a badge in another grade's colour", "check",
+         body.replace("background:#2f9e44;color:#000000", "background:#74b816;color:#000000", 1)),
+        ("a badge's letter white on a light fill", "check",
+         body.replace("background:#2f9e44;color:#000000", "background:#2f9e44;color:#ffffff", 1)),
+        ("a badge moved inside its name's link", "check",
+         body.replace("</a>" + badge1.group(0), badge1.group(0) + "</a>", 1)),
+        ("a badge that can wrap", "check", body.replace(";white-space:nowrap", "", 1)),
+        ("a compact card's badge as big as the top card's", "check",
+         body.replace("font-size:13px;line-height:18px;font-weight:800", "font-size:16px;line-height:22px;font-weight:800", 1)),
+        ("one of a card's four letters changed", "check",
+         body.replace("\U0001f6e1️&nbsp;<b>A</b>", "\U0001f6e1️&nbsp;<b>B</b>", 1)),
+        ("an icon parted from its letter by a plain space", "check", body.replace("\U0001f4b0&nbsp;<b>", "\U0001f4b0 <b>", 1)),
+        ("a row that can break before a dot", "check", body.replace("</b>&nbsp;&middot; ", "</b> &middot; ", 1)),
+        ("a flag's gap as a plain space", "check", body.replace("border-radius:2px'>&nbsp;<a", "border-radius:2px'> <a", 1)),
+        ("an arrow that can drop to its own line", "check", body.replace("See the guide&nbsp;→", "See the guide →", 1)),
+        ("the top card's source line naming another government", "check",
+         body.replace("Safety grade from US State Dept advisories", "Safety grade from Global Affairs Canada advisories", 1)),
+        ("the top card's source line dropped", "check",
+         cut(re.search(r"<div style='[^']*'>Safety grade from [^<]*</div>", body))),
+        ("the main source repeated on a compact row", "check",
+         body.replace("\U0001f6e1️&nbsp;<b>A</b>&nbsp;&middot;",
+                      "\U0001f6e1️&nbsp;<b>A</b> <span style='color:#666'>per US State Dept</span>&nbsp;&middot;", 1)),
+        ("a price line's number changed", "check", body.replace("Prices ~73% below", "Prices ~74% below", 1)),
+        ("a price line dropped", "check", cut(re.search(r"<div style='[^']*'>Prices ~73% below US&nbsp;levels</div>", body))),
+        ("a dollar line's number changed", "check",
+         re.sub(r"(Dollar goes ~)(\d+)%", lambda mm: "%s%d%%" % (mm.group(1), int(mm.group(2)) + 1), body, 1)),
+        ("a dollar line dropped", "check",
+         cut(re.search(r"<div style='[^']*'>\U0001f4b5 Dollar goes ~\d+% further than&nbsp;usual</div>", body))),
+        ("a dollar line on a card under 3%", "check",
+         body.replace("Prices ~73% below US&nbsp;levels</div>", "Prices ~73% below US&nbsp;levels</div>"
+                      + fx_div % "\U0001f4b5 Dollar goes ~3% further than&nbsp;usual", 1)),
+        ("the dollar line above the price line", "check",
+         re.sub(r"(<div style='[^']*'>Prices ~\d+% below US&nbsp;levels</div>)(<div style='[^']*'>\U0001f4b5 [^<]*</div>)",
+                r"\2\1", body, 1)),
+        ("a compact card loading the banner, not its small copy", "check",
+         body.replace(d["picks"][1]["photo_thumb"], d["picks"][1]["photo"], 1)),
         ("a cover swapped for another's", "check", swap(d["picks"][0]["photo"], d["picks"][1]["photo"])),
         ("a guide link pointing at another country", "check",
          body.replace("gc=%s&" % d["picks"][0]["iso"], "gc=%s&" % d["picks"][1]["iso"], 1)),
         ("a green link turned blue", "check", body.replace('<span style="color:#0a7d28">', '<span style="color:#0069FF">', 1)),
+        # -- the first screen and the footer
+        ("the intro counting one pick too many", "check", body.replace("<b>5 best-value trips", "<b>6 best-value trips", 1)),
+        ("the banknote sentence dropped from the intro", "check",
+         body.replace(" \U0001f4b5 marks where your dollar goes further than usual right now.", "", 1)),
+        ("the brand line twice", "both", body.replace("</p>", "</p>" + brand_div.group(0), 1)),
+        ("the brand line under the intro", "both", cut(brand_div).replace("</p>", "</p>" + brand_div.group(0), 1)),
+        ("the old tagline back under the brand line", "check",
+         body.replace(brand_div.group(0), brand_div.group(0) + '<div style="font-size:14px;line-height:20px;'
+                      'color:#555;text-align:center">Where Should I Travel Next?</div>', 1)),
+        ("the grade key naming another government", "check",
+         body.replace("is the US State Dept advisory level", "is the Global Affairs Canada advisory level", 1)),
+        ("the grade key dropped", "check", cut(re.search(r'<div style="[^"]*border-top[^"]*"><b>Reading the.*?</div>', body))),
+        ("the footer's border on its second line", "check",
+         body.replace('margin:8px 0 0">Grades are for', 'border-top:1px solid #e0e0e0;margin:8px 0 0">Grades are for', 1)),
+        # -- the credits
+        ("two photographers swapped", "check", swap(">%s<" % a1["artist"], ">%s<" % a2["artist"])),
+        ("a credit linked to another photo's page", "check", swap(a1["page"], a2["page"])),
+        ("a credit dropped", "check", re.sub(r"(Wikimedia Commons\. ).*?&middot; ", r"\1", body, 1)),
         ("the credits moved under the footer", "check",
-         (lambda mm: body.replace(mm.group(0), "").replace("\n</div>", mm.group(0) + "\n</div>"))(
-             re.search(r'<div style="[^"]*">Photos \(cropped\).*?</div>', body))),
+         cut(credits_div).replace("\n</div>", credits_div.group(0) + "\n</div>")),
         ("the credits tucked inside the quote block", "check",
-         (lambda mm: body.replace(mm.group(0), "").replace("</i></div></div>", "</i></div>" + mm.group(0) + "</div>"))(
-             re.search(r'<div style="[^"]*">Photos \(cropped\).*?</div>', body))),
-        ("the footer back in a <p>", "both", re.sub(r'<div (style="[^"]*border-top[^"]*">Grades are for.*?)</div>',
-                                                    r"<p \1</p>", body, 1)),
+         cut(credits_div).replace("</i></div></div>", "</i></div>" + credits_div.group(0) + "</div>")),
+        # -- what Buttondown would restyle
+        ("the grade key back in a <p>", "both", re.sub(r'<div (style="[^"]*border-top[^"]*"><b>Reading the.*?)</div>',
+                                                      r"<p \1</p>", body, 1)),
         ("a link's words out of their spans", "proofing",
          body.replace('<span><span style="color:#666;text-decoration:underline">unsubscribe</span></span>', "unsubscribe")),
         ("11px small print", "both", body.replace("font-size:12px", "font-size:11px", 1)),
         ("a #888 left", "proofing", body.replace("color:#666", "color:#888", 1)),
         ("a block with no colour of its own", "both", body.replace(";color:#444;margin:16px 0 0\">", ";margin:16px 0 0\">", 1)),
         ("a block with no font-size of its own", "both", body.replace("font-size:14px;line-height:21px;color:#444;", "line-height:21px;color:#444;", 1)),
+        ("a row with no line-height of its own", "both",
+         body.replace("font-size:13px;line-height:20px;color:#555;margin:3px 0 0", "font-size:13px;color:#555;margin:3px 0 0", 1)),
+        ("a button with no line-height of its own", "proofing",
+         body.replace("font-size:14px;line-height:20px;padding:10px 18px", "font-size:14px;padding:10px 18px", 1)),
+        ("a button's wrapper with no size of its own", "both",
+         body.replace('<div style="font-size:14px;line-height:20px;margin:14px 0 0"><a', '<div style="margin:14px 0 0"><a', 1)),
+        ("a flag with a right margin", "proofing",
+         body.replace("vertical-align:-2px;border-radius:2px'", "vertical-align:-2px;border-radius:2px;margin-right:7px'", 1)),
+        ("the intro with no margin of its own", "both", body.replace('color:#111;margin:0 0 16px"><b>', 'color:#111"><b>', 1)),
+        ("the heading with no margin of its own", "both",
+         body.replace("line-height:24px;margin:20px 0 4px;color:#111'>", "line-height:24px;color:#111'>", 1)),
         ("a <div> never closed", "both", body[::-1].replace(">vid/<", "", 1)[::-1]),
     ]
     missed = []
@@ -634,19 +780,139 @@ def main():
     print("7. Buttondown can't restyle it (digest_check.proofing)")
     unproof = [(c, m, dc.proofing(snap[c][m][1])[:2]) for c, m in cells if dc.proofing(snap[c][m][1])]
     results.append(ok(not unproof,
-                      "all %d renders: the intro is the only <p> (and no list markup); every link's words sit in "
-                      "two spans with a colour on the inner one and text-decoration:none on the <a>; no "
-                      "font-size under %dpx but the hidden preheader's; no #888; every block that shows words "
-                      "has its own colour and its own font-size; the markup nests%s"
+                      "all %d renders: the intro is the only <p> (and no list markup), and it and the one "
+                      "heading have their own margin; every link's words sit in two spans with a colour on "
+                      "the inner one and text-decoration:none on the <a>; no font-size under %dpx but the "
+                      "hidden preheader's; no #888; no image has a side margin; every block that shows words "
+                      "has its own colour, font-size and line-height (a button's link too); the brand line is "
+                      "there once, first in the panel; the markup nests%s"
                       % (len(cells), dc.MIN_PX, "" if not unproof else " -> %r" % unproof[:3])))
     # A control: the email as it was before the redesign fails this, in the
     # ways the delivered Nov 1 2026 issue showed (blue links, 16px small
     # print, 11px credits, #888).
     was = " | ".join(dc.proofing(old_snap["USD"]["2"][1]))
     results.append(ok(all(x in was for x in ("<p> (the intro is the only one allowed)", "two spans",
-                                               "font-size 11px", "#888 is still in the body")),
-                      "control: %s's February email fails it on its <p>s, its bare links, its 11px credits "
-                      "and its #888" % base))
+                                               "font-size 11px", "#888 is still in the body",
+                                               "has a side margin", "has no line-height of its own",
+                                               "has no margin of its own", "the brand line")),
+                      "control: %s's February email fails it on its <p>s, its bare links, its 11px credits, "
+                      "its #888, its flags' side margins, its rows with no line height, its <p>s and headings "
+                      "with no margin, and its brand line not being first in the panel" % base))
+
+    print("8. the badge's colours, the small photos, and what the grade key says")
+    # The badge is in the site's own grade colours: the tables newsletter.py
+    # holds are what public/styles.css says (.grAp ... .grF, and the letter
+    # colour rule under them), for every letter the grade curve can give.
+    site = dc.site_grade_colours(os.path.join(ROOT, "public", "styles.css"))
+    curve = sorted(set(picks.grade(x) for x in range(0, 101)))
+    results.append(ok(newsletter.GRADE_FILL == {g: c[0] for g, c in site.items()}
+                      and newsletter.GRADE_INK == {g: c[1] for g, c in site.items()}
+                      and curve == sorted(site) and all(newsletter._grade(x) == picks.grade(x) for x in range(0, 101))
+                      and [g for g in site if site[g][1] == "#ffffff"] == ["A+", "F"]
+                      and site["A+"][0] == "#067a23" and all(site[g][1] == "#000000" for g in ("A", "B+", "B", "C", "D")),
+                      "the badge's fills and letter colours are styles.css's for all %d letters (%s): A+ and F "
+                      "white on the two darkest fills, the rest black" % (len(site), " ".join(
+                          "%s %s/%s" % (g, site[g][0], site[g][1]) for g in ("A+", "A", "B+", "B", "C", "D", "F")))))
+    # Every letter, on a payload the frozen months don't have (they grade A+ to C).
+    d7 = copy.deepcopy(datas["USD"][2])
+    for s_, val in zip(d7["picks"] + d7["gems"], (95, 88, 80, 70, 60, 45, 30, 93)):
+        s_["value"] = val
+    subj7, body7 = newsletter.render_digest(d7)
+    seen = [(dc.norm(b.text()), b.style.get("background"), b.style.get("color")) for b in dc.Email(body7).badges]
+    probs = dc.check(newsletter, picks, V["USD"], d7, subj7, body7) + dc.proofing(body7)
+    results.append(ok(not probs and seen == [(g,) + site[g] for g in ("A+", "A", "B+", "B", "C", "D", "F", "A+")],
+                      "a payload graded A+ A B+ B C D F A+ shows those eight badges in those colours%s"
+                      % ("" if not probs else " -> %r" % probs[:3])))
+
+    # The small photos. picks._banner makes the compact cards' copy from the
+    # banner's own source: the same service and parameters, 220x168, twice
+    # the 110x84 box the card shows it in.
+    bn = picks._banner("thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/X y.jpg/1280px-X y.jpg", {"artist": "x"}, 1024, 420)
+    tail = "&w=%d&h=%d&fit=cover&a=attention&output=jpg&q=80"
+    src = "https://images.weserv.nl/?url=ssl%3Athumb.wikimedia.org%2Fwikipedia%2Fcommons%2Fthumb%2Fa%2Fab%2FX%20y.jpg%2F1280px-X%20y.jpg"
+    card = newsletter._compact_card(datas["USD"][2]["picks"][1], 2)
+    results.append(ok(bn == {"url": src + tail % (1024, 420), "thumb": src + tail % (220, 168), "credit": {"artist": "x"}}
+                      and (picks.THUMB_W, picks.THUMB_H) == (220, 168) == (2 * 110, 2 * 84)
+                      and "width='110'" in card and "width:110px;height:84px;" in card,
+                      "picks._banner: the small copy is the banner's address with w=220&h=168 (the same service, "
+                      "source, crop and quality), twice the 110x84 a compact card shows"))
+    n_thumb = n_same = 0
+    for c, m in cells:
+        e = dc.Email(snap[c][m][1])
+        P = datas[c][int(m)]["picks"]
+        got = [x["src"] for x in e.images if x["kind"] == "thumb"]
+        n_thumb += len(got)
+        n_same += (got != [s_["photo_thumb"] for s_ in P[1:] if s_.get("photo")]
+                   or any(s_["photo_thumb"] == s_["photo"] or "_220x168." not in s_["photo_thumb"]
+                          for s_ in P if s_.get("photo"))
+                   or [x["src"] for x in e.images if x["kind"] == "hero"] != [P[0]["photo"]] * bool(P[0].get("photo")))
+    results.append(ok(n_thumb > 0 and not n_same,
+                      "all %d renders: each compact card's photo is its pick's small copy (%d), the top card's "
+                      "the 1024x420 banner" % (len(cells), n_thumb)))
+    # A payload without the small copy (one built before Dec 2026, or a cover
+    # that carries none) falls back to the banner on its compact cards.
+    old = copy.deepcopy(datas["USD"][2])
+    del old["picks"][1]["photo_thumb"]
+    old["picks"][2]["photo_thumb"] = None
+    subj_o, body_o = newsletter.render_digest(old)
+    got = [x["src"] for x in dc.Email(body_o).images if x["kind"] == "thumb"]
+    probs = dc.check(newsletter, picks, V["USD"], old, subj_o, body_o) + dc.proofing(body_o)
+    results.append(ok(not probs and got == [old["picks"][1]["photo"], old["picks"][2]["photo"]]
+                      + [s_["photo_thumb"] for s_ in old["picks"][3:]],
+                      "a pick with no small copy shows the banner in its compact card; the others keep theirs%s"
+                      % ("" if not probs else " -> %r" % probs[:3])))
+
+    # The grade key (newsletter._grade_key). Each fact it states, held to the
+    # scoring code and to every pick and gem of every frozen render.
+    import inspect
+    climate = picks._load("climate.json")
+    every = [(c, int(m), s_) for c, m in cells for s_ in datas[c][int(m)]["picks"] + datas[c][int(m)]["gems"]]
+    comps = lambda s_: [s_[k] for k in ("afford", "safe", "wx", "fly") if s_.get(k) is not None]
+    off = [(c, m, s_["iso"]) for c, m, s_ in every
+           if picks.clamp100(sum(comps(s_)) / float(len(comps(s_)))) != s_["value"]]
+    results.append(ok(len(set(picks.WEIGHTS.values())) == 1 and sorted(picks.WEIGHTS) == ["afford", "fly", "safe", "wx"]
+                      and not off and any(len(comps(s_)) == 3 for _c, _m, s_ in every),
+                      "'the badge is the Overall grade, an equal mix of the others': picks.WEIGHTS are equal, and "
+                      "every one of %d picks and gems has an Overall that is the plain mean of the grades it "
+                      "has (some have three: no weather data)%s" % (len(every), "" if not off else " -> %r" % off[:3])))
+
+    def afford(s_):
+        price = picks.clamp100(((1.3 - s_["pl"]) / 0.95) * 100)
+        move = picks.clamp100(50 + s_["fx"] * 6.25) if s_["fx"] is not None else 50
+        return picks.clamp100(price * 0.7 + move * 0.3)
+    off = [(c, m, s_["iso"]) for c, m, s_ in every
+           if afford(s_) != s_["afford"]
+           or s_["fx"] != pl.real_fx_pct(s_["fx_nominal"], s_["iso"], V[c].home_iso, ppp)]
+    results.append(ok(not off and inspect.signature(rates.compute_favorability).parameters["baseline_days"].default == 365
+                      and abs(rates.MAX_HISTORY_DAYS - 365) <= 7 and newsletter._span_words(rates.MAX_HISTORY_DAYS) == "1-year",
+                      "'mostly local prices against {home}, partly whether your {money} goes further than usual "
+                      "(against its 1-year average, after inflation)': every Affordability is 0.7 x the price "
+                      "level's score + 0.3 x the currency move's, the move being pricelevel.real_fx_pct of the "
+                      "nominal one, measured over %d days%s"
+                      % (rates.MAX_HISTORY_DAYS, "" if not off else " -> %r" % off[:3])))
+    off = [(c, m, s_["iso"], s_["advLvl"]) for c, m, s_ in every if s_["advLvl"] not in (1, 2)]
+    named = [(c, m) for c, m in cells
+             if ("is the %s advisory level (Level&nbsp;1&nbsp;=&nbsp;A, Level&nbsp;2&nbsp;=&nbsp;B) unless "
+                 "another government is named." % picks.ADV_SRC_SHORT[V[c].adv_source]) not in snap[c][m][1]]
+    results.append(ok(not off and not named and newsletter._FLAG == picks.SAFE_GRADE
+                      and (picks.SAFE_GRADE[1], picks.SAFE_GRADE[2]) == ("A", "B"),
+                      "'the {source} advisory level (Level 1 = A, Level 2 = B) unless another government "
+                      "is named': every edition's key names its own main source (picks.ADV_SRC_SHORT of its "
+                      "adv_source), and no pick or gem in any render is above Level 2%s"
+                      % ("" if not (off or named) else " -> %r %r" % (off[:3], named[:3]))))
+    wx = lambda iso, m: ((climate.get(iso) or {}).get("scores") or [None] * 12)[m - 1]
+    off = [(c, m, s_["iso"]) for c, m, s_ in every
+           if s_["wx"] != wx(s_["iso"], m) or (s_["fly"] is None) != (s_["fly_basis"] is None)
+           or s_["fly_basis"] not in ("month", "distance", None)]
+    bases = sorted(set(str(s_["fly_basis"]) for _c, _m, s_ in every))
+    results.append(ok(not off and bases == ["distance", "month"],
+                      "'{Month}’s usual weather' and 'the fare against the usual for that route or distance': "
+                      "every weather grade is climate.json's score for the issue's month, and every fare grade "
+                      "is on one of the two bases (%s)%s"
+                      % (", ".join(bases), "" if not off else " -> %r" % off[:3])))
+    key = re.search(r"<b>Reading the grades:</b>.*?</div>", snap["USD"]["2"][1]).group(0)
+    words = [w for w in re.sub(r"<[^>]+>", " ", key.replace("&nbsp;", " ")).split() if re.search(r"[A-Za-z0-9]", w)]
+    results.append(ok(len(words) <= 70, "the grade key is one short paragraph (%d words in the USD edition)" % len(words)))
 
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1
