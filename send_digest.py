@@ -33,6 +33,16 @@ repeated flag, --month outside 1-12, or --out without --dry-run is a usage
 error, never a send with the defaults. So is a bad digest_variants.ROLLOUT
 entry (the site ignores one; this script refuses to run until it is fixed).
 
+Photos: while an issue is built (a send, a --draft and a --dry-run alike),
+each cover is asked for from the image service at the address the email will
+use, and one that does not load (HTTP 404, say, twice in a row) gives way to
+the country's next approved photo, or to no photo when none is left
+(fxtracker/cover_check.py; the October 2026 issue went out with a broken
+Vietnam photo). The log says what happened in lines that start "cover
+check:", ending in a summary such as "cover check: all 5 photos loaded". A
+slow or down image service keeps every photo, and the check can't stop or
+fail a send: it never changes the exit code.
+
 Exit codes: 0 every edition sent, already out, covered or skipped for having no
 readers; 1 something failed (a re-run is safe); 2 usage error or a ROLLOUT
 problem (nothing was built or sent). The owner's rollout steps are the
@@ -46,13 +56,17 @@ import os
 import sys
 import traceback
 
-from fxtracker import newsletter, picks
+from fxtracker import cover_check, newsletter, picks
 from fxtracker.digest_variants import (SEND_ORDER, VARIANTS, draft_codes, rollout_problems,
                                        send_codes, stage)
 
 
 def run(dry_run=False, month=None, draft=False):
-    data = picks.build(month=month)
+    # Every cover is asked for before the issue is built around it (the
+    # "Photos" note above); the check prints its own lines.
+    check = cover_check.CoverCheck()
+    data = picks.build(month=month, cover_check=check)
+    check.report()
     subject, body = newsletter.render_digest(data)
 
     print("Digest for {0} {1} (rates as of {2}): {3} picks, {4} gems.".format(
@@ -123,21 +137,25 @@ def build_editions(codes, month=None):
     learns what already went out. Returns (editions, failed): editions maps
     code -> {"data", "subject", "body"}; failed maps code -> reason."""
     shared = picks.gather(month)             # raises: the run fails, as it always has
+    # One photo check for the whole run: an address two editions share is
+    # asked for once, and they share its 60 seconds.
+    check = cover_check.CoverCheck()
     eds, failed = {}, {}
-    data = picks.build_variant(shared, VARIANTS["USD"])
+    data = picks.build_variant(shared, VARIANTS["USD"], cover_check=check)
     subject, body = newsletter.render_digest(data)
     eds["USD"] = {"data": data, "subject": subject, "body": body}
     for c in codes:
         if c == "USD":
             continue
         try:
-            data = picks.build_variant(shared, VARIANTS[c])
+            data = picks.build_variant(shared, VARIANTS[c], cover_check=check)
             subject, body = newsletter.render_digest(data)
             eds[c] = {"data": data, "subject": subject, "body": body}
         except Exception as e:
             print("%s: render failed (%s: %s) — its readers get the USD issue"
                   % (c, type(e).__name__, e))
             failed[c] = "render failed: %s" % e
+    check.report()
     subjects = [e["subject"] for e in eds.values()]
     if len(set(subjects)) != len(subjects):
         raise RuntimeError("two editions share a subject; the duplicate check would mix them up: %r"

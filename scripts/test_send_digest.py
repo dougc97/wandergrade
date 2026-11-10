@@ -21,7 +21,14 @@ Every Buttondown call (method, URL with the duplicate check's ?subject=
 needle and statuses, subject, status, audience filters, metadata, archival
 mode, headers, order), every printed line and the exit code must be
 identical once each email body, in a call or printed, is swapped for a token
-naming the edition it was rendered for. The bodies themselves are not
+naming the edition it was rendered for, and once this tree's one line more
+is set aside: the send's photo check (fxtracker/cover_check.py, which the
+base lacks) prints "cover check: all N photos loaded" when an issue is
+built. Here the image service is a fake where every cover loads; that line
+must be the only one of its kind, stand just above the first "Digest for"
+line, and count exactly the cover addresses in the bodies the run rendered,
+each asked for once (photo_checked; scripts/test_cover_check.py has the
+runs where a photo does not load). The bodies themselves are not
 compared with the base's (the redesign changes them): each body this tree
 sends or prints must instead be exactly what digest_snapshot renders for
 that edition and month, the text the golden hashes pin and
@@ -30,7 +37,7 @@ compared bodies with commit 4788fd2's, less a list of stripped pieces
 (digest_snapshot's docstring). 22 checks that every edition's subject, every
 month, is found by its own duplicate check (plain ASCII after the emoji).
 """
-import contextlib, io, json, os, random, shutil, subprocess, sys, tempfile, urllib.parse
+import contextlib, io, json, os, random, re, shutil, subprocess, sys, tempfile, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -188,6 +195,54 @@ def tokenised(run):
     return {"code": run["code"], "calls": calls, "out": out}
 
 
+# The send's photo check (fxtracker/cover_check.py; the base's code has none).
+SUMMARY = re.compile(r"^cover check: all (\d+) photos loaded\n", re.M)
+
+
+def load_all(sd):
+    """Give send_digest module `sd` an image service where every cover loads
+    (cover_check.fetch, which the check looks up when it asks), and return
+    the list the addresses it asks for land in. A tree without the check
+    (the base's) gets nothing swapped, and the list stays empty."""
+    asked = []
+    cc = getattr(sd, "cover_check", None)
+    if cc is not None:
+        def fetch(url, timeout=None):
+            asked.append(url)
+            return 200, "image/jpeg", b"\xff"
+        cc.fetch = fetch
+    return asked
+
+
+def photos_in(body):
+    """The cover addresses in an email body: every <img> but the flags."""
+    srcs = re.findall(r"<img src='([^']+)'", body)
+    assert len(srcs) == body.count("<img"), "an <img> this reader can't read"
+    return [u for u in srcs if not u.startswith("https://flagcdn.com/")]
+
+
+def comparable(run):
+    """tokenised(run) less this tree's photo-check summary, the one printed
+    line the base's run can't have. Only that exact line goes, and only
+    once: anything else the check printed stays and shows as a difference."""
+    t = tokenised(run)
+    t["out"] = SUMMARY.sub("", t["out"], count=1)
+    return t
+
+
+def photo_checked(run):
+    """What takes the place of "the output is the base's, line for line" for
+    that one line: the check asked for exactly the cover addresses in the
+    bodies this run rendered, each once; it printed one line, the summary,
+    counting them; and the line stands just above the first "Digest for"
+    line, so every photo was looked at before anything was sent."""
+    photos = sorted({u for r in run["renders"] for u in photos_in(r[3])})
+    lines = [l for l in run["out"].split("\n") if l.startswith("cover check")]
+    return bool(photos and sorted(run["asked"]) == photos
+                and lines == ["cover check: all %d photos loaded" % len(photos)]
+                and re.search(r"^cover check: all \d+ photos loaded\n(\[[A-Z]{3}\] )?Digest for ", run["out"], re.M))
+
+
 def edition_of(call):
     """The edition a create call's email is: its wg_variant metadata, or USD
     for the USD-only call, which carries none."""
@@ -219,10 +274,11 @@ def _child(root, scenario):
     newsletter.render_digest = render_digest
     fake = FakeButtondown(**scenario.get("fake", {}))
     newsletter._call = fake.call
+    asked = load_all(sd)
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
         code = sd.main(scenario["argv"])
-    return {"code": code, "out": buf.getvalue(), "calls": fake.calls, "renders": renders}
+    return {"code": code, "out": buf.getvalue(), "calls": fake.calls, "renders": renders, "asked": asked}
 
 
 def run_tree(root, scenario):
@@ -243,6 +299,9 @@ class Harness:
         os.environ["BUTTONDOWN_API_KEY"] = "test-key-not-real"
         import send_digest
         self.sd = send_digest
+        # Every cover loads unless a case says otherwise (test_cover_check.py
+        # swaps its own image service in).
+        self.asked = load_all(send_digest)
         self._build_variant = self.picks.build_variant
         self._variants = dict(self.dv.VARIANTS)
 
@@ -321,8 +380,8 @@ def main():
 
         # 1. The same calls, output and exit code as the base's code, bodies
         #    apart, USD-only and with editions switched on.
-        print("1. this tree's runs == %s's, call for call and line for line, each body swapped for a token"
-              % against)
+        print("1. this tree's runs == %s's, call for call and line for line, each body swapped for a token "
+              "and the photo check's one line set aside" % against)
         base_subs = subs({"a@x.test": "", "b@x.test": "currency-eur", "c@x.test": "cadence-monthly"})
         sent_before = [{"id": "em900", "subject": "\U0001f9ed December trips: where your dollar goes furthest",
                         "status": "sent", "creation_date": "2026-10-01", "metadata": {},
@@ -356,7 +415,9 @@ def main():
             new, old = run_tree(ROOT, sc), run_tree(tmp, sc)
             if rollout is None and "--variant" not in argv:
                 usd_only.append(new)
-            new_t, old_t = tokenised(new), tokenised(old)
+            new_t, old_t = comparable(new), tokenised(old)
+            # The base asks no image service and prints no such line.
+            photos = photo_checked(new) and not old["asked"] and "cover check" not in old["out"]
             if len(created) == 10:
                 ten, ten_old = new, old_t
             creates = [c for c in new["calls"] if c[0] == "POST" and c[1].endswith("/emails")]
@@ -377,10 +438,12 @@ def main():
                 == ["December trips: where your dollar goes furthest"])
             same = new_t == old_t
             n_bodies = len(creates) + len(printed)
-            results.append(ok(same and exact and deduped and (new["calls"] or printed),
-                              "%s: %d identical call%s, identical output (%d lines), exit %s; %s"
+            results.append(ok(same and exact and deduped and photos and (new["calls"] or printed),
+                              "%s: %d identical call%s, identical output (%d lines), exit %s; the photo check "
+                              "asked for the %d cover address%s in the bodies, once each, and said so in one line; %s"
                               % (name, len(new["calls"]), "" if len(new["calls"]) == 1 else "s",
                                  len(new_t["out"].splitlines()), new["code"],
+                                 len(new["asked"]), "" if len(new["asked"]) == 1 else "es",
                                  "found its own subject, nothing created" if name == "already sent" else
                                  "the %d %s %s digest_snapshot's render%s, exactly"
                                  % (n_bodies, ("body" if n_bodies == 1 else "bodies") + (" printed" if printed else " in the calls"),
@@ -398,11 +461,31 @@ def main():
         cs[0][2]["body"], cs[1][2]["body"] = cs[1][2]["body"], cs[0][2]["body"]
         ce = [c for c in edited["calls"] if c[0] == "POST" and c[1].endswith("/emails")]
         ce[-1][2]["body"] += " "
-        results.append(ok(len(cs) == 10 and tokenised(ten) == ten_old and tokenised(swapped) != ten_old
-                          and tokenised(edited) != ten_old and NO_TOKEN in json.dumps(tokenised(edited)["calls"])
-                          and NO_TOKEN not in json.dumps(tokenised(swapped)["calls"]),
+        results.append(ok(len(cs) == 10 and comparable(ten) == ten_old and comparable(swapped) != ten_old
+                          and comparable(edited) != ten_old and NO_TOKEN in json.dumps(comparable(edited)["calls"])
+                          and NO_TOKEN not in json.dumps(comparable(swapped)["calls"]),
                           "controls: with two editions' bodies swapped between their calls, or one body a character "
                           "longer, the all-ten run no longer matches %s's" % against))
+        # ... and the photo check's own: an address not asked for, one asked
+        # twice, a count that is off, a second line of its kind, a line that
+        # is not the summary, or the summary printed after the issues.
+        n = len(ten["asked"])
+        line = "cover check: all %d photos loaded\n" % n
+        late = ten["out"].replace(line, "", 1) + line
+        mutants = {"one address never asked": dict(ten, asked=ten["asked"][1:]),
+                   "one asked twice": dict(ten, asked=ten["asked"] + ten["asked"][:1]),
+                   "the count one off": dict(ten, out=ten["out"].replace(line, "cover check: all %d photos loaded\n" % (n + 1))),
+                   "the line twice": dict(ten, out=ten["out"].replace(line, line + line)),
+                   "another line of the check's": dict(ten, out=ten["out"].replace(
+                       line, "cover check: Chile: could not check Easter Island (timed out), keeping it\n" + line)),
+                   "the summary after the issues": dict(ten, out=late)}
+        slipped = [k for k, m in mutants.items() if photo_checked(m)]
+        results.append(ok(n > 10 and photo_checked(ten) and ten["out"].count(line) == 1 and not slipped
+                          and comparable(mutants["another line of the check's"]) != ten_old
+                          and comparable(mutants["the line twice"]) != ten_old,
+                          "controls for the photo check: the all-ten run asked for %d addresses and passes; %d "
+                          "spoiled copies of it don't (%s)%s"
+                          % (n, len(mutants), ", ".join(mutants), "" if not slipped else " -> slipped: %r" % slipped)))
         results.append(ok(len(usd_only) == 5 and all(not (c[3] or {}).get("X-API-Version") and "filters" not in (c[2] or {})
                                                      for r in usd_only for c in r["calls"]),
                           "USD-only sends no X-API-Version header and no filters (all five USD-only runs)"))

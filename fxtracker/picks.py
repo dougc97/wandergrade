@@ -191,6 +191,10 @@ def _strip_html(v):
 # email refuses (CZ's FAL licence) moves two more. The checks are app.js
 # wikiIconic's and commonsPhoto's, plus two of the email's own: the licence
 # list on every cover (LICENCE_OK) and the 800px floor (COVER_MIN_W).
+# All of them ask about the photo, none whether the image service serves the
+# address the email uses: October 2026's Vietnam cover passed every one and
+# was a 404 there. A send adds that last look (cover_check.py, through
+# cover_for's `loads`); nothing else asks the image service anything.
 
 # Mirrors PHOTO_BAD in app.js (scripts/photo_sweep.py has the same copy): no
 # map, flag, seal, logo, collage... matched on the file name.
@@ -375,13 +379,18 @@ def cover_candidates(a):
     return out
 
 
-def cover_for(a, memo=None):
-    """A featured country's cover, {url, credit}: the first of its
+def cover_for(a, memo=None, loads=None):
+    """A featured country's cover, {url, thumb, credit}: the first of its
     cover_candidates that passes the site's own photo checks (cover() for a
-    title, cover_file() for a pinned file), or None when none does."""
+    title, cover_file() for a pinned file), or None when none does.
+
+    `loads` is a send's load check and nobody else's (cover_check.py, which
+    send_digest.py asks for): it is asked about each cover that passes,
+    `loads(candidate, cover)`, and one it says False to is passed over for
+    the next. Without it nothing here asks the image service anything."""
     for entry in cover_candidates(a):
         c = _cover_memo(entry, memo)
-        if c:
+        if c and (loads is None or loads(entry, c)):
             return c
     return None
 
@@ -683,14 +692,19 @@ def _popular_set():
     return set(FALLBACK_POPULAR)
 
 
-def _enrich(s, acts, with_photo, memo=None):
+def _enrich(s, acts, with_photo, memo=None, check=None, top=False):
     """Attach flag, things-to-do, and (optionally) the cover photo cover_for
     picks. `memo` caches cover lookups across editions (a candidate is one
-    lookup a run, not ten)."""
+    lookup a run, not ten). `check` is a send's cover_check.CoverCheck, None
+    for every other caller: it passes over a photo that does not load at the
+    address this card will use, the banner when `top`, else the small copy."""
     a = acts.get(s["iso"], {})
     s["flag"] = flag(s["iso"])
     s["activities"] = a.get("activities", [])[:2]
-    c = cover_for(a, memo) if with_photo else None
+    c = None
+    if with_photo:
+        c = (check.choose(s.get("name") or s["iso"], top, lambda loads: cover_for(a, memo, loads))
+             if check else cover_for(a, memo))
     s["photo"] = c and c["url"]
     # The compact cards' small copy of the same photo (_banner). .get: a
     # cover that carries none leaves the card on the banner.
@@ -799,7 +813,7 @@ def _adv_for(shared, source):
     return memo[source]
 
 
-def build_variant(shared, v, n_picks=5, n_gems=3):
+def build_variant(shared, v, n_picks=5, n_gems=3, cover_check=None):
     """Score every destination for edition `v` (a digest_variants.Variant)
     from gather()'s shared data and return the digest payload:
     {month, month_name, year, as_of, picks: [...], gems: [...], variant, home_iso}.
@@ -809,6 +823,11 @@ def build_variant(shared, v, n_picks=5, n_gems=3):
     (Reconsider Travel) and Level 4, matching the site's default "safe" floor.
     Picks are enriched with a cover photo + things-to-do; gems stay compact.
     A non-USD edition leaves its own home country out (v.exclude_home).
+
+    `cover_check` (a cover_check.CoverCheck, one for the whole run) is what
+    send_digest.py passes so no issue goes out with a photo that does not
+    load. Left out, as by every other caller, the payload is what it always
+    was and the image service is never asked.
     """
     month = shared["month"]
     ppp, climate, acts = shared["ppp"], shared["climate"], shared["acts"]
@@ -836,7 +855,10 @@ def build_variant(shared, v, n_picks=5, n_gems=3):
     gems = [s for s in scored if s["iso"] not in popular][:n_gems]
 
     memo = shared["cover_memo"]
-    picks = [_enrich(s, acts, with_photo=True, memo=memo) for s in picks]
+    # The first pick is the email's top card (newsletter.render_digest), the
+    # one card that shows the banner; the load check asks for that address.
+    picks = [_enrich(s, acts, with_photo=True, memo=memo, check=cover_check, top=(i == 0))
+             for i, s in enumerate(picks)]
     gems = [_enrich(s, acts, with_photo=False, memo=memo) for s in gems]
     # Whose level each 🛡️ grade is: the email names it as the site does.
     by = (shared.get("adv_by") or {}).get(v.adv_source) or {}
@@ -850,7 +872,8 @@ def build_variant(shared, v, n_picks=5, n_gems=3):
     }
 
 
-def build(month=None, n_picks=5, n_gems=3):
+def build(month=None, n_picks=5, n_gems=3, cover_check=None):
     """The USD edition: build_variant(gather(month), VARIANTS["USD"]) — the
-    digest exactly as it was before editions existed."""
-    return build_variant(gather(month), VARIANTS["USD"], n_picks, n_gems)
+    digest exactly as it was before editions existed. `cover_check`: see
+    build_variant; only send_digest.py passes one."""
+    return build_variant(gather(month), VARIANTS["USD"], n_picks, n_gems, cover_check)
