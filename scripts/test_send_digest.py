@@ -1,34 +1,36 @@
 #!/usr/bin/env python3
 """send_digest.py against a FAKE Buttondown: who gets which home-currency
-edition, what a re-run does, and that the USD-only run makes exactly the calls
-the 4788fd2 code makes. Nothing leaves this machine: the digest's inputs are
-digest_snapshot.py's frozen fixtures (urlopen raises), and newsletter._call —
-the one function every Buttondown request goes through — is replaced by
-FakeButtondown, which records each call and keeps emails, tags and
-subscribers in memory. It echoes `filters` on create (unless told to drop
-them, like an old API pin) and works out each published email's recipients
-from them.
+edition, what a re-run does, and that this tree sends exactly as the code the
+Dec 2026 redesign started from sends (digest_snapshot.BASE). Nothing leaves
+this machine: the digest's inputs are digest_snapshot.py's frozen fixtures
+(urlopen raises), and newsletter._call — the one function every Buttondown
+request goes through — is replaced by FakeButtondown, which records each call
+and keeps emails, tags and subscribers in memory. It echoes `filters` on
+create (unless told to drop them, like an old API pin) and works out each
+published email's recipients from them.
 
     /usr/bin/python3 scripts/test_send_digest.py [--against <rev>]
 
---against <rev> (default 4788fd2) is the tree whose USD-only calls must be
-matched; it is extracted with `git archive` into a temp dir. Both trees'
-calls and output are compared less digest_snapshot.REVIEW3's pieces (review
-3's copy, and the 2026-11 wording's preheader, standouts, 📅 sentence and
-hero fare basis), which must each be in this tree's bodies, and less every cover
-image and "Photo:" credit line (digest_snapshot.COVERS): since 2026-10-30 a
-pick's cover is the first photo of its guide gallery the site's checks pass
-(picks.cover_for), where that tree looked up activities.json `photo` alone,
-and this tree's covers must be the ones digest_snapshot.fake_rule_cover
-works out for each body's month. Since 2026-11 the subject leads with the
-month ("{Month} trips: where your {noun} goes furthest"): that tree's
-subject is mapped to it (digest_snapshot.subject_as_new) in each create and
-in the duplicate check's ?subject= needle, and its already-sent email is
-the old-wording twin of this tree's (subject_as_old), so both must find
-their own issue. 22 checks that every edition's subject, every month, is
-found by its own duplicate check (plain ASCII after the emoji).
+--against <rev> (default digest_snapshot.BASE) is the commit 1 compares with;
+its code is extracted with `git archive` and run on this tree's data
+(digest_snapshot.extract_code). 1 puts both trees through the same runs
+against the same fake: USD-only (a send, a send for a named month, a draft, a
+send whose issue is already out, a dry run) and with editions switched on (a
+send to two currencies' readers, a send of all ten, a draft run, a dry run).
+Every Buttondown call (method, URL with the duplicate check's ?subject=
+needle and statuses, subject, status, audience filters, metadata, archival
+mode, headers, order), every printed line and the exit code must be
+identical once each email body, in a call or printed, is swapped for a token
+naming the edition it was rendered for. The bodies themselves are not
+compared with the base's (the redesign changes them): each body this tree
+sends or prints must instead be exactly what digest_snapshot renders for
+that edition and month, the text the golden hashes pin and
+test_digest_variants reads back against its payload. Until the redesign 1
+compared bodies with commit 4788fd2's, less a list of stripped pieces
+(digest_snapshot's docstring). 22 checks that every edition's subject, every
+month, is found by its own duplicate check (plain ASCII after the emoji).
 """
-import contextlib, io, json, os, random, re, shutil, subprocess, sys, tempfile, urllib.parse
+import contextlib, io, json, os, random, shutil, subprocess, sys, tempfile, urllib.parse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -161,83 +163,35 @@ class FakeButtondown:
         raise AssertionError("fake Buttondown: unexpected %s %s" % (method, url))
 
 
-# The USD issue's one line newer than 4788fd2 (2026-10-24): the link to the
-# issue month's /cheapest page, after the hidden gems (digest_snapshot.CHEAP_LINK).
-CHEAP_LINK = ds.CHEAP_LINK
+# What stands in for an email body when two trees' runs are compared.
+TOKEN = "[[the %s edition's body]]"
+NO_TOKEN = "[[a body render_digest never returned]]"
 
 
-def without_cheap_link(calls):
-    """(calls with that line taken out of every email body, True when each
-    body carried it exactly once)."""
-    out, once = [], True
-    for c in calls:
-        if len(c) > 2 and isinstance(c[2], dict) and isinstance(c[2].get("body"), str):
-            body, n = CHEAP_LINK.subn("", c[2]["body"])
-            once = once and n == 1
-            c = [c[0], c[1], dict(c[2], body=body)] + list(c[3:])
-        out.append(c)
-    return out, once
-
-
-def without_review3(run):
-    """A run's calls and output less digest_snapshot.REVIEW3's pieces (review
-    3's copy, 2026-10-28, the button label spans since, and the 2026-11
-    wording), and True when every body carried them: a source on each 🛡️
-    grade, the AI callout, the intro's year, the closing quote, both buttons'
-    label spans, the preheader, the standouts, the 📅 sentence and the hero
-    fare's basis wherever it has one."""
-    calls, placed = [], True
-    for c in run["calls"]:
-        if len(c) > 2 and isinstance(c[2], dict) and isinstance(c[2].get("body"), str):
-            body, n = ds.without_review3(c[2]["body"])
-            placed = placed and (n.get("src") == c[2]["body"].count("\U0001f6e1") > 0 and n.get("ai") == 1
-                                 and n.get("year") == 1 and n.get("quote") == 1
-                                 and n.get("btn") == n.get("btnend") == 2
-                                 and n.get("pre") == n.get("standouts") == n.get("cal") == 1
-                                 and n.get("basis", 0) == c[2]["body"].count(" vs the route’s usual)"))
-            c = [c[0], c[1], dict(c[2], body=body)] + list(c[3:])
-        calls.append(c)
-    return dict(run, calls=calls, out=ds.without_review3(run["out"])[0]), placed
-
-
-def as_new_subject(run):
-    """An old tree's run with its subject in the 2026-11 wording
-    (digest_snapshot.subject_as_new), in each create's payload and in the
-    duplicate check's url-encoded ?subject= needle, so the call-for-call
-    comparison holds them to this tree's exactly."""
-    def needle(m):
-        return m.group(1) + urllib.parse.quote_plus(ds.subject_as_new(urllib.parse.unquote_plus(m.group(2))))
+def tokenised(run):
+    """A run (_child's dict) with each email body, in a call's payload or in
+    the printed output, swapped for TOKEN naming the edition render_digest
+    built it for; a call's body that no render returned gets NO_TOKEN. What
+    is left is everything about the run but the bodies' own text."""
+    token = {}
+    for code, _month, _subject, body in run["renders"]:
+        token[body] = TOKEN % code
     calls = []
     for c in run["calls"]:
         p = c[2]
-        if isinstance(p, dict) and isinstance(p.get("subject"), str):
-            p = dict(p, subject=ds.subject_as_new(p["subject"]))
-        calls.append([c[0], re.sub(r"([?&]subject=)([^&]*)", needle, c[1]), p] + list(c[3:]))
-    return dict(run, calls=calls)
+        if isinstance(p, dict) and "body" in p:
+            p = dict(p, body=token.get(p["body"], NO_TOKEN))
+        calls.append([c[0], c[1], p] + list(c[3:]))
+    out = run["out"]
+    for body, tok in token.items():
+        out = out.replace(body, tok)
+    return {"code": run["code"], "calls": calls, "out": out}
 
 
-def in_old_wording(scenario):
-    """The scenario for an old tree: its fake Buttondown's emails carry the
-    old-wording twin of each subject (digest_snapshot.subject_as_old), so
-    'already sent' has that tree find its own issue as this tree finds its."""
-    fake = dict(scenario.get("fake", {}))
-    if fake.get("emails"):
-        fake["emails"] = [dict(e, subject=ds.subject_as_old(e["subject"])) for e in fake["emails"]]
-    return dict(scenario, fake=fake)
-
-
-def without_covers(run):
-    """A run's calls and output less every cover image and "Photo:" credit
-    (digest_snapshot.COVERS), and each body's covers as
-    digest_snapshot.without_covers reads them (link, image, alt, credit)."""
-    calls, covers = [], []
-    for c in run["calls"]:
-        if len(c) > 2 and isinstance(c[2], dict) and isinstance(c[2].get("body"), str):
-            body, found = ds.without_covers(c[2]["body"])
-            covers.append(found)
-            c = [c[0], c[1], dict(c[2], body=body)] + list(c[3:])
-        calls.append(c)
-    return dict(run, calls=calls, out=ds.without_covers(run["out"])[0]), covers
+def edition_of(call):
+    """The edition a create call's email is: its wg_variant metadata, or USD
+    for the USD-only call, which carries none."""
+    return ((call[2] or {}).get("metadata") or {}).get("wg_variant") or "USD"
 
 
 # ---- running a tree against the fake -----------------------------------------
@@ -249,21 +203,26 @@ def _child(root, scenario):
     os.environ["BUTTONDOWN_API_KEY"] = "test-key-not-real"
     import send_digest as sd
     assert os.path.realpath(sd.__file__).startswith(os.path.realpath(root))
-    if scenario.get("graft"):
-        # An old tree with only the new tree's cost line (digest_snapshot):
-        # its calls must then equal the new tree's call for call.
-        ds.graft_cost_line(newsletter, scenario["graft"])
+    if scenario.get("rollout"):
+        # The editions switched on for this run (the committed ROLLOUT is USD only).
+        dv.ROLLOUT.clear()
+        dv.ROLLOUT.update(scenario["rollout"])
+    # Every body render_digest hands send_digest, with the edition and month
+    # it was built for: tokenised() swaps these, and main() holds each to
+    # digest_snapshot's own render.
+    renders, render = [], newsletter.render_digest
+
+    def render_digest(data):
+        subject, body = render(data)
+        renders.append([data.get("variant", "USD"), data["month"], subject, body])
+        return subject, body
+    newsletter.render_digest = render_digest
     fake = FakeButtondown(**scenario.get("fake", {}))
     newsletter._call = fake.call
     buf = io.StringIO()
     with contextlib.redirect_stdout(buf):
-        argv = scenario["argv"]
-        if hasattr(sd, "main"):
-            code = sd.main(argv)
-        else:
-            dry, month, draft = sd._parse_args(argv)
-            code = sd.run(dry_run=dry, month=month, draft=draft)
-    return {"code": code, "out": buf.getvalue(), "calls": fake.calls}
+        code = sd.main(scenario["argv"])
+    return {"code": code, "out": buf.getvalue(), "calls": fake.calls, "renders": renders}
 
 
 def run_tree(root, scenario):
@@ -342,76 +301,113 @@ def ops(calls):
 
 
 def main():
-    against = "4788fd2"
+    against = ds.BASE
     if "--against" in sys.argv:
         against = sys.argv[sys.argv.index("--against") + 1]
     results = []
-    tmp = tempfile.mkdtemp(prefix="digest-old-")
+    tmp = tempfile.mkdtemp(prefix="digest-base-")
     try:
-        arch = subprocess.run("git -C %s archive %s fxtracker public send_digest.py | tar -x -C %s"
-                              % (_q(ROOT), _q(against), _q(tmp)), shell=True, capture_output=True,
-                              text=True, timeout=50)
-        if arch.returncode != 0:
-            print("git archive failed:", arch.stderr)
+        try:
+            ds.extract_code(ROOT, against, tmp)
+        except RuntimeError as e:
+            print(e)
             return 1
-        # On this tree's weather data (climate.json is input, not code; its full
-        # rebuild on 2026-10-28 moved the March issue's picks): the code's diff alone.
-        shutil.copy(os.path.join(ROOT, "public", "climate.json"), os.path.join(tmp, "public", "climate.json"))
-        # The picks each scenario's issue features (the same frozen inputs),
-        # for the covers the rule must give them.
-        _snap, month_data = ds.snapshot(ROOT, months=(12, 3), keep_data=True)
-        nl = sys.modules["fxtracker.newsletter"]        # this tree's, as ds.snapshot left it
-        want_covers = {m: ds.expected_covers(ROOT, month_data["USD"][m]["picks"],
-                                             lambda iso, m=m: nl._guide_url(iso, m)) for m in (12, 3)}
+        tags10 = ["currency-" + c.lower() for c in ALL_SEND] + ["cadence-monthly", "vip"]
+        # What digest_snapshot renders on this tree for each edition, for the
+        # two months the runs below feature (December by default on the
+        # frozen 2026-10-03, and --month 3): every body sent or printed must
+        # be one of these, exactly.
+        rendered = ds.snapshot(ROOT, tuple(ALL_SEND), months=(12, 3))
 
-        # 1. USD-only: the same calls (and output) as the old code, for a send,
-        #    a draft, and a send whose issue is already out.
-        print("1. USD-only run == %s (+ this tree's cost line, less the /cheapest link), call for call"
+        # 1. The same calls, output and exit code as the base's code, bodies
+        #    apart, USD-only and with editions switched on.
+        print("1. this tree's runs == %s's, call for call and line for line, each body swapped for a token"
               % against)
         base_subs = subs({"a@x.test": "", "b@x.test": "currency-eur", "c@x.test": "cadence-monthly"})
         sent_before = [{"id": "em900", "subject": "\U0001f9ed December trips: where your dollar goes furthest",
                         "status": "sent", "creation_date": "2026-10-01", "metadata": {},
                         "filters": {"predicate": "and", "groups": [], "filters": []}}]
-        for name, argv, fake, month in (
-                ("send", [], {"subscribers": base_subs}, 12),
-                ("send --month 3", ["--month", "3"], {"subscribers": base_subs}, 3),
-                ("--draft", ["--draft"], {"subscribers": base_subs}, 12),
-                ("already sent", [], {"subscribers": base_subs, "emails": sent_before}, 12)):
+        two = subs({"e1@x": "currency-eur", "e2@x": "currency-eur,vip", "g1@x": ("unsubscribed", "currency-gbp"),
+                    "u1@x": "", "u2@x": "currency-usd"})
+        every = subs(dict({"%s@x" % c.lower(): "currency-" + c.lower() for c in ALL_SEND}, **{"none@x": ""}))
+        usd_only = []
+        # (name, argv, the fake's set-up, ROLLOUT or None for the committed USD-only one, month,
+        #  the editions whose emails are created, the editions whose bodies are printed)
+        for name, argv, fake, rollout, month, created, printed in (
+                ("send", [], {"subscribers": base_subs}, None, 12, ["USD"], []),
+                ("send --month 3", ["--month", "3"], {"subscribers": base_subs}, None, 3, ["USD"], []),
+                ("--draft", ["--draft"], {"subscribers": base_subs}, None, 12, ["USD"], []),
+                ("already sent", [], {"subscribers": base_subs, "emails": sent_before}, None, 12, [], []),
+                ("--dry-run", ["--dry-run"], {"subscribers": base_subs}, None, 12, [], ["USD"]),
+                ("send, EUR and GBP switched on (EUR 2 readers, GBP none)", [],
+                 {"subscribers": two, "tag_names": tags10}, {"USD": "send", "EUR": "send", "GBP": "send"}, 12,
+                 ["EUR", "USD"], []),
+                ("send --month 3, all ten switched on, a reader on each", ["--month", "3"],
+                 {"subscribers": every, "tag_names": tags10}, dict(ALL_SEND), 3,
+                 ["EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR", "KRW", "CHF", "USD"], []),
+                ("--draft, EUR at draft and JPY at send", ["--draft"],
+                 {"subscribers": subs({"e@x": "currency-eur", "j@x": "currency-jpy", "u@x": ""}),
+                  "tag_names": tags10}, {"USD": "send", "EUR": "draft", "JPY": "send"}, 12, ["EUR", "JPY", "USD"], []),
+                ("--dry-run --variant EUR,JPY", ["--dry-run", "--variant", "EUR,JPY"],
+                 {"subscribers": base_subs, "tag_names": tags10}, None, 12, [], ["EUR", "JPY"])):
             sc = {"argv": argv, "fake": fake}
-            new, placed = without_review3(run_tree(ROOT, sc))
-            new, covers = without_covers(new)
-            # That tree in the old wording: its already-sent email is the
-            # old-subject twin, and its subject is mapped to the new one.
-            old_sc = in_old_wording(sc)
-            raw = without_covers(without_review3(as_new_subject(run_tree(tmp, old_sc)))[0])[0]
-            old = without_covers(without_review3(as_new_subject(run_tree(tmp, dict(old_sc, graft=ROOT))))[0])[0]
-            new_calls, linked = without_cheap_link(new["calls"])
-            linked = linked and placed
-            covered = all(cv == want_covers[month] for cv in covers)
-            same_raw = raw["calls"] == new_calls and raw["out"] == new["out"]
+            if rollout:
+                sc["rollout"] = rollout
+            new, old = run_tree(ROOT, sc), run_tree(tmp, sc)
+            if rollout is None and "--variant" not in argv:
+                usd_only.append(new)
+            new_t, old_t = tokenised(new), tokenised(old)
+            if len(created) == 10:
+                ten, ten_old = new, old_t
+            creates = [c for c in new["calls"] if c[0] == "POST" and c[1].endswith("/emails")]
+            # Each body is digest_snapshot's render for its edition and month:
+            # the ones render_digest returned, the ones sent, the ones printed.
+            mine = lambda code: rendered[code][str(month)]
+            exact = (all(r[1] == month and r[2:] == mine(r[0]) for r in new["renders"])
+                     and [edition_of(c) for c in creates] == created
+                     and all([c[2]["subject"], c[2]["body"]] == mine(edition_of(c)) for c in creates)
+                     and all(new["out"].count("\n" + mine(code)[1] + "\n") == 1 for code in printed)
+                     and new_t["out"].count("edition's body]]") == len(printed)
+                     and NO_TOKEN not in json.dumps(new_t["calls"]))
             # 'already sent' must be the duplicate check finding this tree's
-            # own (new-wording) subject: one list call, nothing created.
+            # own subject: one list call, nothing created.
             deduped = name != "already sent" or (
-                [c[0] for c in new_calls] == ["GET"] and "already went out; nothing sent" in new["out"]
-                and urllib.parse.parse_qs(urllib.parse.urlsplit(new_calls[0][1]).query)["subject"]
+                [c[0] for c in new["calls"]] == ["GET"] and "already went out; nothing sent" in new["out"]
+                and urllib.parse.parse_qs(urllib.parse.urlsplit(new["calls"][0][1]).query)["subject"]
                 == ["December trips: where your dollar goes furthest"])
-            results.append(ok(old["calls"] == new_calls and linked and covered and old["out"] == new["out"]
-                              and old["code"] == new["code"] and deduped,
-                              "%s: %d identical calls once the /cheapest link (in every body, once), "
-                              "review 3's and the 2026-11 wording's copy (each in place) and the covers (the "
-                              "rule's %d picks, in %d bodies) are taken out and that tree's subject is in the "
-                              "new wording, identical output, exit %s (ungrafted: %s)%s"
-                              % (name, len(new["calls"]), len(want_covers[month]), len(covers), new["code"],
-                                 "identical too" if same_raw else "differs in the cost line only",
-                                 "; found the new subject, nothing created" if name == "already sent" else "")))
-            if old["calls"] != new_calls:
-                print("    old:", json.dumps(old["calls"])[:600])
-                print("    new:", json.dumps(new_calls)[:600])
-        results.append(ok(all(not (c[3] or {}).get("X-API-Version") for c in new["calls"]),
-                          "USD-only sends no X-API-Version header and no filters"))
+            same = new_t == old_t
+            n_bodies = len(creates) + len(printed)
+            results.append(ok(same and exact and deduped and (new["calls"] or printed),
+                              "%s: %d identical call%s, identical output (%d lines), exit %s; %s"
+                              % (name, len(new["calls"]), "" if len(new["calls"]) == 1 else "s",
+                                 len(new_t["out"].splitlines()), new["code"],
+                                 "found its own subject, nothing created" if name == "already sent" else
+                                 "the %d %s %s digest_snapshot's render%s, exactly"
+                                 % (n_bodies, ("body" if n_bodies == 1 else "bodies") + (" printed" if printed else " in the calls"),
+                                    "is" if n_bodies == 1 else "are", "" if n_bodies == 1 else "s"))))
+            if not same:
+                for k in ("code", "out", "calls"):
+                    if new_t[k] != old_t[k]:
+                        print("    %s, this tree: %s" % (k, json.dumps(new_t[k])[:700]))
+                        print("    %s, %s: %s" % (k, against, json.dumps(old_t[k])[:700]))
+        # Controls, on the last run with several editions: the token
+        # comparison must notice two editions' bodies changing places
+        # between their calls, and a body that is no longer a render.
+        swapped, edited = json.loads(json.dumps(ten)), json.loads(json.dumps(ten))
+        cs = [c for c in swapped["calls"] if c[0] == "POST" and c[1].endswith("/emails")]
+        cs[0][2]["body"], cs[1][2]["body"] = cs[1][2]["body"], cs[0][2]["body"]
+        ce = [c for c in edited["calls"] if c[0] == "POST" and c[1].endswith("/emails")]
+        ce[-1][2]["body"] += " "
+        results.append(ok(len(cs) == 10 and tokenised(ten) == ten_old and tokenised(swapped) != ten_old
+                          and tokenised(edited) != ten_old and NO_TOKEN in json.dumps(tokenised(edited)["calls"])
+                          and NO_TOKEN not in json.dumps(tokenised(swapped)["calls"]),
+                          "controls: with two editions' bodies swapped between their calls, or one body a character "
+                          "longer, the all-ten run no longer matches %s's" % against))
+        results.append(ok(len(usd_only) == 5 and all(not (c[3] or {}).get("X-API-Version") and "filters" not in (c[2] or {})
+                                                     for r in usd_only for c in r["calls"]),
+                          "USD-only sends no X-API-Version header and no filters (all five USD-only runs)"))
 
         H = Harness()
-        tags10 = ["currency-" + c.lower() for c in ALL_SEND] + ["cadence-monthly", "vip"]
 
         # 2. EUR with readers, GBP with none: EUR goes to its tag first,
         #    GBP is skipped, USD excludes EUR.
@@ -753,10 +749,6 @@ def main():
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1
-
-
-def _q(s):
-    return "'" + s.replace("'", "'\\''") + "'"
 
 
 if __name__ == "__main__":

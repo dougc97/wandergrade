@@ -372,17 +372,58 @@ GREEN = "#0a7d28"
 # white text blue on GREEN (the Oct 2026 issue went out that way) and
 # a>*{color:inherit!important} takes a single wrapper with it. The inner span is
 # out of both rules' reach, so its own white stays.
+#
+# What else Buttondown does to our markup, and the rules this file keeps
+# because of it. The account has used two of its templates: Modern (the
+# Nov 1 2026 issue; its rules are read off the delivered mail) and, from
+# 2026-11-09, Classic (its rules are read off Buttondown's own preview; no
+# issue had gone out in it when this was written). The markup has to arrive
+# right in both.
+#   * Both: a{color:<accent>!important;text-decoration:underline}, the accent
+#     being #0069FF on Nov 1 and GREEN in the Classic preview. Whatever colour
+#     we give an <a>, its words arrive in the accent, underlined: the Nov 1
+#     photo credits and footer links were bright blue. Every text link is
+#     built by _link below, which uses the buttons' two spans.
+#   * Modern: p,ul,li{font-size:16px!important;line-height:24px!important} and
+#     p,h1-h6{margin:16px 0!important}. A <p> of ours arrives at 16px/24px
+#     whatever we wrote, so the small print came out bigger than the cards.
+#     Classic: p,div,ul,li{font-size:16px;line-height:1.4em}. Not !important,
+#     but it names every <div>, so one with no font-size of its own is 16px
+#     whatever its parent says.
+#     So text that must keep its size is a <div> with its own font-size,
+#     line-height and margin, and the intro is the only <p> left.
+#   * Modern: div,table,td,p{color:#000}. A block with no colour of its own is
+#     painted black, not its parent's colour, so a <div> that holds text sets
+#     its own colour.
+# scripts/digest_check.py proofing() holds every render to these.
+SMALL = "#666"       # small print; was #888, 3.5:1 on white where 4.5:1 is the usual floor
+SMALL_PX = 12        # ... and its size: the footer, the quote's byline, the photo credits
+CREDIT = "#6f6f6f"   # the photo credits (the 2026-11-09 review's grey)
 
 
 def _esc(x):
     return html.escape(str(x))
 
 
+def _link(href, label, color=GREEN, style="", underline=False):
+    """A text link that arrives in `color`: the label sits in two spans with
+    the colour on the inner one, out of reach of Buttondown's blue (the note
+    above). Our text-decoration:none on the <a> survives Buttondown; where a
+    link should be underlined the inner span draws the line, in `color` (left
+    to the <a> it would be Buttondown's blue). `href` and `label` are HTML
+    already, so escape what needs it first; `style` is more CSS for the <a>
+    (a weight). The green buttons are not text links and keep their own
+    markup."""
+    return ('<a href="%s" style="color:%s;text-decoration:none%s"><span><span style="color:%s%s">%s'
+            '</span></span></a>' % (href, color, ";" + style if style else "", color,
+                                    ";text-decoration:underline" if underline else "", label))
+
+
 def _adv_by(s):
     """Whose level the 🛡️ grade is, as the site's pills say it ("per US State
     Dept", or the government that filled the gap): a bare letter read as
     WanderGrade's own safety rating."""
-    return (" <span style='color:#888'>per %s</span>" % _esc(s["advBy"])) if s.get("advBy") else ""
+    return (" <span style='color:%s'>per %s</span>" % (SMALL, _esc(s["advBy"]))) if s.get("advBy") else ""
 
 
 def _grade(score):
@@ -503,15 +544,39 @@ def _dont_miss(s):
             % _esc(", ".join(labels)))
 
 
-def _credit(s):
-    """CC BY / BY-SA require the author and licence next to the image."""
-    c = s.get("photo_credit")
-    if not c:
+# ---- photo credits ----------------------------------------------------------
+# One block under the closing quote credits every cover; until Dec 2026 each
+# card carried its own "Photo: ..." line (11px, and blue in the delivered
+# mail). Why one block at the end of the email is enough:
+#   * CC BY 2.0 s4(b) and CC BY-SA 3.0 s4(c) let the credit be given "in any
+#     reasonable manner". Neither asks for it beside the photo. Each entry
+#     leads with its country, so a reader can tell whose photo is whose.
+#   * CC BY-SA 4.0 s3(a)(1)(B) asks us to say when a photo was modified. The
+#     image service crops every cover to its box (picks._banner, fit=cover),
+#     hence "(cropped)".
+#   * CC BY 2.0 s4(b) also wants the photographer's credit at least as
+#     prominent as any comparable credit. The email's one comparable credit
+#     is the closing quote's byline, so the two are the same size (SMALL_PX).
+#     Keep them that way.
+# An entry is the country, the photographer's name linking to the photo's file
+# page (which has the photo's title and its full terms), then the licence's
+# name linking to its text. Names are printed as Commons gives them, escaped,
+# never tidied.
+def _credits(picks):
+    """The credits block: one entry for each card that shows a photo, in card
+    order. "" when no card shows one."""
+    items = []
+    for s in picks:
+        c = s.get("photo_credit")
+        if not (s.get("photo") and c):
+            continue
+        lic = (_link(_esc(c["license_url"]), _esc(c["license"]), CREDIT) if c.get("license_url")
+               else _esc(c["license"]))
+        items.append("%s: %s, %s" % (_esc(s["name"]), _link(_esc(c["page"]), _esc(c["artist"]), CREDIT), lic))
+    if not items:
         return ""
-    lic = ("<a href='%s' style='color:#888'>%s</a>" % (_esc(c["license_url"]), _esc(c["license"]))
-           if c.get("license_url") else _esc(c["license"]))
-    return ("<div style='font-size:11px;color:#888;margin:4px 0 0'>Photo: <a href='%s' "
-            "style='color:#888'>%s</a> &middot; %s</div>" % (_esc(c["page"]), _esc(c["artist"]), lic))
+    return ('<div style="font-size:%dpx;line-height:18px;color:%s;text-align:center;margin:12px 0 0">'
+            'Photos (cropped) via Wikimedia Commons. %s</div>' % (SMALL_PX, CREDIT, " &middot; ".join(items)))
 
 
 def _fly(s, compact=False, month=None):
@@ -545,14 +610,14 @@ def _hero_card(s, month, v=USD):
     <div style="background:#ffffff;border:1px solid #e6e6e6;border-radius:12px;overflow:hidden;margin:0 0 16px">
       %s
       <div style="padding:15px">
-        <div style="font-size:20px;font-weight:800;color:#111">%s<a href="%s" style="color:%s;text-decoration:none">%s</a> <span style="color:#666">— Overall %s</span></div>
+        <div style="font-size:20px;font-weight:800;color:#111">%s%s <span style="color:#666">— Overall %s</span></div>
         <div style="font-size:14px;color:#444;margin:5px 0 0">\U0001f4b0 Affordability <b>%s</b> &nbsp;&middot;&nbsp; \U0001f6e1️ Safety <b>%s</b>%s &nbsp;&middot;&nbsp; \U0001f324️ Weather <b>%s</b>%s</div>
-        %s%s%s%s
+        %s%s%s
         <div style="margin:14px 0 0"><a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 18px;border-radius:9px"><span><span style="color:#ffffff">See %s’s guide →</span></span></a></div>
       </div>
-    </div>""" % (photo, _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
+    </div>""" % (photo, _flag_img(s["iso"]), _link(g, _esc(s["name"])), _grade(s["value"]),
                  _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]),
-                 _fly(s, month=month), _fx_line(s, v=v), _cost_line(s, v=v), _dont_miss(s), _credit(s), g, GREEN,
+                 _fly(s, month=month), _fx_line(s, v=v), _cost_line(s, v=v), _dont_miss(s), g, GREEN,
                  _esc(s["name"]))
 
 
@@ -565,24 +630,24 @@ def _compact_card(s, month, v=USD):
     <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e6e6e6;border-radius:12px;margin:0 0 12px">
       <tr>%s
         <td valign="top" style="padding:11px 14px">
-          <div style="font-size:16px;font-weight:800;color:#111">%s<a href="%s" style="color:%s;text-decoration:none">%s</a> <span style="color:#666">— %s</span></div>
+          <div style="font-size:16px;font-weight:800;color:#111">%s%s <span style="color:#666">— %s</span></div>
           <div style="font-size:13px;color:#555;margin:3px 0 0">\U0001f4b0 %s &middot; \U0001f6e1️ %s%s &middot; \U0001f324️ %s%s</div>
-          %s%s
-          <div style="font-size:13px;margin:6px 0 0"><a href="%s" style="color:%s;text-decoration:none;font-weight:600">See the guide →</a></div>
+          %s
+          <div style="font-size:13px;margin:6px 0 0">%s</div>
         </td>
       </tr>
-    </table>""" % (thumb, _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
+    </table>""" % (thumb, _flag_img(s["iso"]), _link(g, _esc(s["name"])), _grade(s["value"]),
                    _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]),
-                   _fly(s, compact=True), _value_line(s, compact=True, v=v), _credit(s), g, GREEN)
+                   _fly(s, compact=True), _value_line(s, compact=True, v=v),
+                   _link(g, "See the guide →", style="font-weight:600"))
 
 
 def _gem_line(s, month, v=USD):
     g = _guide_url(s["iso"], month, v)
-    return ("<div style='font-size:14px;margin:0 0 9px;color:#111'>%s<a href='%s' "
-            "style='color:%s;text-decoration:none;font-weight:700'>%s</a> "
+    return ("<div style='font-size:14px;margin:0 0 9px;color:#111'>%s%s "
             "<span style='color:#666'>— %s &middot; \U0001f4b0 %s &middot; \U0001f6e1️ %s%s "
             "&middot; \U0001f324️ %s%s</span></div>") % (
-        _flag_img(s["iso"]), g, GREEN, _esc(s["name"]), _grade(s["value"]),
+        _flag_img(s["iso"]), _link(g, _esc(s["name"]), style="font-weight:700"), _grade(s["value"]),
         _grade(s["afford"]), _FLAG.get(s["advLvl"], "B"), _adv_by(s), _grade(s["wx"]), _fly(s, compact=True))
 
 
@@ -629,12 +694,16 @@ def _quote_for(year, month):
     """Deterministic by month: every issue gets a different one, and re-rendering
     the same issue gets the same one (a random pick would make the archive lie)."""
     q, who, src = QUOTES[(year * 12 + month) % len(QUOTES)]
+    # A <div> carrying the size readers have always seen: this was a 13px <p>,
+    # which Buttondown delivered at 16px/24px. The byline is the size of the
+    # photo credits under it (SMALL_PX; _credits' note has the reason).
     return (
-        '<p style="font-size:13px;line-height:1.6;color:#666;font-style:italic;'
-        'border-top:1px solid #e0e0e0;margin:20px 0 0;padding-top:16px;text-align:center">'
-        '“{0}”<br>'
-        '<span style="font-style:normal;color:#888">— {1}, <i>{2}</i></span></p>'
-    ).format(_esc(q), _esc(who), _esc(src))
+        '<div style="font-size:16px;line-height:24px;color:#666;font-style:italic;'
+        'border-top:1px solid #e0e0e0;margin:16px 0 0;padding:16px 0 0;text-align:center">'
+        '“{0}”'
+        '<div style="font-size:{3}px;line-height:18px;color:{4};font-style:normal;margin:4px 0 0">'
+        '— {1}, <i>{2}</i></div></div>'
+    ).format(_esc(q), _esc(who), _esc(src), SMALL_PX, SMALL)
 
 
 def digest_subject(v, month_name):
@@ -686,16 +755,18 @@ def render_digest(data):
     gems_block = ""
     if gems:
         gems_block = ("<h2 style='font-size:18px;margin:20px 0 4px;color:#111'>\U0001f48e Hidden gems</h2>"
-                      "<p style='font-size:13px;color:#555;margin:0 0 12px'>Under-the-radar, high-value "
-                      "spots the crowds miss:</p>" + "".join(_gem_line(s, m, v) for s in gems))
+                      "<div style='font-size:13px;line-height:19px;color:#555;margin:0 0 12px'>"
+                      "Under-the-radar, high-value spots the crowds miss:</div>"
+                      + "".join(_gem_line(s, m, v) for s in gems))
 
     # The issue month's /cheapest page (its rule and ranking are
     # render_cheapest's, graded from the US): the USD edition only, as the
     # page is US-origin and a euro reader's picks aren't.
     cheap_link = "" if v.code != "USD" else (
-        "<p style='font-size:14px;margin:18px 0 0;color:#111'>\U0001f4b0 <b>On a budget?</b> "
-        "<a href='%s' style='color:%s;font-weight:600;text-decoration:none'>The cheapest countries "
-        "to visit in %s →</a></p>" % (_cheapest_url(m), GREEN, _esc(mn)))
+        "<div style='font-size:14px;line-height:21px;color:#111;margin:18px 0 0'>\U0001f4b0 "
+        "<b>On a budget?</b> %s</div>"
+        % _link(_cheapest_url(m), "The cheapest countries to visit in %s →" % _esc(mn),
+                style="font-weight:600"))
 
     body = """<div style="display:none;font-size:1px;color:#f4f5f6;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">%s&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;</div>
 <div style="max-width:600px;margin:0 auto;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;background:#f4f5f6;padding:20px">
@@ -704,7 +775,7 @@ def render_digest(data):
     <div style="font-size:14px;color:#555">Where Should I Travel Next?</div>
   </div>
   <p style="font-size:15px;line-height:1.5;color:#111">Where’s worth it in <b>%s %s</b>? WanderGrade grades every country <b>A+ to F</b> on what your trip actually hinges on — how far your money goes, safety, weather and flights. The twist: we flag where <b>your %s is unusually strong right now</b>. %s’s standouts \U0001f447</p>
-  <p style="font-size:13px;color:#555;background:#eef7f0;border-radius:8px;padding:10px 12px">\U0001f4c5 <b>%s</b> picks, sent two months ahead so there’s time to plan and book. Going a different time? <a href="%s" style="color:%s;font-weight:600;text-decoration:none">Pick your travel month →</a></p>
+  <div style="font-size:13px;line-height:19px;color:#555;background:#eef7f0;border-radius:8px;margin:16px 0;padding:10px 12px">\U0001f4c5 <b>%s</b> picks, sent two months ahead so there’s time to plan and book. Going a different time? %s</div>
   <h2 style="font-size:18px;margin:22px 0 10px;color:#111">\U0001f31f Top picks</h2>
   %s
   %s
@@ -713,14 +784,18 @@ def render_digest(data):
   <div style="text-align:center;margin:22px 0 6px">
     <a href="%s" style="display:inline-block;background:%s;color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:12px 22px;border-radius:10px"><span><span style="color:#ffffff">See every country’s grades →</span></span></a>
   </div>
-  <p style="font-size:13px;color:#555;margin:16px 0 0">\U0001f4ac Tell me where you’re headed — just hit reply, or write to <a href="mailto:hello@wandergrade.com" style="color:#555"><b>hello@wandergrade.com</b></a>. I read every message.</p>
+  <div style="font-size:14px;line-height:21px;color:#444;margin:16px 0 0">\U0001f4ac Tell me where you’re headed — just hit reply, or write to %s. I read every message.</div>
   %s
-  <p style="font-size:12px;color:#888;line-height:1.6;border-top:1px solid #e0e0e0;margin-top:14px;padding-top:14px">
-    Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s Currency data as of %s. Photos via Wikimedia Commons.<br>
-    <b>WanderGrade</b> · once a month, no spam · <a href="%s" style="color:#888">wandergrade.com</a> · <a href="%s" style="color:#888">unsubscribe</a>
-  </p>
-</div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), _esc(mn), pick_link, GREEN, hero, rest,
-             ai_callout, gems_block, cheap_link, month_link, GREEN, _quote_for(yr, m),
-             _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]), SITE, UNSUB)
+  %s
+  <div style="font-size:%dpx;line-height:18px;color:%s;border-top:1px solid #e0e0e0;margin:14px 0 0;padding:14px 0 0">Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s Currency data as of %s.</div>
+  <div style="font-size:%dpx;line-height:18px;color:%s;margin:0"><b>WanderGrade</b> · once a month, no spam · %s · %s</div>
+</div>""" % (_esc(preheader), _esc(mn), yr, _esc(v.noun), _esc(mn), _esc(mn),
+             _link(pick_link, "Pick your travel month →", style="font-weight:600"), hero, rest,
+             ai_callout, gems_block, cheap_link, month_link, GREEN,
+             _link("mailto:hello@wandergrade.com", "<b>hello@wandergrade.com</b>", "#444", underline=True),
+             _quote_for(yr, m), _credits(picks),
+             SMALL_PX, SMALL, _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]),
+             SMALL_PX, SMALL, _link(SITE, "wandergrade.com", SMALL, underline=True),
+             _link(UNSUB, "unsubscribe", SMALL, underline=True))
 
     return subject, body

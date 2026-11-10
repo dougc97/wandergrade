@@ -2,57 +2,51 @@
 """The digest's home-currency editions, rendered offline from frozen inputs
 (scripts/digest_snapshot.py; nothing leaves this machine):
 
-  1. USD is byte-for-byte what 4788fd2 renders, but for deliberate
-     changes: the cost line now uses the site's ±10% "about the same" band on
-     the two printed decimals (newsletter._pl_band), since 2026-10-24 a
-     line after the hidden gems links the issue month's /cheapest page, and
-     since 2026-10-28 (review 3) each 🛡️ grade names its source, the AI
-     callout drops "New:", "route’s" is typographic and an explicit --month
-     issue prints its own year (digest_snapshot.REVIEW3), and since 2026-10-30
-     a pick's cover is the first photo of its guide gallery the site's own
-     checks pass (picks.cover_for; activities.json `photo` is an optional
-     override), where 4788fd2 looked up `photo` alone: every edition's
-     covers and "Photo:" credits, every month, are the ones
-     digest_snapshot.fake_rule_cover works out under the fakes, each piece
-     of them (link, image, alt text, file page, artist, licence and its
-     link), and with every cover lookup failing each card renders as it
-     does with a cover, less the cover and its credit; and since 2026-11
-     (Doug's 2026-11-03 wording: a Nov 1 issue features January) every
-     "this month" names the issue's month: the subject leads with it
-     ("{Month} trips: where your {noun} goes furthest", plain ASCII after
-     the emoji), the preheader opens "Plan ahead:" and says "{Month}’s
-     picks" / "for {Month}", the intro's "{Month}’s standouts", the 📅
-     sentence ("{Month} picks, sent two months ahead so there’s time to
-     plan and book.") and the hero fare's "({Month} vs the route’s usual)"
-     (digest_snapshot.REVIEW3's pre, standouts, cal and basis; the old
-     subject is mapped, digest_snapshot.subject_as_new). The 12
-     months' sha256 match scripts/digest_golden/usd_sha256.json, and the USD
-     edition built the per-currency way (gather + build_variant) is the same
-     text. The band is checked against JavaScript's own toFixed under jsc.
+  1. The USD email's 12 months hash to scripts/digest_golden/usd_sha256.json,
+     and the USD edition built the per-currency way (gather + build_variant)
+     is the same text. Against the code the Dec 2026 redesign started from
+     (digest_snapshot.BASE, run on this tree's data), every edition's
+     payload, every month, is equal field for field but for
+     digest_snapshot.ADDED_FIELDS, and its subject and hidden preheader are
+     the same text: the redesign changes wording and layout, not which
+     countries, grades, links or numbers go out. Every pick's cover and
+     credit are the ones digest_snapshot.fake_rule_cover works out under the
+     fakes (the cover rule, picks.cover_for; activities.json `photo` is an
+     optional override), and with every cover lookup failing each email is
+     its covered self less the covers and the credits block, nothing in
+     their place. The cost line's band is checked against JavaScript's own
+     toFixed under jsc (2c).
   2. Each of the ten editions, every month: its own subject, wording, footer,
      banknote, no home country in its picks, balanced markup, and FX measured
      in its own currency; the 2026-11 wording, each piece naming the month.
   3. pricelevel.real_fx_pct's home-side guard (high inflation at home that
      can't be dated: no direction), with the US unaffected.
+  6. Every email says what its payload says (scripts/digest_check.py): each
+     visible line, link, image and photo credit, every edition and month,
+     is the one worked out from the payload, and the checks report each of
+     a list of deliberate faults.
+  7. Buttondown, the sender, can't restyle it (digest_check.proofing): the
+     intro is the only <p>, every link's words sit in two spans with the
+     colour on the inner one, nothing is under 12px but the hidden
+     preheader, no #888 is left, and every block of text has its own colour
+     and font-size.
 
     /usr/bin/python3 scripts/test_digest_variants.py [--against <rev>]
 
---against <rev> also extracts that tree with `git archive` and diffs its USD
-text against this tree's (less the /cheapest line, which must be in every
-month once, less digest_snapshot.REVIEW3's pieces in both, each of
-which must be in this tree's text where it belongs, less every cover
-image and "Photo:" credit line in both, digest_snapshot.COVERS: 1 checks
-this tree's are the rule's, and with that tree's subject in the 2026-11
-wording, which must then be this tree's exactly) in full, then again with
-only this tree's cost line grafted into it (digest_snapshot
---graft-cost-line): that must be identical
-for all 12 months, which proves the cost line is the only USD change.
+--against <rev> names the commit 1 compares with (default
+digest_snapshot.BASE). Its code is extracted with `git archive`
+(digest_snapshot.extract_code), so the repository must have that commit.
+
+Until the redesign 1 proved the USD text was commit 4788fd2's less a list of
+stripped pieces. digest_snapshot's docstring says what replaced that and
+why; the golden file's note has the history.
 """
-import json, os, re, shutil, subprocess, sys, tempfile
+import copy, json, os, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
+import digest_check as dc  # noqa: E402
 import digest_snapshot as ds  # noqa: E402
 
 ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or c
@@ -62,131 +56,154 @@ GOLDEN = os.path.join(HERE, "digest_golden", "usd_sha256.json")
 JSC = "/System/Library/Frameworks/JavaScriptCore.framework/Versions/Current/Helpers/jsc"
 
 
-def _snapshot_in_child(root, variants="USD", graft=None, weights=None):
-    """A tree's snapshot in a fresh interpreter (module isolation)."""
-    out = tempfile.mktemp(suffix=".json")
+def _snapshot_in_child(root, variants="USD"):
+    """A tree's snapshot and its payloads, (snap, datas), from a fresh
+    interpreter (module isolation). Both as JSON gives them back: months are
+    the strings "1" to "12"."""
+    out, dout = tempfile.mktemp(suffix=".json"), tempfile.mktemp(suffix=".json")
     p = subprocess.run([sys.executable, os.path.join(HERE, "digest_snapshot.py"), "--root", root,
-                        "--out", out, "--variants", variants]
-                       + (["--graft-cost-line", graft] if graft else [])
-                       + (["--graft-weights", weights] if weights else []),
+                        "--out", out, "--variants", variants, "--data-out", dout],
                        capture_output=True, text=True, timeout=55)
     if p.returncode != 0:
         raise RuntimeError(p.stdout + p.stderr)
-    with open(out, encoding="utf-8") as f:
-        snap = json.load(f)
-    os.unlink(out)
-    return snap
+    res = []
+    for path in (out, dout):
+        with open(path, encoding="utf-8") as f:
+            res.append(json.load(f))
+        os.unlink(path)
+    return tuple(res)
+
+
+def _payloads(datas):
+    """{edition: {"1".."12": payload}} as JSON gives it back, less the fields
+    this tree adds on purpose (digest_snapshot.ADDED_FIELDS)."""
+    out = json.loads(json.dumps(datas))
+    for per in out.values():
+        for d in per.values():
+            for s_ in d["picks"] + d["gems"]:
+                for k in ds.ADDED_FIELDS:
+                    s_.pop(k, None)
+    return out
+
+
+def _where(a, b, path=""):
+    """Where two payloads first differ, for the failure line."""
+    if type(a) is not type(b):
+        return "%s: %r vs %r" % (path, a, b)
+    if isinstance(a, dict):
+        for k in sorted(set(a) | set(b)):
+            if a.get(k, KeyError) != b.get(k, KeyError):
+                return _where(a.get(k), b.get(k), "%s.%s" % (path, k)) if k in a and k in b else (
+                    "%s.%s only in %s" % (path, k, "this tree" if k in a else "the base"))
+    if isinstance(a, list):
+        if len(a) != len(b):
+            return "%s: %d vs %d items" % (path, len(a), len(b))
+        for i, (x, y) in enumerate(zip(a, b)):
+            if x != y:
+                return _where(x, y, "%s[%d]" % (path, i))
+    return "%s: %r vs %r" % (path, a, b)
 
 
 def main():
     results = []
-    against = sys.argv[sys.argv.index("--against") + 1] if "--against" in sys.argv else None
-    raw_diff = None
+    base = sys.argv[sys.argv.index("--against") + 1] if "--against" in sys.argv else ds.BASE
 
-    print("1. USD byte-identity")
-    usd_only = _snapshot_in_child(ROOT, "USD")
+    print("1. USD golden hashes; the same picks, grades, links and numbers as %s" % base)
+    usd_only, usd_data = _snapshot_in_child(ROOT, "USD")
     with open(GOLDEN, encoding="utf-8") as f:
         golden = json.load(f)["sha256"]
     mine = ds.digest_hashes(usd_only)["USD"]
     bad = [m for m in golden if golden[m] != mine.get(m)]
     results.append(ok(len(golden) == 12 and not bad,
-                      "12 months match the golden hashes (4788fd2's text + its deliberate changes)%s"
-                      % (" (differ: %s)" % bad if bad else "")))
-    if against:
-        tmp = tempfile.mkdtemp(prefix="digest-old-")
-        try:
-            subprocess.check_call("git -C '%s' archive '%s' fxtracker public | tar -x -C '%s'"
-                                  % (ROOT, against, tmp), shell=True, timeout=50)
-            # On this tree's weather data (climate.json is input, not code; its
-            # full rebuild on 2026-10-28 moved March's, May's and June's picks),
-            # so the diff is the code's alone.
-            shutil.copy(os.path.join(ROOT, "public", "climate.json"), os.path.join(tmp, "public", "climate.json"))
-            # With this tree's default priorities (every factor Med since
-            # 2026-10-14), so the raw diff is the cost band's alone.
-            old = _snapshot_in_child(tmp, "USD", weights=ROOT)
-            # The /cheapest line is the other deliberate change: compare without it.
-            usd_cmp, linked = ds.without_cheap_link(usd_only["USD"])
-            results.append(ok(linked and len(usd_cmp) == 12,
-                              "this tree's USD text carries the /cheapest line once in every month"))
-            # Review 3's pieces come out of both texts (digest_snapshot.REVIEW3),
-            # and must each be in this tree's: a source on every 🛡️ grade, the
-            # callout, the intro's year and the closing quote once; and the
-            # 2026-11 wording's: the preheader, the standouts, the 📅
-            # sentence once, a basis on the hero's fare wherever it has one.
-            placed = []
-            for m in usd_cmp:
-                body, n = ds.without_review3(usd_cmp[m][1])
-                grades = usd_cmp[m][1].count("\U0001f6e1")
-                bases = usd_cmp[m][1].count(" vs the route’s usual)")
-                if not (n.get("src") == grades > 0 and n.get("ai") == 1 and n.get("year") == 1
-                        and n.get("quote") == 1 and n.get("btn") == n.get("btnend") == 2
-                        and n.get("pre") == n.get("standouts") == n.get("cal") == 1
-                        and n.get("basis", 0) == bases):
-                    placed.append((m, n, grades))
-                usd_cmp[m] = [usd_cmp[m][0], body]
-            results.append(ok(not placed, "review 3's and the 2026-11 wording's pieces are in this tree's USD "
-                              "text every month: each 🛡️ grade's source, the AI callout, the intro's year, the "
-                              "closing quote, both buttons' label spans, the preheader, the standouts, the 📅 "
-                              "sentence, the hero fare's basis%s"
-                              % ("" if not placed else " -> %r" % placed[:3])))
-            # The covers come out of both: the cover rule picks this tree's
-            # (checked below, every edition), 4788fd2 looked up `photo`.
-            for m in usd_cmp:
-                usd_cmp[m] = [usd_cmp[m][0], ds.without_covers(usd_cmp[m][1])[0]]
-            # That tree's subject in the 2026-11 wording: then it must be this
-            # tree's exactly (the noun and the month, the duplicate key's parts).
-            strip = lambda per: {m: [ds.subject_as_new(sb[0]), ds.without_covers(ds.without_review3(sb[1])[0])[0]]
-                                 for m, sb in per.items()}
-            old["USD"] = strip(old["USD"])
-            diffs = [m for m in old["USD"] if old["USD"][m] != usd_cmp.get(m)]
-            raw_diff = sorted(int(m) for m in diffs)          # checked in 2c
-            grafted = _snapshot_in_child(tmp, "USD", graft=ROOT)
-            grafted["USD"] = strip(grafted["USD"])
-            gdiffs = [m for m in grafted["USD"] if grafted["USD"][m] != usd_cmp.get(m)]
-            results.append(ok(not gdiffs and len(grafted["USD"]) == 12,
-                              "%s with only this tree's cost line grafted in renders this tree's USD "
-                              "text for all 12 months (the cost band is the only USD change)%s"
-                              % (against, gdiffs or "")))
-        finally:
-            shutil.rmtree(tmp, ignore_errors=True)
+                      "12 months match the golden hashes%s" % (" (differ: %s)" % bad if bad else "")))
 
     picks, newsletter, dv = ds.install(ROOT)
     snap, datas = ds.snapshot(ROOT, tuple(dv.PICKER_ORDER), keep_data=True)
+    V = dv.VARIANTS
     results.append(ok(snap["USD"] == usd_only["USD"],
                       "the USD edition built per-currency (gather + build_variant) is the same text"))
 
-    # The cover rule, under the fakes: each pick's cover and credit are the
-    # first of `photo` + the gallery's first six that answers, in every
-    # edition and month, every piece the --against comparisons take out (the
-    # card's guide link, the image, the country's name as alt text, the file
-    # page, artist, licence and its link); no cover markup is left once they
-    # are taken out.
+    # What goes out is what went out before the redesign: the base's code on
+    # this tree's data builds the same payload for every edition and month
+    # (and for the USD-only entry point, picks.build), and renders the same
+    # subject (the duplicate-send key) and the same hidden preheader (the
+    # body's first line). The bodies are not compared: check() in 6 holds
+    # each to its payload instead.
+    tmp = tempfile.mkdtemp(prefix="digest-base-")
+    try:
+        ds.extract_code(ROOT, base, tmp)
+        old_snap, old_data = _snapshot_in_child(tmp, "all")
+        old_usd, old_usd_data = _snapshot_in_child(tmp, "USD")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    new_data = _payloads(datas)
+    cells = [(c, str(m)) for c in V for m in range(1, 13)]
+    diffs = [(c, m, _where(new_data[c][m], old_data.get(c, {}).get(m))) for c, m in cells
+             if new_data[c][m] != old_data.get(c, {}).get(m)]
+    diffs += [("USD via picks.build", m, _where(d, old_usd_data["USD"].get(m)))
+              for m, d in _payloads(usd_data)["USD"].items() if d != old_usd_data["USD"].get(m)]
+    claimed = [k for k in ds.ADDED_FIELDS
+               if any(k in s_ for per in old_data.values() for d in per.values() for s_ in d["picks"] + d["gems"])]
+    results.append(ok(not diffs and not claimed and sorted(old_data) == sorted(V) and len(usd_data["USD"]) == 12
+                      and all(len(old_data[c]) == 12 for c in old_data),
+                      "%s's code builds the same payload as this tree for all %d editions x 12 months and for "
+                      "picks.build's 12 (countries, order, scores, levels, sources, prices, FX, fares, activities, "
+                      "covers, credits, dates), fields added on purpose: %s%s"
+                      % (base, len(V), ", ".join(ds.ADDED_FIELDS) or "none",
+                         "" if not (diffs or claimed) else " -> %r %r" % (diffs[:3], claimed))))
+    first = lambda body: body.split("\n", 1)[0]
+    changed = [(c, m) for c, m in cells
+               if snap[c][m][0] != old_snap[c][m][0] or first(snap[c][m][1]) != first(old_snap[c][m][1])
+               or not first(snap[c][m][1]).startswith('<div style="display:none;')
+               or not first(snap[c][m][1]).endswith("</div>")]
+    changed += [("USD via picks.build", m) for m in usd_only["USD"] if usd_only["USD"][m][0] != old_usd["USD"][m][0]]
+    results.append(ok(not changed, "the subject and the hidden preheader are %s's, byte for byte, in all %d renders%s"
+                      % (base, len(cells), "" if not changed else " -> %r" % changed[:4])))
+
+    # The cover rule, under the fakes: each pick's cover and credit in the
+    # payload are the first of `photo` + the gallery's first six that
+    # answers, in every edition and month; a gem has none. (6 checks each
+    # card shows that cover, linked to its guide with the country's name as
+    # alt text, and that the credits block carries that credit.)
+    with open(os.path.join(ROOT, "public", "activities.json"), encoding="utf-8") as f:
+        acts = json.load(f)
     wrong, n_cov, n_none = [], 0, 0
     for c in snap:
         for m in range(1, 13):
-            rest, got = ds.without_covers(snap[c][str(m)][1])
-            want = ds.expected_covers(ROOT, datas[c][m]["picks"],
-                                      lambda iso: newsletter._guide_url(iso, m, dv.VARIANTS[c]))
-            if got != want or "<img src='https://images.example/" in rest or "Photo: " in rest:
-                wrong.append((c, m, got, want))
-            n_cov += len(got)
-            n_none += len(datas[c][m]["picks"]) - len(got)
+            for s_ in datas[c][m]["picks"]:
+                want = ds.fake_rule_cover(acts.get(s_["iso"], {}))
+                got = {"url": s_["photo"], "credit": s_["photo_credit"]} if s_.get("photo") else None
+                if got != want or (not want and s_.get("photo_credit")):
+                    wrong.append((c, m, s_["iso"], got, want))
+                n_cov += bool(want)
+                n_none += not want
+            wrong += [(c, m, s_["iso"], "a gem with a cover") for s_ in datas[c][m]["gems"]
+                      if s_.get("photo") or s_.get("photo_credit")]
     results.append(ok(not wrong and n_cov > 0,
-                      "every edition's covers and credits, all 12 months, are the rule's picks under the fakes, "
-                      "each with its card's guide link, the country's name as alt text and the whole credit "
+                      "every edition's covers and credits, all 12 months, are the rule's picks under the fakes "
                       "(%d covers, %d picks the fakes give none)%s"
                       % (n_cov, n_none, "" if not wrong else " -> %r" % (wrong[:2],))))
     # No cover: the fakes give every frozen pick one, so the no-photo cards
     # are checked here, every lookup failing (Wikipedia or Commons down, a
-    # 429) through the tree's own cover() and cover_file(): each edition,
-    # each month must be its covered text less the covers and credits,
-    # nothing left in their place.
-    bare = ds.snapshot(ROOT, tuple(dv.PICKER_ORDER), offline_covers=True)
-    off = [(c, m) for c in snap for m in snap[c]
-           if (bare.get(c) or {}).get(m) != [snap[c][m][0], ds.without_covers(snap[c][m][1])[0]]]
+    # 429) through the tree's own cover() and cover_file(): no pick has a
+    # photo or a credit, and each edition's email, each month, is its covered
+    # self less each cover (the link that held the photo, and the table cell
+    # that held only that) and less the credits block, nothing left in their
+    # place (digest_check.canon), and still says what its payload says.
+    bare, bare_data = ds.snapshot(ROOT, tuple(dv.PICKER_ORDER), keep_data=True, offline_covers=True)
+    off = []
+    for c, m in cells:
+        b, d = (bare.get(c) or {}).get(m), (bare_data.get(c) or {}).get(int(m))
+        if (not b or b[0] != snap[c][m][0] or any(s_.get("photo") or s_.get("photo_credit") for s_ in d["picks"])
+                or dc.canon(b[1]) != dc.canon(snap[c][m][1], covers=False)
+                # (a control: the covered render does differ wherever a pick has a cover)
+                or (dc.canon(b[1]) == dc.canon(snap[c][m][1])) == any(s_.get("photo") for s_ in datas[c][int(m)]["picks"])
+                or "images.example" in b[1] or "Wikimedia" in b[1]
+                or dc.check(newsletter, picks, V[c], d, b[0], b[1]) or dc.proofing(b[1])):
+            off.append((c, m))
     results.append(ok(not off and sorted(bare) == sorted(snap) and all(len(bare[c]) == 12 for c in bare),
-                      "with every cover lookup failing, all %d renders are their text less the covers and "
-                      "credits, nothing in their place%s"
+                      "with every cover lookup failing, all %d renders are their covered selves less the covers "
+                      "and the credits block, nothing in their place%s"
                       % (sum(len(v) for v in bare.values()), "" if not off else " -> %r" % off[:4])))
 
     # A grade's source is the list's own government, or the one that filled its gap.
@@ -198,7 +215,6 @@ def main():
                       "a 🛡️ grade names the government whose level it is, the gap-filler where one filled it (%s)" % by))
 
     print("2. the ten editions x 12 months")
-    V = dv.VARIANTS
     problems = []
     for m in range(1, 13):
         subjects = [snap[c][str(m)][0] for c in V]
@@ -233,7 +249,7 @@ def main():
     for c in V:
         for m in range(1, 13):
             n_links = snap[c][str(m)][1].count("https://wandergrade.com/cheapest/")
-            want = "https://wandergrade.com/cheapest/%s'" % newsletter._MONTH_SLUGS[m - 1]
+            want = 'href="https://wandergrade.com/cheapest/%s"' % newsletter._MONTH_SLUGS[m - 1]
             if n_links != (1 if c == "USD" else 0) or (c == "USD" and want not in snap[c][str(m)][1]):
                 problems.append((c, m, "cheapest link", n_links))
     # Every edition's issue names its month's next occurrence (render_cheapest.year_for,
@@ -268,19 +284,7 @@ def main():
             hero = d["picks"][0]
             month_fare = hero.get("fly") is not None and hero.get("fly_basis") == "month"
             n_basis += month_fare
-            # The --against runs see USD's FX-strong forms only (USD is strong
-            # in all 12 frozen months): here every render's preheader, in its
-            # new and its 4788fd2 wording (strong or plain), must be
-            # digest_snapshot's pre group once, leaving the same text.
-            old_pre = ("After inflation, your %s goes further than usual in %d of this month’s picks"
-                       " — here’s where it’s worth going." % (v.noun, nstrong) if nstrong else
-                       "%d destinations graded A+ to F on value, safety, weather and flights this %s."
-                       % (len(d["picks"]), mn))
-            at = 'overflow:hidden">%s&#847;'
-            new_cut, new_n = ds.without_review3(body)
-            old_cut, old_n = ds.without_review3(body.replace(at % _html.escape(pre), at % _html.escape(old_pre), 1))
             want = [
-                new_n.get("pre") == old_n.get("pre") == 1 and new_cut == old_cut,
                 subj == "\U0001f9ed %s trips: where your %s goes furthest" % (mn, v.noun),
                 body.startswith('<div style="display:none;') and body.count("&#847;") == 10
                 and ('overflow:hidden">%s&#847;' % _html.escape(pre)) in body,
@@ -297,8 +301,7 @@ def main():
                       "the 2026-11 wording in all %d renders: subject '{Month} trips: where your {noun} goes "
                       "furthest', preheader 'Plan ahead: …' naming the month (FX-strong and plain forms), "
                       "'{Month}’s standouts', the 📅 sentence, the hero fare '({Month} vs the route’s usual)' "
-                      "(%d heroes), no 'this month' or 'sweet spot' left; each preheader, new or 4788fd2's "
-                      "wording, is REVIEW3's pre once and strips to the same text%s"
+                      "(%d heroes), no 'this month' or 'sweet spot' left%s"
                       % (12 * len(V), n_basis, "" if not worded else " -> %r" % worded[:3])))
     # Wording samples from the spec.
     eur1 = snap["EUR"]["1"]
@@ -403,7 +406,7 @@ def main():
                       "CNY: all %d estimated-fare countries grade Flights 70 (none A+ in any month's picks)"
                       % len(cn["est"])))
 
-    print("2c. the cost line's band (the one deliberate USD change)")
+    print("2c. the cost line's band")
     # The site (app.js, 2026-10): PL_SAME 0.1, plShown = +rel.toFixed(2),
     # plBand on that. Ask JavaScript itself, so a binary edge (1.105 is stored
     # just under and prints "1.10") can't be wrong on one side only.
@@ -444,18 +447,6 @@ def main():
     results.append(ok(moved and not set(moved) & set(shown),
                       "frozen data: %s change band, none is a USD pick or gem in any month, so the "
                       "golden USD text is unchanged" % ", ".join(moved)))
-    if raw_diff is not None:
-        # Where a cost line is printed: always on the hero, on a compact card
-        # only when it has no FX line, never on a gem line.
-        def prints_cost(i, s_):
-            return i == 0 or not newsletter._fx_line(s_, True, U)
-        expect = sorted(m for m in range(1, 13)
-                        if any(s_["iso"] in moved and prints_cost(i, s_)
-                               for i, s_ in enumerate(usd_d[m]["picks"])))
-        results.append(ok(raw_diff == expect,
-                          "%s's raw USD text differs exactly in the months a pick changes band: %s"
-                          % (against, raw_diff or "none")))
-
     print("2d. ROLLOUT typos can't take the site down")
     results.append(ok(dv.rollout_problems() == [], "the committed ROLLOUT has no problems"))
     saved = dict(dv.ROLLOUT)
@@ -555,6 +546,107 @@ def main():
     bad = [(a, P._thumb(*a)) for a, want in cases if P._thumb(*a) != want]
     results.append(ok(not bad, "_thumb: a Commons original becomes the widest step its width allows; "
                       "anything else is left alone (%d cases)%s" % (len(cases), bad or "")))
+
+    print("6. every email says what its payload says (digest_check)")
+    said, n = [], {"lines": 0, "links": 0, "images": 0, "credits": 0}
+    for c, m in cells:
+        subj, body = snap[c][m]
+        probs = dc.check(newsletter, picks, V[c], datas[c][int(m)], subj, body)
+        if probs:
+            said.append((c, m, probs[:2]))
+        want = dc.expected(newsletter, picks, V[c], datas[c][int(m)])
+        for k in n:
+            n[k] += len(want[k])
+    results.append(ok(not said and n["credits"] == n_cov,
+                      "all %d renders: every visible line (%d), every link's address, words, colour and "
+                      "underline (%d), every image's address, alt text and the guide it links to (%d) and "
+                      "every photo credit's country, photographer, file page, licence and licence link (%d, "
+                      "one for each card with a photo, in card order) are the payload's; the credits sit "
+                      "right under the quote and above the footer's border; the small print is <div>s at "
+                      "their own sizes%s"
+                      % (len(cells), n["lines"], n["links"], n["images"], n["credits"],
+                         "" if not said else " -> %r" % said[:3])))
+    # Credits the frozen months don't have: a top card with no photo (no
+    # entry, and the others keep their order), a licence with no link (plain
+    # text), and a photographer's name with markup in it (printed as given,
+    # escaped, never tidied).
+    d = copy.deepcopy(datas["USD"][2])
+    P = d["picks"]
+    odd = 'Ana "Nia" <b>O\u2019Neil</b> & S\u00f8n, Jr. \u00b7 flickr'
+    P[0]["photo"] = P[0]["photo_credit"] = None
+    P[1]["photo_credit"] = dict(P[1]["photo_credit"], license="Public domain", license_url="")
+    P[2]["photo_credit"] = dict(P[2]["photo_credit"], artist=odd)
+    subj, body = newsletter.render_digest(d)
+    e = dc.Email(body)
+    cr = lambda s_: s_["photo_credit"]
+    want = [(P[1]["name"], cr(P[1])["artist"], cr(P[1])["page"], "Public domain", None),
+            (P[2]["name"], odd, cr(P[2])["page"], cr(P[2])["license"], cr(P[2])["license_url"])] + [
+            (s_["name"], cr(s_)["artist"], cr(s_)["page"], cr(s_)["license"], cr(s_)["license_url"]) for s_ in P[3:]]
+    probs = dc.check(newsletter, picks, V["USD"], d, subj, body) + dc.proofing(body)
+    results.append(ok(not probs and e.credits == want and len(want) == 4
+                      and [x["kind"] for x in e.images if x["kind"] != "flag"] == ["thumb"] * 4
+                      and newsletter._credits([]) == "" and newsletter._credits([P[0]]) == "",
+                      "a card without a photo has no credit and the rest keep their order; a licence with no "
+                      "link is plain text; a photographer's name with markup in it is printed as given; no "
+                      "photos, no block%s" % ("" if not probs else " -> %r" % probs[:3])))
+    # The controls: each deliberate fault below must be reported, or the two
+    # checks above prove nothing.
+    subj, body = snap["USD"]["2"]
+    d, v = datas["USD"][2], V["USD"]
+    a1, a2 = (cr(s_) for s_ in d["picks"][:2])
+    swap = lambda x, y: body.replace(x, "\0").replace(y, x).replace("\0", y)
+    faults = [
+        ("a word added to a card", "check", body.replace("See the guide \u2192", "See the guide now \u2192", 1)),
+        ("a grade letter changed", "check", re.sub(r"(\u2014 Overall )(A\+|A|B\+|B|C|D|F)<",
+                                                   lambda mm: mm.group(1) + ("B<" if mm.group(2) != "B" else "C<"), body, 1)),
+        ("two photographers swapped", "check", swap(">%s<" % a1["artist"], ">%s<" % a2["artist"])),
+        ("a credit linked to another photo's page", "check", swap(a1["page"], a2["page"])),
+        ("a credit dropped", "check", re.sub(r"(Wikimedia Commons\. ).*?&middot; ", r"\1", body, 1)),
+        ("a cover swapped for another's", "check", swap(d["picks"][0]["photo"], d["picks"][1]["photo"])),
+        ("a guide link pointing at another country", "check",
+         body.replace("gc=%s&" % d["picks"][0]["iso"], "gc=%s&" % d["picks"][1]["iso"], 1)),
+        ("a green link turned blue", "check", body.replace('<span style="color:#0a7d28">', '<span style="color:#0069FF">', 1)),
+        ("the credits moved under the footer", "check",
+         (lambda mm: body.replace(mm.group(0), "").replace("\n</div>", mm.group(0) + "\n</div>"))(
+             re.search(r'<div style="[^"]*">Photos \(cropped\).*?</div>', body))),
+        ("the credits tucked inside the quote block", "check",
+         (lambda mm: body.replace(mm.group(0), "").replace("</i></div></div>", "</i></div>" + mm.group(0) + "</div>"))(
+             re.search(r'<div style="[^"]*">Photos \(cropped\).*?</div>', body))),
+        ("the footer back in a <p>", "both", re.sub(r'<div (style="[^"]*border-top[^"]*">Grades are for.*?)</div>',
+                                                    r"<p \1</p>", body, 1)),
+        ("a link's words out of their spans", "proofing",
+         body.replace('<span><span style="color:#666;text-decoration:underline">unsubscribe</span></span>', "unsubscribe")),
+        ("11px small print", "both", body.replace("font-size:12px", "font-size:11px", 1)),
+        ("a #888 left", "proofing", body.replace("color:#666", "color:#888", 1)),
+        ("a block with no colour of its own", "both", body.replace(";color:#444;margin:16px 0 0\">", ";margin:16px 0 0\">", 1)),
+        ("a block with no font-size of its own", "both", body.replace("font-size:14px;line-height:21px;color:#444;", "line-height:21px;color:#444;", 1)),
+        ("a <div> never closed", "both", body[::-1].replace(">vid/<", "", 1)[::-1]),
+    ]
+    missed = []
+    for name, by, mutant in faults:
+        found = {"check": bool(dc.check(newsletter, picks, v, d, subj, mutant)), "proofing": bool(dc.proofing(mutant))}
+        if mutant == body or not all(found[k] for k in (("check", "proofing") if by == "both" else (by,))):
+            missed.append((name, found, mutant == body))
+    results.append(ok(not missed and not dc.check(newsletter, picks, v, d, subj, body) and not dc.proofing(body),
+                      "controls: each of %d deliberate faults is reported (%s)%s"
+                      % (len(faults), "; ".join(f[0] for f in faults), "" if not missed else " -> MISSED %r" % missed)))
+
+    print("7. Buttondown can't restyle it (digest_check.proofing)")
+    unproof = [(c, m, dc.proofing(snap[c][m][1])[:2]) for c, m in cells if dc.proofing(snap[c][m][1])]
+    results.append(ok(not unproof,
+                      "all %d renders: the intro is the only <p> (and no list markup); every link's words sit in "
+                      "two spans with a colour on the inner one and text-decoration:none on the <a>; no "
+                      "font-size under %dpx but the hidden preheader's; no #888; every block that shows words "
+                      "has its own colour and its own font-size; the markup nests%s"
+                      % (len(cells), dc.MIN_PX, "" if not unproof else " -> %r" % unproof[:3])))
+    # A control: the email as it was before the redesign fails this, in the
+    # ways the delivered Nov 1 2026 issue showed (blue links, 16px small
+    # print, 11px credits, #888).
+    was = " | ".join(dc.proofing(old_snap["USD"]["2"][1]))
+    results.append(ok(all(x in was for x in ("<p> (the intro is the only one allowed)", "two spans",
+                                               "font-size 11px", "#888 is still in the body")),
+                      "control: %s's February email fails it on its <p>s, its bare links, its 11px credits "
+                      "and its #888" % base))
 
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1
