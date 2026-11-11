@@ -245,8 +245,9 @@ try:
                       "its one header is a generic User-Agent, no address and no name in it: %r" % ua))
     results.append(ok(timeout == cc.TIMEOUT and 0 < cc.TIMEOUT <= 8 and context is cc.rates._SSL
                       and REAL_FETCH(addr, 3) and seen[-1][1] == 3,
-                      "it waits %d seconds at most (less when told), certificates checked as the other fetches' are"
-                      % cc.TIMEOUT))
+                      "each network wait of a request is cut off after %d seconds (less when told; it is the "
+                      "socket timeout, not a limit on the whole request), certificates checked as the other "
+                      "fetches' are" % cc.TIMEOUT))
     gone = REAL_FETCH(addr + "&gone")
     try:
         REAL_FETCH(addr + "&down")
@@ -540,8 +541,9 @@ results.append(ok(data == FEB and sb == PLAIN_SB[2] and not svc.asked and lines[
                   "with no time at all nothing is asked and nothing is dropped"))
 worst = cc.BUDGET + cc.RETRY_PAUSE + cc.TIMEOUT
 results.append(ok(0 < cc.TIMEOUT <= 8 and 45 <= cc.BUDGET <= 75 and worst < 90,
-                  "the limits: %d s a request, %d s a run; the last request can start just inside the budget, so "
-                  "a run's worst case is about %d s" % (cc.TIMEOUT, cc.BUDGET, worst)))
+                  "the limits: %d s for each network wait of a request, %d s in which a run may start one; the "
+                  "last request can start just inside the budget, so a run's requests end about %d s after the "
+                  "first, more only if a connection stalls in stages" % (cc.TIMEOUT, cc.BUDGET, worst)))
 
 print("8. several editions share one check")
 codes = tuple(tsd.ALL_SEND)

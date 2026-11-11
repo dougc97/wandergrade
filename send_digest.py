@@ -39,9 +39,13 @@ use, and one that does not load (HTTP 404, say, twice in a row) gives way to
 the country's next approved photo, or to no photo when none is left
 (fxtracker/cover_check.py; the October 2026 issue went out with a broken
 Vietnam photo). The log says what happened in lines that start "cover
-check:", ending in a summary such as "cover check: all 5 photos loaded". A
-slow or down image service keeps every photo, and the check can't stop or
-fail a send: it never changes the exit code.
+check:", ending in a summary such as "cover check: all 5 photos loaded". An
+image service that does not answer, or that itself answers 5xx, 403, 408 or
+429, keeps every photo. A 404 counts as not loading whatever is behind it
+(October's was the image service passing on a refusal from Wikimedia), so on
+a day when the service answers but cannot fetch from Wikimedia, every photo
+can give way in one run. The check can't stop or fail a send: it never
+changes the exit code.
 
 Exit codes: 0 every edition sent, already out, covered or skipped for having no
 readers; 1 something failed (a re-run is safe); 2 usage error or a ROLLOUT

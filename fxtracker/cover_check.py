@@ -15,24 +15,58 @@ request and read as they always did.
 One address gets one of three answers (verdict):
 
   LOADS    HTTP 200 with an image content type and a body that is not empty.
-  BROKEN   a definite answer that it is not an image: HTTP 4xx, or a 200
-           with another content type or an empty body.
+  BROKEN   the image service's own answer that this is not an image: HTTP
+           4xx (a 404 above all) other than the three below, or a 200 with
+           another content type or an empty body.
   UNKNOWN  everything else: a timeout, no connection, HTTP 5xx, and the
            three 4xx that are about the asker and not the photo (403
            refused, 408 timed out, 429 slow down: NOT_ABOUT_THE_PHOTO).
 
 Only BROKEN twice in a row (one more look, after a short pause) drops a
-photo. UNKNOWN keeps it: a slow or down image service must never strip the
-pictures from an email. A dropped photo's place is taken by the country's
-next approved photo (picks.cover_for: the same site checks, then this one),
-with that photo's credit. When none is left the card goes out without a
-photo and without a credit, which newsletter.py already handles.
+photo. UNKNOWN keeps it: an image service that does not answer, or that
+itself answers 5xx, 403, 408 or 429, never strips the pictures from an
+email. A dropped photo's place is taken by the country's next approved photo
+(picks.cover_for: the same site checks, then this one), with that photo's
+credit. When none is left the card goes out without a photo and without a
+credit, which newsletter.py already handles.
+
+What a 404 does and does not prove. A 404 counts as BROKEN whatever is
+behind it, and the image service also answers 404 when the trouble is
+upstream of it: October's broken cover was a 404 that stood for Wikimedia
+refusing the service's own fetch with a 429 (picks._banner's note). The
+check reads the status only, never the error's text, and that refusal
+lasted for weeks, so a passing upstream refusal and a lasting one look the
+same here. So "a down image service keeps every photo" holds for a service
+that does not answer or answers 5xx, 403, 408 or 429 itself. It does not
+hold on a day when the service answers but cannot fetch from Wikimedia: then
+every first-choice photo can be passed over in one run (each for the
+country's next approved photo, or for none), where before this check the
+addresses went out as they were and could have loaded later. The email is
+still complete and right, without those pictures.
+
+The second look comes RETRY_PAUSE later, at the same address. It guards
+against a glitch in one answer. It is not known to be a fresh fetch
+upstream: the image service answers through Cloudflare, the one 404 on
+record came back "cf-cache-status: MISS" with no Cache-Control, and nobody
+has asked the same address twice to see whether the second answer is the
+edge's stored copy of the first. Not measured.
 
 The check can never stop a send. Whatever goes wrong inside it is caught and
-the photo is kept, with one line in the log. A request waits TIMEOUT seconds
-at most, and a run has BUDGET seconds from its first request: after that the
-photos not yet asked for go out unchecked, and one line says so. An address
-is asked once a run, however many editions share it.
+the photo is kept, with one line in the log. TIMEOUT is urllib's socket
+timeout: each network wait of a request (connecting, the handshake, each
+read) is cut off after TIMEOUT seconds, which is not a limit on the request
+as a whole, so a connection that stalls in stages can take several times
+that. A run has BUDGET seconds from its first request: once they are spent
+no new request starts, the photos not yet asked for go out unchecked, and
+one line says so. A request that started inside the budget is left to
+finish, and a wait near the end is cut to the time left (1 second at
+least). So a run's requests end about a minute after the first one, a
+little more when the last one waits its full time, and more than that only
+if a connection stalls in stages. picks' own lookups for a replacement photo
+(picks.cover, after a BROKEN) have their own 15 second timeouts and are
+outside the budget. None of this can cut a send short: the workflow sets no
+time limit on the job. An address is asked once a run, however many editions
+share it.
 
 Which address: the top card shows the 1024x420 banner (a cover's "url"),
 every other card the 220x168 small copy ("thumb"), as newsletter._hero_card
@@ -58,9 +92,9 @@ from . import rates
 
 LOADS, BROKEN, UNKNOWN = "loads", "broken", "unknown"
 
-TIMEOUT = 8        # seconds one request may wait
-BUDGET = 60        # seconds for all of a run's requests, from the first
-RETRY_PAUSE = 1    # seconds between a BROKEN answer and the second look
+TIMEOUT = 8        # seconds each network wait of a request may take (the socket timeout)
+BUDGET = 60        # seconds from a run's first request in which a new request may start
+RETRY_PAUSE = 1    # seconds between a BROKEN answer and the second look, at the same address
 # Generic on purpose: it names no site and carries no address. It is the
 # agent the answers measured above were given to (the service answers
 # through Cloudflare; urllib's own "Python-urllib/3.x" was not tried).
@@ -151,7 +185,8 @@ class CoverCheck(object):
 
     def _ask(self, url):
         """(verdict, why) for one address, asked once a run. BROKEN only
-        when two looks in a row say so."""
+        when two looks in a row say so (the second may be answered from
+        the image service's edge cache: the module's note)."""
         if url not in self._seen:
             v, why = self._get(url)
             if v == BROKEN:

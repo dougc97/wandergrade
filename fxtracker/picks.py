@@ -10,8 +10,9 @@ data and formulas the website uses, so the email matches what users see:
                   (left out of the mean where a country has no climate data)
   Flights       = the home country's fare vs the typical fare for that
                   distance (or the route's own typical for the month)
-  Overall value = weighted mean (Affordability x3, Safety x2, Weather x2,
-                  Flights x2) — the site's default priorities
+  Overall value = the plain mean of the grades a place has: every factor
+                  counts the same (WEIGHTS, the site's default priorities
+                  since 2026-10-14; Affordability counted x3 before)
 
 Flights come from the same cached-fare data the site uses (Travelpayouts
 directly when a token is configured, otherwise the live site's /api/flights),
