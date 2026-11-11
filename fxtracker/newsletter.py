@@ -430,6 +430,12 @@ def _link(href, label, color=GREEN, style="", underline=False):
                                     ";text-decoration:underline" if underline else "", label))
 
 
+def _hold(text):
+    """`text` (HTML) kept on one line: a date, "re-grade" and "1-year" would
+    otherwise break at a hyphen in the small print."""
+    return '<span style="white-space:nowrap">%s</span>' % text
+
+
 def _adv_main(v):
     """The edition's main advisory source by its short name ("US State Dept"):
     the government picks.build_variant grades safety on (v.adv_source) and the
@@ -514,11 +520,21 @@ def _name(s, g, weight, badge):
 
     The flag's gap is a non-breaking space, which every mail app keeps,
     widened by 3px on the link to the 7px the cards were drawn with (the
-    flag's own margin-right, until Classic threw it away). The space before
-    the badge is an ordinary one on purpose: where a name fills its line the
-    badge drops to the next, whole. Were the row one unbreakable run, a
-    narrow card (110px of photo beside it on a phone) would be pushed wider
-    than the screen."""
+    flag's own margin-right, until Classic threw it away). The space sets
+    the gap; it does not hold the flag to the name. In a column narrower
+    than flag + name a browser still breaks the line after the flag, which
+    is how it avoids pushing the card wider. That was seen only in the
+    Modern template on a 360 to 375px phone, whose frames left a compact
+    card's words 98 to 113px ("Philippines" alone under its flag); with
+    the padding below (PANEL_PAD, CARD_PAD) the column is 118px and up and
+    none of the USD edition's 12 frozen months shows it from 360px. Don't
+    glue the flag to the name with a nowrap span: where the two don't fit,
+    the name then runs past the card's edge (tried: about 20px over on a
+    320px screen in Modern, 18px at 360px with the old padding). The space
+    before the badge is an ordinary one for the same reason: where a name
+    fills its line the badge drops to the next, whole. Were the row one
+    unbreakable run, a narrow card (110px of photo beside it on a phone)
+    would be pushed wider than the screen."""
     return "%s&nbsp;%s %s" % (
         _flag_img(s["iso"]), _link(g, _esc(s["name"]), style="font-weight:%d;margin-left:3px" % weight),
         _badge(s["value"], badge))
@@ -555,16 +571,25 @@ def _grades(s, v=USD, month=None):
     # Flights is in the Overall whenever there is fare data, so every row that
     # shows the Overall shows it too.
     if s.get("fly") is not None:
-        fly = _unit("✈️", _grade(s["fly"]), word("Flights"))
+        # An estimate (no cached fare for the route yet: picks._score counts
+        # it as a typical fare for the distance, a fixed 70, and sets
+        # fareEst) is marked "~" before its letter, as the site prints it
+        # (app.js: the grey "~B" pill, "Estimated — no cached fare yet").
+        # The grade key says what the mark means. Until Dec 2026 the letter
+        # stood unmarked, as if a fare had been compared.
+        est = bool(s.get("fareEst"))
+        fly = _unit("✈️", ("~" if est else "") + _grade(s["fly"]), word("Flights"))
         if top:
             # The grade's basis: the featured month's fare vs the route's own
             # typical, or — where a route has too few cached months — the
-            # year-round fare vs a distance-typical one. The month is named
-            # ("February vs the route’s usual"): the issue goes out two months
-            # ahead, so "this month" read as the month it arrived in. The name
-            # comes from _MONTH_SLUGS, not strftime (the machine's locale).
+            # year-round fare vs a distance-typical one; an estimate says it
+            # is one. The month is named ("February vs the route’s usual"):
+            # the issue goes out two months ahead, so "this month" read as
+            # the month it arrived in. The name comes from _MONTH_SLUGS, not
+            # strftime (the machine's locale).
             fly += " <span style='color:#6b7681'>(%s)</span>" % (
-                "%s vs the route’s usual" % _MONTH_SLUGS[month - 1].capitalize()
+                "estimated, no fare yet" if est
+                else "%s vs the route’s usual" % _MONTH_SLUGS[month - 1].capitalize()
                 if s.get("fly_basis") == "month" else "year-round, for the distance")
         units.append(fly)
     return _SEP.join(units)
@@ -582,7 +607,8 @@ def _source_line(s):
 # ---- the two money lines --------------------------------------------------------
 # The same two short lines on the top card and the compact cards, price
 # first. Neither carries 💰, which in this email means the Affordability grade
-# and nothing else.
+# and nothing else: it stands in the grade rows and the grade key only (the
+# "On a budget?" line under the gems carried one too until Dec 2026).
 
 def _fx_text(s, v=USD):
     """The WanderGrade hook: after inflation, the reader's money (v.noun_cap,
@@ -679,7 +705,11 @@ def _dont_miss(s):
 # An entry is the country, the photographer's name linking to the photo's file
 # page (which has the photo's title and its full terms), then the licence's
 # name linking to its text. Names are printed as Commons gives them, escaped,
-# never tidied.
+# never tidied. Two entries are parted like two grades ("&nbsp;&middot; ", so
+# a line can end with the dot but never start with one), and a linked licence
+# name stays on one line ("CC BY-SA 4.0" used to split after "CC" or at its
+# hyphen). A photographer's name may wrap: it can be long. A licence without
+# a link is plain text and may wrap too.
 def _credits(picks):
     """The credits block: one entry for each card that shows a photo, in card
     order. "" when no card shows one."""
@@ -688,13 +718,25 @@ def _credits(picks):
         c = s.get("photo_credit")
         if not (s.get("photo") and c):
             continue
-        lic = (_link(_esc(c["license_url"]), _esc(c["license"]), CREDIT) if c.get("license_url")
-               else _esc(c["license"]))
+        lic = (_link(_esc(c["license_url"]), _esc(c["license"]), CREDIT, style="white-space:nowrap")
+               if c.get("license_url") else _esc(c["license"]))
         items.append("%s: %s, %s" % (_esc(s["name"]), _link(_esc(c["page"]), _esc(c["artist"]), CREDIT), lic))
     if not items:
         return ""
     return ('<div style="font-size:%dpx;line-height:18px;color:%s;text-align:center;margin:12px 0 0">'
-            'Photos (cropped) via Wikimedia Commons. %s</div>' % (SMALL_PX, CREDIT, " &middot; ".join(items)))
+            'Photos (cropped) via Wikimedia Commons. %s</div>' % (SMALL_PX, CREDIT, _SEP.join(items)))
+
+
+# Side padding, in px, of the grey panel and of a compact card's words. They
+# were 20 and 14 until Dec 2026. On a 360px phone in the Classic template that
+# left the words beside a card's photo 164px, and "Prices ~71% below US
+# levels" (about 176px at 13px) and a grade row with two plus letters (about
+# 166px) each took two lines on every card. At 14 and 10 the column is 184px
+# and both fit on one line (measured in headless Chrome at 360, 375 and 390px,
+# in the system font and in Arial); at 390px nothing wraps differently. The
+# photo's 110x84 box and its 220x168 request are untouched. Don't widen
+# either without measuring at 360px again.
+PANEL_PAD, CARD_PAD = 14, 10
 
 
 def _hero_card(s, month, v=USD):
@@ -731,21 +773,35 @@ def _compact_card(s, month, v=USD):
     return """
     <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e6e6e6;border-radius:12px;margin:0 0 12px">
       <tr>%s
-        <td valign="top" style="padding:11px 14px">
+        <td valign="top" style="padding:11px %dpx">
           <div style="font-size:16px;line-height:24px;font-weight:800;color:#111">%s</div>
           <div style="font-size:13px;line-height:20px;color:#555;margin:3px 0 0">%s</div>
           %s
           <div style="font-size:13px;line-height:19px;margin:5px 0 0">%s</div>
         </td>
       </tr>
-    </table>""" % (thumb, _name(s, g, 800, BADGE_CARD), _grades(s, v), _money_lines(s, v),
+    </table>""" % (thumb, CARD_PAD, _name(s, g, 800, BADGE_CARD), _grades(s, v), _money_lines(s, v),
                    _link(g, "See the guide&nbsp;→", style="font-weight:600"))
 
 
 def _gem_line(s, month, v=USD):
     g = _guide_url(s["iso"], month, v)
-    return ("<div style='font-size:14px;line-height:24px;color:#555;margin:0 0 6px'>%s %s</div>"
-            % (_name(s, g, 700, BADGE_GEM), _grades(s, v)))
+    # The four grades sit in one inline-block: where they don't fit beside
+    # the name they move to the next line together (on a 360px phone the
+    # last one used to drop alone). Not on a row that names another
+    # government ("🛡️ A per Global Affairs Canada"): at about 330px it is
+    # wider than a 360 or 375px phone's column, so as one piece it took a
+    # line of its own, wrapped inside and still left its last grade alone on
+    # a third line. That row flows as it always did, two lines at every
+    # phone width. The gap before the grades is a non-breaking space and an
+    # ordinary one, twice the gap inside a grade: with a single space the
+    # Overall badge read as a pair with the 💰 after it. The row can still
+    # break at the ordinary space.
+    grades = _grades(s, v)
+    if not _adv_by(s, v):
+        grades = "<span style='display:inline-block'>%s</span>" % grades
+    return ("<div style='font-size:14px;line-height:24px;color:#555;margin:0 0 6px'>%s&nbsp; %s</div>"
+            % (_name(s, g, 700, BADGE_GEM), grades))
 
 
 # One line of human at the end of a page of grades. Every author here died long
@@ -817,8 +873,8 @@ def digest_subject(v, month_name):
     return "\U0001f9ed %s trips: where your %s goes furthest" % (month_name, v.noun)
 
 
-def _grade_key(v, mn):
-    """The footer's key to the grades, one short paragraph (under 70 words).
+def _grade_key(v, mn, flights=True):
+    """The footer's key to the grades, one short paragraph (70 words at most).
     Every clause states what the scoring code does; change one only with the
     code it cites. scripts/test_digest_variants.py 8 holds each to every pick
     and gem of every frozen render.
@@ -847,22 +903,28 @@ def _grade_key(v, mn):
           picks._score reads climate.json's score for the month: five years
           of daily temperature and rain (fxtracker/build_climate.py; its
           curated list moves a country's "best" months, not these scores).
-      the fare against the usual for that route or distance
+      the fare against the usual for that route or distance (~ = estimated)
           picks._score: the month's fare against the route's own median
           (month_fare), else the year-round fare against a fare fitted to
-          distance (fare_context).
+          distance (fare_context). A route with no cached fare is counted
+          as a typical fare for its distance (a fixed 70) and carries
+          fareEst; _grades prints "~" before that letter, as the site does.
+          `flights` False (no card has a fare grade: picks found no fare
+          data and left Flights out of every Overall) leaves the sentence
+          out, as the rows leave ✈️ out.
     """
     # Non-breaking spaces hold each icon to its "is" and each "Level 1 = A"
-    # together, so a line never starts with "= B)"; "1-year" can't break at
-    # its hyphen either.
+    # and "~ = estimated" together, so a line never starts with "= B)";
+    # "1-year" can't break at its hyphen either.
     return ("<b>Reading the grades:</b> the badge is the Overall grade, an equal mix of the others. "
             "\U0001f4b0&nbsp;is mostly local prices against %s, partly whether your %s goes further than "
-            "usual (against its <span style=\"white-space:nowrap\">1-year</span> average, after inflation). "
+            "usual (against its %s average, after inflation). "
             "\U0001f6e1️&nbsp;is the %s advisory level (Level&nbsp;1&nbsp;=&nbsp;A, "
             "Level&nbsp;2&nbsp;=&nbsp;B) unless another government is named. "
-            "\U0001f324️&nbsp;is %s’s usual weather. "
-            "✈️&nbsp;is the fare against the usual for that route or distance."
-            % (_esc(v.vs_place), _esc(v.noun), _esc(_adv_main(v)), _esc(mn)))
+            "\U0001f324️&nbsp;is %s’s usual weather.%s"
+            % (_esc(v.vs_place), _esc(v.noun), _hold("1-year"), _esc(_adv_main(v)), _esc(mn),
+               " ✈️&nbsp;is the fare against the usual for that route or distance "
+               "(~&nbsp;=&nbsp;estimated)." if flights else ""))
 
 
 def render_digest(data):
@@ -895,11 +957,21 @@ def render_digest(data):
     # card (Dec 2026; before, a masthead with its tagline, a longer intro, a
     # green calendar box and a "Top picks" heading stood above it, and on a
     # phone the first photo began some 380px down, 740px in the Modern
-    # template). The 💵 sentence is there only when a pick has the dollar line.
-    intro = ("<b>%d best-value trip%s for %s</b>, graded A+ to F on money, safety, weather and flights.%s "
+    # template). The 💵 sentence is there only when a pick has the dollar line;
+    # its banknote is held to "marks", or at 390px it ended a line alone.
+    # "Top picks" is the site's own name for this list, the best of the
+    # most-visited countries. (The redesign first wrote "N best-value trips",
+    # which claimed too much: the gems are not in the list and often grade
+    # higher. No issue went out with it.)
+    # Flights is named only when a card has a fare grade: with no fare data
+    # picks leaves it out of every Overall and no row shows ✈️ (the hidden
+    # preheader, frozen with the subject, still names it).
+    flights = any(s.get("fly") is not None for s in picks + gems)
+    intro = ("<b>%d top pick%s for %s</b>, graded A+ to F on %s.%s "
              "Going another month? %s"
              % (len(picks), "" if len(picks) == 1 else "s", _esc(mn),
-                " %s marks where your %s goes further than usual right now." % (v.fx_emoji, _esc(v.noun))
+                "money, safety, weather and flights" if flights else "money, safety and weather",
+                " %s&nbsp;marks where your %s goes further than usual right now." % (v.fx_emoji, _esc(v.noun))
                 if nstrong else "",
                 _link(pick_link, "Pick your travel month&nbsp;→", style="font-weight:600")))
 
@@ -921,14 +993,14 @@ def render_digest(data):
     # render_cheapest's, graded from the US): the USD edition only, as the
     # page is US-origin and a euro reader's picks aren't.
     cheap_link = "" if v.code != "USD" else (
-        "<div style='font-size:14px;line-height:21px;color:#111;margin:18px 0 0'>\U0001f4b0 "
+        "<div style='font-size:14px;line-height:21px;color:#111;margin:18px 0 0'>"
         "<b>On a budget?</b> %s</div>"
         % _link(_cheapest_url(m), "The cheapest countries to visit in %s&nbsp;→" % _esc(mn),
                 style="font-weight:600"))
 
     small = "font-size:%dpx;line-height:18px;color:%s" % (SMALL_PX, SMALL)
     body = """<div style="display:none;font-size:1px;color:#f4f5f6;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden">%s&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;</div>
-<div style="max-width:600px;margin:0 auto;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;background:#f4f5f6;padding:20px">
+<div style="max-width:600px;margin:0 auto;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;background:#f4f5f6;padding:20px %dpx">
   <div style="font-size:20px;line-height:26px;font-weight:800;color:#111;text-align:center;margin:0 0 10px">\U0001f30d WanderGrade</div>
   <p style="font-size:16px;line-height:24px;color:#111;margin:0 0 16px">%s</p>
   %s
@@ -942,14 +1014,14 @@ def render_digest(data):
   %s
   %s
   <div style="%s;border-top:1px solid #e0e0e0;margin:14px 0 0;padding:14px 0 0">%s</div>
-  <div style="%s;margin:8px 0 0">Grades are for %s planning %s travel; set your home country on the site to re-grade for you.%s Currency data as of %s.</div>
-  <div style="%s;margin:8px 0 0"><b>WanderGrade</b> grades every country A+ to F · once a month, no spam · %s · %s</div>
-</div>""" % (_esc(preheader), intro, hero, rest,
+  <div style="%s;margin:8px 0 0">Grades are for %s planning %s travel; set your home country on the site to %s for you.%s Currency data as of %s.</div>
+  <div style="%s;margin:8px 0 0"><b>WanderGrade</b> grades every country A+ to F&nbsp;· once a month, no spam&nbsp;· %s&nbsp;· %s</div>
+</div>""" % (_esc(preheader), PANEL_PAD, intro, hero, rest,
              ai_callout, gems_block, cheap_link, month_link, GREEN,
              _link("mailto:hello@wandergrade.com", "<b>hello@wandergrade.com</b>", "#444", underline=True),
              _quote_for(yr, m), _credits(picks),
-             small, _grade_key(v, mn),
-             small, _esc(v.traveler), _esc(mn), _esc(switch), _esc(data["as_of"]),
+             small, _grade_key(v, mn, flights),
+             small, _esc(v.traveler), _esc(mn), _hold("re-grade"), _esc(switch), _hold(_esc(data["as_of"])),
              small, _link(SITE, "wandergrade.com", SMALL, underline=True),
              _link(UNSUB, "unsubscribe", SMALL, underline=True))
 

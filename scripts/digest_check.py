@@ -32,10 +32,13 @@ check() or proofing().
 
 `nl` and `pk` below are a tree's newsletter and picks modules, as
 digest_snapshot.install returns them. expected() takes only facts from them
-(the site address, the quote list, the price band, the grade bands and the
-advisory sources' names, each with its own test), never the functions that
-write the email's HTML. The Overall badge's colours are read from the site's
-own stylesheet (site_grade_colours).
+(the site address, the price band, the grade bands and the advisory sources'
+names, each with its own test), never the functions that write the email's
+HTML. The Overall badge's colours are read from the site's own stylesheet
+(site_grade_colours). The closing quotes and Buttondown's unsubscribe token
+are spelled out here (QUOTES, UNSUB), not read from `nl`: read from the code
+under test, a changed citation or a mistyped token passed check() in every
+edition, and only the USD golden hashes noticed.
 """
 import html.parser
 import io
@@ -62,6 +65,26 @@ MONEY = "\U0001f4b0"
 NB = "\xa0"               # a non-breaking space (&nbsp; in the HTML)
 SEP = NB + "\u00b7 "      # between two grades: a row may break only after the dot
 BRAND_TOP = "\U0001f30d WanderGrade"   # the brand line that opens the email
+# Buttondown swaps this for the reader's own unsubscribe link when it sends.
+# Anything else in its place goes out as a dead link.
+UNSUB = "{{ unsubscribe_url }}"
+# The closing quotes, word for word: (quote, author, the work it is from). An
+# issue's is QUOTES[(year * 12 + month) % 5], so each of the five is in some
+# frozen month. Every one is cited to the work it is really from
+# (newsletter.QUOTES has the rule); a citation changed there must be changed
+# here on purpose.
+QUOTES = (
+    ("Travel is fatal to prejudice, bigotry, and narrow-mindedness.",
+     "Mark Twain", "The Innocents Abroad, 1869"),
+    ("I travel not to go anywhere, but to go. I travel for travel\u2019s sake.",
+     "Robert Louis Stevenson", "Travels with a Donkey in the C\u00e9vennes, 1879"),
+    ("Though we travel the world over to find the beautiful, we must carry it with us, or we find it not.",
+     "Ralph Waldo Emerson", "Essays: First Series, 1841"),
+    ("I am tormented with an everlasting itch for things remote.",
+     "Herman Melville", "Moby-Dick, 1851"),
+    ("The mountains are calling and I must go.",
+     "John Muir", "letter to his sister Sarah, 1873"),
+)
 
 
 # ---- reading an email back ---------------------------------------------------
@@ -169,7 +192,10 @@ class Email(object):
         # An Overall badge: a <span> with a fill of its own.
         self.badges = [n for n in r.root.walk() if n.tag == "span" and "background" in n.style]
         self.credits_node = next((n for t, n in self.lines if t.startswith("Photos ")), None)
-        self.credits = _credits(self.credits_node) if self.credits_node is not None else None
+        # .credit_links: each entry's (photographer's <a>, licence's <a> or None).
+        self.credit_links = []
+        self.credits = (_credits(self.credits_node, self.credit_links)
+                        if self.credits_node is not None else None)
 
 
 def _solid(kids):
@@ -208,10 +234,12 @@ def _image(img):
             "node": img}
 
 
-def _credits(node):
+def _credits(node, nodes=None):
     """The credits block's entries as the reader gets them: [(country,
     photographer, the link on the photographer's name, licence, the link on
-    the licence or None)], or a string saying what doesn't parse."""
+    the licence or None)], or a string saying what doesn't parse. Two
+    entries are parted by a non-breaking space, a dot and a space (SEP), as
+    two grades are. `nodes` (a list) is given each entry's two <a>s."""
     links, flat = [], []
     for k in node.kids:
         if isinstance(k, str):
@@ -225,7 +253,7 @@ def _credits(node):
     if not flat.startswith(CREDITS_LEAD + " "):
         return "the credits block doesn't open %r: %r" % (CREDITS_LEAD, flat[:60])
     out = []
-    for part in flat[len(CREDITS_LEAD) + 1:].split(" · "):
+    for part in flat[len(CREDITS_LEAD) + 1:].split(SEP):
         m = re.match(r"^([^\x01\x02]+): \x01(\d+)\x02, (?:\x01(\d+)\x02|([^\x01\x02]+))$", part)
         if not m:
             return "a credit that isn't 'Country: photographer, licence': %r" % part
@@ -234,6 +262,8 @@ def _credits(node):
         out.append((m.group(1), norm(who.text()), who.attrs.get("href"),
                     norm(lic.text()) if lic is not None else m.group(4),
                     lic.attrs.get("href") if lic is not None else None))
+        if nodes is not None:
+            nodes.append((who, lic))
     return out
 
 
@@ -309,7 +339,13 @@ def expected(nl, pk, v, d):
     badges   [(letter, fill, letter colour)]: the Overall badge of each card
              and gem in order, in the site's colours for that letter.
     credits  [(country, photographer, file page, licence, licence link)]:
-             one for each card that shows a photo, in card order."""
+             one for each card that shows a photo, in card order.
+    held     [(line key, words)]: words that must sit in a span that can't
+             wrap, or the small print breaks them at a hyphen.
+    grouped  [True or False] for each gem in order: its four grades are one
+             group that moves to the next line together. False where the
+             row names another government: that row is too long for a
+             phone's line and flows freely."""
     usd = v.code == "USD"
     m, mn, yr = d["month"], d["month_name"], d["year"]
     picks, gems = d["picks"], d["gems"]
@@ -323,17 +359,21 @@ def expected(nl, pk, v, d):
     guide = lambda s: "%s/?tab=guide&gc=%s&vmn=%d%s" % (site, s["iso"], m, vo)
     flag = lambda s: ("flag", "https://flagcdn.com/32x24/%s.png" % s["iso"].lower(), s["iso"], None)
     colours = site_grade_colours(os.path.join(pk.PUBLIC, "styles.css"))
-    lines, links, images, badges, credits = [], [], [], [], []
+    lines, links, images, badges, credits, held, grouped = [], [], [], [], [], [], []
     line = lambda key, text: lines.append((key, text))
     # A name row: the flag, its gap (a non-breaking space), the name, the badge.
     name = lambda s: NB + "%s %s" % (s["name"], grade(s["value"]))
     badge = lambda s: badges.append((grade(s["value"]),) + colours[grade(s["value"])])
 
+    # A fare grade is marked "~" when it is an estimate (no cached fare yet:
+    # picks counts the route as typical for its distance), as on the site.
+    fly = lambda s: ("~" if s.get("fareEst") else "") + grade(s["fly"])
+
     def letters(s):
         """A compact card's or a gem's four grades: each icon held to its letter."""
         units = [MONEY + NB + grade(s["afford"]), SHIELD + NB + safe(s) + by(s), SUN + NB + grade(s["wx"])]
         if s.get("fly") is not None:
-            units.append(PLANE + NB + grade(s["fly"]))
+            units.append(PLANE + NB + fly(s))
         return SEP.join(units)
 
     nstrong = sum(1 for s in picks if (s.get("fx") or 0) >= 3)
@@ -343,12 +383,17 @@ def expected(nl, pk, v, d):
            % (len(picks), mn))
     line("pre", pre + PAD * 10)
     line("brand_top", BRAND_TOP)
-    # The count is the number of picks; the banknote sentence is there only
-    # when a pick has the dollar line.
-    line("intro", "%d best-value trip%s for %s, graded A+ to F on money, safety, weather and flights.%s "
+    # The count is the number of picks ("1 top pick", "5 top picks"); the
+    # banknote sentence is there only when a pick has the dollar line, its
+    # banknote held to "marks"; flights is named only when a card or gem has
+    # a fare grade (with no fare data at all no row shows one).
+    flights = any(s.get("fly") is not None for s in picks + gems)
+    line("intro", "%d top pick%s for %s, graded A+ to F on %s.%s "
                   "Going another month? Pick your travel month%s→"
          % (len(picks), "" if len(picks) == 1 else "s", mn,
-            " %s marks where your %s goes further than usual right now." % (v.fx_emoji, v.noun) if nstrong else "",
+            "money, safety, weather and flights" if flights else "money, safety and weather",
+            " %s%smarks where your %s goes further than usual right now." % (v.fx_emoji, NB, v.noun)
+            if nstrong else "",
             NB))
     links.append(("text", site if usd else "%s/?vo=%s" % (site, v.home_iso),
                   "Pick your travel month%s→" % NB, GREEN, False))
@@ -372,8 +417,9 @@ def expected(nl, pk, v, d):
             units = [MONEY + NB + "Affordability" + NB + grade(s["afford"]), SHIELD + NB + "Safety" + NB + safe(s),
                      SUN + NB + "Weather" + NB + grade(s["wx"])]
             if s.get("fly") is not None:
-                units.append(PLANE + NB + "Flights" + NB + grade(s["fly"]) + " (%s)" % (
-                    "%s vs the route’s usual" % mn if s.get("fly_basis") == "month"
+                units.append(PLANE + NB + "Flights" + NB + fly(s) + " (%s)" % (
+                    "estimated, no fare yet" if s.get("fareEst")
+                    else "%s vs the route’s usual" % mn if s.get("fly_basis") == "month"
                     else "year-round, for the distance"))
             line("grades", SEP.join(units))
             if s.get("advBy"):
@@ -405,23 +451,26 @@ def expected(nl, pk, v, d):
     for s in gems:
         images.append(flag(s))
         links.append(("text", guide(s), s["name"], GREEN, False))
-        line("gem", name(s) + " " + letters(s))
+        # (the gap after the badge: a non-breaking space and an ordinary one)
+        line("gem", name(s) + NB + " " + letters(s))
+        grouped.append(not by(s))
         badge(s)
     if usd:
         # The month's /cheapest page is graded from the US: the USD edition only.
         cheap = "The cheapest countries to visit in %s%s→" % (mn, NB)
-        line("budget", "\U0001f4b0 On a budget? " + cheap)
+        # (no 💰 here: in this email it marks the Affordability grade only)
+        line("budget", "On a budget? " + cheap)
         links.append(("text", "%s/cheapest/%s" % (site, mn.lower()), cheap, GREEN, False))
     line("all_button", "See every country’s grades%s→" % NB)
     links.append(("button", "%s/?vmn=%d%s" % (site, m, vo), "See every country’s grades%s→" % NB, WHITE, False))
     line("reply", "\U0001f4ac Tell me where you’re headed — just hit reply, or write to "
                   "hello@wandergrade.com. I read every message.")
     links.append(("text", "mailto:hello@wandergrade.com", "hello@wandergrade.com", "#444", True))
-    q, who, src = nl.QUOTES[(yr * 12 + m) % len(nl.QUOTES)]
+    q, who, src = QUOTES[(yr * 12 + m) % len(QUOTES)]
     line("quote", "“%s”" % q)
     line("byline", "— %s, %s" % (who, src))
     if credits:
-        line("credits", CREDITS_LEAD + " " + " · ".join("%s: %s, %s" % (c[0], c[1], c[3]) for c in credits))
+        line("credits", CREDITS_LEAD + " " + SEP.join("%s: %s, %s" % (c[0], c[1], c[3]) for c in credits))
         for c in credits:
             links.append(("text", c[2], c[1], CREDIT, False))
             if c[4]:
@@ -429,24 +478,32 @@ def expected(nl, pk, v, d):
     # The grade key opens the footer: the edition's home, its money and its
     # main advisory source, and the month. (newsletter._grade_key ties each
     # clause to the scoring code; test_digest_variants 8 holds the facts.)
-    line("key", "Reading the grades: the badge is the Overall grade, an equal mix of the others. "
-                "{money}{nb}is mostly local prices against {home}, partly whether your {noun} goes further than "
-                "usual (against its 1-year average, after inflation). "
-                "{shield}{nb}is the {main} advisory level (Level{nb}1{nb}={nb}A, Level{nb}2{nb}={nb}B) "
-                "unless another government is named. "
-                "{sun}{nb}is {month}’s usual weather. "
-                "{plane}{nb}is the fare against the usual for that route or distance."
+    # The flights sentence, with what "~" means, is there when a card or gem
+    # has a fare grade.
+    line("key", ("Reading the grades: the badge is the Overall grade, an equal mix of the others. "
+                 "{money}{nb}is mostly local prices against {home}, partly whether your {noun} goes further than "
+                 "usual (against its 1-year average, after inflation). "
+                 "{shield}{nb}is the {main} advisory level (Level{nb}1{nb}={nb}A, Level{nb}2{nb}={nb}B) "
+                 "unless another government is named. "
+                 "{sun}{nb}is {month}’s usual weather."
+                 + (" {plane}{nb}is the fare against the usual for that route or distance "
+                    "(~{nb}={nb}estimated)." if flights else ""))
          .format(money=MONEY, shield=SHIELD, sun=SUN, plane=PLANE, nb=NB, home=v.vs_place, noun=v.noun,
                  main=main, month=mn))
+    held.append(("key", "1-year"))
     switch = "" if usd else (" Want another currency’s edition? Reply and say which, or change it in your "
                              "account on wandergrade.com (sign in with this address).")
     line("footer", "Grades are for %s planning %s travel; set your home country on the site to re-grade "
                    "for you.%s Currency data as of %s." % (v.traveler, mn, switch, d["as_of"]))
-    line("brand", "WanderGrade grades every country A+ to F · once a month, no spam · wandergrade.com · unsubscribe")
+    held += [("footer", "re-grade"), ("footer", d["as_of"])]
+    # (parted like two grades: a line of the brand line can't start with a dot)
+    line("brand", SEP.join(("WanderGrade grades every country A+ to F", "once a month, no spam",
+                            "wandergrade.com", "unsubscribe")))
     links.append(("text", site, "wandergrade.com", SMALL, True))
-    links.append(("text", nl.UNSUB, "unsubscribe", SMALL, True))
+    links.append(("text", UNSUB, "unsubscribe", SMALL, True))
     return {"subject": "\U0001f9ed %s trips: where your %s goes furthest" % (mn, v.noun),
-            "lines": lines, "links": links, "images": images, "badges": badges, "credits": credits}
+            "lines": lines, "links": links, "images": images, "badges": badges, "credits": credits,
+            "held": held, "grouped": grouped}
 
 
 # The block a line sits in: its tag, and the style it must carry (None: any
@@ -528,6 +585,13 @@ def check(nl, pk, v, d, subject, body):
         bad.append("images " + _first_diff(images, want["images"]))
     if (got.credits or []) != want["credits"]:
         bad.append("credits: got %r, want %r" % (got.credits, want["credits"]))
+    # A linked licence's name stays on one line ("CC BY-SA 4.0" broke after
+    # "CC" and at its hyphen); a photographer's name is free to wrap.
+    for who, lic in got.credit_links:
+        if lic is not None and lic.style.get("white-space") != "nowrap":
+            bad.append("the licence %r in the credits can split across lines" % norm(lic.text()))
+        if "white-space" in who.style:
+            bad.append("the photographer %r in the credits can't wrap" % norm(who.text())[:30])
     node, rows = {}, []
     for (key, _t), (_t2, n) in zip(want["lines"], got.lines):
         node.setdefault(key, n)
@@ -547,19 +611,45 @@ def check(nl, pk, v, d, subject, body):
     badges = [(norm(b.text()), _colour(b, "background"), _colour(b, "color")) for b in got.badges]
     if badges != want["badges"]:
         bad.append("badges " + _first_diff(badges, want["badges"]))
+    groups = list(want["grouped"])
     for key, n in rows:
         kids = n.elements()
         b = kids[2] if len(kids) > 2 else None
-        # (a gem's letters follow its badge on the same row; a card's row ends with it)
+        one_group = groups.pop(0) if key == "gem" and groups else False
+        # (a card's row ends with its badge; a gem's four grades follow it on
+        # the same row)
         if not ((len(kids) == 3 if key == "name" else len(kids) > 3) and kids[0].tag == "img"
                 and kids[1].tag == "a" and any(b is x for x in got.badges)):
-            bad.append("%s row %r is not flag, name link, badge" % (key, norm(n.own_text())[:30]))
-        elif b.style.get("white-space") != "nowrap" or b.style.get("display") != "inline-block":
+            bad.append("%s row %r is not flag, name link, badge%s"
+                       % (key, norm(n.own_text())[:30], "" if key == "name" else ", grades"))
+            continue
+        if b.style.get("white-space") != "nowrap" or b.style.get("display") != "inline-block":
             bad.append("the badge after %r can wrap" % norm(kids[1].text()))
+        if key == "gem":
+            # The four grades are one inline-block that may wrap inside: too
+            # wide for the name's line, they move to the next one together.
+            # A row that names another government has no group at all.
+            grp, row = kids[3], norm(n.own_text())
+            boxes = [x for x in kids[3:] if "display" in x.style]
+            if one_group:
+                if (len(kids) != 4 or grp.tag != "span" or grp.style.get("display") != "inline-block"
+                        or "white-space" in grp.style or (NB + " ") not in row
+                        or norm(grp.text()) != row.split(NB + " ", 1)[1]):
+                    bad.append("the grades after %r are not one group that moves to the next line together"
+                               % norm(kids[1].text()))
+            elif boxes:
+                bad.append("the grades after %r name another government and must flow freely, not as one group"
+                           % norm(kids[1].text()))
     if len(got.badges) != len(rows) or any(_px(b) is None or _px(b, "line-height") is None for b in got.badges):
         bad.append("%d badges for %d name rows, each with its own size" % (len(got.badges), len(rows)))
     elif len(rows) > 1 and rows[0][0] == "name" and not all(_px(got.badges[0]) > _px(b) for b in got.badges[1:]):
         bad.append("the top card's badge is not the biggest")
+    # Words the small print must not break at a hyphen ("1-year", "re-grade",
+    # the date) sit in a span that can't wrap.
+    for key, words in want["held"]:
+        if not any(x.tag == "span" and x.style.get("white-space") == "nowrap" and norm(x.text()) == words
+                   for x in node[key].walk()):
+            bad.append("%r in the %s line can break across lines" % (words, key))
     # The byline belongs to the quote; the credits come right under the quote
     # and before the footer, whose top border (on the grade key, its first
     # line) closes them off. The footer is the key, the line saying whose

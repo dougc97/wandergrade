@@ -147,7 +147,7 @@ def card_photos(body):
 def credit_names(body):
     """The countries the credits block names, in order ([] with no block)."""
     m = re.search(r"Photos \(cropped\) via Wikimedia Commons\. (.*?)</div>", body, re.S)
-    return re.findall(r"(?:^| &middot; )([^:<]+): <a ", m.group(1)) if m else []
+    return re.findall(r"(?:^|&nbsp;&middot; )([^:<]+): <a ", m.group(1)) if m else []
 
 
 def sha(sb):

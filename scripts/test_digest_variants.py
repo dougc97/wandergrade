@@ -26,8 +26,12 @@
      visible line, link, image, Overall badge and photo credit, every
      edition and month, is the one worked out from the payload (the
      non-breaking spaces that hold a flag's gap, an icon to its letter and
-     an arrow to its word included), and the checks report each of a list
-     of deliberate faults.
+     an arrow to its word included). So do payload shapes the frozen months
+     don't have (four picks, one pick, no advisory source, no fare grade on
+     some cards or on any, a credit with no photo, an estimated fare on the
+     top card, a gem graded on another government's level), and the checks
+     report each of a list of deliberate faults; a fault whose piece is not
+     in the body is a FAIL line, not a crash.
   7. Buttondown, the sender, can't restyle it in either of its templates
      (digest_check.proofing): the intro is the only <p>, it and the heading
      have their own margin, every link's words sit in two spans with the
@@ -37,8 +41,10 @@
      is there once, first in the panel.
   8. The Overall badge's colours are the site's (public/styles.css), the
      compact cards' small photo is the banner's photo at 220x168 (and a
-     payload without one falls back to the banner), and the facts the
-     footer's grade key states are the scoring code's.
+     payload without one falls back to the banner), the side padding that
+     gives a compact card's words their room on a 360px phone is held, and
+     the facts the footer's grade key states are the scoring code's ("~"
+     on every estimated fare and on no other among them).
 
     /usr/bin/python3 scripts/test_digest_variants.py [--against <rev>]
 
@@ -331,7 +337,10 @@ def main():
     # The tagline, the long intro with "{Month}’s standouts", the 📅 box and
     # the "Top picks" heading are gone (the two checks of them went with
     # them); the banknote sentence is there exactly when a pick has the
-    # dollar line, in the edition's money.
+    # dollar line, in the edition's money, its banknote held to "marks". The
+    # paragraph opens "N top picks" (the orchestrator's ruling on the
+    # 2026-11-10 review: "N best-value trips" claimed too much, the gems
+    # often grade higher).
     screen, n_plain = [], 0
     for c, v in V.items():
         for m in range(1, 13):
@@ -340,30 +349,32 @@ def main():
             mn = picks.MONTHS[m - 1]
             nstrong = sum(1 for s_ in d["picks"] if (s_.get("fx") or 0) >= 3)
             n_plain += not nstrong
-            marks = "%s marks where your %s goes further than usual right now." % (v.fx_emoji, v.noun)
-            opens = ('<p style="font-size:16px;line-height:24px;color:#111;margin:0 0 16px"><b>%d best-value trips '
+            marks = "%s&nbsp;marks where your %s goes further than usual right now." % (v.fx_emoji, v.noun)
+            opens = ('<p style="font-size:16px;line-height:24px;color:#111;margin:0 0 16px"><b>%d top picks '
                      'for %s</b>, graded A+ to F on money, safety, weather and flights.' % (len(d["picks"]), mn))
             panel = body.split("\n", 2)[2].lstrip() if body.count("\n") > 1 else ""
             want = [
                 panel.startswith('<div style="font-size:20px;line-height:26px;font-weight:800;color:#111;'
                                  'text-align:center;margin:0 0 10px">\U0001f30d WanderGrade</div>\n  ' + opens),
-                (marks in body) == bool(nstrong) and (" marks where " in body) == bool(nstrong),
+                (" " + marks in body) == bool(nstrong) and ("marks where " in body) == bool(nstrong),
                 " Going another month? <a href=" in body and body.count("<p") == 1,
                 # ... straight above the top card
                 re.search(r"</a></p>\s*<div style=\"background:#ffffff;border:1px solid #e6e6e6", body) is not None,
                 not any(x in body for x in ("Where Should I Travel Next?", "standouts", "\U0001f4c5", "Top picks",
-                                            "two months ahead", "Where’s worth it", "unusually strong")),
-                "<b>WanderGrade</b> grades every country A+ to F · once a month, no spam · " in body,
+                                            "two months ahead", "Where’s worth it", "unusually strong",
+                                            "best-value")),
+                "<b>WanderGrade</b> grades every country A+ to F&nbsp;· once a month, no spam&nbsp;· " in body,
             ]
             if not all(want):
                 screen.append((c, m, want))
     results.append(ok(not screen and 0 < n_plain < len(cells),
                       "the first screen in all %d renders: the brand line '🌍 WanderGrade' opens the panel, then "
-                      "one paragraph '<b>N best-value trips for {Month}</b>, graded A+ to F on money, safety, "
+                      "one paragraph '<b>N top picks for {Month}</b>, graded A+ to F on money, safety, "
                       "weather and flights.' with the real number of picks, '{banknote} marks where your {noun} "
                       "goes further than usual right now.' exactly when a pick has the dollar line (%d renders "
                       "have none), 'Going another month?' and its link, then the top card; no tagline, old "
-                      "intro, 📅 box or 'Top picks' heading; the footer's brand line says what WanderGrade is%s"
+                      "intro, 📅 box, 'Top picks' heading or 'best-value'; the footer's brand line says what "
+                      "WanderGrade is%s"
                       % (len(cells), n_plain, "" if not screen else " -> %r" % screen[:3])))
     # Wording samples from the spec.
     eur1 = snap["EUR"]["1"]
@@ -372,7 +383,7 @@ def main():
                       and "Grades are for a traveler from Germany (paying in euros) planning January travel;"
                       in eur1[1], "EUR: spec's subject, 'below German levels', footer"))
     cad = "".join(b for _, b in snap["CAD"].values())
-    results.append(ok("\U0001f4b5 marks where your Canadian dollar goes further than usual right now." in cad
+    results.append(ok("\U0001f4b5&nbsp;marks where your Canadian dollar goes further than usual right now." in cad
                       and re.search(r">\U0001f4b5 Canadian dollar goes ~\d+% further than&nbsp;usual</div>", cad)
                       and "partly whether your Canadian dollar goes further than usual" in snap["CAD"]["1"][1]
                       and "local prices against Canada," in snap["CAD"]["1"][1]
@@ -668,33 +679,141 @@ def main():
                       "a card without a photo has no credit and the rest keep their order; a licence with no "
                       "link is plain text; a photographer's name with markup in it is printed as given; no "
                       "photos, no block%s" % ("" if not probs else " -> %r" % probs[:3])))
-    # The controls: each deliberate fault below must be reported, or the two
-    # checks above prove nothing.
+    # Payload shapes the frozen months don't have. Every frozen payload has
+    # five picks, a fare grade on every card, a top card graded on US State
+    # Dept advisories and a credit only where there is a photo, so (the
+    # 2026-11-10 review, with five mutants to show it) a renderer that
+    # hard-coded the "5", always wrote the plural, printed a source line for
+    # no source, a Flights unit for no fare, or a credit for no photo passed
+    # every test. Each shape below is rendered and read back against its own
+    # payload; the literal checks say what a reader would see.
+    def shaped(change):
+        dd = copy.deepcopy(datas["USD"][2])
+        change(dd)
+        sj, bd = newsletter.render_digest(dd)
+        return dd, bd, dc.check(newsletter, picks, V["USD"], dd, sj, bd) + dc.proofing(bd)
+
+    def no_fare(*cards):
+        def change(dd):
+            for s_ in (cards and [(dd["picks"] + dd["gems"])[i] for i in cards]) or dd["picks"] + dd["gems"]:
+                s_.update(fly=None, fly_basis=None, fare=None, fareEst=False)
+        return change
+
+    def keep(dd, k):
+        dd["picks"] = dd["picks"][:k]
+
+    def no_photo(dd):
+        dd["picks"][1]["photo"] = dd["picks"][1]["photo_thumb"] = None   # ... its credit left in place
+
+    def top_estimate(dd):
+        dd["picks"][0].update(fly=70, fly_basis="distance", fareEst=True)
+
+    plane = "\u2708\ufe0f"
+    n_plane = snap["USD"]["2"][1].count(plane)       # one on each card and gem, one in the grade key
+    n_cards = len(datas["USD"][2]["picks"]) + len(datas["USD"][2]["gems"])
+    d4, b4, p4 = shaped(lambda dd: keep(dd, 4))
+    d1, b1, p1 = shaped(lambda dd: keep(dd, 1))
+    dn, bn_, pn = shaped(lambda dd: dd["picks"][0].update(advBy=None) or dd["picks"][1].update(advBy=None))
+    df, bf, pf = shaped(no_fare(0, 1, 5))            # the top card, a compact card and the first gem
+    da, ba, pa = shaped(no_fare())                   # no fare data at all
+    dp, bp, pp = shaped(no_photo)
+    de_, be, pe = shaped(top_estimate)
+    dg, bg, pg = shaped(lambda dd: dd["gems"][1].update(advBy="Global Affairs Canada"))
+    group = "<span style='display:inline-block'>"
+    forced = re.sub(r"(&nbsp; )(\U0001f4b0&nbsp;<b>[^<]*</b>&nbsp;&middot; \U0001f6e1️&nbsp;<b>[^<]*</b> <span style='color:#666'>per "
+                    r"Global Affairs Canada</span>.*?)(</div>)", lambda mm: mm.group(1) + group + mm.group(2) + "</span>" + mm.group(3),
+                    bg, 1)
+    intro_of = lambda bd: re.search(r"<p [^>]*>(.*?)</p>", bd, re.S).group(1)
+    results.append(ok(not (p4 or p1) and intro_of(b4).startswith("<b>4 top picks for February</b>, graded")
+                      and intro_of(b1).startswith("<b>1 top pick for February</b>, graded")
+                      and "picks for" not in b1 and b1.count("See the guide&nbsp;→") == 0
+                      and b4.count("See the guide&nbsp;→") == 3,
+                      "four picks read '4 top picks for February', one reads '1 top pick for February' (no "
+                      "plural, no compact card), and each email says what its payload says%s"
+                      % ("" if not (p4 or p1) else " -> %r" % (p4 + p1)[:3])))
+    results.append(ok(not pn and "Safety grade from" not in bn_ and " per " not in bn_ and "None" not in bn_
+                      and "Safety grade from US State Dept advisories" in snap["USD"]["2"][1],
+                      "a top card whose payload names no advisory source has no 'Safety grade from …' line "
+                      "(and a compact card no 'per …'), never 'from None'%s" % ("" if not pn else " -> %r" % pn[:3])))
+    results.append(ok(not pf and n_plane == n_cards + 1 and bf.count(plane) == n_plane - 3 and "Flights" not in bf
+                      and "for the distance" not in bf and "route’s usual" not in bf
+                      and "weather and flights." in intro_of(bf) and "(~&nbsp;=&nbsp;estimated)." in bf,
+                      "a card or gem with no fare grade shows no ✈️ (the top card no 'Flights' and no basis); "
+                      "the others keep theirs, and the intro and the key still speak of flights%s"
+                      % ("" if not pf else " -> %r" % pf[:3])))
+    results.append(ok(not pa and plane not in ba and "flights" not in intro_of(ba)
+                      and intro_of(ba).startswith("<b>5 top picks for February</b>, graded A+ to F on money, "
+                                                  "safety and weather.")
+                      and "usual weather.</div>" in ba and "estimated" not in ba and "the fare against" not in ba,
+                      "with no fare data at all (picks leaves Flights out of every grade) no row shows ✈️, the "
+                      "intro reads 'graded A+ to F on money, safety and weather.' and the grade key ends at "
+                      "the weather%s" % ("" if not pa else " -> %r" % pa[:3])))
+    results.append(ok(not pp and dp["picks"][1]["photo_credit"] and dp["picks"][1]["name"] + ":" not in bp
+                      and [x[0] for x in dc.Email(bp).credits] == [s_["name"] for i, s_ in enumerate(dp["picks"]) if i != 1]
+                      and len([x for x in dc.Email(bp).images if x["kind"] == "thumb"]) == 3,
+                      "a card whose payload has a credit but no photo shows neither: no entry in the credits "
+                      "block, no picture%s" % ("" if not pp else " -> %r" % pp[:3])))
+    results.append(ok(not pg and snap["USD"]["2"][1].count(group) == 3 and bg.count(group) == 2
+                      and "per Global Affairs Canada</span>&nbsp;&middot; " in bg and forced != bg
+                      and forced.count(group) == 3 and dc.check(newsletter, picks, V["USD"], dg, snap["USD"]["2"][0], forced),
+                      "a gem's four grades are one group that moves to the next line together, except on a "
+                      "row that names another government, which flows freely (as one group it is wider than "
+                      "a 360px phone's line: three lines, the last grade alone); forcing that row into a "
+                      "group is reported%s" % ("" if not pg else " -> %r" % pg[:3])))
+    results.append(ok(not pe and "Flights&nbsp;<b>~B</b> <span style='color:#6b7681'>(estimated, no fare yet)</span>" in be
+                      and "for the distance" not in be and "route’s usual" not in be,
+                      "a top card whose fare is an estimate reads '✈️ Flights ~B (estimated, no fare yet)'%s"
+                      % ("" if not pe else " -> %r" % pe[:3])))
+
+    # The controls: each deliberate fault below must be reported, or the
+    # checks above prove nothing. A fault is built from the payload where it
+    # names a number or a colour, and one built on a piece the body no
+    # longer has is a FAIL line ("not planted" below), never a crash that
+    # stops sections 7 and 8 from running: piece() then gives words that
+    # are in no body, and cut() leaves the body as it is.
     subj, body = snap["USD"]["2"]
     d, v = datas["USD"][2], V["USD"]
     a1, a2 = (cr(s_) for s_ in d["picks"][:2])
     swap = lambda x, y: body.replace(x, "\0").replace(y, x).replace("\0", y)
-    cut = lambda mm: body.replace(mm.group(0), "")
-    credits_div = re.search(r'<div style="[^"]*">Photos \(cropped\).*?</div>', body)
-    brand_div = re.search(r'<div style="[^"]*">\U0001f30d WanderGrade</div>', body)
-    badge1 = re.search(r" (<span style='display:inline-block;[^>]*>[^<]*</span>)", body)
+    piece = lambda mm, g=0: mm.group(g) if mm else "\0not in the body\0"
+    cut = lambda mm: body.replace(mm.group(0), "") if mm else body
+    credits_div = piece(re.search(r'<div style="[^"]*">Photos \(cropped\).*?</div>', body))
+    brand_div = piece(re.search(r'<div style="[^"]*">\U0001f30d WanderGrade</div>', body))
+    badge1 = piece(re.search(r" (<span style='display:inline-block;[^>]*>[^<]*</span>)", body))
     fx_div = "<div style='font-size:14px;line-height:21px;color:#0a7d28;font-weight:600;margin:2px 0 0'>%s</div>"
+    # From the payload: a card priced below home and its percent, a card
+    # with no dollar line, the top card's badge colours, a compact card's
+    # safety letter, and the issue's quote.
+    cols = dc.site_grade_colours(os.path.join(ROOT, "public", "styles.css"))
+    low = next((s_ for s_ in d["picks"] if newsletter._pl_band(s_["pl"]) < 0), d["picks"][0])
+    pct = picks.js_round((1 - low["pl"]) * 100)
+    weak = next((s_ for s_ in d["picks"] if not (s_.get("fx") or 0) >= 3), d["picks"][0])
+    weak_cost = "%s</div>" % newsletter._cost_text(weak, v)
+    fill0, ink0 = cols[picks.grade(d["picks"][0]["value"])]
+    fill_x = next(c[0] for c in cols.values() if c[0] != fill0 and c[1] == ink0)
+    ink_x = "#000000" if ink0 == "#ffffff" else "#ffffff"
+    shield = "\U0001f6e1️&nbsp;<b>%s</b>" % picks.SAFE_GRADE[d["picks"][1]["advLvl"]]
+    n_picks = len(d["picks"])
+    quote_src = dc.QUOTES[(d["year"] * 12 + d["month"]) % len(dc.QUOTES)][2]
     faults = [
         # -- what the cards say
         ("a word added to a card", "check", body.replace("See the guide&nbsp;→", "See the guide now&nbsp;→", 1)),
         ("an Overall letter changed", "check", re.sub(r"(white-space:nowrap'>)(A\+|A|B\+|B|C|D|F)<",
                                                       lambda mm: mm.group(1) + ("B<" if mm.group(2) != "B" else "C<"), body, 1)),
         ("a badge in another grade's colour", "check",
-         body.replace("background:#2f9e44;color:#000000", "background:#74b816;color:#000000", 1)),
-        ("a badge's letter white on a light fill", "check",
-         body.replace("background:#2f9e44;color:#000000", "background:#2f9e44;color:#ffffff", 1)),
+         body.replace("background:%s;color:%s" % (fill0, ink0), "background:%s;color:%s" % (fill_x, ink0), 1)),
+        ("a badge's letter in the wrong colour for its fill", "check",
+         body.replace("background:%s;color:%s" % (fill0, ink0), "background:%s;color:%s" % (fill0, ink_x), 1)),
         ("a badge moved inside its name's link", "check",
-         body.replace("</a>" + badge1.group(0), badge1.group(0) + "</a>", 1)),
+         body.replace("</a>" + badge1, badge1 + "</a>", 1)),
         ("a badge that can wrap", "check", body.replace(";white-space:nowrap", "", 1)),
         ("a compact card's badge as big as the top card's", "check",
          body.replace("font-size:13px;line-height:18px;font-weight:800", "font-size:16px;line-height:22px;font-weight:800", 1)),
         ("one of a card's four letters changed", "check",
-         body.replace("\U0001f6e1️&nbsp;<b>A</b>", "\U0001f6e1️&nbsp;<b>B</b>", 1)),
+         body.replace(shield, shield.replace("<b>A<", "<b>C<").replace("<b>B<", "<b>A<"), 1)),
+        ("an estimated fare without its ~", "check", body.replace("<b>~", "<b>", 1)),
+        ("a ~ on a fare that is not an estimate", "check",
+         re.sub(r"(\u2708\ufe0f&nbsp;(?:Flights&nbsp;)?<b>)(?!~)", r"\1~", body, 1)),
         ("an icon parted from its letter by a plain space", "check", body.replace("\U0001f4b0&nbsp;<b>", "\U0001f4b0 <b>", 1)),
         ("a row that can break before a dot", "check", body.replace("</b>&nbsp;&middot; ", "</b> &middot; ", 1)),
         ("a flag's gap as a plain space", "check", body.replace("border-radius:2px'>&nbsp;<a", "border-radius:2px'> <a", 1)),
@@ -704,17 +823,18 @@ def main():
         ("the top card's source line dropped", "check",
          cut(re.search(r"<div style='[^']*'>Safety grade from [^<]*</div>", body))),
         ("the main source repeated on a compact row", "check",
-         body.replace("\U0001f6e1️&nbsp;<b>A</b>&nbsp;&middot;",
-                      "\U0001f6e1️&nbsp;<b>A</b> <span style='color:#666'>per US State Dept</span>&nbsp;&middot;", 1)),
-        ("a price line's number changed", "check", body.replace("Prices ~73% below", "Prices ~74% below", 1)),
-        ("a price line dropped", "check", cut(re.search(r"<div style='[^']*'>Prices ~73% below US&nbsp;levels</div>", body))),
+         body.replace(shield + "&nbsp;&middot;",
+                      shield + " <span style='color:#666'>per US State Dept</span>&nbsp;&middot;", 1)),
+        ("a price line's number changed", "check",
+         body.replace("Prices ~%d%% below" % pct, "Prices ~%d%% below" % (pct + 1), 1)),
+        ("a price line dropped", "check",
+         cut(re.search(r"<div style='[^']*'>Prices ~%d%% below US&nbsp;levels</div>" % pct, body))),
         ("a dollar line's number changed", "check",
          re.sub(r"(Dollar goes ~)(\d+)%", lambda mm: "%s%d%%" % (mm.group(1), int(mm.group(2)) + 1), body, 1)),
         ("a dollar line dropped", "check",
          cut(re.search(r"<div style='[^']*'>\U0001f4b5 Dollar goes ~\d+% further than&nbsp;usual</div>", body))),
         ("a dollar line on a card under 3%", "check",
-         body.replace("Prices ~73% below US&nbsp;levels</div>", "Prices ~73% below US&nbsp;levels</div>"
-                      + fx_div % "\U0001f4b5 Dollar goes ~3% further than&nbsp;usual", 1)),
+         body.replace(weak_cost, weak_cost + fx_div % "\U0001f4b5 Dollar goes ~3% further than&nbsp;usual", 1)),
         ("the dollar line above the price line", "check",
          re.sub(r"(<div style='[^']*'>Prices ~\d+% below US&nbsp;levels</div>)(<div style='[^']*'>\U0001f4b5 [^<]*</div>)",
                 r"\2\1", body, 1)),
@@ -724,28 +844,58 @@ def main():
         ("a guide link pointing at another country", "check",
          body.replace("gc=%s&" % d["picks"][0]["iso"], "gc=%s&" % d["picks"][1]["iso"], 1)),
         ("a green link turned blue", "check", body.replace('<span style="color:#0a7d28">', '<span style="color:#0069FF">', 1)),
+        # -- the gems
+        ("a gem's four grades out of their group", "check",
+         body.replace("<span style='display:inline-block'>", "<span>", 1)),
+        ("a gem's grades in a group that can't wrap inside", "check",
+         body.replace("<span style='display:inline-block'>", "<span style='display:inline-block;white-space:nowrap'>", 1)),
+        ("a gem's badge one plain space from its first icon", "check",
+         body.replace("&nbsp; <span style='display:inline-block'>", " <span style='display:inline-block'>", 1)),
         # -- the first screen and the footer
-        ("the intro counting one pick too many", "check", body.replace("<b>5 best-value trips", "<b>6 best-value trips", 1)),
+        ("the intro counting one pick too many", "check",
+         body.replace("<b>%d top picks" % n_picks, "<b>%d top picks" % (n_picks + 1), 1)),
+        ("'best-value trips' back in the intro", "check", body.replace(" top picks for ", " best-value trips for ", 1)),
         ("the banknote sentence dropped from the intro", "check",
-         body.replace(" \U0001f4b5 marks where your dollar goes further than usual right now.", "", 1)),
-        ("the brand line twice", "both", body.replace("</p>", "</p>" + brand_div.group(0), 1)),
-        ("the brand line under the intro", "both", cut(brand_div).replace("</p>", "</p>" + brand_div.group(0), 1)),
+         body.replace(" \U0001f4b5&nbsp;marks where your dollar goes further than usual right now.", "", 1)),
+        ("the intro's banknote free to end a line alone", "check", body.replace("\U0001f4b5&nbsp;marks", "\U0001f4b5 marks", 1)),
+        ("the brand line twice", "both", body.replace("</p>", "</p>" + brand_div, 1)),
+        ("the brand line under the intro", "both", body.replace(brand_div, "", 1).replace("</p>", "</p>" + brand_div, 1)),
         ("the old tagline back under the brand line", "check",
-         body.replace(brand_div.group(0), brand_div.group(0) + '<div style="font-size:14px;line-height:20px;'
+         body.replace(brand_div, brand_div + '<div style="font-size:14px;line-height:20px;'
                       'color:#555;text-align:center">Where Should I Travel Next?</div>', 1)),
+        ("the 💰 back on the budget line", "check",
+         body.replace("<b>On a budget?</b>", "\U0001f4b0 <b>On a budget?</b>", 1)),
         ("the grade key naming another government", "check",
          body.replace("is the US State Dept advisory level", "is the Global Affairs Canada advisory level", 1)),
         ("the grade key dropped", "check", cut(re.search(r'<div style="[^"]*border-top[^"]*"><b>Reading the.*?</div>', body))),
         ("the footer's border on its second line", "check",
          body.replace('margin:8px 0 0">Grades are for', 'border-top:1px solid #e0e0e0;margin:8px 0 0">Grades are for', 1)),
+        ("the grade key without what ~ means", "check", body.replace(" (~&nbsp;=&nbsp;estimated)", "", 1)),
+        ("'1-year' free to break at its hyphen", "check",
+         body.replace('<span style="white-space:nowrap">1-year</span>', "1-year", 1)),
+        ("'re-grade' free to break at its hyphen", "check",
+         body.replace('<span style="white-space:nowrap">re-grade</span>', "re-grade", 1)),
+        ("the date free to break at a hyphen", "check",
+         body.replace('<span style="white-space:nowrap">%s</span>' % d["as_of"], d["as_of"], 1)),
+        ("a dot free to start a line of the brand line", "check", body.replace("A+ to F&nbsp;· once", "A+ to F · once", 1)),
+        ("the unsubscribe token mistyped", "check", body.replace("{{ unsubscribe_url }}", "{{ unsubscribe }}", 1)),
+        ("the quote cited to another work", "check", body.replace(quote_src, "Roughing It, 1872", 1)),
         # -- the credits
         ("two photographers swapped", "check", swap(">%s<" % a1["artist"], ">%s<" % a2["artist"])),
         ("a credit linked to another photo's page", "check", swap(a1["page"], a2["page"])),
         ("a credit dropped", "check", re.sub(r"(Wikimedia Commons\. ).*?&middot; ", r"\1", body, 1)),
+        ("a dot free to start a line of the credits", "check",
+         re.sub(r"(Wikimedia Commons\. .*?)&nbsp;&middot; ", r"\1 &middot; ", body, 1)),
+        ("a licence name free to split across lines", "check",
+         body.replace('text-decoration:none;white-space:nowrap"><span><span style="color:#6f6f6f">',
+                      'text-decoration:none"><span><span style="color:#6f6f6f">', 1)),
+        ("a photographer's name that can't wrap", "check",
+         body.replace('<a href="%s" style="color:#6f6f6f;text-decoration:none">' % a1["page"],
+                      '<a href="%s" style="color:#6f6f6f;text-decoration:none;white-space:nowrap">' % a1["page"], 1)),
         ("the credits moved under the footer", "check",
-         cut(credits_div).replace("\n</div>", credits_div.group(0) + "\n</div>")),
+         body.replace(credits_div, "", 1).replace("\n</div>", credits_div + "\n</div>")),
         ("the credits tucked inside the quote block", "check",
-         cut(credits_div).replace("</i></div></div>", "</i></div>" + credits_div.group(0) + "</div>")),
+         body.replace(credits_div, "", 1).replace("</i></div></div>", "</i></div>" + credits_div + "</div>")),
         # -- what Buttondown would restyle
         ("the grade key back in a <p>", "both", re.sub(r'<div (style="[^"]*border-top[^"]*"><b>Reading the.*?)</div>',
                                                       r"<p \1</p>", body, 1)),
@@ -770,12 +920,21 @@ def main():
     ]
     missed = []
     for name, by, mutant in faults:
+        if mutant == body:
+            missed.append((name, "not planted: the piece it changes is not in the body"))
+            continue
         found = {"check": bool(dc.check(newsletter, picks, v, d, subj, mutant)), "proofing": bool(dc.proofing(mutant))}
-        if mutant == body or not all(found[k] for k in (("check", "proofing") if by == "both" else (by,))):
-            missed.append((name, found, mutant == body))
+        if not all(found[k] for k in (("check", "proofing") if by == "both" else (by,))):
+            missed.append((name, found))
     results.append(ok(not missed and not dc.check(newsletter, picks, v, d, subj, body) and not dc.proofing(body),
                       "controls: each of %d deliberate faults is reported (%s)%s"
                       % (len(faults), "; ".join(f[0] for f in faults), "" if not missed else " -> MISSED %r" % missed)))
+    # ... and the control list itself: a fault built on a piece the body
+    # doesn't have is a line here, not a crash (it used to stop the run at
+    # the first changed fixture number, with sections 7 and 8 never run).
+    results.append(ok(cut(None) == body and piece(None) not in body and body.replace(piece(None), "x") == body,
+                      "a fault whose piece is missing from the body leaves the body as it is and is counted "
+                      "as not planted, so the run goes on to sections 7 and 8"))
 
     print("7. Buttondown can't restyle it (digest_check.proofing)")
     unproof = [(c, m, dc.proofing(snap[c][m][1])[:2]) for c, m in cells if dc.proofing(snap[c][m][1])]
@@ -836,6 +995,25 @@ def main():
                       and "width='110'" in card and "width:110px;height:84px;" in card,
                       "picks._banner: the small copy is the banner's address with w=220&h=168 (the same service, "
                       "source, crop and quality), twice the 110x84 a compact card shows"))
+    # Room for a compact card's words on a small phone: the panel's side
+    # padding and the card's (newsletter.PANEL_PAD, CARD_PAD). At 14 and 10
+    # the words beside the 110px photo have 184px on a 360px phone in the
+    # Classic template, and the price line (about 176px) and a grade row
+    # with two plus letters (about 166px) each fit on one line; at the 20
+    # and 14 they were, both took two lines on every card (164px). A browser
+    # measured that, not this test: it only stops either growing back
+    # unnoticed, and the photo box changing size with them.
+    pads = [(c, m) for c, m in cells
+            if snap[c][m][1].count("background:#f4f5f6;padding:20px %dpx\">" % newsletter.PANEL_PAD) != 1
+            or snap[c][m][1].count("<td valign=\"top\" style=\"padding:11px %dpx\">" % newsletter.CARD_PAD)
+            != len(datas[c][int(m)]["picks"]) - 1]
+    results.append(ok(not pads and newsletter.PANEL_PAD <= 14 and newsletter.CARD_PAD <= 10
+                      and 360 - 16 - 2 * newsletter.PANEL_PAD - 2 - 110 - 2 * newsletter.CARD_PAD >= 184,
+                      "the panel's side padding is %dpx and a compact card's words' %dpx in all %d renders, "
+                      "which leaves those words 184px beside the 110px photo on a 360px phone in the Classic "
+                      "template (8px page margin, 1px card border): room for the price line and a grade row "
+                      "on one line each%s" % (newsletter.PANEL_PAD, newsletter.CARD_PAD, len(cells),
+                                              "" if not pads else " -> %r" % pads[:3])))
     n_thumb = n_same = 0
     for c, m in cells:
         e = dc.Email(snap[c][m][1])
@@ -910,9 +1088,35 @@ def main():
                       "every weather grade is climate.json's score for the issue's month, and every fare grade "
                       "is on one of the two bases (%s)%s"
                       % (", ".join(bases), "" if not off else " -> %r" % off[:3])))
-    key = re.search(r"<b>Reading the grades:</b>.*?</div>", snap["USD"]["2"][1]).group(0)
+    # "(~ = estimated)". A route with no cached fare is counted as a typical
+    # fare for its distance: picks gives it a fixed 70 on the distance basis
+    # and sets fareEst. Each such card shows "~" before its Flights letter,
+    # as the site does, and no other card does; a top card says "(estimated,
+    # no fare yet)" where the others name the fare they compared. (Until
+    # this check the letter stood bare and the key called it a fare
+    # comparison: 17 of the 96 USD cards, 78 of CNY's 96.)
+    est = [(c, m, s_) for c, m, s_ in every if s_.get("fareEst")]
+    off = [(c, m, s_["iso"]) for c, m, s_ in est if s_["fly"] != 70 or s_["fly_basis"] != "distance"]
+    count = lambda c, m: sum(1 for s_ in datas[c][int(m)]["picks"] + datas[c][int(m)]["gems"] if s_.get("fareEst"))
+    marks = [(c, m) for c, m in cells
+             if snap[c][m][1].count("<b>~") != count(c, m) or snap[c][m][1].count("~B</b>") != count(c, m)
+             or snap[c][m][1].count("for that route or distance (~&nbsp;=&nbsp;estimated).</div>") != 1]
+    est_tops = [(c, m) for c, m in cells if datas[c][int(m)]["picks"][0].get("fareEst")]
+    tops = [(c, m) for c, m in cells
+            if snap[c][m][1].count("(estimated, no fare yet)") != ((c, m) in est_tops)
+            or ("year-round, for the distance" in snap[c][m][1]) != (
+                (c, m) not in est_tops and datas[c][int(m)]["picks"][0].get("fly_basis") == "distance")]
+    n_usd = sum(1 for c, _m, _s in est if c == "USD")
+    results.append(ok(est and est_tops and n_usd and not (off or marks or tops),
+                      "'(~ = estimated)': every card whose fare is an estimate (%d of %d, %d of them in the USD "
+                      "edition; each a fixed 70 on the distance basis) shows '~B', no other card shows a '~' "
+                      "letter, and a top card with one (%d) reads '(estimated, no fare yet)', never "
+                      "'year-round, for the distance'%s"
+                      % (len(est), len(every), n_usd, len(est_tops),
+                         "" if not (off or marks or tops) else " -> %r %r %r" % (off[:3], marks[:3], tops[:3]))))
+    key = piece(re.search(r"<b>Reading the grades:</b>.*?</div>", snap["USD"]["2"][1]))
     words = [w for w in re.sub(r"<[^>]+>", " ", key.replace("&nbsp;", " ")).split() if re.search(r"[A-Za-z0-9]", w)]
-    results.append(ok(len(words) <= 70, "the grade key is one short paragraph (%d words in the USD edition)" % len(words)))
+    results.append(ok(40 < len(words) <= 70, "the grade key is one short paragraph (%d words in the USD edition)" % len(words)))
 
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1
