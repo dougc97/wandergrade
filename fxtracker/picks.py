@@ -40,7 +40,7 @@ import re
 import urllib.parse
 import urllib.request
 
-from . import advisories, geo, popularity, pricelevel, rates
+from . import advisories, avoid_marks, geo, popularity, pricelevel, rates
 from .digest_variants import VARIANTS
 
 # Wikimedia blocks the default urllib UA; identify ourselves.
@@ -710,15 +710,53 @@ def _popular_set():
     return set(FALLBACK_POPULAR)
 
 
+# ---- the highlights: never a place in an avoid-all zone ----------------------
+# The top card's "Don't miss:" line (newsletter._dont_miss) names a pick's
+# first two highlights, its "activities" below. On the site a highlight the
+# guide marks as inside one of Global Affairs Canada's "Avoid all travel"
+# zones keeps its place, with Canada's own words in an ⓘ beside it (Doug's
+# rule of 2026-10-30: mark, never remove; fxtracker/avoid_marks.py). An email
+# has no hover to hold those words, so the email skips such a highlight, as
+# the stay chips already skip avoid-zone places (Doug, 2026-11-12): the next
+# unmarked one moves up, and with none left the card has no "Don't miss"
+# line. The list is the site's own reviewed one, public/avoid-marks.json
+# (built from scripts/stay-skip.json "marks"), which already leaves out what
+# Doug chose not to mark, and a highlight matches as app.js zoneMarkHTML
+# matches it: an "activity" entry whose label is the same, character for
+# character. A marker the site hides as stale (Canada reworded or dropped the
+# block since the check) still skips here: the email has no live answer from
+# Canada, and the monthly review settles the list. Only the email reads a
+# pick's "activities": picks.build and build_variant are send_digest.py's,
+# and the site's pages read activities.json themselves.
+
+def _act_label(x):
+    """An activity's label, read as app.js actLabel reads it."""
+    return (x if isinstance(x, str) else x.get("t") if isinstance(x, dict) else "") or ""
+
+
+def highlights(iso, activities, marks=None):
+    """A country's activities.json list `activities`, in order, less every
+    one its guide marks as inside an avoid-all zone. `marks` is
+    public/avoid-marks.json's content (avoid_marks.load(), the site's own
+    reader, when None; that reads an unreadable file as no marks, as the
+    site does)."""
+    data = avoid_marks.load() if marks is None else marks
+    skip = set(e.get("i") for e in ((data or {}).get("countries") or {}).get(iso) or []
+               if e.get("s") == "activity")
+    return [a for a in activities if _act_label(a) not in skip]
+
+
 def _enrich(s, acts, with_photo, memo=None, check=None, top=False):
     """Attach flag, things-to-do, and (optionally) the cover photo cover_for
     picks. `memo` caches cover lookups across editions (a candidate is one
     lookup a run, not ten). `check` is a send's cover_check.CoverCheck, None
     for every other caller: it passes over a photo that does not load at the
-    address this card will use, the banner when `top`, else the small copy."""
+    address this card will use, the banner when `top`, else the small copy.
+    The things-to-do are the first two highlights() leaves: none in an
+    avoid-all zone (the note above highlights)."""
     a = acts.get(s["iso"], {})
     s["flag"] = flag(s["iso"])
-    s["activities"] = a.get("activities", [])[:2]
+    s["activities"] = highlights(s["iso"], a.get("activities", []))[:2]
     c = None
     if with_photo:
         c = (check.choose(s.get("name") or s["iso"], top, lambda loads: cover_for(a, memo, loads))

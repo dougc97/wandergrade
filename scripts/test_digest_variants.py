@@ -7,9 +7,12 @@
      is the same text. Against the code the Dec 2026 redesign started from
      (digest_snapshot.BASE, run on this tree's data), every edition's
      payload, every month, is equal field for field but for
-     digest_snapshot.ADDED_FIELDS, and its subject and hidden preheader are
-     the same text: the redesign changes wording and layout, not which
-     countries, grades, links or numbers go out. Every pick's cover and
+     digest_snapshot.ADDED_FIELDS and CHANGED_FIELDS, and its subject and
+     hidden preheader are the same text: the redesign changes wording and
+     layout, not which countries, grades, links or numbers go out. The one
+     changed field, a pick's highlights ("activities"), is held to its rule:
+     the only differences are highlights the guide marks as inside an
+     avoid-all zone gone and the next unmarked ones moved up. Every pick's cover and
      credit are the ones digest_snapshot.fake_rule_cover works out under the
      fakes (the cover rule, picks.cover_for; activities.json `photo` is an
      optional override), and with every cover lookup failing each email is
@@ -46,6 +49,14 @@
      gives a compact card's words their room on a 360px phone is held, and
      the facts the footer's grade key states are the scoring code's ("~"
      on every estimated fare and on no other among them).
+  9. The top card's "Don't miss" line never names a highlight the guide
+     marks as inside one of Global Affairs Canada's avoid-all zones
+     (public/avoid-marks.json; Doug, 2026-11-12): picks.highlights on
+     hand-made marks (a marked first or second label, all marked, labels
+     that only resemble a marked one, a country with none), _enrich on the
+     site's own list, hand-made top cards for every country it touches
+     (none of them is featured in a frozen month), three faults the checks
+     must report, and no code but the email's builds those highlights.
 
     /usr/bin/python3 scripts/test_digest_variants.py [--against <rev>]
 
@@ -90,16 +101,22 @@ def _snapshot_in_child(root, variants="USD"):
     return tuple(res)
 
 
-def _payloads(datas):
+def _payloads(datas, drop=None):
     """{edition: {"1".."12": payload}} as JSON gives it back, less the fields
-    this tree adds on purpose (digest_snapshot.ADDED_FIELDS)."""
+    named in `drop` (default: the ones this tree adds on purpose,
+    digest_snapshot.ADDED_FIELDS)."""
     out = json.loads(json.dumps(datas))
     for per in out.values():
         for d in per.values():
             for s_ in d["picks"] + d["gems"]:
-                for k in ds.ADDED_FIELDS:
+                for k in (ds.ADDED_FIELDS if drop is None else drop):
                     s_.pop(k, None)
     return out
+
+
+def _label(a):
+    """An activity's label, as app.js actLabel reads it."""
+    return (a if isinstance(a, str) else a.get("t") if isinstance(a, dict) else "") or ""
 
 
 def _where(a, b, path=""):
@@ -152,21 +169,74 @@ def main():
         old_usd, old_usd_data = _snapshot_in_child(tmp, "USD")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-    new_data = _payloads(datas)
+    # Fields set aside: those this tree adds (ADDED_FIELDS) and those whose
+    # value it changes on purpose (CHANGED_FIELDS), each held to its rule
+    # just below. Nothing else is.
+    aside = ds.ADDED_FIELDS + ds.CHANGED_FIELDS
+    new_data, old_cmp = _payloads(datas, aside), _payloads(old_data, aside)
     cells = [(c, str(m)) for c in V for m in range(1, 13)]
-    diffs = [(c, m, _where(new_data[c][m], old_data.get(c, {}).get(m))) for c, m in cells
-             if new_data[c][m] != old_data.get(c, {}).get(m)]
-    diffs += [("USD via picks.build", m, _where(d, old_usd_data["USD"].get(m)))
-              for m, d in _payloads(usd_data)["USD"].items() if d != old_usd_data["USD"].get(m)]
-    claimed = [k for k in ds.ADDED_FIELDS
-               if any(k in s_ for per in old_data.values() for d in per.values() for s_ in d["picks"] + d["gems"])]
+    diffs = [(c, m, _where(new_data[c][m], old_cmp.get(c, {}).get(m))) for c, m in cells
+             if new_data[c][m] != old_cmp.get(c, {}).get(m)]
+    old_usd_cmp = _payloads(old_usd_data, aside)
+    diffs += [("USD via picks.build", m, _where(d, old_usd_cmp["USD"].get(m)))
+              for m, d in _payloads(usd_data, aside)["USD"].items() if d != old_usd_cmp["USD"].get(m)]
+    every_old = [s_ for per in list(old_data.values()) + [old_usd_data["USD"]] for d in per.values()
+                 for s_ in d["picks"] + d["gems"]]
+    claimed = [k for k in ds.ADDED_FIELDS if any(k in s_ for s_ in every_old)]
+    claimed += ["%s missing from the base" % k for k in ds.CHANGED_FIELDS if not all(k in s_ for s_ in every_old)]
     results.append(ok(not diffs and not claimed and sorted(old_data) == sorted(V) and len(usd_data["USD"]) == 12
                       and all(len(old_data[c]) == 12 for c in old_data),
                       "%s's code builds the same payload as this tree for all %d editions x 12 months and for "
-                      "picks.build's 12 (countries, order, scores, levels, sources, prices, FX, fares, activities, "
-                      "covers, credits, dates), fields added on purpose: %s%s"
-                      % (base, len(V), ", ".join(ds.ADDED_FIELDS) or "none",
+                      "picks.build's 12 (countries, order, scores, levels, sources, prices, FX, fares, covers, "
+                      "credits, dates), fields added on purpose: %s; fields changed on purpose, each held to its "
+                      "rule below: %s%s"
+                      % (base, len(V), ", ".join(ds.ADDED_FIELDS) or "none", ", ".join(ds.CHANGED_FIELDS) or "none",
                          "" if not (diffs or claimed) else " -> %r %r" % (diffs[:3], claimed))))
+    # The one field changed on purpose, "activities" (the top card's "Don't
+    # miss" line). The base kept each country's first two highlights in
+    # activities.json; this tree keeps the first two its guide does not mark
+    # as inside one of Global Affairs Canada's avoid-all zones
+    # (public/avoid-marks.json, read here on its own: digest_check.
+    # avoid_marked). In every pick and gem, both trees on this tree's data:
+    # the base's is the first two, this tree's the first two unmarked, no
+    # label of this tree's is marked, the base's unmarked ones open it in
+    # their order, and the two differ exactly where the base's had a marked
+    # one. So the only differences are marked labels gone and the next
+    # unmarked ones moved up.
+    with open(os.path.join(ROOT, "public", "activities.json"), encoding="utf-8") as f:
+        acts_now = json.load(f)
+    marked = dc.avoid_marked(os.path.join(ROOT, "public"))
+    pairs = ([(c, m, datas[c][int(m)], old_data[c][m]) for c, m in cells]
+             + [("USD via picks.build", m, usd_data["USD"][m], old_usd_data["USD"][m]) for m in usd_data["USD"]])
+    rule_off, moved, n_acts = [], [], 0
+    for c, m, dn, do in pairs:
+        both = list(zip(dn["picks"] + dn["gems"], do["picks"] + do["gems"]))
+        for i, (sn, so) in enumerate(both):
+            n_acts += 1
+            iso, mk = sn["iso"], marked.get(sn["iso"], frozenset())
+            full = (acts_now.get(iso) or {}).get("activities") or []
+            new_a, old_a = json.loads(json.dumps(sn["activities"])), so["activities"]
+            free = [a for a in full if _label(a) not in mk]
+            kept = [a for a in old_a if _label(a) not in mk]
+            if (so["iso"] != iso or len(both) != len(dn["picks"] + dn["gems"]) or old_a != full[:2]
+                    or new_a != free[:2] or any(_label(a) in mk for a in new_a) or new_a[:len(kept)] != kept
+                    or (new_a != old_a) != any(_label(a) in mk for a in old_a)):
+                rule_off.append((c, m, iso, old_a, new_a))
+            elif new_a != old_a:
+                moved.append((c, m, iso, "top card" if i == 0 else "compact card" if i < len(dn["picks"]) else "gem"))
+    in_cells = [x for x in moved if x[0] != "USD via picks.build"]
+    tops_moved = [x for x in in_cells if x[3] == "top card"]
+    results.append(ok(not rule_off and n_acts > 0 and marked,
+                      "activities, in all %d picks and gems of the %d editions x 12 months and picks.build's 12: "
+                      "the base's are the country's first two highlights, this tree's the first two its guide "
+                      "does not mark as in an avoid-all zone; the only differences are marked labels gone and "
+                      "the next unmarked ones moved up. In the %d edition-months %d differ (%s) and %d more in "
+                      "picks.build's 12; featured top cards that change: %d (section 9 proves the filter on "
+                      "hand-made top cards)%s"
+                      % (n_acts, len(V), len(cells), len(in_cells),
+                         ", ".join(sorted(set("%s %s" % (x[2], x[3]) for x in in_cells))) or "none",
+                         len(moved) - len(in_cells), len(tops_moved),
+                         "" if not rule_off else " -> %r" % rule_off[:3])))
     first = lambda body: body.split("\n", 1)[0]
     changed = [(c, m) for c, m in cells
                if snap[c][m][0] != old_snap[c][m][0] or first(snap[c][m][1]) != first(old_snap[c][m][1])
@@ -1187,6 +1257,148 @@ def main():
     key = piece(re.search(r"<b>Reading the grades:</b>.*?</div>", snap["USD"]["2"][1]))
     words = [w for w in re.sub(r"<[^>]+>", " ", key.replace("&nbsp;", " ")).split() if re.search(r"[A-Za-z0-9]", w)]
     results.append(ok(40 < len(words) <= 70, "the grade key is one short paragraph (%d words in the USD edition)" % len(words)))
+
+    print("9. the top card's \"Don't miss\" never names a place in an avoid-all zone")
+    # picks.highlights on a hand-made list of marks: it leaves out an
+    # "activity" entry whose label is the same, character for character (as
+    # app.js zoneMarkHTML matches one), and nothing else.
+    mk = {"countries": {"XX": [{"s": "activity", "i": "Volcano hike (Mt X)", "q": []},
+                               {"s": "seasonal", "i": "Dunes", "q": []},
+                               {"s": "activity", "i": "Safari (Y)", "q": []}]}}
+    hl = lambda iso, lst, marks=mk: picks.highlights(iso, lst, marks)
+    near = ["Volcano hike", "volcano hike (mt x)", "Volcano hike (Mt X) ", "Volcano hike (Mt X, Y)"]
+    cases = [
+        ("a marked first highlight: the next unmarked moves up",
+         hl("XX", ["Volcano hike (Mt X)", "Beaches", "Market", "Old town"])[:2], ["Beaches", "Market"]),
+        ("a marked second highlight: the third moves up",
+         hl("XX", ["Beaches", "Safari (Y)", "Market", "Old town"])[:2], ["Beaches", "Market"]),
+        ("the first two marked", hl("XX", ["Volcano hike (Mt X)", "Safari (Y)", "Market", "Old town"])[:2],
+         ["Market", "Old town"]),
+        ("all marked: none left", hl("XX", ["Volcano hike (Mt X)", {"t": "Safari (Y)", "d": "big cats"}]), []),
+        ("labels that only resemble a marked one stay", hl("XX", near), near),
+        ("a label marked only as a season row stays", hl("XX", ["Dunes", "Beaches"]), ["Dunes", "Beaches"]),
+        ("a {t, d} entry is matched on its label",
+         hl("XX", [{"t": "Safari (Y)", "d": "x"}, {"t": "Beaches", "d": "y"}]), [{"t": "Beaches", "d": "y"}]),
+        ("a country with no marks is unchanged", hl("YY", ["Volcano hike (Mt X)", "Safari (Y)", "Z"]),
+         ["Volcano hike (Mt X)", "Safari (Y)", "Z"]),
+        ("no list at all leaves everything", hl("XX", ["Volcano hike (Mt X)"], {}), ["Volcano hike (Mt X)"]),
+    ]
+    off = [(n_, got, want) for n_, got, want in cases if got != want]
+    results.append(ok(not off, "picks.highlights: %s%s" % ("; ".join(n_ for n_, _g, _w in cases),
+                                                           "" if not off else " -> %r" % off)))
+    # On the site's own list (the default): _enrich gives each country whose
+    # first two highlights include a marked one the first two unmarked,
+    # worked out here from activities.json and avoid-marks.json; every other
+    # country keeps its first two.
+    first2 = lambda iso: (acts_now[iso].get("activities") or [])[:2]
+    free2 = lambda iso: [a for a in acts_now[iso].get("activities") or [] if _label(a) not in marked.get(iso, ())][:2]
+    hit = sorted(iso for iso in acts_now if any(_label(a) in marked.get(iso, ()) for a in first2(iso)))
+    enr = lambda iso: picks._enrich({"iso": iso}, acts_now, with_photo=False)["activities"]
+    off = [iso for iso in acts_now if enr(iso) != (free2(iso) if iso in hit else first2(iso))]
+    results.append(ok(hit and not off,
+                      "picks._enrich on the site's list: the %d countries whose first two highlights include one "
+                      "marked as in an avoid-all zone (%s) get the first two unmarked (%s with none left); the "
+                      "other %d keep their first two%s"
+                      % (len(hit), " ".join(hit), " ".join(i for i in hit if not free2(i)) or "none",
+                         len(acts_now) - len(hit), "" if not off else " -> %r" % off[:5])))
+    # Hand-made top cards (no frozen month features one of these countries:
+    # section 1 counts them): each renders the first two unmarked, or no
+    # "Don't miss" line, says what its payload says, and shows no marked
+    # label anywhere.
+    def featuring(iso, activities):
+        dd = copy.deepcopy(datas["USD"][2])
+        dd["picks"][0].update(iso=iso, name="Country %s" % iso, activities=activities)
+        sj, bd = newsletter.render_digest(dd)
+        return dd, sj, bd
+    shown, off = {}, []
+    for iso in hit:
+        dd, sj, bd = featuring(iso, enr(iso))
+        e9 = dc.Email(bd)
+        dm = [t for t, _n in e9.lines if t.startswith("Don’t miss:")]
+        want = ["Don’t miss: " + ", ".join(_label(a) for a in free2(iso))] if free2(iso) else []
+        shown[iso] = dm
+        if (dm != want or dc.check(newsletter, picks, V["USD"], dd, sj, bd) or dc.proofing(bd)
+                or any(lab in t for t, _n in e9.lines for lab in marked[iso])):
+            off.append((iso, dm, want))
+    # (and a top card with no highlight at all has no line either)
+    d_e, sj_e, bd_e = featuring(datas["USD"][2]["picks"][0]["iso"], [])
+    results.append(ok(not off and "Don’t miss" not in bd_e and not dc.check(newsletter, picks, V["USD"], d_e, sj_e, bd_e),
+                      "a top card featuring each of them shows only unmarked highlights, the next one moved up, "
+                      "and no line where none is left (%s); each email says what its payload says%s"
+                      % ("; ".join("%s: %s" % (i, (shown[i] or ["no line"])[0][:60]) for i in hit),
+                         "" if not off else " -> %r" % off[:3])))
+    # The faults, each to be reported: a marked highlight in the payload (the
+    # filter skipped), rendered by the code; a marked highlight put back into
+    # a good email's line; a line added to a card with none left (where the
+    # site's list has such a country).
+    iso1 = next(i for i in hit if free2(i) and _label(first2(i)[0]) in marked[i])
+    bad1 = _label(first2(iso1)[0])
+    d_raw, sj_raw, bd_raw = featuring(iso1, first2(iso1))
+    d_ok, sj_ok, bd_ok = featuring(iso1, enr(iso1))
+    put_back = bd_ok.replace("<b>Don’t miss:</b> ", "<b>Don’t miss:</b> %s, " % newsletter._esc(bad1), 1)
+    faults9 = [("a marked highlight in the payload, rendered", d_raw, sj_raw, bd_raw,
+                bad1 in dc.norm(dc.Email(bd_raw).root.text())),
+               ("a marked highlight put back into a good line", d_ok, sj_ok, put_back, put_back != bd_ok)]
+    iso0 = next((i for i in hit if not free2(i)), None)
+    if iso0:
+        d_0, sj_0, bd_0 = featuring(iso0, enr(iso0))
+        button = '\n        <div style="font-size:14px;line-height:20px;margin:14px 0 0"><a'
+        added = bd_0.replace(button, "<div style='font-size:14px;line-height:21px;color:#333;margin:8px 0 0'><b>Don’t "
+                             "miss:</b> %s</div>" % newsletter._esc(_label(first2(iso0)[0])) + button, 1)
+        faults9.append(("a line on a card with none left", d_0, sj_0, added, added != bd_0))
+    missed = [(n_, planted) for n_, dd, sj, bd, planted in faults9
+              if not (planted and dc.check(newsletter, picks, V["USD"], dd, sj, bd))]
+    results.append(ok(not missed, "controls: %s (%s%s) are each reported%s"
+                      % ("; ".join(f[0] for f in faults9), iso1, ", " + iso0 if iso0 else "",
+                         "" if not missed else " -> MISSED %r" % missed)))
+    # Only the email reads a pick's highlights: in the repository's Python,
+    # picks.build, build_variant, _enrich and highlights are called from
+    # send_digest.py and the digest's own test tools only, so no page of the
+    # site can change with them (the site's JavaScript reads activities.json
+    # and avoid-marks.json itself, and marks a place there, never drops it).
+    import ast
+    names = ("build", "build_variant", "_enrich", "highlights")
+    callers = set()
+    for dirpath, dirnames, filenames in os.walk(ROOT):
+        dirnames[:] = [x for x in dirnames if x not in (".git", "node_modules", "__pycache__", ".worktrees")]
+        for fn in filenames:
+            if not fn.endswith(".py"):
+                continue
+            path = os.path.join(dirpath, fn)
+            rel = os.path.relpath(path, ROOT)
+            with open(path, encoding="utf-8") as f:
+                try:
+                    tree = ast.parse(f.read())
+                except SyntaxError:
+                    callers.add(rel + " (unreadable)")
+                    continue
+            alias = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    for a_ in node.names:
+                        if a_.name == "picks":
+                            alias.add(a_.asname or "picks")
+                        elif (node.module or "").endswith("picks") and a_.name in names:
+                            callers.add(rel)
+                elif isinstance(node, ast.Import):
+                    for a_ in node.names:
+                        if a_.name.endswith(".picks"):
+                            alias.add(a_.asname or a_.name)
+            for node in ast.walk(tree):
+                # picks.<one of them>(...) through an import of picks, or
+                # build_variant / _enrich / highlights called on anything
+                # (picks is the only module that has them)
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in names
+                        and ((isinstance(node.func.value, ast.Name) and node.func.value.id in alias)
+                             or node.func.attr != "build")):
+                    callers.add(rel)
+    allowed = [c_ for c_ in callers if c_ in ("send_digest.py", os.path.join("scripts", "digest_snapshot.py"))
+               or re.match(r"scripts/test_[a-z_]+\.py$", c_.replace(os.sep, "/"))]
+    results.append(ok("send_digest.py" in callers and callers == set(allowed),
+                      "only the email builds a pick's highlights: picks.build (through an import of picks), "
+                      "build_variant, _enrich and highlights are called from %s and nowhere else in the "
+                      "repository's Python"
+                      % ", ".join(sorted(callers))))
 
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1

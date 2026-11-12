@@ -36,13 +36,16 @@ digest_snapshot.install returns them. expected() takes only facts from them
 (the site address, the price band, the grade bands and the advisory sources'
 names, each with its own test), never the functions that write the email's
 HTML. The Overall badge's colours are read from the site's own stylesheet
-(site_grade_colours). The closing quotes and Buttondown's unsubscribe token
-are spelled out here (QUOTES, UNSUB), not read from `nl`: read from the code
-under test, a changed citation or a mistyped token passed check() in every
-edition, and only the USD golden hashes noticed.
+(site_grade_colours), and the highlights the guides mark as inside an
+avoid-all zone from the site's own list (avoid_marked). The closing quotes
+and Buttondown's unsubscribe token are spelled out here (QUOTES, UNSUB), not
+read from `nl`: read from the code under test, a changed citation or a
+mistyped token passed check() in every edition, and only the USD golden
+hashes noticed.
 """
 import html.parser
 import io
+import json
 import os
 import re
 
@@ -342,6 +345,25 @@ def _labels(s):
     return [x for x in labels if x][:2]
 
 
+_MARKED = {}
+
+
+def avoid_marked(public):
+    """{ISO: frozenset of highlight labels} the site's guides mark as inside
+    one of Global Affairs Canada's avoid-all zones: public/avoid-marks.json's
+    "activity" entries, read here on their own (not through the code under
+    test). The email never recommends one (Doug, 2026-11-12: the top card's
+    "Don't miss" skips them, as the stay chips skip avoid-zone places).
+    Raises when the file can't be read: a check must not pass on no list."""
+    path = os.path.join(public, "avoid-marks.json")
+    if path not in _MARKED:
+        with io.open(path, encoding="utf-8") as f:
+            countries = json.load(f)["countries"]
+        _MARKED[path] = dict((iso, frozenset(e["i"] for e in es if e["s"] == "activity"))
+                             for iso, es in countries.items())
+    return _MARKED[path]
+
+
 def _strong(s):
     """The reader's money goes further than usual here: the dollar line."""
     return s.get("fx") is not None and s["fx"] >= 3
@@ -427,6 +449,7 @@ def expected(nl, pk, v, d):
     guide = lambda s: "%s/?tab=guide&gc=%s&vmn=%d%s" % (site, s["iso"], m, vo)
     flag = lambda s: ("flag", "https://flagcdn.com/32x24/%s.png" % s["iso"].lower(), s["iso"], None)
     colours = site_grade_colours(os.path.join(pk.PUBLIC, "styles.css"))
+    marked = avoid_marked(pk.PUBLIC)
     lines, links, images, badges, credits, held, grouped = [], [], [], [], [], [], []
     line = lambda key, text: lines.append((key, text))
     # A name row: the flag, its gap (a non-breaking space), the name, the badge.
@@ -503,8 +526,12 @@ def expected(nl, pk, v, d):
             line("fx", "%s %s goes ~%d%% further than%susual"
                  % (v.fx_emoji, v.noun_cap, pk.js_round(s["fx"]), NB))
         if top:
-            if _labels(s):
-                line("dont_miss", "Don’t miss: %s" % ", ".join(_labels(s)))
+            # Never a highlight the guide marks as inside an avoid-all zone:
+            # one in the payload is left out here, so an email that shows it
+            # says something its payload's rule does not.
+            dont = [x for x in _labels(s) if x not in marked.get(s["iso"], ())]
+            if dont:
+                line("dont_miss", "Don’t miss: %s" % ", ".join(dont))
             line("guide_button", "See %s’s guide%s→" % (s["name"], NB))
             links.append(("button", g, "See %s’s guide%s→" % (s["name"], NB), WHITE, False))
         else:

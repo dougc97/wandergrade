@@ -690,6 +690,9 @@ def _money_lines(s, v=USD, top=False):
 
 
 def _dont_miss(s):
+    # The payload's highlights already leave out every one the guide marks as
+    # inside an avoid-all zone (picks.highlights), so no highlight there is
+    # ever recommended here, and a card left with none has no line.
     labels = _acts(s)
     if not labels:
         return ""

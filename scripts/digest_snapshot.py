@@ -73,6 +73,19 @@ ADDED_FIELDS = (
     # cover and on every gem, as "photo" is.
     "photo_thumb",
 )
+# Fields BASE's payload has too, whose value this tree changes on purpose,
+# each with its rule. The payload comparison sets these aside for its
+# field-for-field equality and holds each to its rule on its own
+# (test_digest_variants 1), so name every one with the rule that proves it.
+CHANGED_FIELDS = (
+    # A pick's or gem's highlights (the top card's "Don't miss" line): BASE
+    # keeps the country's first two in activities.json; this tree keeps the
+    # first two that its guide does not mark as inside a Global Affairs
+    # Canada avoid-all zone (picks.highlights, public/avoid-marks.json; Doug,
+    # 2026-11-12). The only differences allowed: a marked label gone, and the
+    # next unmarked one moved up.
+    "activities",
+)
 
 
 def extract_code(root, rev, dest):
