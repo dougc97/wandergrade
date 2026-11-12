@@ -293,6 +293,8 @@ W.file("Big_photo.jpg", 5000)
 W.file("Scan_photo.tif", 6000)
 W.file("Large_photo.jpg", 9000)
 W.file("Plage de Roume.jpg", 2048, artist="<a href='https://commons.wikimedia.org/wiki/User:Someone'>Some One</a>")
+W.file("City hall.jpg", 2048, artist="<a href='//commons.wikimedia.org/wiki/User:Carschten'>Steffen Schmitz</a> "
+       "(<a href='//commons.wikimedia.org/wiki/User:Carschten/Gallery'>more photos</a>)")
 W.file("Under par.jpg", 640)
 W.file("Odd licence.jpg", short="FAL", code="fal")
 # Virunga National Park-107997.jpg's licence: a short name the list takes, no code.
@@ -363,6 +365,15 @@ try:
                       and c["credit"]["artist"] == "Some One"
                       and "Plage_de_Roume.jpg%2F1280px-Plage_de_Roume.jpg" in c["url"],
                       "a pinned file: one Commons request, the same checks, credited under its canonical name"))
+    c, _ = lookf("City hall.jpg")
+    results.append(ok(c and c["credit"]["artist"] == "Steffen Schmitz"
+                      and picks._artist("Jane Doe (talk)") == "Jane Doe"
+                      and picks._artist("A (Contribs) B") == "A B"
+                      and picks._artist("Jane Doe (Janed)") == "Jane Doe (Janed)"
+                      and picks._artist("<b>Ann</b> (more pictures)") == "Ann" and picks._artist("") == "",
+                      "a signature's navigation links leave the credit ('Steffen Schmitz (more photos)', Vietnam's "
+                      "cover on the 2026-11-11 test send, credits 'Steffen Schmitz'); a parenthesis that names "
+                      "someone, such as a username, stays"))
     lower = skipped[:1].lower() + skipped[1:].replace("_", " ")
     results.append(ok(lookf(lower) == (None, [])
                       and lookf("Sierra Leone location map.jpg") == (None, []) and lookf("") == (None, []),

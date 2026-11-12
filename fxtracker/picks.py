@@ -177,6 +177,19 @@ def _strip_html(v):
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", v or "")).strip()
 
 
+# Links some photographers' Commons signatures put after their name, which
+# are navigation, not part of the name: the 2026-11-11 test send credited
+# Vietnam's cover to "Steffen Schmitz (more photos)". The credit keeps the
+# name (and links it to the file page, where the signature is in full); a
+# parenthesis that says anything else, such as a username, stays.
+_ARTIST_NAV = re.compile(r"\s*\((?:more (?:photos|pictures|images)|talk|contribs?|contributions)\)", re.I)
+
+
+def _artist(v):
+    """The Artist field as the credit prints it: tags out, then _ARTIST_NAV."""
+    return _ARTIST_NAV.sub("", _strip_html(v)).strip()
+
+
 # ---- the cover photo ---------------------------------------------------------
 # A featured country's cover is the first candidate the site's own photo
 # checks pass (cover_for): its activities.json `photo` where it has one (an
@@ -264,7 +277,7 @@ def _commons_file(name):
         file = _file_key(pg["title"])
         return {"file": file, "url": ii.get("url") or "", "width": ii.get("width"),
                 "licence": val("LicenseShortName"), "code": val("License"),
-                "credit": {"artist": val("Artist")[:80] or "Unknown author",
+                "credit": {"artist": _artist((md.get("Artist") or {}).get("value"))[:80] or "Unknown author",
                            "license": val("LicenseShortName") or "see file page",
                            "license_url": (md.get("LicenseUrl") or {}).get("value") or "",
                            "page": "https://commons.wikimedia.org/wiki/" + urllib.parse.quote(
