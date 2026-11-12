@@ -38,6 +38,7 @@ whatever either email looks like.
 
 BASE is the commit the Dec 2026 redesign started from. The tests compare this
 tree with it in two ways that don't read the body: the payloads must be equal
+but for ADDED_FIELDS and CHANGED_FIELDS below, each held to its rule
 (test_digest_variants 1), and every Buttondown call and printed line must be
 equal once each body is swapped for a token (test_send_digest 1). Until then
 the tests compared bodies with commit 4788fd2's, less a list of stripped

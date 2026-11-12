@@ -47,6 +47,12 @@ a day when the service answers but cannot fetch from Wikimedia, every photo
 can give way in one run. The check can't stop or fail a send: it never
 changes the exit code.
 
+Highlights: the top card's "Don't miss" line skips any highlight the guide
+marks as inside a Canada avoid-all zone (public/avoid-marks.json, read by
+picks.highlights). If that file can't be read or lists no country, the line
+skips nothing, as the site then marks nothing; the run goes ahead and the log
+says so in a line that starts "WARNING: public/avoid-marks.json".
+
 Exit codes: 0 every edition sent, already out, covered or skipped for having no
 readers; 1 something failed (a re-run is safe); 2 usage error or a ROLLOUT
 problem (nothing was built or sent). The owner's rollout steps are the
@@ -60,7 +66,7 @@ import os
 import sys
 import traceback
 
-from fxtracker import cover_check, newsletter, picks
+from fxtracker import avoid_marks, cover_check, newsletter, picks
 from fxtracker.digest_variants import (SEND_ORDER, VARIANTS, draft_codes, rollout_problems,
                                        send_codes, stage)
 
@@ -507,10 +513,26 @@ def _main(argv):
     except ValueError as e:
         print(e)
         return 2
+    warning = avoid_marks_warning()
+    if warning:
+        print(warning)
     if codes == ("USD",) and a["out"] is None:
         # USD only: today's run, unchanged — same calls, same output.
         return run(dry_run=a["dry"], month=a["month"], draft=a["draft"])
     return run_variants(codes, dry_run=a["dry"], month=a["month"], draft=a["draft"], out=a["out"])
+
+
+def avoid_marks_warning():
+    """The log line for an unreadable or empty public/avoid-marks.json (the
+    "Highlights" note above), or None when it lists countries. It reads the
+    file through avoid_marks.load(), as picks.highlights does, which reads a
+    broken file as no marks; avoid_marks.load() itself stays as the site
+    needs it."""
+    d = avoid_marks.load()
+    if isinstance(d, dict) and d.get("countries"):
+        return None
+    return ("WARNING: public/avoid-marks.json is empty or unreadable: the top card's \"Don't miss\" "
+            "line skips nothing this run")
 
 
 class UsageError(ValueError):

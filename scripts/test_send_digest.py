@@ -35,7 +35,9 @@ that edition and month, the text the golden hashes pin and
 test_digest_variants reads back against its payload. Until the redesign 1
 compared bodies with commit 4788fd2's, less a list of stripped pieces
 (digest_snapshot's docstring). 22 checks that every edition's subject, every
-month, is found by its own duplicate check (plain ASCII after the emoji).
+month, is found by its own duplicate check (plain ASCII after the emoji). 23
+checks that a run whose public/avoid-marks.json can't be read says so in the
+log (the top card's "Don't miss" line then skips nothing) and goes ahead.
 """
 import contextlib, io, json, os, random, re, shutil, subprocess, sys, tempfile, urllib.parse
 
@@ -828,6 +830,38 @@ def main():
                           "all %d editions x 12 months: the ASCII needle is inside the subject, names the month "
                           "and 'your <noun> ', and find_sent finds the issue (a subject with ’ inside is not "
                           "found: the trap)%s" % (len(H.dv.VARIANTS), "" if not missed else " -> %r" % missed[:3])))
+
+        # 23. An unreadable public/avoid-marks.json is said in the log. The
+        #     top card's "Don't miss" line would then skip nothing
+        #     (picks.highlights reads the file through avoid_marks.load(),
+        #     which reads a broken file as no marks, as the site does). The
+        #     run goes ahead; with the real file the log is as before (1
+        #     holds that line for line).
+        print("23. an unreadable avoid-marks.json is said in the log")
+        am = H.sd.avoid_marks
+        assert am is sys.modules["fxtracker.avoid_marks"]
+        saved_marks = am.load()
+        warn ="WARNING: public/avoid-marks.json is empty or unreadable"
+        runs = {}
+        try:
+            for name, data in (("real", saved_marks), ("unreadable", {}), ("no countries", {"countries": {}})):
+                am._data = data
+                # The committed ROLLOUT (USD only): run() for the first,
+                # run_variants() for the second.
+                for argv in (["--dry-run"], ["--dry-run", "--variant", "EUR"]):
+                    runs[(name, argv[-1])] = H.run(argv, FakeButtondown(subs({"u@x": ""})))
+            am._data = ["not", "a", "dict"]
+            wrong_shape = H.sd.avoid_marks_warning()
+        finally:
+            am._data = saved_marks
+        bad = [(k, code, out.count(warn), out.splitlines()[:1]) for k, (code, out) in runs.items()
+               if code != 0 or out.count(warn) != (k[0] != "real") or "\n--dry-run: nothing sent." not in out
+               or (k[0] != "real" and not out.startswith(warn))]
+        results.append(ok(saved_marks.get("countries") and not bad and (wrong_shape or "").startswith(warn),
+                          "a dry run (USD alone, and with an edition) whose avoid-marks.json is unreadable or "
+                          "lists no country says so once, in its first line, and still runs to the end, exit 0; "
+                          "with the real file it says nothing; a file of the wrong shape is reported too%s"
+                          % ("" if not bad else " -> %r" % bad)))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))

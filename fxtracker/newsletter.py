@@ -798,7 +798,28 @@ def _hero_card(s, month, v=USD):
 # Measured at 600px in Classic: the white right of the words fell from 38%
 # of the card to 23% (48% to 33% on a card with no dollar line), the white
 # under the photo from 52px to none, and the four cards grew from 567px to
-# 636px. Don't change the share without measuring 360px again.
+# 636px.
+# Phones wider than 360px are not all as before (measured 2026-11-12, the
+# February issue in Classic, Apple's system font and Arial). Above 360px a
+# 35% cell grows faster than the old 110px one, so the words' column is
+# narrower (219 -> 214px at 375, 234 -> 224 at 390, 258 -> 239 at 414,
+# 274 -> 250 at 430). From 360 to 393px and at 440px no line wraps
+# differently in the USD edition. Between 400 and 430px (400-414 in the
+# system font, 412-430 in Arial) the dollar line takes two lines on 3 of
+# the 4 cards and the four cards grow from 567 to 624px: the look of a
+# 360px phone, where that line already takes two. Nothing overflows. In the
+# editions that are switched off a money line does the same somewhere from
+# 375 to 414px (EUR and CNY at 375, CAD and JPY at 384-393, AUD at 390-393,
+# GBP and KRW at 414; INR and CHF not at all). In a scratch try a 30% share
+# kept every edition's cards as before from 360 to 440px, with a 166x127
+# photo at 600px; 35% is Doug's choice.
+# Classic Outlook for Windows ignores max-width, min-width and a percentage
+# width on an image, so the image is drawn at its attributes while the cell
+# is 35% of the reading pane: on a pane wider than about 600px there is
+# empty cell between the photo and the words (about 140px at a 1000px pane,
+# worked out in a browser stand-in; no Outlook here). New Outlook,
+# Outlook.com and Outlook for Mac follow the CSS.
+# Don't change the share without measuring 360 to 440px again.
 THUMB_PCT, THUMB_MIN_W = 35, 110
 THUMB_ATTR_W, THUMB_ATTR_H = 194, 148
 
@@ -806,8 +827,11 @@ THUMB_ATTR_W, THUMB_ATTR_H = 194, 148
 def _compact_card(s, month, v=USD):
     g = _guide_url(s["iso"], month, v)
     # The photo is the cover's small copy (picks.THUMB_W x THUMB_H), not the
-    # top card's 1024x420 banner; a payload without one (built before Dec
-    # 2026) falls back to the banner.
+    # top card's 1024x420 banner. A payload without one (built before Dec
+    # 2026) falls back to the banner, which then shows at its own wide shape
+    # (about 194x80 at 600px, height:auto) with white under it. A send never
+    # takes that path: picks._banner always sets the small copy, and
+    # send_digest.py builds the payload fresh.
     thumb = ("<td width='%d%%' valign='top' style='width:%d%%;min-width:%dpx'><a href='%s'><img src='%s' "
              "width='%d' height='%d' alt='%s' style='display:block;width:100%%;height:auto;border-radius:8px'>"
              "</a></td>" % (THUMB_PCT, THUMB_PCT, THUMB_MIN_W, g, s.get("photo_thumb") or s["photo"],

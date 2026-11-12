@@ -281,6 +281,11 @@ results.append(ok(not moved and asks >= 48,
 svc = Service()
 data, sb, lines, _p = checked(2, svc)
 by_card, in_order = card_photos(sb[1])
+# The "440x336" below comes from digest_snapshot.fake_cover's stand-in name
+# (the covers here are its fakes), so on its own it can't see picks.THUMB_W x
+# THUMB_H move. test_digest_variants 8 (fake_cover's name against
+# picks.THUMB_W/H, and each compact card's photo against its pick's small
+# copy) and test_cover_rule (picks._banner's &w=440&h=336) tie it to them.
 results.append(ok(svc.asked == FEB_ASKED == in_order and len(in_order) == 5
                   and "1024x420" in svc.asked[0] and all("440x336" in u for u in svc.asked[1:])
                   and by_card[TOP["name"]] == TOP["photo"]

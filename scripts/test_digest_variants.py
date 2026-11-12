@@ -68,7 +68,7 @@ Until the redesign 1 proved the USD text was commit 4788fd2's less a list of
 stripped pieces. digest_snapshot's docstring says what replaced that and
 why; the golden file's note has the history.
 """
-import copy, json, os, re, shutil, subprocess, sys, tempfile
+import ast, copy, json, os, re, shutil, subprocess, sys, tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -135,6 +135,41 @@ def _where(a, b, path=""):
             if x != y:
                 return _where(x, y, "%s[%d]" % (path, i))
     return "%s: %r vs %r" % (path, a, b)
+
+
+def _dotted(n):
+    """An ast Name, or a chain of Attributes on one, as its dotted name
+    ("picks", "fxtracker.picks", "self.picks"); None for anything else."""
+    parts = []
+    while isinstance(n, ast.Attribute):
+        parts.append(n.attr)
+        n = n.value
+    return ".".join([n.id] + parts[::-1]) if isinstance(n, ast.Name) else None
+
+
+def _calls_builders(tree, names):
+    """Whether the parsed module `tree` calls one of picks' `names` (section
+    9): picks.<name>(...) through an import of picks, under whatever name
+    it was imported (picks, an alias, fxtracker.picks in full); a name
+    imported from picks itself; or any of them but build called on
+    anything (picks is the only module that has them; build is also
+    home_picks'). A call through getattr or importlib is not followed."""
+    alias = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            for a_ in node.names:
+                if a_.name == "picks":
+                    alias.add(a_.asname or "picks")
+                elif (mod == "picks" or mod.endswith(".picks")) and a_.name in names:
+                    return True
+        elif isinstance(node, ast.Import):
+            for a_ in node.names:
+                if a_.name == "picks" or a_.name.endswith(".picks"):
+                    alias.add(a_.asname or a_.name)
+    return any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in names
+               and (_dotted(node.func.value) in alias or node.func.attr != "build")
+               for node in ast.walk(tree))
 
 
 def main():
@@ -1330,15 +1365,20 @@ def main():
     # The faults, each to be reported: a marked highlight in the payload (the
     # filter skipped), rendered by the code; a marked highlight put back into
     # a good email's line; a line added to a card with none left (where the
-    # site's list has such a country).
-    iso1 = next(i for i in hit if free2(i) and _label(first2(i)[0]) in marked[i])
-    bad1 = _label(first2(iso1)[0])
-    d_raw, sj_raw, bd_raw = featuring(iso1, first2(iso1))
-    d_ok, sj_ok, bd_ok = featuring(iso1, enr(iso1))
-    put_back = bd_ok.replace("<b>Don’t miss:</b> ", "<b>Don’t miss:</b> %s, " % newsletter._esc(bad1), 1)
-    faults9 = [("a marked highlight in the payload, rendered", d_raw, sj_raw, bd_raw,
-                bad1 in dc.norm(dc.Email(bd_raw).root.text())),
-               ("a marked highlight put back into a good line", d_ok, sj_ok, put_back, put_back != bd_ok)]
+    # site's list has such a country). The first two need a country whose
+    # first highlight is marked and which has an unmarked one left; a later
+    # review of the list that leaves none is a FAIL line, not a crash. (A
+    # hand-made country can't stand in: dc.check reads the site's own list.)
+    iso1 = next((i for i in hit if free2(i) and _label(first2(i)[0]) in marked[i]), None)
+    faults9 = []
+    if iso1:
+        bad1 = _label(first2(iso1)[0])
+        d_raw, sj_raw, bd_raw = featuring(iso1, first2(iso1))
+        d_ok, sj_ok, bd_ok = featuring(iso1, enr(iso1))
+        put_back = bd_ok.replace("<b>Don’t miss:</b> ", "<b>Don’t miss:</b> %s, " % newsletter._esc(bad1), 1)
+        faults9 += [("a marked highlight in the payload, rendered", d_raw, sj_raw, bd_raw,
+                     bad1 in dc.norm(dc.Email(bd_raw).root.text())),
+                    ("a marked highlight put back into a good line", d_ok, sj_ok, put_back, put_back != bd_ok)]
     iso0 = next((i for i in hit if not free2(i)), None)
     if iso0:
         d_0, sj_0, bd_0 = featuring(iso0, enr(iso0))
@@ -1348,15 +1388,17 @@ def main():
         faults9.append(("a line on a card with none left", d_0, sj_0, added, added != bd_0))
     missed = [(n_, planted) for n_, dd, sj, bd, planted in faults9
               if not (planted and dc.check(newsletter, picks, V["USD"], dd, sj, bd))]
-    results.append(ok(not missed, "controls: %s (%s%s) are each reported%s"
-                      % ("; ".join(f[0] for f in faults9), iso1, ", " + iso0 if iso0 else "",
-                         "" if not missed else " -> MISSED %r" % missed)))
+    results.append(ok(bool(iso1) and not missed, "controls: %s (%s) are each reported%s%s"
+                      % ("; ".join(f[0] for f in faults9) or "none", ", ".join(i for i in (iso1, iso0) if i),
+                         "" if not missed else " -> MISSED %r" % missed,
+                         "" if iso1 else " -> NOT PLANTED: no country on the site's list has a marked first "
+                                         "highlight with an unmarked one left, so the two controls that need one "
+                                         "did not run")))
     # Only the email reads a pick's highlights: in the repository's Python,
     # picks.build, build_variant, _enrich and highlights are called from
     # send_digest.py and the digest's own test tools only, so no page of the
     # site can change with them (the site's JavaScript reads activities.json
     # and avoid-marks.json itself, and marks a place there, never drops it).
-    import ast
     names = ("build", "build_variant", "_enrich", "highlights")
     callers = set()
     for dirpath, dirnames, filenames in os.walk(ROOT):
@@ -1372,33 +1414,28 @@ def main():
                 except SyntaxError:
                     callers.add(rel + " (unreadable)")
                     continue
-            alias = set()
-            for node in ast.walk(tree):
-                if isinstance(node, ast.ImportFrom):
-                    for a_ in node.names:
-                        if a_.name == "picks":
-                            alias.add(a_.asname or "picks")
-                        elif (node.module or "").endswith("picks") and a_.name in names:
-                            callers.add(rel)
-                elif isinstance(node, ast.Import):
-                    for a_ in node.names:
-                        if a_.name.endswith(".picks"):
-                            alias.add(a_.asname or a_.name)
-            for node in ast.walk(tree):
-                # picks.<one of them>(...) through an import of picks, or
-                # build_variant / _enrich / highlights called on anything
-                # (picks is the only module that has them)
-                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in names
-                        and ((isinstance(node.func.value, ast.Name) and node.func.value.id in alias)
-                             or node.func.attr != "build")):
-                    callers.add(rel)
+            if _calls_builders(tree, names):
+                callers.add(rel)
     allowed = [c_ for c_ in callers if c_ in ("send_digest.py", os.path.join("scripts", "digest_snapshot.py"))
                or re.match(r"scripts/test_[a-z_]+\.py$", c_.replace(os.sep, "/"))]
-    results.append(ok("send_digest.py" in callers and callers == set(allowed),
-                      "only the email builds a pick's highlights: picks.build (through an import of picks), "
-                      "build_variant, _enrich and highlights are called from %s and nowhere else in the "
-                      "repository's Python"
-                      % ", ".join(sorted(callers))))
+    # The walk's own controls: each of these calls is found, so the check
+    # above can see one where it should not be.
+    probes = ["from fxtracker import picks\npicks.build(2)", "from fxtracker import picks as p\np.build(2)",
+              "import fxtracker.picks\nfxtracker.picks.build(2)", "import fxtracker.picks as fp\nfp.build(2)",
+              "from fxtracker.picks import build\nbuild(2)", "x.build_variant(1, 2)", "y._enrich({}, {}, False)",
+              "z.highlights('CM', [])"]
+    unseen = [p_ for p_ in probes if not _calls_builders(ast.parse(p_), names)]
+    quiet = [p_ for p_ in ("self.picks.build(2)", "from fxtracker import home_picks\nhome_picks.build()",
+                           "from fxtracker.home_picks import build\nbuild()")
+             if _calls_builders(ast.parse(p_), names)]
+    results.append(ok("send_digest.py" in callers and callers == set(allowed) and not unseen and not quiet,
+                      "only the email builds a pick's highlights: picks.build (through an import of picks, by "
+                      "any name or as fxtracker.picks), build_variant, _enrich and highlights are called from "
+                      "%s and nowhere else in the repository's Python (the walk finds each of %d sample calls "
+                      "and none of home_picks.build or self.picks.build; a call through getattr or importlib "
+                      "is not followed)%s"
+                      % (", ".join(sorted(callers)), len(probes),
+                         "" if not (unseen or quiet) else " -> unseen %r, wrongly found %r" % (unseen, quiet))))
 
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1

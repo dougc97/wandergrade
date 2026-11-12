@@ -728,6 +728,14 @@ def _popular_set():
 # Canada, and the monthly review settles the list. Only the email reads a
 # pick's "activities": picks.build and build_variant are send_digest.py's,
 # and the site's pages read activities.json themselves.
+# The cover photo is not filtered: cover_for picks it from the guide's
+# gallery, as before. Doug's gallery rule (2026-10-30) keeps the avoid-zone
+# photos of four guides (scripts/gallery_drops.py EXEMPT: CM, ET, TD, TJ), so
+# if one of them were ever a top card its photo could show a place this
+# line skips (Lalibela for Ethiopia, say). Picks come only from the popular
+# set, and none of the four is in FALLBACK_POPULAR (nor was any in the live
+# set on 2026-11-12). Whether the email's cover should skip those photos too
+# is a question for Doug, not built.
 
 def _act_label(x):
     """An activity's label, read as app.js actLabel reads it."""
