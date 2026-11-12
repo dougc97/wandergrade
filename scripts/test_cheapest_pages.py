@@ -47,6 +47,7 @@ What it holds the code to:
     {{FOOTER_*}} token left to fill.
 """
 import copy
+import datetime
 import html.parser
 import json
 import os
@@ -602,17 +603,38 @@ csp = get("/cheapest")[1].get("Content-Security-Policy", "")
 results.append(ok("frame-src 'none'" in csp and "object-src 'none'" in csp and "stay22" not in csp,
                   "CSP: nothing may be framed (no embedded map) and no plugin content: %r" % csp))
 # A provider failure answers the same empty body as a genuine empty answer, but no-store.
-_trend = server.rates.get_trend
+# The genuine empty answer: the provider answers (a stand-in year of EUR and VND
+# rates, so nothing leaves this machine; the ZZZ request used to reach the live
+# provider, and offline it failed and came back no-store), and the real
+# rates.get_trend finds no ZZZ in it.
+_trend, _ts, _latest = server.rates.get_trend, server.rates.get_timeseries, server.rates.get_latest
+_trend_usd = server.rates._trend_cache.pop("USD", None)
+asked = []
 try:
+    def _fake_ts(start, end):
+        asked.append("timeseries")
+        d0 = datetime.date.fromisoformat(end)
+        return {(d0 - datetime.timedelta(days=i)).isoformat(): {"EUR": 0.92, "VND": 25000.0 + i} for i in range(60)}
+
+    def _fake_latest():
+        asked.append("latest")
+        return datetime.date.today().isoformat(), {"EUR": 0.92, "VND": 25000.0}
+    server.rates.get_timeseries, server.rates.get_latest = _fake_ts, _fake_latest
     st0, hd0, b0 = get("/api/fx-trend?cur=ZZZ")
+    st2, hd2, b2 = get("/api/fx-trend?cur=VND")      # the same answer has VND: it is ZZZ that's missing
     server.rates.get_trend = lambda *a, **k: (_ for _ in ()).throw(TimeoutError("slow"))
     st1, hd1, b1 = get("/api/fx-trend?cur=VND")
 finally:
-    server.rates.get_trend = _trend
-results.append(ok(st0 == st1 == 200 and json.loads(b1) == {"code": "VND", "base": "USD", "months": []}
+    server.rates.get_trend, server.rates.get_timeseries, server.rates.get_latest = _trend, _ts, _latest
+    server.rates._trend_cache.pop("USD", None)
+    if _trend_usd is not None:
+        server.rates._trend_cache["USD"] = _trend_usd
+results.append(ok(st0 == st1 == st2 == 200 and json.loads(b1) == {"code": "VND", "base": "USD", "months": []}
+                  and json.loads(b0) == {"code": "ZZZ", "base": "USD", "months": []}
+                  and len(json.loads(b2).get("months") or []) >= 2 and asked == ["timeseries", "latest"]
                   and hd1.get("Cache-Control") == "no-store" and hd0.get("Cache-Control") == "public, max-age=300",
-                  "/api/fx-trend: a failure is no-store, a real empty answer stays cacheable (%s / %s)"
-                  % (hd1.get("Cache-Control"), hd0.get("Cache-Control"))))
+                  "/api/fx-trend: a failure is no-store, a real empty answer stays cacheable (%s / %s; the provider "
+                  "a stand-in that answered once, %s)" % (hd1.get("Cache-Control"), hd0.get("Cache-Control"), asked)))
 _fetch = server.watchouts.rates.fetch_json
 try:
     server.watchouts._cache.pop("zw", None)
