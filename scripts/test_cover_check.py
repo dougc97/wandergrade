@@ -139,7 +139,7 @@ def approved(iso):
 def card_photos(body):
     """{country: its card's <img> address} for the cards that show a photo,
     and the same addresses in card order."""
-    found = re.findall(r"<img src='([^']+)' width='(?:560|110)' alt='([^']+)'", body)
+    found = re.findall(r"<img src='([^']+)' width='(?:560|194' height='148)' alt='([^']+)'", body)
     assert [u for u, _n in found] == tsd.photos_in(body), "a cover <img> this reader can't read"
     return {n: u for u, n in found}, [u for u, _n in found]
 
@@ -282,11 +282,11 @@ svc = Service()
 data, sb, lines, _p = checked(2, svc)
 by_card, in_order = card_photos(sb[1])
 results.append(ok(svc.asked == FEB_ASKED == in_order and len(in_order) == 5
-                  and "1024x420" in svc.asked[0] and all("220x168" in u for u in svc.asked[1:])
+                  and "1024x420" in svc.asked[0] and all("440x336" in u for u in svc.asked[1:])
                   and by_card[TOP["name"]] == TOP["photo"]
                   and all(by_card[s["name"]] == s["photo_thumb"] != s["photo"] for s in FEB["picks"][1:]),
                   "February: the addresses asked are the email's own <img> addresses, in card order: the top "
-                  "card's 1024x420 banner (%s) and the four other cards' 220x168 copies; no banner of theirs, "
+                  "card's 1024x420 banner (%s) and the four other cards' 440x336 copies; no banner of theirs, "
                   "no small copy of the top card's" % TOP["name"]))
 # A cover that carries no small copy shows its banner in a compact card
 # (newsletter._compact_card), so that is the address asked.

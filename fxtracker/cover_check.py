@@ -69,8 +69,9 @@ time limit on the job. An address is asked once a run, however many editions
 share it.
 
 Which address: the top card shows the 1024x420 banner (a cover's "url"),
-every other card the 220x168 small copy ("thumb"), as newsletter._hero_card
-and _compact_card read them. A country that leads one edition and not
+every other card the 440x336 small copy ("thumb", picks.THUMB_W x THUMB_H;
+220x168 until 2026-11-12), as newsletter._hero_card and _compact_card read
+them. A country that leads one edition and not
 another is asked for at both sizes. scripts/test_cover_check.py holds the
 addresses asked to the <img> addresses in the email.
 

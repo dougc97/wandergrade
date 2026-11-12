@@ -310,9 +310,12 @@ def _cover_of(name, width, height):
     return _banner(bare, info["credit"], width, height)
 
 
-# A compact card shows its photo at 110x84 (newsletter._compact_card); it is
-# asked for at twice that, for sharp screens.
-THUMB_W, THUMB_H = 220, 168
+# A compact card's photo is 35% of the card, in the 220:168 shape approved in
+# Dec 2026 (newsletter._compact_card): 110x84 on a 360px phone, 194x148 at the
+# email's 600px. It is asked for at about 2.3 times the largest of those, for
+# sharp screens. The crop has the box's exact shape, so the card needs no
+# object-fit. (220x168 until 2026-11-12, twice the fixed 110x84 box then.)
+THUMB_W, THUMB_H = 440, 336
 
 
 def _banner(bare, credit, width, height):
@@ -333,8 +336,9 @@ def _banner(bare, credit, width, height):
     size = "&w={0}&h={1}&fit=cover&a=attention&output=jpg&q=80"
     return {"url": ("https://images.weserv.nl/?url=" + src + size.format(width, height)),
             # The same photo for a compact card: the same service and the same
-            # crop rule, at twice the size the card shows it (THUMB_W x THUMB_H).
-            # The cards used to load the whole 1024x420 banner into a 110x84 box.
+            # crop rule, at THUMB_W x THUMB_H (about 2.3 times the largest size
+            # a card shows it at). Until Dec 2026 the cards loaded the whole
+            # 1024x420 banner into a 110x84 box.
             "thumb": "https://images.weserv.nl/?url=" + src + size.format(THUMB_W, THUMB_H),
             "credit": credit}
 

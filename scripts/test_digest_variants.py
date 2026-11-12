@@ -40,8 +40,9 @@
      text has its own colour, font-size and line-height, and the brand line
      is there once, first in the panel.
   8. The Overall badge's colours are the site's (public/styles.css), the
-     compact cards' small photo is the banner's photo at 220x168 (and a
-     payload without one falls back to the banner), the side padding that
+     compact cards' small photo is the banner's photo at 440x336 (and a
+     payload without one falls back to the banner), shown in a cell that
+     grows with the card (35%, never under 110px), the side padding that
      gives a compact card's words their room on a 360px phone is held, and
      the facts the footer's grade key states are the scoring code's ("~"
      on every estimated fare and on no other among them).
@@ -840,6 +841,21 @@ def main():
                 r"\2\1", body, 1)),
         ("a compact card loading the banner, not its small copy", "check",
          body.replace(d["picks"][1]["photo_thumb"], d["picks"][1]["photo"], 1)),
+        # -- a compact card's photo grows with the card (2026-11-12)
+        ("a compact photo cell without its min-width", "check", body.replace(";min-width:110px'>", "'>", 1)),
+        ("a compact photo cell back at a fixed 110px", "check",
+         body.replace("<td width='35%' valign='top' style='width:35%;min-width:110px'>", "<td width='110' valign='top'>", 1)),
+        ("a compact photo cell at 38%", "check",
+         body.replace("<td width='35%' valign='top' style='width:35%;", "<td width='38%' valign='top' style='width:38%;", 1)),
+        ("a compact card's small photo back at 220x168", "check",
+         body.replace(d["picks"][1]["photo_thumb"], d["picks"][1]["photo_thumb"].replace("_440x336.", "_220x168."), 1)),
+        ("a compact card's words back at valign=top", "check",
+         body.replace('<td valign="middle" style="padding:11px', '<td valign="top" style="padding:11px', 1)),
+        ("a compact photo without its height attribute", "check", body.replace(" width='194' height='148' ", " width='194' ", 1)),
+        ("a compact photo without its width and height attributes", "check", body.replace(" width='194' height='148' ", " ", 1)),
+        ("a compact photo back in a fixed box with object-fit", "check",
+         body.replace("style='display:block;width:100%;height:auto;border-radius:8px'",
+                      "style='width:110px;height:84px;object-fit:cover;border-radius:8px;display:block'", 1)),
         ("a cover swapped for another's", "check", swap(d["picks"][0]["photo"], d["picks"][1]["photo"])),
         ("a guide link pointing at another country", "check",
          body.replace("gc=%s&" % d["picks"][0]["iso"], "gc=%s&" % d["picks"][1]["iso"], 1)),
@@ -932,6 +948,21 @@ def main():
     results.append(ok(not missed and not dc.check(newsletter, picks, v, d, subj, body) and not dc.proofing(body),
                       "controls: each of %d deliberate faults is reported (%s)%s"
                       % (len(faults), "; ".join(f[0] for f in faults), "" if not missed else " -> MISSED %r" % missed)))
+    # Faults in the payload, rendered by the code under test, so the email
+    # says what its payload says and only a rule of the spec can catch them:
+    # a cover whose small copy is asked for at the old 220x168.
+    def payload_fault(change):
+        dd = copy.deepcopy(d)
+        change(dd)
+        sj, bd = newsletter.render_digest(dd)
+        return dc.check(newsletter, picks, v, dd, sj, bd)
+
+    def old_thumb(dd):
+        dd["picks"][2]["photo_thumb"] = dd["picks"][2]["photo_thumb"].replace("_440x336.", "_220x168.")
+    in_payload = [("a payload whose small photo asks for 220x168", payload_fault(old_thumb))]
+    results.append(ok(all(p_ for _n, p_ in in_payload) and "_440x336." in d["picks"][2]["photo_thumb"],
+                      "controls in the payload: %s, rendered as the code renders it, is reported (%s)"
+                      % ("; ".join(n_ for n_, _p in in_payload), [p_[:1] for _n, p_ in in_payload])))
     # ... and the control list itself: a fault built on a piece the body
     # doesn't have is a line here, not a crash (it used to stop the run at
     # the first changed fixture number, with sections 7 and 8 never run).
@@ -987,36 +1018,72 @@ def main():
                       % ("" if not probs else " -> %r" % probs[:3])))
 
     # The small photos. picks._banner makes the compact cards' copy from the
-    # banner's own source: the same service and parameters, 220x168, twice
-    # the 110x84 box the card shows it in.
+    # banner's own source: the same service and parameters, 440x336. The
+    # card shows it in a cell 35% of the card (never under 110px): 110x84 on
+    # a 360px phone, 194x148 at the email's 600px, so 440x336 is the approved
+    # 220:168 shape at more than twice the largest. The image keeps the
+    # crop's shape (width:100%, height:auto, no object-fit), and its width
+    # and height attributes are its size at 600px, for Outlook on the
+    # desktop, which ignores a percentage width on an image. (Until
+    # 2026-11-12 the box was a fixed 110x84 and the copy 220x168, which this
+    # check held as "THUMB == (220, 168) == twice (110, 84), and the card has
+    # width='110' and width:110px;height:84px".)
     bn = picks._banner("thumb.wikimedia.org/wikipedia/commons/thumb/a/ab/X y.jpg/1280px-X y.jpg", {"artist": "x"}, 1024, 420)
     tail = "&w=%d&h=%d&fit=cover&a=attention&output=jpg&q=80"
     src = "https://images.weserv.nl/?url=ssl%3Athumb.wikimedia.org%2Fwikipedia%2Fcommons%2Fthumb%2Fa%2Fab%2FX%20y.jpg%2F1280px-X%20y.jpg"
     card = newsletter._compact_card(datas["USD"][2]["picks"][1], 2)
-    results.append(ok(bn == {"url": src + tail % (1024, 420), "thumb": src + tail % (220, 168), "credit": {"artist": "x"}}
-                      and (picks.THUMB_W, picks.THUMB_H) == (220, 168) == (2 * 110, 2 * 84)
-                      and "width='110'" in card and "width:110px;height:84px;" in card,
-                      "picks._banner: the small copy is the banner's address with w=220&h=168 (the same service, "
-                      "source, crop and quality), twice the 110x84 a compact card shows"))
+    cell = ("<td width='35%' valign='top' style='width:35%;min-width:110px'><a href='"
+            + newsletter._guide_url(datas["USD"][2]["picks"][1]["iso"], 2) + "'><img src='")
+    img = "' width='194' height='148' alt='%s' style='display:block;width:100%%;height:auto;border-radius:8px'></a></td>" % (
+        datas["USD"][2]["picks"][1]["name"])
+    fake = next(c_ for c_ in (ds.fake_cover("Title %d" % i) for i in range(50)) if c_)   # (about 1 in 4 answers None)
+    results.append(ok(bn == {"url": src + tail % (1024, 420), "thumb": src + tail % (440, 336), "credit": {"artist": "x"}}
+                      and (picks.THUMB_W, picks.THUMB_H) == (440, 336) == dc.THUMB_ASKED
+                      and 440 * 168 == 336 * 220 and 440 >= 2 * 194 and 336 >= 2 * 148
+                      and (newsletter.THUMB_PCT, newsletter.THUMB_MIN_W) == (35, 110)
+                      and (newsletter.THUMB_ATTR_W, newsletter.THUMB_ATTR_H) == (194, 148)
+                      and round(554 * 0.35) == 194 and round(194 * 336 / 440.0) == 148
+                      and card.count(cell) == 1 and card.count(img) == 1 and "object-fit" not in card
+                      and '<td valign="middle" style="padding:11px 10px">' in card
+                      and "_%dx%d.jpg" % (picks.THUMB_W, picks.THUMB_H) in fake["thumb"]
+                      and dc.asked_size(fake["thumb"]) == dc.asked_size(bn["thumb"]) == (440, 336),
+                      "picks._banner: the small copy is the banner's address with w=440&h=336 (the same service, "
+                      "source, crop and quality), the 220:168 shape at more than twice the 194x148 a compact card "
+                      "shows at 600px; the card's photo cell is 35% wide and at least 110px, its image width='194' "
+                      "height='148' at its own shape with no object-fit, its words in the photo's middle; the "
+                      "fixtures' stand-in asks the same size"))
     # Room for a compact card's words on a small phone: the panel's side
-    # padding and the card's (newsletter.PANEL_PAD, CARD_PAD). At 14 and 10
-    # the words beside the 110px photo have 184px on a 360px phone in the
-    # Classic template, and the price line (about 176px) and a grade row
+    # padding and the card's (newsletter.PANEL_PAD, CARD_PAD), and the
+    # photo's cell (35% of the card, never under 110px). At 14 and 10 the
+    # card is 314px inside on a 360px phone in the Classic template, its
+    # photo 110px (35% is 109.9px, so the floor holds it), and the words
+    # beside it have 184px: the price line (about 176px) and a grade row
     # with two plus letters (about 166px) each fit on one line; at the 20
     # and 14 they were, both took two lines on every card (164px). A browser
     # measured that, not this test: it only stops either growing back
-    # unnoticed, and the photo box changing size with them.
+    # unnoticed, and the photo's share growing with them. (Until 2026-11-12
+    # the photo was a fixed 110px, the words' cell valign="top", and this
+    # check counted that cell and did "360 - 16 - 2 x 14 - 2 - 110 - 2 x 10
+    # >= 184" with the 110 written in.)
     pads = [(c, m) for c, m in cells
             if snap[c][m][1].count("background:#f4f5f6;padding:20px %dpx\">" % newsletter.PANEL_PAD) != 1
-            or snap[c][m][1].count("<td valign=\"top\" style=\"padding:11px %dpx\">" % newsletter.CARD_PAD)
-            != len(datas[c][int(m)]["picks"]) - 1]
+            or snap[c][m][1].count("<td valign=\"middle\" style=\"padding:11px %dpx\">" % newsletter.CARD_PAD)
+            != len(datas[c][int(m)]["picks"]) - 1
+            or snap[c][m][1].count("<td width='%d%%' valign='top' style='width:%d%%;min-width:%dpx'>"
+                                   % (newsletter.THUMB_PCT, newsletter.THUMB_PCT, newsletter.THUMB_MIN_W))
+            != sum(1 for s_ in datas[c][int(m)]["picks"][1:] if s_.get("photo"))]
+    inner = 360 - 16 - 2 * newsletter.PANEL_PAD - 2
+    photo360 = max(newsletter.THUMB_MIN_W, inner * newsletter.THUMB_PCT / 100.0)
     results.append(ok(not pads and newsletter.PANEL_PAD <= 14 and newsletter.CARD_PAD <= 10
-                      and 360 - 16 - 2 * newsletter.PANEL_PAD - 2 - 110 - 2 * newsletter.CARD_PAD >= 184,
-                      "the panel's side padding is %dpx and a compact card's words' %dpx in all %d renders, "
-                      "which leaves those words 184px beside the 110px photo on a 360px phone in the Classic "
-                      "template (8px page margin, 1px card border): room for the price line and a grade row "
-                      "on one line each%s" % (newsletter.PANEL_PAD, newsletter.CARD_PAD, len(cells),
-                                              "" if not pads else " -> %r" % pads[:3])))
+                      and photo360 == newsletter.THUMB_MIN_W == 110
+                      and inner - photo360 - 2 * newsletter.CARD_PAD >= 184,
+                      "the panel's side padding is %dpx and a compact card's words' %dpx in all %d renders, and "
+                      "the photo's cell is %d%% of the card and at least %dpx: on a 360px phone in the Classic "
+                      "template (8px page margin, 1px card border) the photo is %gpx and its words have %gpx, "
+                      "room for the price line and a grade row on one line each%s"
+                      % (newsletter.PANEL_PAD, newsletter.CARD_PAD, len(cells), newsletter.THUMB_PCT,
+                         newsletter.THUMB_MIN_W, photo360, inner - photo360 - 2 * newsletter.CARD_PAD,
+                         "" if not pads else " -> %r" % pads[:3])))
     n_thumb = n_same = 0
     for c, m in cells:
         e = dc.Email(snap[c][m][1])
@@ -1024,7 +1091,7 @@ def main():
         got = [x["src"] for x in e.images if x["kind"] == "thumb"]
         n_thumb += len(got)
         n_same += (got != [s_["photo_thumb"] for s_ in P[1:] if s_.get("photo")]
-                   or any(s_["photo_thumb"] == s_["photo"] or "_220x168." not in s_["photo_thumb"]
+                   or any(s_["photo_thumb"] == s_["photo"] or dc.asked_size(s_["photo_thumb"]) != (picks.THUMB_W, picks.THUMB_H)
                           for s_ in P if s_.get("photo"))
                    or [x["src"] for x in e.images if x["kind"] == "hero"] != [P[0]["photo"]] * bool(P[0].get("photo")))
     results.append(ok(n_thumb > 0 and not n_same,

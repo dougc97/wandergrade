@@ -16,7 +16,8 @@ to hold on to. Three proofs replace it:
                 every visible line, link, image, Overall badge and photo
                 credit in it must be the one expected() works out from the
                 payload: the email says what the payload says, and nothing
-                else;
+                else; each compact card is laid out as THUMB_CELL ...
+                WORDS_VALIGN spell out (compact_cards);
   proofing()    the markup rules that stop Buttondown, the sender,
                 restyling it in either of the two templates the account has
                 used (the note above newsletter._link).
@@ -223,15 +224,82 @@ def _link(a):
             "plain": st.get("text-decoration") == "none", "node": a}
 
 
+# A compact card's photo (Doug, 2026-11-12, "A": the photo grows with the
+# card). Its cell takes 35% of the card but never less than 110px; the image
+# fills the cell at its own shape, with the size it has at a 600px email in
+# its width and height attributes (Outlook on the desktop ignores a
+# percentage width on an image); the card's words sit in the middle of the
+# photo's height. The photo is asked for at 440x336, the approved 220:168
+# shape at about 2.3 times the 194px it is shown at. Spelled out here, not
+# read from the code under test.
+THUMB_CELL = {"width": "35%", "valign": "top"}
+THUMB_CELL_STYLE = {"width": "35%", "min-width": "110px"}
+THUMB_IMG = {"width": "194", "height": "148"}
+THUMB_IMG_STYLE = {"display": "block", "width": "100%", "height": "auto", "border-radius": "8px"}
+THUMB_ASKED = (440, 336)
+WORDS_VALIGN = "middle"
+
+
 def _image(img):
     a = img.parent
     while a is not None and a.tag != "a":
         a = a.parent
     src, w = img.attrs.get("src") or "", img.attrs.get("width")
     kind = ("flag" if src.startswith("https://flagcdn.com/") else "hero" if w == "560"
-            else "thumb" if w == "110" else "?")
+            else "thumb" if w == THUMB_IMG["width"] else "?")
     return {"kind": kind, "src": src, "alt": img.attrs.get("alt"), "href": a.attrs.get("href") if a else None,
             "node": img}
+
+
+def asked_size(src):
+    """(width, height) an image address asks for: the image service's
+    &w=..&h=.., or the size in a frozen fixture's stand-in name
+    (digest_snapshot.fake_cover, "..._440x336.jpg"). None when it names
+    none."""
+    m = re.search(r"[?&]w=(\d+)&h=(\d+)(?:&|$)", src) or re.search(r"_(\d+)x(\d+)\.jpg(?:\?|$)", src)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def compact_cards(e, picks):
+    """Problems (strings) in the compact cards of Email `e`, whose payload
+    picks are `picks`: each is a table of one row, the photo's cell (where
+    the pick shows a photo) and the words' cell, laid out as THUMB_CELL ...
+    WORDS_VALIGN say, and a photo that is the pick's small copy is asked
+    for at THUMB_ASKED. [] when all are."""
+    bad = []
+    tables = [n for n in e.root.walk() if n.tag == "table" and n.attrs.get("role") == "presentation"]
+    cards = picks[1:]
+    if len(tables) != len(cards):
+        return ["%d compact card tables for %d compact cards" % (len(tables), len(cards))]
+    for t, s in zip(tables, cards):
+        rows = [n for n in t.walk() if n.tag == "tr"]
+        tds = rows[0].elements() if len(rows) == 1 else []
+        if not tds or any(x.tag != "td" for x in tds) or len(tds) != (2 if s.get("photo") else 1):
+            bad.append("%s's card is not one row of %s" % (s["name"], "photo, words" if s.get("photo") else "words"))
+            continue
+        words = tds[-1]
+        if words.attrs.get("valign") != WORDS_VALIGN:
+            bad.append("%s's words are valign=%r, want %r (beside the photo's middle)"
+                       % (s["name"], words.attrs.get("valign"), WORDS_VALIGN))
+        if not s.get("photo"):
+            continue
+        cell = tds[0]
+        imgs = [n for n in cell.walk() if n.tag == "img"]
+        if any(cell.attrs.get(k) != val for k, val in THUMB_CELL.items()) or cell.style != THUMB_CELL_STYLE:
+            bad.append("%s's photo cell is %r style %r, want %r style %r"
+                       % (s["name"], dict((k, cell.attrs.get(k)) for k in THUMB_CELL), cell.style,
+                          THUMB_CELL, THUMB_CELL_STYLE))
+        if len(imgs) != 1:
+            bad.append("%s's photo cell holds %d images" % (s["name"], len(imgs)))
+            continue
+        img = imgs[0]
+        if any(img.attrs.get(k) != val for k, val in THUMB_IMG.items()) or img.style != THUMB_IMG_STYLE:
+            bad.append("%s's photo is width=%r height=%r style %r, want %r style %r"
+                       % (s["name"], img.attrs.get("width"), img.attrs.get("height"), img.style,
+                          THUMB_IMG, THUMB_IMG_STYLE))
+        if s.get("photo_thumb") and img.attrs.get("src") == s["photo_thumb"] and asked_size(s["photo_thumb"]) != THUMB_ASKED:
+            bad.append("%s's small photo asks for %r, want %r" % (s["name"], asked_size(s["photo_thumb"]), THUMB_ASKED))
+    return bad
 
 
 def _credits(node, nodes=None):
@@ -586,6 +654,9 @@ def check(nl, pk, v, d, subject, body):
     images = [(x["kind"], x["src"], x["alt"], x["href"]) for x in got.images]
     if images != want["images"]:
         bad.append("images " + _first_diff(images, want["images"]))
+    # Each compact card: the photo's cell and image as THUMB_CELL ...
+    # WORDS_VALIGN spell them out, and the small photo asked for at 440x336.
+    bad += compact_cards(got, d["picks"])
     if (got.credits or []) != want["credits"]:
         bad.append("credits: got %r, want %r" % (got.credits, want["credits"]))
     # A linked licence's name stays on one line ("CC BY-SA 4.0" broke after

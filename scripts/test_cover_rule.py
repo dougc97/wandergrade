@@ -319,14 +319,15 @@ try:
     want_url = ("https://images.weserv.nl/?url=" + urllib.parse.quote("ssl:" + thumb, safe="")
                 + "&w=1024&h=420&fit=cover&a=attention&output=jpg&q=80")
     # ... and the compact cards' small copy: the same thumbnail through the
-    # same service, at 220x168 (Dec 2026; the cards loaded the banner before).
-    want_small = want_url.replace("&w=1024&h=420&", "&w=220&h=168&")
+    # same service, at 440x336 (Dec 2026; the cards loaded the banner before,
+    # and from 2026-11-10 to 2026-11-12 a 220x168 copy).
+    want_small = want_url.replace("&w=1024&h=420&", "&w=440&h=336&")
     results.append(ok(want_small != want_url and c == {"url": want_url, "thumb": want_small, "credit": {
         "artist": "Jane Doe", "license": "CC BY-SA 4.0",
         "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
         "page": "https://commons.wikimedia.org/wiki/File%3AGood_view.jpg"}}
         and hosts == ["en.wikipedia.org", "commons.wikimedia.org"],
-        "a title that passes: two requests, a weserv banner of the 1280px thumbnail, its 220x168 small copy, "
+        "a title that passes: two requests, a weserv banner of the 1280px thumbnail, its 440x336 small copy, "
         "the credit"))
     refused = {}
     for t in ("Logo", "Map", "Svg", "Skipped", "Fair", "Bare", "Missing page", "Boom"):

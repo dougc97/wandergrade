@@ -542,8 +542,8 @@ def _name(s, g, weight, badge):
     320px screen in Modern, 18px at 360px with the old padding). The space
     before the badge is an ordinary one for the same reason: where a name
     fills its line the badge drops to the next, whole. Were the row one
-    unbreakable run, a narrow card (110px of photo beside it on a phone)
-    would be pushed wider than the screen."""
+    unbreakable run, a narrow card (110px of photo beside it on a 360px
+    phone) would be pushed wider than the screen."""
     return "%s&nbsp;%s %s" % (
         _flag_img(s["iso"]), _link(g, _esc(s["name"]), style="font-weight:%d;margin-left:3px" % weight),
         _badge(s["value"], badge))
@@ -742,9 +742,10 @@ def _credits(picks):
 # levels" (about 176px at 13px) and a grade row with two plus letters (about
 # 166px) each took two lines on every card. At 14 and 10 the column is 184px
 # and both fit on one line (measured in headless Chrome at 360, 375 and 390px,
-# in the system font and in Arial); at 390px nothing wraps differently. The
-# photo's 110x84 box and its 220x168 request are untouched. Don't widen
-# either without measuring at 360px again.
+# in the system font and in Arial); at 390px nothing wraps differently.
+# (Then the photo was a fixed 110x84 box. Since 2026-11-12 it is 35% of the
+# card, which is the same 110px at 360px in Classic: the note above
+# _compact_card.) Don't widen either without measuring at 360px again.
 PANEL_PAD, CARD_PAD = 14, 10
 
 
@@ -771,18 +772,47 @@ def _hero_card(s, month, v=USD):
                  _money_lines(s, v, top=True), _dont_miss(s), g, GREEN, _esc(s["name"]))
 
 
+# A compact card's photo grows with the card (Doug, 2026-11-12, "A"): on the
+# 2026-11-11 test send a desktop mail app showed a lot of white after each
+# compact card, the words reaching about 60% across a 600px email and white
+# under a fixed 110x84 photo. Phones looked fine and must stay as they are.
+#   * The photo's cell takes THUMB_PCT of the card. 35% is the largest share
+#     that leaves a 360px phone exactly as before with the longest real text
+#     in Arial: at 36% a grade row ending "~B+" takes two lines (measured in
+#     headless Chrome, both fonts, with "North Macedonia" and "South Africa"
+#     put in as the longest names). At 360px in Classic the cell is 110px,
+#     the old box; at 390px 120x92; at 600px 194x148.
+#   * min-width:110px holds Buttondown's Modern template, whose frames leave
+#     the card narrower, at the old 110px on a 360px phone (measured: the
+#     same as before there; Classic at 360 and 600px doesn't reach it).
+#   * The image is width:100%, height:auto, so it keeps the crop's own shape
+#     (picks.THUMB_W x THUMB_H, the approved 220:168) and needs no
+#     object-fit. width/height attributes give its size at a 600px email:
+#     Outlook on the desktop ignores a percentage width on an image and
+#     uses them.
+#   * The words sit in the middle of the photo's height, so a card with a
+#     short text column has no white band under its words either.
+# Measured at 600px in Classic: the white right of the words fell from 38%
+# of the card to 23% (48% to 33% on a card with no dollar line), the white
+# under the photo from 52px to none, and the four cards grew from 567px to
+# 636px. Don't change the share without measuring 360px again.
+THUMB_PCT, THUMB_MIN_W = 35, 110
+THUMB_ATTR_W, THUMB_ATTR_H = 194, 148
+
+
 def _compact_card(s, month, v=USD):
     g = _guide_url(s["iso"], month, v)
-    # The small photo is asked for at twice the 110x84 it is shown at
-    # (picks.THUMB_W x THUMB_H), not as the top card's 1024x420 banner; a
-    # payload without one (built before Dec 2026) falls back to the banner.
-    thumb = ("<td width='110' valign='top'><a href='%s'><img src='%s' width='110' alt='%s' "
-             "style='width:110px;height:84px;object-fit:cover;border-radius:8px;display:block'></a></td>"
-             % (g, s.get("photo_thumb") or s["photo"], _esc(s["name"]))) if s.get("photo") else ""
+    # The photo is the cover's small copy (picks.THUMB_W x THUMB_H), not the
+    # top card's 1024x420 banner; a payload without one (built before Dec
+    # 2026) falls back to the banner.
+    thumb = ("<td width='%d%%' valign='top' style='width:%d%%;min-width:%dpx'><a href='%s'><img src='%s' "
+             "width='%d' height='%d' alt='%s' style='display:block;width:100%%;height:auto;border-radius:8px'>"
+             "</a></td>" % (THUMB_PCT, THUMB_PCT, THUMB_MIN_W, g, s.get("photo_thumb") or s["photo"],
+                            THUMB_ATTR_W, THUMB_ATTR_H, _esc(s["name"]))) if s.get("photo") else ""
     return """
     <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" style="background:#ffffff;border:1px solid #e6e6e6;border-radius:12px;margin:0 0 12px">
       <tr>%s
-        <td valign="top" style="padding:11px %dpx">
+        <td valign="middle" style="padding:11px %dpx">
           <div style="font-size:16px;line-height:24px;font-weight:800;color:#111">%s</div>
           <div style="font-size:13px;line-height:20px;color:#555;margin:3px 0 0">%s</div>
           %s
