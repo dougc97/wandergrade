@@ -436,6 +436,15 @@ def _hold(text):
     return '<span style="white-space:nowrap">%s</span>' % text
 
 
+def _date(iso):
+    """The footer's "Currency data as of" date (YYYY-MM-DD), held on one line
+    and written with non-breaking hyphens (U+2011), which look the same: the
+    2026-11-12 test send showed it as a blue underlined link on Doug's phone,
+    since mail apps turn anything that reads as a date into a calendar link,
+    and a date with other hyphens doesn't read as one."""
+    return _hold(_esc(iso).replace("-", "‑"))
+
+
 def _adv_main(v):
     """The edition's main advisory source by its short name ("US State Dept"):
     the government picks.build_variant grades safety on (v.adv_source) and the
@@ -1021,7 +1030,7 @@ def render_digest(data):
              _link("mailto:hello@wandergrade.com", "<b>hello@wandergrade.com</b>", "#444", underline=True),
              _quote_for(yr, m), _credits(picks),
              small, _grade_key(v, mn, flights),
-             small, _esc(v.traveler), _esc(mn), _hold("re-grade"), _esc(switch), _hold(_esc(data["as_of"])),
+             small, _esc(v.traveler), _esc(mn), _hold("re-grade"), _esc(switch), _date(data["as_of"]),
              small, _link(SITE, "wandergrade.com", SMALL, underline=True),
              _link(UNSUB, "unsubscribe", SMALL, underline=True))
 

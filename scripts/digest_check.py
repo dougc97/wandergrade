@@ -493,9 +493,12 @@ def expected(nl, pk, v, d):
     held.append(("key", "1-year"))
     switch = "" if usd else (" Want another currency’s edition? Reply and say which, or change it in your "
                              "account on wandergrade.com (sign in with this address).")
+    # The date's hyphens are U+2011 (non-breaking, same look), so a mail app
+    # doesn't turn it into a blue calendar link (newsletter._date).
+    as_of = d["as_of"].replace("-", "‑")
     line("footer", "Grades are for %s planning %s travel; set your home country on the site to re-grade "
-                   "for you.%s Currency data as of %s." % (v.traveler, mn, switch, d["as_of"]))
-    held += [("footer", "re-grade"), ("footer", d["as_of"])]
+                   "for you.%s Currency data as of %s." % (v.traveler, mn, switch, as_of))
+    held += [("footer", "re-grade"), ("footer", as_of)]
     # (parted like two grades: a line of the brand line can't start with a dot)
     line("brand", SEP.join(("WanderGrade grades every country A+ to F", "once a month, no spam",
                             "wandergrade.com", "unsubscribe")))
