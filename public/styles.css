@@ -66,6 +66,8 @@ body > *:not(.bgdoodle):not(.bgseason):not(.lightbox):not(.wgtip):not(.submodal)
 .skiplink { position: absolute; left: 8px; top: -60px; z-index: 30; padding: 8px 12px; border-radius: 8px;
   background: var(--card); color: var(--ink); font-weight: 700; }
 .skiplink:focus { top: 8px; }
+/* The skip link focuses <main> (app.js): no ring around the whole page. */
+#main:focus { outline: none; }
 /* The tabs moved into <main>: each keeps the positioning it had as a body child. */
 #main > * { position: relative; z-index: 1; }
 

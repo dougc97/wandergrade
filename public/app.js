@@ -11136,6 +11136,24 @@ $("bestDetail").addEventListener("keydown", (e) => {
   if (again) again.focus();
 });
 
+// "Skip to content" moves focus into <main>, not just the view: followed as a
+// #main link it left focus on <body> (some screen readers start over from
+// the top), put #main in the address bar and a history entry, and its
+// popstate drew the open guide again. tabindex -1 only while focused, so a
+// click on plain text in <main> still leaves focus on <body> (the lightbox
+// and submodal hand focus back to what had it). Without JS, #main scrolls.
+(function () {
+  const skip = document.querySelector(".skiplink"), main = $("main");
+  if (!skip || !main) return;
+  skip.addEventListener("click", (e) => {
+    e.preventDefault();
+    main.setAttribute("tabindex", "-1");
+    main.addEventListener("blur", () => main.removeAttribute("tabindex"), { once: true });
+    main.focus({ preventScroll: true });
+    main.scrollIntoView({ block: "start" });
+  });
+})();
+
 // Guide jump chips: smooth-scroll to a section (buttons, not #hash links, so
 // the clean /guide/<slug> URLs stay untouched).
 document.querySelector(".guidejump").addEventListener("click", (e) => {
