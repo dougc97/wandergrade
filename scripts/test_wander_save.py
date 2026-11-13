@@ -17,17 +17,22 @@ What it holds the code to:
     ACCT_ON && !acctSignedIn() && (been || want to go), with the same label
     and ⓘ words as before, never anything into #visitedStats, and empties the
     row when the rule stops holding (clear all, sign-in);
-  * server.py VISITED_HOLD, run under jsc: html[data-vis] carries "s" exactly
-    when the button will show (accounts on, data-acct not "in", any mark),
-    which is the button's rule with the head script's sign-in flag standing
-    in for acctSignedIn();
+  * server.py VISITED_HOLD, run under jsc (280 cases, one process): html
+    [data-vis] carries "s" exactly when the button will show (accounts on,
+    data-acct not "in", any mark), which is the button's rule with the head
+    script's sign-in flag standing in for acctSignedIn(); a shared ?v= map is
+    the been list, parsed as app.js init() parses it (GC_RE, invalid codes
+    dropped); "c" exactly when a been mark is a UN member (app.js UN_MEMBERS,
+    which server.py reads out of app.js);
   * styles.css: the stats floor no longer grows for "s" (that was the old
     box under the stats); the phone line is reserved only for "s" (inside the
     max-width: 560px block) and an empty .vsave is otherwise display:none;
     from 561px up .vsave is absolute, top 10px, right 50px, 32px tall (the
-    map's zoom column: top 10px, right 10px, 32px buttons, 8px gap).
+    map's zoom column: top 10px, right 10px, 32px buttons, 8px gap), a card
+    pill that frames the button 3px in; phones have no pill and a 32px
+    button; up to 430px "c" holds the stats at 95px.
 """
-import json, os, re, subprocess, sys
+import json, os, re, subprocess, sys, urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -133,33 +138,72 @@ results.append(ok(cases == 20 and not bad,
                   "same label and ⓘ words, opens sign-in, never in #visitedStats (%d cases)%s"
                   % (cases, "" if not bad else " %s" % bad[:3])))
 
-# --- server.py VISITED_HOLD: the first-paint "s" ---------------------------------
+# --- server.py VISITED_HOLD: the first-paint flags ---------------------------------
+# "v"/"w" as before; "c" when a been mark is a UN member (only those draw the
+# continent row the phone stats floor counts); "s" exactly when the button will
+# show. A shared map (?v=) is the been list, parsed as app.js init() parses it.
+un_lit = re.search(r'^const UN_MEMBERS = new Set\(\((.*?)\)\.split\(" "\)\);', APP, re.M | re.S)
+UN = set(re.findall(r"[A-Z]{2}", un_lit.group(1))) if un_lit else set()
+served_un = getattr(server, "_un_members", lambda: "")()
+results.append(ok(len(UN) == 195 and len(served_un) == 390
+                  and set(served_un[i:i + 2] for i in range(0, len(served_un), 2)) == UN,
+                  "VISITED_HOLD's UN list is app.js UN_MEMBERS (%d codes, served %d chars)" % (len(UN), len(served_un))))
+gc_re = re.search(r"^const GC_RE = /(.*?)/;", APP, re.M)
 hold = server._HTML_DEFAULTS["VISITED_HOLD"]
 body = re.fullmatch(r"<script>(.*)</script>", hold, re.S)
 flag = re.findall(r"\((true|false)&&d\.getAttribute\(\"data-acct\"\)!==\"in\"", hold)
-results.append(ok(bool(body) and len(flag) == 1, "VISITED_HOLD is one script with one accounts-on flag"))
-bad = []
-cases = 0
+results.append(ok(bool(body) and len(flag) == 1 and bool(gc_re) and ("/%s/" % gc_re.group(1)) in hold
+                  and 'u="%s"' % served_un in hold,
+                  "VISITED_HOLD is one script with one accounts-on flag, app.js's GC_RE and the UN list"))
+GC = re.compile(gc_re.group(1)) if gc_re else None
+OWN = ([], ["FR"], ["GB-ENG"], ["PR", "HK"], ["GB-ENG", "JP"])
+SEARCH = ("", "?tab=visited&v=FR,DE,IT", "?v=gb-eng", "?tab=visited&v=PR%2CHK", "?v=ZZZ,1",
+          "?v=", "?tab=value&v=%20jp%20")
+cases_js, expect = [], []
 for acct in (True, False):
-    script = re.sub(r"\((?:true|false)&&d\.getAttribute", "(%s&&d.getAttribute" % str(acct).lower(),
-                    body.group(1)) if body else ""
     for signed in (True, False):
-        for v, w in (([], []), (["FR"], []), ([], ["JP"]), (["FR"], ["JP"])):
-            cases += 1
-            prog = ("var attrs = %s; var store = %s;\n"
-                    "var document = { documentElement: { getAttribute: function (k) { return k in attrs ? attrs[k] : null; },"
-                    " setAttribute: function (k, x) { attrs[k] = String(x); } } };\n"
-                    "var localStorage = { getItem: function (k) { return k in store ? store[k] : null; } };\n"
-                    "%s\nprint(JSON.stringify(attrs['data-vis'] || ''));"
-                    % (json.dumps({"data-acct": "in"} if signed else {}),
-                       json.dumps({"fx_visited": json.dumps(v), "fx_wishlist": json.dumps(w)}), script))
-            got = jsc(prog)
-            shows = acct and not signed and bool(v or w)
-            if got is None or ("s" in got) != shows or (bool(got) != bool(v or w)):
-                bad.append(((acct, signed, v, w), got))
-results.append(ok(cases == 16 and not bad,
-                  'VISITED_HOLD sets "s" exactly when the button will show (%d cases)%s'
-                  % (cases, "" if not bad else " %s" % bad[:3])))
+        for own in OWN:
+            for w in ([], ["JP"]):
+                for search in SEARCH:
+                    q = urllib.parse.parse_qs(search[1:]).get("v", [""])[0] if search else ""
+                    been = ([x.strip().upper() for x in q.split(",") if GC and GC.fullmatch(x.strip().upper())]
+                            if q else own)
+                    v, c = bool(been), any(x in UN for x in been)
+                    s = acct and not signed and bool(v or w)   # renderVisitedStats' button rule
+                    expect.append(("v" if v else "") + ("c" if c else "") + ("w" if w else "") + ("s" if s else "")
+                                  if (v or w) else "")
+                    cases_js.append({"acct": acct, "attrs": {"data-acct": "in"} if signed else {},
+                                     "store": {"fx_visited": json.dumps(own), "fx_wishlist": json.dumps(w)},
+                                     "search": search})
+scripts = {a: re.sub(r"\((?:true|false)&&d\.getAttribute", "(%s&&d.getAttribute" % str(a).lower(), body.group(1))
+           for a in (True, False)} if body else {}
+prog = r"""
+var attrs, store, location;
+var document = { documentElement: { getAttribute: function (k) { return k in attrs ? attrs[k] : null; },
+                                    setAttribute: function (k, x) { attrs[k] = String(x); } } };
+var localStorage = { getItem: function (k) { return k in store ? store[k] : null; } };
+// jsc has no URLSearchParams: get() as the browser's, for these test URLs.
+function URLSearchParams(s) { this.s = s; }
+URLSearchParams.prototype.get = function (k) {
+  var m = new RegExp("[?&]" + k + "=([^&]*)").exec(this.s);
+  return m ? decodeURIComponent(m[1].replace(/\+/g, " ")) : null; };
+function holdOn() { %(on)s }
+function holdOff() { %(off)s }
+var cases = %(cases)s, out = [];
+for (var i = 0; i < cases.length; i++) {
+  attrs = cases[i].attrs; store = cases[i].store; location = { search: cases[i].search };
+  (cases[i].acct ? holdOn : holdOff)();
+  out.push(attrs["data-vis"] || "");
+}
+print(JSON.stringify(out));
+""" % {"on": scripts.get(True, ""), "off": scripts.get(False, ""), "cases": json.dumps(cases_js)}
+got = jsc(prog) or []
+bad = [(cases_js[i]["acct"], bool(cases_js[i]["attrs"]), cases_js[i]["store"], cases_js[i]["search"],
+        "want %r got %r" % (expect[i], got[i] if i < len(got) else None))
+       for i in range(len(expect)) if i >= len(got) or got[i] != expect[i]]
+results.append(ok(len(expect) == 280 and len(got) == 280 and not bad,
+                  'VISITED_HOLD: "s" exactly when the button will show, "c" for a UN member, a shared ?v= map '
+                  'as the been list (%d cases)%s' % (len(expect), "" if not bad else " %s" % bad[:3])))
 
 
 # --- styles.css --------------------------------------------------------------------
@@ -210,6 +254,22 @@ results.append(ok(decl.get("position") == "absolute" and decl.get("top") == "10p
 phone = [b for m, s, b in RULES if s == ".vsave" and "max-width: 560px" in m]
 results.append(ok(phone and re.search(r"position:\s*static", phone[0]) and re.search(r"margin:\s*0 0 8px", phone[0]),
                   ".vsave on phones: in the flow, 8px above the map"))
+# Over the map the pill frames the whole button (light theme's button green is
+# a marked country's green); on phones there is no pill and the button is 32px.
+btn = [b for m, s, b in RULES if s == ".vsave button" and m == ""]
+btn_phone = [b for m, s, b in RULES if s == ".vsave button" and "max-width: 560px" in m]
+results.append(ok(decl.get("padding") == "3px" and decl.get("background") == "var(--card)"
+                  and "inset 0 0 0 1px var(--line)" in decl.get("box-shadow", "")
+                  and btn and re.search(r"height:\s*26px", btn[0])
+                  and phone and re.search(r"padding:\s*0;", phone[0]) and re.search(r"background:\s*none", phone[0])
+                  and btn_phone and re.search(r"height:\s*32px", btn_phone[0]),
+                  "over the map a card pill with the zoom buttons' line frames the button 3px in (26px inside 32); "
+                  "phones: no pill, a 32px button"))
+# Phones up to 430px: a been list with a UN member ("c") holds the stats at the
+# two lines plus continent row they always draw there (95px), not 63.
+floor = [(m, b) for m, s, b in RULES if s == 'html[data-vis*="c"] #visitedStats']
+results.append(ok(len(floor) == 1 and "max-width: 430px" in floor[0][0] and re.search(r"min-height:\s*95px", floor[0][1]),
+                  'phone stats floor: 95px for "c" up to 430px %s' % floor))
 wrapr = [b for m, s, b in RULES if s == ".vmapwrap" and m == ""]
 results.append(ok(wrapr and re.search(r"position:\s*relative", wrapr[0])
                   and not [s for m, s, b in RULES if re.search(r"\.vrow\s*>\s*\.map", s)],

@@ -10600,7 +10600,18 @@ function buildVisited() {
   $("visitedMap").addEventListener("click", (e) => {
     const p = e.target.closest("path");
     const iso = p && p.getAttribute("data-iso");
-    if (iso && iso !== "-99") { toggleMark(iso); renderVisited(); }
+    if (iso && iso !== "-99") {
+      // On phones the "Save this map" line above the map (styles.css .vsave)
+      // comes with the first mark and goes with the last: 40px that slid the
+      // map under the finger, so a second tap at the same spot hit the
+      // country below the one just marked. Scroll by what the map moved and
+      // it stays put while the line opens above it. Over the map (561px up)
+      // and in full screen the map doesn't move, so this scrolls nothing.
+      const map = $("visitedMap"), y0 = map.getBoundingClientRect().top;
+      toggleMark(iso); renderVisited();
+      const dy = map.getBoundingClientRect().top - y0;
+      if (dy) window.scrollBy(0, dy);
+    }
   });
   $("visitedChips").addEventListener("click", (e) => {
     const chip = e.target.closest(".rm");

@@ -1777,10 +1777,20 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    long list still grows past them, but nothing is left hollow — renderVisited
    drops the flag once the real content stands. The save prompt ("s": accounts
    on, not signed in) is no longer in this column: its phone line above the
-   map is held with the .vsave rules below. */
+   map is held with the .vsave rules below.
+   Phones up to 430px: the badge no longer fits beside the count line, so a
+   been list with a UN member ("c", the one kind that draws the continent row)
+   draws two lines plus that row, 95px at the least (measured: 95 for 1
+   country at 350-480px and for 5 in one continent at 375-470px; 117-211px for
+   longer lists or narrower screens). Held at 63 there, the stats grew 32px+
+   and slid the newsletter box under them (CLS 0.054 at 390). 475px is where
+   the 5-country list first fits on one line; 430 keeps 40px of slack for
+   other fonts. Home nations and territories alone (England, Puerto Rico)
+   draw no continent row (61px), so they get no "c". */
 html[data-vis] #visitedStats .vstand { display: none; }
 html[data-vis*="v"] #visitedStats { min-height: 63px; }
 html[data-vis^="w"] #visitedStats { min-height: 22px; }
+@media (max-width: 430px) { html[data-vis*="c"] #visitedStats { min-height: 95px; } }
 html[data-vis] #visitedChips:empty { display: flex; min-height: 41px; }
 /* The add-a-country select, until buildVisited lists the countries and
    enhanceSelect wraps it in a .combo: the combo's width (the base rule here,
@@ -2517,25 +2527,33 @@ button.chip2 { border: 0; }
    reader has marked anything. One element (#visitedSaveRow, renderVisitedStats
    fills it), placed per width: from 561px up OVER the map, top right, just
    left of the map's own zoom column (.mapzoom: top 10px, right 10px, 32px
-   buttons, so right 10 + 32 + an 8px gap), as tall as those buttons; the
-   card-coloured pill behind the ⓘ keeps it legible over either theme's map.
+   buttons, so right 10 + 32 + an 8px gap), as tall as those buttons. A
+   card-coloured pill with the zoom buttons' 1px line holds the button and
+   the ⓘ, the button 3px inside its edge: light theme's button green is a
+   marked country's green (#0a7d28 both), and flush to the pill's edge it lost
+   its outline over a marked Russia; the frame keeps it legible over either
+   theme's map, marked or not.
    Absolute, so it moves nothing; only its own box takes the map's clicks.
    Full screen moves #visitedMap alone into its overlay, so it stays behind
    (openMapFullscreen), and the share image is drawn from the lists, not the
    page. Empty (nothing marked, signed in, accounts off), it is nothing. */
 .vsave { position: absolute; top: 10px; right: 50px; z-index: 5; height: 32px;
-  display: flex; align-items: center; gap: 6px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 6px; box-sizing: border-box; padding: 3px;
   border-radius: 8px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
 .vsave:empty { display: none; }
-.vsave button { font: inherit; font-weight: 700; font-size: 14px; line-height: 1;
-  height: 32px; padding: 0 12px; border: 0; border-radius: 8px; white-space: nowrap;
+.vsave button { position: relative; font: inherit; font-weight: 700; font-size: 14px; line-height: 1;
+  height: 26px; padding: 0 11px; border: 0; border-radius: 6px; white-space: nowrap;
   background: var(--green-fill); color: #fff; cursor: pointer; }
-/* The ⓘ fills the pill's height, and its touch target (the [data-tip]::after
-   rule, inset -9px elsewhere) reaches back over the gap and stops at the
-   pill's edges: 26 x 32, none of it over the map outside the pill. */
-.vsave .muted { align-self: stretch; display: flex; align-items: center; padding: 0 6px 0 0;
-  border-radius: 0 8px 8px 0; color: var(--gray); font-size: 14px; }
-#visitedSaveRow .muted::after { inset: 0 0 0 -6px; }
+/* The frame round the button still takes its clicks (the pill reads as one
+   button): its hit area reaches out over the frame to the pill's edges. */
+.vsave button::before { content: ""; position: absolute; inset: -3px 0 -3px -3px; }
+/* The ⓘ fills the pill's height inside its 3px frame, and its touch target
+   (the [data-tip]::after rule, inset -9px elsewhere) reaches back over the
+   gap and out over the frame to the pill's edges: 26 x 32, none of it over
+   the map outside the pill. */
+.vsave .muted { align-self: stretch; display: flex; align-items: center; padding: 0 3px 0 0;
+  border-radius: 0 6px 6px 0; color: var(--gray); font-size: 14px; }
+#visitedSaveRow .muted::after { inset: -3px -3px -3px -6px; }
 /* A keyboard ring in the theme's ink, which stands off either theme's map. */
 .vsave button:focus-visible, .vsave .muted:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* Phones: its own short line directly above the map, right-aligned to the
@@ -2545,8 +2563,10 @@ button.chip2 { border: 0; }
    accounts on, not signed in, anything marked) gets the line held empty
    from first paint, so the map doesn't drop 40px when app.js fills it. */
 @media (max-width: 560px) {
-  .vsave { position: static; justify-content: flex-end; margin: 0 0 8px;
+  .vsave { position: static; justify-content: flex-end; margin: 0 0 8px; padding: 0;
     background: none; box-shadow: none; border-radius: 0; }
+  .vsave button { height: 32px; padding: 0 12px; border-radius: 8px; }
+  .vsave button::before { content: none; }
   .vsave .muted { padding: 0; border-radius: 4px; }
   #visitedSaveRow .muted::after { inset: 0 -6px; }
   html[data-vis*="s"] .vsave:empty { display: flex; }

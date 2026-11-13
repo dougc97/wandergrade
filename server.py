@@ -153,6 +153,20 @@ def _analytics_tag():
 from fxtracker import digest_variants  # noqa: E402
 
 
+def _un_members():
+    """app.js UN_MEMBERS as one run of two-letter codes ("AFALDZ…") for
+    VISITED_HOLD's "c": only a UN member's mark draws the Wander List's
+    continent row (app.js continentProgress). Read out of app.js rather than
+    copied, so the two can't drift; "" if the literal isn't found, and then
+    no "c" is ever set and the phone floor it gates never applies."""
+    try:
+        with open(os.path.join(PUBLIC, "app.js"), encoding="utf-8") as f:
+            m = re.search(r'^const UN_MEMBERS = new Set\(\((.*?)\)\.split\(" "\)\);', f.read(), re.M | re.S)
+    except OSError:
+        return ""
+    return "".join(re.findall(r"\b[A-Z]{2}\b", m.group(1))) if m else ""
+
+
 # TITLE / DESC / OGTITLE are mirrored in app.js _DEFAULT_META (restored when the
 # reader leaves a guide in-app): change them together.
 _HTML_DEFAULTS = {
@@ -226,11 +240,16 @@ _HTML_DEFAULTS = {
     # it instead of a 42px stub. VISITED_HOLD sets html[data-vis] for a
     # visitor whose lists are already in localStorage — "v" been, "w" want
     # to go — the floor styles.css holds under the stats and chips they will
-    # fill; the served empty-state line gives way to it. "s" when the "Save
-    # this map" button (.vsave) will show: accounts on and not signed in (the
-    # head script's data-acct), app.js renderVisitedStats' rule — on phones
-    # styles.css holds its line above the map (over the map from 561px up it
-    # takes no room). scripts/test_wander_save.py runs both rules. It
+    # fill; the served empty-state line gives way to it. A shared map (?v=)
+    # stands in for the been list as app.js init() reads it (URLSearchParams,
+    # GC_RE): the sharer's countries are the ones drawn. "c" when a been mark
+    # is a UN member, the only kind that draws the continent row (on phones
+    # the stats floor counts it; England or Puerto Rico alone don't draw
+    # it). "s" when the "Save this map" button (.vsave) will show: accounts
+    # on and not signed in (the head script's data-acct), app.js
+    # renderVisitedStats' rule — on phones styles.css holds its line above
+    # the map (over the map from 561px up it takes no room).
+    # scripts/test_wander_save.py runs these rules against app.js's. It
     # belongs in the head script with the other pre-paint flags and will
     # move there: index.html itself can't change a byte while /guide/* is
     # under its Search Console measurement (until November 2026), so the
@@ -241,11 +260,16 @@ _HTML_DEFAULTS = {
                      'title="">🔒 5 to 🧭 Explorer</span></div>',
     "VISITED_PICK": '<option value="">+ add a country…</option>',
     "VISITED_HOLD": '<script>(function(){try{var d=document.documentElement,'
-                    'v=JSON.parse(localStorage.getItem("fx_visited")||"[]").length>0,'
+                    'q=new URLSearchParams(location.search).get("v"),'
+                    'b=q?q.split(",").map(function(x){return x.trim().toUpperCase()})'
+                    '.filter(function(x){return/^[A-Z]{2}(-[A-Z]{3})?$/.test(x)})'
+                    ':JSON.parse(localStorage.getItem("fx_visited")||"[]"),'
+                    'u="%s".match(/../g)||[],'
+                    'v=b.length>0,c=b.some(function(x){return u.indexOf(x)>=0}),'
                     'w=JSON.parse(localStorage.getItem("fx_wishlist")||"[]").length>0;'
-                    'if(v||w)d.setAttribute("data-vis",(v?"v":"")+(w?"w":"")'
+                    'if(v||w)d.setAttribute("data-vis",(v?"v":"")+(c?"c":"")+(w?"w":"")'
                     '+(%s&&d.getAttribute("data-acct")!=="in"?"s":""));}catch(e){}})();</script>'
-                    % ("true" if accounts.enabled() else "false"),
+                    % (_un_members(), "true" if accounts.enabled() else "false"),
     # The pick-list rows under the Safety and Flights maps as index.html holds
     # them, blank spans of widths measured from one day's lists (a guide's
     # shell keeps these bytes). The homepage serves the lists' real words in
