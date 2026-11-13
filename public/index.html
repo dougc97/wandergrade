@@ -608,9 +608,17 @@
       <!-- Map beside its stats (count, badge, continent progress) from 900px up,
            like the Data tab's paired cards; the country lists keep the full
            width below, where a long list has room. The map's own aspect sets
-           the row's height, so nothing under it moves as marks are added. -->
+           the row's height, so nothing under it moves as marks are added.
+           The map shares a box with the "Save this map" button
+           (renderVisitedStats fills #visitedSaveRow): over the map's top-right
+           corner from 561px up, its own line above the map on phones
+           (styles.css .vsave). Not inside #visitedMap: drawMap rewrites that
+           node's contents on every render. -->
       <div class="vrow">
-        <div id="visitedMap" class="map">Loading…</div>
+        <div class="vmapwrap">
+          <div id="visitedSaveRow" class="vsave"></div>
+          <div id="visitedMap" class="map">Loading…</div>
+        </div>
         <div id="visitedStats" class="visitedstats">{{VISITED_STATS}}</div>
       </div>
       <div id="visitedChips" class="chips"></div>

@@ -414,8 +414,12 @@ results.append(ok(dm == {"title": D["TITLE"], "desc": D["DESC"], "og": D["OGTITL
 # visitor's floor), and a guide page serves none (its HTML is fixed).
 tiers = re.search(r"^const MILESTONE_TIERS = \[.*?\];", APP, re.M | re.S)
 try:
-    out = subprocess.run([JSC, "-e", "const host = {}; const $ = () => host; const visited = new Set(), wishlist = new Set();\n"
-                          "%s\n%s\n%s\nrenderVisitedStats(); print(host.innerHTML);"
+    # One stand-in per id: renderVisitedStats also writes the "Save this map"
+    # row beside the map (#visitedSaveRow; scripts/test_wander_save.py).
+    out = subprocess.run([JSC, "-e", "const hosts = {}; const $ = (id) => hosts[id] || (hosts[id] = {});\n"
+                          "const visited = new Set(), wishlist = new Set(); const ACCT_ON = true;\n"
+                          "const acctSignedIn = () => false, openSignIn = () => {};\n"
+                          "%s\n%s\n%s\nrenderVisitedStats(); print(hosts.visitedStats.innerHTML);"
                           % (js_fn_const("esc"), tiers.group(0) if tiers else "", js_fn("renderVisitedStats"))],
                          capture_output=True, text=True, timeout=30).stdout.strip()
 except Exception:

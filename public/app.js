@@ -10774,6 +10774,32 @@ function renderVisitedStats() {
   const host = $("visitedStats");
   if (!host) return;
   const n = visited.size, m = wishlist.size;
+  // Save prompt lives HERE, not only in the header. The header button reads
+  // "Save map" on all four tabs, three of which contain no map — and it asks
+  // for the save before the reader has anything worth saving. Motivation peaks
+  // at exactly this point: they have just marked N countries and can see what
+  // they'd lose. Only shown once there is something to lose, and never to
+  // someone already signed in. The why is a ⓘ, and it counts been and want
+  // to go apart: added together, a country on both lists was counted twice
+  // and the note disagreed with the stats line. One element, beside the map
+  // rather than in this column (index.html #visitedSaveRow): styles.css puts
+  // it over the map's top-right corner from 561px up and on its own line
+  // above the map on phones. As a boxed panel under the continent chips it
+  // looked out of place, with blank space under it (Doug, 2026-11-13).
+  // Written before the empty state returns, so clearing the lists takes it
+  // away again; server.py VISITED_HOLD's "s" holds its phone line at first
+  // paint by the same rule.
+  const save = $("visitedSaveRow");
+  if (save) {
+    save.innerHTML = (ACCT_ON && !acctSignedIn() && (n || m))
+      ? `<button type="button" id="visitedSave">👤 Save this map</button>`
+        + `<span class="muted" data-tip="${esc(`Saved in this browser only. Sign in to keep your `
+          + (n ? `${n} been` : "") + (n && m ? " + " : "") + (m ? `${m} want to go` : "")
+          + ` on every device.`)}" title="">ⓘ</span>`
+      : "";
+    const sb = $("visitedSave");
+    if (sb) sb.onclick = () => openSignIn();
+  }
   // The empty state lives here, beside the map, so the layout is the same
   // before and after the first mark (the map doesn't jump under the cursor).
   // The first rung of the badge ladder sits with it: the column then holds a
@@ -10815,24 +10841,8 @@ function renderVisitedStats() {
   // One <span> per line of text: .vstats-line is a flex row (for the award
   // pill), and a bare <b> would become its own flex item — the gap property
   // then splits the number from its own sentence.
-  // Save prompt lives HERE, not only in the header. The header button reads
-  // "Save map" on all four tabs, three of which contain no map — and it asks
-  // for the save before the reader has anything worth saving. Motivation peaks
-  // at exactly this point: they have just marked N countries and can see what
-  // they'd lose. Only shown once there is something to lose, and never to
-  // someone already signed in. The why is a ⓘ, and it counts been and want
-  // to go apart: added together, a country on both lists was counted twice
-  // and the note disagreed with the stats line right above it.
-  const saveCta = (ACCT_ON && !acctSignedIn() && (n || m))
-    ? `<div class="vsave"><button type="button" id="visitedSave">👤 Save this map</button>`
-      + `<span class="muted" data-tip="${esc(`Saved in this browser only. Sign in to keep your `
-        + (n ? `${n} been` : "") + (n && m ? " + " : "") + (m ? `${m} want to go` : "")
-        + ` on every device.`)}" title="">ⓘ</span></div>`
-    : "";
   host.innerHTML = `<div class="vstats-line"><span>${bits.join(" · ")}</span>${award}</div>`
-    + contRow + saveCta;
-  const sb = $("visitedSave");
-  if (sb) sb.onclick = () => openSignIn();
+    + contRow;
   // idempotent across re-renders (property assignment, not addEventListener)
   host.onclick = (e) => {
     const chip = e.target.closest(".contchip");

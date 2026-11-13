@@ -1755,7 +1755,10 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    sets the row height, so the card is as short as the map allows; the country
    lists sit under the row at full width. */
 .vrow { margin-top: 10px; }
-.vrow > .map { margin-top: 0; }
+/* The map and its "Save this map" button (.vsave, below) in one box: the
+   button's corner is measured from the map's, and the box is the grid cell. */
+.vmapwrap { position: relative; }
+.vmapwrap > .map { margin-top: 0; }
 @media (min-width: 900px) {
   .vrow { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; align-items: start; }
   .vrow > .visitedstats { margin-top: 0; }
@@ -1770,15 +1773,14 @@ html[data-theme="dark"] .bars .col.best .fill { outline-color: var(--gray); }
    (VISITED_HOLD): the served line stands down for a floor the real content
    can't go under — the count line plus the continent row with ✓ been (29 +
    9 + 25, measured 63 at 768), the hint line alone with only ★ want to go
-   (22), each plus the save prompt where one will show ("s": its 62px box
-   and 14px margin), one chip row either way (8 + 25 + 8 = 41). Floors, not
-   estimates: a long list still grows past them, but nothing is left hollow —
-   renderVisited drops the flag once the real content stands. */
+   (22), one chip row either way (8 + 25 + 8 = 41). Floors, not estimates: a
+   long list still grows past them, but nothing is left hollow — renderVisited
+   drops the flag once the real content stands. The save prompt ("s": accounts
+   on, not signed in) is no longer in this column: its phone line above the
+   map is held with the .vsave rules below. */
 html[data-vis] #visitedStats .vstand { display: none; }
 html[data-vis*="v"] #visitedStats { min-height: 63px; }
 html[data-vis^="w"] #visitedStats { min-height: 22px; }
-html[data-vis*="v"][data-vis*="s"] #visitedStats { min-height: 139px; }
-html[data-vis^="w"][data-vis*="s"] #visitedStats { min-height: 98px; }
 html[data-vis] #visitedChips:empty { display: flex; min-height: 41px; }
 /* The add-a-country select, until buildVisited lists the countries and
    enhanceSelect wraps it in a .combo: the combo's width (the base rule here,
@@ -2512,14 +2514,43 @@ button.chip2 { border: 0; }
 
 /* Contextual save prompt in Wander List — appears once there is something to
    lose, which is the moment it persuades. The header button asks before the
-   reader has marked anything. */
-.vsave { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin: 14px 0 0; padding: 12px 14px; border: 1px solid var(--line);
-  border-radius: 10px; background: var(--soft); }
-.vsave button { font: inherit; font-weight: 700; font-size: 14px; padding: 8px 14px;
-  border: 0; border-radius: 8px; background: var(--green-fill); color: #fff;
-  cursor: pointer; min-height: 24px; }
-.vsave .muted { color: var(--gray); font-size: 14px; }
+   reader has marked anything. One element (#visitedSaveRow, renderVisitedStats
+   fills it), placed per width: from 561px up OVER the map, top right, just
+   left of the map's own zoom column (.mapzoom: top 10px, right 10px, 32px
+   buttons, so right 10 + 32 + an 8px gap), as tall as those buttons; the
+   card-coloured pill behind the ⓘ keeps it legible over either theme's map.
+   Absolute, so it moves nothing; only its own box takes the map's clicks.
+   Full screen moves #visitedMap alone into its overlay, so it stays behind
+   (openMapFullscreen), and the share image is drawn from the lists, not the
+   page. Empty (nothing marked, signed in, accounts off), it is nothing. */
+.vsave { position: absolute; top: 10px; right: 50px; z-index: 5; height: 32px;
+  display: flex; align-items: center; gap: 6px; box-sizing: border-box;
+  border-radius: 8px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
+.vsave:empty { display: none; }
+.vsave button { font: inherit; font-weight: 700; font-size: 14px; line-height: 1;
+  height: 32px; padding: 0 12px; border: 0; border-radius: 8px; white-space: nowrap;
+  background: var(--green-fill); color: #fff; cursor: pointer; }
+/* The ⓘ fills the pill's height, and its touch target (the [data-tip]::after
+   rule, inset -9px elsewhere) reaches back over the gap and stops at the
+   pill's edges: 26 x 32, none of it over the map outside the pill. */
+.vsave .muted { align-self: stretch; display: flex; align-items: center; padding: 0 6px 0 0;
+  border-radius: 0 8px 8px 0; color: var(--gray); font-size: 14px; }
+#visitedSaveRow .muted::after { inset: 0 0 0 -6px; }
+/* A keyboard ring in the theme's ink, which stands off either theme's map. */
+.vsave button:focus-visible, .vsave .muted:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* Phones: its own short line directly above the map, right-aligned to the
+   map's edge. Over a ~140px phone map the button hid Europe and Russia.
+   A returning visitor whose button will show ("s" in html[data-vis], set
+   before first paint by server.py VISITED_HOLD on the same rule:
+   accounts on, not signed in, anything marked) gets the line held empty
+   from first paint, so the map doesn't drop 40px when app.js fills it. */
+@media (max-width: 560px) {
+  .vsave { position: static; justify-content: flex-end; margin: 0 0 8px;
+    background: none; box-shadow: none; border-radius: 0; }
+  .vsave .muted { padding: 0; border-radius: 4px; }
+  #visitedSaveRow .muted::after { inset: 0 -6px; }
+  html[data-vis*="s"] .vsave:empty { display: flex; }
+}
 
 /* Share-image buttons sit in the map headers beside the legend. */
 .charthead .shareimg { margin-left: auto; align-self: center; white-space: nowrap; }

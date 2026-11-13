@@ -225,14 +225,17 @@ _HTML_DEFAULTS = {
     # buildVisited writes, so the select is sized like the combo that replaces
     # it instead of a 42px stub. VISITED_HOLD sets html[data-vis] for a
     # visitor whose lists are already in localStorage — "v" been, "w" want
-    # to go, "s" when the save prompt (.vsave) will join them: accounts on
-    # and not signed in, the head script's data-acct — the floor styles.css
-    # holds under the stats and chips they will fill; the served empty-state
-    # line gives way to it. It belongs in the head script with the other
-    # pre-paint flags and will move there: index.html itself can't change
-    # a byte while /guide/* is under its Search Console measurement
-    # (until November 2026), so the three are filled here and empty on a
-    # guide (which never paints this tab first anyway; see _render_index).
+    # to go — the floor styles.css holds under the stats and chips they will
+    # fill; the served empty-state line gives way to it. "s" when the "Save
+    # this map" button (.vsave) will show: accounts on and not signed in (the
+    # head script's data-acct), app.js renderVisitedStats' rule — on phones
+    # styles.css holds its line above the map (over the map from 561px up it
+    # takes no room). scripts/test_wander_save.py runs both rules. It
+    # belongs in the head script with the other pre-paint flags and will
+    # move there: index.html itself can't change a byte while /guide/* is
+    # under its Search Console measurement (until November 2026), so the
+    # three are filled here and empty on a guide (which never paints this
+    # tab first anyway; see _render_index).
     "VISITED_STATS": '<div class="vstats-line vstand"><span class="hint">Nothing marked yet</span>'
                      '<span class="awardtag locked" data-tip="Visit 5 countries to earn 🧭 Explorer" '
                      'title="">🔒 5 to 🧭 Explorer</span></div>',
