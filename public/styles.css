@@ -1137,6 +1137,14 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
   .guidegrid > hr { display: none; }
   #guideVisa { grid-row: 1; grid-column: 1; }
   #guideAI { grid-row: 1; grid-column: 2; margin-top: 0; }
+  /* The trip and AI buttons stay one row beside the visa line: each takes
+     at most half of it (less half the 12px gap) and a long name wraps inside
+     its button, 61px tall. Stacked, they made row 1 100px and left a blank
+     band of 46px under the visa line (1280: "Add the United Kingdom to my
+     trip", the Falklands, the UAE and eight more; 1000: 47 guides); wrapped,
+     7px. The server's held row (guide_sizers.ai, in a display:contents
+     .gsizer) gets the same rule, so it holds what app.js draws. */
+  .guideai :is(.tripbtn, .aibtn) { max-width: calc(50% - 6px); text-wrap: balance; }
   #guideSafety { grid-row: 2; grid-column: 1; }
   .guidegrid .staycol { grid-row: 2; grid-column: 2; }
   #bestDetail { grid-row: 3; grid-column: 1; }

@@ -388,6 +388,7 @@ def insurance(iso):
 def ai(iso, name):
     """The trip and AI buttons as renderGuideAI draws them for a country not
     on the reader's trip: one row or two by the length of the name (45px or
-    100 on a phone — Italy one, Thailand two)."""
+    100 on a phone — Italy one, Thailand two). From 900px always one row: a
+    long name wraps inside its button instead (61px, styles.css .guideai)."""
     return _wrap(iso, '<button type="button" class="tripbtn" tabindex="-1">🧳 Add %s to my trip</button>'
                  '<button type="button" class="aibtn" tabindex="-1">✨ Plan %s with AI →</button>' % (_e(name), _e(name)))
