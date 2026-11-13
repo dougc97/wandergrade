@@ -3261,6 +3261,14 @@ let _ssrNoStay = null;                        // the server's data-nostay on its
 function renderGuideStay(iso) {
   const host = $("guideStay");
   if (!host) return;
+  // The country's usable stay spots in stay-coords.json (guide_sizers.stay
+  // is the server's same rule). Tolerates the old single-anchor shape from cache.
+  const spotsIn = (cc) => {
+    let s = cc && cc[iso];
+    if (!s) return [];
+    if (!Array.isArray(s)) s = [{ n: s.near, ll: s.ll }];
+    return s.filter((x) => x && x.ll && x.n);
+  };
   // Emptied, not hidden, until the spots load (the visa line's rule): empty
   // it keeps its held height (styles.css). Hidden, the stays column beside
   // the advisory collapsed to the insurance line and the weather chart under
@@ -3270,13 +3278,18 @@ function renderGuideStay(iso) {
   // The server's data-nostay (no room held for stays that never come) is
   // its own guide's; another guide's stays are held as usual, but for a
   // country already known to get none (guideNoBookings), or that never can
-  // be while a list's fetch has failed (dntSettled with no answer).
+  // be while a list's fetch has failed (dntSettled with no answer), or that
+  // has no spots in stay-coords.json (the French Southern Territories,
+  // Antarctica: reached in-app from another guide, their "Where to stay"
+  // chip stayed and scrolled to the newsletter box). After the first guide
+  // the file is in hand, so the chip goes before the guide paints.
   const gtab = $("tab-guide");
   if (gtab) {
     if (_ssrNoStay === null) _ssrNoStay = gtab.hasAttribute("data-nostay");
     const nb = guideNoBookings(iso);
     if (nb === true || (nb === null && advisories && dntSettled(advisories))
-        || (iso === window.__WGGC__ && _ssrNoStay)) gtab.setAttribute("data-nostay", "1");
+        || (iso === window.__WGGC__ && _ssrNoStay)
+        || (_stayCoords && !spotsIn(_stayCoords).length)) gtab.setAttribute("data-nostay", "1");
     else gtab.removeAttribute("data-nostay");
   }
   const none = () => { if (ccGuideIso === iso) { host.hidden = true; host.style.minHeight = ""; } };
@@ -3286,12 +3299,10 @@ function renderGuideStay(iso) {
     // that can't be known (guideNoBookings).
     if (guideNoBookings(iso) !== false) return none();
     // Spots = the country's top places (from the curated gallery), each a
-    // stay-search anchor. Tolerate the old single-anchor shape from cache.
-    let spots = cc[iso];
-    if (!spots) return none();
-    if (!Array.isArray(spots)) spots = [{ n: spots.near, ll: spots.ll }];
-    spots = spots.filter((s) => s && s.ll && s.n);
-    if (!spots.length) return none();
+    // stay-search anchor. None: no block and no jump chip (data-nostay; the
+    // file was still on its way when the guide drew).
+    const spots = spotsIn(cc);
+    if (!spots.length) { if (gtab) gtab.setAttribute("data-nostay", "1"); return none(); }
     if (_staySpotIso !== iso) { _staySpotIso = iso; _staySpotIdx = 0; }
     if (_staySpotIdx >= spots.length) _staySpotIdx = 0;
     const sp = spots[_staySpotIdx];
