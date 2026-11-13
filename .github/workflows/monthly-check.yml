@@ -36,8 +36,14 @@ jobs:
       group: monthly-digest-${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'draft') && 'draft' || 'send' }}
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # @v7 of both runs on Node 24: runs #10 and #11 warned that checkout@v4
+      # and setup-python@v5 target the deprecated Node 20. Checked 2026-11-12
+      # against the v5-v7 release notes: the inputs and defaults this job
+      # uses are unchanged, and checkout's other breaking changes touch only
+      # pull_request_target/workflow_run forks and where the git token is
+      # kept (nothing here runs git).
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
