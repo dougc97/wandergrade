@@ -638,11 +638,16 @@ idle["ev"].set()
 for t in ths:
     t.join(10)
 server.PAGE_SLOT_WAIT = saved_wait
+for _ in range(100):      # a handler releases its slot just after the client has its response
+    if server._page_slots._value == server.PAGE_SLOTS:
+        break
+    time.sleep(0.01)
 results.append(ok(took < 0.5 and codes[0] == 200,
                   "3 requests waiting on another thread's computation hold no slot: a page runs at once (%.2fs)" % took))
 results.append(ok(sorted(codes) == [200] * 4 and idle["after"] == [True] * 3
                   and server._page_slots._value == server.PAGE_SLOTS,
-                  "they take their slots back after the wait, and every slot is free at the end"))
+                  "they take their slots back after the wait, and every slot is free at the end (%s, %s, %d free)"
+                  % (codes, idle["after"], server._page_slots._value)))
 httpd.shutdown()
 httpd.server_close()
 server.Handler._do_get = real_do_get
