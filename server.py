@@ -997,6 +997,26 @@ _adv_warming = set()
 _adv_warm_lock = threading.Lock()
 
 
+def _adv_refresh(src):
+    """Fetch one government's list on a background thread, unless one is
+    already fetching it."""
+    with _adv_warm_lock:
+        if src in _adv_warming:
+            return
+        _adv_warming.add(src)
+
+    def run():
+        try:
+            _advisories_payload(src, background=True)
+        except Exception:
+            pass
+        finally:
+            with _adv_warm_lock:
+                _adv_warming.discard(src)
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def _warm_adv_lists():
     """Fetch, in the background and once at a time, each government's list the
     cache doesn't hold or holds past ADV_TTL, so the do-not-travel marks are
@@ -1012,21 +1032,7 @@ def _warm_adv_lists():
         fail = _upstream_fail.get(("advisories", src))
         if fail and now < fail[0]:
             continue
-        with _adv_warm_lock:
-            if src in _adv_warming:
-                continue
-            _adv_warming.add(src)
-
-        def run(s=src):
-            try:
-                _advisories_payload(s)
-            except Exception:
-                pass
-            finally:
-                with _adv_warm_lock:
-                    _adv_warming.discard(s)
-
-        threading.Thread(target=run, daemon=True).start()
+        _adv_refresh(src)
 
 
 def _guide_cache(iso):
@@ -1780,14 +1786,78 @@ def _cached(name, cache, key, ttl, compute, stale_max=None):
 
 _adv_failed = set()   # sources whose last fetch failed with no copy to serve (_dnt_failed)
 
+# A list past ADV_TTL is refreshed off the request path. Requests used to
+# recompute it inline, each on its own: every 6 hours /api/advisories,
+# /safe-and-cheap, /do-not-travel and the boot warm-up all fetched and parsed
+# the same feeds at once, and on Render's 0.1 CPU the listen queue filled and
+# its /healthz check timed out (2026-11-10, 2026-11-16). Now a request gets
+# the copy in hand and one background refresh per list runs (_adv_refresh);
+# only a list not in hand at all is computed while a request waits, and then
+# by one caller at a time (_adv_compute_once).
+_adv_flights = {}          # source -> {"done": Event, "result" | "error"}: the computation in flight
+_adv_flight_lock = threading.Lock()
+ADV_FLIGHT_WAIT = 60       # seconds to wait on another caller's computation before computing as before
 
-def _advisories_payload(source):
+
+def _adv_compute_once(source):
+    """The list for `source` through _cached (the copy while it is current,
+    else a refresh, or the stale copy inside the failure backoff), computed
+    by one caller at a time: a caller that finds a computation in flight
+    waits for it and gets its result, or raises its error. A wait past
+    ADV_FLIGHT_WAIT (a computation stuck on the network) goes to _cached
+    itself, as every caller did before."""
+    compute = lambda: _cached("advisories", _adv_cache, source, ADV_TTL,
+                              lambda: _advisories_fresh(source))
+    with _adv_flight_lock:
+        flight = _adv_flights.get(source)
+        lead = flight is None
+        if lead:
+            flight = _adv_flights[source] = {"done": threading.Event()}
+    if lead:
+        try:
+            flight["result"] = compute()
+            return flight["result"]
+        except BaseException as e:
+            flight["error"] = e
+            raise
+        finally:
+            with _adv_flight_lock:
+                _adv_flights.pop(source, None)
+            flight["done"].set()
+    if not flight["done"].wait(ADV_FLIGHT_WAIT):
+        return compute()
+    if "error" in flight:
+        raise flight["error"]
+    return flight["result"]
+
+
+def _adv_read(source):
+    """The list for `source` on a request's path: the copy in hand at any age,
+    never a computation while there is one. Past ADV_TTL it goes out as it is
+    and one background refresh starts, unless the last refresh failed: then,
+    as before, it goes out marked stale (_stale), and inside the failure
+    backoff no refresh starts. Not in hand at all: _adv_compute_once."""
+    hit = _adv_cache.get(source)
+    if hit is None:
+        return _adv_compute_once(source)
+    now = time.time()
+    if now - hit[0] < ADV_TTL:
+        return hit[1]
+    fail = _upstream_fail.get(("advisories", source))
+    if not (fail and now < fail[0]):
+        _adv_refresh(source)
+    return _stale(hit, now) if fail else hit[1]
+
+
+def _advisories_payload(source, background=False):
     """The cached list /api/advisories serves for `source` (stale-on-error,
-    see _cached) — also what the guide-facts refresher reads."""
+    see _cached). A request's path reads the copy in hand (_adv_read);
+    background=True (the refresh thread, the guide-facts refresher) waits
+    for a current list instead (_adv_compute_once)."""
     # No stale_max: a days-old advisory list beats a 500 that blanks Top
     # Picks, and the payload says it is stale.
     try:
-        out = _cached("advisories", _adv_cache, source, ADV_TTL, lambda: _advisories_fresh(source))
+        out = _adv_compute_once(source) if background else _adv_read(source)
     except Exception:
         _adv_failed.add(source)
         raise
@@ -2753,9 +2823,7 @@ class Handler(BaseHTTPRequestHandler):
                 if alt == source:
                     continue
                 try:
-                    data = dict(_cached("advisories", _adv_cache, alt, ADV_TTL,
-                                        lambda a=alt: _advisories_fresh(a)),
-                                fallback_for=source)
+                    data = dict(_adv_read(alt), fallback_for=source)
                     break
                 except Exception:
                     continue
@@ -2992,7 +3060,7 @@ def main():
     _ppp_data()
     guide_facts.start_refresher(
         get_rates=lambda: _rates_payload(store.load_config(), "USD"),
-        get_advisories=lambda: _advisories_payload("us"),
+        get_advisories=lambda: _advisories_payload("us", background=True),
         get_ppp=lambda: _ppp_data() if _ppp_cache["at"] else None)
     # One-off after deploy: opt-outs from before they reached Buttondown (see
     # accounts.reconcile_optouts). Background, and a no-op without the
