@@ -21,7 +21,9 @@ What it holds the code to:
     out marked stale, with no refresh inside the failure backoff and one
     after it; a list not in hand is computed once however many requests ask
     at once, and they all get it, or all get its error with _adv_failed set;
-    a computation stuck past ADV_FLIGHT_WAIT doesn't hold the others; the
+    a computation stuck past ADV_FLIGHT_WAIT doesn't hold the others (with
+    the feed memo on too: a feed parse stuck past FEED_FLIGHT_WAIT is not
+    joined, the caller fetches the feed itself); the
     background callers (the refresh thread, the guide-facts refresher) wait
     for a current list; /api/advisories' fallback for a list that can't load
     reads the other lists the same way.
@@ -514,6 +516,53 @@ results.append(ok(len(got) == 5 and all(isinstance(r, RuntimeError) for _t, r in
                   and isinstance(server._adv_cache.get("ca", (0, None))[1], dict),
                   "cold, US feed timing out: 5 requests all get its error at about one fetch's time "
                   "(slowest %.2fs, US fetches %d), and Canada's list loads beside it" % (slowest, us_fetches[0])))
+
+# The same escape with the feed memo on, through the real get_advisories: a
+# leader stuck on its US fetch (a trickling response, a DNS hang) past
+# ADV_FLIGHT_WAIT, and the follower that gives up on it opens its own fetch,
+# as main's per-request compute did, instead of joining the stuck feed flight.
+load()
+server.advisories.get_advisories = REAL_GET
+saved_from, saved_ttl, saved_wait = A._from, A.FEED_MEMO_TTL, server.ADV_FLIGHT_WAIT
+us_fetches = [0]
+stuck = threading.Event()
+
+
+def stuck_from(s_):
+    if s_ == "us":
+        with calls_lock:
+            us_fetches[0] += 1
+            first = us_fetches[0] == 1
+        if first:
+            stuck.wait(3)
+    rows = copy.deepcopy(ROWS[s_])
+    return {"items": rows, "count": len(rows), "source": s_, "source_name": A.SOURCES[s_]}
+
+
+saved_fwait = A.FEED_FLIGHT_WAIT
+A._from, A.FEED_MEMO_TTL, A._feed_memo, A.FEED_FLIGHT_WAIT = stuck_from, 120, {}, 0.35
+server.ADV_FLIGHT_WAIT = 0.3
+lead = threading.Thread(target=lambda: server._advisories_payload("us"))
+lead.start()
+time.sleep(0.1)
+t0 = time.time()
+try:
+    r = server._advisories_payload("us")
+except Exception as e:
+    r = e
+took = time.time() - t0
+stuck.set()
+lead.join(5)
+settle()
+A._from, A.FEED_MEMO_TTL, server.ADV_FLIGHT_WAIT, A.FEED_FLIGHT_WAIT = saved_from, saved_ttl, saved_wait, saved_fwait
+server.advisories.get_advisories = fake_get
+results.append(ok(isinstance(r, dict) and took < 1.0 and us_fetches[0] == 2,
+                  "feed memo on, the leader's US fetch stuck past FEED_FLIGHT_WAIT: the follower past "
+                  "ADV_FLIGHT_WAIT fetches the feed itself, not behind the stuck one (%.2fs, US fetches %d)"
+                  % (took, us_fetches[0])))
+results.append(ok(A.FEED_FLIGHT_WAIT > 3 * server.rates.TIMEOUT + 1.5 + 3,
+                  "FEED_FLIGHT_WAIT (%ss) outlasts one fetch on a timing-out feed (64.5 s), so a caller still "
+                  "joins a fetch that is only slow (the cold-start check above)" % A.FEED_FLIGHT_WAIT))
 
 # Background callers wait for a current list.
 load(EXPIRED)

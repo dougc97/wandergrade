@@ -197,8 +197,16 @@ def _from(source):
 # call parses, which is what the newsletter build (check.py, send_digest.py,
 # picks.py) and the tests get. server.main() turns it on.
 FEED_MEMO_TTL = 0
+# A caller joins a parse in flight only while that parse is younger than
+# this: past one fetch's worst case (3 tries of rates.TIMEOUT, 20 s, plus
+# 1.5 + 3 s of backoff = 64.5 s) the fetch is stuck (a response trickling in
+# under the per-read timeout, a DNS hang), and the caller fetches the feed
+# itself, as it did with the memo off. Without it server.py's escape from a
+# stuck advisory computation (_adv_compute_once past ADV_FLIGHT_WAIT) joined
+# the very fetch it was escaping and waited on it with no timeout.
+FEED_FLIGHT_WAIT = 70
 _feed_memo = {}                # source -> (parsed at, payload)
-_feed_flights = {}             # source -> {"done": Event, "data" | "error"}: the parse in flight
+_feed_flights = {}             # source -> {"done": Event, "at": started, "data" | "error"}: the parse in flight
 _feed_lock = threading.Lock()
 
 
@@ -215,7 +223,7 @@ def _from_shared(source):
             flight = _feed_flights.get(source)
             lead = flight is None
             if lead:
-                flight = _feed_flights[source] = {"done": threading.Event()}
+                flight = _feed_flights[source] = {"done": threading.Event(), "at": time.time()}
     if fresh is not None:
         return copy.deepcopy(fresh[1])
     if lead:
@@ -230,10 +238,13 @@ def _from_shared(source):
                     _feed_memo[source] = (time.time(), flight["data"])
                 _feed_flights.pop(source, None)
             flight["done"].set()
-    else:
-        flight["done"].wait()
-        if "error" in flight:
-            raise flight["error"]
+    elif not flight["done"].wait(max(0.0, flight["at"] + FEED_FLIGHT_WAIT - time.time())):
+        data = _from(source)            # the parse in flight is stuck: fetch it ourselves
+        with _feed_lock:
+            _feed_memo[source] = (time.time(), data)
+        return copy.deepcopy(data)
+    elif "error" in flight:
+        raise flight["error"]
     return copy.deepcopy(flight["data"])
 
 
