@@ -13,6 +13,7 @@ Endpoints:
 """
 
 import base64
+import contextlib
 import gzip
 import hmac
 import html
@@ -441,7 +442,8 @@ def _dataset():
     now = time.time()
     if _dataset_cache["payload"] is None or now - _dataset_cache["at"] > _DATASET_TTL:
         try:
-            payload = build_dataset.build(_ppp_data())
+            with _no_slot():   # a rates fetch: /data gives its page slot back meanwhile
+                payload = build_dataset.build(_ppp_data())
             _dataset_cache.update(at=now, payload=payload,
                                   csv=build_dataset.to_csv(payload))
         except Exception:
@@ -1827,7 +1829,8 @@ def _adv_compute_once(source):
             flight = _adv_flights[source] = {"done": threading.Event()}
     if lead:
         try:
-            flight["result"] = compute()
+            with _no_slot():   # fetches: a list page gives its page slot back meanwhile
+                flight["result"] = compute()
             return flight["result"]
         except BaseException as e:
             flight["error"] = e
@@ -1837,7 +1840,8 @@ def _adv_compute_once(source):
                 _adv_flights.pop(source, None)
             flight["done"].set()
     if not _idle_wait(flight["done"], ADV_FLIGHT_WAIT):
-        return compute()
+        with _no_slot():
+            return compute()
     if "error" in flight:
         raise flight["error"]
     return flight["result"]
@@ -2011,37 +2015,79 @@ def _guide_query_redirect(raw_path):
     return "/guide/" + slug + ("?" + rest if rest else "")
 
 
-# At most PAGE_SLOTS GET requests are worked on at once; /healthz never
-# waits for a slot. With a 128 backlog a crawler's burst is accepted whole,
-# and on Render's 0.1 CPU thirty pages rendering side by side kept the
-# health check's thread from running for 5-9 s even with no advisory refresh
-# (stall_check --scenario fresh --crawl 30: max 8.9 s, 4 of 47 probes over
-# 5 s; with 3 slots 2.4-5.8 s; adv_expired --crawl 30: 9 over 5 s -> none).
-# A request that waits PAGE_SLOT_WAIT seconds runs without one, so a few
-# requests stuck on a slow upstream can't hold the site up for longer.
+# At most PAGE_SLOTS server-rendered pages are worked on at once. With a 128
+# backlog a crawler's burst is accepted whole, and on Render's 0.1 CPU thirty
+# pages rendering side by side kept the health check's thread from running
+# for 5-9 s even with no advisory refresh (stall_check --scenario fresh
+# --crawl 30: max 8.9 s, 4 of 47 probes over 5 s; with 3 slots 2.4-5.8 s;
+# adv_expired --crawl 30: 9 over 5 s -> none).
+#
+# A slot bounds CPU, so only the routes that render from what the server
+# already holds take one (_SLOT_PATHS, _slot_route), GET and HEAD alike:
+#   (i)   slot: / (the app shell), /guide/<slug> (and its redirects), /data,
+#         /safe-and-cheap, /do-not-travel, /cheapest and its 12 months,
+#         /dollar-strength, /privacy, /sitemap.xml, /llms.txt, and /ppp.json
+#         and /pl_history.json (a JSON dump of the in-memory table per
+#         request). Each reads caches and refreshes them on background
+#         threads, with two exceptions that wait on the network inline and
+#         give the slot back while they do (_no_slot): /data rebuilding its
+#         dataset (_dataset: a rates fetch, at most hourly), and a list page
+#         asking for an advisory list not in hand at all (_adv_compute_once,
+#         after a cold start: computing it, or waiting on the computation
+#         another thread leads).
+#   (ii)  no slot, trivial: /healthz, static files from public/ (robots.txt,
+#         app.js, styles.css, images), /health.json and /guide-facts.json
+#         (bytes memoized per document), redirects, 404s.
+#   (iii) no slot, may wait on an upstream inline: every /api/* route
+#         (rates, flights and fare months via Travelpayouts, Canada's notes,
+#         fx-trend, the advisories fallback, Upstash for /api/auth/me),
+#         /auth/verify (Upstash), /data/price-levels.json and .csv (the
+#         same dataset rebuild). An idle network wait costs no CPU, and
+#         three of them holding every slot kept every other visitor's page
+#         waiting up to PAGE_SLOT_WAIT.
+# A request that waits PAGE_SLOT_WAIT seconds for a slot runs without one,
+# so a stuck render can't hold the site up for longer.
 # None (the default: tests, tools) is unbounded; server.main() turns it on.
 PAGE_SLOTS = 3
 PAGE_SLOT_WAIT = 15
 _page_slots = None
 _slot_held = threading.local()   # .slots: the semaphore this request thread holds a slot of
+_SLOT_PATHS = frozenset(("/", "/data", "/privacy", "/sitemap.xml", "/llms.txt", "/ppp.json",
+                         "/pl_history.json", render_strength.PATH)
+                        + _LIST_PATHS + render_cheapest.PATHS)
+
+
+def _slot_route(path):
+    """True for a route that takes a page slot (class (i) above)."""
+    return path in _SLOT_PATHS or path.startswith("/guide/")
+
+
+@contextlib.contextmanager
+def _no_slot():
+    """Run the block without this request's page slot, if it holds one: an
+    upstream fetch, or a wait on another thread's work, uses no CPU. The
+    slot is taken again after (or the request goes on without one past
+    PAGE_SLOT_WAIT). Off a slot (background threads, tests): nothing."""
+    slots = getattr(_slot_held, "slots", None)
+    if slots is None:
+        yield
+        return
+    _slot_held.slots = None
+    slots.release()
+    try:
+        yield
+    finally:
+        if slots.acquire(timeout=PAGE_SLOT_WAIT):
+            _slot_held.slots = slots
 
 
 def _idle_wait(event, timeout):
     """event.wait(timeout) without holding this request's page slot: a
     request waiting on another thread's work (a cold advisory list the boot
     warm-up is computing) uses no CPU, and three of them held every slot and
-    kept a crawler's pages waiting PAGE_SLOT_WAIT. The slot is taken again
-    after (or the request goes on without one past PAGE_SLOT_WAIT)."""
-    slots = getattr(_slot_held, "slots", None)
-    if slots is None:
+    kept a crawler's pages waiting PAGE_SLOT_WAIT."""
+    with _no_slot():
         return event.wait(timeout)
-    _slot_held.slots = None
-    slots.release()
-    try:
-        return event.wait(timeout)
-    finally:
-        if slots.acquire(timeout=PAGE_SLOT_WAIT):
-            _slot_held.slots = slots
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2399,7 +2445,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         slots = _page_slots
-        if slots is None or self.path.split("?", 1)[0] == "/healthz":
+        if slots is None or not _slot_route(self.path.split("?", 1)[0]):
             return self._do_get()
         if slots.acquire(timeout=PAGE_SLOT_WAIT):
             _slot_held.slots = slots

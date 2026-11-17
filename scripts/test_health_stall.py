@@ -27,9 +27,11 @@ What it holds the code to:
     reads the other lists the same way.
   * server.py main() listens with a backlog of 128 (socketserver's 5 let
     Linux drop the health check's connection) and keeps daemon threads, and
-    sets a 0.1 ms GIL switch interval. It works on at most 3 GETs at once
-    (/healthz never waits, and a request waiting past PAGE_SLOT_WAIT runs
-    anyway).
+    sets a 0.1 ms GIL switch interval. It renders at most 3 server-side
+    pages at once (GET or HEAD); static files, /api/* and /healthz never wait
+    for a slot, a request waiting past PAGE_SLOT_WAIT runs anyway, and a
+    slotted page waiting on the network (another thread's computation, /data's
+    dataset rebuild, a cold advisory list) gives its slot back meanwhile.
   * server.py _warm_watchouts: ten guides' Canada notes are all fetched, never
     more than two at once, with no thread per guide; a country already queued
     or in flight is not queued again; a fetch that raises doesn't stop the
@@ -598,13 +600,85 @@ server.PAGE_SLOT_WAIT = saved_wait
 results.append(ok(over == 4 and codes == [200] * 4,
                   "3 slots held by stuck requests: a 4th runs anyway after PAGE_SLOT_WAIT (%d running)" % over))
 
+# Only the routes that render server-side take a slot (CPU); static files,
+# /api/* (which may sit on an upstream: flights, rates, Upstash) and /healthz
+# never wait for one, GET or HEAD alike, even with every slot held.
+slot_route = getattr(server, "_slot_route", None)
+SLOTTED = ["/", "/guide/japan", "/guide/Japan", "/guide/", "/data", "/safe-and-cheap", "/do-not-travel",
+           "/cheapest", "/cheapest/january", "/dollar-strength", "/privacy", "/sitemap.xml", "/llms.txt",
+           "/ppp.json", "/pl_history.json"]
+FREE = ["/healthz", "/robots.txt", "/app.js", "/styles.css", "/og.png", "/health.json", "/guide-facts.json",
+        "/index.html", "/Cheapest", "/data/", "/data/price-levels.json", "/data/price-levels.csv",
+        "/auth/verify", "/api/rates", "/api/index", "/api/advisories", "/api/flights", "/api/flight-months",
+        "/api/flight-value", "/api/fx-trend", "/api/watchouts", "/api/popularity", "/api/geo",
+        "/api/auth/me", "/api/config", "/api/flight-origins"]
+wrong = [p for p in SLOTTED if not (slot_route and slot_route(p))] + \
+        [p for p in FREE if not slot_route or slot_route(p)]
+results.append(ok(slot_route is not None and not wrong,
+                  "page slots for server-rendered pages only: %d routes take one, %d never do (wrong: %s)"
+                  % (len(SLOTTED), len(FREE), wrong)))
+
+
+def head_page(path):
+    try:
+        c = urllib.request.urlopen(urllib.request.Request(BASE + path, method="HEAD"), timeout=10).status
+    except Exception as e:
+        c = repr(e)
+    with codes_lock:
+        codes.append(c)
+
+
+def running_reaches(n, secs=1.5):
+    for _ in range(int(secs / 0.01)):
+        if pg["running"] >= n:
+            return True
+        time.sleep(0.01)
+    return False
+
+
+pg.update(peak=0, gate=threading.Event())
+del codes[:]
+ths = [threading.Thread(target=get_page, args=("/guide/s?%d" % i,)) for i in range(3)]
+for t in ths:
+    t.start()
+running_reaches(3)
+FREE_GETS = ["/app.js", "/robots.txt?x=1", "/styles.css?v=9", "/api/rates", "/api/flights?origin=US",
+             "/api/watchouts?iso=JP", "/api/auth/me", "/data/price-levels.json"]
+FREE_HEADS = ["/og.png", "/api/flight-months?iso=JP"]
+more = [threading.Thread(target=get_page, args=(p,)) for p in FREE_GETS] + \
+       [threading.Thread(target=head_page, args=(p,)) for p in FREE_HEADS]
+for t in more:
+    t.start()
+free_ran = running_reaches(3 + len(more))
+free_running = pg["running"]
+pages = [threading.Thread(target=get_page, args=("/safe-and-cheap?q=1",)),
+         threading.Thread(target=head_page, args=("/guide/peru",))]
+for t in pages:
+    t.start()
+time.sleep(0.4)
+page_running = pg["running"]
+t0 = time.time()
+hz = urllib.request.urlopen(BASE + "/healthz", timeout=5).read()
+hz_took = time.time() - t0
+pg["gate"].set()
+for t in ths + more + pages:
+    t.join(10)
+results.append(ok(free_ran and free_running == 3 + len(more),
+                  "3 slots held by pages: %d static and /api requests (GET and HEAD) run at once anyway "
+                  "(%d running)" % (len(more), free_running)))
+results.append(ok(page_running == free_running and hz == b"ok" and hz_took < 0.5,
+                  "a page (GET /safe-and-cheap, HEAD /guide/peru) still waits for a slot, and /healthz "
+                  "answers past them all (%d running, %.2fs)" % (page_running, hz_took)))
+results.append(ok(sorted(codes) == [200] * (5 + len(more)),
+                  "and all %d are answered once the slots free up (%s)" % (5 + len(more), sorted(set(map(str, codes))))))
+
 # Requests waiting on another thread's work (a cold list the boot warm-up is
 # computing) give their slots back while they wait.
 idle = {"ev": threading.Event(), "waiting": 0, "after": []}
 
 
 def waiting_do_get(self):
-    if not self.path.startswith("/wait"):
+    if "wait=" not in self.path:
         return fake_do_get(self)
     with pg_lock:
         idle["waiting"] += 1
@@ -624,7 +698,7 @@ pg.update(peak=0, gate=threading.Event())
 pg["gate"].set()
 del codes[:]
 server.PAGE_SLOT_WAIT = 5
-ths = [threading.Thread(target=get_page, args=("/wait?%d" % i,)) for i in range(3)]
+ths = [threading.Thread(target=get_page, args=("/do-not-travel?wait=%d" % i,)) for i in range(3)]
 for t in ths:
     t.start()
 for _ in range(100):
@@ -651,6 +725,61 @@ results.append(ok(sorted(codes) == [200] * 4 and idle["after"] == [True] * 3
 httpd.shutdown()
 httpd.server_close()
 server.Handler._do_get = real_do_get
+
+# The two inline network waits on a slotted route run without the slot: /data
+# rebuilding its dataset (a rates fetch), and a list page computing an
+# advisory list not in hand at all. The slot is held again afterwards.
+for _ in range(100):
+    if server._page_slots._value == server.PAGE_SLOTS:
+        break
+    time.sleep(0.01)
+sem = server._page_slots
+seen = {}
+
+
+def holding(tag):
+    seen[tag] = (getattr(server._slot_held, "slots", None) is sem, sem._value)
+
+
+def fake_build(ppp):
+    holding("dataset")
+    return {"countries": [], "meta": {}}
+
+
+saved = (server.build_dataset.build, server.build_dataset.to_csv, dict(server._ppp_cache),
+         dict(server._dataset_cache))
+server.build_dataset.build, server.build_dataset.to_csv = fake_build, lambda payload: ""
+server._ppp_cache.update(at=time.time(), data={"JP": {}})   # no PPP refresh thread
+server._dataset_cache.update(at=0, payload=None, csv=None)
+sem.acquire()
+server._slot_held.slots = sem
+try:
+    server._dataset()
+    holding("dataset_after")
+    load()
+
+    def get_watched(src):
+        holding("adv")
+        return fake_get(src)
+
+    server.advisories.get_advisories = get_watched
+    server._advisories_payload("us")
+    holding("adv_after")
+finally:
+    server.advisories.get_advisories = fake_get
+    if getattr(server._slot_held, "slots", None) is sem:
+        server._slot_held.slots = None
+        sem.release()
+    server.build_dataset.build, server.build_dataset.to_csv = saved[0], saved[1]
+    server._ppp_cache.clear()
+    server._ppp_cache.update(saved[2])
+    server._dataset_cache.update(saved[3])
+results.append(ok(seen.get("dataset") == (False, 3) and seen.get("dataset_after") == (True, 2),
+                  "/data's dataset rebuild (a rates fetch) runs without the request's slot, then takes it back (%s, %s)"
+                  % (seen.get("dataset"), seen.get("dataset_after"))))
+results.append(ok(seen.get("adv") == (False, 3) and seen.get("adv_after") == (True, 2),
+                  "so does a list page computing an advisory list not in hand (%s, %s)"
+                  % (seen.get("adv"), seen.get("adv_after"))))
 server._page_slots = None
 
 # --- server.py: Canada's notes, two fetches at a time ------------------------------------
