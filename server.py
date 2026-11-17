@@ -3124,13 +3124,15 @@ def main():
     # lists that read it (fxtracker/advisories.py FEED_MEMO_TTL): off outside
     # the server, so the newsletter build and the tests parse as before.
     advisories.FEED_MEMO_TTL = 120
-    # Hand the GIL round every 0.5 ms, not CPython's 5 ms. On Render's 0.1 CPU
-    # each 5 ms slice a feed parse keeps costs ~50 ms of wall time, so while
-    # the advisory lists refresh in the background the accept loop and the
-    # page threads crawled; with a crawler's burst on top /healthz still
-    # timed out (stall_check --crawl 30: 29 of 47 probes over 5 s at 5 ms,
-    # median 6.9 s; at 0.5 ms 9 over 5 s, median 0.18 s; page slots below).
-    sys.setswitchinterval(0.0005)
+    # Hand the GIL round every 0.1 ms, not CPython's 5 ms. A thread that does
+    # I/O (the accept loop, /healthz's handler) drops the GIL at each syscall
+    # and then waits up to a whole interval to get it back from a CPU-bound
+    # one (a background feed parse, page renders), and on Render's 0.1 CPU
+    # each of those waits stretches ~10x in wall time. With a crawler's burst
+    # during the 6-hourly refresh /healthz went unanswered for 7-18 s
+    # (stall_check adv_expired --crawl 30 at on_ms 5: 29 of 47 probes over
+    # 5 s at 5 ms, 3-4 at 0.5 ms, none at 0.1 ms, worst 2.6-2.7 s).
+    sys.setswitchinterval(0.0001)
     global _page_slots
     _page_slots = threading.BoundedSemaphore(PAGE_SLOTS)
     _warm_flight_value()

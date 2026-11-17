@@ -27,7 +27,7 @@ What it holds the code to:
     reads the other lists the same way.
   * server.py main() listens with a backlog of 128 (socketserver's 5 let
     Linux drop the health check's connection) and keeps daemon threads, and
-    sets a 0.5 ms GIL switch interval. It works on at most 3 GETs at once
+    sets a 0.1 ms GIL switch interval. It works on at most 3 GETs at once
     (/healthz never waits, and a request waiting past PAGE_SLOT_WAIT runs
     anyway).
   * server.py _warm_watchouts: ten guides' Canada notes are all fetched, never
