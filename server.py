@@ -2011,6 +2011,20 @@ def _guide_query_redirect(raw_path):
     return "/guide/" + slug + ("?" + rest if rest else "")
 
 
+# At most PAGE_SLOTS GET requests are worked on at once; /healthz never
+# waits for a slot. With a 128 backlog a crawler's burst is accepted whole,
+# and on Render's 0.1 CPU thirty pages rendering side by side kept the
+# health check's thread from running for 5-9 s even with no advisory refresh
+# (stall_check --scenario fresh --crawl 30: max 8.9 s, 4 of 47 probes over
+# 5 s; with 3 slots 2.4-5.8 s; adv_expired --crawl 30: 9 over 5 s -> none).
+# A request that waits PAGE_SLOT_WAIT seconds runs without one, so a few
+# requests stuck on a slow upstream can't hold the site up for longer.
+# None (the default: tests, tools) is unbounded; server.main() turns it on.
+PAGE_SLOTS = 3
+PAGE_SLOT_WAIT = 15
+_page_slots = None
+
+
 class Handler(BaseHTTPRequestHandler):
     # Generic identity — don't advertise the framework/Python version.
     server_version = "WanderGrade"
@@ -2365,6 +2379,17 @@ class Handler(BaseHTTPRequestHandler):
             self._head_only = False
 
     def do_GET(self):
+        slots = _page_slots
+        if slots is None or self.path.split("?", 1)[0] == "/healthz":
+            return self._do_get()
+        got = slots.acquire(timeout=PAGE_SLOT_WAIT)
+        try:
+            return self._do_get()
+        finally:
+            if got:
+                slots.release()
+
+    def _do_get(self):
         path = self.path.split("?", 1)[0]
         # Unauthenticated health check for hosting platforms (Render, etc.).
         if path == "/healthz":
@@ -3085,6 +3110,8 @@ def main():
     # timed out (stall_check --crawl 30: 29 of 47 probes over 5 s at 5 ms,
     # median 6.9 s; at 0.5 ms 9 over 5 s, median 0.18 s; page slots below).
     sys.setswitchinterval(0.0005)
+    global _page_slots
+    _page_slots = threading.BoundedSemaphore(PAGE_SLOTS)
     _warm_flight_value()
     _warm_rates()
     _warm_fx_history()

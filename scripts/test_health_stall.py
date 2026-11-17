@@ -27,7 +27,9 @@ What it holds the code to:
     reads the other lists the same way.
   * server.py main() listens with a backlog of 128 (socketserver's 5 let
     Linux drop the health check's connection) and keeps daemon threads, and
-    sets a 0.5 ms GIL switch interval.
+    sets a 0.5 ms GIL switch interval. It works on at most 3 GETs at once
+    (/healthz never waits, and a request waiting past PAGE_SLOT_WAIT runs
+    anyway).
   * server.py _warm_watchouts: ten guides' Canada notes are all fetched, never
     more than two at once, with no thread per guide; a country already queued
     or in flight is not queued again; a fetch that raises doesn't stop the
@@ -518,6 +520,87 @@ m = re.search(r"sys\.setswitchinterval\(([0-9.]+)\)", inspect.getsource(server.m
 results.append(ok(bool(m) and float(m.group(1)) <= 0.001 and sys.getswitchinterval() >= 0.004,
                   "main() hands the GIL round every %s s (CPython's 0.005 starved the accept loop behind a "
                   "background parse); importing server leaves it alone" % (m and m.group(1))))
+
+# --- server.py: page slots, /healthz exempt ------------------------------------------------
+src = inspect.getsource(server.main)
+results.append(ok(server._page_slots is None and server.PAGE_SLOTS == 3
+                  and "_page_slots = threading.BoundedSemaphore(PAGE_SLOTS)" in src,
+                  "main() works on at most %d GETs at once; importing server leaves it unbounded" % server.PAGE_SLOTS))
+pg = {"running": 0, "peak": 0, "gate": threading.Event()}
+pg_lock = threading.Lock()
+real_do_get = server.Handler._do_get
+
+
+def fake_do_get(self):
+    if self.path == "/healthz":
+        return real_do_get(self)
+    with pg_lock:
+        pg["running"] += 1
+        pg["peak"] = max(pg["peak"], pg["running"])
+    try:
+        pg["gate"].wait(10)
+        body = b"page"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+    finally:
+        with pg_lock:
+            pg["running"] -= 1
+
+
+server.Handler._do_get = fake_do_get
+server.Handler.log_message = lambda self, *a: None
+server._page_slots = threading.BoundedSemaphore(server.PAGE_SLOTS)
+httpd = server._Server(("127.0.0.1", 0), server.Handler)   # main()'s backlog: 5 resets a burst on macOS
+threading.Thread(target=httpd.serve_forever, daemon=True).start()
+BASE = "http://127.0.0.1:%d" % httpd.server_address[1]
+codes, codes_lock = [], threading.Lock()
+
+
+def get_page(path):
+    try:
+        c = urllib.request.urlopen(BASE + path, timeout=10).status
+    except Exception as e:
+        c = repr(e)
+    with codes_lock:
+        codes.append(c)
+
+
+ths = [threading.Thread(target=get_page, args=("/guide/x?%d" % i,)) for i in range(8)]
+for t in ths:
+    t.start()
+time.sleep(0.4)
+t0 = time.time()
+hz = urllib.request.urlopen(BASE + "/healthz", timeout=5).read()
+hz_took = time.time() - t0
+held = pg["running"]
+pg["gate"].set()
+for t in ths:
+    t.join(10)
+results.append(ok(held == 3 and hz == b"ok" and hz_took < 0.5,
+                  "8 pages at once: 3 worked on, the rest wait, and /healthz answers past them (%d running, %.2fs)"
+                  % (held, hz_took)))
+results.append(ok(codes == [200] * 8 and pg["peak"] == 3, "all 8 answered once slots free up (peak %d, %s)" % (pg["peak"], codes)))
+pg.update(peak=0, gate=threading.Event())
+del codes[:]
+saved_wait = server.PAGE_SLOT_WAIT
+server.PAGE_SLOT_WAIT = 0.3
+ths = [threading.Thread(target=get_page, args=("/guide/y?%d" % i,)) for i in range(4)]
+for t in ths:
+    t.start()
+time.sleep(0.8)
+over = pg["running"]
+pg["gate"].set()
+for t in ths:
+    t.join(10)
+server.PAGE_SLOT_WAIT = saved_wait
+results.append(ok(over == 4 and codes == [200] * 4,
+                  "3 slots held by stuck requests: a 4th runs anyway after PAGE_SLOT_WAIT (%d running)" % over))
+httpd.shutdown()
+httpd.server_close()
+server.Handler._do_get = real_do_get
+server._page_slots = None
 
 # --- server.py: Canada's notes, two fetches at a time ------------------------------------
 server._warm_watchouts = WARM_WATCHOUTS
