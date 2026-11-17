@@ -1277,7 +1277,8 @@ def _cheap_adv():
         payloads[src] = hit[1] if hit else None
         if hit:
             fetched[src] = hit[0]
-            if now - hit[0] >= ADV_TTL and ("advisories", src) in _upstream_fail:
+            if now - hit[0] >= ADV_TTL and (src in _adv_refresh_failing
+                                            or ("advisories", src) in _upstream_fail):
                 stale[src] = int(now - hit[0])
     return payloads, fetched, stale
 
@@ -1794,6 +1795,11 @@ def _cached(name, cache, key, ttl, compute, stale_max=None):
 
 
 _adv_failed = set()   # sources whose last fetch failed with no copy to serve (_dnt_failed)
+# Sources whose last refresh failed while a copy was in hand, until one lands.
+# Its own record, not _upstream_fail's: any _cached failure (rates, flights)
+# prunes that table's expired entries, and a list whose backoff had run out
+# then went out unmarked until the background retry failed again.
+_adv_refresh_failing = set()
 
 # A list past ADV_TTL is refreshed off the request path. Requests used to
 # recompute it inline, each on its own: every 6 hours /api/advisories,
@@ -1820,8 +1826,15 @@ def _adv_compute_once(source):
     waits for it and gets its result, or raises its error. A wait past
     ADV_FLIGHT_WAIT (a computation stuck on the network) goes to _cached
     itself, as every caller did before."""
-    compute = lambda: _cached("advisories", _adv_cache, source, ADV_TTL,
-                              lambda: _advisories_fresh(source))
+    def compute():
+        out = _cached("advisories", _adv_cache, source, ADV_TTL, lambda: _advisories_fresh(source))
+        # _cached hands back the copy marked stale when the refresh failed
+        # (or is inside its backoff), the new list when it landed.
+        if out.get("stale") is True:
+            _adv_refresh_failing.add(source)
+        else:
+            _adv_refresh_failing.discard(source)
+        return out
     with _adv_flight_lock:
         flight = _adv_flights.get(source)
         lead = flight is None
@@ -1850,9 +1863,10 @@ def _adv_compute_once(source):
 def _adv_read(source):
     """The list for `source` on a request's path: the copy in hand at any age,
     never a computation while there is one. Past ADV_TTL it goes out as it is
-    and one background refresh starts, unless the last refresh failed: then,
-    as before, it goes out marked stale (_stale), and inside the failure
-    backoff no refresh starts. Not in hand at all: _adv_compute_once."""
+    and one background refresh starts, unless the last refresh failed
+    (_adv_refresh_failing): then, as before, it goes out marked stale
+    (_stale), and inside the failure backoff no refresh starts. Not in hand
+    at all: _adv_compute_once."""
     hit = _adv_cache.get(source)
     if hit is None:
         return _adv_compute_once(source)
@@ -1862,7 +1876,7 @@ def _adv_read(source):
     fail = _upstream_fail.get(("advisories", source))
     if not (fail and now < fail[0]):
         _adv_refresh(source)
-    return _stale(hit, now) if fail else hit[1]
+    return _stale(hit, now) if fail or source in _adv_refresh_failing else hit[1]
 
 
 def _advisories_payload(source, background=False):

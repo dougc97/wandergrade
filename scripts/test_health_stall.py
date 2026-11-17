@@ -265,6 +265,7 @@ def load(age=None, srcs=("us", "ca", "de")):
     server._adv_cache.clear()
     server._upstream_fail.clear()
     server._adv_failed.clear()
+    getattr(server, "_adv_refresh_failing", set()).clear()
     fetch.update(n={}, delay=0.0, fail=False, hold=None)
     del stamped[:]
     if age is not None:
@@ -384,6 +385,50 @@ results.append(ok("stale" not in r and r is server._adv_cache["us"][1] and r is 
                   and ("advisories", "us") not in server._upstream_fail,
                   "and once it lands the new list goes out unmarked"))
 
+# A refresh failing, its backoff over, and an unrelated cache's failure (rates,
+# flights) prunes the expired _upstream_fail record: the next request still
+# gets the copy marked stale, as main's inline retry would have returned it.
+load(EXPIRED)
+old = server._adv_cache["us"][1]
+fetch["fail"] = True
+server._advisories_payload("us")
+settle()
+had = ("advisories", "us") in server._upstream_fail
+server._upstream_fail[("advisories", "us")] = (time.time() - 1, "us feed down")   # backoff over
+
+
+def rates_down():
+    raise RuntimeError("rates down")
+
+
+try:
+    server._cached("rates", {}, ("prune-test",), 600, rates_down)
+except RuntimeError:
+    pass
+pruned = ("advisories", "us") not in server._upstream_fail
+server._upstream_fail.pop(("rates", ("prune-test",)), None)
+fetch["hold"] = threading.Event()
+r = server._advisories_payload("us")
+payloads, fetched, stale = server._adv_inputs()
+cpay, cfetched, cstale = server._cheap_adv()
+fetch["hold"].set()
+settle()
+results.append(ok(had and pruned and isinstance(r, dict) and r.get("stale") is True
+                  and r.get("stale_age", 0) >= EXPIRED and r["items"] == old["items"]
+                  and fetch["n"].get("us") == 2,
+                  "refresh failing, backoff over, its record pruned by a rates failure: the copy still goes out "
+                  "stale (stale_age %s) while one refresh retries (%s)" % (r.get("stale_age"), fetch["n"])))
+results.append(ok(stale.get("us", 0) >= EXPIRED and cstale.get("us", 0) >= EXPIRED,
+                  "and /safe-and-cheap and /cheapest still say the refresh is failing (%s, %s)" % (stale, cstale)))
+fetch["fail"] = False
+server._upstream_fail.pop(("advisories", "us"), None)
+server._advisories_payload("us")
+settle()
+r = server._advisories_payload("us")
+results.append(ok("stale" not in r and r is server._adv_cache["us"][1] and r is not old
+                  and "us" not in getattr(server, "_adv_refresh_failing", {"us"}),
+                  "a refresh that lands clears the failing mark: the new list goes out unmarked"))
+
 # Nothing in hand: one computation, everyone waits for it.
 load()
 fetch["delay"] = 0.5
@@ -482,8 +527,8 @@ calls_ = re.findall(r"_advisories_payload\((.*?)\)", open(os.path.join(ROOT, "se
 results.append(ok(sorted(calls_) == sorted(['"us", background=True', "source", "src", "src, background=True",
                                             "source, background=False"]),
                   "every caller of _advisories_payload is accounted for (%s)" % calls_))
-results.append(ok('_cached("advisories"' not in open(os.path.join(ROOT, "server.py"), encoding="utf-8").read()
-                  .replace('compute = lambda: _cached("advisories"', ""),
+results.append(ok(open(os.path.join(ROOT, "server.py"), encoding="utf-8").read().count('_cached("advisories"') == 1
+                  and '_cached("advisories"' in inspect.getsource(server._adv_compute_once),
                   "nothing reads _cached(\"advisories\", ...) except _adv_compute_once"))
 
 # /api/advisories: the chosen list can't load, another one stands in, read the same way.
