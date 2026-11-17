@@ -8,7 +8,7 @@ being recomputed by every request at once.)
                                                 [--crawl N] [--on-ms 5] [--life 50]
                                                 [--block SUBSTR [--block-code N]]
                                                 [--burst PATH,PATH] [--burst-at S]
-                                                [--label NAME] [-v]
+                                                [--page-timeout S] [--label NAME] [-v]
 
 It boots the real server from DIR (--tree, else $STALL_TREE, else the repo
 this file sits in) by calling its own server.main(), so a tree is exercised
@@ -16,7 +16,7 @@ as main() configures it: the fixed tree with its feed memo and 128 backlog,
 an older tree as it was. The child is throttled to --on-ms of every 100 ms
 (SIGSTOP/SIGCONT; 5 on a Mac stands in for Render's 0.1 CPU), /healthz is
 probed once a second on its own connection (20 s timeout), and at t=4.5 s
-four page requests arrive together (40 s timeout): /api/advisories?source=us,
+four page requests arrive together: /api/advisories?source=us,
 /safe-and-cheap, /safe-and-cheap?x=1 and /do-not-travel. --crawl N adds N
 distinct guide pages to that burst (/guide/<slug>?x=<i>, slugs spread over
 public/slugs.json), the shape of a crawler arriving. Prints one JSON line:
@@ -69,8 +69,16 @@ directory the three advisory parsers are replaced by synthetic stand-ins
 that burn about what the real ones do (US 0.4 s, Canada 0.12 s, Germany
 0.08 s of CPU on a Mac) and return small lists, so it still runs.
 
-Runs ~life + 5 s; split runs to keep each command under a minute. Starts
-one child process and kills only it.
+A burst request times out after --page-timeout S, by default as long as the
+run lets it (life - burst_at - 2: the child exits at life), so a slow page
+reports its time instead of a cap. A cold start computes the three lists on
+the 0.1 CPU in ~50 s, so comparing the cold burst's advisory pages between
+trees needs --life 70 or more: at the default 50 every tree's cold
+advisory pages time out alike and can't be told apart (the branch answers
+them at 51-52 s; main, measured with 140 s, not at all).
+
+Runs ~life + 5 s; split runs to keep each command under a minute (run a
+longer one in the background). Starts one child process and kills only it.
 """
 import argparse
 import hashlib
@@ -93,7 +101,6 @@ NETCACHE = os.environ.get("STALL_NETCACHE") or (
     "5f5f209c-3c7f-483b-8747-bd588d9b4133/scratchpad/health/bg/netcache")
 BURST = ["/api/advisories?source=us", "/safe-and-cheap", "/safe-and-cheap?x=1", "/do-not-travel"]
 BURST_AT = 4.5
-PAGE_TIMEOUT = 40   # the burst's own timeout, so a slow cold page reports its time (probes: 20 s)
 SCENARIOS = ("adv_expired", "cold", "fresh", "slowapi")
 # --scenario slowapi: three /api requests whose upstream answers SLOW_S late
 # (Canada's per-country notes, each its own fetch), and half a second later a
@@ -259,8 +266,15 @@ def crawl_paths(tree, n):
     return ["/guide/%s?x=%d" % (slug, i) for i, slug in enumerate(slugs[::step][:n])]
 
 
+def page_timeout_for(life, burst_at):
+    """The burst's default timeout: as long as the run lets a request take
+    (the child exits at `life`), so a slow page reports its own time."""
+    return max(5.0, life - burst_at - 2)
+
+
 def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=None, burst_at=BURST_AT,
-        block_code=None, slow_s=SLOW_S, switch=None, clients=0):
+        block_code=None, slow_s=SLOW_S, switch=None, clients=0, page_timeout=None):
+    page_timeout = page_timeout or page_timeout_for(life, burst_at)
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -343,7 +357,7 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
             time.sleep(burst_at)
             if not clients:
                 for p in work:
-                    threading.Thread(target=get, args=(p, pages, PAGE_TIMEOUT), daemon=True).start()
+                    threading.Thread(target=get, args=(p, pages, page_timeout), daemon=True).start()
                 return
             todo, tl = list(work), threading.Lock()
 
@@ -353,7 +367,7 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
                         if not todo:
                             return
                         p = todo.pop(0)
-                    get(p, pages, PAGE_TIMEOUT)
+                    get(p, pages, page_timeout)
             ths = [threading.Thread(target=client, daemon=True) for _ in range(clients)]
             for t in ths:
                 t.start()
@@ -364,7 +378,7 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
         def visitors():
             time.sleep(burst_at + 0.5)
             for p in VISITORS:
-                threading.Thread(target=get, args=(p, pages, PAGE_TIMEOUT), daemon=True).start()
+                threading.Thread(target=get, args=(p, pages, page_timeout), daemon=True).start()
 
         threading.Thread(target=throttle, daemon=True).start()
         threading.Thread(target=burst, daemon=True).start()
@@ -399,7 +413,7 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
     lat_ok = sorted(p[1] for p in probes if p[2] == 200)
     errs = [p for p in probes if p[2] != 200]
     res = {"label": label, "tree": tree, "scenario": scen, "on_ms": on_ms, "crawl": crawl,
-           "block": list(block), "burst_at": burst_at, "clients": clients,
+           "block": list(block), "burst_at": burst_at, "clients": clients, "page_timeout": page_timeout,
            "cpu_s": cpu.get("since_config"), "cpu_total_s": cpu.get("total"),
            "burst_wall_s": done[0] if done else None,
            "boot_s": round(boot, 2),
@@ -448,6 +462,8 @@ def main():
                     help="the child's GIL switch interval (server.SWITCH_INTERVAL) for a sweep")
     ap.add_argument("--on-ms", type=float, default=5.0)
     ap.add_argument("--life", type=float, default=50.0)
+    ap.add_argument("--page-timeout", type=float, metavar="S",
+                    help="the burst's timeout (default life - burst_at - 2, as long as the run allows)")
     ap.add_argument("--label", default="")
     ap.add_argument("-v", "--verbose", action="store_true", help="the child's log (and request log) on stderr")
     a = ap.parse_args()
@@ -456,7 +472,7 @@ def main():
         raise SystemExit("no server.py in %s" % tree)
     run(tree, a.scenario, a.on_ms, a.life, a.label or os.path.basename(tree), a.verbose, a.crawl,
         a.block, [p for p in a.burst.split(",") if p] if a.burst is not None else None, a.burst_at,
-        a.block_code, a.slow_s, a.switch, a.clients)
+        a.block_code, a.slow_s, a.switch, a.clients, a.page_timeout)
 
 
 if __name__ == "__main__":

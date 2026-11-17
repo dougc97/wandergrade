@@ -40,6 +40,8 @@ What it holds the code to:
     more than two at once, with no thread per guide; a country already queued
     or in flight is not queued again; a fetch that raises doesn't stop the
     queue.
+  * scripts/dev/stall_check.py: a burst page times out only when the run
+    ends (--page-timeout to set it), so a slow cold page reports its time.
 """
 import copy
 import inspect
@@ -1034,6 +1036,20 @@ took, r = lf.get("follower", (99, None))
 results.append(ok(took < 1.0 and isinstance(r, RuntimeError) and fetch["n"] == {"us": 1},
                   "and its error likewise (%.2fs, %r)" % (took, r)))
 server._page_slots = None
+
+# --- scripts/dev/stall_check.py: a slow burst page reports its time ------------------------
+# A fixed 40 s cap cut off the cold start's advisory pages (answered at 51-52 s
+# on this branch, never on main) on both trees alike.
+import importlib.util  # noqa: E402
+spec = importlib.util.spec_from_file_location("stall_check", os.path.join(ROOT, "scripts", "dev", "stall_check.py"))
+sc = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(sc)
+pt = getattr(sc, "page_timeout_for", None)
+run_src = inspect.getsource(sc.run)
+results.append(ok(pt is not None and pt(50, sc.BURST_AT) == 50 - sc.BURST_AT - 2 and pt(70, sc.BURST_AT) > 55
+                  and "page_timeout_for(life, burst_at)" in run_src and "--page-timeout" in inspect.getsource(sc.main),
+                  "stall_check's burst timeout runs as long as the run allows (%s s at --life 50, %s s at 70), "
+                  "and --page-timeout sets it" % (pt and pt(50, sc.BURST_AT), pt and pt(70, sc.BURST_AT))))
 
 # --- server.py: Canada's notes, two fetches at a time ------------------------------------
 server._warm_watchouts = WARM_WATCHOUTS
