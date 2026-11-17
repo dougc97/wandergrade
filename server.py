@@ -2961,6 +2961,10 @@ def main():
     host = "0.0.0.0" if os.environ.get("PORT") else "127.0.0.1"
     if os.environ.get("RENDER"):   # set by Render; never self-ping from a laptop
         _keep_warm()
+    # Each government's feed parsed once per refresh and shared by the three
+    # lists that read it (fxtracker/advisories.py FEED_MEMO_TTL): off outside
+    # the server, so the newsletter build and the tests parse as before.
+    advisories.FEED_MEMO_TTL = 120
     _warm_flight_value()
     _warm_rates()
     _warm_fx_history()

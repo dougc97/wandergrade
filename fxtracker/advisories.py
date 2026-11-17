@@ -9,6 +9,8 @@ import os
 import re
 import json
 import html
+import copy
+import threading
 
 from . import rates  # reuse fetch_json's verifying SSL + retries
 
@@ -178,6 +180,38 @@ def _from(source):
     return _us_advisories()
 
 
+# One parse of each feed, shared for FEED_MEMO_TTL seconds. get_advisories
+# reads every source: its own and the other two as gap-fills, so refreshing
+# the three lists parsed the US feed (551 KB of RSS, ~0.4 s of CPU on a Mac,
+# 6-13 s on the server's 0.1 CPU) three times and Canada's and Germany's
+# twice each, and Render's /healthz timed out (2026-11-10, 2026-11-16). With a
+# TTL, callers of one source take turns on its lock: the first parses, the
+# rest wait for it and get the same list. Each caller gets its own deep copy
+# (get_advisories appends gap-fills to its list, advhistory stamps items). A
+# parse that raises is not kept, so the next caller tries again as before.
+# 0 (the default) is off: every call parses, which is what the newsletter
+# build (check.py, send_digest.py, picks.py) and the tests get. server.main()
+# turns it on.
+FEED_MEMO_TTL = 0
+_feed_memo = {}                # source -> (parsed at, payload)
+_feed_locks = {}               # source -> Lock
+_feed_locks_lock = threading.Lock()
+
+
+def _from_shared(source):
+    ttl = FEED_MEMO_TTL
+    if not ttl or ttl <= 0:
+        return _from(source)
+    with _feed_locks_lock:
+        lock = _feed_locks.setdefault(source, threading.Lock())
+    with lock:
+        hit = _feed_memo.get(source)
+        if hit is None or time.time() - hit[0] >= ttl:
+            data = _from(source)        # raises: nothing is kept
+            hit = _feed_memo[source] = (time.time(), data)
+    return copy.deepcopy(hit[1])
+
+
 def get_advisories(source="us"):
     """Advisories from the given government source, normalized to a common shape:
     {items: [{iso, country, level, level_text, link, via?, via_name?}], source, ...}.
@@ -206,14 +240,14 @@ def get_advisories(source="us"):
     voice vanished. A substitute judgment must never be softer than any
     government's published view.
     """
-    primary = _from(source)
+    primary = _from_shared(source)
     have = {i["iso"] for i in primary["items"] if i.get("iso")}
     fills = {}   # iso -> (item, source_key) with the highest level seen
     for key in FALLBACK_ORDER:
         if key == source:
             continue
         try:
-            other = _from(key)
+            other = _from_shared(key)
         except Exception:
             continue            # a filler that won't load must never break the page
         for it in other["items"]:
