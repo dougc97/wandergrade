@@ -563,10 +563,11 @@ results.append(ok(probe is not None and probe.request_queue_size == 128, "an ins
 if probe:
     probe.server_close()
 
-m = re.search(r"sys\.setswitchinterval\(([0-9.]+)\)", inspect.getsource(server.main))
-results.append(ok(bool(m) and float(m.group(1)) <= 0.001 and sys.getswitchinterval() >= 0.004,
-                  "main() hands the GIL round every %s s (CPython's 0.005 starved the accept loop behind a "
-                  "background parse); importing server leaves it alone" % (m and m.group(1))))
+sw = getattr(server, "SWITCH_INTERVAL", None)
+results.append(ok("sys.setswitchinterval(SWITCH_INTERVAL)" in inspect.getsource(server.main)
+                  and isinstance(sw, float) and 0 < sw <= 0.0001 and sys.getswitchinterval() >= 0.004,
+                  "main() hands the GIL round every SWITCH_INTERVAL = %s s (CPython's 0.005 starved the accept "
+                  "loop behind a background parse); importing server leaves it alone" % sw))
 
 # --- server.py: page slots, /healthz exempt ------------------------------------------------
 src = inspect.getsource(server.main)

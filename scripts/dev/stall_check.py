@@ -47,6 +47,14 @@ the US feed down and one request for each list right after boot:
   --scenario cold --block travel.state.gov --burst-at 1 --burst \
   '/api/advisories?source=us,/api/advisories?source=ca,/api/advisories?source=de,/do-not-travel'
 
+--switch S sets the child's server.SWITCH_INTERVAL (main()'s GIL switch
+interval) for a sweep, and --clients N fetches the burst through N clients,
+one request after another. "cpu_s" is the child's process CPU from t=1 s to
+its exit, "burst_wall_s" (with --clients) the burst's wall time; the
+overhead workload, unthrottled, is 60 guides by 8 clients while the lists
+refresh in the background:
+  --scenario adv_expired --on-ms 0 --burst '' --burst-at 4 --crawl 60 --clients 8 --life 20
+
 Backlog overflow differs by OS: macOS answers a connection past a full
 listen queue with an instant reset (ConnectionResetError at ~0 s here),
 Linux (Render) drops the SYN and the client retries it after 1, 3, 7 s...
@@ -163,6 +171,9 @@ def serve(port, scen, life, tree, opts):
     import server
     from fxtracker import advisories
 
+    if opts.get("switch") and hasattr(server, "SWITCH_INTERVAL"):
+        server.SWITCH_INTERVAL = opts["switch"]   # main() hands the GIL round at this
+
     if config["replay"] == "synthetic":
         synthetic(advisories)
 
@@ -186,16 +197,21 @@ def serve(port, scen, life, tree, opts):
         time.sleep(1)
         config["feed_memo_ttl"] = getattr(advisories, "FEED_MEMO_TTL", None)
         config["switch_interval"] = sys.getswitchinterval()
+        cpu0[0] = time.process_time()
         say("config " + json.dumps(config, sort_keys=True))
         if scen == "adv_expired":
             time.sleep(3)
             server._warm_adv_lists()
             say("_warm_adv_lists started")
 
+    cpu0 = [0.0]
+
     def killer():
         time.sleep(life)
+        cpu = time.process_time()
+        say("cpu " + json.dumps({"total": round(cpu, 3), "since_config": round(cpu - cpu0[0], 3)}))
         say("exit, process CPU %.2fs, %d blocked URLs (%s)"
-            % (time.process_time(), len(blocked), ", ".join(sorted(set(blocked)))[:300]))
+            % (cpu, len(blocked), ", ".join(sorted(set(blocked)))[:300]))
         sys.stdout.flush()
         os._exit(0)
 
@@ -244,7 +260,7 @@ def crawl_paths(tree, n):
 
 
 def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=None, burst_at=BURST_AT,
-        block_code=None, slow_s=SLOW_S):
+        block_code=None, slow_s=SLOW_S, switch=None, clients=0):
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -253,7 +269,7 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
     env = {k: v for k, v in os.environ.items()
            if k in ("PATH", "HOME", "LANG", "TMPDIR", "SSL_CERT_FILE") or k.startswith("LC_")}
     env["STALL_NETCACHE"] = NETCACHE
-    opts = {"block": list(block), "block_code": block_code}
+    opts = {"block": list(block), "block_code": block_code, "switch": switch}
     if scen == "slowapi":
         opts["delay"] = {SLOW_URL: slow_s}
         if burst_paths is None:
@@ -320,10 +336,30 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
             except OSError:
                 pass
 
+        work = (BURST if burst_paths is None else burst_paths) + crawl_paths(tree, crawl)
+        done = []
+
         def burst():
             time.sleep(burst_at)
-            for p in (BURST if burst_paths is None else burst_paths) + crawl_paths(tree, crawl):
-                threading.Thread(target=get, args=(p, pages, PAGE_TIMEOUT), daemon=True).start()
+            if not clients:
+                for p in work:
+                    threading.Thread(target=get, args=(p, pages, PAGE_TIMEOUT), daemon=True).start()
+                return
+            todo, tl = list(work), threading.Lock()
+
+            def client():
+                while True:
+                    with tl:
+                        if not todo:
+                            return
+                        p = todo.pop(0)
+                    get(p, pages, PAGE_TIMEOUT)
+            ths = [threading.Thread(target=client, daemon=True) for _ in range(clients)]
+            for t in ths:
+                t.start()
+            for t in ths:
+                t.join()
+            done.append(round(time.time() - t0 - burst_at, 3))
 
         def visitors():
             time.sleep(burst_at + 0.5)
@@ -351,17 +387,21 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
     lines = log.read().splitlines()
     log.close()
     os.unlink(log.name)
-    config = {}
+    config, cpu = {}, {}
     for ln in lines:
         if "] config {" in ln:
             config = json.loads(ln.split("] config ", 1)[1])
+        if "] cpu {" in ln:
+            cpu = json.loads(ln.split("] cpu ", 1)[1])
     with lock:
         probes = sorted(probes)
         pages = sorted(pages)
     lat_ok = sorted(p[1] for p in probes if p[2] == 200)
     errs = [p for p in probes if p[2] != 200]
     res = {"label": label, "tree": tree, "scenario": scen, "on_ms": on_ms, "crawl": crawl,
-           "block": list(block), "burst_at": burst_at,
+           "block": list(block), "burst_at": burst_at, "clients": clients,
+           "cpu_s": cpu.get("since_config"), "cpu_total_s": cpu.get("total"),
+           "burst_wall_s": done[0] if done else None,
            "boot_s": round(boot, 2),
            "probes": len(probes), "ok": len(lat_ok), "errors": len(errs),
            "over1s": sum(1 for p in probes if p[2] != 200 or p[1] > 1),
@@ -401,6 +441,11 @@ def main():
     ap.add_argument("--burst-at", type=float, default=BURST_AT, metavar="S")
     ap.add_argument("--slow-s", type=float, default=SLOW_S, metavar="S",
                     help="slowapi: how late the slow upstream answers")
+    ap.add_argument("--clients", type=int, default=0, metavar="N",
+                    help="fetch the burst through N clients one request after another "
+                         "(default: every request at once)")
+    ap.add_argument("--switch", type=float, metavar="S",
+                    help="the child's GIL switch interval (server.SWITCH_INTERVAL) for a sweep")
     ap.add_argument("--on-ms", type=float, default=5.0)
     ap.add_argument("--life", type=float, default=50.0)
     ap.add_argument("--label", default="")
@@ -410,7 +455,8 @@ def main():
     if not os.path.exists(os.path.join(tree, "server.py")):
         raise SystemExit("no server.py in %s" % tree)
     run(tree, a.scenario, a.on_ms, a.life, a.label or os.path.basename(tree), a.verbose, a.crawl,
-        a.block, a.burst.split(",") if a.burst else None, a.burst_at, a.block_code, a.slow_s)
+        a.block, [p for p in a.burst.split(",") if p] if a.burst is not None else None, a.burst_at,
+        a.block_code, a.slow_s, a.switch, a.clients)
 
 
 if __name__ == "__main__":

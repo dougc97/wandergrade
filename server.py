@@ -3164,6 +3164,28 @@ def _warm_fx_history(delay=25):
     threading.Thread(target=run, daemon=True).start()
 
 
+# server.main() hands the GIL round every SWITCH_INTERVAL seconds, not
+# CPython's 5 ms. A thread that does I/O (the accept loop, /healthz's
+# handler) drops the GIL at each syscall and then waits up to a whole
+# interval to get it back from a CPU-bound one (a background feed parse, page
+# renders), and on Render's 0.1 CPU each of those waits stretches ~10x in
+# wall time. Chosen by measurement (the largest value with no /healthz probe
+# over 5 s and no error in any run), with the page slots scoped to
+# server-rendered pages: stall_check at on_ms 5, two runs each, probes over
+# 5 s (worst probe, s):
+#
+#   interval  adv_expired --crawl 30  fresh --crawl 30  adv_expired   cold --crawl 30
+#   0.1 ms    0, 0 (3.5, 3.5)         0, 0 (1.9, 2.1)   0, 0 (1.4)    0, 0 (2.6, 1.8)
+#   0.5 ms    2, 4 (6.1, 7.4)         0, 1 (4.0, 5.4)   0, 0 (1.4)    0, 0 (3.2, 3.5)
+#   1 ms      8, 10 (10.1, 11.9)      0, 3 (4.7, 6.3)   0, 0 (1.5)    0, 0 (4.5, 3.7)
+#   5 ms      32, 32 (all time out)   2, 3 (6.4, 6.9)   0, 0 (3.6)    30, 9 (16.8, 8.8)
+#
+# Its cost: process CPU for 60 guide renders by 8 clients while the lists
+# refresh in the background (unthrottled, 3 runs): 0.79 s at 0.1 ms, 0.75 s
+# at 0.5 and 1 ms, 0.74 s at 5 ms (+6%).
+SWITCH_INTERVAL = 0.0001
+
+
 class _Server(ThreadingHTTPServer):
     # socketserver's listen backlog is 5, and Linux drops connections past
     # it: while the advisory lists recomputed, a few page requests filled it
@@ -3184,15 +3206,7 @@ def main():
     # lists that read it (fxtracker/advisories.py FEED_MEMO_TTL): off outside
     # the server, so the newsletter build and the tests parse as before.
     advisories.FEED_MEMO_TTL = 120
-    # Hand the GIL round every 0.1 ms, not CPython's 5 ms. A thread that does
-    # I/O (the accept loop, /healthz's handler) drops the GIL at each syscall
-    # and then waits up to a whole interval to get it back from a CPU-bound
-    # one (a background feed parse, page renders), and on Render's 0.1 CPU
-    # each of those waits stretches ~10x in wall time. With a crawler's burst
-    # during the 6-hourly refresh /healthz went unanswered for 7-18 s
-    # (stall_check adv_expired --crawl 30 at on_ms 5: 29 of 47 probes over
-    # 5 s at 5 ms, 3-4 at 0.5 ms, none at 0.1 ms, worst 2.6-2.7 s).
-    sys.setswitchinterval(0.0001)
+    sys.setswitchinterval(SWITCH_INTERVAL)
     global _page_slots
     _page_slots = threading.BoundedSemaphore(PAGE_SLOTS)
     _warm_flight_value()
