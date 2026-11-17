@@ -930,6 +930,56 @@ def leader_follower(fail):
     return out
 
 
+# A failed dataset rebuild is remembered for a moment: /data reads the
+# dataset three times per view (_data_desc, _rates_as_of, _data_page_body),
+# and with no copy each read rebuilt (a rates fetch with its retries), giving
+# its slot back and queueing for it again each time.
+ds = {"n": 0, "fail": True}
+
+
+def counted_build(ppp):
+    ds["n"] += 1
+    if ds["fail"]:
+        raise RuntimeError("rates down")
+    return {"countries": [{}] * 2, "meta": {"rates_as_of": "2026-11-17"}}
+
+
+saved = (server.build_dataset.build, server.build_dataset.to_csv, dict(server._ppp_cache),
+         dict(server._dataset_cache))
+server.build_dataset.build, server.build_dataset.to_csv = counted_build, lambda payload: "csv"
+server._ppp_cache.update(at=time.time(), data={"JP": {}})
+try:
+    server._dataset_cache.update(at=0, payload=None, csv=None)
+    errs = []
+    for _ in range(3):
+        try:
+            server._dataset()
+        except RuntimeError as e:
+            errs.append(str(e))
+    no_copy = (ds["n"], errs)
+    body = server._data_page_body()
+    no_copy_page = ds["n"]
+    server._dataset_cache["retry_at"] = 0          # the backoff runs out
+    ds["fail"] = False
+    back = server._dataset()["payload"]["countries"]
+    after_back = ds["n"]
+    server._dataset_cache["at"] = time.time() - server._DATASET_TTL - 1    # the copy past its hour
+    ds["fail"] = True
+    stale = [len(server._dataset()["payload"]["countries"]) for _ in range(3)]
+    stale_n = ds["n"] - after_back
+finally:
+    server.build_dataset.build, server.build_dataset.to_csv = saved[0], saved[1]
+    server._ppp_cache.clear()
+    server._ppp_cache.update(saved[2])
+    server._dataset_cache.clear()
+    server._dataset_cache.update(saved[3])
+results.append(ok(no_copy == (1, ["rates down"] * 3) and no_copy_page == 1 and "__N__" not in body,
+                  "a dataset rebuild that fails with no copy is tried once, then each read raises its error inside "
+                  "FAIL_RETRY, and /data's page reads it without rebuilding (%s rebuilds)" % no_copy_page))
+results.append(ok(len(back) == 2 and after_back == 2 and stale == [2, 2, 2] and stale_n == 1,
+                  "past the backoff it rebuilds; with a copy past its hour a failed rebuild is tried once and the "
+                  "copy served (%d rebuild, %s)" % (stale_n, stale)))
+
 # A list page with all three lists cold gives its slot back and queues for it
 # again once, not once per list: each re-take goes to the back of the slot
 # queue, behind a crawler's guides.

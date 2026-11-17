@@ -428,7 +428,7 @@ def _guide_template():
 _SITE = "https://wandergrade.com"   # canonical origin for sitemap URLs
 
 
-_dataset_cache = {"at": 0, "payload": None, "csv": None}
+_dataset_cache = {"at": 0, "payload": None, "csv": None, "retry_at": 0, "error": ""}
 _DATASET_TTL = 3600
 
 
@@ -437,17 +437,28 @@ def _dataset():
 
     Building costs a rates fetch, so it is cached; if a rebuild fails we keep
     serving the last good copy rather than 503-ing a public data URL that other
-    people may have wired into something.
+    people may have wired into something. A failed rebuild is not tried again
+    for a while, as _cached does (FAIL_RETRY with no copy, STALE_RETRY with
+    one): /data reads the dataset three times per view, and with the rates
+    down each read rebuilt, fetching with its retries and, on a page slot,
+    queueing for the slot again after each.
     """
     now = time.time()
     if _dataset_cache["payload"] is None or now - _dataset_cache["at"] > _DATASET_TTL:
+        if now < _dataset_cache.get("retry_at", 0):
+            if _dataset_cache["payload"] is None:
+                raise RuntimeError(_dataset_cache.get("error") or "dataset rebuild failed")
+            return _dataset_cache
         try:
             with _no_slot():   # a rates fetch: /data gives its page slot back meanwhile
                 payload = build_dataset.build(_ppp_data())
             _dataset_cache.update(at=now, payload=payload,
-                                  csv=build_dataset.to_csv(payload))
-        except Exception:
-            if _dataset_cache["payload"] is None:
+                                  csv=build_dataset.to_csv(payload), retry_at=0, error="")
+        except Exception as e:
+            have = _dataset_cache["payload"] is not None
+            _dataset_cache.update(retry_at=time.time() + (STALE_RETRY if have else FAIL_RETRY),
+                                  error=str(e))
+            if not have:
                 raise
     return _dataset_cache
 
