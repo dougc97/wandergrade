@@ -6,6 +6,8 @@ being recomputed by every request at once.)
 
     /usr/bin/python3 scripts/dev/stall_check.py [--tree DIR] [--scenario adv_expired|cold|fresh]
                                                 [--crawl N] [--on-ms 5] [--life 50]
+                                                [--block SUBSTR [--block-code N]]
+                                                [--burst PATH,PATH] [--burst-at S]
                                                 [--label NAME] [-v]
 
 It boots the real server from DIR (--tree, else $STALL_TREE, else the repo
@@ -30,6 +32,14 @@ Scenarios:
   cold         empty caches: main()'s own boot warm-ups plus the burst.
   fresh        the three lists filled and current (no refresh runs): what
                the burst alone costs, e.g. what a deeper backlog lets in.
+
+--block SUBSTR fails every fetch whose URL contains it (a feed that is down:
+--block travel.state.gov), as offline (URLError: 3 tries, 4.5 s of backoff),
+or with --block-code N as HTTP N at once (a 4xx is not retried). --burst
+replaces the burst's paths and --burst-at its time, e.g. a cold start with
+the US feed down and one request for each list right after boot:
+  --scenario cold --block travel.state.gov --burst-at 1 --burst \
+  '/api/advisories?source=us,/api/advisories?source=ca,/api/advisories?source=de,/do-not-travel'
 
 Backlog overflow differs by OS: macOS answers a connection past a full
 listen queue with an instant reset (ConnectionResetError at ~0 s here),
@@ -74,7 +84,7 @@ SCENARIOS = ("adv_expired", "cold", "fresh")
 
 
 # ---- the child: the real server on replayed responses ------------------------------
-def serve(port, scen, life, tree):
+def serve(port, scen, life, tree, opts):
     import urllib.error
     import urllib.request
     import socketserver
@@ -84,6 +94,9 @@ def serve(port, scen, life, tree):
     t0 = time.time()
     say = lambda msg: print("[srv %5.1fs] %s" % (time.time() - t0, msg), flush=True)
     config = {"replay": "netcache" if os.path.isdir(NETCACHE) else "synthetic"}
+    if opts.get("block"):
+        config["block"] = opts["block"]
+        config["block_code"] = opts.get("block_code")
     blocked = []
 
     class Resp(io.BytesIO):
@@ -104,6 +117,11 @@ def serve(port, scen, life, tree):
 
     def fake_urlopen(req, *a, **kw):
         url = req.get_full_url() if hasattr(req, "get_full_url") else str(req)
+        if any(b in url for b in opts.get("block") or ()):
+            blocked.append(url)
+            if opts.get("block_code"):   # an HTTP error at once (4xx: no retries)
+                raise urllib.error.HTTPError(url, opts["block_code"], "blocked in stall_check", {}, None)
+            raise urllib.error.URLError("blocked in stall_check: " + url)
         h = hashlib.sha1(url.encode()).hexdigest()
         body = os.path.join(NETCACHE, h + ".body")
         if config["replay"] == "netcache" and os.path.exists(body):
@@ -209,7 +227,8 @@ def crawl_paths(tree, n):
     return ["/guide/%s?x=%d" % (slug, i) for i, slug in enumerate(slugs[::step][:n])]
 
 
-def run(tree, scen, on_ms, life, label, verbose, crawl=0):
+def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=None, burst_at=BURST_AT,
+        block_code=None):
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -218,8 +237,9 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0):
     env = {k: v for k, v in os.environ.items()
            if k in ("PATH", "HOME", "LANG", "TMPDIR", "SSL_CERT_FILE") or k.startswith("LC_")}
     env["STALL_NETCACHE"] = NETCACHE
+    opts = {"block": list(block), "block_code": block_code}
     srv = subprocess.Popen([sys.executable, "-I", "-B", os.path.abspath(__file__), "--serve",
-                            str(port), scen, str(life), tree],
+                            str(port), scen, str(life), tree, json.dumps(opts)],
                            stdout=log, stderr=subprocess.STDOUT if verbose else subprocess.DEVNULL, env=env)
     stop = [False]
 
@@ -281,8 +301,8 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0):
                 pass
 
         def burst():
-            time.sleep(BURST_AT)
-            for p in BURST + crawl_paths(tree, crawl):
+            time.sleep(burst_at)
+            for p in (BURST if burst_paths is None else burst_paths) + crawl_paths(tree, crawl):
                 threading.Thread(target=get, args=(p, pages, PAGE_TIMEOUT), daemon=True).start()
 
         threading.Thread(target=throttle, daemon=True).start()
@@ -314,6 +334,7 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0):
     lat_ok = sorted(p[1] for p in probes if p[2] == 200)
     errs = [p for p in probes if p[2] != 200]
     res = {"label": label, "tree": tree, "scenario": scen, "on_ms": on_ms, "crawl": crawl,
+           "block": list(block), "burst_at": burst_at,
            "boot_s": round(boot, 2),
            "probes": len(probes), "ok": len(lat_ok), "errors": len(errs),
            "over1s": sum(1 for p in probes if p[2] != 200 or p[1] > 1),
@@ -334,13 +355,21 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0):
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--serve":
         port, scen, life, tree = sys.argv[2:6]
-        serve(int(port), scen, float(life), tree)
+        serve(int(port), scen, float(life), tree, json.loads(sys.argv[6]) if len(sys.argv) > 6 else {})
         return
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--tree", default=os.environ.get("STALL_TREE") or REPO)
     ap.add_argument("--scenario", choices=SCENARIOS, default="adv_expired")
     ap.add_argument("--crawl", type=int, default=0, metavar="N",
                     help="add N distinct guide pages to the burst")
+    ap.add_argument("--block", action="append", default=[], metavar="SUBSTR",
+                    help="fail every fetch whose URL contains SUBSTR, as offline (repeatable), "
+                         "e.g. travel.state.gov for a US feed that is down")
+    ap.add_argument("--block-code", type=int, metavar="N",
+                    help="a blocked fetch answers HTTP N at once (4xx: no retries) instead of "
+                         "failing as offline (3 tries, 4.5 s of backoff)")
+    ap.add_argument("--burst", metavar="PATH,PATH", help="the burst's paths instead of the default four")
+    ap.add_argument("--burst-at", type=float, default=BURST_AT, metavar="S")
     ap.add_argument("--on-ms", type=float, default=5.0)
     ap.add_argument("--life", type=float, default=50.0)
     ap.add_argument("--label", default="")
@@ -349,7 +378,8 @@ def main():
     tree = os.path.abspath(a.tree)
     if not os.path.exists(os.path.join(tree, "server.py")):
         raise SystemExit("no server.py in %s" % tree)
-    run(tree, a.scenario, a.on_ms, a.life, a.label or os.path.basename(tree), a.verbose, a.crawl)
+    run(tree, a.scenario, a.on_ms, a.life, a.label or os.path.basename(tree), a.verbose, a.crawl,
+        a.block, a.burst.split(",") if a.burst else None, a.burst_at, a.block_code)
 
 
 if __name__ == "__main__":
