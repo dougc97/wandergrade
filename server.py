@@ -1841,17 +1841,21 @@ def _adv_compute_once(source):
         if lead:
             flight = _adv_flights[source] = {"done": threading.Event()}
     if lead:
-        try:
-            with _no_slot():   # fetches: a list page gives its page slot back meanwhile
+        # Fetches: a list page gives its page slot back meanwhile, and its
+        # followers get the outcome before it queues for the slot again (a
+        # crawler's guides holding every slot delay the leader only, not a
+        # slotless /api/advisories waiting on a list already in _adv_cache).
+        with _no_slot():
+            try:
                 flight["result"] = compute()
-            return flight["result"]
-        except BaseException as e:
-            flight["error"] = e
-            raise
-        finally:
-            with _adv_flight_lock:
-                _adv_flights.pop(source, None)
-            flight["done"].set()
+            except BaseException as e:
+                flight["error"] = e
+                raise
+            finally:
+                with _adv_flight_lock:
+                    _adv_flights.pop(source, None)
+                flight["done"].set()
+        return flight["result"]
     if not _idle_wait(flight["done"], ADV_FLIGHT_WAIT):
         with _no_slot():
             return compute()

@@ -31,7 +31,9 @@ What it holds the code to:
     pages at once (GET or HEAD); static files, /api/* and /healthz never wait
     for a slot, a request waiting past PAGE_SLOT_WAIT runs anyway, and a
     slotted page waiting on the network (another thread's computation, /data's
-    dataset rebuild, a cold advisory list) gives its slot back meanwhile.
+    dataset rebuild, a cold advisory list) gives its slot back meanwhile; a
+    list page leading a cold list's computation releases its followers when
+    the list (or its error) lands, before it queues for its slot again.
   * server.py _warm_watchouts: ten guides' Canada notes are all fetched, never
     more than two at once, with no thread per guide; a country already queued
     or in flight is not queued again; a fetch that raises doesn't stop the
@@ -826,6 +828,68 @@ results.append(ok(seen.get("dataset") == (False, 3) and seen.get("dataset_after"
 results.append(ok(seen.get("adv") == (False, 3) and seen.get("adv_after") == (True, 2),
                   "so does a list page computing an advisory list not in hand (%s, %s)"
                   % (seen.get("adv"), seen.get("adv_after"))))
+
+# A slotted page leading a cold list's computation hands the outcome to its
+# followers before it queues for its slot again: a crawler's guide holding
+# the freed slot delays the leader only, not a slotless /api/advisories
+# request waiting on the same list (that list already in _adv_cache).
+
+
+def leader_follower(fail):
+    load()
+    fetch.update(delay=0.5, fail=fail)
+    one = threading.BoundedSemaphore(1)
+    saved_slots, saved_wait_ = server._page_slots, server.PAGE_SLOT_WAIT
+    server._page_slots, server.PAGE_SLOT_WAIT = one, 5
+    out = {}
+
+    def leader():
+        one.acquire()
+        server._slot_held.slots = one
+        try:
+            try:
+                server._advisories_payload("us")
+            except RuntimeError:
+                pass
+            out["leader_slot"] = getattr(server._slot_held, "slots", None) is one
+        finally:
+            if getattr(server._slot_held, "slots", None) is one:
+                server._slot_held.slots = None
+                one.release()
+
+    def hog():                       # a guide render grabbing the slot the leader gave back
+        time.sleep(0.05)
+        one.acquire()
+        time.sleep(2.0)
+        one.release()
+
+    def follower():                  # /api/advisories?source=us: no slot
+        time.sleep(0.15)
+        t = time.time()
+        try:
+            r = server._advisories_payload("us")
+        except RuntimeError as e:
+            r = e
+        out["follower"] = (time.time() - t, r)
+
+    ths = [threading.Thread(target=f) for f in (leader, hog, follower)]
+    for t in ths:
+        t.start()
+    for t in ths:
+        t.join(10)
+    server._page_slots, server.PAGE_SLOT_WAIT = saved_slots, saved_wait_
+    return out
+
+
+lf = leader_follower(False)
+took, r = lf.get("follower", (99, None))
+results.append(ok(took < 1.0 and isinstance(r, dict) and fetch["n"] == {"us": 1} and lf.get("leader_slot"),
+                  "a list page leading a cold list's computation releases its followers when the list lands, "
+                  "not when its slot frees up (slotless follower %.2fs, compute 0.5s, slot held 2s)" % took))
+lf = leader_follower(True)
+took, r = lf.get("follower", (99, None))
+results.append(ok(took < 1.0 and isinstance(r, RuntimeError) and fetch["n"] == {"us": 1},
+                  "and its error likewise (%.2fs, %r)" % (took, r)))
 server._page_slots = None
 
 # --- server.py: Canada's notes, two fetches at a time ------------------------------------
