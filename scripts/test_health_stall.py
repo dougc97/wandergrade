@@ -214,6 +214,7 @@ results.append(ok(bool(m) and int(m.group(1)) > 0 and A.FEED_MEMO_TTL == 0,
 
 # --- server.py: serve the copy in hand, one refresh in the background ---------------
 WARM_WATCHOUTS = server._warm_watchouts
+REAL_GET = A.get_advisories
 server._warm_watchouts = lambda iso: None
 server.flights.is_configured = lambda: False
 fetch = {"n": {}, "delay": 0.0, "fail": False, "hold": None}
@@ -393,6 +394,46 @@ server.ADV_FLIGHT_WAIT = saved_wait
 results.append(ok(isinstance(r, dict) and fetch["n"] == {"ca": 2} and took >= 0.3,
                   "a computation stuck past ADV_FLIGHT_WAIT: the waiting caller computes itself, as before (%.2fs, %s)"
                   % (took, fetch["n"])))
+
+worst = 3 * (3 * server.rates.TIMEOUT + 1.5 + 3)
+results.append(ok(server.ADV_FLIGHT_WAIT > worst,
+                  "ADV_FLIGHT_WAIT (%ss) outlasts a computation on timing-out feeds (3 x 64.5 = %.1fs), so "
+                  "followers don't give up on a leader that is still fetching" % (server.ADV_FLIGHT_WAIT, worst)))
+
+# Cold start with the US feed timing out (T = 0.6 s here, ~65 s in production):
+# the boot warm-up leads all three lists, five /api/advisories?source=us
+# requests follow, and even those that give up waiting (ADV_FLIGHT_WAIT below
+# T here) join the US fetch in flight instead of queueing up their own.
+load()
+server.advisories.get_advisories = REAL_GET
+saved_from, saved_ttl, saved_wait = A._from, A.FEED_MEMO_TTL, server.ADV_FLIGHT_WAIT
+us_fetches = [0]
+
+
+def slow_from(s_):
+    if s_ == "us":
+        with calls_lock:
+            us_fetches[0] += 1
+        time.sleep(0.6)
+        raise RuntimeError("us timed out")
+    rows = copy.deepcopy(ROWS[s_])
+    return {"items": rows, "count": len(rows), "source": s_, "source_name": A.SOURCES[s_]}
+
+
+A._from, A.FEED_MEMO_TTL, A._feed_memo = slow_from, 120, {}
+server.ADV_FLIGHT_WAIT = 0.3
+server._warm_adv_lists()
+time.sleep(0.02)
+got = burst(lambda: server._advisories_payload("us"), 5)
+settle()
+A._from, A.FEED_MEMO_TTL, server.ADV_FLIGHT_WAIT = saved_from, saved_ttl, saved_wait
+server.advisories.get_advisories = fake_get
+slowest = max(t for t, _r in got)
+results.append(ok(len(got) == 5 and all(isinstance(r, RuntimeError) for _t, r in got) and slowest < 1.0
+                  and us_fetches[0] <= 2 and "us" in server._adv_failed
+                  and isinstance(server._adv_cache.get("ca", (0, None))[1], dict),
+                  "cold, US feed timing out: 5 requests all get its error at about one fetch's time "
+                  "(slowest %.2fs, US fetches %d), and Canada's list loads beside it" % (slowest, us_fetches[0])))
 
 # Background callers wait for a current list.
 load(EXPIRED)

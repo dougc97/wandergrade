@@ -1796,7 +1796,12 @@ _adv_failed = set()   # sources whose last fetch failed with no copy to serve (_
 # by one caller at a time (_adv_compute_once).
 _adv_flights = {}          # source -> {"done": Event, "result" | "error"}: the computation in flight
 _adv_flight_lock = threading.Lock()
-ADV_FLIGHT_WAIT = 60       # seconds to wait on another caller's computation before computing as before
+# Seconds to wait on another caller's computation before computing as before.
+# Above a computation's worst case on a failing upstream, so a slow feed
+# never undoes the single flight: a list fetches its own feed and the two
+# gap-fills one after another, and a feed that times out takes 3 tries of
+# rates.TIMEOUT (20 s) plus 1.5 + 3 s of backoff, so 3 x 64.5 = 193.5 s.
+ADV_FLIGHT_WAIT = 240
 
 
 def _adv_compute_once(source):
