@@ -185,31 +185,56 @@ def _from(source):
 # the three lists parsed the US feed (551 KB of RSS, ~0.4 s of CPU on a Mac,
 # 6-13 s on the server's 0.1 CPU) three times and Canada's and Germany's
 # twice each, and Render's /healthz timed out (2026-11-10, 2026-11-16). With a
-# TTL, callers of one source take turns on its lock: the first parses, the
-# rest wait for it and get the same list. Each caller gets its own deep copy
-# (get_advisories appends gap-fills to its list, advhistory stamps items). A
-# parse that raises is not kept, so the next caller tries again as before.
-# 0 (the default) is off: every call parses, which is what the newsletter
-# build (check.py, send_digest.py, picks.py) and the tests get. server.main()
-# turns it on.
+# TTL, the first caller of a source parses it and every caller that arrives
+# while that parse is in flight waits for it and gets its outcome: the same
+# list, or the same error. Sharing the error matters as much as the list: a
+# timing-out feed takes ~65 s (3 tries of 20 s plus the backoff), and
+# callers that each retried in turn after it, behind one lock, waited N
+# times that and fetched it N times anyway. Each caller gets its own deep
+# copy (get_advisories appends gap-fills to its list, advhistory stamps
+# items). A parse that raises is not kept past its flight, so a caller
+# arriving after it tries again, as before. 0 (the default) is off: every
+# call parses, which is what the newsletter build (check.py, send_digest.py,
+# picks.py) and the tests get. server.main() turns it on.
 FEED_MEMO_TTL = 0
 _feed_memo = {}                # source -> (parsed at, payload)
-_feed_locks = {}               # source -> Lock
-_feed_locks_lock = threading.Lock()
+_feed_flights = {}             # source -> {"done": Event, "data" | "error"}: the parse in flight
+_feed_lock = threading.Lock()
 
 
 def _from_shared(source):
     ttl = FEED_MEMO_TTL
     if not ttl or ttl <= 0:
         return _from(source)
-    with _feed_locks_lock:
-        lock = _feed_locks.setdefault(source, threading.Lock())
-    with lock:
+    with _feed_lock:
         hit = _feed_memo.get(source)
-        if hit is None or time.time() - hit[0] >= ttl:
-            data = _from(source)        # raises: nothing is kept
-            hit = _feed_memo[source] = (time.time(), data)
-    return copy.deepcopy(hit[1])
+        if hit is not None and time.time() - hit[0] < ttl:
+            fresh, lead, flight = hit, False, None
+        else:
+            fresh = None
+            flight = _feed_flights.get(source)
+            lead = flight is None
+            if lead:
+                flight = _feed_flights[source] = {"done": threading.Event()}
+    if fresh is not None:
+        return copy.deepcopy(fresh[1])
+    if lead:
+        try:
+            flight["data"] = _from(source)
+        except BaseException as e:
+            flight["error"] = e         # for this flight's waiters only, never memoized
+            raise
+        finally:
+            with _feed_lock:
+                if "data" in flight:
+                    _feed_memo[source] = (time.time(), flight["data"])
+                _feed_flights.pop(source, None)
+            flight["done"].set()
+    else:
+        flight["done"].wait()
+        if "error" in flight:
+            raise flight["error"]
+    return copy.deepcopy(flight["data"])
 
 
 def get_advisories(source="us"):

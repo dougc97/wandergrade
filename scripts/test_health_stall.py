@@ -8,8 +8,9 @@ What it holds the code to:
   * fxtracker/advisories.py FEED_MEMO_TTL: with the memo on, refreshing the
     three lists (get_advisories for us, ca and de, each reading the other two
     as gap-fills) parses each feed exactly once, and concurrent callers wait
-    for the one parse in flight; the lists come out equal to the memo-off
-    ones; every caller gets its own copy (mutating one list leaves the next
+    for the one parse in flight, and get its error when it fails (a timing-out
+    feed fetched once, not once per caller in turn); the lists come out
+    equal to the memo-off ones; every caller gets its own copy (mutating one list leaves the next
     untouched); a parse that raises is not kept; an expired memo parses
     again; at 0 (the default, what the newsletter build gets) every call
     parses, as before.
@@ -59,14 +60,19 @@ ROWS = {
     "de": [item("BF", 2), item("SA", 4), item("VE", 2), item("MO", 1)],
 }
 calls = {"us": 0, "ca": 0, "de": 0}
-gate = {"delay": 0.0, "fail": set()}
+gate = {"delay": 0.0, "fail": set(), "delays": {}, "down": set()}
+calls_lock = threading.Lock()
 
 
 def parser(src):
     def run():
-        calls[src] += 1
-        if gate["delay"]:
-            time.sleep(gate["delay"])
+        with calls_lock:
+            calls[src] += 1
+        delay = gate["delays"].get(src, gate["delay"])
+        if delay:
+            time.sleep(delay)
+        if src in gate["down"]:
+            raise RuntimeError("feed %s timed out" % src)
         if src in gate["fail"]:
             gate["fail"].discard(src)
             raise RuntimeError("feed %s down" % src)
@@ -159,6 +165,47 @@ results.append(ok(len(out) == 8 and all(o == off["us"] for o in out) and calls =
                   and took < 2.0,
                   "8 concurrent callers wait for the one parse in flight: one parse each, same lists (%.2fs, %s)"
                   % (took, calls)))
+
+# The US feed is timing out (each try ~65 s in production; 0.5 s here) while the
+# three lists refresh and two more callers ask: the one attempt in flight is
+# shared, its error included, so nobody waits behind anyone else's retry.
+reset(120)
+gate.update(delays={"us": 0.5}, down={"us"})
+done, done_lock = {}, threading.Lock()
+
+
+def ask(i, src):
+    t0 = time.time()
+    try:
+        r = A.get_advisories(src)
+    except Exception as e:
+        r = e
+    with done_lock:
+        done[i] = (src, time.time() - t0, r)
+
+
+ths = [threading.Thread(target=ask, args=(i, s_)) for i, s_ in enumerate(["us", "ca", "de", "ca", "de"])]
+t0 = time.time()
+for t in ths:
+    t.start()
+for t in ths:
+    t.join(10)
+wall = time.time() - t0
+gate.update(delays={}, down=set())
+slowest = max(v[1] for v in done.values())
+results.append(ok(len(done) == 5 and wall < 0.9 and slowest < 0.9 and calls["us"] == 1,
+                  "a failing feed is fetched once and every caller in its flight gets the outcome together "
+                  "(wall %.2fs, US fetches %d)" % (wall, calls["us"])))
+results.append(ok(isinstance(done[0][2], RuntimeError) and str(done[0][2]) == "feed us timed out"
+                  and all(isinstance(done[i][2], dict) and not any(it.get("via") == "us" for it in done[i][2]["items"])
+                          for i in (1, 2, 3, 4)),
+                  "the US list raises its error; Canada's and Germany's lists load without US gap-fills, not "
+                  "queued behind a US retry (%s)" % ", ".join("%s %.2fs" % (v[0], v[1]) for _k, v in sorted(done.items()))))
+results.append(ok(not A._feed_flights and "us" not in A._feed_memo,
+                  "the failed attempt is not kept once its flight ends"))
+A.get_advisories("us")
+results.append(ok(calls["us"] == 2, "the next caller after it fetches again (%d)" % calls["us"]))
+
 reset(0)
 import server  # noqa: E402
 m = re.search(r"advisories\.FEED_MEMO_TTL = (\d+)", inspect.getsource(server.main))
