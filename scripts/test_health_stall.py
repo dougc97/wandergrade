@@ -26,7 +26,8 @@ What it holds the code to:
     for a current list; /api/advisories' fallback for a list that can't load
     reads the other lists the same way.
   * server.py main() listens with a backlog of 128 (socketserver's 5 let
-    Linux drop the health check's connection) and keeps daemon threads.
+    Linux drop the health check's connection) and keeps daemon threads, and
+    sets a 0.5 ms GIL switch interval.
   * server.py _warm_watchouts: ten guides' Canada notes are all fetched, never
     more than two at once, with no thread per guide; a country already queued
     or in flight is not queued again; a fetch that raises doesn't stop the
@@ -512,6 +513,11 @@ probe = cls(("127.0.0.1", 0), server.Handler) if cls else None
 results.append(ok(probe is not None and probe.request_queue_size == 128, "an instance listens with that backlog"))
 if probe:
     probe.server_close()
+
+m = re.search(r"sys\.setswitchinterval\(([0-9.]+)\)", inspect.getsource(server.main))
+results.append(ok(bool(m) and float(m.group(1)) <= 0.001 and sys.getswitchinterval() >= 0.004,
+                  "main() hands the GIL round every %s s (CPython's 0.005 starved the accept loop behind a "
+                  "background parse); importing server leaves it alone" % (m and m.group(1))))
 
 # --- server.py: Canada's notes, two fetches at a time ------------------------------------
 server._warm_watchouts = WARM_WATCHOUTS

@@ -3078,6 +3078,13 @@ def main():
     # lists that read it (fxtracker/advisories.py FEED_MEMO_TTL): off outside
     # the server, so the newsletter build and the tests parse as before.
     advisories.FEED_MEMO_TTL = 120
+    # Hand the GIL round every 0.5 ms, not CPython's 5 ms. On Render's 0.1 CPU
+    # each 5 ms slice a feed parse keeps costs ~50 ms of wall time, so while
+    # the advisory lists refresh in the background the accept loop and the
+    # page threads crawled; with a crawler's burst on top /healthz still
+    # timed out (stall_check --crawl 30: 29 of 47 probes over 5 s at 5 ms,
+    # median 6.9 s; at 0.5 ms 9 over 5 s, median 0.18 s; page slots below).
+    sys.setswitchinterval(0.0005)
     _warm_flight_value()
     _warm_rates()
     _warm_fx_history()
