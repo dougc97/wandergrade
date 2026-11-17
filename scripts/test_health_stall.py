@@ -24,6 +24,8 @@ What it holds the code to:
     background callers (the refresh thread, the guide-facts refresher) wait
     for a current list; /api/advisories' fallback for a list that can't load
     reads the other lists the same way.
+  * server.py main() listens with a backlog of 128 (socketserver's 5 let
+    Linux drop the health check's connection) and keeps daemon threads.
 """
 import copy
 import inspect
@@ -377,6 +379,18 @@ time.sleep(0.1)
 results.append(ok(fetch["n"].get("ca") == 1, "and Canada's list is refreshed once in the background (%s)" % fetch["n"]))
 settle()
 httpd.shutdown()
+
+# --- server.py: the listen backlog ------------------------------------------------------
+m = re.search(r"httpd = (\w+)\(\(host, port\), Handler\)", inspect.getsource(server.main))
+cls = getattr(server, m.group(1), None) if m else None
+results.append(ok(cls is not None and issubclass(cls, server.ThreadingHTTPServer) and cls.request_queue_size == 128
+                  and cls.daemon_threads is True,
+                  "main() serves with %s: request_queue_size %s, daemon threads"
+                  % (m and m.group(1), cls and cls.request_queue_size)))
+probe = cls(("127.0.0.1", 0), server.Handler) if cls else None
+results.append(ok(probe is not None and probe.request_queue_size == 128, "an instance listens with that backlog"))
+if probe:
+    probe.server_close()
 
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

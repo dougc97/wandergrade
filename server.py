@@ -3021,6 +3021,14 @@ def _warm_fx_history(delay=25):
     threading.Thread(target=run, daemon=True).start()
 
 
+class _Server(ThreadingHTTPServer):
+    # socketserver's listen backlog is 5, and Linux drops connections past
+    # it: while the advisory lists recomputed, a few page requests filled it
+    # and Render's /healthz check timed out.
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def main():
     # Port: CLI arg wins, else $PORT (hosting platforms set this), else 8000.
     port = int(sys.argv[1]) if len(sys.argv) > 1 else int(os.environ.get("PORT", 8000))
@@ -3066,7 +3074,7 @@ def main():
     # accounts.reconcile_optouts). Background, and a no-op without the
     # Buttondown/Upstash keys or once its done-marker is set.
     threading.Thread(target=accounts.reconcile_optouts, daemon=True).start()
-    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd = _Server((host, port), Handler)
     print("fx-tracker dashboard on {0}:{1}".format(host, port))
     print("Press Ctrl+C to stop.")
     try:
