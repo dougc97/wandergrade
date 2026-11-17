@@ -999,7 +999,8 @@ _adv_warm_lock = threading.Lock()
 
 def _adv_refresh(src):
     """Fetch one government's list on a background thread, unless one is
-    already fetching it."""
+    already fetching it. Never raises: a request reading the copy in hand
+    calls this, and a thread that won't start must not fail that request."""
     with _adv_warm_lock:
         if src in _adv_warming:
             return
@@ -1014,7 +1015,13 @@ def _adv_refresh(src):
             with _adv_warm_lock:
                 _adv_warming.discard(src)
 
-    threading.Thread(target=run, daemon=True).start()
+    try:
+        threading.Thread(target=run, daemon=True).start()
+    except Exception:
+        # (RuntimeError "can't start new thread".) Left in _adv_warming, the
+        # list would never be refreshed again: let the next request try.
+        with _adv_warm_lock:
+            _adv_warming.discard(src)
 
 
 def _warm_adv_lists():

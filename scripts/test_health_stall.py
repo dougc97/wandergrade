@@ -319,6 +319,34 @@ settle()
 results.append(ok(fetch["n"] == {"us": 1, "ca": 1, "de": 1} and server._adv_cache["ca"][1] is not old_ca,
                   "one refresh per list (%s)" % fetch["n"]))
 
+# A refresh thread that won't start (the process at its thread limit) must not
+# fail the request holding a copy, nor leave the list marked as refreshing.
+load(EXPIRED)
+old = server._adv_cache["us"][1]
+real_start = threading.Thread.start
+
+
+def no_start(self):
+    raise RuntimeError("can't start new thread")
+
+
+threading.Thread.start = no_start
+try:
+    r = server._advisories_payload("us")
+    err = None
+except Exception as e:
+    r, err = None, e
+finally:
+    threading.Thread.start = real_start
+results.append(ok(err is None and r is old and "us" not in server._adv_warming and "us" not in server._adv_failed,
+                  "a refresh thread that can't start: the request still gets the copy, nothing left marked as "
+                  "refreshing (%r)" % (err,)))
+r = server._advisories_payload("us")
+time.sleep(0.1)
+settle()
+results.append(ok(r is old and fetch["n"] == {"us": 1} and server._adv_cache["us"][1] is not old,
+                  "and the next request starts the refresh (%s)" % fetch["n"]))
+
 # The refresh fails: the copy is marked stale, as before.
 load(EXPIRED)
 old = server._adv_cache["us"][1]
