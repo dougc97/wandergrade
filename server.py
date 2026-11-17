@@ -898,11 +898,22 @@ def _adv_inputs():
     the page says so and goes out uncached — when each was fetched, and
     {source: seconds} for a feed whose refresh is failing (the copy's age)."""
     payloads, fetched, stale = {}, {}, {}
+    # A list not in hand is computed here (_adv_compute_once), which gives the
+    # page slot back meanwhile; with any cold, the three are read under one
+    # _no_slot, so the page queues for its slot again once, not once per
+    # list, each time behind a crawler's guides.
+    cold = any(_adv_cache.get(src) is None for src in _ADV_SRCS)
+    with (_no_slot() if cold else contextlib.nullcontext()):
+        got = {}
+        for src in _ADV_SRCS:
+            try:
+                got[src] = _advisories_payload(src)
+            except Exception as e:
+                got[src] = e
     for src in _ADV_SRCS:
-        try:
-            p = _advisories_payload(src)
-        except Exception as e:
-            print("[lists] %s advisories unavailable: %s" % (src, e), flush=True)
+        p = got[src]
+        if isinstance(p, Exception):
+            print("[lists] %s advisories unavailable: %s" % (src, p), flush=True)
             payloads[src] = None
             continue
         hit = _adv_cache.get(src)

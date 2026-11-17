@@ -930,6 +930,50 @@ def leader_follower(fail):
     return out
 
 
+# A list page with all three lists cold gives its slot back and queues for it
+# again once, not once per list: each re-take goes to the back of the slot
+# queue, behind a crawler's guides.
+
+
+class CountSem(threading.BoundedSemaphore):
+    def __init__(self, n):
+        super().__init__(n)
+        self.takes = 0
+
+    def acquire(self, *a, **k):
+        self.takes += 1
+        return super().acquire(*a, **k)
+
+
+load()
+fetch["delay"] = 0.05
+cs = CountSem(3)
+cs.acquire()
+cs.takes = 0
+server._slot_held.slots = cs
+try:
+    payloads, _f, _s = server._adv_inputs()
+    held_after = getattr(server._slot_held, "slots", None) is cs
+finally:
+    if getattr(server._slot_held, "slots", None) is cs:
+        server._slot_held.slots = None
+        cs.release()
+results.append(ok(cs.takes == 1 and held_after and all(isinstance(payloads[s_], dict) for s_ in ("us", "ca", "de"))
+                  and fetch["n"] == {"us": 1, "ca": 1, "de": 1},
+                  "/safe-and-cheap with the three lists cold: the slot is given back and taken again once, "
+                  "not once per list (%d re-takes)" % cs.takes))
+load(EXPIRED)
+cs.acquire()
+cs.takes = 0
+server._slot_held.slots = cs
+try:
+    server._adv_inputs()
+finally:
+    server._slot_held.slots = None
+    cs.release()
+settle()
+results.append(ok(cs.takes == 0, "and with the three in hand it keeps its slot throughout (%d re-takes)" % cs.takes))
+
 lf = leader_follower(False)
 took, r = lf.get("follower", (99, None))
 results.append(ok(took < 1.0 and isinstance(r, dict) and fetch["n"] == {"us": 1} and lf.get("leader_slot"),
