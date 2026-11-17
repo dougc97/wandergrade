@@ -32,6 +32,12 @@ Scenarios:
   cold         empty caches: main()'s own boot warm-ups plus the burst.
   fresh        the three lists filled and current (no refresh runs): what
                the burst alone costs, e.g. what a deeper backlog lets in.
+  slowapi      as fresh, but the burst is three /api/watchouts requests whose
+               upstream (Canada's per-country notes) answers --slow-s (8) s
+               late, and half a second later a visitor asks for /, a guide,
+               app.js and the cached /api/advisories?source=us: "visitors"
+               gives each one's seconds, "visitors_max" the worst. Requests
+               idle on an upstream must not hold the visitor up.
 
 --block SUBSTR fails every fetch whose URL contains it (a feed that is down:
 --block travel.state.gov), as offline (URLError: 3 tries, 4.5 s of backoff),
@@ -80,7 +86,14 @@ NETCACHE = os.environ.get("STALL_NETCACHE") or (
 BURST = ["/api/advisories?source=us", "/safe-and-cheap", "/safe-and-cheap?x=1", "/do-not-travel"]
 BURST_AT = 4.5
 PAGE_TIMEOUT = 40   # the burst's own timeout, so a slow cold page reports its time (probes: 20 s)
-SCENARIOS = ("adv_expired", "cold", "fresh")
+SCENARIOS = ("adv_expired", "cold", "fresh", "slowapi")
+# --scenario slowapi: three /api requests whose upstream answers SLOW_S late
+# (Canada's per-country notes, each its own fetch), and half a second later a
+# visitor's set: the app shell, a guide, a static file, a cached /api route.
+SLOW_API = ["/api/watchouts?iso=fr", "/api/watchouts?iso=it", "/api/watchouts?iso=es"]
+SLOW_URL = "/travel-voyage/cta-cap-"
+SLOW_S = 8.0
+VISITORS = ["/", "/guide/japan", "/app.js", "/api/advisories?source=us"]
 
 
 # ---- the child: the real server on replayed responses ------------------------------
@@ -117,6 +130,9 @@ def serve(port, scen, life, tree, opts):
 
     def fake_urlopen(req, *a, **kw):
         url = req.get_full_url() if hasattr(req, "get_full_url") else str(req)
+        for sub, secs in (opts.get("delay") or {}).items():
+            if sub in url:
+                time.sleep(secs)   # a slow upstream: the answer (or the failure) comes late
         if any(b in url for b in opts.get("block") or ()):
             blocked.append(url)
             if opts.get("block_code"):   # an HTTP error at once (4xx: no retries)
@@ -150,10 +166,10 @@ def serve(port, scen, life, tree, opts):
     if config["replay"] == "synthetic":
         synthetic(advisories)
 
-    if scen in ("adv_expired", "fresh"):
+    if scen in ("adv_expired", "fresh", "slowapi"):
         for s in server._ADV_SRCS:
             server._advisories_payload(s)
-    if scen == "fresh":
+    if scen in ("fresh", "slowapi"):
         say("lists filled, current: %s"
             % {s: len(server._adv_cache[s][1].get("items") or []) for s in server._adv_cache})
     if scen == "adv_expired":
@@ -228,7 +244,7 @@ def crawl_paths(tree, n):
 
 
 def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=None, burst_at=BURST_AT,
-        block_code=None):
+        block_code=None, slow_s=SLOW_S):
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -238,6 +254,10 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
            if k in ("PATH", "HOME", "LANG", "TMPDIR", "SSL_CERT_FILE") or k.startswith("LC_")}
     env["STALL_NETCACHE"] = NETCACHE
     opts = {"block": list(block), "block_code": block_code}
+    if scen == "slowapi":
+        opts["delay"] = {SLOW_URL: slow_s}
+        if burst_paths is None:
+            burst_paths = SLOW_API
     srv = subprocess.Popen([sys.executable, "-I", "-B", os.path.abspath(__file__), "--serve",
                             str(port), scen, str(life), tree, json.dumps(opts)],
                            stdout=log, stderr=subprocess.STDOUT if verbose else subprocess.DEVNULL, env=env)
@@ -305,8 +325,15 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
             for p in (BURST if burst_paths is None else burst_paths) + crawl_paths(tree, crawl):
                 threading.Thread(target=get, args=(p, pages, PAGE_TIMEOUT), daemon=True).start()
 
+        def visitors():
+            time.sleep(burst_at + 0.5)
+            for p in VISITORS:
+                threading.Thread(target=get, args=(p, pages, PAGE_TIMEOUT), daemon=True).start()
+
         threading.Thread(target=throttle, daemon=True).start()
         threading.Thread(target=burst, daemon=True).start()
+        if scen == "slowapi":
+            threading.Thread(target=visitors, daemon=True).start()
         while time.time() - t0 < life - 3:
             threading.Thread(target=get, args=("/healthz", probes), daemon=True).start()
             time.sleep(1.0)
@@ -345,6 +372,8 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
            "pages_ok": sum(1 for p in pages if p[2] == 200),
            "pages_max": max((p[1] for p in pages), default=None),
            "pages": pages, "config": config,
+           "visitors": {p[3]: p[1] if p[2] == 200 else p[2] for p in pages if scen == "slowapi" and p[3] in VISITORS},
+           "visitors_max": max((p[1] for p in pages if scen == "slowapi" and p[3] in VISITORS), default=None),
            "slow_probes": [p[:3] for p in probes if p[2] != 200 or p[1] > 1][:30]}
     print(json.dumps(res))
     if verbose:
@@ -370,6 +399,8 @@ def main():
                          "failing as offline (3 tries, 4.5 s of backoff)")
     ap.add_argument("--burst", metavar="PATH,PATH", help="the burst's paths instead of the default four")
     ap.add_argument("--burst-at", type=float, default=BURST_AT, metavar="S")
+    ap.add_argument("--slow-s", type=float, default=SLOW_S, metavar="S",
+                    help="slowapi: how late the slow upstream answers")
     ap.add_argument("--on-ms", type=float, default=5.0)
     ap.add_argument("--life", type=float, default=50.0)
     ap.add_argument("--label", default="")
@@ -379,7 +410,7 @@ def main():
     if not os.path.exists(os.path.join(tree, "server.py")):
         raise SystemExit("no server.py in %s" % tree)
     run(tree, a.scenario, a.on_ms, a.life, a.label or os.path.basename(tree), a.verbose, a.crawl,
-        a.block, a.burst.split(",") if a.burst else None, a.burst_at, a.block_code)
+        a.block, a.burst.split(",") if a.burst else None, a.burst_at, a.block_code, a.slow_s)
 
 
 if __name__ == "__main__":
