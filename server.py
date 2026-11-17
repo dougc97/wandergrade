@@ -2924,20 +2924,47 @@ def _redact_email(email_cfg):
     return out
 
 
-_watchouts_warming = set()
+_watchouts_warming = set()   # ISOs queued or being fetched
+_watchouts_queue = []        # ISOs waiting for a worker, oldest first
+_watchouts_workers = [0]     # worker threads running
 _watchouts_lock = threading.Lock()
+WATCHOUTS_WORKERS = 2        # Canada-notes fetches at once
 
 
 def _warm_watchouts(iso):
     """Fetch one country's Canada notes in the background (once at a time),
-    so the guide's advisory block can be sized on its next render."""
+    so the guide's advisory block can be sized on its next render. At most
+    WATCHOUTS_WORKERS fetch at once and the rest wait their turn: a crawler
+    after a cold start renders guide after guide, and each used to start a
+    thread of its own. A country queued or in flight is not queued again."""
     key = (iso or "").upper()
     with _watchouts_lock:
         if not key or key in _watchouts_warming:
             return
         _watchouts_warming.add(key)
+        _watchouts_queue.append(key)
+        if _watchouts_workers[0] >= WATCHOUTS_WORKERS:
+            return
+        _watchouts_workers[0] += 1
+    try:
+        threading.Thread(target=_watchouts_work, daemon=True).start()
+    except Exception:
+        with _watchouts_lock:
+            _watchouts_workers[0] -= 1
+            # Nobody will take what this worker would have: let a later
+            # render queue those countries again.
+            if not _watchouts_workers[0]:
+                _watchouts_warming.difference_update(_watchouts_queue)
+                del _watchouts_queue[:]
 
-    def run():
+
+def _watchouts_work():
+    while True:
+        with _watchouts_lock:
+            if not _watchouts_queue:
+                _watchouts_workers[0] -= 1
+                return
+            key = _watchouts_queue.pop(0)
         try:
             watchouts.get_watchouts(key)
         except Exception:
@@ -2945,8 +2972,6 @@ def _warm_watchouts(iso):
         finally:
             with _watchouts_lock:
                 _watchouts_warming.discard(key)
-
-    threading.Thread(target=run, daemon=True).start()
 
 
 def _keep_warm():

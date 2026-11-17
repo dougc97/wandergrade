@@ -26,6 +26,10 @@ What it holds the code to:
     reads the other lists the same way.
   * server.py main() listens with a backlog of 128 (socketserver's 5 let
     Linux drop the health check's connection) and keeps daemon threads.
+  * server.py _warm_watchouts: ten guides' Canada notes are all fetched, never
+    more than two at once, with no thread per guide; a country already queued
+    or in flight is not queued again; a fetch that raises doesn't stop the
+    queue.
 """
 import copy
 import inspect
@@ -162,6 +166,7 @@ results.append(ok(bool(m) and int(m.group(1)) > 0 and A.FEED_MEMO_TTL == 0,
                   "server.main() turns the memo on (%s s); importing server leaves it off" % (m and m.group(1))))
 
 # --- server.py: serve the copy in hand, one refresh in the background ---------------
+WARM_WATCHOUTS = server._warm_watchouts
 server._warm_watchouts = lambda iso: None
 server.flights.is_configured = lambda: False
 fetch = {"n": {}, "delay": 0.0, "fail": False, "hold": None}
@@ -391,6 +396,58 @@ probe = cls(("127.0.0.1", 0), server.Handler) if cls else None
 results.append(ok(probe is not None and probe.request_queue_size == 128, "an instance listens with that backlog"))
 if probe:
     probe.server_close()
+
+# --- server.py: Canada's notes, two fetches at a time ------------------------------------
+server._warm_watchouts = WARM_WATCHOUTS
+wo = {"running": 0, "peak": 0, "done": [], "gate": threading.Event()}
+wo_lock = threading.Lock()
+
+
+def fake_watchouts(iso):
+    with wo_lock:
+        wo["running"] += 1
+        wo["peak"] = max(wo["peak"], wo["running"])
+    try:
+        wo["gate"].wait(5)
+        time.sleep(0.05)
+        if iso == "XB":
+            raise RuntimeError("notes down")
+        return {"iso": iso}
+    finally:
+        with wo_lock:
+            wo["running"] -= 1
+            wo["done"].append(iso)
+
+
+server.watchouts.get_watchouts = fake_watchouts
+ISOS = ["JP", "TH", "VN", "MA", "XB", "CL", "EG", "PE", "MX", "IN"]
+threads0 = threading.active_count()
+for iso in ISOS:
+    server._warm_watchouts(iso)
+for iso in ISOS + ["jp", "th", "", None]:
+    server._warm_watchouts(iso)
+grown = threading.active_count() - threads0
+queued = len(server._watchouts_warming)
+wo["gate"].set()
+for _ in range(300):
+    with server._watchouts_lock:
+        idle = not server._watchouts_warming and not server._watchouts_workers[0]
+    if idle:
+        break
+    time.sleep(0.02)
+results.append(ok(grown <= 2 and queued == 10,
+                  "10 guides' notes asked for, twice over: %d threads started, 10 countries queued or in flight (%d)"
+                  % (grown, queued)))
+results.append(ok(sorted(wo["done"]) == sorted(ISOS) and wo["peak"] <= 2 and wo["peak"] == 2,
+                  "all 10 fetched once, a failing one included, never more than 2 at once (peak %d, %d fetches)"
+                  % (wo["peak"], len(wo["done"]))))
+results.append(ok(idle and not server._watchouts_queue, "the queue drains and the workers exit"))
+server._warm_watchouts("JP")
+for _ in range(100):
+    if wo["done"].count("JP") == 2:
+        break
+    time.sleep(0.02)
+results.append(ok(wo["done"].count("JP") == 2, "once done, a country can be fetched again (the next miss)"))
 
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)
