@@ -597,6 +597,52 @@ for t in ths:
 server.PAGE_SLOT_WAIT = saved_wait
 results.append(ok(over == 4 and codes == [200] * 4,
                   "3 slots held by stuck requests: a 4th runs anyway after PAGE_SLOT_WAIT (%d running)" % over))
+
+# Requests waiting on another thread's work (a cold list the boot warm-up is
+# computing) give their slots back while they wait.
+idle = {"ev": threading.Event(), "waiting": 0, "after": []}
+
+
+def waiting_do_get(self):
+    if not self.path.startswith("/wait"):
+        return fake_do_get(self)
+    with pg_lock:
+        idle["waiting"] += 1
+    server._idle_wait(idle["ev"], 5)
+    with pg_lock:
+        idle["waiting"] -= 1
+        idle["after"].append(getattr(server._slot_held, "slots", None) is server._page_slots)
+    body = b"waited"
+    self.send_response(200)
+    self.send_header("Content-Length", str(len(body)))
+    self.end_headers()
+    self.wfile.write(body)
+
+
+server.Handler._do_get = waiting_do_get
+pg.update(peak=0, gate=threading.Event())
+pg["gate"].set()
+del codes[:]
+server.PAGE_SLOT_WAIT = 5
+ths = [threading.Thread(target=get_page, args=("/wait?%d" % i,)) for i in range(3)]
+for t in ths:
+    t.start()
+for _ in range(100):
+    if idle["waiting"] == 3:
+        break
+    time.sleep(0.01)
+t0 = time.time()
+get_page("/guide/z")
+took = time.time() - t0
+idle["ev"].set()
+for t in ths:
+    t.join(10)
+server.PAGE_SLOT_WAIT = saved_wait
+results.append(ok(took < 0.5 and codes[0] == 200,
+                  "3 requests waiting on another thread's computation hold no slot: a page runs at once (%.2fs)" % took))
+results.append(ok(sorted(codes) == [200] * 4 and idle["after"] == [True] * 3
+                  and server._page_slots._value == server.PAGE_SLOTS,
+                  "they take their slots back after the wait, and every slot is free at the end"))
 httpd.shutdown()
 httpd.server_close()
 server.Handler._do_get = real_do_get

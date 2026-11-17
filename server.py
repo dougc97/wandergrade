@@ -1836,7 +1836,7 @@ def _adv_compute_once(source):
             with _adv_flight_lock:
                 _adv_flights.pop(source, None)
             flight["done"].set()
-    if not flight["done"].wait(ADV_FLIGHT_WAIT):
+    if not _idle_wait(flight["done"], ADV_FLIGHT_WAIT):
         return compute()
     if "error" in flight:
         raise flight["error"]
@@ -2023,6 +2023,25 @@ def _guide_query_redirect(raw_path):
 PAGE_SLOTS = 3
 PAGE_SLOT_WAIT = 15
 _page_slots = None
+_slot_held = threading.local()   # .slots: the semaphore this request thread holds a slot of
+
+
+def _idle_wait(event, timeout):
+    """event.wait(timeout) without holding this request's page slot: a
+    request waiting on another thread's work (a cold advisory list the boot
+    warm-up is computing) uses no CPU, and three of them held every slot and
+    kept a crawler's pages waiting PAGE_SLOT_WAIT. The slot is taken again
+    after (or the request goes on without one past PAGE_SLOT_WAIT)."""
+    slots = getattr(_slot_held, "slots", None)
+    if slots is None:
+        return event.wait(timeout)
+    _slot_held.slots = None
+    slots.release()
+    try:
+        return event.wait(timeout)
+    finally:
+        if slots.acquire(timeout=PAGE_SLOT_WAIT):
+            _slot_held.slots = slots
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -2382,11 +2401,13 @@ class Handler(BaseHTTPRequestHandler):
         slots = _page_slots
         if slots is None or self.path.split("?", 1)[0] == "/healthz":
             return self._do_get()
-        got = slots.acquire(timeout=PAGE_SLOT_WAIT)
+        if slots.acquire(timeout=PAGE_SLOT_WAIT):
+            _slot_held.slots = slots
         try:
             return self._do_get()
         finally:
-            if got:
+            if getattr(_slot_held, "slots", None) is slots:
+                _slot_held.slots = None
                 slots.release()
 
     def _do_get(self):
