@@ -1192,7 +1192,11 @@ with open(os.path.join(nc, _hl.sha1(_whole.encode()).hexdigest() + ".body"), "w"
 with open(os.path.join(nc, _hl.sha1(_whole.encode()).hexdigest() + ".json"), "w") as f:
     json.dump({"status": 200, "headers": {"Content-Type": "application/json"}}, f)
 fp = getattr(sc, "frankfurter_pieces", None)
-pcs = fp(nc, ROOT) if fp else {}
+try:
+    pcs = fp(nc, ROOT) if fp else {}
+finally:
+    import shutil  # noqa: E402
+    shutil.rmtree(nc, ignore_errors=True)
 first_piece = json.loads(pcs[_R0._history_url("1999-01-04", "2003-12-31")][0]) if pcs else {}
 last_piece = json.loads(pcs[_R0._history_url("2024-01-01")][0]) if pcs else {}
 results.append(ok(len(pcs) == 3 and sorted(first_piece.get("rates", {})) == ["1999-01-04", "2001-06-01"]
