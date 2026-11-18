@@ -1374,5 +1374,134 @@ results.append(ok(server.GZIP_LEVEL == 6 and "Content-Encoding: gzip" in h_gz an
                   "text responses gzip at level %d: world.geojson %d -> %d bytes (level 9: %d), raw without "
                   "Accept-Encoding" % (server.GZIP_LEVEL, len(raw_geo), len(b_gz), len(_gz.compress(raw_geo, 9)))))
 
+# --- server.py: the page memo (rendered guide and home bytes) ---------------------------
+import collections  # noqa: E402
+renders = []
+real_render = server._render_index
+
+
+def counted_render(iso=None):
+    renders.append(iso)
+    return real_render(iso)
+
+
+def page(path, gz=True, method="GET"):
+    """(status line + headers without Date, decompressed body) through the real Handler."""
+    head, body = handler_get(path, "Accept-Encoding: gzip\r\n" if gz else "") if method == "GET" else \
+        handler_head(path, gz)
+    if "Content-Encoding: gzip" in head and body:
+        body = _gz.decompress(body)
+    return re.sub(r"\r\nDate: [^\r]*", "", head), body
+
+
+def handler_head(path, gz=True):
+    a, b = _sock.socketpair()
+    b.sendall(("HEAD %s HTTP/1.1\r\nHost: wandergrade.com\r\n%s\r\n"
+               % (path, "Accept-Encoding: gzip\r\n" if gz else "")).encode())
+    got = []
+    rd = threading.Thread(target=lambda: [got.append(x) for x in iter(lambda: b.recv(65536), b"")], daemon=True)
+    rd.start()
+    server.Handler(a, ("127.0.0.1", 40000), _FakeSrv())
+    a.shutdown(_sock.SHUT_WR)
+    a.close()
+    rd.join(5)
+    b.close()
+    head, _, body = b"".join(got).partition(b"\r\n\r\n")
+    return head.decode("latin-1"), body
+
+
+saved_pm = (server._page_memo, server.PAGE_MEMO_TTL, server.PAGE_MEMO_MAX, server._render_index,
+            server._warm_watchouts, server._warm_popularity, server.datetime)
+server._warm_watchouts, server._warm_popularity = (lambda iso: None), (lambda: None)
+load(10)                                    # the three lists in hand and current: guides go out public
+try:
+    server._page_memo = None
+    off_plain = page("/guide/japan")
+    off_query = page("/guide/japan?utm_source=x&vmn=3&x=1")
+    off_raw = page("/guide/japan", gz=False)
+    off_head = page("/guide/japan", method="HEAD")
+    server._render_index = counted_render
+    page("/guide/japan")
+    page("/guide/japan")
+    memo_off_renders = len(renders)
+    server._page_memo = collections.OrderedDict()
+    del renders[:]
+    on = [page("/guide/japan"), page("/guide/japan?utm_source=x&vmn=3&x=1"), page("/guide/japan", gz=False),
+          page("/guide/japan", method="HEAD"), page("/guide/japan")]
+    one_render = list(renders)
+    entry = server._page_memo.get("JP")
+    # an input replaced (Canada's list refreshed, same content): rendered again
+    server._adv_cache["ca"] = (time.time(), copy.deepcopy(server._adv_cache["ca"][1]))
+    page("/guide/japan")
+    page("/guide/japan")
+    after_input = len(renders)
+    # past PAGE_MEMO_TTL: rendered again
+    server.PAGE_MEMO_TTL = 0.3
+    time.sleep(0.35)
+    page("/guide/japan")
+    after_ttl = len(renders)
+    server.PAGE_MEMO_TTL = saved_pm[1]
+
+    class Tomorrow(saved_pm[6]):
+        @classmethod
+        def now(cls, tz=None):
+            return saved_pm[6].fromtimestamp(time.time() + 86400, tz)
+
+    server.datetime = Tomorrow
+    page("/guide/japan")
+    server.datetime = saved_pm[6]
+    after_day = len(renders)
+    # a list not in hand (its fetch held): the guide goes out no-store, rendered every time, never kept
+    fetch["hold"] = threading.Event()
+    del server._adv_cache["de"]
+    server._page_memo.clear()
+    ns1, ns2 = page("/guide/peru"), page("/guide/peru")
+    no_store = len(renders) - after_day
+    peru_kept = "PE" in server._page_memo
+    fetch["hold"].set()
+    settle()
+    load(10)
+    # the homepage: once, then from the memo; a popularity refresh renders it again
+    del renders[:]
+    h1, h2 = page("/"), page("/")
+    home_once = list(renders)
+    server._pop_cache["data"] = {"arrivals": {"JP": 1}}
+    page("/")
+    home_after_pop = len(renders)
+    # at most PAGE_MEMO_MAX pages, the least recently used dropped first
+    server.PAGE_MEMO_MAX = 2
+    server._page_memo.clear()
+    for sl in ("chile", "peru", "chile", "kenya"):
+        page("/guide/" + sl)
+    held = list(server._page_memo)
+finally:
+    (server._page_memo, server.PAGE_MEMO_TTL, server.PAGE_MEMO_MAX, server._render_index,
+     server._warm_watchouts, server._warm_popularity, server.datetime) = saved_pm
+    server._pop_cache["data"] = None
+    fetch["hold"] = None
+results.append(ok(off_plain[1] == off_query[1] == off_raw[1] and "Cache-Control: public, max-age=300" in off_plain[0]
+                  and memo_off_renders == 2,
+                  "a guide's bytes don't depend on its query string (?utm_source=x&vmn=3&x=1 -> the same %d bytes), "
+                  "and with the memo off (tests, tools) every request renders" % len(off_plain[1])))
+results.append(ok(one_render == ["JP"] and on[0] == off_plain and on[1] == off_query and on[2] == off_raw
+                  and on[3] == off_head and on[4] == off_plain and off_head[1] == b"" and entry is not None
+                  and entry[4] is not None,
+                  "memo on: GET (gzip and raw), a query string and HEAD of one guide render it once, with the very "
+                  "status, headers and bytes the memo-off server sends (%d renders)" % len(one_render)))
+results.append(ok(after_input == 2 and after_ttl == 3 and after_day == 4,
+                  "an input replaced (a refreshed list, same content), PAGE_MEMO_TTL passing or a new day renders "
+                  "it again (renders %d, %d, %d)" % (after_input, after_ttl, after_day)))
+results.append(ok(no_store == 2 and not peru_kept and "Cache-Control: no-store" in ns1[0] and ns1 == ns2,
+                  "a guide going out no-store (a list not in hand) renders every time and is never kept"))
+results.append(ok(home_once == [None] and h1 == h2 and "public, max-age=300" in h1[0] and home_after_pop == 2,
+                  "the homepage renders once and is handed out again; new popularity figures render it again"))
+results.append(ok(held == ["CL", "KE"], "at most PAGE_MEMO_MAX pages are kept, the least recently used dropped "
+                                        "first (%s)" % held))
+src_main = inspect.getsource(server.main)
+results.append(ok(server._page_memo is None and "_page_memo = collections.OrderedDict()" in src_main
+                  and server.PAGE_MEMO_TTL == 300 and server.PAGE_MEMO_CACHE == "public, max-age=300",
+                  "main() turns the page memo on (%d s, public pages only); importing server leaves it off"
+                  % server.PAGE_MEMO_TTL))
+
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

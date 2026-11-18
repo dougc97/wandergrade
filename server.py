@@ -13,6 +13,7 @@ Endpoints:
 """
 
 import base64
+import collections
 import contextlib
 import gzip
 import hmac
@@ -1787,6 +1788,94 @@ def _render_index(gc_iso=None):
     return out.encode("utf-8")
 
 
+# ---- the page memo: rendered guide and home bytes ------------------------------
+# A guide or the homepage was rendered from scratch, and gzipped, on every
+# request, though between two requests nothing it reads usually changes: a
+# crawler's HEAD and then GET of one URL, each Cloudflare POP fetching the same
+# page for its own 5-minute copy, a guide asked for twice. A page is kept
+# here, raw and (once a client asks for it) gzipped, only when it goes out
+# public, max-age=300 (PAGE_MEMO_CACHE), and handed out again only while
+#   - every input it was rendered from is the very object it was (_page_inputs:
+#     the advisory lists, rates, PPP, fares, flight values, FX trend, health
+#     and guide-facts documents, Canada's notes or the popularity figures; each
+#     cache replaces what it holds, never edits it), and the values it read
+#     (fares configured, warm pass done, failed lists, the UTC and local day)
+#     are equal: any change re-renders at once;
+#   - its Cache-Control decision is still PAGE_MEMO_CACHE: a page that would go
+#     out no-store now is rendered fresh, as before;
+#   - it is younger than PAGE_MEMO_TTL, so anything not listed above moves
+#     within the 5 minutes an edge copy of it lasts anyway.
+# A query string never changed a guide or the homepage (_render_index takes
+# only the country), so /guide/japan?x=1 and /guide/japan share an entry; HEAD
+# sends the same status and headers from it. At most PAGE_MEMO_MAX pages, the
+# least recently used dropped first. Off (None) unless server.main() turns
+# it on: tests and tools that edit a cache in place render every time.
+PAGE_MEMO_TTL = 300
+PAGE_MEMO_MAX = 64          # ~100 KB raw + ~28 KB gzipped each: ~8 MB at most
+PAGE_MEMO_CACHE = "public, max-age=300"
+_page_memo = None           # OrderedDict: iso or "" -> (born, objs, vals, raw, gz or None)
+_page_memo_lock = threading.Lock()
+
+
+def _page_inputs(iso):
+    """(objects, values) a guide (iso) or the homepage (None) is rendered
+    from: objects compared by identity, values by equality. Read through the
+    accessors the render itself uses, side effects included (_fx_inputs'
+    PPP refresh check, the background fetch of Canada's notes or of the
+    popularity figures when missing), so a memo hit starts what a render
+    would have."""
+    configured = flights.is_configured()
+    fh = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
+    fv = _fv_build(fh[1]) if configured and fh and fh[1] else None
+    rp, ppp = _fx_inputs()
+    objs = tuple(_adv_cache.get(s) for s in _ADV_SRCS) + (
+        rp, ppp, fh, fv, rates._trend_cache.get("USD"), health.get_doc(), guide_facts.get_doc())
+    if iso:
+        notes = watchouts.cache_entry(iso)
+        if notes is None or notes[1].get("_failed"):
+            _warm_watchouts(iso)       # as _guide_sizers does with no notes in hand
+        objs += (notes,)
+    else:
+        pop = _pop_cache.get("data")
+        if not (pop or {}).get("arrivals"):
+            _warm_popularity()         # as _home_picks does
+        objs += (pop,)
+    vals = (configured, flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN), frozenset(_adv_failed),
+            time.strftime("%Y-%m-%d", time.gmtime()), datetime.now().date())
+    return objs, vals
+
+
+def _page_bytes(iso, want_gz):
+    """(raw, gzipped or None) for a guide (iso) or the homepage (None) that
+    goes out as PAGE_MEMO_CACHE: from the memo when nothing it was rendered
+    from has changed, else rendered (and kept). gzipped only when asked."""
+    objs, vals = _page_inputs(iso)
+    key, now = iso or "", time.time()
+    with _page_memo_lock:
+        hit = _page_memo.get(key)
+        if hit is not None:
+            _page_memo.move_to_end(key)
+    if hit is not None and now - hit[0] < PAGE_MEMO_TTL and hit[2] == vals \
+            and len(hit[1]) == len(objs) and all(a is b for a, b in zip(hit[1], objs)):
+        raw, gz = hit[3], hit[4]
+        if want_gz and gz is None:
+            gz = gzip.compress(raw, GZIP_LEVEL)
+            with _page_memo_lock:
+                if _page_memo.get(key) is hit:
+                    _page_memo[key] = hit[:4] + (gz,)
+        return raw, gz
+    raw = _render_index(iso)
+    gz = gzip.compress(raw, GZIP_LEVEL) if want_gz else None
+    with _page_memo_lock:
+        _page_memo[key] = (now, objs, vals, raw, gz)
+        _page_memo.move_to_end(key)
+        for k in [k for k, e in _page_memo.items() if now - e[0] >= PAGE_MEMO_TTL]:
+            del _page_memo[k]
+        while len(_page_memo) > PAGE_MEMO_MAX:
+            _page_memo.popitem(last=False)
+    return raw, gz
+
+
 # ---- upstream-backed caches ----------------------------------------------------
 # A refresh that fails must not turn a copy we already hold into an error: the
 # US advisory feed in particular is flaky, and one failed 6-hourly refresh made
@@ -2225,16 +2314,22 @@ class Handler(BaseHTTPRequestHandler):
     def _gzip_ok(self):
         return "gzip" in (self.headers.get("Accept-Encoding") or "")
 
-    def _send_body(self, body, ctype, status=200, cache=None, extra=None):
-        """Send a response, gzipping text payloads over ~1KB when accepted.
-        world.geojson alone drops ~163KB -> ~50KB, which matters most on
-        Render free-tier cold starts."""
-        encoding = None
+    def _gzips(self, body, ctype):
+        """True when _send_body sends `body` gzipped: a text payload over ~1KB
+        to a client that accepts it."""
         # Already-compressed media is left alone — and audio MUST be: a gzipped
         # mp3 has no byte ranges, which iOS Safari needs to play it at all.
-        if len(body) > 1024 and self._gzip_ok() \
-                and not ctype.startswith(("image/", "audio/", "video/", "font/woff2")):
-            body = gzip.compress(body, GZIP_LEVEL)
+        return len(body) > 1024 and self._gzip_ok() \
+            and not ctype.startswith(("image/", "audio/", "video/", "font/woff2"))
+
+    def _send_body(self, body, ctype, status=200, cache=None, extra=None, gzipped=None):
+        """Send a response, gzipping text payloads over ~1KB when accepted.
+        world.geojson alone drops ~163KB -> ~50KB, which matters most on
+        Render free-tier cold starts. `gzipped`: body already compressed
+        (the page memo's copy), used where _gzips says to compress."""
+        encoding = None
+        if self._gzips(body, ctype):
+            body = gzipped if gzipped is not None else gzip.compress(body, GZIP_LEVEL)
             encoding = "gzip"
         self.send_response(status)
         for hk, hv in SECURITY_HEADERS.items():
@@ -2250,6 +2345,17 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if not getattr(self, "_head_only", False):
             self.wfile.write(body)   # HEAD: same status/headers, no body
+
+    def _send_page(self, iso, cache):
+        """A guide (iso) or the homepage (None) going out with `cache`: from
+        the page memo when it is on and the page is public for 5 minutes
+        (_page_bytes), else rendered for this request alone, as before."""
+        ctype = "text/html; charset=utf-8"
+        if _page_memo is None or cache != PAGE_MEMO_CACHE:
+            self._send_body(_render_index(iso), ctype, cache=cache)
+            return
+        raw, gz = _page_bytes(iso, self._gzip_ok())   # a page is always over _gzips' 1 KB
+        self._send_body(raw, ctype, cache=cache, gzipped=gz)
 
     def _send_json(self, obj, status=200, extra=None):
         # Say something about caching, or the browser decides for us. With no
@@ -2754,8 +2860,7 @@ class Handler(BaseHTTPRequestHandler):
             if target:
                 self._redirect(target)
                 return
-            self._send_body(_render_index(None), "text/html; charset=utf-8",
-                            cache="public, max-age=300")
+            self._send_page(None, "public, max-age=300")
             return
         if path.startswith("/guide/"):
             raw = path[len("/guide/"):]
@@ -2764,7 +2869,7 @@ class Handler(BaseHTTPRequestHandler):
                 # Decided before the render: a list that lands in between
                 # only makes the page more right than its header says.
                 cache = _guide_cache(iso)
-                self._send_body(_render_index(iso), "text/html; charset=utf-8", cache=cache)
+                self._send_page(iso, cache)
                 return
             # Only the exact lowercase slug is served. Everything else that
             # names a guide — /guide/Japan, a trailing slash, an alternate
@@ -3333,8 +3438,9 @@ def main():
     # the server, so the newsletter build and the tests parse as before.
     advisories.FEED_MEMO_TTL = 120
     sys.setswitchinterval(SWITCH_INTERVAL)
-    global _page_slots
+    global _page_slots, _page_memo
     _page_slots = threading.BoundedSemaphore(PAGE_SLOTS)
+    _page_memo = collections.OrderedDict()
     _warm_flight_value()
     _warm_rates()
     _warm_fx_history()

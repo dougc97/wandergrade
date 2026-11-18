@@ -2057,6 +2057,13 @@ def cached(iso):
     return None if not hit or hit[1].get("_failed") else {k: v for k, v in hit[1].items() if k != "_failed"}
 
 
+def cache_entry(iso):
+    """The cache's own (fetched_at, payload) entry for a country, or None.
+    Entries are replaced, never edited, so the same entry is the same notes:
+    the server's page memo keys on it (cached() hands out a new dict per call)."""
+    return _cache.get((iso or "").strip().lower()[:2])
+
+
 def fingerprint(text):
     """A regional block's words without their layout: the parser's bullets,
     spacing and punctuation can change while Canada's advice doesn't
