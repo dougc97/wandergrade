@@ -1601,7 +1601,16 @@ try:
     age_history(R.HISTORY_TTL + 5)
     fxh.update(urls=[], bytes=[], drop="2026-11-04")
     R.get_history()
+    fxh.update(drop=None)
     gap_full = len(fxh["urls"]) == 2 and "/1999-01-04..?" in fxh["urls"][1]
+    # a day inside the overlap that the copy lacks (published late): fetched whole
+    R._history.update(snap=(0.0, [], {}), retry_at=0.0)
+    fxh.update(until="2026-11-13", drop="2026-11-04", urls=[], revise=None, fail=False)
+    R.get_history()                      # the copy, without 2026-11-04
+    fxh.update(drop=None, urls=[])
+    age_history(R.HISTORY_TTL + 5)
+    late = R.get_history()
+    late_full = len(fxh["urls"]) == 2 and "/1999-01-04..?" in fxh["urls"][1] and "2026-11-04" in late[1]
     # the update failing: the copy is served, retried after HISTORY_RETRY, no whole fetch tried
     fresh_history("2026-11-06")
     kept = R._history["snap"]
@@ -1644,8 +1653,9 @@ results.append(ok(upd_ok, "a copy past HISTORY_TTL is brought up to date by one 
                           "date (%s, %d bytes), equal to fetching it whole"
                   % (upd_urls and upd_urls[0].split("/")[-1].split("?")[0], upd_bytes and upd_bytes[0])))
 results.append(ok(nothing_new, "with nothing new it keeps the copy's lists under a new fetch time"))
-results.append(ok(revised and gap_full, "a reply that disagrees with the copy (a revised fixing) or skips one of its "
-                                        "days is fetched whole instead, and the revision kept"))
+results.append(ok(revised and gap_full and late_full,
+                  "a reply that disagrees with the copy (a revised fixing), skips one of its days or has a day it "
+                  "lacks (published late) is fetched whole instead, and the revision or late day kept"))
 results.append(ok(down_ok and stale_raises, "the update failing serves the copy and backs off HISTORY_RETRY with no "
                                             "whole fetch; past HISTORY_STALE nothing is served, as before"))
 results.append(ok(mask_ok, "INDEX_MASK holds for the days an update appends (%s)" % masked))

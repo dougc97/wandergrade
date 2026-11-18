@@ -463,8 +463,9 @@ def _history_update(snap):
     """(dates, cols): the copy in hand plus the days after it, from a reply
     for HISTORY_TAIL_DAYS before its last date onward. Every day the copy
     holds from there must come back with the same rates (to a part in a
-    million, masked days aside), else _NoOverlap: a revised fixing or a
-    different series is fetched whole instead. Nothing new: the copy's own
+    million, masked days aside), and no other day before its last, else
+    _NoOverlap: a revised fixing, a fixing published late, or a different
+    series is fetched whole instead. Nothing new: the copy's own
     lists. Network errors propagate as from the full fetch."""
     _at, dates, cols = snap
     start = (datetime.date.fromisoformat(dates[-1]) - datetime.timedelta(days=HISTORY_TAIL_DAYS)).isoformat()
@@ -476,6 +477,8 @@ def _history_update(snap):
     held = dates[i0:]
     if not held or any(d not in days for d in held):
         raise _NoOverlap("FX history update doesn't cover the copy's last %d days" % len(held))
+    if any(start <= d < dates[-1] for d in set(days) - set(held)):
+        raise _NoOverlap("FX history update has a day inside the copy that the copy lacks")
     for c in MAJORS:
         for old, new in zip(cols[c][i0:], _history_col(days, held, c)):
             if (old is None) != (new is None) or (old is not None and abs(new - old) > 1e-6 * abs(old)):
