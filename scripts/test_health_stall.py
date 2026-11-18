@@ -1215,5 +1215,48 @@ for _ in range(100):
     time.sleep(0.02)
 results.append(ok(wo["done"].count("JP") == 2, "once done, a country can be fetched again (the next miss)"))
 
+# --- fxtracker: the country centroids, once per process ------------------------------
+# A guide's grades and the homepage's picks estimate every country's fare by
+# distance (picks.fare_context); the centroids behind it were recomputed from
+# world.geojson on every render (9.5 ms of a 15.8 ms guide).
+import datetime  # noqa: E402
+from fxtracker import geo, guide_lines, home_picks, picks, render_cheapest  # noqa: E402
+PARITY = os.path.join(ROOT, "scripts", "parity")
+jl = lambda *p: json.load(open(os.path.join(ROOT, *p), encoding="utf-8"))
+fx_inputs = {"rates": jl("scripts", "parity", "fixture_rates.json"), "ppp": jl("public", "ppp.json"),
+             "climate": jl("public", "climate.json"), "activities": jl("public", "activities.json"),
+             "advisories": jl("scripts", "parity", "fixture_advisories.json"),
+             "flights": jl("scripts", "parity", "fixture_flights.json"),
+             "fv": jl("scripts", "parity", "fixture_flight_value.json")}
+fresh_c = geo.country_centroids()
+cc_calls, fc_seen = [0], []
+real_cc, real_fc = geo.country_centroids, picks.fare_context
+
+
+def counting_cc(world=None):
+    cc_calls[0] += 1
+    return real_cc(world)
+
+
+def watching_fc(data, centroids=None):
+    fc_seen.append(centroids)
+    return real_fc(data, centroids)
+
+
+site_c = geo.site_centroids()
+geo.country_centroids, picks.fare_context = counting_cc, watching_fc
+try:
+    scores = [guide_lines.score(iso, fx_inputs, 3) for iso in ("JP", "TH", "PE")]
+    hp = home_picks.build(dict(fx_inputs, popular=set()), {}, datetime.date(2026, 11, 18))
+    cheap_c = render_cheapest.centroids()
+finally:
+    geo.country_centroids, picks.fare_context = real_cc, real_fc
+results.append(ok(site_c == fresh_c and geo.site_centroids() is site_c and cheap_c is site_c and cc_calls[0] == 0
+                  and len(fc_seen) == 4 and all(c is site_c for c in fc_seen) and all(scores),
+                  "the guide grades (3 renders) and the home picks score with the centroids computed once per "
+                  "process, equal to a fresh computation (%d recomputes, %d fare contexts)" % (cc_calls[0], len(fc_seen))))
+results.append(ok("geo.country_centroids()" in inspect.getsource(picks.fare_context),
+                  "picks.fare_context without centroids still computes them fresh (the newsletter build's path)"))
+
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

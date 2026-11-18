@@ -94,15 +94,10 @@ def month_order(today):
     return [(m - 1 + i) % 12 + 1 for i in range(12)]
 
 
-_cent = None
-
-
 def centroids():
-    """app.js countryCentroids, from the committed world.geojson, once."""
-    global _cent
-    if _cent is None:
-        _cent = geo.country_centroids()
-    return _cent
+    """app.js countryCentroids, from the committed world.geojson, once
+    (geo.site_centroids, shared with the guide and home renders)."""
+    return geo.site_centroids()
 
 
 def _f(c):

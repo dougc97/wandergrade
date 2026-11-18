@@ -120,6 +120,23 @@ def country_centroids(world=None):
     return out
 
 
+_site_cent = [None]
+
+
+def site_centroids():
+    """country_centroids() of the committed world.geojson, computed once per
+    process. The guide and home renders score every country with a fare
+    estimate by distance (picks.fare_context), and recomputing these on each
+    render was 9.5 ms of a 15.8 ms guide (json.load of world.geojson 1.8 ms,
+    the rings in Python the rest) — the largest single cost of a crawler's
+    page on Render's 0.15 CPU. The file only changes with a deploy. Shared:
+    read it, never modify it."""
+    c = _site_cent[0]
+    if c is None:
+        c = _site_cent[0] = country_centroids()
+    return c
+
+
 def bbox(geometry):
     """(min_lon, min_lat, max_lon, max_lat) over every ring."""
     xs, ys = [], []

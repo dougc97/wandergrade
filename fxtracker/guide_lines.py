@@ -23,7 +23,7 @@ together.
 
 import datetime
 
-from . import guide_sizers, picks, pricelevel
+from . import geo, guide_sizers, picks, pricelevel
 from .home_picks import MON_ABBR, MON_FULL, advisory_by_iso, esc, flex_window, grade_cls, pill
 
 
@@ -55,7 +55,7 @@ def score(iso, inputs, month):
     strength = {r["code"]: r["strength_pct"] for r in rows if "code" in r and "strength_pct" in r}
     fit = pricelevel.plausibility_fit(ppp, rate_by_code, picks.CUR_BY_ISO)
     anchor = picks._price_level("US", ppp, rate_by_code, fit) or 1
-    fares = picks.fare_context(inputs.get("flights")) if inputs.get("flights") else None
+    fares = picks.fare_context(inputs.get("flights"), geo.site_centroids()) if inputs.get("flights") else None
     if fares:
         fares["fv"] = inputs.get("fv")
     return picks._score(iso, month, ppp, inputs["climate"], rate_by_code, strength,

@@ -27,7 +27,7 @@ jsc on one fixture and compares: change them together.
 import datetime
 import re
 
-from . import picks, pricelevel
+from . import geo, picks, pricelevel
 
 MON_FULL = ["January", "February", "March", "April", "May", "June", "July",
             "August", "September", "October", "November", "December"]
@@ -186,7 +186,7 @@ def rank(inputs, today):
     strength = {r["code"]: r["strength_pct"] for r in rows if "code" in r and "strength_pct" in r}
     fit = pricelevel.plausibility_fit(ppp, rate_by_code, picks.CUR_BY_ISO)
     anchor = picks._price_level("US", ppp, rate_by_code, fit) or 1
-    fares = picks.fare_context(inputs.get("flights")) if inputs.get("flights") else None
+    fares = picks.fare_context(inputs.get("flights"), geo.site_centroids()) if inputs.get("flights") else None
     fv = inputs.get("fv")
     if fares:
         fares["fv"] = fv
