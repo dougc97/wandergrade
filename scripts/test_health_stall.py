@@ -1503,5 +1503,123 @@ results.append(ok(server._page_memo is None and "_page_memo = collections.Ordere
                   "main() turns the page memo on (%d s, public pages only); importing server leaves it off"
                   % server.PAGE_MEMO_TTL))
 
+# --- fxtracker/rates.py: the FX history refresh asks only for the days it lacks ----------
+# The whole ECB history since 1999 is a 2.75 MB reply (one json.loads held the
+# GIL ~17-22 ms), refetched every HISTORY_TTL on whichever request asked
+# first. A copy in hand is now brought up to date from its last days on.
+from fxtracker import rates as R  # noqa: E402
+FXH = jl("scripts", "fixtures", "fx_history", "frankfurter_2026-11-16.json")
+fxh = {"until": "2026-11-13", "urls": [], "bytes": [], "fail": False, "revise": None, "drop": None}
+
+
+def fake_history_fetch(url, retries=3):
+    assert url.startswith(R.HISTORY_API + "/") and "symbols=" + ",".join(sorted(R.MAJORS)) in url, url
+    fxh["urls"].append(url)
+    if fxh["fail"]:
+        raise urllib.error.URLError("frankfurter down")
+    start = url[len(R.HISTORY_API) + 1:].split("..", 1)[0]
+    rates_ = {k: dict(v) for k, v in FXH["rates"].items() if start <= k <= fxh["until"] and k != fxh["drop"]}
+    if fxh["revise"] and fxh["revise"][0] in rates_:
+        d_, c_ = fxh["revise"]
+        rates_[d_][c_] = round(rates_[d_][c_] * 1.01, 5)
+    body = {"amount": 1.0, "base": "USD", "start_date": min(rates_), "end_date": max(rates_), "rates": rates_}
+    fxh["bytes"].append(len(json.dumps(body)))
+    return json.loads(json.dumps(body))
+
+
+def fresh_history(until):
+    """get_history() from nothing, the fixture served up to `until`."""
+    R._history.update(snap=(0.0, [], {}), retry_at=0.0)
+    fxh.update(until=until, urls=[], bytes=[], fail=False, revise=None, drop=None)
+    return R.get_history()
+
+
+def age_history(secs):
+    at, d_, c_ = R._history["snap"]
+    R._history["snap"] = (time.time() - secs, d_, c_)
+
+
+saved_r = (R.fetch_json, dict(R._history), dict(R.INDEX_MASK))
+R.fetch_json = fake_history_fetch
+logs = []
+try:
+    whole = fresh_history("2026-11-13")
+    whole_urls, whole_bytes = list(fxh["urls"]), list(fxh["bytes"])
+    # a copy from a week ago, past HISTORY_TTL: one small fetch from its last 10 days on
+    fresh_history("2026-11-06")
+    held_at, held_dates, held_cols = R._history["snap"]
+    age_history(R.HISTORY_TTL + 5)
+    fxh.update(until="2026-11-13", urls=[], bytes=[])
+    upd = R.get_history()
+    upd_urls, upd_bytes = list(fxh["urls"]), list(fxh["bytes"])
+    upd_ok = (upd[1] == whole[1] and upd[2] == whole[2] and upd[0] > held_at and len(upd_urls) == 1
+              and "/2026-10-27..?" in upd_urls[0] and upd_bytes[0] < whole_bytes[0] / 10
+              and held_dates[-1] == "2026-11-06" and R._history["snap"] is upd)
+    # nothing new since: the copy's own lists under a new time
+    age_history(R.HISTORY_TTL + 5)
+    fxh.update(urls=[], bytes=[])
+    same = R.get_history()
+    nothing_new = same[1] is upd[1] and same[2] is upd[2] and same[0] > upd[0] and len(fxh["urls"]) == 1
+    # a revised fixing inside the overlap: fetched whole, and the revision kept
+    fresh_history("2026-11-13")
+    age_history(R.HISTORY_TTL + 5)
+    fxh.update(urls=[], bytes=[], revise=("2026-11-10", "EUR"))
+    rev = R.get_history()
+    i10 = rev[1].index("2026-11-10")
+    revised = (len(fxh["urls"]) == 2 and "/1999-01-04..?" in fxh["urls"][1] and rev[1] == whole[1]
+               and abs(rev[2]["EUR"][i10] - whole[2]["EUR"][i10] * 1.01) < 1e-4)
+    # an overlap day missing from the reply: fetched whole
+    fresh_history("2026-11-13")
+    age_history(R.HISTORY_TTL + 5)
+    fxh.update(urls=[], bytes=[], drop="2026-11-04")
+    R.get_history()
+    gap_full = len(fxh["urls"]) == 2 and "/1999-01-04..?" in fxh["urls"][1]
+    # the update failing: the copy is served, retried after HISTORY_RETRY, no whole fetch tried
+    fresh_history("2026-11-06")
+    kept = R._history["snap"]
+    age_history(R.HISTORY_TTL + 5)
+    kept = R._history["snap"]
+    fxh.update(urls=[], fail=True)
+    served = R.get_history()
+    again = R.get_history()
+    down_ok = (served is kept and again is kept and len(fxh["urls"]) == 1
+               and R._history["retry_at"] > time.time() + R.HISTORY_RETRY - 5)
+    # past HISTORY_STALE with the source down: nothing to serve, as before
+    R._history["retry_at"] = 0.0
+    age_history(R.HISTORY_STALE + 5)
+    try:
+        R.get_history()
+        stale_raises = False
+    except Exception:
+        stale_raises = True
+    # INDEX_MASK holds for the days an update appends
+    fresh_history("2026-11-06")
+    age_history(R.HISTORY_TTL + 5)
+    R.INDEX_MASK["ISK"] = ("2026-11-10", "2026-11-11")
+    fxh.update(until="2026-11-13", urls=[], fail=False)
+    m = R.get_history()
+    masked = [m[2]["ISK"][m[1].index(d_)] for d_ in ("2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12")]
+    mask_ok = masked[0] is not None and masked[1] is None and masked[2] is None and masked[3] is not None \
+        and len(fxh["urls"]) == 1
+finally:
+    R.fetch_json = saved_r[0]
+    R._history.clear()
+    R._history.update(saved_r[1])
+    R.INDEX_MASK.clear()
+    R.INDEX_MASK.update(saved_r[2])
+results.append(ok(len(whole_urls) == 1 and "/1999-01-04..?" in whole_urls[0] and len(whole[1]) == len(FXH["rates"])
+                  and whole[2]["ISK"][0] is not None,
+                  "the first FX history fetch is the whole history since 1999 (%d days, %d bytes here)"
+                  % (len(whole[1]), whole_bytes[0])))
+results.append(ok(upd_ok, "a copy past HISTORY_TTL is brought up to date by one fetch from 10 days before its last "
+                          "date (%s, %d bytes), equal to fetching it whole"
+                  % (upd_urls and upd_urls[0].split("/")[-1].split("?")[0], upd_bytes and upd_bytes[0])))
+results.append(ok(nothing_new, "with nothing new it keeps the copy's lists under a new fetch time"))
+results.append(ok(revised and gap_full, "a reply that disagrees with the copy (a revised fixing) or skips one of its "
+                                        "days is fetched whole instead, and the revision kept"))
+results.append(ok(down_ok and stale_raises, "the update failing serves the copy and backs off HISTORY_RETRY with no "
+                                            "whole fetch; past HISTORY_STALE nothing is served, as before"))
+results.append(ok(mask_ok, "INDEX_MASK holds for the days an update appends (%s)" % masked))
+
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

@@ -354,6 +354,13 @@ HISTORY_START = "1999-01-04"      # the ECB's first euro fixing
 HISTORY_TTL = 12 * 3600           # the ECB publishes once a business day
 HISTORY_STALE = 7 * 24 * 3600     # serve an older copy this long if it's down
 HISTORY_RETRY = 600               # after a failed fetch, don't ask again sooner
+# A refresh of a copy in hand asks only for the days from this many before its
+# last date on (get_history's update), where the whole history since 1999 is a
+# 2.75 MB reply whose one json.loads held the GIL ~17-22 ms on a fast Mac (a
+# second or more of stalled /healthz on Render's 0.15 CPU), every 12 hours,
+# inline on whichever request asked first. The overlap must come back with the
+# copy's own rates, or the full history is fetched instead.
+HISTORY_TAIL_DAYS = 10
 # Chronic high inflation is not the dollar getting stronger: the lira fell
 # ~155x against it from 1999. Kept in, it would add ~24 points to this index's
 # since-1999 change and double its 10-year one.
@@ -397,11 +404,65 @@ def _check_history(days, old_dates):
         raise ValueError("FX history came back behind the copy held")
 
 
+def _history_url(start):
+    return "{0}/{1}..?base=USD&symbols={2}".format(HISTORY_API, start, ",".join(sorted(MAJORS)))
+
+
+def _history_col(days, dates, c):
+    """One currency's column over `dates`, INDEX_MASK applied."""
+    lo, hi = INDEX_MASK.get(c, ("~", "~"))
+    return [None if lo <= d <= hi else (days[d].get(c) or None) for d in dates]
+
+
+def _history_full(old_dates):
+    """(dates, cols) from the whole history since HISTORY_START."""
+    data = fetch_json(_history_url(HISTORY_START))
+    days = {_day(k): v for k, v in (data.get("rates") or {}).items()}
+    _check_history(days, old_dates)
+    dates = sorted(days)
+    return dates, {c: _history_col(days, dates, c) for c in MAJORS}
+
+
+class _NoOverlap(ValueError):
+    """An update reply that doesn't continue the copy held."""
+
+
+def _history_update(snap):
+    """(dates, cols): the copy in hand plus the days after it, from a reply
+    for HISTORY_TAIL_DAYS before its last date onward. Every day the copy
+    holds from there must come back with the same rates (to a part in a
+    million, masked days aside), else _NoOverlap: a revised fixing or a
+    different series is fetched whole instead. Nothing new: the copy's own
+    lists. Network errors propagate as from the full fetch."""
+    _at, dates, cols = snap
+    start = (datetime.date.fromisoformat(dates[-1]) - datetime.timedelta(days=HISTORY_TAIL_DAYS)).isoformat()
+    data = fetch_json(_history_url(start))
+    days = {_day(k): v for k, v in (data.get("rates") or {}).items()}
+    i0 = len(dates)
+    while i0 and dates[i0 - 1] >= start:
+        i0 -= 1
+    held = dates[i0:]
+    if not held or any(d not in days for d in held):
+        raise _NoOverlap("FX history update doesn't cover the copy's last %d days" % len(held))
+    for c in MAJORS:
+        for old, new in zip(cols[c][i0:], _history_col(days, held, c)):
+            if (old is None) != (new is None) or (old is not None and abs(new - old) > 1e-6 * abs(old)):
+                raise _NoOverlap("FX history update disagrees with the copy on %s" % c)
+    added = sorted(d for d in days if d > dates[-1])
+    if not added:
+        return dates, cols
+    new_dates = dates + added
+    _check_history(new_dates, dates)
+    return new_dates, {c: cols[c] + _history_col(days, added, c) for c in MAJORS}
+
+
 def get_history():
     """(fetched_at, dates, {code: [USD-based rate or None per date]}) from
     1999 to the latest ECB fixing, cached HISTORY_TTL; an older copy (up to
     HISTORY_STALE) is served while the source is down, or while another
-    request is already refreshing it. Raises when there is nothing to serve."""
+    request is already refreshing it. Raises when there is nothing to serve.
+    The first fetch is the whole history; a refresh of a copy in hand asks
+    only for its last days and what came after (_history_update)."""
     snap = _history["snap"]
     if snap[1] and time.time() - snap[0] < HISTORY_TTL:
         return snap
@@ -420,10 +481,13 @@ def get_history():
                 return snap
             raise RuntimeError("FX history unavailable")
         try:
-            data = fetch_json("{0}/{1}..?base=USD&symbols={2}".format(
-                HISTORY_API, HISTORY_START, ",".join(sorted(MAJORS))))
-            days = {_day(k): v for k, v in (data.get("rates") or {}).items()}
-            _check_history(days, snap[1])
+            got = None
+            if snap[1]:
+                try:
+                    got = _history_update(snap)
+                except _NoOverlap as e:
+                    print("[fx-history] %s; fetching it whole" % e, flush=True)
+            dates, cols = got or _history_full(snap[1])
         except Exception as e:
             _history["retry_at"] = time.time() + HISTORY_RETRY
             if have:
@@ -431,11 +495,6 @@ def get_history():
                       % (e, now - snap[0]), flush=True)
                 return snap
             raise
-        dates = sorted(days)
-        cols = {}
-        for c in MAJORS:
-            lo, hi = INDEX_MASK.get(c, ("~", "~"))
-            cols[c] = [None if lo <= d <= hi else (days[d].get(c) or None) for d in dates]
         _history["snap"] = (time.time(), dates, cols)
         _history["retry_at"] = 0.0
         return _history["snap"]
