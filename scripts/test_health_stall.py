@@ -1340,5 +1340,39 @@ results.append(ok("flightvalue.build(" not in inspect.getsource(server._guide_fv
                   + inspect.getsource(server._home_picks) + inspect.getsource(server._cheap_fares),
                   "every page render takes it from the memo (_fv_build)"))
 
+# --- server.py: gzip level 6 -------------------------------------------------------------
+import gzip as _gz  # noqa: E402
+import socket as _sock  # noqa: E402
+
+
+class _FakeSrv:
+    pass
+
+
+def handler_get(path, headers=""):
+    """(head, body) of one GET through the real Handler on a socketpair."""
+    a, b = _sock.socketpair()
+    b.sendall(("GET %s HTTP/1.1\r\nHost: wandergrade.com\r\n%s\r\n" % (path, headers)).encode())
+    got = []
+    rd = threading.Thread(target=lambda: [got.append(x) for x in iter(lambda: b.recv(65536), b"")], daemon=True)
+    rd.start()
+    server.Handler(a, ("127.0.0.1", 40000), _FakeSrv())
+    a.shutdown(_sock.SHUT_WR)
+    a.close()
+    rd.join(5)
+    b.close()
+    head, _, body = b"".join(got).partition(b"\r\n\r\n")
+    return head.decode("latin-1"), body
+
+
+raw_geo = open(os.path.join(ROOT, "public", "world.geojson"), "rb").read()
+h_gz, b_gz = handler_get("/world.geojson", "Accept-Encoding: gzip\r\n")
+h_raw, b_raw = handler_get("/world.geojson")
+results.append(ok(server.GZIP_LEVEL == 6 and "Content-Encoding: gzip" in h_gz and _gz.decompress(b_gz) == raw_geo
+                  and b_raw == raw_geo and "Content-Encoding" not in h_raw
+                  and len(b_gz) <= 1.01 * len(_gz.compress(raw_geo, 9)),
+                  "text responses gzip at level %d: world.geojson %d -> %d bytes (level 9: %d), raw without "
+                  "Accept-Encoding" % (server.GZIP_LEVEL, len(raw_geo), len(b_gz), len(_gz.compress(raw_geo, 9)))))
+
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

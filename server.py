@@ -2208,6 +2208,14 @@ def _idle_wait(event, timeout):
         return event.wait(timeout)
 
 
+# zlib level for text responses. 9 cost twice 6's CPU for ~0.3% fewer bytes
+# (a 100 KB guide 2.2 -> 1.0 ms for +0.4%, world.geojson 15.5 -> 5.6 ms for
+# +0.2%, app.js 23.6 -> 16.7 ms for +0.2%), and every page and uncached
+# asset pays it on Render's 0.15 CPU. zlib lets go of the GIL while it works,
+# so this is quota, not /healthz latency.
+GZIP_LEVEL = 6
+
+
 class Handler(BaseHTTPRequestHandler):
     # Generic identity — don't advertise the framework/Python version.
     server_version = "WanderGrade"
@@ -2226,7 +2234,7 @@ class Handler(BaseHTTPRequestHandler):
         # mp3 has no byte ranges, which iOS Safari needs to play it at all.
         if len(body) > 1024 and self._gzip_ok() \
                 and not ctype.startswith(("image/", "audio/", "video/", "font/woff2")):
-            body = gzip.compress(body, 9)
+            body = gzip.compress(body, GZIP_LEVEL)
             encoding = "gzip"
         self.send_response(status)
         for hk, hv in SECURITY_HEADERS.items():
