@@ -87,7 +87,9 @@ then queued behind the others) can only be judged roughly here.
 
 Network: none. Every urlopen is answered from recorded responses in
 $STALL_NETCACHE (files <sha1 of the URL>.body + .json {"status", "headers"};
-never committed), and any other URL fails as offline. Without that
+never committed), and any other URL fails as offline. The FX history's
+pieces (rates._history_spans: get_history fetches 1999-today in 5-year
+replies) are cut from the recorded whole reply before the server starts. Without that
 directory the three advisory parsers are replaced by synthetic stand-ins
 that burn about what the real ones do (US 0.4 s, Canada 0.12 s, Germany
 0.08 s of CPU on a Mac) and return small lists, so it still runs.
@@ -177,6 +179,8 @@ def serve(port, scen, life, tree, opts):
             if opts.get("block_code"):   # an HTTP error at once (4xx: no retries)
                 raise urllib.error.HTTPError(url, opts["block_code"], "blocked in stall_check", {}, None)
             raise urllib.error.URLError("blocked in stall_check: " + url)
+        if url in pieces:
+            return Resp(pieces[url][0], pieces[url][1])
         h = hashlib.sha1(url.encode()).hexdigest()
         body = os.path.join(NETCACHE, h + ".body")
         if config["replay"] == "netcache" and os.path.exists(body):
@@ -189,6 +193,9 @@ def serve(port, scen, life, tree, opts):
         raise urllib.error.URLError("offline in stall_check: " + url)
 
     urllib.request.urlopen = fake_urlopen
+    pieces = frankfurter_pieces(NETCACHE, tree) if config["replay"] == "netcache" else {}
+    if pieces:
+        config["fx_history_pieces"] = len(pieces)
 
     activate = socketserver.TCPServer.server_activate
 
@@ -250,6 +257,37 @@ def serve(port, scen, life, tree, opts):
     threading.Thread(target=killer, daemon=True).start()
     sys.argv = ["server.py", str(port)]
     server.main()
+
+
+def frankfurter_pieces(netcache, tree):
+    """{url: (body, headers)} for the pieces the tree's rates.get_history asks
+    Frankfurter for (rates._history_spans), cut from the recorded whole
+    history (1999-01-04..), which is all the recording holds. Cut here, before
+    the server starts and unthrottled, so the server pays only for reading
+    them, as from the network. {} for a tree that asks in one piece."""
+    try:
+        sys.path.insert(0, tree)
+        from fxtracker import rates
+        spans = rates._history_spans()
+        url_of = rates._history_url
+    except Exception:
+        return {}
+    whole = url_of(rates.HISTORY_START)
+    h = hashlib.sha1(whole.encode()).hexdigest()
+    try:
+        with open(os.path.join(netcache, h + ".body"), "rb") as f:
+            data = json.loads(f.read().decode("utf-8"))
+        with open(os.path.join(netcache, h + ".json"), encoding="utf-8") as f:
+            headers = json.load(f).get("headers", {})
+    except (OSError, ValueError):
+        return {}
+    out = {}
+    for start, end in spans:
+        part = {k: v for k, v in (data.get("rates") or {}).items() if start <= k <= (end or "~")}
+        if part:
+            out[url_of(start, end)] = (json.dumps(dict(data, start_date=min(part), end_date=max(part), rates=part),
+                                                  separators=(",", ":")).encode("utf-8"), headers)
+    return out
 
 
 def synthetic(advisories):

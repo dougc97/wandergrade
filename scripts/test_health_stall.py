@@ -1152,6 +1152,28 @@ results.append(ok(pt is not None and pt(50, sc.BURST_AT) == 50 - sc.BURST_AT - 2
                   and "page_timeout_for(life, burst_at)" in run_src and "--page-timeout" in inspect.getsource(sc.main),
                   "stall_check's burst timeout runs as long as the run allows (%s s at --life 50, %s s at 70), "
                   "and --page-timeout sets it" % (pt and pt(50, sc.BURST_AT), pt and pt(70, sc.BURST_AT))))
+# The FX history's pieces are cut from the recorded whole reply, so a replay
+# boots with the history as production does.
+import tempfile  # noqa: E402
+import hashlib as _hl  # noqa: E402
+from fxtracker import rates as _R0  # noqa: E402
+nc = tempfile.mkdtemp(prefix="stall_nc_")
+_whole = _R0._history_url(_R0.HISTORY_START)
+_fx_days = {"1999-01-04": {"EUR": 0.85}, "2001-06-01": {"EUR": 1.1}, "2004-03-01": {"EUR": 0.8},
+            "2025-02-03": {"EUR": 0.96}, "2026-11-13": {"EUR": 0.9}}
+with open(os.path.join(nc, _hl.sha1(_whole.encode()).hexdigest() + ".body"), "w") as f:
+    json.dump({"base": "USD", "rates": _fx_days}, f)
+with open(os.path.join(nc, _hl.sha1(_whole.encode()).hexdigest() + ".json"), "w") as f:
+    json.dump({"status": 200, "headers": {"Content-Type": "application/json"}}, f)
+fp = getattr(sc, "frankfurter_pieces", None)
+pcs = fp(nc, ROOT) if fp else {}
+first_piece = json.loads(pcs[_R0._history_url("1999-01-04", "2003-12-31")][0]) if pcs else {}
+last_piece = json.loads(pcs[_R0._history_url("2024-01-01")][0]) if pcs else {}
+results.append(ok(len(pcs) == 3 and sorted(first_piece.get("rates", {})) == ["1999-01-04", "2001-06-01"]
+                  and sorted(last_piece.get("rates", {})) == ["2025-02-03", "2026-11-13"]
+                  and "pieces[url]" in inspect.getsource(sc.serve),
+                  "stall_check cuts the FX history's 5-year pieces from the recorded whole reply (%d with days here)"
+                  % len(pcs)))
 # --rate R: the Nov 16 crawl (2.8 guides a second) as open-loop arrivals on a
 # fixed schedule, and --gzip pages that pay their compression as production's do.
 ao = getattr(sc, "arrival_offsets", None)
@@ -1519,8 +1541,9 @@ def fake_history_fetch(url, retries=3):
     fxh["urls"].append(url)
     if fxh["fail"]:
         raise urllib.error.URLError("frankfurter down")
-    start = url[len(R.HISTORY_API) + 1:].split("..", 1)[0]
-    rates_ = {k: dict(v) for k, v in FXH["rates"].items() if start <= k <= fxh["until"] and k != fxh["drop"]}
+    start, end = url[len(R.HISTORY_API) + 1:].split("?", 1)[0].split("..", 1)
+    rates_ = {k: dict(v) for k, v in FXH["rates"].items()
+              if start <= k <= min(fxh["until"], end or "~") and k != fxh["drop"]}
     if fxh["revise"] and fxh["revise"][0] in rates_:
         d_, c_ = fxh["revise"]
         rates_[d_][c_] = round(rates_[d_][c_] * 1.01, 5)
@@ -1541,8 +1564,9 @@ def age_history(secs):
     R._history["snap"] = (time.time() - secs, d_, c_)
 
 
-saved_r = (R.fetch_json, dict(R._history), dict(R.INDEX_MASK))
+saved_r = (R.fetch_json, dict(R._history), dict(R.INDEX_MASK), R.HISTORY_CHUNK_YEARS)
 R.fetch_json = fake_history_fetch
+R.HISTORY_CHUNK_YEARS = 100      # the cut fixture has no 2004-2025: the whole history in one reply here
 logs = []
 try:
     whole = fresh_history("2026-11-13")
@@ -1609,6 +1633,7 @@ finally:
     R._history.update(saved_r[1])
     R.INDEX_MASK.clear()
     R.INDEX_MASK.update(saved_r[2])
+    R.HISTORY_CHUNK_YEARS = saved_r[3]
 results.append(ok(len(whole_urls) == 1 and "/1999-01-04..?" in whole_urls[0] and len(whole[1]) == len(FXH["rates"])
                   and whole[2]["ISK"][0] is not None,
                   "the first FX history fetch is the whole history since 1999 (%d days, %d bytes here)"
@@ -1622,6 +1647,62 @@ results.append(ok(revised and gap_full, "a reply that disagrees with the copy (a
 results.append(ok(down_ok and stale_raises, "the update failing serves the copy and backs off HISTORY_RETRY with no "
                                             "whole fetch; past HISTORY_STALE nothing is served, as before"))
 results.append(ok(mask_ok, "INDEX_MASK holds for the days an update appends (%s)" % masked))
+
+# The whole history comes in HISTORY_CHUNK_YEARS pieces (each json.loads holds
+# the GIL for its piece only), equal to one reply; a piece cut short fails it.
+SYN = {}
+d_, i_ = datetime.date(1999, 1, 4), 0
+while d_ <= datetime.date(2026, 11, 13):
+    if d_.weekday() < 5 and (d_.month, d_.day) not in ((1, 1), (12, 25), (12, 26)):
+        SYN[d_.isoformat()] = {c: round(1 + (hash(c) % 97) / 10 + i_ * 1e-4, 5) for c in sorted(R.MAJORS)}
+        i_ += 1
+    d_ += datetime.timedelta(days=1)
+syn = {"urls": [], "cut": None}
+
+
+def fake_syn_fetch(url, retries=3):
+    syn["urls"].append(url)
+    start, end = url[len(R.HISTORY_API) + 1:].split("?", 1)[0].split("..", 1)
+    hi = end or "~"
+    if syn["cut"] and syn["cut"][0] == start:
+        hi = syn["cut"][1]
+    return {"base": "USD", "rates": {k: dict(v) for k, v in SYN.items() if start <= k <= hi}}
+
+
+saved_c = (R.fetch_json, dict(R._history), R.HISTORY_CHUNK_YEARS)
+R.fetch_json = fake_syn_fetch
+try:
+    spans = R._history_spans(datetime.date(2026, 11, 18))
+    jan = R._history_spans(datetime.date(2029, 1, 2))
+    R._history.update(snap=(0.0, [], {}), retry_at=0.0)
+    chunked = R.get_history()
+    chunk_urls = list(syn["urls"])
+    R.HISTORY_CHUNK_YEARS = 100
+    R._history.update(snap=(0.0, [], {}), retry_at=0.0)
+    del syn["urls"][:]
+    single = R.get_history()
+    single_urls = list(syn["urls"])
+    R.HISTORY_CHUNK_YEARS = saved_c[2]
+    R._history.update(snap=(0.0, [], {}), retry_at=0.0)
+    syn["cut"] = ("2009-01-01", "2011-06-30")       # one piece cut short: a 2.5-year hole
+    try:
+        R.get_history()
+        cut_raised = None
+    except ValueError as e:
+        cut_raised = str(e)
+finally:
+    R.fetch_json, R.HISTORY_CHUNK_YEARS = saved_c[0], saved_c[2]
+    R._history.clear()
+    R._history.update(saved_c[1])
+results.append(ok(spans == [("1999-01-04", "2003-12-31"), ("2004-01-01", "2008-12-31"), ("2009-01-01", "2013-12-31"),
+                            ("2014-01-01", "2018-12-31"), ("2019-01-01", "2023-12-31"), ("2024-01-01", "")]
+                  and jan[-1] == ("2024-01-01", "") and len(chunk_urls) == 6 and len(single_urls) == 1
+                  and chunked[1] == single[1] and chunked[2] == single[2] and len(chunked[1]) == len(SYN),
+                  "the whole history is fetched in 6 pieces of <= 5 years (the last open-ended, never a bare "
+                  "January), equal to one reply (%d days)" % len(chunked[1])))
+results.append(ok(cut_raised is not None and "2009-01-01..2013-12-31" in cut_raised,
+                  "a piece that comes back short of its end fails the fetch instead of leaving a hole (%s)"
+                  % cut_raised))
 
 # --- server.py: a client hanging up is one log line, not a traceback ---------------------
 import io  # noqa: E402
@@ -1741,14 +1822,14 @@ try:
         server._timed_refresh("rates USD", lambda: (_ for _ in ()).throw(RuntimeError("fxratesapi down")))
     except RuntimeError:
         pass
-    R.fetch_json = fake_history_fetch
+    R.fetch_json, R.HISTORY_CHUNK_YEARS = fake_history_fetch, 100
     fresh_history("2026-11-06")
     age_history(R.HISTORY_TTL + 5)
     fxh.update(until="2026-11-13")
     R.get_history()
 finally:
     sys.stdout = saved_out
-    R.fetch_json = saved_r[0]
+    R.fetch_json, R.HISTORY_CHUNK_YEARS = saved_r[0], saved_r[3]
     R._history.clear()
     R._history.update(saved_r[1])
     server.REFRESH_LOG_EVERY = saved_rl[0]

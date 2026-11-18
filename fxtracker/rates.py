@@ -361,6 +361,12 @@ HISTORY_RETRY = 600               # after a failed fetch, don't ask again sooner
 # inline on whichever request asked first. The overlap must come back with the
 # copy's own rates, or the full history is fetched instead.
 HISTORY_TAIL_DAYS = 10
+# The whole history (the first fetch after a boot, or a fallback) comes in
+# pieces of this many years: each reply's json.loads is one call that holds
+# the GIL, ~16 ms for 1999-today on a fast Mac, and stall_check's Nov 16
+# replay showed the server deaf to /healthz for 4.3-4.8 s at boot + 25 s while
+# it ran (--on-ms 2). Six replies of <= 5 years hold it a sixth as long each.
+HISTORY_CHUNK_YEARS = 5
 # Chronic high inflation is not the dollar getting stronger: the lira fell
 # ~155x against it from 1999. Kept in, it would add ~24 points to this index's
 # since-1999 change and double its 10-year one.
@@ -404,8 +410,22 @@ def _check_history(days, old_dates):
         raise ValueError("FX history came back behind the copy held")
 
 
-def _history_url(start):
-    return "{0}/{1}..?base=USD&symbols={2}".format(HISTORY_API, start, ",".join(sorted(MAJORS)))
+def _history_url(start, end=""):
+    return "{0}/{1}..{2}?base=USD&symbols={3}".format(HISTORY_API, start, end, ",".join(sorted(MAJORS)))
+
+
+def _history_spans(today=None):
+    """[(start, end)] covering HISTORY_START to the latest fixing in
+    HISTORY_CHUNK_YEARS-year pieces, calendar years, the last open-ended
+    (end "") and always holding a whole past year, so it is never empty in
+    the first days of January."""
+    y0, last = int(HISTORY_START[:4]), (today or datetime.date.today()).year
+    spans, y = [], y0
+    while y + HISTORY_CHUNK_YEARS < last:
+        spans.append((HISTORY_START if y == y0 else "%d-01-01" % y, "%d-12-31" % (y + HISTORY_CHUNK_YEARS - 1)))
+        y += HISTORY_CHUNK_YEARS
+    spans.append((HISTORY_START if y == y0 else "%d-01-01" % y, ""))
+    return spans
 
 
 def _history_col(days, dates, c):
@@ -415,9 +435,21 @@ def _history_col(days, dates, c):
 
 
 def _history_full(old_dates):
-    """(dates, cols) from the whole history since HISTORY_START."""
-    data = fetch_json(_history_url(HISTORY_START))
-    days = {_day(k): v for k, v in (data.get("rates") or {}).items()}
+    """(dates, cols) from the whole history since HISTORY_START, fetched in
+    _history_spans pieces. Each piece must reach within a week of both its
+    ends (holidays aside, the ECB fixes every business day), so a reply cut
+    short can't leave a hole of years in the middle; then the whole passes
+    _check_history as one reply did."""
+    days = {}
+    week = datetime.timedelta(days=7)
+    for start, end in _history_spans():
+        data = fetch_json(_history_url(start, end))
+        part = {_day(k): v for k, v in (data.get("rates") or {}).items()}
+        if not part or min(part) > (datetime.date.fromisoformat(start) + week).isoformat() \
+                or (end and max(part) < (datetime.date.fromisoformat(end) - week).isoformat()):
+            raise ValueError("FX history for %s..%s came back %s" % (
+                start, end, "empty" if not part else "as %s..%s" % (min(part), max(part))))
+        days.update(part)
     _check_history(days, old_dates)
     dates = sorted(days)
     return dates, {c: _history_col(days, dates, c) for c in MAJORS}
