@@ -1621,5 +1621,60 @@ results.append(ok(down_ok and stale_raises, "the update failing serves the copy 
                                             "whole fetch; past HISTORY_STALE nothing is served, as before"))
 results.append(ok(mask_ok, "INDEX_MASK holds for the days an update appends (%s)" % masked))
 
+# --- server.py: a client hanging up is one log line, not a traceback ---------------------
+import io  # noqa: E402
+
+
+def hang_up(path):
+    """stderr of one GET whose client closes before reading the response, and
+    whether anything raised out of the handler (socketserver's handle_error
+    would print its traceback)."""
+    a, b = _sock.socketpair()
+    a.setsockopt(_sock.SOL_SOCKET, _sock.SO_SNDBUF, 4096)
+    b.sendall(("GET %s HTTP/1.1\r\nHost: wandergrade.com\r\n\r\n" % path).encode())
+    b.close()
+    err, saved_err = io.StringIO(), sys.stderr
+    sys.stderr = err
+    raised = None
+    try:
+        server.Handler(a, ("127.0.0.1", 40000), _FakeSrv())
+    except Exception as e:
+        raised = e
+    finally:
+        sys.stderr = saved_err
+        a.close()
+    return err.getvalue(), raised
+
+
+hu_out, hu_raised = hang_up("/world.geojson?v=1")
+hu_tok, _r = hang_up("/auth/verify?t=" + "a" * 40)
+other_seen = {}
+srv = server._Server(("127.0.0.1", 0), server.Handler)
+threading.Thread(target=srv.serve_forever, daemon=True).start()
+real_dg = server.Handler._do_get
+server.Handler._do_get = lambda self: (_ for _ in ()).throw(ValueError("boom"))
+err2, saved_err = io.StringIO(), sys.stderr
+sys.stderr = err2
+try:
+    try:
+        urllib.request.urlopen("http://127.0.0.1:%d/boom" % srv.server_address[1], timeout=5).read()
+    except Exception:
+        pass
+    time.sleep(0.2)
+finally:
+    sys.stderr = saved_err
+    server.Handler._do_get = real_dg
+    srv.shutdown()
+    srv.server_close()
+lines = [ln for ln in hu_out.splitlines() if ln.strip()]
+results.append(ok(hu_raised is None and len(lines) == 1 and "Traceback" not in hu_out
+                  and re.fullmatch(r"  \[disconnect\] GET /world\.geojson\?v=1 (BrokenPipeError|ConnectionResetError"
+                                   r"|ConnectionAbortedError)", lines[0])
+                  and "t=[redacted]" in hu_tok and "a" * 40 not in hu_tok,
+                  "a client hanging up mid-response is one line (%r), nothing raised out of the handler, a sign-in "
+                  "token redacted" % (lines[:1],)))
+results.append(ok("Traceback" in err2.getvalue() and "ValueError: boom" in err2.getvalue(),
+                  "any other exception still prints its traceback"))
+
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

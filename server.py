@@ -2643,6 +2643,24 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quieter console; no client address
         sys.stderr.write("  %s\n" % self._LOG_TOKEN.sub(r"\1t=[redacted]", fmt % args))
 
+    # A client that hangs up before its response is out (a crawler's timeout,
+    # Cloudflare giving up on an origin fetch, a reader closing the tab) raised
+    # out of handle(), and socketserver printed "Exception occurred during
+    # processing of request" and a traceback: 3.1 KB in 27 separate writes to
+    # stderr each, in bursts on /api/flights and the fare months in Render's
+    # log. One line instead; any other exception keeps its traceback.
+    _DISCONNECTS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+
+    def handle(self):
+        try:
+            super().handle()
+        except self._DISCONNECTS as e:
+            self.close_connection = True
+            sys.stderr.write("  [disconnect] %s %s %s\n" % (
+                getattr(self, "command", None) or "-",
+                self._LOG_TOKEN.sub(r"\1t=[redacted]", getattr(self, "path", None) or "-"),
+                type(e).__name__))
+
     # ---- auth ------------------------------------------------------------
     def _authed(self):
         """True if auth is off, or the request carries valid Basic credentials.
