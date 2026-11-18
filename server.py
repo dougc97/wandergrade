@@ -2838,7 +2838,12 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         # Unauthenticated health check for hosting platforms (Render, etc.).
         if path == "/healthz":
-            self.send_response(200)
+            # send_response() with its request-log line moved to after the
+            # answer: stderr is one pipe whose lock every request's line (and
+            # any traceback) shares, and Render's probe shouldn't wait on it.
+            self.send_response_only(200)
+            self.send_header("Server", self.version_string())
+            self.send_header("Date", self.date_time_string())
             self.send_header("Content-Type", "text/plain")
             # Whole seconds since this process started, so a restart Render
             # made (a failed check) can be seen from outside, after the fact.
@@ -2846,6 +2851,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "2")
             self.end_headers()
             self.wfile.write(b"ok")
+            self.log_request(200)
             return
         # Canonical-domain redirect: bounce the old *.onrender.com host to the
         # custom domain so links and SEO consolidate on one host. /healthz above

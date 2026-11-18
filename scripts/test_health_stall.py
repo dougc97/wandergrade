@@ -1767,5 +1767,34 @@ results.append(ok("_timed_refresh(\"advisories \"" in inspect.getsource(server._
                   and "_timed_refresh(\"rates \"" in inspect.getsource(server._rates_payload),
                   "the advisory lists and the rates refresh through it"))
 
+# --- server.py: /healthz writes its log line after its answer ----------------------------
+order = []
+
+
+def log_after(self, code="-", size="-"):
+    try:
+        order.append(("log", self._probe_peer.recv(65536, _sock.MSG_DONTWAIT)))
+    except BlockingIOError:
+        order.append(("log", b""))
+
+
+a_, b_ = _sock.socketpair()
+b_.sendall(b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")
+saved_lr = server.Handler.log_request
+server.Handler.log_request = log_after
+server.Handler._probe_peer = b_
+try:
+    server.Handler(a_, ("127.0.0.1", 40000), _FakeSrv())
+finally:
+    server.Handler.log_request = saved_lr
+    del server.Handler._probe_peer
+    a_.close()
+    b_.close()
+seen_hz = order[0][1] if order else b""
+results.append(ok(len(order) == 1 and seen_hz.startswith(b"HTTP/1.0 200 OK\r\nServer: WanderGrade \r\nDate: ")
+                  and b"\r\nContent-Type: text/plain\r\nX-Uptime: " in seen_hz and seen_hz.endswith(b"\r\n\r\nok"),
+                  "/healthz's request-log line is written after its whole answer is out (status, Server, Date, "
+                  "headers and body as before), so the probe never waits on the log pipe"))
+
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)
