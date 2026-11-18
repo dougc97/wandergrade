@@ -7,8 +7,8 @@ being recomputed by every request at once.)
     /usr/bin/python3 scripts/dev/stall_check.py [--tree DIR] [--scenario adv_expired|cold|fresh]
                                                 [--crawl N] [--on-ms 5] [--life 50]
                                                 [--block SUBSTR [--block-code N]]
-                                                [--burst PATH,PATH] [--burst-at S]
-                                                [--page-timeout S] [--label NAME] [-v]
+                                                [--burst PATH,PATH] [--burst-at S] [--rate R]
+                                                [--gzip] [--page-timeout S] [--label NAME] [-v]
 
 It boots the real server from DIR (--tree, else $STALL_TREE, else the repo
 this file sits in) by calling its own server.main(), so a tree is exercised
@@ -47,6 +47,29 @@ the US feed down and one request for each list right after boot:
   --scenario cold --block travel.state.gov --burst-at 1 --burst \
   '/api/advisories?source=us,/api/advisories?source=ca,/api/advisories?source=de,/do-not-travel'
 
+--rate R sends the burst open-loop instead of all at once: request i goes at
+burst_at + i/R s on its own connection, whether or not the earlier ones have
+been answered, the way a crawler paces itself (Render's log of 2026-11-16:
+~130 /guide/<slug> GETs in 47 s, 2.8 a second). --gzip makes the burst's
+requests ask for gzip as Cloudflare and Googlebot do (the probes don't), so
+each page pays its compression; without it every page goes out raw, about a
+third of a production page's CPU short. "pages_shed" counts burst pages
+answered 503 (load shed), "duty_pct" is the throttle's measured share of
+on-time (it oversleeps), and "probe_list" is every probe as [t, s, status].
+
+The Nov 16 replay (a sustained crawl that starts after the boot warm-ups):
+  --scenario fresh --burst '' --crawl 130 --rate 2.8 --burst-at 45 --life 110 --on-ms 2 [--gzip]
+Calibration, 2026-11-18 on an M5: --on-ms 2 is the setting at which the tree
+from before the fix (a7cdbd2) fails this replay as Render did on Nov 16 (33
+probe errors, 45 over 5 s); at --on-ms 5 both it and a64aea2 pass, so 5 is
+too gentle to judge a crawl by. It is not a capacity model: the throttle
+gives 2.4-3.0 ms per 100 (duty_pct 2.4-2.8), and the Mac's speed under it
+moves run to run (the same 130 gzip pages cost 3.4-4.9 s of CPU at on-ms 2,
+1.06 s at 5), so shed counts carry about +-30 of noise between runs. Read
+collapse against no collapse (probes over 5 s, the worst probe) and repeat
+a run before believing a difference. Requests still in flight when the
+child exits at --life show as RemoteDisconnected or ConnectionResetError.
+
 --switch S sets the child's server.SWITCH_INTERVAL (main()'s GIL switch
 interval) for a sweep, and --clients N fetches the burst through N clients,
 one request after another. "cpu_s" is the child's process CPU from t=1 s to
@@ -78,7 +101,8 @@ advisory pages time out alike and can't be told apart (the branch answers
 them at 51-52 s; main, measured with 140 s, not at all).
 
 Runs ~life + 5 s; split runs to keep each command under a minute (run a
-longer one in the background). Starts one child process and kills only it.
+longer one in the background, at most two at once: they share the CPU).
+Starts one child process and kills only it.
 """
 import argparse
 import hashlib
@@ -266,6 +290,12 @@ def crawl_paths(tree, n):
     return ["/guide/%s?x=%d" % (slug, i) for i, slug in enumerate(slugs[::step][:n])]
 
 
+def arrival_offsets(n, rate):
+    """--rate: request i's start, in seconds after the burst begins (i / rate),
+    on a fixed schedule so a slow server can't slow the arrivals down."""
+    return [i / float(rate) for i in range(n)]
+
+
 def page_timeout_for(life, burst_at):
     """The burst's default timeout: as long as the run lets a request take
     (the child exits at `life`), so a slow page reports its own time."""
@@ -273,7 +303,8 @@ def page_timeout_for(life, burst_at):
 
 
 def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=None, burst_at=BURST_AT,
-        block_code=None, slow_s=SLOW_S, switch=None, clients=0, page_timeout=None):
+        block_code=None, slow_s=SLOW_S, switch=None, clients=0, page_timeout=None, rate=0.0,
+        gzip_pages=False):
     page_timeout = page_timeout or page_timeout_for(life, burst_at)
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -318,12 +349,14 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
         boot = time.time() - t0
         t0 = time.time()
         probes, pages, lock = [], [], threading.Lock()
+        duty = [0.0, 0.0]   # the throttle's on-time, its whole time
 
         def get(path, store, timeout=20):
             st = time.time()
             try:
                 c = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
-                c.request("GET", path)
+                c.request("GET", path, headers={"Accept-Encoding": "gzip"}
+                          if gzip_pages and store is pages else {})
                 r = c.getresponse()
                 r.read()
                 code = r.status
@@ -339,12 +372,15 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
             if on_ms <= 0:
                 return
             while not stop[0] and srv.poll() is None:
+                a = time.perf_counter()
                 os.kill(srv.pid, signal.SIGCONT)
                 time.sleep(on_ms / 1000.0)
                 if stop[0]:
                     break
                 os.kill(srv.pid, signal.SIGSTOP)
+                duty[0] += time.perf_counter() - a
                 time.sleep((100 - on_ms) / 1000.0)
+                duty[1] += time.perf_counter() - a
             try:
                 os.kill(srv.pid, signal.SIGCONT)
             except OSError:
@@ -355,6 +391,12 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
 
         def burst():
             time.sleep(burst_at)
+            if rate > 0:   # open-loop: each on its own schedule, answered or not
+                start = time.time()
+                for p, at in zip(work, arrival_offsets(len(work), rate)):
+                    time.sleep(max(0.0, start + at - time.time()))
+                    threading.Thread(target=get, args=(p, pages, page_timeout), daemon=True).start()
+                return
             if not clients:
                 for p in work:
                     threading.Thread(target=get, args=(p, pages, page_timeout), daemon=True).start()
@@ -414,6 +456,8 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
     errs = [p for p in probes if p[2] != 200]
     res = {"label": label, "tree": tree, "scenario": scen, "on_ms": on_ms, "crawl": crawl,
            "block": list(block), "burst_at": burst_at, "clients": clients, "page_timeout": page_timeout,
+           "rate": rate, "gzip": gzip_pages, "life": life,
+           "duty_pct": round(100 * duty[0] / duty[1], 2) if duty[1] else None,
            "cpu_s": cpu.get("since_config"), "cpu_total_s": cpu.get("total"),
            "burst_wall_s": done[0] if done else None,
            "boot_s": round(boot, 2),
@@ -424,11 +468,13 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
            "max_ok": lat_ok[-1] if lat_ok else None,
            "p50_ok": lat_ok[len(lat_ok) // 2] if lat_ok else None,
            "pages_ok": sum(1 for p in pages if p[2] == 200),
+           "pages_shed": sum(1 for p in pages if p[2] == 503),
            "pages_max": max((p[1] for p in pages), default=None),
            "pages": pages, "config": config,
            "visitors": {p[3]: p[1] if p[2] == 200 else p[2] for p in pages if scen == "slowapi" and p[3] in VISITORS},
            "visitors_max": max((p[1] for p in pages if scen == "slowapi" and p[3] in VISITORS), default=None),
-           "slow_probes": [p[:3] for p in probes if p[2] != 200 or p[1] > 1][:30]}
+           "slow_probes": [p[:3] for p in probes if p[2] != 200 or p[1] > 1][:30],
+           "probe_list": [p[:3] for p in probes]}
     print(json.dumps(res))
     if verbose:
         sys.stderr.write("\n".join(lines[-80:]) + "\n")
@@ -458,6 +504,10 @@ def main():
     ap.add_argument("--clients", type=int, default=0, metavar="N",
                     help="fetch the burst through N clients one request after another "
                          "(default: every request at once)")
+    ap.add_argument("--rate", type=float, default=0.0, metavar="R",
+                    help="send the burst open-loop at R requests a second (default: all at once)")
+    ap.add_argument("--gzip", action="store_true",
+                    help="burst requests ask for gzip, as Cloudflare and Googlebot do")
     ap.add_argument("--switch", type=float, metavar="S",
                     help="the child's GIL switch interval (server.SWITCH_INTERVAL) for a sweep")
     ap.add_argument("--on-ms", type=float, default=5.0)
@@ -472,7 +522,7 @@ def main():
         raise SystemExit("no server.py in %s" % tree)
     run(tree, a.scenario, a.on_ms, a.life, a.label or os.path.basename(tree), a.verbose, a.crawl,
         a.block, [p for p in a.burst.split(",") if p] if a.burst is not None else None, a.burst_at,
-        a.block_code, a.slow_s, a.switch, a.clients, a.page_timeout)
+        a.block_code, a.slow_s, a.switch, a.clients, a.page_timeout, a.rate, a.gzip)
 
 
 if __name__ == "__main__":

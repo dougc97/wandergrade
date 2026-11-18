@@ -1050,6 +1050,18 @@ results.append(ok(pt is not None and pt(50, sc.BURST_AT) == 50 - sc.BURST_AT - 2
                   and "page_timeout_for(life, burst_at)" in run_src and "--page-timeout" in inspect.getsource(sc.main),
                   "stall_check's burst timeout runs as long as the run allows (%s s at --life 50, %s s at 70), "
                   "and --page-timeout sets it" % (pt and pt(50, sc.BURST_AT), pt and pt(70, sc.BURST_AT))))
+# --rate R: the Nov 16 crawl (2.8 guides a second) as open-loop arrivals on a
+# fixed schedule, and --gzip pages that pay their compression as production's do.
+ao = getattr(sc, "arrival_offsets", None)
+main_src = inspect.getsource(sc.main)
+results.append(ok(ao is not None and ao(4, 2.0) == [0.0, 0.5, 1.0, 1.5] and len(ao(130, 2.8)) == 130
+                  and abs(ao(130, 2.8)[-1] - 129 / 2.8) < 1e-9
+                  and "arrival_offsets(len(work), rate)" in run_src and "--rate" in main_src
+                  and "--gzip" in main_src and '"Accept-Encoding": "gzip"' in run_src
+                  and "--crawl 130 --rate 2.8 --burst-at 45 --life 110 --on-ms 2" in sc.__doc__,
+                  "stall_check --rate R sends request i at i/R s whether or not the others are answered "
+                  "(130 at 2.8/s over %.1f s), --gzip asks for gzip, and the docstring gives the Nov 16 replay"
+                  % (ao(130, 2.8)[-1] if ao else -1)))
 
 # --- server.py: Canada's notes, two fetches at a time ------------------------------------
 server._warm_watchouts = WARM_WATCHOUTS
