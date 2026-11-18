@@ -362,10 +362,12 @@ settle()
 results.append(ok(r is old and fetch["n"] == {"us": 1} and server._adv_cache["us"][1] is not old,
                   "and the next request starts the refresh (%s)" % fetch["n"]))
 
-# The refresh fails: the copy is marked stale, as before.
+# The refresh fails: the copy is marked stale, as before. (The upstream takes
+# 50 ms to fail, as a real one would: failing at once, the refresh thread
+# could mark the list failing before this request had read it.)
 load(EXPIRED)
 old = server._adv_cache["us"][1]
-fetch["fail"] = True
+fetch.update(fail=True, delay=0.05)
 first = server._advisories_payload("us")
 settle()
 fail = server._upstream_fail.get(("advisories", "us"))
@@ -1675,6 +1677,95 @@ results.append(ok(hu_raised is None and len(lines) == 1 and "Traceback" not in h
                   "token redacted" % (lines[:1],)))
 results.append(ok("Traceback" in err2.getvalue() and "ValueError: boom" in err2.getvalue(),
                   "any other exception still prints its traceback"))
+
+# --- server.py: diagnostics for next time ([busy], [refresh], X-Uptime) ------------------
+# X-Uptime on /healthz: whole seconds since the process started.
+saved_boot = server._BOOT
+server._BOOT = time.monotonic() - 100.4
+hz_head, hz_body = handler_get("/healthz")
+server._BOOT = saved_boot
+up = re.search(r"\r\nX-Uptime: (\d+)\r\n", hz_head)
+results.append(ok(hz_body == b"ok" and up and int(up.group(1)) == 100 and hz_head.startswith("HTTP/1.0 200"),
+                  "/healthz says X-Uptime: %s (whole seconds since boot), still 200 ok" % (up and up.group(1))))
+
+# [busy]: one line at once, the rest of the window counted and written by a timer.
+saved_busy = (server.BUSY_LOG_EVERY, dict(server._busy), server._page_slots, server.PAGE_QUEUE_MAX)
+server.BUSY_LOG_EVERY = 0.4
+if server._busy.get("timer") is not None:
+    server._busy["timer"].cancel()      # the slot tests above queued deep: their timer is pending
+server._busy.update(at=0.0, queue=0, wait=0, slotless=0, deep=0, peak=0, timer=None)
+server._page_slots = threading.BoundedSemaphore(3)
+err3, saved_err = io.StringIO(), sys.stderr
+sys.stderr = err3
+try:
+    for _i in range(3):
+        server._page_slots.acquire()
+    server.PAGE_QUEUE_MAX = 0
+    shed_kinds = [server._take_slot(server._page_slots) for _ in range(3)]
+    first_lines = err3.getvalue().splitlines()
+    server._busy_note("slotless")
+    time.sleep(0.6)
+    after_timer = err3.getvalue().splitlines()
+    time.sleep(0.6)
+    quiet = err3.getvalue().splitlines()
+finally:
+    sys.stderr = saved_err
+    server.BUSY_LOG_EVERY = saved_busy[0]
+    if server._busy.get("timer") is not None:
+        server._busy["timer"].cancel()
+    server._busy.clear()
+    server._busy.update(saved_busy[1], timer=None)
+    server._page_slots, server.PAGE_QUEUE_MAX = saved_busy[2], saved_busy[3]
+results.append(ok(shed_kinds == ["queue"] * 3 and len(first_lines) == 1 and first_lines[0].startswith("[busy] ")
+                  and "shed 1 (1 with 0+ waiting" in first_lines[0] and "3/3 slots in use" in first_lines[0]
+                  and len(after_timer) == 2 and "shed 2 (2 with" in after_timer[1] and "1 slotless" in after_timer[1]
+                  and len(quiet) == 2,
+                  "[busy]: the first shed page writes a line at once, the window's other 2 sheds and a slotless "
+                  "finish go out in one line BUSY_LOG_EVERY later, then nothing while quiet (%r)" % (after_timer[-1:],)))
+results.append(ok("_busy_note(\"slotless\")" in inspect.getsource(server._no_slot)
+                  and server.BUSY_LOG_EVERY == 30,
+                  "a page finishing without its slot after an inline wait is counted too; production writes at "
+                  "most one [busy] line every %d s" % server.BUSY_LOG_EVERY))
+
+# [refresh]: one line when a heavy refresh ends, at most one per name every REFRESH_LOG_EVERY.
+saved_rl = (server.REFRESH_LOG_EVERY, dict(server._refresh_logged))
+server.REFRESH_LOG_EVERY = 0.3
+server._refresh_logged.clear()
+out4, saved_out = io.StringIO(), sys.stdout
+sys.stdout = out4
+try:
+    v1 = server._timed_refresh("rates USD", lambda: time.sleep(0.05) or 41)
+    v2 = server._timed_refresh("rates USD", lambda: 42)
+    time.sleep(0.35)
+    try:
+        server._timed_refresh("rates USD", lambda: (_ for _ in ()).throw(RuntimeError("fxratesapi down")))
+    except RuntimeError:
+        pass
+    R.fetch_json = fake_history_fetch
+    fresh_history("2026-11-06")
+    age_history(R.HISTORY_TTL + 5)
+    fxh.update(until="2026-11-13")
+    R.get_history()
+finally:
+    sys.stdout = saved_out
+    R.fetch_json = saved_r[0]
+    R._history.clear()
+    R._history.update(saved_r[1])
+    server.REFRESH_LOG_EVERY = saved_rl[0]
+    server._refresh_logged.clear()
+    server._refresh_logged.update(saved_rl[1])
+rl = [ln for ln in out4.getvalue().splitlines() if ln.startswith("[refresh]")]
+results.append(ok(v1 == 41 and v2 == 42 and len(rl) == 4
+                  and re.fullmatch(r"\[refresh\] rates USD done in 0\.\d\ds \(cpu \d+ ms\)", rl[0])
+                  and re.fullmatch(r"\[refresh\] rates USD failed: fxratesapi down in \d\.\d\ds \(cpu \d+ ms\), "
+                                   r"1 more since", rl[1])
+                  and re.fullmatch(r"\[refresh\] fx-history whole, \d+ days in .*", rl[2])
+                  and re.fullmatch(r"\[refresh\] fx-history update \+5 days in \d\.\d\ds \(cpu \d+ ms\)", rl[3]),
+                  "[refresh]: a refresh's line says what, how long and its CPU; a second inside REFRESH_LOG_EVERY is "
+                  "held back and counted; the FX history says whole or update (%r)" % (rl,)))
+results.append(ok("_timed_refresh(\"advisories \"" in inspect.getsource(server._advisories_fresh)
+                  and "_timed_refresh(\"rates \"" in inspect.getsource(server._rates_payload),
+                  "the advisory lists and the rates refresh through it"))
 
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

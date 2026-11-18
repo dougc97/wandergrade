@@ -480,6 +480,7 @@ def get_history():
             if have:
                 return snap
             raise RuntimeError("FX history unavailable")
+        c0 = time.thread_time()
         try:
             got = None
             if snap[1]:
@@ -490,11 +491,16 @@ def get_history():
             dates, cols = got or _history_full(snap[1])
         except Exception as e:
             _history["retry_at"] = time.time() + HISTORY_RETRY
+            print("[refresh] fx-history failed in %.2fs (cpu %d ms)"
+                  % (time.time() - now, (time.thread_time() - c0) * 1000), flush=True)
             if have:
                 print("[fx-history] refresh failed (%s); serving the copy from %ds ago"
                       % (e, now - snap[0]), flush=True)
                 return snap
             raise
+        print("[refresh] fx-history %s in %.2fs (cpu %d ms)"
+              % ("update +%d days" % (len(dates) - len(snap[1])) if got else "whole, %d days" % len(dates),
+                 time.time() - now, (time.thread_time() - c0) * 1000), flush=True)
         _history["snap"] = (time.time(), dates, cols)
         _history["retry_at"] = 0.0
         return _history["snap"]

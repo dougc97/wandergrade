@@ -50,6 +50,7 @@ if PUBLIC_MODE:
     AUTH_ON = False
 
 PUBLIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "public")
+_BOOT = time.monotonic()   # /healthz's X-Uptime counts from here: a restart shows as a reset
 CACHE_TTL = 600  # seconds; FX reference rates update at most daily.
 # Rates cache is keyed per (settings, base), NOT a single slot: the site
 # localizes base to each visitor's home currency, so one-slot caching made
@@ -2037,23 +2038,58 @@ def _advisories_payload(source, background=False):
     return out
 
 
+# One "[refresh]" line when a heavy upstream refresh ends (the advisory lists,
+# the rates; rates.get_history writes its own): what, how long, how much of
+# this thread's CPU, so a slow health check can be laid beside what was
+# running. At most one per name every REFRESH_LOG_EVERY seconds (a failing
+# upstream is retried every FAIL_RETRY); the ones held back are counted.
+REFRESH_LOG_EVERY = 60
+_refresh_logged = {}   # name -> [last line's time, lines held back since]
+_refresh_log_lock = threading.Lock()
+
+
+def _timed_refresh(name, compute):
+    """compute(), with its [refresh] line once it returns or raises."""
+    t0, c0 = time.time(), time.thread_time()
+    err = None
+    try:
+        return compute()
+    except Exception as e:
+        err = e
+        raise
+    finally:
+        now = time.time()
+        with _refresh_log_lock:
+            rec = _refresh_logged.setdefault(name, [0.0, 0])
+            line = now - rec[0] >= REFRESH_LOG_EVERY
+            held, rec[1] = (rec[1], 0) if line else (0, rec[1] + 1)
+            if line:
+                rec[0] = now
+        if line:
+            print("[refresh] %s %s in %.2fs (cpu %d ms)%s" % (
+                name, "failed: %s" % err if err is not None else "done", now - t0,
+                (time.thread_time() - c0) * 1000, ", %d more since" % held if held else ""), flush=True)
+
+
 def _advisories_fresh(source):
     # Each freshly fetched list goes past WanderGrade's own record of the
     # levels it has seen (fxtracker/advhistory.py), which stamps the items
     # whose level it saw change. Only here, where the list is computed — never
     # per request — and it can't fail the list: a storage error just leaves
     # the items unstamped.
-    return advhistory.record_and_annotate(source, advisories.get_advisories(source))
+    return _timed_refresh("advisories " + source, lambda: advhistory.record_and_annotate(
+        source, advisories.get_advisories(source)))
 
 
 def _rates_payload(cfg, base="USD"):
     key = (cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]), base)
-    return _cached("rates", _rates_cache, key, CACHE_TTL, lambda: rates.compute_favorability(
-        baseline_days=cfg["baseline_days"],
-        threshold_pct=cfg["threshold_pct"],
-        watch=cfg["watch"],
-        base=base,
-    ), stale_max=STALE_MAX)
+    return _cached("rates", _rates_cache, key, CACHE_TTL, lambda: _timed_refresh("rates " + base, lambda: (
+        rates.compute_favorability(
+            baseline_days=cfg["baseline_days"],
+            threshold_pct=cfg["threshold_pct"],
+            watch=cfg["watch"],
+            base=base,
+        ))), stale_max=STALE_MAX)
 
 
 def _fares(origin):
@@ -2230,6 +2266,72 @@ SHED_RETRY_AFTER = 30   # seconds, the 503's Retry-After
 _page_slots = None
 _slot_waiting = [0]     # requests waiting in _take_slot right now
 _slot_wait_lock = threading.Lock()
+# One "[busy]" line on stderr, at most every BUSY_LOG_EVERY seconds, while
+# pages are shed, finish without a slot, or BUSY_QUEUE_DEEP or more wait:
+# counts since the last line, so a health-check failure can be laid beside
+# the load that caused it (Render keeps ~7 days of logs). A timer writes the
+# last window's counts once things go quiet.
+BUSY_LOG_EVERY = 30
+BUSY_QUEUE_DEEP = 4
+_busy = {"at": 0.0, "queue": 0, "wait": 0, "slotless": 0, "deep": 0, "peak": 0, "timer": None}
+_busy_lock = threading.Lock()
+
+
+def _busy_note(kind):
+    """Count one event for the [busy] line: "queue" or "wait" (a page shed,
+    _take_slot), "slotless" (a page back from its inline wait finishing
+    without a slot, _no_slot) or "deep" (a request queueing behind
+    BUSY_QUEUE_DEEP or more); write the line if BUSY_LOG_EVERY has passed."""
+    with _busy_lock:
+        _busy[kind] += 1
+        _busy["peak"] = max(_busy["peak"], _slot_waiting[0])
+        line = _busy_line(time.time())
+        arm = _busy["timer"] is None
+    if line:
+        sys.stderr.write(line)
+    if arm:
+        _busy_arm()
+
+
+def _busy_line(now):
+    """The [busy] line for the counts so far and reset them, or None (inside
+    BUSY_LOG_EVERY of the last one, or nothing counted). Under _busy_lock."""
+    if now - _busy["at"] < BUSY_LOG_EVERY or not any(_busy[k] for k in ("queue", "wait", "slotless", "deep")):
+        return None
+    slots = _page_slots
+    in_use = (PAGE_SLOTS - slots._value) if slots is not None else 0
+    line = ("[busy] %s: shed %d (%d with %d+ waiting, %d after %ds), %d slotless, %d queued deep, "
+            "queue peak %d, now %d waiting, %d/%d slots in use\n"
+            % ("last %gs" % BUSY_LOG_EVERY if _busy["at"] else "since boot", _busy["queue"] + _busy["wait"],
+               _busy["queue"], PAGE_QUEUE_MAX, _busy["wait"], PAGE_SLOT_WAIT, _busy["slotless"], _busy["deep"],
+               _busy["peak"], _slot_waiting[0], in_use, PAGE_SLOTS))
+    _busy.update(at=now, queue=0, wait=0, slotless=0, deep=0, peak=0)
+    return line
+
+
+def _busy_arm():
+    """Write the window's counts BUSY_LOG_EVERY from now if any came in, and
+    keep doing so while they do. One timer at a time (_busy["timer"])."""
+    def flush():
+        with _busy_lock:
+            if _busy["timer"] is not t:
+                return               # replaced (a test reset it)
+            line = _busy_line(time.time())
+            _busy["timer"] = None
+        if line:
+            sys.stderr.write(line)
+            _busy_arm()
+    t = threading.Timer(BUSY_LOG_EVERY, flush)
+    t.daemon = True
+    with _busy_lock:
+        if _busy["timer"] is not None:
+            return
+        _busy["timer"] = t
+    try:
+        t.start()
+    except Exception:
+        with _busy_lock:
+            _busy["timer"] = None
 _slot_held = threading.local()   # .slots: the semaphore this request thread holds a slot of
 _SLOT_PATHS = frozenset(("/", "/data", "/privacy", "/sitemap.xml", "/llms.txt", "/ppp.json",
                          "/pl_history.json", render_strength.PATH)
@@ -2248,14 +2350,24 @@ def _take_slot(slots):
     if slots.acquire(blocking=False):
         return None
     with _slot_wait_lock:
-        if _slot_waiting[0] >= PAGE_QUEUE_MAX:
-            return "queue"
-        _slot_waiting[0] += 1
+        full = _slot_waiting[0] >= PAGE_QUEUE_MAX
+        if not full:
+            _slot_waiting[0] += 1
+        deep = _slot_waiting[0] >= BUSY_QUEUE_DEEP
+    if full:
+        _busy_note("queue")
+        return "queue"
+    if deep:
+        _busy_note("deep")
     try:
-        return None if slots.acquire(timeout=PAGE_SLOT_WAIT) else "wait"
+        got = slots.acquire(timeout=PAGE_SLOT_WAIT)
     finally:
         with _slot_wait_lock:
             _slot_waiting[0] -= 1
+    if not got:
+        _busy_note("wait")
+        return "wait"
+    return None
 
 
 @contextlib.contextmanager
@@ -2286,6 +2398,8 @@ def _no_slot():
     finally:
         if slots.acquire(timeout=PAGE_SLOT_WAIT):
             _slot_held.slots = slots
+        else:
+            _busy_note("slotless")
 
 
 def _idle_wait(event, timeout):
@@ -2726,6 +2840,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/healthz":
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
+            # Whole seconds since this process started, so a restart Render
+            # made (a failed check) can be seen from outside, after the fact.
+            self.send_header("X-Uptime", str(int(time.monotonic() - _BOOT)))
             self.send_header("Content-Length", "2")
             self.end_headers()
             self.wfile.write(b"ok")
