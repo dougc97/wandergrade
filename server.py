@@ -2085,12 +2085,35 @@ def _guide_query_redirect(raw_path):
 #         same dataset rebuild). An idle network wait costs no CPU, and
 #         three of them holding every slot kept every other visitor's page
 #         waiting up to PAGE_SLOT_WAIT.
-# A request that waits PAGE_SLOT_WAIT seconds for a slot runs without one,
-# so a stuck render can't hold the site up for longer.
+#
+# Past the slots, load is shed: a slot-route request that finds PAGE_QUEUE_MAX
+# others already waiting is answered 503 at once, and one that waits
+# PAGE_SLOT_WAIT without getting a slot is answered 503 then (_take_slot,
+# Handler._send_busy: Retry-After, no-store, a two-line page; HEAD alike, no
+# body). It used to run without a slot after the wait, so under a crawl that
+# outlasted PAGE_SLOT_WAIT the renders in flight grew without bound (~45
+# observed) and /healthz had to win the GIL from all of them: stall_check's
+# Nov 16 replay (--crawl 130 --rate 2.8 --burst-at 45 --on-ms 2) failed on
+# a64aea2 in 2 of 3 runs (up to 19 probes over 5 s, worst 15.4 s; with gzip
+# clients 29 over 5 s, worst 19.5 s), the slow probes starting 30-40 s into
+# the crawl, when the first waits ran out. Answering 503 instead: no probe over
+# 5 s in any of 17 runs at that pattern, worst 0.5-1.4 s during the crawl.
+# The queue cap adds the heavier crawl (--rate 5, 190 guides): with the wait
+# alone 18-22 probes went over 5 s in 2 of 3 runs, with a cap of 8 none in 2
+# of 3 (worst 2.1-2.8 s), and a waiting page is told at once instead of after
+# 15 s. Fewer slots (1 or 2) gained nothing at the Nov 16 pattern and shed far
+# more (52 and 30 of 130 pages with 1 slot, against 0 and 2 with 3).
+# A crawler reads 503 + Retry-After as "slow down" (Googlebot backs off); a
+# visitor only meets it while the site is that far behind, where before the
+# health check timed out and Render restarted the whole container.
 # None (the default: tests, tools) is unbounded; server.main() turns it on.
 PAGE_SLOTS = 3
 PAGE_SLOT_WAIT = 15
+PAGE_QUEUE_MAX = 8      # slot-route requests waiting at once before new ones get 503 at once
+SHED_RETRY_AFTER = 30   # seconds, the 503's Retry-After
 _page_slots = None
+_slot_waiting = [0]     # requests waiting in _take_slot right now
+_slot_wait_lock = threading.Lock()
 _slot_held = threading.local()   # .slots: the semaphore this request thread holds a slot of
 _SLOT_PATHS = frozenset(("/", "/data", "/privacy", "/sitemap.xml", "/llms.txt", "/ppp.json",
                          "/pl_history.json", render_strength.PATH)
@@ -2102,12 +2125,40 @@ def _slot_route(path):
     return path in _SLOT_PATHS or path.startswith("/guide/")
 
 
+def _take_slot(slots):
+    """Take one of `slots` for a request arriving on a slot route: None once
+    taken, else why it is shed: "queue" (PAGE_QUEUE_MAX others already
+    waiting: no wait at all) or "wait" (none came within PAGE_SLOT_WAIT)."""
+    if slots.acquire(blocking=False):
+        return None
+    with _slot_wait_lock:
+        if _slot_waiting[0] >= PAGE_QUEUE_MAX:
+            return "queue"
+        _slot_waiting[0] += 1
+    try:
+        return None if slots.acquire(timeout=PAGE_SLOT_WAIT) else "wait"
+    finally:
+        with _slot_wait_lock:
+            _slot_waiting[0] -= 1
+
+
 @contextlib.contextmanager
 def _no_slot():
     """Run the block without this request's page slot, if it holds one: an
     upstream fetch, or a wait on another thread's work, uses no CPU. The
-    slot is taken again after (or the request goes on without one past
-    PAGE_SLOT_WAIT). Off a slot (background threads, tests): nothing."""
+    slot is taken again after. Off a slot (background threads, tests):
+    nothing.
+
+    Taking it back is not an arrival: it skips PAGE_QUEUE_MAX, and past
+    PAGE_SLOT_WAIT the request finishes without a slot rather than being shed.
+    It has already done its waiting (a rates fetch, an advisory list's
+    computation) and was admitted under the slots once; a 503 now would
+    throw away work it has paid for and leave the reader nothing, where the
+    slotless finish is one render. Few requests ever get here (/data's hourly
+    dataset rebuild, a list page asking for a cold advisory list, both
+    computed once for everyone waiting), so this can't pile up renders the
+    way the crawler's guides did when every request ran slotless after the
+    wait."""
     slots = getattr(_slot_held, "slots", None)
     if slots is None:
         yield
@@ -2483,12 +2534,26 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             self._head_only = False
 
+    # Sent when a page is shed (_take_slot): small enough to go out raw, and
+    # no-store so no cache keeps "busy" as the page.
+    _BUSY_PAGE = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+                  '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                  '<title>Busy | WanderGrade</title></head><body><p>WanderGrade is busy '
+                  'right now. Please try again in a minute.</p><p><a href="/">WanderGrade</a></p>'
+                  '</body></html>').encode("utf-8")
+
+    def _send_busy(self):
+        self._send_body(self._BUSY_PAGE, "text/html; charset=utf-8", 503, cache="no-store",
+                        extra=[("Retry-After", str(SHED_RETRY_AFTER)), ("X-Robots-Tag", "noindex")])
+
     def do_GET(self):
         slots = _page_slots
         if slots is None or not _slot_route(self.path.split("?", 1)[0]):
             return self._do_get()
-        if slots.acquire(timeout=PAGE_SLOT_WAIT):
-            _slot_held.slots = slots
+        if _take_slot(slots):
+            self._send_busy()
+            return
+        _slot_held.slots = slots
         try:
             return self._do_get()
         finally:

@@ -31,9 +31,12 @@ What it holds the code to:
     Linux drop the health check's connection) and keeps daemon threads, and
     sets a 0.1 ms GIL switch interval. It renders at most 3 server-side
     pages at once (GET or HEAD); static files, /api/* and /healthz never wait
-    for a slot, a request waiting past PAGE_SLOT_WAIT runs anyway, and a
+    for a slot; a page that waits PAGE_SLOT_WAIT for one, or arrives to find
+    PAGE_QUEUE_MAX already waiting (at once), is shed: 503, Retry-After,
+    no-store, a small page (HEAD: no body), never rendered; and a
     slotted page waiting on the network (another thread's computation, /data's
-    dataset rebuild, a cold advisory list) gives its slot back meanwhile; a
+    dataset rebuild, a cold advisory list) gives its slot back meanwhile and,
+    if it can't get one back within PAGE_SLOT_WAIT, finishes without it; a
     list page leading a cold list's computation releases its followers when
     the list (or its error) lands, before it queues for its slot again.
   * server.py _warm_watchouts: ten guides' Canada notes are all fetched, never
@@ -683,21 +686,81 @@ results.append(ok(held == 3 and hz == b"ok" and hz_took < 0.5,
                   "8 pages at once: 3 worked on, the rest wait, and /healthz answers past them (%d running, %.2fs)"
                   % (held, hz_took)))
 results.append(ok(codes == [200] * 8 and pg["peak"] == 3, "all 8 answered once slots free up (peak %d, %s)" % (pg["peak"], codes)))
+
+
+def fetch_full(path, method="GET"):
+    """(status, headers, body, seconds) for one request, an HTTP error included."""
+    t0 = time.time()
+    try:
+        r = urllib.request.urlopen(urllib.request.Request(BASE + path, method=method), timeout=10)
+        return r.status, r.headers, r.read(), time.time() - t0
+    except urllib.error.HTTPError as e:
+        return e.code, e.headers, e.read(), time.time() - t0
+
+
+def shed_ok(res, method="GET"):
+    st, h, body, _took = res
+    return (st == 503 and h.get("Retry-After") == str(server.SHED_RETRY_AFTER)
+            and h.get("Cache-Control") == "no-store" and h.get("Content-Type", "").startswith("text/html")
+            and int(h.get("Content-Length", -1)) == len(server.Handler._BUSY_PAGE)
+            and (body == b"" if method == "HEAD" else body == server.Handler._BUSY_PAGE))
+
+
+# Three stuck renders hold every slot: a 4th page (GET or HEAD) waits
+# PAGE_SLOT_WAIT and is then shed with a 503, never rendered (it used to run
+# without a slot, and under a long crawl the slotless renders piled up).
 pg.update(peak=0, gate=threading.Event())
 del codes[:]
 saved_wait = server.PAGE_SLOT_WAIT
 server.PAGE_SLOT_WAIT = 0.3
-ths = [threading.Thread(target=get_page, args=("/guide/y?%d" % i,)) for i in range(4)]
+ths = [threading.Thread(target=get_page, args=("/guide/y?%d" % i,)) for i in range(3)]
 for t in ths:
     t.start()
-time.sleep(0.8)
+for _ in range(150):
+    if pg["running"] >= 3:
+        break
+    time.sleep(0.01)
+shed_get = fetch_full("/guide/y?3")
+shed_head = fetch_full("/guide/y?4", "HEAD")
 over = pg["running"]
 pg["gate"].set()
 for t in ths:
     t.join(10)
 server.PAGE_SLOT_WAIT = saved_wait
-results.append(ok(over == 4 and codes == [200] * 4,
-                  "3 slots held by stuck requests: a 4th runs anyway after PAGE_SLOT_WAIT (%d running)" % over))
+results.append(ok(over == 3 and pg["peak"] == 3 and shed_ok(shed_get) and shed_ok(shed_head, "HEAD")
+                  and 0.25 < shed_get[3] < 1.5 and codes == [200] * 3,
+                  "3 slots held by stuck requests: a 4th page waits PAGE_SLOT_WAIT and gets 503 + Retry-After %s + "
+                  "no-store, GET with the busy page, HEAD with none, never rendered (%d running, %.2fs, %s)"
+                  % (server.SHED_RETRY_AFTER, over, shed_get[3], shed_get[0])))
+
+# PAGE_QUEUE_MAX already waiting: the next arrival is shed at once, and the
+# ones waiting are answered when the slots free up.
+pg.update(peak=0, gate=threading.Event())
+del codes[:]
+saved_q, saved_wait = server.PAGE_QUEUE_MAX, server.PAGE_SLOT_WAIT
+server.PAGE_QUEUE_MAX, server.PAGE_SLOT_WAIT = 2, 5
+ths = [threading.Thread(target=get_page, args=("/guide/q?%d" % i,)) for i in range(5)]
+for t in ths:
+    t.start()
+for _ in range(200):
+    if pg["running"] >= 3 and server._slot_waiting[0] >= 2:
+        break
+    time.sleep(0.01)
+waiting_then = server._slot_waiting[0]
+fast = fetch_full("/guide/q?5")
+fast_head = fetch_full("/cheapest", "HEAD")
+pg["gate"].set()
+for t in ths:
+    t.join(10)
+server.PAGE_QUEUE_MAX, server.PAGE_SLOT_WAIT = saved_q, saved_wait
+results.append(ok(waiting_then == 2 and shed_ok(fast) and fast[3] < 0.5 and shed_ok(fast_head, "HEAD")
+                  and sorted(codes) == [200] * 5 and server._slot_waiting[0] == 0 and pg["peak"] == 3,
+                  "3 slots held and PAGE_QUEUE_MAX (2 here) waiting: the next page is shed at once (%.2fs), the "
+                  "waiting ones are answered as slots free (%s), the wait count back to %d"
+                  % (fast[3], sorted(set(map(str, codes))), server._slot_waiting[0])))
+results.append(ok(server.PAGE_QUEUE_MAX == 8 and server.PAGE_SLOT_WAIT == 15 and server.SHED_RETRY_AFTER == 30,
+                  "production: %d slots, 503 past %d waiting or %d s of waiting, Retry-After %d"
+                  % (server.PAGE_SLOTS, server.PAGE_QUEUE_MAX, server.PAGE_SLOT_WAIT, server.SHED_RETRY_AFTER)))
 
 # Only the routes that render server-side take a slot (CPU); static files,
 # /api/* (which may sit on an upstream: flights, rates, Upstash) and /healthz
@@ -821,6 +884,43 @@ results.append(ok(sorted(codes) == [200] * 4 and idle["after"] == [True] * 3
                   and server._page_slots._value == server.PAGE_SLOTS,
                   "they take their slots back after the wait, and every slot is free at the end (%s, %s, %d free)"
                   % (codes, idle["after"], server._page_slots._value)))
+
+# Taking the slot back is not an arrival: with every slot held by stuck renders
+# and the queue full, a page whose inline wait has ended still waits its turn
+# (no fast 503), and past PAGE_SLOT_WAIT it finishes without a slot rather than
+# throwing away the work it has paid for.
+idle.update(ev=threading.Event(), waiting=0, after=[])
+pg.update(peak=0, gate=threading.Event())
+del codes[:]
+saved_q = server.PAGE_QUEUE_MAX
+server.PAGE_SLOT_WAIT, server.PAGE_QUEUE_MAX = 0.4, 0
+waiter = threading.Thread(target=get_page, args=("/do-not-travel?wait=x",))
+waiter.start()
+for _ in range(100):
+    if idle["waiting"] == 1:
+        break
+    time.sleep(0.01)
+holders = [threading.Thread(target=get_page, args=("/guide/h?%d" % i,)) for i in range(3)]
+for t in holders:
+    t.start()
+running_reaches(3)
+t0 = time.time()
+idle["ev"].set()
+waiter.join(10)
+back_took = time.time() - t0
+pg["gate"].set()
+for t in holders:
+    t.join(10)
+server.PAGE_SLOT_WAIT, server.PAGE_QUEUE_MAX = saved_wait, saved_q
+for _ in range(100):
+    if server._page_slots._value == server.PAGE_SLOTS:
+        break
+    time.sleep(0.01)
+results.append(ok(codes and codes[0] == 200 and idle["after"] == [False] and 0.35 < back_took < 2
+                  and sorted(codes) == [200] * 4 and server._page_slots._value == server.PAGE_SLOTS,
+                  "a page back from its inline wait with every slot held and the queue full is not shed: it waits "
+                  "PAGE_SLOT_WAIT for its slot, then finishes without one (%.2fs, %s, slot %s)"
+                  % (back_took, codes[:1], idle["after"])))
 httpd.shutdown()
 httpd.server_close()
 server.Handler._do_get = real_do_get
