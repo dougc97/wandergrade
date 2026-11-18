@@ -2253,13 +2253,23 @@ def _guide_query_redirect(raw_path):
 # The queue cap adds the heavier crawl (--rate 5, 190 guides): with the wait
 # alone 18-22 probes went over 5 s in 2 of 3 runs, with a cap of 8 none in 2
 # of 3 (worst 2.1-2.8 s), and a waiting page is told at once instead of after
-# 15 s. Fewer slots (1 or 2) gained nothing at the Nov 16 pattern and shed far
-# more (52 and 30 of 130 pages with 1 slot, against 0 and 2 with 3).
+# 15 s.
+#
+# Two slots, not three: renders use no network (a page waiting on one gives
+# its slot back, _no_slot), so on one shared CPU a third concurrent render
+# adds no throughput, only one more thread for /healthz to win the GIL from.
+# With the cap of 8, at --rate 5: 3 slots failed both runs (34 and 14 probes
+# over 5 s, worst 12.6 and 8.1 s), 2 slots passed all three (worst 1.35-1.63 s)
+# serving as many pages (43-51 of 190 against 54 and 43); at the Nov 16 pattern
+# 2 slots served 50 and 57 of 130 against 50-52 with 3, worst probe 1.24-1.36 s;
+# in production's state (fares, notes) 48 against 40, worst 1.0 s against 1.2.
+# One slot did as well at --rate 5 but leaves a page alone with the background
+# work (Canada's notes, two workers) for the GIL: 44 served.
 # A crawler reads 503 + Retry-After as "slow down" (Googlebot backs off); a
 # visitor only meets it while the site is that far behind, where before the
 # health check timed out and Render restarted the whole container.
 # None (the default: tests, tools) is unbounded; server.main() turns it on.
-PAGE_SLOTS = 3
+PAGE_SLOTS = 2
 PAGE_SLOT_WAIT = 15
 PAGE_QUEUE_MAX = 8      # slot-route requests waiting at once before new ones get 503 at once
 SHED_RETRY_AFTER = 30   # seconds, the 503's Retry-After
@@ -2299,12 +2309,13 @@ def _busy_line(now):
     if now - _busy["at"] < BUSY_LOG_EVERY or not any(_busy[k] for k in ("queue", "wait", "slotless", "deep")):
         return None
     slots = _page_slots
-    in_use = (PAGE_SLOTS - slots._value) if slots is not None else 0
+    size = slots._initial_value if slots is not None else PAGE_SLOTS
+    in_use = (size - slots._value) if slots is not None else 0
     line = ("[busy] %s: shed %d (%d with %d+ waiting, %d after %ds), %d slotless, %d queued deep, "
             "queue peak %d, now %d waiting, %d/%d slots in use\n"
             % ("last %gs" % BUSY_LOG_EVERY if _busy["at"] else "since boot", _busy["queue"] + _busy["wait"],
                _busy["queue"], PAGE_QUEUE_MAX, _busy["wait"], PAGE_SLOT_WAIT, _busy["slotless"], _busy["deep"],
-               _busy["peak"], _slot_waiting[0], in_use, PAGE_SLOTS))
+               _busy["peak"], _slot_waiting[0], in_use, size))
     _busy.update(at=now, queue=0, wait=0, slotless=0, deep=0, peak=0)
     return line
 

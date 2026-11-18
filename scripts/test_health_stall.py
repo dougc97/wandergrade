@@ -29,7 +29,7 @@ What it holds the code to:
     reads the other lists the same way.
   * server.py main() listens with a backlog of 128 (socketserver's 5 let
     Linux drop the health check's connection) and keeps daemon threads, and
-    sets a 0.1 ms GIL switch interval. It renders at most 3 server-side
+    sets a 0.1 ms GIL switch interval. It renders at most 2 server-side
     pages at once (GET or HEAD); static files, /api/* and /healthz never wait
     for a slot; a page that waits PAGE_SLOT_WAIT for one, or arrives to find
     PAGE_QUEUE_MAX already waiting (at once), is shed: 503, Retry-After,
@@ -629,7 +629,7 @@ results.append(ok("sys.setswitchinterval(SWITCH_INTERVAL)" in inspect.getsource(
 
 # --- server.py: page slots, /healthz exempt ------------------------------------------------
 src = inspect.getsource(server.main)
-results.append(ok(server._page_slots is None and server.PAGE_SLOTS == 3
+results.append(ok(server._page_slots is None and server.PAGE_SLOTS == 2
                   and "_page_slots = threading.BoundedSemaphore(PAGE_SLOTS)" in src,
                   "main() works on at most %d GETs at once; importing server leaves it unbounded" % server.PAGE_SLOTS))
 pg = {"running": 0, "peak": 0, "gate": threading.Event()}
@@ -657,7 +657,8 @@ def fake_do_get(self):
 
 server.Handler._do_get = fake_do_get
 server.Handler.log_message = lambda self, *a: None
-server._page_slots = threading.BoundedSemaphore(server.PAGE_SLOTS)
+TEST_SLOTS = 3     # the slot tests below run on 3 slots, whatever production uses
+server._page_slots = threading.BoundedSemaphore(TEST_SLOTS)
 httpd = server._Server(("127.0.0.1", 0), server.Handler)   # main()'s backlog: 5 resets a burst on macOS
 threading.Thread(target=httpd.serve_forever, daemon=True).start()
 BASE = "http://127.0.0.1:%d" % httpd.server_address[1]
@@ -760,7 +761,8 @@ results.append(ok(waiting_then == 2 and shed_ok(fast) and fast[3] < 0.5 and shed
                   "3 slots held and PAGE_QUEUE_MAX (2 here) waiting: the next page is shed at once (%.2fs), the "
                   "waiting ones are answered as slots free (%s), the wait count back to %d"
                   % (fast[3], sorted(set(map(str, codes))), server._slot_waiting[0])))
-results.append(ok(server.PAGE_QUEUE_MAX == 8 and server.PAGE_SLOT_WAIT == 15 and server.SHED_RETRY_AFTER == 30,
+results.append(ok(server.PAGE_SLOTS == 2 and server.PAGE_QUEUE_MAX == 8 and server.PAGE_SLOT_WAIT == 15
+                  and server.SHED_RETRY_AFTER == 30,
                   "production: %d slots, 503 past %d waiting or %d s of waiting, Retry-After %d"
                   % (server.PAGE_SLOTS, server.PAGE_QUEUE_MAX, server.PAGE_SLOT_WAIT, server.SHED_RETRY_AFTER)))
 
@@ -877,13 +879,13 @@ for t in ths:
     t.join(10)
 server.PAGE_SLOT_WAIT = saved_wait
 for _ in range(100):      # a handler releases its slot just after the client has its response
-    if server._page_slots._value == server.PAGE_SLOTS:
+    if server._page_slots._value == TEST_SLOTS:
         break
     time.sleep(0.01)
 results.append(ok(took < 0.5 and codes[0] == 200,
                   "3 requests waiting on another thread's computation hold no slot: a page runs at once (%.2fs)" % took))
 results.append(ok(sorted(codes) == [200] * 4 and idle["after"] == [True] * 3
-                  and server._page_slots._value == server.PAGE_SLOTS,
+                  and server._page_slots._value == TEST_SLOTS,
                   "they take their slots back after the wait, and every slot is free at the end (%s, %s, %d free)"
                   % (codes, idle["after"], server._page_slots._value)))
 
@@ -915,11 +917,11 @@ for t in holders:
     t.join(10)
 server.PAGE_SLOT_WAIT, server.PAGE_QUEUE_MAX = saved_wait, saved_q
 for _ in range(100):
-    if server._page_slots._value == server.PAGE_SLOTS:
+    if server._page_slots._value == TEST_SLOTS:
         break
     time.sleep(0.01)
 results.append(ok(codes and codes[0] == 200 and idle["after"] == [False] and 0.35 < back_took < 2
-                  and sorted(codes) == [200] * 4 and server._page_slots._value == server.PAGE_SLOTS,
+                  and sorted(codes) == [200] * 4 and server._page_slots._value == TEST_SLOTS,
                   "a page back from its inline wait with every slot held and the queue full is not shed: it waits "
                   "PAGE_SLOT_WAIT for its slot, then finishes without one (%.2fs, %s, slot %s)"
                   % (back_took, codes[:1], idle["after"])))
@@ -931,7 +933,7 @@ server.Handler._do_get = real_do_get
 # rebuilding its dataset (a rates fetch), and a list page computing an
 # advisory list not in hand at all. The slot is held again afterwards.
 for _ in range(100):
-    if server._page_slots._value == server.PAGE_SLOTS:
+    if server._page_slots._value == TEST_SLOTS:
         break
     time.sleep(0.01)
 sem = server._page_slots
