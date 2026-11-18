@@ -1314,7 +1314,7 @@ def _cheap_fares():
         return None, None, "off"
     hit = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
     fares = hit[1] if hit else None
-    fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares) if fares else None
+    fv = _fv_build(fares) if fares else None
     warm = fares is not None and flightvalue.has_warmed(flightvalue.DEFAULT_ORIGIN)
     return fares, fv, "warm" if warm else "cold"
 
@@ -1401,6 +1401,34 @@ def _fare_strip_hint(iso):
         return False
 
 
+# flightvalue.build for the default origin, as the server's pages read it:
+# twice per guide (_guide_fv, _guide_lines) and per home render (_home_sizers,
+# _home_picks), plus /cheapest's, at 1.3 ms a call: 2.6 ms of a 5.8 ms guide.
+_fv_memo = [None]   # (fares, curve entries kept alive, local day, until, fv), swapped whole
+
+
+def _fv_build(fares):
+    """flightvalue.build(DEFAULT_ORIGIN, fares), memoized on everything it
+    reads: the fares payload (by identity: a refresh is a new object), every
+    cached route curve (flights.monthly_entries: entries are replaced on
+    write, so an equal snapshot is an unchanged cache), the local date (its
+    12-month window, the partial month, departures already flown) and the
+    first moment a curve would read differently with no write
+    (flights.monthly_read_until: due a refresh, or too old to serve). Equal
+    to a fresh build, so every page stays byte-identical. Shared: read it,
+    never modify it."""
+    now = time.time()
+    entries = flights.monthly_entries()
+    day = datetime.now().date()          # what build's window_months() reads
+    memo = _fv_memo[0]
+    if memo and memo[0] is fares and memo[2] == day and now < memo[3] and memo[1] == entries:
+        return memo[4]
+    until = flights.monthly_read_until(entries, now)
+    fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares)
+    _fv_memo[0] = (fares, entries, day, until, fv)
+    return fv
+
+
 def _guide_fv(iso):
     """(flight-value build, date of its fares) for the default origin from the
     caches alone, for a guide whose month table carries a fare column; (None,
@@ -1413,8 +1441,7 @@ def _guide_fv(iso):
     if not hit or not hit[1]:
         return None, None
     try:
-        return (flightvalue.build(flightvalue.DEFAULT_ORIGIN, hit[1]),
-                datetime(*time.gmtime(hit[0])[:3]).date())
+        return (_fv_build(hit[1]), datetime(*time.gmtime(hit[0])[:3]).date())
     except Exception as e:   # the fare column only: never the page
         print("[month-table] %s %s" % (iso, e), file=sys.stderr, flush=True)
         return None, None
@@ -1538,7 +1565,7 @@ def _home_sizers():
             hit = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
             fares = hit[1] if hit else None
             if fares and fares.get("countries"):
-                fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares)
+                fv = _fv_build(fares)
                 levels = {it.get("iso"): it.get("level") for it in adv.get("items") or [] if it.get("iso")}
                 out["FLIGHT_PICKS"] = map_picks.flights_row(fv, levels, render_guide.name_for_iso)
     except Exception as e:   # a hint only: never the page
@@ -1613,7 +1640,7 @@ def _guide_lines(iso):
         fares = fh[1] if fh else None
         if not fares:
             return {}
-        fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares)
+        fv = _fv_build(fares)
         row = next((r for r in fares.get("countries") or [] if r.get("iso") == iso), None)
         curve = flights.get_country_monthly(flightvalue.DEFAULT_ORIGIN, row, lookup=flights.monthly_cached) \
             if row else None
@@ -1670,7 +1697,7 @@ def _home_picks():
         fares = fh[1] if fh else None
         if not fares:
             return {}
-        fv = flightvalue.build(flightvalue.DEFAULT_ORIGIN, fares)
+        fv = _fv_build(fares)
     d = render_guide._load()
     r = home_picks.build({"rates": rp, "ppp": ppp, "climate": d["clim"], "activities": d["acts"],
                           "advisories": adv, "flights": fares, "fv": fv,

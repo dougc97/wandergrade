@@ -318,6 +318,25 @@ def monthly_cached(origin_iso, dest_city, currency="usd"):
     return _served(hit)
 
 
+def monthly_entries():
+    """Every cached route curve as it stands: a tuple of (key, entry) pairs.
+    Entries are tuples replaced on every write, so two snapshots compare
+    equal exactly when no curve was written in between (a caller memoizing
+    a cache-only read such as flightvalue.build keeps the old snapshot, and
+    with it the entries, alive). Pair with monthly_read_until()."""
+    return tuple(_monthly_cache.items())
+
+
+def monthly_read_until(entries, now):
+    """The first time after `now` that one of `entries` reads differently
+    with no write: it goes due a refresh (monthly_needs_fetch turns true) or
+    past MONTHLY_STALE_MAX (monthly_cached stops serving it). A moment
+    already past was already read. inf when none is ahead."""
+    ahead = [t for _k, e in entries
+             for t in (e[0] + (MONTHLY_FAIL_TTL if e[3] else MONTHLY_TTL), e[1] + MONTHLY_STALE_MAX) if t > now]
+    return min(ahead, default=float("inf"))
+
+
 def monthly_needs_fetch(origin_iso, dest_city, currency="usd"):
     """True when get_monthly would call upstream for this route right now."""
     key = _route_key(origin_iso, dest_city, currency)

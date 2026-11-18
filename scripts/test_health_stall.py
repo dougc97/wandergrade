@@ -1258,5 +1258,87 @@ results.append(ok(site_c == fresh_c and geo.site_centroids() is site_c and cheap
 results.append(ok("geo.country_centroids()" in inspect.getsource(picks.fare_context),
                   "picks.fare_context without centroids still computes them fresh (the newsletter build's path)"))
 
+# --- server.py: the default origin's flight-value build, memoized ----------------------
+# Twice per guide and per home render at 1.3 ms a call; the memo must hand back
+# exactly what a fresh build would: same fares object, same curves, same day,
+# and no curve gone due or stale since.
+from fxtracker import flights as FL, flightvalue as FV  # noqa: E402
+saved_fl = (FL.is_configured, dict(FL._monthly_cache), FL._cities, FV.build, server._fv_memo[0], server.datetime)
+FL.is_configured, FL._cities = (lambda: True), {}
+fv_calls = [0]
+
+
+def counted_fvb(*a, **k):
+    fv_calls[0] += 1
+    return saved_fl[3](*a, **k)
+
+
+try:
+    FV.build = counted_fvb
+    fares_fx = copy.deepcopy(fx_inputs["flights"])
+    hub = FL.ORIGIN_HUBS["US"][0]
+    per_city = {}
+    for _iso, c_ in fx_inputs["fv"]["countries"].items():
+        for m_, (price, city) in (c_.get("curve") or {}).items():
+            per_city.setdefault(city, {})[m_] = {"price": price, "stops": 0, "departure_at": m_ + "-28T10:00:00Z"}
+    FL._monthly_cache.clear()
+    now_ = time.time()
+    for row in fares_fx["countries"]:
+        for city in FL.country_cities(row):
+            FL._monthly_cache[(hub, city, "usd")] = (now_, now_, {"configured": True, "origin": "US", "hub": hub,
+                                                                  "dest": city, "currency": "usd",
+                                                                  "months": dict(per_city.get(city, {}))}, False)
+    server._fv_memo[0] = None
+    a1, a2 = server._fv_build(fares_fx), server._fv_build(fares_fx)
+    fresh_fv = saved_fl[3]("US", fares_fx)
+    same = (a1 is a2 and a1 == fresh_fv and fv_calls[0] == 1 and a1["ready"] > 50)
+    # one curve rewritten (a refresh landed): rebuilt, and the change shows
+    k0 = next(k for k, e in FL._monthly_cache.items() if e[2]["months"])
+    e0 = FL._monthly_cache[k0]
+    m0 = sorted(e0[2]["months"])[-1]
+    FL._monthly_cache[k0] = (e0[0], e0[1], dict(e0[2], months=dict(e0[2]["months"], **{m0: dict(
+        e0[2]["months"][m0], price=e0[2]["months"][m0]["price"] + 999)})), False)
+    b1 = server._fv_build(fares_fx)
+    rewritten = fv_calls[0] == 2 and b1 is not a1 and b1 == saved_fl[3]("US", fares_fx) and b1 != a1
+    # a refreshed fares payload with the same content is a new object: rebuilt
+    c1 = server._fv_build(copy.deepcopy(fares_fx))
+    new_fares = fv_calls[0] == 3 and c1 == b1
+    # a curve going due with no write (refresh count 0 -> 1): rebuilt once it has
+    e1 = FL._monthly_cache[k0]
+    FL._monthly_cache[k0] = (time.time() - FL.MONTHLY_TTL + 0.3,) + e1[1:]
+    d1 = server._fv_build(fares_fx)
+    d2 = server._fv_build(fares_fx)
+    time.sleep(0.4)
+    d3 = server._fv_build(fares_fx)
+    gone_due = (d1 is d2 and d1["refresh"] == 0 and d3["refresh"] >= 1 and d3 == saved_fl[3]("US", fares_fx)
+                and fv_calls[0] == 5)
+    d4 = server._fv_build(fares_fx)      # already due: nothing ahead changes it, so it is kept again
+    still = d4 is d3 and fv_calls[0] == 5
+
+    class Tomorrow(saved_fl[5]):
+        @classmethod
+        def now(cls, tz=None):
+            return saved_fl[5].fromtimestamp(time.time() + 86400, tz)
+
+    server.datetime = Tomorrow
+    server._fv_build(fares_fx)
+    new_day = fv_calls[0] == 6
+finally:
+    FL.is_configured, FL._cities, FV.build, server.datetime = saved_fl[0], saved_fl[2], saved_fl[3], saved_fl[5]
+    FL._monthly_cache.clear()
+    FL._monthly_cache.update(saved_fl[1])
+    server._fv_memo[0] = saved_fl[4]
+results.append(ok(same, "the default origin's flight-value build is built once and handed out again while nothing "
+                        "it reads has changed, equal to a fresh build (%d builds, %d ready)" % (1, a1["ready"])))
+results.append(ok(rewritten and new_fares,
+                  "a rewritten route curve, or a new fares payload, rebuilds it, and the rebuild shows the change"))
+results.append(ok(gone_due and still, "a curve going due with no write rebuilds it once that moment passes "
+                  "(refresh %d -> %d), and a curve already due doesn't stop it being kept" % (d1["refresh"], d3["refresh"])))
+results.append(ok(new_day, "so does a new day (the 12-month window, departures already flown)"))
+results.append(ok("flightvalue.build(" not in inspect.getsource(server._guide_fv)
+                  + inspect.getsource(server._guide_lines) + inspect.getsource(server._home_sizers)
+                  + inspect.getsource(server._home_picks) + inspect.getsource(server._cheap_fares),
+                  "every page render takes it from the memo (_fv_build)"))
+
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)
