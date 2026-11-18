@@ -44,7 +44,31 @@ What it holds the code to:
     or in flight is not queued again; a fetch that raises doesn't stop the
     queue.
   * scripts/dev/stall_check.py: a burst page times out only when the run
-    ends (--page-timeout to set it), so a slow cold page reports its time.
+    ends (--page-timeout to set it), so a slow cold page reports its time;
+    --rate R sends request i at i/R s (open loop), --gzip asks for gzip, the
+    docstring gives the Nov 16 replay, and the FX history's pieces are cut
+    from the recorded whole reply.
+  * cheaper pages: the country centroids are computed once per process
+    (fare_context's own default still computes them, the newsletter's path);
+    the default origin's flight-value build is memoized exactly on what it
+    reads (fares, every route curve, the day, the next moment a curve goes
+    due or stale); text responses gzip at level 6; with the page memo on
+    (main()), a public guide or homepage is rendered once and handed out
+    again, GET, HEAD and any query string alike, with the very bytes and
+    headers as before, until an input is replaced, the day turns, its
+    Cache-Control would change or PAGE_MEMO_TTL passes (no-store pages are
+    never kept; at most PAGE_MEMO_MAX).
+  * fxtracker/rates.py get_history: the first fetch is the whole history,
+    in 5-year pieces each of which must reach both its ends; a copy in hand
+    is brought up to date from its last 10 days on, falling back to the
+    whole history when the reply disagrees with the copy, skips a day of it
+    or has a day it lacks; INDEX_MASK, HISTORY_STALE and the failure backoff
+    as before (recorded reply, scripts/fixtures/fx_history/).
+  * logging: a client hanging up mid-response is one [disconnect] line, any
+    other exception keeps its traceback; /healthz carries X-Uptime and writes
+    its log line after its answer; [busy] lines (at most one per
+    BUSY_LOG_EVERY) count shed, slotless and deep-queued requests; [refresh]
+    lines time the advisory, rates and FX history refreshes.
 """
 import copy
 import inspect
