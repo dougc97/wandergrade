@@ -77,7 +77,8 @@ What it holds the code to:
     a peer that stops reading, or never sends its request, frees the handler
     after CLIENT_IO_TIMEOUT (OS socket timeouts); /healthz carries X-Uptime and writes
     its log line after its answer; [busy] lines (at most one per
-    BUSY_LOG_EVERY) count shed, slotless and deep-queued requests; [refresh]
+    BUSY_LOG_EVERY) count shed (how many to crawler User-Agents), slotless,
+    deep-queued and stuck-slot requests; [refresh]
     lines time the advisory, rates and FX history refreshes.
 """
 import copy
@@ -2057,7 +2058,7 @@ saved_busy = (server.BUSY_LOG_EVERY, dict(server._busy), server._page_slots, ser
 server.BUSY_LOG_EVERY = 0.4
 if server._busy.get("timer") is not None:
     server._busy["timer"].cancel()      # the slot tests above queued deep: their timer is pending
-server._busy.update(at=0.0, queue=0, wait=0, slotless=0, deep=0, peak=0, timer=None)
+server._busy.update(at=0.0, queue=0, wait=0, slotless=0, deep=0, peak=0, stuck=0, bot=0, timer=None)
 server._page_slots = threading.BoundedSemaphore(3)
 err3, saved_err = io.StringIO(), sys.stderr
 sys.stderr = err3
@@ -2065,7 +2066,7 @@ try:
     for _i in range(3):
         server._page_slots.acquire()
     server.PAGE_QUEUE_MAX = 0
-    shed_kinds = [server._take_slot(server._page_slots) for _ in range(3)]
+    shed_kinds = [server._take_slot(server._page_slots, bot_) for bot_ in (True, False, True)]
     first_lines = err3.getvalue().splitlines()
     server._busy_note("slotless")
     time.sleep(0.6)
@@ -2082,10 +2083,25 @@ finally:
     server._page_slots, server.PAGE_QUEUE_MAX = saved_busy[2], saved_busy[3]
 results.append(ok(shed_kinds == ["queue"] * 3 and len(first_lines) == 1 and first_lines[0].startswith("[busy] ")
                   and "shed 1 (1 with 0+ waiting" in first_lines[0] and "3/3 slots in use" in first_lines[0]
+                  and "; 1 to crawler UAs)" in first_lines[0]
                   and len(after_timer) == 2 and "shed 2 (2 with" in after_timer[1] and "1 slotless" in after_timer[1]
-                  and len(quiet) == 2,
+                  and "; 1 to crawler UAs)" in after_timer[1] and len(quiet) == 2,
                   "[busy]: the first shed page writes a line at once, the window's other 2 sheds and a slotless "
                   "finish go out in one line BUSY_LOG_EVERY later, then nothing while quiet (%r)" % (after_timer[-1:],)))
+UAS = {"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)": True,
+       "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)": True,
+       "Mozilla/5.0 (compatible; AhrefsBot/7.0; +http://ahrefs.com/robot/)": True,
+       "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2; +https://openai.com/gptbot)": True,
+       "python-requests/2.31.0": True, "curl/8.4.0": True, "facebookexternalhit/1.1": True,
+       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 "
+       "Safari/537.36": False,
+       "Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) "
+       "Version/18.1 Mobile/15E148 Safari/604.1": False, "": False}
+ua_wrong = [u for u, b in UAS.items() if bool(server._BOT_UA.search(u)) != b]
+results.append(ok(not ua_wrong and "_BOT_UA.search(self.headers.get(\"User-Agent\")" in inspect.getsource(server.Handler.do_GET),
+                  "the [busy] line splits sheds by crawler User-Agent (Googlebot, bingbot, AhrefsBot, GPTBot, "
+                  "python-requests, curl, facebookexternalhit yes; desktop Chrome, iPhone Safari, none no; wrong: %s)"
+                  % ua_wrong))
 results.append(ok("_busy_note(\"slotless\")" in inspect.getsource(server._no_slot)
                   and server.BUSY_LOG_EVERY == 30,
                   "a page finishing without its slot after an inline wait is counted too; production writes at "

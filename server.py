@@ -2355,17 +2355,27 @@ _slot_since = {}        # thread ident -> time.monotonic() it took the slot it h
 # last window's counts once things go quiet.
 BUSY_LOG_EVERY = 30
 BUSY_QUEUE_DEEP = 4
-_busy = {"at": 0.0, "queue": 0, "wait": 0, "slotless": 0, "deep": 0, "peak": 0, "stuck": 0, "timer": None}
+_busy = {"at": 0.0, "queue": 0, "wait": 0, "slotless": 0, "deep": 0, "peak": 0, "stuck": 0, "bot": 0,
+         "timer": None}
+# Sheds are split by whether the User-Agent names itself a crawler, so the
+# [busy] lines show whether people are being turned away or only bots (a
+# crawler with a browser's User-Agent counts as a person: an upper bound).
+_BOT_UA = re.compile(r"bot\b|bot/|crawl|spider|slurp|scrap|preview|externalhit|headless|python|curl|wget|"
+                     r"go-http|java/|okhttp|axios|node-fetch|httpx|libwww|ahrefs|semrush|petal|yandex|baidu",
+                     re.IGNORECASE)
 _busy_lock = threading.Lock()
 
 
-def _busy_note(kind):
+def _busy_note(kind, bot=False):
     """Count one event for the [busy] line: "queue" or "wait" (a page shed,
-    _take_slot), "slotless" (a page back from its inline wait finishing
-    without a slot, _no_slot) or "deep" (a request queueing behind
-    BUSY_QUEUE_DEEP or more); write the line if BUSY_LOG_EVERY has passed."""
+    _take_slot; `bot`: its User-Agent names a crawler), "slotless" (a page
+    back from its inline wait finishing without a slot, _no_slot), "deep" (a
+    request queueing behind BUSY_QUEUE_DEEP or more) or "stuck"; write the
+    line if BUSY_LOG_EVERY has passed."""
     with _busy_lock:
         _busy[kind] += 1
+        if bot and kind in ("queue", "wait"):
+            _busy["bot"] += 1
         _busy["peak"] = max(_busy["peak"], _slot_waiting[0])
         line = _busy_line(time.time())
         arm = _busy["timer"] is None
@@ -2388,12 +2398,12 @@ def _busy_line(now):
     if _busy.get("stuck"):
         oldest = max([time.monotonic() - t for t in list(_slot_since.values())] or [0])
         stuck = ", %d run without a slot past stuck slots (oldest held %ds)" % (_busy["stuck"], oldest)
-    line = ("[busy] %s: shed %d (%d with %d+ waiting, %d after %ds), %d slotless, %d queued deep, "
-            "queue peak %d, now %d waiting, %d/%d slots in use%s\n"
+    line = ("[busy] %s: shed %d (%d with %d+ waiting, %d after %ds; %d to crawler UAs), %d slotless, "
+            "%d queued deep, queue peak %d, now %d waiting, %d/%d slots in use%s\n"
             % ("last %gs" % BUSY_LOG_EVERY if _busy["at"] else "since boot", _busy["queue"] + _busy["wait"],
-               _busy["queue"], PAGE_QUEUE_MAX, _busy["wait"], PAGE_SLOT_WAIT, _busy["slotless"], _busy["deep"],
-               _busy["peak"], _slot_waiting[0], in_use, size, stuck))
-    _busy.update(at=now, queue=0, wait=0, slotless=0, deep=0, peak=0, stuck=0)
+               _busy["queue"], PAGE_QUEUE_MAX, _busy["wait"], PAGE_SLOT_WAIT, _busy["bot"], _busy["slotless"],
+               _busy["deep"], _busy["peak"], _slot_waiting[0], in_use, size, stuck))
+    _busy.update(at=now, queue=0, wait=0, slotless=0, deep=0, peak=0, stuck=0, bot=0)
     return line
 
 
@@ -2447,12 +2457,13 @@ def _slots_stuck(size):
     return len(held) >= size and all(now - t >= PAGE_STUCK_AFTER for t in held)
 
 
-def _take_slot(slots):
+def _take_slot(slots, bot=False):
     """Take one of `slots` for a request arriving on a slot route: None once
     taken (recorded in _slot_since), "stuck" when it is to run without one
     (every slot held past PAGE_STUCK_AFTER), else why it is shed: "queue"
     (PAGE_QUEUE_MAX others already waiting: no wait at all) or "wait" (none
-    came within PAGE_SLOT_WAIT)."""
+    came within PAGE_SLOT_WAIT). `bot`: the request's User-Agent names a
+    crawler (the [busy] line's split)."""
     if slots.acquire(blocking=False):
         _slot_taken()
         return None
@@ -2465,7 +2476,7 @@ def _take_slot(slots):
         if _slots_stuck(slots._initial_value):
             _busy_note("stuck")
             return "stuck"
-        _busy_note("queue")
+        _busy_note("queue", bot)
         return "queue"
     if deep:
         _busy_note("deep")
@@ -2478,7 +2489,7 @@ def _take_slot(slots):
         if _slots_stuck(slots._initial_value):
             _busy_note("stuck")
             return "stuck"
-        _busy_note("wait")
+        _busy_note("wait", bot)
         return "wait"
     _slot_taken()
     return None
@@ -3011,7 +3022,7 @@ class Handler(BaseHTTPRequestHandler):
         slots = _page_slots
         if slots is None or not _slot_route(self.path.split("?", 1)[0]):
             return self._do_get()
-        why = _take_slot(slots)
+        why = _take_slot(slots, bool(_BOT_UA.search(self.headers.get("User-Agent") or "")))
         if why == "stuck":
             return self._do_get()
         if why:
