@@ -2622,9 +2622,22 @@ class Handler(BaseHTTPRequestHandler):
         for hk, hv in (extra or []):
             self.send_header(hk, hv)
         self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        if not getattr(self, "_head_only", False):
-            self.wfile.write(body)   # HEAD: same status/headers, no body
+        self._end_headers_with(b"" if getattr(self, "_head_only", False) else body)   # HEAD: no body
+
+    def _end_headers_with(self, body):
+        """end_headers() and then `body`, in one write: each write is a
+        syscall the thread gives the GIL up for, and under load winning it
+        back means waiting behind every runnable thread. The bytes on the
+        wire are the same. (An HTTP/0.9 request has no headers: body only.)"""
+        if not hasattr(self, "_headers_buffer") or self.request_version == "HTTP/0.9":
+            self.end_headers()
+            if body:
+                self.wfile.write(body)
+            return
+        self._headers_buffer.append(b"\r\n")
+        if body:
+            self._headers_buffer.append(body)
+        self.flush_headers()
 
     def _send_page(self, iso, cache):
         """A guide (iso) or the homepage (None) going out with `cache`: from
@@ -3056,8 +3069,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self.headers.get("CF-Ray"):
                 self.send_header("X-Uptime", str(int(time.monotonic() - _BOOT)))
             self.send_header("Content-Length", "2")
-            self.end_headers()
-            self.wfile.write(b"ok")
+            self._end_headers_with(b"ok")
             self.log_request(200)
             return
         # Canonical-domain redirect: bounce the old *.onrender.com host to the

@@ -1444,6 +1444,48 @@ results.append(ok(server.GZIP_LEVEL == 6 and "Content-Encoding: gzip" in h_gz an
                   "text responses gzip at level %d: world.geojson %d -> %d bytes (level 9: %d), raw without "
                   "Accept-Encoding" % (server.GZIP_LEVEL, len(raw_geo), len(b_gz), len(_gz.compress(raw_geo, 9)))))
 
+# One write per response, headers and body together (each write is a syscall
+# the thread gives the GIL up for); the bytes on the wire as before. HTTP/0.9
+# has no headers: the body alone.
+writes = []
+real_cw = server._ClientIO.write
+
+
+def counted_write(self, b):
+    writes.append(bytes(b))
+    return real_cw(self, b)
+
+
+def raw_exchange(req):
+    a, b = _sock.socketpair()
+    b.sendall(req)
+    got = []
+    rd = threading.Thread(target=lambda: [got.append(x) for x in iter(lambda: b.recv(65536), b"")], daemon=True)
+    rd.start()
+    del writes[:]
+    server.Handler(a, ("127.0.0.1", 40000), _FakeSrv())
+    a.shutdown(_sock.SHUT_WR)
+    a.close()
+    rd.join(5)
+    b.close()
+    return list(writes), b"".join(got)
+
+
+server._ClientIO.write = counted_write
+try:
+    w_get, r_get = raw_exchange(b"GET /robots.txt HTTP/1.1\r\nHost: wandergrade.com\r\n\r\n")
+    w_head, r_head = raw_exchange(b"HEAD /robots.txt HTTP/1.1\r\nHost: wandergrade.com\r\n\r\n")
+    w_hz, r_hz = raw_exchange(b"GET /healthz HTTP/1.1\r\nHost: x\r\n\r\n")
+    w_09, r_09 = raw_exchange(b"GET /robots.txt\r\n")
+finally:
+    server._ClientIO.write = real_cw
+robots = open(os.path.join(ROOT, "public", "robots.txt"), "rb").read()
+results.append(ok(len(w_get) == 1 and r_get.endswith(b"\r\n\r\n" + robots) and r_get.startswith(b"HTTP/1.0 200 OK\r\n")
+                  and len(w_head) == 1 and r_head.endswith(b"\r\n\r\n") and b"Content-Length: %d" % len(robots) in r_head
+                  and len(w_hz) == 1 and r_hz.endswith(b"\r\n\r\nok") and r_09 == robots,
+                  "a response goes out in one write, headers and body (GET %d, HEAD %d, /healthz %d writes), the same "
+                  "bytes; HTTP/0.9 gets the body alone" % (len(w_get), len(w_head), len(w_hz))))
+
 # --- server.py: the app's data tables and the sitemap are never shed ---------------------
 # /ppp.json and /pl_history.json load on a visitor's first view (past
 # Cloudflare's HTML cache; Top Picks doesn't build without the first), and
