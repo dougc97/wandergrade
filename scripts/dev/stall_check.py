@@ -4,7 +4,7 @@ its free tier's 0.1 CPU? (The two "health check timed out" emails,
 2026-11-10 and 2026-11-16: the advisory lists expiring every ADV_TTL and
 being recomputed by every request at once.)
 
-    /usr/bin/python3 scripts/dev/stall_check.py [--tree DIR] [--scenario adv_expired|cold|fresh]
+    /usr/bin/python3 scripts/dev/stall_check.py [--tree DIR] [--scenario adv_expired|cold|fresh|...]
                                                 [--crawl N] [--on-ms 5] [--life 50]
                                                 [--block SUBSTR [--block-code N]]
                                                 [--burst PATH,PATH] [--burst-at S] [--rate R]
@@ -38,6 +38,11 @@ Scenarios:
                app.js and the cached /api/advisories?source=us: "visitors"
                gives each one's seconds, "visitors_max" the worst. Requests
                idle on an upstream must not hold the visitor up.
+  nov18_crawl  as fresh, then the crawl behind Render's alert of 2026-11-18
+               14:30:00-14:31:58 ET (a64aea2), paced open-loop for 120 s.
+  nov18_scrape as fresh, then the sitemap scrape of 2026-11-18 21:35:16 ET
+               that production (0c811b5) rode out, ~194 pages in ~5 s.
+               Both are described under "The Nov 18 replays" below.
 
 --block SUBSTR fails every fetch whose URL contains it (a feed that is down:
 --block travel.state.gov), as offline (URLError: 3 tries, 4.5 s of backoff),
@@ -69,6 +74,55 @@ moves run to run (the same 130 gzip pages cost 3.4-4.9 s of CPU at on-ms 2,
 collapse against no collapse (probes over 5 s, the worst probe) and repeat
 a run before believing a difference. Requests still in flight when the
 child exits at --life show as RemoteDisconnected or ConnectionResetError.
+
+The Nov 18 replays, from Render's log read on 2026-11-19. Both start after
+the boot warm-ups (--burst-at defaults to 45 for them), always ask for gzip
+(every real request came through Cloudflare) and follow a 301 the way a
+crawler does: GET the Location 1-6 s after the answer (the delay fixed per
+URL). --burst, --crawl and --clients don't apply to them.
+  nov18_crawl   2026-11-18 14:30:00 ET on a64aea2: idle before, then one
+                crawler at ~3.5 requests a second (about 50 log lines per
+                13-14 s, the probes included) until Render restarted the
+                container at 14:31:58. Probes were answered on schedule until
+                14:30:46, one late at 14:31:00, then none: a64aea2 failed
+                ~46-51 s into the crawl. The mix, of the crawler's requests
+                with the follows counted in: 41% the old query form
+                /?tab=guide&gc=XX (each a 301 to /guide/<slug>, sent so the
+                server's own redirect code runs; codes spread over the ~190
+                guides, gc=UY 3 times, EG and JO twice inside the first
+                minute), the same again as the follows' /guide/<slug> GETs
+                (the log's ~45% /guide/<slug> holds them), 8% other
+                /guide/<slug>, 9% /cheapest/<month> (march, february,
+                october, may, july, april, september in turn), and once each
+                /privacy, /safe-and-cheap, /?gc=SC&tab=guide (Seychelles has
+                no guide: a homepage render) and /data twice. The crawler's
+                own requests (all but the follows) go on a fixed schedule
+                over 120 s, together 3.5 a second with their follows if
+                every redirect is answered (--rate R sets that total). Its
+                User-Agent names it a crawler. --life defaults to burst_at +
+                135.
+  nov18_scrape  2026-11-18 21:35:16 ET on 0c811b5, no alert: GET /privacy,
+                /guide/vietnam, /, /guide/thailand, then every guide in
+                alphabetical order, all within ~5 s with dozens in flight at
+                once (a sitemap-driven scraper with a browser's User-Agent).
+                Production's [busy] lines: at 21:35:16 "queue peak 4, now 4
+                waiting, 2/2 slots in use", at 21:35:46 "shed 67 (67 with 8+
+                waiting, 0 after 15s; 0 to crawler UAs), 15 queued deep,
+                queue peak 8"; ~40 guides answered 200 and the probes stayed
+                on schedule. Here the four go 50 ms apart and the 190 guides
+                evenly over the rest of the 5 s. --life defaults to
+                burst_at + 65.
+  /usr/bin/python3 scripts/dev/stall_check.py --tree DIR --scenario nov18_crawl --on-ms 2
+  /usr/bin/python3 scripts/dev/stall_check.py --tree DIR --scenario nov18_scrape --on-ms 2
+Their JSON adds "codes" (every page's status, a request that got none by
+its error's name), "pages_301", "dropped" (pages that got no status),
+"by_kind" (the codes per kind: query, follow, guide, cheapest, other),
+"query_sent"/"query_301"/"query_503" (the query-form URLs and how many were
+answered 301 and how many shed 503 instead), "follows_sent" and
+"follows_unsent" (a follow due after the run's end), "first_bad_probe"
+(seconds after the burst began that the first probe failed or took over
+5 s) and "busy" (the child's [busy] lines; -v only, as the server writes
+them to stderr). Each page row carries its kind as a fifth field.
 
 --switch S sets the child's server.SWITCH_INTERVAL (main()'s GIL switch
 interval) for a sweep, and --clients N fetches the burst through N clients,
@@ -136,7 +190,7 @@ NETCACHE = os.environ.get("STALL_NETCACHE") or (
     "5f5f209c-3c7f-483b-8747-bd588d9b4133/scratchpad/health/bg/netcache")
 BURST = ["/api/advisories?source=us", "/safe-and-cheap", "/safe-and-cheap?x=1", "/do-not-travel"]
 BURST_AT = 4.5
-SCENARIOS = ("adv_expired", "cold", "fresh", "slowapi")
+SCENARIOS = ("adv_expired", "cold", "fresh", "slowapi", "nov18_crawl", "nov18_scrape")
 # --scenario slowapi: three /api requests whose upstream answers SLOW_S late
 # (Canada's per-country notes, each its own fetch), and half a second later a
 # visitor's set: the app shell, a guide, a static file, a cached /api route.
@@ -144,6 +198,22 @@ SLOW_API = ["/api/watchouts?iso=fr", "/api/watchouts?iso=it", "/api/watchouts?is
 SLOW_URL = "/travel-voyage/cta-cap-"
 SLOW_S = 8.0
 VISITORS = ["/", "/guide/japan", "/app.js", "/api/advisories?source=us"]
+# --scenario nov18_crawl / nov18_scrape: Render's log of 2026-11-18 (docstring).
+NOV18 = ("nov18_crawl", "nov18_scrape")
+NOV18_BURST_AT = 45.0
+NOV18_CRAWL_S = 120.0
+NOV18_RATE = 3.5                     # the crawler's requests a second, its follows included
+# Shares of the crawler's requests (the follows, as many as "query", make up the rest).
+NOV18_SHARES = (("query", 0.41), ("guide", 0.08), ("cheapest", 0.09))
+NOV18_MONTHS = ("march", "february", "october", "may", "july", "april", "september")
+NOV18_REPEATS = {"UY": (10, 40, 75), "EG": (20, 60), "JO": (30, 80)}   # their query-form slots (first minute)
+NOV18_MISC = ((0.15, "/data"), (0.30, "/privacy"), (0.42, "/safe-and-cheap"),
+              (0.55, "/?gc=SC&tab=guide"), (0.65, "/data"))           # (share of the way in, path)
+NOV18_SCRAPE_HEAD = ("/privacy", "/guide/vietnam", "/", "/guide/thailand")
+NOV18_SCRAPE_S = 5.0
+UA_CRAWLER = "Mozilla/5.0 (compatible; ReplayBot/1.0; +https://example.invalid/bot)"
+UA_BROWSER = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
 
 # ---- the child: the real server on replayed responses ------------------------------
@@ -230,10 +300,10 @@ def serve(port, scen, life, tree, opts):
     if config["replay"] == "synthetic":
         synthetic(advisories)
 
-    if scen in ("adv_expired", "fresh", "slowapi"):
+    if scen in ("adv_expired", "fresh", "slowapi") + NOV18:
         for s in server._ADV_SRCS:
             server._advisories_payload(s)
-    if scen in ("fresh", "slowapi"):
+    if scen in ("fresh", "slowapi") + NOV18:
         say("lists filled, current: %s"
             % {s: len(server._adv_cache[s][1].get("items") or []) for s in server._adv_cache})
     if scen == "adv_expired":
@@ -395,10 +465,96 @@ def page_timeout_for(life, burst_at):
     return max(5.0, life - burst_at - 2)
 
 
+def guide_slugs(tree):
+    """{slug: iso} of the tree's guides (public/slugs.json)."""
+    with open(os.path.join(tree, "public", "slugs.json"), encoding="utf-8") as f:
+        return dict(json.load(f))
+
+
+def nov18_crawl_plan(slug_iso, seconds=NOV18_CRAWL_S, rate=NOV18_RATE, seed=20261118):
+    """--scenario nov18_crawl: the crawler's own requests as [(offset s, path,
+    kind)] on a fixed schedule over `seconds`, kind "query" (/?tab=guide&gc=XX
+    for a guide's code: a 301 to /guide/<slug>, whose follow the run adds),
+    "guide", "cheapest" or "other". So many that with one follow per "query"
+    they come to `rate` a second. The same plan every time (`seed`)."""
+    import random
+    rng = random.Random(seed)
+    total = int(round(seconds * rate))
+    kinds = []
+    for kind, share in NOV18_SHARES:
+        kinds += [kind] * int(round(share * total))
+    rng.shuffle(kinds)
+    slots = [(k, None) for k in kinds]
+    for frac, path in NOV18_MISC:
+        slots.insert(int(frac * (len(slots) + 1)), ("other", path))
+    iso_slug = {iso: slug for slug, iso in slug_iso.items()}
+    codes = sorted(iso for iso in iso_slug if iso not in NOV18_REPEATS)
+    rng.shuffle(codes)
+    repeat_at = {i: iso for iso, at in NOV18_REPEATS.items() for i in at if iso in iso_slug}
+    plan, nq, ng, nc = [], 0, 0, 0
+    step = seconds / float(len(slots))
+    for i, (kind, path) in enumerate(slots):
+        if kind == "query":
+            iso = repeat_at.get(nq) or codes[(nq - sum(1 for j in repeat_at if j < nq)) % len(codes)]
+            path, nq = "/?tab=guide&gc=" + iso, nq + 1
+        elif kind == "guide":   # from the other end of the order, so they meet only past ~190
+            path, ng = "/guide/" + iso_slug[codes[-1 - ng % len(codes)]], ng + 1
+        elif kind == "cheapest":
+            path, nc = "/cheapest/" + NOV18_MONTHS[nc % len(NOV18_MONTHS)], nc + 1
+        plan.append((round(i * step, 3), path, kind))
+    return plan
+
+
+def nov18_scrape_plan(slug_iso, seconds=NOV18_SCRAPE_S):
+    """--scenario nov18_scrape: [(offset s, path, kind)], the four first pages
+    50 ms apart, then every guide alphabetically, evenly over the rest."""
+    head = [(round(i * 0.05, 3), p, "guide" if p.startswith("/guide/") else "other")
+            for i, p in enumerate(NOV18_SCRAPE_HEAD)]
+    start = 0.05 * len(head)
+    slugs = sorted(slug_iso)
+    step = (seconds - start) / float(len(slugs))
+    return head + [(round(start + i * step, 3), "/guide/" + s, "guide") for i, s in enumerate(slugs)]
+
+
+def follow_delay(path):
+    """Seconds a crawler waits after a 301 before it GETs the Location: 1-6,
+    fixed per URL (the log: the /guide/<slug> GET 1-6 s after its 301)."""
+    return 1.0 + 5.0 * int(hashlib.sha1(path.encode("utf-8")).hexdigest()[:8], 16) / float(0xffffffff)
+
+
+def nov18_summary(pages, probes, plan, burst_at, follows_sent, lines):
+    """The Nov 18 replays' extra keys (docstring) from the page rows
+    [t, s, status, path, kind], the probe rows and the child's log lines."""
+    codes, by_kind = {}, {}
+    for p in pages:
+        codes[str(p[2])] = codes.get(str(p[2]), 0) + 1
+        k = by_kind.setdefault(p[4], {})
+        k[str(p[2])] = k.get(str(p[2]), 0) + 1
+    query = [p for p in pages if p[4] == "query"]
+    n301 = sum(1 for p in pages if p[2] in (301, 302, 307, 308))
+    bad = [p[0] - burst_at for p in probes if p[0] >= burst_at and (p[2] != 200 or p[1] > 5)]
+    return {"planned": len(plan), "codes": codes, "pages_301": n301,
+            "dropped": sum(1 for p in pages if not isinstance(p[2], int)),
+            "by_kind": by_kind, "query_sent": len(query),
+            "query_301": sum(1 for p in query if p[2] == 301),
+            "query_503": sum(1 for p in query if p[2] == 503),
+            "follows_sent": follows_sent, "follows_unsent": n301 - follows_sent,
+            "first_bad_probe": round(min(bad), 2) if bad else None,
+            "busy": [ln.strip() for ln in lines if "[busy]" in ln]}
+
+
 def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=None, burst_at=BURST_AT,
         block_code=None, slow_s=SLOW_S, switch=None, clients=0, page_timeout=None, rate=0.0,
         gzip_pages=False, exact=False):
     page_timeout = page_timeout or page_timeout_for(life, burst_at)
+    plan = []
+    if scen == "nov18_crawl":
+        rate = rate or NOV18_RATE
+        plan = nov18_crawl_plan(guide_slugs(tree), rate=rate)
+    elif scen == "nov18_scrape":
+        plan = nov18_scrape_plan(guide_slugs(tree))
+    if plan:
+        gzip_pages = True   # every real request came through Cloudflare, which asks for gzip
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
@@ -481,9 +637,50 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
 
         work = (BURST if burst_paths is None else burst_paths) + crawl_paths(tree, crawl)
         done = []
+        ua = UA_CRAWLER if scen == "nov18_crawl" else UA_BROWSER
+        inflight, follows = [0], {"sent": 0}
+
+        def fetch(path, kind):
+            """A Nov 18 page: gzip and the replay's User-Agent; a 301 is
+            followed after follow_delay, as the crawler did."""
+            if kind == "follow":
+                with lock:
+                    if stop[0]:
+                        return
+                    follows["sent"] += 1
+            with lock:
+                inflight[0] += 1
+            st, loc = time.time(), None
+            try:
+                c = http.client.HTTPConnection("127.0.0.1", port, timeout=page_timeout)
+                c.request("GET", path, headers={"Accept-Encoding": "gzip", "User-Agent": ua})
+                r = c.getresponse()
+                r.read()
+                code, loc = r.status, r.getheader("Location")
+                c.close()
+            except socket.timeout:
+                code = "timeout"
+            except Exception as e:
+                code = type(e).__name__
+            with lock:
+                pages.append([round(st - t0, 2), round(time.time() - st, 3), code, path, kind])
+                inflight[0] -= 1
+            if code in (301, 302, 307, 308) and loc:
+                import urllib.parse
+                u = urllib.parse.urlsplit(loc)
+                target = u.path + ("?" + u.query if u.query else "")
+                tm = threading.Timer(follow_delay(path), fetch, args=(target, "follow"))
+                tm.daemon = True
+                tm.start()
 
         def burst():
             time.sleep(burst_at)
+            if plan:   # open-loop on the plan's schedule, answered or not
+                start = time.time()
+                for at, p, kind in plan:
+                    time.sleep(max(0.0, start + at - time.time()))
+                    threading.Thread(target=fetch, args=(p, kind), daemon=True).start()
+                return
             if rate > 0:   # open-loop: each on its own schedule, answered or not
                 start = time.time()
                 for p, at in zip(work, arrival_offsets(len(work), rate)):
@@ -530,6 +727,11 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
         except OSError:
             pass
         srv.wait(timeout=30)
+        for _ in range(30):   # the Nov 18 pages still reading when the child exited
+            with lock:
+                if not inflight[0]:
+                    break
+            time.sleep(0.1)
     finally:
         cleanup()
     log.seek(0)
@@ -570,6 +772,8 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
            "visitors_max": max((p[1] for p in pages if scen == "slowapi" and p[3] in VISITORS), default=None),
            "slow_probes": [p[:3] for p in probes if p[2] != 200 or p[1] > 1][:30],
            "probe_list": [p[:3] for p in probes]}
+    if plan:
+        res.update(nov18_summary(pages, probes, plan, burst_at, follows["sent"], lines))
     print(json.dumps(res))
     if verbose:
         sys.stderr.write("\n".join(lines[-80:]) + "\n")
@@ -593,7 +797,8 @@ def main():
                     help="a blocked fetch answers HTTP N at once (4xx: no retries) instead of "
                          "failing as offline (3 tries, 4.5 s of backoff)")
     ap.add_argument("--burst", metavar="PATH,PATH", help="the burst's paths instead of the default four")
-    ap.add_argument("--burst-at", type=float, default=BURST_AT, metavar="S")
+    ap.add_argument("--burst-at", type=float, metavar="S",
+                    help="when the burst starts (default %s s; %s for the nov18 scenarios)" % (BURST_AT, NOV18_BURST_AT))
     ap.add_argument("--slow-s", type=float, default=SLOW_S, metavar="S",
                     help="slowapi: how late the slow upstream answers")
     ap.add_argument("--clients", type=int, default=0, metavar="N",
@@ -609,7 +814,8 @@ def main():
     ap.add_argument("--switch", type=float, metavar="S",
                     help="the child's GIL switch interval (server.SWITCH_INTERVAL) for a sweep")
     ap.add_argument("--on-ms", type=float, default=5.0)
-    ap.add_argument("--life", type=float, default=50.0)
+    ap.add_argument("--life", type=float,
+                    help="the child exits at S (default 50; nov18_crawl burst_at + 135, nov18_scrape burst_at + 65)")
     ap.add_argument("--page-timeout", type=float, metavar="S",
                     help="the burst's timeout (default life - burst_at - 2, as long as the run allows)")
     ap.add_argument("--label", default="")
@@ -618,8 +824,12 @@ def main():
     tree = os.path.abspath(a.tree)
     if not os.path.exists(os.path.join(tree, "server.py")):
         raise SystemExit("no server.py in %s" % tree)
-    run(tree, a.scenario, a.on_ms, a.life, a.label or os.path.basename(tree), a.verbose, a.crawl,
-        a.block, [p for p in a.burst.split(",") if p] if a.burst is not None else None, a.burst_at,
+    burst_at = a.burst_at if a.burst_at is not None else NOV18_BURST_AT if a.scenario in NOV18 else BURST_AT
+    life = a.life if a.life is not None else (
+        burst_at + NOV18_CRAWL_S + 15 if a.scenario == "nov18_crawl" else
+        burst_at + 65 if a.scenario == "nov18_scrape" else 50.0)
+    run(tree, a.scenario, a.on_ms, life, a.label or os.path.basename(tree), a.verbose, a.crawl,
+        a.block, [p for p in a.burst.split(",") if p] if a.burst is not None else None, burst_at,
         a.block_code, a.slow_s, a.switch, a.clients, a.page_timeout, a.rate, a.gzip, a.exact)
 
 
