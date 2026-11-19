@@ -565,6 +565,28 @@ def _ppp_data():
 
 
 _plh_cache = {"at": 0, "data": None}
+# /ppp.json's and /pl_history.json's bytes (and gzipped, once a client asks)
+# per table object: the caches replace a table on refresh, never edit it,
+# so the same object means the same bytes. Off with the page memo (tests and
+# tools that edit a table in place dump it every time); main() turns it on.
+_json_bytes_memo = {}      # path -> (table, raw, gz or None)
+_json_bytes_lock = threading.Lock()
+
+
+def _json_bytes(path, obj, want_gz):
+    """(raw, gzipped or None) of json.dumps(obj) for `path`, from the memo
+    while `obj` is the table it was made from."""
+    if _page_memo is None:
+        return json.dumps(obj).encode("utf-8"), None
+    with _json_bytes_lock:
+        hit = _json_bytes_memo.get(path)
+    if hit is None or hit[0] is not obj:
+        hit = (obj, json.dumps(obj).encode("utf-8"), None)
+    if want_gz and hit[2] is None:
+        hit = hit[:2] + (gzip.compress(hit[1], GZIP_LEVEL),)
+    with _json_bytes_lock:
+        _json_bytes_memo[path] = hit
+    return hit[1], hit[2]
 
 
 def _pl_history():
@@ -2251,18 +2273,22 @@ def _guide_query_redirect(raw_path):
 # already holds take one (_SLOT_PATHS, _slot_route), GET and HEAD alike:
 #   (i)   slot: / (the app shell), /guide/<slug> (and its redirects), /data,
 #         /safe-and-cheap, /do-not-travel, /cheapest and its 12 months,
-#         /dollar-strength, /privacy, /sitemap.xml, /llms.txt, and /ppp.json
-#         and /pl_history.json (a JSON dump of the in-memory table per
-#         request). Each reads caches and refreshes them on background
-#         threads, with two exceptions that wait on the network inline and
-#         give the slot back while they do (_no_slot): /data rebuilding its
-#         dataset (_dataset: a rates fetch, at most hourly), and a list page
-#         asking for an advisory list not in hand at all (_adv_compute_once,
-#         after a cold start: computing it, or waiting on the computation
-#         another thread leads).
+#         /dollar-strength and /privacy. Each reads caches and refreshes them
+#         on background threads, with two exceptions that wait on the network
+#         inline and give the slot back while they do (_no_slot): /data
+#         rebuilding its dataset (_dataset: a rates fetch, at most hourly), and
+#         a list page asking for an advisory list not in hand at all
+#         (_adv_compute_once, after a cold start: computing it, or waiting on
+#         the computation another thread leads).
 #   (ii)  no slot, trivial: /healthz, static files from public/ (robots.txt,
 #         app.js, styles.css, images), /health.json and /guide-facts.json
-#         (bytes memoized per document), redirects, 404s.
+#         (bytes memoized per document), /ppp.json and /pl_history.json
+#         (bytes memoized per table, _json_bytes), /sitemap.xml and /llms.txt
+#         (well under a millisecond each), redirects, 404s. The app fetches
+#         the two tables on a visitor's first load, past Cloudflare's HTML
+#         cache, and the Top Picks tab doesn't build without the first: shed
+#         with the crawler's guides they were, and a Googlebot fetch of the
+#         sitemap with them.
 #   (iii) no slot, may wait on an upstream inline: every /api/* route
 #         (rates, flights and fare months via Travelpayouts, Canada's notes,
 #         fx-trend, the advisories fallback, Upstash for /api/auth/me),
@@ -2377,9 +2403,7 @@ def _busy_arm():
         with _busy_lock:
             _busy["timer"] = None
 _slot_held = threading.local()   # .slots: the semaphore this request thread holds a slot of
-_SLOT_PATHS = frozenset(("/", "/data", "/privacy", "/sitemap.xml", "/llms.txt", "/ppp.json",
-                         "/pl_history.json", render_strength.PATH)
-                        + _LIST_PATHS + render_cheapest.PATHS)
+_SLOT_PATHS = frozenset(("/", "/data", "/privacy", render_strength.PATH) + _LIST_PATHS + render_cheapest.PATHS)
 
 
 def _slot_route(path):
@@ -3154,11 +3178,10 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send_not_found()
             return
-        if path == "/ppp.json":
-            self._send_json(_ppp_data(), extra=[("Cache-Control", "public, max-age=86400")])
-            return
-        if path == "/pl_history.json":
-            self._send_json(_pl_history(), extra=[("Cache-Control", "public, max-age=86400")])
+        if path in ("/ppp.json", "/pl_history.json"):
+            raw, gz = _json_bytes(path, _ppp_data() if path == "/ppp.json" else _pl_history(), self._gzip_ok())
+            self._send_body(raw, "application/json; charset=utf-8", extra=[("Cache-Control", "public, max-age=86400")],
+                            gzipped=gz)
             return
         if path == "/health.json":
             # The freshest of the refreshed copy and the committed file (see

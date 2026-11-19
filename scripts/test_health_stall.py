@@ -27,6 +27,9 @@ What it holds the code to:
     background callers (the refresh thread, the guide-facts refresher) wait
     for a current list; /api/advisories' fallback for a list that can't load
     reads the other lists the same way.
+  * /ppp.json, /pl_history.json, /sitemap.xml and /llms.txt never take a
+    page slot, so they answer while pages are shed; the two tables' bytes
+    (and gzip) are memoized per table object once main() turns the memo on.
   * server.py main() listens with a backlog of 128 (socketserver's 5 let
     Linux drop the health check's connection) and keeps daemon threads, and
     sets a 0.1 ms GIL switch interval. It renders at most 2 server-side
@@ -797,9 +800,9 @@ results.append(ok(server.PAGE_SLOTS == 2 and server.PAGE_QUEUE_MAX == 8 and serv
 # never wait for one, GET or HEAD alike, even with every slot held.
 slot_route = getattr(server, "_slot_route", None)
 SLOTTED = ["/", "/guide/japan", "/guide/Japan", "/guide/", "/data", "/safe-and-cheap", "/do-not-travel",
-           "/cheapest", "/cheapest/january", "/dollar-strength", "/privacy", "/sitemap.xml", "/llms.txt",
-           "/ppp.json", "/pl_history.json"]
+           "/cheapest", "/cheapest/january", "/dollar-strength", "/privacy"]
 FREE = ["/healthz", "/robots.txt", "/app.js", "/styles.css", "/og.png", "/health.json", "/guide-facts.json",
+        "/ppp.json", "/pl_history.json", "/sitemap.xml", "/llms.txt",
         "/index.html", "/Cheapest", "/data/", "/data/price-levels.json", "/data/price-levels.csv",
         "/auth/verify", "/api/rates", "/api/index", "/api/advisories", "/api/flights", "/api/flight-months",
         "/api/flight-value", "/api/fx-trend", "/api/watchouts", "/api/popularity", "/api/geo",
@@ -1429,6 +1432,49 @@ results.append(ok(server.GZIP_LEVEL == 6 and "Content-Encoding: gzip" in h_gz an
                   and len(b_gz) <= 1.01 * len(_gz.compress(raw_geo, 9)),
                   "text responses gzip at level %d: world.geojson %d -> %d bytes (level 9: %d), raw without "
                   "Accept-Encoding" % (server.GZIP_LEVEL, len(raw_geo), len(b_gz), len(_gz.compress(raw_geo, 9)))))
+
+# --- server.py: the app's data tables and the sitemap are never shed ---------------------
+# /ppp.json and /pl_history.json load on a visitor's first view (past
+# Cloudflare's HTML cache; Top Picks doesn't build without the first), and
+# Googlebot fetches /sitemap.xml: with every slot held and the queue full
+# they still answer 200, with the bytes json.dumps gives, memoized per table
+# object once main() turns the memo on.
+saved_jb = (server._page_slots, server.PAGE_QUEUE_MAX, server._page_memo, dict(server._json_bytes_memo))
+jb = {}
+try:
+    server._page_slots = threading.BoundedSemaphore(2)
+    server._page_slots.acquire()
+    server._page_slots.acquire()
+    server.PAGE_QUEUE_MAX = 0
+    shed_guide = handler_get("/guide/japan")[0].split("\r\n")[0]
+    for pth in ("/ppp.json", "/pl_history.json", "/sitemap.xml", "/llms.txt"):
+        jb[pth] = handler_get(pth, "Accept-Encoding: gzip\r\n")
+    server._page_memo = __import__("collections").OrderedDict()
+    server._json_bytes_memo.clear()
+    m1 = server._json_bytes("/ppp.json", server._ppp_data(), True)
+    m2 = server._json_bytes("/ppp.json", server._ppp_data(), True)
+    tbl = server._ppp_cache["data"]
+    server._ppp_cache["data"] = dict(tbl, ZZ={"ppp": 1.0})
+    m3 = server._json_bytes("/ppp.json", server._ppp_data(), False)
+    server._ppp_cache["data"] = tbl
+    memo_ppp = handler_get("/ppp.json", "Accept-Encoding: gzip\r\n")
+finally:
+    (server._page_slots, server.PAGE_QUEUE_MAX, server._page_memo) = saved_jb[:3]
+    server._json_bytes_memo.clear()
+    server._json_bytes_memo.update(saved_jb[3])
+jb_ok = all(h.startswith("HTTP/1.0 200") for h, _b in jb.values())
+ppp_body = _gz.decompress(jb["/ppp.json"][1]) if "Content-Encoding: gzip" in jb["/ppp.json"][0] else b""
+results.append(ok(shed_guide.startswith("HTTP/1.0 503") and jb_ok
+                  and "Content-Type: application/json" in jb["/ppp.json"][0]
+                  and "Cache-Control: public, max-age=86400" in jb["/pl_history.json"][0]
+                  and "application/xml" in jb["/sitemap.xml"][0]
+                  and ppp_body == json.dumps(server._ppp_data()).encode("utf-8"),
+                  "every slot held and the queue full: a guide is shed (%s) but /ppp.json, /pl_history.json, "
+                  "/sitemap.xml and /llms.txt answer 200 (%s)" % (shed_guide, [h.split("\r\n")[0] for h, _b in jb.values()])))
+results.append(ok(m1[0] is m2[0] and m1[1] is m2[1] and m1[1] is not None and m3[0] != m1[0]
+                  and json.loads(m3[0])["ZZ"] == {"ppp": 1.0} and _gz.decompress(memo_ppp[1]) == m1[0],
+                  "with the memo on a table's bytes (and gzip) are made once per table object and made again when "
+                  "the cache replaces the table"))
 
 # --- server.py: the page memo (rendered guide and home bytes) ---------------------------
 import collections  # noqa: E402
