@@ -31,7 +31,8 @@ What it holds the code to:
     page slot, so they answer while pages are shed; the two tables' bytes
     (and gzip) are memoized per table object once main() turns the memo on.
   * server.py main() listens with a backlog of 128 (socketserver's 5 let
-    Linux drop the health check's connection) and keeps daemon threads, and
+    Linux drop the health check's connection) and keeps daemon threads,
+    started without threading.Thread's start handshake, and
     sets a 0.1 ms GIL switch interval. It renders at most 2 server-side
     pages at once (GET or HEAD); static files, /api/* and /healthz never wait
     for a slot; a page that waits PAGE_SLOT_WAIT for one, or arrives to find
@@ -651,6 +652,10 @@ results.append(ok(cls is not None and issubclass(cls, server.ThreadingHTTPServer
                   and cls.daemon_threads is True,
                   "main() serves with %s: request_queue_size %s, daemon threads"
                   % (m and m.group(1), cls and cls.request_queue_size)))
+results.append(ok(cls is not None and "_thread.start_new_thread(self.process_request_thread"
+                  in inspect.getsource(cls.process_request),
+                  "each connection's thread is started without waiting for it to run (threading.Thread.start's "
+                  "handshake held the accept loop for two GIL hand-offs per connection)"))
 probe = cls(("127.0.0.1", 0), server.Handler) if cls else None
 results.append(ok(probe is not None and probe.request_queue_size == 128, "an instance listens with that backlog"))
 if probe:

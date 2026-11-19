@@ -12,6 +12,7 @@ Endpoints:
   POST /api/check       run the alert check now, return what it found
 """
 
+import _thread
 import base64
 import collections
 import contextlib
@@ -3769,6 +3770,21 @@ class _Server(ThreadingHTTPServer):
     # and Render's /healthz check timed out.
     request_queue_size = 128
     daemon_threads = True
+
+    # One thread per connection, started without waiting for it to run.
+    # threading.Thread.start() blocks until the new thread has run its first
+    # lines, so the accept loop, which every waiting /healthz probe is queued
+    # behind, paid two GIL hand-offs per connection (the new thread winning
+    # the GIL, then the loop winning it back), each a wait behind every
+    # runnable thread. With 34 requests arriving at once during an advisory
+    # refresh (stall_check --scenario adv_expired --crawl 30 --on-ms 2) the
+    # probes sat unaccepted for 10-14 s, the loop parked in select() unable to
+    # get the GIL back: 9-18 probes over 5 s, worst 11.6-14.3 s; started
+    # this way, 2 over 5 s, worst 6.2 s. The handler threads are daemon-like
+    # as before (daemon_threads) and keep their thread-locals; nothing joins
+    # them.
+    def process_request(self, request, client_address):
+        _thread.start_new_thread(self.process_request_thread, (request, client_address))
 
 
 def main():
