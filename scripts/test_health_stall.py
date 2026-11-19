@@ -38,7 +38,11 @@ What it holds the code to:
     for a slot; a page that waits PAGE_SLOT_WAIT for one, or arrives to find
     PAGE_QUEUE_MAX already waiting (at once), is shed: 503, Retry-After,
     no-store, a small page (HEAD: no body), never rendered, unless every
-    slot has been held PAGE_STUCK_AFTER (then it runs without one); and a
+    slot has been held PAGE_STUCK_AFTER (then it runs without one); a
+    redirect on a slot route (/?tab=guide&gc=JP, /guide/Japan, /guide/usa,
+    the onrender.com host) never waits for a slot nor is shed, and answers
+    with the very bytes it does with slots off, while /?gc=SC&tab=guide (no
+    guide: the homepage) and a guide miss's 404 page are pages; and a
     slotted page waiting on the network (another thread's computation, /data's
     dataset rebuild, a cold advisory list) gives its slot back meanwhile and,
     if it can't get one back within PAGE_SLOT_WAIT, finishes without it; a
@@ -1449,10 +1453,10 @@ class _FakeSrv:
     pass
 
 
-def handler_get(path, headers=""):
-    """(head, body) of one GET through the real Handler on a socketpair."""
+def handler_get(path, headers="", host="wandergrade.com", method="GET"):
+    """(head, body) of one GET (or `method`) through the real Handler on a socketpair."""
     a, b = _sock.socketpair()
-    b.sendall(("GET %s HTTP/1.1\r\nHost: wandergrade.com\r\n%s\r\n" % (path, headers)).encode())
+    b.sendall(("%s %s HTTP/1.1\r\nHost: %s\r\n%s\r\n" % (method, path, host, headers)).encode())
     got = []
     rd = threading.Thread(target=lambda: [got.append(x) for x in iter(lambda: b.recv(65536), b"")], daemon=True)
     rd.start()
@@ -1558,6 +1562,91 @@ results.append(ok(m1[0] is m2[0] and m1[1] is m2[1] and m1[1] is not None and m3
                   and json.loads(m3[0])["ZZ"] == {"ppp": 1.0} and _gz.decompress(memo_ppp[1]) == m1[0],
                   "with the memo on a table's bytes (and gzip) are made once per table object and made again when "
                   "the cache replaces the table"))
+
+# --- server.py: a redirect on a slot route takes no slot, so it is never shed -------------
+# Nov 18 14:30 ET (a64aea2, restarted by Render): 35-40% of that crawl was the
+# old query-form guide URL /?tab=guide&gc=XX, answered 301 -> /guide/<slug>,
+# and each took a page slot like a render: past PAGE_QUEUE_MAX it got the 503
+# page where the crawler needed the 301. With every slot held and the queue
+# full, a redirect (GET or HEAD) answers exactly as with slots off; the
+# homepage under a guide-ish query (no Seychelles guide; ai=1 keeps the
+# homepage), a guide and a guide miss's 404 page are pages, and shed.
+RD_REDIRECTS = [("/?tab=guide&gc=JP", "wandergrade.com", "/guide/japan"),
+                ("/?gc=JP&utm_source=ig&tab=guide", "wandergrade.com", "/guide/japan?utm_source=ig"),
+                ("/guide/Japan", "wandergrade.com", "/guide/japan"),
+                ("/guide/usa?utm_source=reddit", "wandergrade.com", "/guide/united-states?utm_source=reddit"),
+                ("/guide/jp/", "wandergrade.com", "/guide/japan"),
+                ("/guide/japan", "fx-tracker-er52.onrender.com", "https://wandergrade.com/guide/japan"),
+                ("/?tab=guide&gc=SC", "fx-tracker-er52.onrender.com:443", "https://wandergrade.com/?tab=guide&gc=SC")]
+RD_PAGES = [("/?gc=SC&tab=guide", "wandergrade.com"), ("/?tab=guide&gc=JP&ai=1", "wandergrade.com"),
+            ("/guide/japan", "wandergrade.com"), ("/guide/nowhere", "wandergrade.com"), ("/", "WanderGrade.com")]
+
+
+def no_date(head):
+    return re.sub(r"\r\nDate: [^\r]*", "", head)
+
+
+saved_rd = (server._page_slots, server.PAGE_QUEUE_MAX, server.Handler._send_page, server.Handler._send_not_found)
+rd_ref, rd_held, rd_shed, rd_pages = {}, {}, {}, []
+try:
+    server._page_slots = None
+    for pth, hst, _loc in RD_REDIRECTS:
+        for m in ("GET", "HEAD"):
+            rd_ref[pth, hst, m] = handler_get(pth, host=hst, method=m)
+    server.Handler._send_page = lambda self, *a, **k: (rd_pages.append(self.path), saved_rd[2](self, *a, **k))[1]
+    server.Handler._send_not_found = lambda self, *a, **k: (rd_pages.append(self.path),
+                                                            saved_rd[3](self, *a, **k))[1]
+    server._page_slots = threading.BoundedSemaphore(2)
+    server._page_slots.acquire()
+    server._page_slots.acquire()
+    server.PAGE_QUEUE_MAX = 0
+    for pth, hst, _loc in RD_REDIRECTS:
+        for m in ("GET", "HEAD"):
+            rd_held[pth, hst, m] = handler_get(pth, host=hst, method=m)
+    for pth, hst in RD_PAGES:
+        for m in ("GET", "HEAD"):
+            rd_shed[pth, hst, m] = handler_get(pth, host=hst, method=m)
+    rd_left, rd_waiting = server._page_slots._value, server._slot_waiting[0]
+finally:
+    server._page_slots, server.PAGE_QUEUE_MAX = saved_rd[:2]
+    server.Handler._send_page, server.Handler._send_not_found = saved_rd[2:]
+rd_wrong = [(pth, hst, m) for pth, hst, loc in RD_REDIRECTS for m in ("GET", "HEAD")
+            if not (rd_ref[pth, hst, m][0].startswith("HTTP/1.0 301")
+                    and "\r\nLocation: %s\r\n" % loc in rd_ref[pth, hst, m][0] + "\r\n"
+                    and rd_ref[pth, hst, m][1] == b""
+                    and no_date(rd_held[pth, hst, m][0]) == no_date(rd_ref[pth, hst, m][0])
+                    and rd_held[pth, hst, m][1] == rd_ref[pth, hst, m][1])]
+results.append(ok(not rd_wrong and rd_left == 0 and rd_waiting == 0,
+                  "every slot held and the queue full: /?tab=guide&gc=JP, /guide/Japan, /guide/usa, /guide/jp/ and "
+                  "the onrender.com host still answer their 301 (GET and HEAD), the very status, headers and Location "
+                  "as with slots off, nothing queued (wrong: %s)" % rd_wrong))
+shed_wrong = [(pth, hst, m) for (pth, hst, m), (h, body) in rd_shed.items()
+              if not (h.startswith("HTTP/1.0 503") and "\r\nRetry-After: %d\r\n" % server.SHED_RETRY_AFTER in h
+                      and body == (b"" if m == "HEAD" else server.Handler._BUSY_PAGE))]
+results.append(ok(not shed_wrong and rd_pages == [],
+                  "...while /?gc=SC&tab=guide (no guide: the homepage), /?tab=guide&gc=JP&ai=1, a guide, a guide "
+                  "miss's 404 page and / are pages, shed with the 503 page, none rendered (wrong: %s, rendered: %s)"
+                  % (shed_wrong, rd_pages)))
+RO_CASES = [("/", "/?tab=guide&gc=JP", "wandergrade.com", True), ("/guide/Japan", "/guide/Japan", "", True),
+            ("/data", "/data", "fx-tracker-er52.onrender.com", True), ("/", "/", "wandergrade.com", False),
+            ("/", "/?gc=SC&tab=guide", "wandergrade.com", False), ("/", "/?tab=guide&gc=TV", "", False),
+            ("/", "/?tab=guide&gc=MT", "", False), ("/", "/?tab=guide&gc=jp", "", False),
+            ("/guide/japan", "/guide/japan", "wandergrade.com", False), ("/guide/", "/guide/", "", False),
+            ("/guide/japan/x", "/guide/japan/x", "", False), ("/guide/nowhere", "/guide/nowhere?x=1", "", False),
+            ("/data", "/data", "wandergrade.com", False), ("/privacy", "/privacy", "", False)]
+ro_wrong = [c for c in RO_CASES if server._redirect_only(*c[:3]) is not c[3]]
+saved_ifs = server.render_guide.iso_for_slug
+server.render_guide.iso_for_slug = lambda s: 1 / 0
+try:
+    ro_err = server._redirect_only("/guide/Japan", "/guide/Japan", "wandergrade.com")
+finally:
+    server.render_guide.iso_for_slug = saved_ifs
+results.append(ok(not ro_wrong and ro_err is False
+                  and "_redirect_only(path, self.path, _request_host(self.headers))"
+                  in inspect.getsource(server.Handler.do_GET).split("_take_slot(")[0]
+                  and "_guide_path_redirect(raw, self.path)" in inspect.getsource(server.Handler._do_get),
+                  "_redirect_only, asked before _take_slot, is True only where _do_get redirects (from the same "
+                  "helpers), and False when it errors, so the request queues as before (wrong: %s)" % ro_wrong))
 
 # --- server.py: the page memo (rendered guide and home bytes) ---------------------------
 import collections  # noqa: E402

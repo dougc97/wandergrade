@@ -2232,6 +2232,19 @@ def _guide_redirect(raw):
     return iso_to_slug.get(GUIDE_ALIASES.get(slug) or slug.upper())
 
 
+def _guide_path_redirect(raw, raw_path):
+    """The Location for /guide/<raw> when <raw> isn't the exact slug
+    (render_guide.iso_for_slug, checked first by the caller) but names a
+    guide: /guide/<slug>, the query kept byte for byte. None for a true miss
+    (the 404 page). `raw_path`: the request's whole path, query and all."""
+    name = raw.strip("/")
+    target = _guide_redirect(name) if name and "/" not in name else None
+    if not target:
+        return None
+    query = raw_path.split("?", 1)[1] if "?" in raw_path else ""
+    return "/guide/" + target + ("?" + query if query else "")
+
+
 # app.js GC_RE: the codes a ?gc= link opens (JP, and GB-SCT-style home nations).
 _GC_RE = re.compile(r"[A-Z]{2}(-[A-Z]{3})?")
 
@@ -2274,9 +2287,10 @@ def _guide_query_redirect(raw_path):
 #
 # A slot bounds CPU, so only the routes that render from what the server
 # already holds take one (_SLOT_PATHS, _slot_route), GET and HEAD alike:
-#   (i)   slot: / (the app shell), /guide/<slug> (and its redirects), /data,
-#         /safe-and-cheap, /do-not-travel, /cheapest and its 12 months,
-#         /dollar-strength and /privacy. Each reads caches and refreshes them
+#   (i)   slot: / (the app shell), /guide/<slug> (and the 404 page of a
+#         /guide/ path that names no guide), /data, /safe-and-cheap,
+#         /do-not-travel, /cheapest and its 12 months, /dollar-strength and
+#         /privacy. Each reads caches and refreshes them
 #         on background threads, with two exceptions that wait on the network
 #         inline and give the slot back while they do (_no_slot): /data
 #         rebuilding its dataset (_dataset: a rates fetch, at most hourly), and
@@ -2292,6 +2306,16 @@ def _guide_query_redirect(raw_path):
 #         cache, and the Top Picks tab doesn't build without the first: shed
 #         with the crawler's guides they were, and a Googlebot fetch of the
 #         sitemap with them.
+#         Redirects on the slot routes above included, so they are never
+#         queued or shed (_redirect_only, asked before a slot is): the old
+#         query-form guide URL (/?tab=guide&gc=JP -> /guide/japan), another
+#         spelling of a guide (/guide/Japan, /guide/usa, /guide/jp/) and any
+#         path on the onrender.com host. In the Nov 18 14:30 ET crawl that
+#         Render restarted a64aea2 over, 35-40% of requests were
+#         /?tab=guide&gc=XX: each waited behind guide renders like a page,
+#         and past PAGE_QUEUE_MAX got the 503 page where the crawler needed
+#         the 301 to reach the guide. Answering one is a few dict lookups.
+#         /?tab=guide&gc=SC (no Seychelles guide) is the homepage: a slot.
 #   (iii) no slot, may wait on an upstream inline: every /api/* route
 #         (rates, flights and fare months via Travelpayouts, Canada's notes,
 #         fx-trend, the advisories fallback, Upstash for /api/auth/me),
@@ -2438,6 +2462,34 @@ _SLOT_PATHS = frozenset(("/", "/data", "/privacy", render_strength.PATH) + _LIST
 def _slot_route(path):
     """True for a route that takes a page slot (class (i) above)."""
     return path in _SLOT_PATHS or path.startswith("/guide/")
+
+
+def _request_host(headers):
+    """The request's Host header, lowercased, port dropped ("" without one)."""
+    return (headers.get("Host") or "").split(":", 1)[0].lower()
+
+
+def _redirect_only(path, raw_path, host):
+    """True when Handler._do_get answers this slot-route request with a
+    redirect and renders nothing, so do_GET runs it without a slot (class (ii)
+    above). `path`: the request path without its query; `raw_path`:
+    self.path; `host`: _request_host(). The same decisions _do_get makes, from
+    the same helpers, in the order it makes them: the onrender.com host's
+    301, the query-form guide URL on / (_guide_query_redirect) and a /guide/
+    path that isn't the exact slug but names a guide (_guide_path_redirect).
+    Anything else, or an error here, is False: the request queues for a slot
+    as before and _do_get decides (and raises) on its own."""
+    try:
+        if host.endswith(".onrender.com"):
+            return True
+        if path == "/":
+            return _guide_query_redirect(raw_path) is not None
+        if path.startswith("/guide/"):
+            raw = path[len("/guide/"):]
+            return not render_guide.iso_for_slug(raw) and _guide_path_redirect(raw, raw_path) is not None
+    except Exception:
+        pass
+    return False
 
 
 def _slot_taken():
@@ -3034,7 +3086,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         slots = _page_slots
-        if slots is None or not _slot_route(self.path.split("?", 1)[0]):
+        path = self.path.split("?", 1)[0]
+        # A redirect on a slot route (/?tab=guide&gc=JP, /guide/Japan, the
+        # onrender.com host) renders nothing: never queued, never shed.
+        if slots is None or not _slot_route(path) or _redirect_only(path, self.path, _request_host(self.headers)):
             return self._do_get()
         why = _take_slot(slots, bool(_BOT_UA.search(self.headers.get("User-Agent") or "")))
         if why == "stuck":
@@ -3076,7 +3131,8 @@ class Handler(BaseHTTPRequestHandler):
         # custom domain so links and SEO consolidate on one host. /healthz above
         # is exempt so Render's health checks are unaffected. Requests already on
         # wandergrade.com don't match and serve normally.
-        host = (self.headers.get("Host") or "").split(":", 1)[0].lower()
+        # (A redirect takes no page slot: do_GET asks _redirect_only.)
+        host = _request_host(self.headers)
         if host.endswith(".onrender.com"):
             self.send_response(301)
             self.send_header("Location", "https://wandergrade.com" + self.path)
@@ -3215,7 +3271,8 @@ class Handler(BaseHTTPRequestHandler):
         # soft-200 duplicate of the homepage.
         if path == "/":
             # /?tab=guide&gc=ZA 301s to /guide/south-africa, query and all
-            # (_guide_query_redirect): one URL per guide.
+            # (_guide_query_redirect): one URL per guide. No page slot
+            # (do_GET asks _redirect_only first).
             target = _guide_query_redirect(self.path)
             if target:
                 self._redirect(target)
@@ -3236,12 +3293,11 @@ class Handler(BaseHTTPRequestHandler):
             # name (turkiye, usa), an ISO code (tr, gb-eng) — 301s to it,
             # query and all (UTM tags are how Reddit traffic is attributed).
             # /guide/Japan used to answer 200: a duplicate page per spelling.
-            # A true miss gets a real 404 page.
-            name = raw.strip("/")
-            target = _guide_redirect(name) if name and "/" not in name else None
+            # A true miss gets a real 404 page. (A redirect takes no page
+            # slot: do_GET asks _redirect_only, from the same helper.)
+            target = _guide_path_redirect(raw, self.path)
             if target:
-                query = self.path.split("?", 1)[1] if "?" in self.path else ""
-                self._redirect("/guide/" + target + ("?" + query if query else ""))
+                self._redirect(target)
             else:
                 self._send_not_found("No guide for that country")
             return
