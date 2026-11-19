@@ -40,9 +40,12 @@ Scenarios:
                idle on an upstream must not hold the visitor up.
   nov18_crawl  as fresh, then the crawl behind Render's alert of 2026-11-18
                14:30:00-14:31:58 ET (a64aea2), paced open-loop for 120 s.
-  nov18_scrape as fresh, then the sitemap scrape of 2026-11-18 21:35:16 ET
-               that production (0c811b5) rode out, ~194 pages in ~5 s.
-               Both are described under "The Nov 18 replays" below.
+  nov18_scrape as fresh, then the 99 requests of the scrape of 2026-11-18
+               21:35:16 ET that reached production (0c811b5, which rode it
+               out), within 3.2 s.
+  nov18_scrape_all  the same scraper read as asking for every guide: 194
+               pages in 5 s, twice what reached the origin. A stress test.
+               All three are described under "The Nov 18 replays" below.
 
 --block SUBSTR fails every fetch whose URL contains it (a feed that is down:
 --block travel.state.gov), as offline (URLError: 3 tries, 4.5 s of backoff),
@@ -67,7 +70,9 @@ The Nov 16 replay (a sustained crawl that starts after the boot warm-ups):
 Calibration, 2026-11-18 on an M5: --on-ms 2 is the setting at which the tree
 from before the fix (a7cdbd2) fails this replay as Render did on Nov 16 (33
 probe errors, 45 over 5 s); at --on-ms 5 both it and a64aea2 pass, so 5 is
-too gentle to judge a crawl by. It is not a capacity model: the throttle
+too gentle to judge a crawl by (at 3, 2026-11-19, a7cdbd2 still failed, 17
+probe errors, all listen-queue resets, and a64aea2 passed; the Nov 18
+calibration below). It is not a capacity model: the throttle
 gives 2.4-3.0 ms per 100 (duty_pct 2.4-2.8), and the Mac's speed under it
 moves run to run (the same 130 gzip pages cost 3.4-4.9 s of CPU at on-ms 2,
 1.06 s at 5), so shed counts carry about +-30 of noise between runs. Read
@@ -75,47 +80,81 @@ collapse against no collapse (probes over 5 s, the worst probe) and repeat
 a run before believing a difference. Requests still in flight when the
 child exits at --life show as RemoteDisconnected or ConnectionResetError.
 
-The Nov 18 replays, from Render's log read on 2026-11-19. Both start after
-the boot warm-ups (--burst-at defaults to 45 for them), always ask for gzip
+The Nov 18 replays, from Render's application log (read 2026-11-19; its
+lines give the second an answer went out, to the microsecond, and come in
+100 ms clusters: the container's CPU quota period). All start after the
+boot warm-ups (--burst-at defaults to 45 for them), always ask for gzip
 (every real request came through Cloudflare) and follow a 301 the way a
-crawler does: GET the Location 1-6 s after the answer (the delay fixed per
-URL). --burst, --crawl and --clients don't apply to them.
+crawler does: GET the Location 1-3 s after the answer (fixed per URL and
+visit; the log's uncongested follows were answered 1.6-2.5 s after their
+301, the render included). --burst, --crawl and --clients don't apply.
   nov18_crawl   2026-11-18 14:30:00 ET on a64aea2: idle before, then one
-                crawler at ~3.5 requests a second (about 50 log lines per
-                13-14 s, the probes included) until Render restarted the
-                container at 14:31:58. Probes were answered on schedule until
-                14:30:46, one late at 14:31:00, then none: a64aea2 failed
-                ~46-51 s into the crawl. The mix, of the crawler's requests
-                with the follows counted in: 41% the old query form
-                /?tab=guide&gc=XX (each a 301 to /guide/<slug>, sent so the
-                server's own redirect code runs; codes spread over the ~190
-                guides, gc=UY 3 times, EG and JO twice inside the first
-                minute), the same again as the follows' /guide/<slug> GETs
-                (the log's ~45% /guide/<slug> holds them), 8% other
-                /guide/<slug>, 9% /cheapest/<month> (march, february,
-                october, may, july, april, september in turn), and once each
-                /privacy, /safe-and-cheap, /?gc=SC&tab=guide (Seychelles has
-                no guide: a homepage render) and /data twice. The crawler's
-                own requests (all but the follows) go on a fixed schedule
-                over 120 s, together 3.5 a second with their follows if
+                crawler until Render restarted the container at 14:31:58. In
+                the first 46 s a64aea2 answered 157 requests, 3.4 a second:
+                58 query-form /?tab=guide&gc=XX (301 to /guide/<slug>), 89
+                /guide/<slug> (the follows and ~20% more), 6 /cheapest/<month>,
+                /data twice, /privacy and gc=SC (no guide: a homepage render)
+                once. Probes were answered on schedule until 14:30:46.9, one
+                more at 14:31:00.8 (4-9 s late), then none: a64aea2 failed
+                ~47-52 s into the crawl. Past 14:30:46 it still answered
+                301s, 1-2 a second, and a guide only now and then.
+                Here: 37% query form (the log's codes in its order,
+                NOV18_CODES, 138 of them, 89 distinct: the crawler came back
+                to a code 20-60 s later), as many follows, 20% other
+                /guide/<slug>, 4% /cheapest/<month> (the log's months in
+                turn), /data twice, /privacy and /safe-and-cheap once, on a
+                fixed schedule over 120 s, 3.5 a second with their follows if
                 every redirect is answered (--rate R sets that total). Its
                 User-Agent names it a crawler. --life defaults to burst_at +
                 135.
-  nov18_scrape  2026-11-18 21:35:16 ET on 0c811b5, no alert: GET /privacy,
-                /guide/vietnam, /, /guide/thailand, then every guide in
-                alphabetical order, all within ~5 s with dozens in flight at
-                once (a sitemap-driven scraper with a browser's User-Agent).
-                Production's [busy] lines: at 21:35:16 "queue peak 4, now 4
-                waiting, 2/2 slots in use", at 21:35:46 "shed 67 (67 with 8+
-                waiting, 0 after 15s; 0 to crawler UAs), 15 queued deep,
-                queue peak 8"; ~40 guides answered 200 and the probes stayed
-                on schedule. Here the four go 50 ms apart and the 190 guides
-                evenly over the rest of the 5 s. --life defaults to
+  nov18_scrape  2026-11-19 02:35:16 UTC on 0c811b5, no alert: a scraper with
+                a browser's User-Agent. 99 requests reached the origin within
+                3.2 s: /privacy, /guide/vietnam, /, /guide/thailand, then
+                mexico, egypt and tunisia, then the guides from afghanistan
+                to kosovo in alphabetical order (but belarus and greenland).
+                Production answered 32 (the four and 28 guides, the last 4.6 s
+                after the first request) and shed 67, every one with 8
+                already waiting. [busy] at +0.3 s: "1 queued deep, queue peak
+                4, now 4 waiting, 2/2 slots in use"; for the window: "shed 67
+                (67 with 8+ waiting, 0 after 15s; 0 to crawler UAs), 0
+                slotless, 15 queued deep, queue peak 8". Every probe on
+                schedule (the one due 0.94 s in answered 14 ms late). Here the
+                four at their log spacing (0, 0.115, 0.133, 0.289 s), the 95
+                guides evenly from 0.30 to 3.25 s. --life defaults to
                 burst_at + 65.
+  nov18_scrape_all  the scrape as first read from the log: the four 50 ms
+                apart, then all 190 guides evenly over the rest of 5 s. 194
+                requests where 99 reached the origin, so ~2.7x production's
+                sheds, each paying its accept, thread and 503: a stress test,
+                not a replay. --life defaults to burst_at + 65.
   /usr/bin/python3 scripts/dev/stall_check.py --tree DIR --scenario nov18_crawl --on-ms 2
   /usr/bin/python3 scripts/dev/stall_check.py --tree DIR --scenario nov18_scrape --on-ms 2
-Their JSON adds "codes" (every page's status, a request that got none by
-its error's name), "pages_301", "dropped" (pages that got no status),
+Calibration against that log (2026-11-19 on an M5, each run alone): the
+throttle gives far less than Render did, and only that makes the old trees
+fail here.
+  nov18_scrape on 0c811b5, pages answered of 99 and the worst probe:
+  --on-ms 2: 5, 6.96 s (3 over 5 s); 3: 11, 3.35 s; 4: 11, 1.22 s; 5: 12,
+  0.56 s, the last page 6.9 s in. Production: 32, the last 4.6 s in, every
+  probe on time. Render worked through the queue ~2.5x as fast as --on-ms 5
+  and ~8x as fast as 3.
+  nov18_crawl on a64aea2, pages and 301s answered in the first 46 s, and
+  the first probe over 5 s: --on-ms 2: 14 + 28, 9.4 s in; 3: 24 + 36, 31.6
+  s in; 4: 46 + 39, none; 5: 91 + 53, none. Production: 99 + 58 (it kept up
+  with the crawler), then failed 47-52 s in. At the pace Render showed, the
+  replay doesn't fail a64aea2: what tipped production over isn't in it (a
+  background refresh is the first suspect; a64aea2 predates the [refresh]
+  lines that would say).
+So --on-ms 2 is a margin gate, harsher than production on both trees (it
+fails 0c811b5 on the scrape production rode out), and 3 is where a64aea2
+falls over about when production did (31-49 s into the crawl over these
+runs and the earlier mix) while 0c811b5 rides the scrape out; from 4 up
+a64aea2 passes the crawl, too gentle to judge one by. Neither is a capacity
+model: compare trees side by side at one setting.
+Their JSON adds "planned" (the requests on the schedule, follows not
+counted), "offered" (planned + follows_sent: what the tree was asked, which
+depends on how many 301s it answered, so compare trees by "by_kind"), "codes"
+(every page's status, a request that got none by its error's name),
+"pages_301", "dropped" (pages that got no status),
 "by_kind" (the codes per kind: query, follow, guide, cheapest, other),
 "query_sent"/"query_301"/"query_503" (the query-form URLs and how many were
 answered 301 and how many shed 503 instead), "follows_sent" and
@@ -190,7 +229,7 @@ NETCACHE = os.environ.get("STALL_NETCACHE") or (
     "5f5f209c-3c7f-483b-8747-bd588d9b4133/scratchpad/health/bg/netcache")
 BURST = ["/api/advisories?source=us", "/safe-and-cheap", "/safe-and-cheap?x=1", "/do-not-travel"]
 BURST_AT = 4.5
-SCENARIOS = ("adv_expired", "cold", "fresh", "slowapi", "nov18_crawl", "nov18_scrape")
+SCENARIOS = ("adv_expired", "cold", "fresh", "slowapi", "nov18_crawl", "nov18_scrape", "nov18_scrape_all")
 # --scenario slowapi: three /api requests whose upstream answers SLOW_S late
 # (Canada's per-country notes, each its own fetch), and half a second later a
 # visitor's set: the app shell, a guide, a static file, a cached /api route.
@@ -198,19 +237,34 @@ SLOW_API = ["/api/watchouts?iso=fr", "/api/watchouts?iso=it", "/api/watchouts?is
 SLOW_URL = "/travel-voyage/cta-cap-"
 SLOW_S = 8.0
 VISITORS = ["/", "/guide/japan", "/app.js", "/api/advisories?source=us"]
-# --scenario nov18_crawl / nov18_scrape: Render's log of 2026-11-18 (docstring).
-NOV18 = ("nov18_crawl", "nov18_scrape")
+# --scenario nov18_crawl / nov18_scrape(_all): Render's log of 2026-11-18 (docstring).
+NOV18 = ("nov18_crawl", "nov18_scrape", "nov18_scrape_all")
 NOV18_BURST_AT = 45.0
 NOV18_CRAWL_S = 120.0
 NOV18_RATE = 3.5                     # the crawler's requests a second, its follows included
-# Shares of the crawler's requests (the follows, as many as "query", make up the rest).
-NOV18_SHARES = (("query", 0.41), ("guide", 0.08), ("cheapest", 0.09))
-NOV18_MONTHS = ("march", "february", "october", "may", "july", "april", "september")
-NOV18_REPEATS = {"UY": (10, 40, 75), "EG": (20, 60), "JO": (30, 80)}   # their query-form slots (first minute)
-NOV18_MISC = ((0.15, "/data"), (0.30, "/privacy"), (0.42, "/safe-and-cheap"),
-              (0.55, "/?gc=SC&tab=guide"), (0.65, "/data"))           # (share of the way in, path)
+# Shares of all the crawler's requests, its follows included (as many as "query"):
+# 30:00-30:46 of the log, before a64aea2 fell behind, 157 answers: 58 query
+# form, 89 /guide/ (the follows and ~20% more), 6 /cheapest/, 4 other.
+NOV18_SHARES = (("query", 0.37), ("guide", 0.20), ("cheapest", 0.04))
+# The query-form codes in the log's order (14:30:00-14:31:59, 138 answered, 89
+# distinct: the crawler came back to a code 20-60 s later), cycled. SC has no
+# guide: that one is a homepage render.
+NOV18_CODES = tuple("""HT UY EG UY RO GH CA HK ID GM SR DK TW JO SA GT LA EG UG JO IL CL UY AU SO MU DE MW BZ CR
+    IS ER KP IN FJ ER TJ CR SC LR KE CD GB NA BB PY BT NO RU KW CL GY TM SO MU AU DE SB PG MA IR BD MW IQ IS YE
+    JM NG PH AE LK IN BY GE KR PL SD LY SL SR CZ KZ BN AW BR UG TJ PY VU AZ LR DZ RW KE MZ BT NO BB LB AL CL TH SB
+    MX NA MU MD CR KW CD IR MA SO LS IS BR IQ ER SE KP IN MW AU BD KG AE GE AO DO KR SD LY UA SL HU CZ MN
+    AF""".split())
+NOV18_MONTHS = ("july", "april", "october", "may", "february", "march", "october", "september", "march",
+                "february")   # /cheapest/<month> in the log's order
+NOV18_MISC = ((0.15, "/data"), (0.30, "/privacy"), (0.42, "/safe-and-cheap"), (0.65, "/data"))  # (share of the way in, path)
+# nov18_scrape: the 99 requests that reached the origin (2026-11-19 02:35:16-02:35:21 UTC).
 NOV18_SCRAPE_HEAD = ("/privacy", "/guide/vietnam", "/", "/guide/thailand")
-NOV18_SCRAPE_S = 5.0
+NOV18_SCRAPE_HEAD_AT = (0.0, 0.115, 0.133, 0.289)   # their answers' spacing in the log
+NOV18_SCRAPE_FIRST = ("mexico", "egypt", "tunisia")  # guides outside the alphabetical run (mexico, egypt answered first)
+NOV18_SCRAPE_LAST = "kosovo"                         # the run stopped here: afghanistan..kosovo
+NOV18_SCRAPE_SKIP = ("belarus", "greenland")         # in that run, not in the log
+NOV18_SCRAPE_SPAN = (0.30, 3.25)                     # the guides, evenly (16.97-19.86 s in the log)
+NOV18_SCRAPE_S = 5.0                                 # nov18_scrape_all: every guide inside 5 s
 UA_CRAWLER = "Mozilla/5.0 (compatible; ReplayBot/1.0; +https://example.invalid/bot)"
 UA_BROWSER = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -473,10 +527,11 @@ def guide_slugs(tree):
 
 def nov18_crawl_plan(slug_iso, seconds=NOV18_CRAWL_S, rate=NOV18_RATE, seed=20261118):
     """--scenario nov18_crawl: the crawler's own requests as [(offset s, path,
-    kind)] on a fixed schedule over `seconds`, kind "query" (/?tab=guide&gc=XX
-    for a guide's code: a 301 to /guide/<slug>, whose follow the run adds),
-    "guide", "cheapest" or "other". So many that with one follow per "query"
-    they come to `rate` a second. The same plan every time (`seed`)."""
+    kind)] on a fixed schedule over `seconds`, kind "query" (/?tab=guide&gc=XX,
+    NOV18_CODES in turn: a 301 to /guide/<slug>, whose follow the run adds, or
+    for SC the homepage), "guide", "cheapest" or "other". So many that with one
+    follow per "query" they come to `rate` a second. The same plan every time
+    (`seed`)."""
     import random
     rng = random.Random(seed)
     total = int(round(seconds * rate))
@@ -488,26 +543,39 @@ def nov18_crawl_plan(slug_iso, seconds=NOV18_CRAWL_S, rate=NOV18_RATE, seed=2026
     for frac, path in NOV18_MISC:
         slots.insert(int(frac * (len(slots) + 1)), ("other", path))
     iso_slug = {iso: slug for slug, iso in slug_iso.items()}
-    codes = sorted(iso for iso in iso_slug if iso not in NOV18_REPEATS)
+    codes = sorted(iso_slug)
     rng.shuffle(codes)
-    repeat_at = {i: iso for iso, at in NOV18_REPEATS.items() for i in at if iso in iso_slug}
     plan, nq, ng, nc = [], 0, 0, 0
     step = seconds / float(len(slots))
     for i, (kind, path) in enumerate(slots):
         if kind == "query":
-            iso = repeat_at.get(nq) or codes[(nq - sum(1 for j in repeat_at if j < nq)) % len(codes)]
-            path, nq = "/?tab=guide&gc=" + iso, nq + 1
-        elif kind == "guide":   # from the other end of the order, so they meet only past ~190
-            path, ng = "/guide/" + iso_slug[codes[-1 - ng % len(codes)]], ng + 1
+            path, nq = "/?tab=guide&gc=" + NOV18_CODES[nq % len(NOV18_CODES)], nq + 1
+        elif kind == "guide":
+            path, ng = "/guide/" + iso_slug[codes[ng % len(codes)]], ng + 1
         elif kind == "cheapest":
             path, nc = "/cheapest/" + NOV18_MONTHS[nc % len(NOV18_MONTHS)], nc + 1
         plan.append((round(i * step, 3), path, kind))
     return plan
 
 
-def nov18_scrape_plan(slug_iso, seconds=NOV18_SCRAPE_S):
-    """--scenario nov18_scrape: [(offset s, path, kind)], the four first pages
-    50 ms apart, then every guide alphabetically, evenly over the rest."""
+def nov18_scrape_plan(slug_iso):
+    """--scenario nov18_scrape: [(offset s, path, kind)], the 99 requests of
+    the log that reached the origin: the four first pages at their spacing,
+    then NOV18_SCRAPE_FIRST and the alphabetical run afghanistan..kosovo
+    (less NOV18_SCRAPE_SKIP), evenly over NOV18_SCRAPE_SPAN."""
+    head = [(at, p, "guide" if p.startswith("/guide/") else "other")
+            for at, p in zip(NOV18_SCRAPE_HEAD_AT, NOV18_SCRAPE_HEAD)]
+    taken = set(NOV18_SCRAPE_FIRST) | set(NOV18_SCRAPE_SKIP)
+    slugs = [s for s in NOV18_SCRAPE_FIRST if s in slug_iso] + sorted(
+        s for s in slug_iso if s <= NOV18_SCRAPE_LAST and s not in taken)
+    a, b = NOV18_SCRAPE_SPAN
+    step = (b - a) / float(max(1, len(slugs) - 1))
+    return head + [(round(a + i * step, 3), "/guide/" + s, "guide") for i, s in enumerate(slugs)]
+
+
+def nov18_scrape_all_plan(slug_iso, seconds=NOV18_SCRAPE_S):
+    """--scenario nov18_scrape_all: [(offset s, path, kind)], the four first
+    pages 50 ms apart, then every guide alphabetically, evenly over the rest."""
     head = [(round(i * 0.05, 3), p, "guide" if p.startswith("/guide/") else "other")
             for i, p in enumerate(NOV18_SCRAPE_HEAD)]
     start = 0.05 * len(head)
@@ -516,10 +584,12 @@ def nov18_scrape_plan(slug_iso, seconds=NOV18_SCRAPE_S):
     return head + [(round(start + i * step, 3), "/guide/" + s, "guide") for i, s in enumerate(slugs)]
 
 
-def follow_delay(path):
-    """Seconds a crawler waits after a 301 before it GETs the Location: 1-6,
-    fixed per URL (the log: the /guide/<slug> GET 1-6 s after its 301)."""
-    return 1.0 + 5.0 * int(hashlib.sha1(path.encode("utf-8")).hexdigest()[:8], 16) / float(0xffffffff)
+def follow_delay(path, nth=0):
+    """Seconds a crawler waits after a 301 before it GETs the Location: 1-3,
+    fixed per URL and visit (the log's uncongested follows were answered
+    1.6-2.5 s after their 301, the render included)."""
+    key = path if not nth else "%s#%d" % (path, nth)
+    return 1.0 + 2.0 * int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16) / float(0xffffffff)
 
 
 def nov18_summary(pages, probes, plan, burst_at, follows_sent, lines):
@@ -533,7 +603,7 @@ def nov18_summary(pages, probes, plan, burst_at, follows_sent, lines):
     query = [p for p in pages if p[4] == "query"]
     n301 = sum(1 for p in pages if p[2] in (301, 302, 307, 308))
     bad = [p[0] - burst_at for p in probes if p[0] >= burst_at and (p[2] != 200 or p[1] > 5)]
-    return {"planned": len(plan), "codes": codes, "pages_301": n301,
+    return {"planned": len(plan), "offered": len(plan) + follows_sent, "codes": codes, "pages_301": n301,
             "dropped": sum(1 for p in pages if not isinstance(p[2], int)),
             "by_kind": by_kind, "query_sent": len(query),
             "query_301": sum(1 for p in query if p[2] == 301),
@@ -553,6 +623,8 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
         plan = nov18_crawl_plan(guide_slugs(tree), rate=rate)
     elif scen == "nov18_scrape":
         plan = nov18_scrape_plan(guide_slugs(tree))
+    elif scen == "nov18_scrape_all":
+        plan = nov18_scrape_all_plan(guide_slugs(tree))
     if plan:
         gzip_pages = True   # every real request came through Cloudflare, which asks for gzip
     s = socket.socket()
@@ -638,7 +710,7 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
         work = (BURST if burst_paths is None else burst_paths) + crawl_paths(tree, crawl)
         done = []
         ua = UA_CRAWLER if scen == "nov18_crawl" else UA_BROWSER
-        inflight, follows = [0], {"sent": 0}
+        inflight, follows = [0], {"sent": 0, "seen": {}}
 
         def fetch(path, kind):
             """A Nov 18 page: gzip and the replay's User-Agent; a 301 is
@@ -669,7 +741,10 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
                 import urllib.parse
                 u = urllib.parse.urlsplit(loc)
                 target = u.path + ("?" + u.query if u.query else "")
-                tm = threading.Timer(follow_delay(path), fetch, args=(target, "follow"))
+                with lock:
+                    nth = follows["seen"].get(path, 0)
+                    follows["seen"][path] = nth + 1
+                tm = threading.Timer(follow_delay(path, nth), fetch, args=(target, "follow"))
                 tm.daemon = True
                 tm.start()
 
@@ -815,7 +890,8 @@ def main():
                     help="the child's GIL switch interval (server.SWITCH_INTERVAL) for a sweep")
     ap.add_argument("--on-ms", type=float, default=5.0)
     ap.add_argument("--life", type=float,
-                    help="the child exits at S (default 50; nov18_crawl burst_at + 135, nov18_scrape burst_at + 65)")
+                    help="the child exits at S (default 50; nov18_crawl burst_at + 135, nov18_scrape(_all) "
+                         "burst_at + 65)")
     ap.add_argument("--page-timeout", type=float, metavar="S",
                     help="the burst's timeout (default life - burst_at - 2, as long as the run allows)")
     ap.add_argument("--label", default="")
@@ -827,7 +903,7 @@ def main():
     burst_at = a.burst_at if a.burst_at is not None else NOV18_BURST_AT if a.scenario in NOV18 else BURST_AT
     life = a.life if a.life is not None else (
         burst_at + NOV18_CRAWL_S + 15 if a.scenario == "nov18_crawl" else
-        burst_at + 65 if a.scenario == "nov18_scrape" else 50.0)
+        burst_at + 65 if a.scenario in ("nov18_scrape", "nov18_scrape_all") else 50.0)
     run(tree, a.scenario, a.on_ms, life, a.label or os.path.basename(tree), a.verbose, a.crawl,
         a.block, [p for p in a.burst.split(",") if p] if a.burst is not None else None, burst_at,
         a.block_code, a.slow_s, a.switch, a.clients, a.page_timeout, a.rate, a.gzip, a.exact)
