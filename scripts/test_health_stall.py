@@ -69,8 +69,9 @@ What it holds the code to:
     whole history when the reply disagrees with the copy, skips a day of it
     or has a day it lacks; INDEX_MASK, HISTORY_STALE and the failure backoff
     as before (recorded reply, scripts/fixtures/fx_history/).
-  * logging: a client hanging up mid-response is one [disconnect] line, any
-    other exception keeps its traceback; /healthz carries X-Uptime and writes
+  * logging: a client hanging up mid-response (an error from this
+    request's own socket) is one [disconnect] line; any other exception,
+    the same classes raised by an upstream included, keeps its traceback; /healthz carries X-Uptime and writes
     its log line after its answer; [busy] lines (at most one per
     BUSY_LOG_EVERY) count shed, slotless and deep-queued requests; [refresh]
     lines time the advisory, rates and FX history refreshes.
@@ -1899,6 +1900,35 @@ results.append(ok(hu_raised is None and len(lines) == 1 and "Traceback" not in h
                   "token redacted" % (lines[:1],)))
 results.append(ok("Traceback" in err2.getvalue() and "ValueError: boom" in err2.getvalue(),
                   "any other exception still prints its traceback"))
+
+# The same exception classes raised by an upstream on the way (Upstash or a
+# feed closing on us: http.client.RemoteDisconnected is a ConnectionResetError
+# urllib passes through) are not the client hanging up: they keep their
+# traceback (raised out of the handler, for socketserver's handle_error).
+import http.client as _hc  # noqa: E402
+up_seen = []
+for exc in (_hc.RemoteDisconnected("Remote end closed connection without response"),
+            ConnectionResetError(54, "Connection reset by peer"), BrokenPipeError(32, "Broken pipe")):
+    real_dg = server.Handler._do_get
+    server.Handler._do_get = lambda self, _e=exc: (_ for _ in ()).throw(_e)
+    a_, b_ = _sock.socketpair()
+    b_.sendall(b"GET /api/auth/me HTTP/1.1\r\nHost: wandergrade.com\r\n\r\n")
+    err5, saved_err = io.StringIO(), sys.stderr
+    sys.stderr = err5
+    got_exc = None
+    try:
+        server.Handler(a_, ("127.0.0.1", 40000), _FakeSrv())
+    except Exception as e:
+        got_exc = e
+    finally:
+        sys.stderr = saved_err
+        server.Handler._do_get = real_dg
+        a_.close()
+        b_.close()
+    up_seen.append((type(exc).__name__, got_exc is exc, "[disconnect]" in err5.getvalue()))
+results.append(ok(all(raised_ and not line for _n, raised_, line in up_seen),
+                  "RemoteDisconnected, ConnectionResetError and BrokenPipeError from an upstream (not this request's "
+                  "socket) raise out of the handler for their traceback, never a [disconnect] line (%s)" % up_seen))
 
 # --- server.py: diagnostics for next time ([busy], [refresh], X-Uptime) ------------------
 # X-Uptime on /healthz: whole seconds since the process started.

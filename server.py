@@ -2487,6 +2487,44 @@ def _idle_wait(event, timeout):
 GZIP_LEVEL = 6
 
 
+# What a read or write on a request's own socket raises when the client is
+# gone: Handler.handle writes one [disconnect] line for these, and only for
+# these when _ClientIO tagged them.
+_CLIENT_IO_ERRORS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+
+
+class _ClientIO:
+    """A request's rfile or wfile: what its own reads and writes raise as a
+    client hang-up is tagged (`_client_io`), so Handler.handle can tell it
+    from the same exception class raised by an upstream fetch on the way."""
+    __slots__ = ("_f",)
+
+    def __init__(self, f):
+        self._f = f
+
+    def __getattr__(self, name):
+        return getattr(self._f, name)
+
+    def _io(self, fn, *a):
+        try:
+            return fn(*a)
+        except _CLIENT_IO_ERRORS as e:
+            e._client_io = True
+            raise
+
+    def write(self, b):
+        return self._io(self._f.write, b)
+
+    def flush(self):
+        return self._io(self._f.flush)
+
+    def readline(self, *a):
+        return self._io(self._f.readline, *a)
+
+    def read(self, *a):
+        return self._io(self._f.read, *a)
+
+
 class Handler(BaseHTTPRequestHandler):
     # Generic identity — don't advertise the framework/Python version.
     server_version = "WanderGrade"
@@ -2831,12 +2869,23 @@ class Handler(BaseHTTPRequestHandler):
     # processing of request" and a traceback: 3.1 KB in 27 separate writes to
     # stderr each, in bursts on /api/flights and the fare months in Render's
     # log. One line instead; any other exception keeps its traceback.
-    _DISCONNECTS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+    #
+    # Only when it came from this request's own socket (_ClientIO tags it):
+    # the same classes come out of an upstream fetch (Upstash or a feed
+    # closing on us is http.client.RemoteDisconnected, a ConnectionResetError,
+    # which urllib passes through unwrapped), and those keep their traceback.
+    _DISCONNECTS = _CLIENT_IO_ERRORS
+
+    def setup(self):
+        super().setup()
+        self.rfile, self.wfile = _ClientIO(self.rfile), _ClientIO(self.wfile)
 
     def handle(self):
         try:
             super().handle()
         except self._DISCONNECTS as e:
+            if not getattr(e, "_client_io", False):
+                raise
             self.close_connection = True
             sys.stderr.write("  [disconnect] %s %s %s\n" % (
                 getattr(self, "command", None) or "-",
