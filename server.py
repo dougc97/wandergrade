@@ -21,6 +21,8 @@ import html
 import json
 import os
 import re
+import socket
+import struct
 import sys
 import threading
 import time
@@ -2490,7 +2492,7 @@ GZIP_LEVEL = 6
 # What a read or write on a request's own socket raises when the client is
 # gone: Handler.handle writes one [disconnect] line for these, and only for
 # these when _ClientIO tagged them.
-_CLIENT_IO_ERRORS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+_CLIENT_IO_ERRORS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, BlockingIOError)
 
 
 class _ClientIO:
@@ -2876,8 +2878,27 @@ class Handler(BaseHTTPRequestHandler):
     # which urllib passes through unwrapped), and those keep their traceback.
     _DISCONNECTS = _CLIENT_IO_ERRORS
 
+    # A read or write on the request's socket that makes no progress for
+    # CLIENT_IO_TIMEOUT seconds gives up: nothing bounded it, so a slot
+    # holder writing a page to a peer that stopped reading held its slot for
+    # good, and with both slots held so every page would be shed while
+    # /healthz stayed green. Set as SO_SNDTIMEO/SO_RCVTIMEO, not settimeout():
+    # Python polls before every operation on a socket with a timeout, one
+    # more GIL hand-off per read and write, and /healthz's latency under
+    # load is counted in those. A stalled write raises BlockingIOError (one
+    # [disconnect] line, "timeout"); a request line that never comes reads
+    # as empty and the connection closes, as for a client that hangs up.
+    CLIENT_IO_TIMEOUT = 30
+
     def setup(self):
         super().setup()
+        secs = self.CLIENT_IO_TIMEOUT
+        tv = struct.pack("ll", int(secs), int(round(secs % 1 * 1e6)))   # struct timeval
+        try:
+            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDTIMEO, tv)
+            self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_RCVTIMEO, tv)
+        except OSError:
+            pass
         self.rfile, self.wfile = _ClientIO(self.rfile), _ClientIO(self.wfile)
 
     def handle(self):
@@ -2890,7 +2911,8 @@ class Handler(BaseHTTPRequestHandler):
             sys.stderr.write("  [disconnect] %s %s %s\n" % (
                 getattr(self, "command", None) or "-",
                 self._LOG_TOKEN.sub(r"\1t=[redacted]", getattr(self, "path", None) or "-"),
-                type(e).__name__))
+                "timeout (no progress in %gs)" % self.CLIENT_IO_TIMEOUT if isinstance(e, BlockingIOError)
+                else type(e).__name__))
 
     # ---- auth ------------------------------------------------------------
     def _authed(self):

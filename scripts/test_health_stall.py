@@ -71,7 +71,9 @@ What it holds the code to:
     as before (recorded reply, scripts/fixtures/fx_history/).
   * logging: a client hanging up mid-response (an error from this
     request's own socket) is one [disconnect] line; any other exception,
-    the same classes raised by an upstream included, keeps its traceback; /healthz carries X-Uptime and writes
+    the same classes raised by an upstream included, keeps its traceback;
+    a peer that stops reading, or never sends its request, frees the handler
+    after CLIENT_IO_TIMEOUT (OS socket timeouts); /healthz carries X-Uptime and writes
     its log line after its answer; [busy] lines (at most one per
     BUSY_LOG_EVERY) count shed, slotless and deep-queued requests; [refresh]
     lines time the advisory, rates and FX history refreshes.
@@ -1929,6 +1931,51 @@ for exc in (_hc.RemoteDisconnected("Remote end closed connection without respons
 results.append(ok(all(raised_ and not line for _n, raised_, line in up_seen),
                   "RemoteDisconnected, ConnectionResetError and BrokenPipeError from an upstream (not this request's "
                   "socket) raise out of the handler for their traceback, never a [disconnect] line (%s)" % up_seen))
+
+# A peer that stops reading (or never sends its request) no longer holds a
+# handler, and with it a page slot, for good: the socket gives up after
+# CLIENT_IO_TIMEOUT without progress, a stalled write as one [disconnect]
+# line, set at the OS level (no settimeout(), which polls before every read
+# and write).
+def stalled(request, read=False):
+    a, b = _sock.socketpair()
+    a.setsockopt(_sock.SOL_SOCKET, _sock.SO_SNDBUF, 4096)
+    if request:
+        b.sendall(request)
+    err, saved_err = io.StringIO(), sys.stderr
+    sys.stderr = err
+    t0 = time.time()
+    raised = None
+    try:
+        server.Handler(a, ("127.0.0.1", 40000), _FakeSrv())
+    except Exception as e:
+        raised = e
+    finally:
+        took = time.time() - t0
+        sys.stderr = saved_err
+        a.close()
+        b.close()
+    return took, err.getvalue(), raised
+
+
+saved_cio = server.Handler.CLIENT_IO_TIMEOUT
+server.Handler.CLIENT_IO_TIMEOUT = 0.3
+try:
+    w_took, w_err, w_raised = stalled(b"GET /world.geojson HTTP/1.1\r\nHost: wandergrade.com\r\n\r\n")
+    r_took, r_err, r_raised = stalled(b"")
+finally:
+    server.Handler.CLIENT_IO_TIMEOUT = saved_cio
+w_lines = [ln for ln in w_err.splitlines() if ln.strip()]
+results.append(ok(saved_cio == 30 and w_raised is None and 0.25 < w_took < 2 and len(w_lines) == 1
+                  and w_lines[0] == "  [disconnect] GET /world.geojson timeout (no progress in 0.3s)"
+                  and r_raised is None and 0.25 < r_took < 2 and "Traceback" not in r_err,
+                  "a peer that stops reading a page gives the handler back after CLIENT_IO_TIMEOUT (%d s; 0.3 here: "
+                  "%.2fs, %r), one that never sends its request too (%.2fs), as OS socket timeouts"
+                  % (saved_cio, w_took, w_lines[:1], r_took)))
+results.append(ok("SO_SNDTIMEO" in inspect.getsource(server.Handler.setup)
+                  and "settimeout" not in inspect.getsource(server.Handler.setup) and server.Handler.timeout is None,
+                  "the bound is SO_SNDTIMEO/SO_RCVTIMEO, not a Python socket timeout (one more poll, and GIL "
+                  "hand-off, per read and write)"))
 
 # --- server.py: diagnostics for next time ([busy], [refresh], X-Uptime) ------------------
 # X-Uptime on /healthz: whole seconds since the process started.
