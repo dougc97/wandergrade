@@ -431,6 +431,9 @@ def _guide_template():
 
 
 _SITE = "https://wandergrade.com"   # canonical origin for sitemap URLs
+_SITE_HOST = urllib.parse.urlsplit(_SITE).hostname   # wandergrade.com
+# The public site's Host names (lowercase, no port), as _request_host gives them.
+_PUBLIC_HOSTS = frozenset((_SITE_HOST, "www." + _SITE_HOST))
 
 
 _dataset_cache = {"at": 0, "payload": None, "csv": None, "retry_at": 0, "error": ""}
@@ -3119,9 +3122,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/plain")
             # Whole seconds since this process started, so a restart Render
             # made (a failed check) can be seen after the fact: on Render's
-            # own probe and the onrender.com host, not through Cloudflare
-            # (CF-Ray), where anyone could read the site's restart times.
-            if not self.headers.get("CF-Ray"):
+            # own probe (Host: its internal address) and the onrender.com
+            # host, never on the public site (_PUBLIC_HOSTS: wandergrade.com,
+            # www.), where anyone could read its restart times. Keyed on Host,
+            # not CF-Ray: Render's own edge is Cloudflare too, so every outside
+            # request carries a CF-Ray, the onrender.com host's included
+            # (seen 2026-11-19), and X-Uptime showed only to the probe.
+            if _request_host(self.headers) not in _PUBLIC_HOSTS:
                 self.send_header("X-Uptime", str(int(time.monotonic() - _BOOT)))
             self.send_header("Content-Length", "2")
             self._end_headers_with(b"ok")

@@ -76,7 +76,8 @@ What it holds the code to:
     whole history when the reply disagrees with the copy, skips a day of it
     or has a day it lacks; INDEX_MASK, HISTORY_STALE and the failure backoff
     as before (recorded reply, scripts/fixtures/fx_history/).
-  * logging (X-Uptime only off Cloudflare, no CF-Ray; a 503 carries no
+  * logging (X-Uptime on every /healthz but the public site's Host,
+    wandergrade.com and www., CF-Ray or not; a 503 carries no
     X-Robots-Tag): a client hanging up mid-response (an error from this
     request's own socket) is one [disconnect] line; any other exception,
     the same classes raised by an upstream included, keeps its traceback;
@@ -2208,16 +2209,37 @@ results.append(ok(pv[0].startswith("HTTP/1.0 200") and len(during) == 1 and afte
 
 # --- server.py: diagnostics for next time ([busy], [refresh], X-Uptime) ------------------
 # X-Uptime on /healthz: whole seconds since the process started.
+# Keyed on Host, not CF-Ray: Render's own edge is Cloudflare, so the
+# onrender.com host's requests carry a CF-Ray too (seen 2026-11-19), and the
+# old rule showed X-Uptime to Render's internal probe alone.
+CF_RAY = "CF-Ray: 8f1e2d3c4b5a6978-SIN\r\n"
 saved_boot = server._BOOT
 server._BOOT = time.monotonic() - 100.4
-hz_head, hz_body = handler_get("/healthz")
-server._BOOT = saved_boot
+try:
+    hz_with = {(hst, cf): handler_get("/healthz", cf, host=hst)
+               for hst in ("fx-tracker-er52.onrender.com", "10.214.3.7:10000", "FX-Tracker-er52.onrender.com:443")
+               for cf in ("", CF_RAY)}
+    hz_without = {(hst, cf): handler_get("/healthz", cf, host=hst)
+                  for hst in ("wandergrade.com", "www.wandergrade.com", "WanderGrade.com", "WWW.WANDERGRADE.COM",
+                              "wandergrade.com:443", "www.WanderGrade.com:8080")
+                  for cf in ("", CF_RAY)}
+finally:
+    server._BOOT = saved_boot
+hz_head, hz_body = hz_with["fx-tracker-er52.onrender.com", ""]
 up = re.search(r"\r\nX-Uptime: (\d+)\r\n", hz_head)
-hz_cf_head, hz_cf_body = handler_get("/healthz", "CF-Ray: 8f1e2d3c4b5a6978-SIN\r\n")
-results.append(ok(hz_body == b"ok" and up and int(up.group(1)) == 100 and hz_head.startswith("HTTP/1.0 200"),
-                  "/healthz says X-Uptime: %s (whole seconds since boot), still 200 ok" % (up and up.group(1))))
-results.append(ok(hz_cf_body == b"ok" and hz_cf_head.startswith("HTTP/1.0 200") and "X-Uptime" not in hz_cf_head,
-                  "through Cloudflare (a CF-Ray header) /healthz leaves X-Uptime out: restart times stay private"))
+up_wrong = [k for k, (h, b) in hz_with.items()
+            if not (b == b"ok" and h.startswith("HTTP/1.0 200") and "\r\nX-Uptime: 100\r\n" in h)]
+results.append(ok(up and int(up.group(1)) == 100 and not up_wrong,
+                  "/healthz says X-Uptime: %s (whole seconds since boot), still 200 ok, on the onrender.com host and "
+                  "Render's internal probe (10.x:10000), any case, port or CF-Ray (wrong: %s)"
+                  % (up and up.group(1), up_wrong)))
+ref_hz = no_date(hz_head).replace("\r\nX-Uptime: 100", "")
+pub_wrong = [k for k, (h, b) in hz_without.items() if not (b == b"ok" and no_date(h) == ref_hz)]
+results.append(ok(not pub_wrong and "X-Uptime" not in ref_hz and server._PUBLIC_HOSTS == {"wandergrade.com",
+                                                                                          "www.wandergrade.com"},
+                  "on the public site's Host (wandergrade.com, www., any case, with a port, with or without "
+                  "CF-Ray) /healthz leaves X-Uptime out and is otherwise the same bytes: restart times stay "
+                  "private (wrong: %s)" % pub_wrong))
 
 # [busy]: one line at once, the rest of the window counted and written by a timer.
 saved_busy = (server.BUSY_LOG_EVERY, dict(server._busy), server._page_slots, server.PAGE_QUEUE_MAX)
