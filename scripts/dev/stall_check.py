@@ -105,7 +105,11 @@ reports its time instead of a cap. A cold start computes the three lists on
 the 0.1 CPU in ~50 s, so comparing the cold burst's advisory pages between
 trees needs --life 70 or more: at the default 50 every tree's cold
 advisory pages time out alike and can't be told apart (the branch answers
-them at 51-52 s; main, measured with 140 s, not at all).
+them at 51-52 s; main, measured with 140 s, not at all). That is at
+--on-ms 5; at --on-ms 2 the cold start's work (~4.3 s of CPU at a ~2.4%
+duty) outlasts even --life 150 (2026-11-19: all four cold pages timed out
+at 143.5 s on the branch and on a64aea2 alike), so compare cold pages at
+--on-ms 5 and read only the probes of a cold run at 2.
 
 Runs ~life + 5 s; split runs to keep each command under a minute (run a
 longer one in the background, at most two at once: they share the CPU).
