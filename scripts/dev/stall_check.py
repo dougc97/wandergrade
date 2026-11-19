@@ -8,7 +8,7 @@ being recomputed by every request at once.)
                                                 [--crawl N] [--on-ms 5] [--life 50]
                                                 [--block SUBSTR [--block-code N]]
                                                 [--burst PATH,PATH] [--burst-at S] [--rate R]
-                                                [--gzip] [--page-timeout S] [--label NAME] [-v]
+                                                [--gzip] [--exact] [--page-timeout S] [--label NAME] [-v]
 
 It boots the real server from DIR (--tree, else $STALL_TREE, else the repo
 this file sits in) by calling its own server.main(), so a tree is exercised
@@ -86,8 +86,13 @@ slow connects, and a deeper backlog's trade (more connections let in, each
 then queued behind the others) can only be judged roughly here.
 
 Network: none. Every urlopen is answered from recorded responses in
-$STALL_NETCACHE (files <sha1 of the URL>.body + .json {"status", "headers"};
-never committed), and any other URL fails as offline. The FX history's
+$STALL_NETCACHE (files <sha1 of the URL>.body + .json {"url", "status",
+"headers"}; never committed), and any other URL fails as offline, except
+that a URL carrying today's date on api.fxratesapi.com or api.worldbank.org
+(the rates' one-year timeseries, the World Bank's year range) gets the
+recording's reply for the same URL with its dates blanked ("dated_replays"
+lists them; --exact turns it off: before 2026-11-19 those fetches failed
+as offline on every tree, so the replay rendered its pages without rates). The FX history's
 pieces (rates._history_spans: get_history fetches 1999-today in 5-year
 replies) are cut from the recorded whole reply before the server starts. Without that
 directory the three advisory parsers are replaced by synthetic stand-ins
@@ -183,6 +188,10 @@ def serve(port, scen, life, tree, opts):
             return Resp(pieces[url][0], pieces[url][1])
         h = hashlib.sha1(url.encode()).hexdigest()
         body = os.path.join(NETCACHE, h + ".body")
+        if config["replay"] == "netcache" and not os.path.exists(body) and dated.get(dated_key(url)):
+            h = dated[dated_key(url)]        # today's date in the URL: the recording's own day
+            body = os.path.join(NETCACHE, h + ".body")
+            dated_used.append(url)
         if config["replay"] == "netcache" and os.path.exists(body):
             with open(os.path.join(NETCACHE, h + ".json"), encoding="utf-8") as f:
                 meta = json.load(f)
@@ -194,6 +203,8 @@ def serve(port, scen, life, tree, opts):
 
     urllib.request.urlopen = fake_urlopen
     pieces = frankfurter_pieces(NETCACHE, tree) if config["replay"] == "netcache" else {}
+    dated = dated_index(NETCACHE) if config["replay"] == "netcache" and not opts.get("exact") else {}
+    dated_used = []
     if pieces:
         config["fx_history_pieces"] = len(pieces)
 
@@ -248,6 +259,7 @@ def serve(port, scen, life, tree, opts):
         time.sleep(life)
         cpu = time.process_time()
         say("cpu " + json.dumps({"total": round(cpu, 3), "since_config": round(cpu - cpu0[0], 3)}))
+        say("dated " + json.dumps(sorted(set(dated_used))))
         say("exit, process CPU %.2fs, %d blocked URLs (%s)"
             % (cpu, len(blocked), ", ".join(sorted(set(blocked)))[:300]))
         sys.stdout.flush()
@@ -257,6 +269,45 @@ def serve(port, scen, life, tree, opts):
     threading.Thread(target=killer, daemon=True).start()
     sys.argv = ["server.py", str(port)]
     server.main()
+
+
+# Hosts whose URLs carry today's date (the rates' one-year timeseries, the
+# World Bank's year range): a run on a later day than the recording asks for
+# URLs it doesn't hold, and those fetches failed as offline in every run, so
+# pages rendered without rates. They are answered with the recording's reply
+# for the same URL with its dates blanked (dated_key), listed in the output
+# as "dated_replays"; --exact turns this off. Frankfurter is not one: its
+# history pieces are cut above, and a tail request must not get the whole.
+DATED_HOSTS = ("api.fxratesapi.com", "api.worldbank.org")
+
+
+def dated_key(url):
+    """`url` with its dates blanked, for a host in DATED_HOSTS, else None."""
+    if not any("//%s/" % h in url for h in DATED_HOSTS):
+        return None
+    import re
+    return re.sub(r"date=\d{4}:\d{4}", "date=Y:Y", re.sub(r"\d{4}-\d{2}-\d{2}", "D", url))
+
+
+def dated_index(netcache):
+    """{dated_key(url): sha1 name} over the recording's 200 replies."""
+    out = {}
+    try:
+        names = sorted(os.listdir(netcache))
+    except OSError:
+        return out
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(netcache, name), encoding="utf-8") as f:
+                meta = json.load(f)
+        except (OSError, ValueError):
+            continue
+        k = dated_key(meta.get("url") or "")
+        if k and meta.get("status", 200) == 200:
+            out.setdefault(k, name[:-5])
+    return out
 
 
 def frankfurter_pieces(netcache, tree):
@@ -342,7 +393,7 @@ def page_timeout_for(life, burst_at):
 
 def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=None, burst_at=BURST_AT,
         block_code=None, slow_s=SLOW_S, switch=None, clients=0, page_timeout=None, rate=0.0,
-        gzip_pages=False):
+        gzip_pages=False, exact=False):
     page_timeout = page_timeout or page_timeout_for(life, burst_at)
     s = socket.socket()
     s.bind(("127.0.0.1", 0))
@@ -352,7 +403,7 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
     env = {k: v for k, v in os.environ.items()
            if k in ("PATH", "HOME", "LANG", "TMPDIR", "SSL_CERT_FILE") or k.startswith("LC_")}
     env["STALL_NETCACHE"] = NETCACHE
-    opts = {"block": list(block), "block_code": block_code, "switch": switch}
+    opts = {"block": list(block), "block_code": block_code, "switch": switch, "exact": exact}
     if scen == "slowapi":
         opts["delay"] = {SLOW_URL: slow_s}
         if burst_paths is None:
@@ -481,12 +532,14 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
     lines = log.read().splitlines()
     log.close()
     os.unlink(log.name)
-    config, cpu = {}, {}
+    config, cpu, dated = {}, {}, []
     for ln in lines:
         if "] config {" in ln:
             config = json.loads(ln.split("] config ", 1)[1])
         if "] cpu {" in ln:
             cpu = json.loads(ln.split("] cpu ", 1)[1])
+        if "] dated [" in ln:
+            dated = json.loads(ln.split("] dated ", 1)[1])
     with lock:
         probes = sorted(probes)
         pages = sorted(pages)
@@ -508,7 +561,7 @@ def run(tree, scen, on_ms, life, label, verbose, crawl=0, block=(), burst_paths=
            "pages_ok": sum(1 for p in pages if p[2] == 200),
            "pages_shed": sum(1 for p in pages if p[2] == 503),
            "pages_max": max((p[1] for p in pages), default=None),
-           "pages": pages, "config": config,
+           "pages": pages, "config": config, "dated_replays": dated,
            "visitors": {p[3]: p[1] if p[2] == 200 else p[2] for p in pages if scen == "slowapi" and p[3] in VISITORS},
            "visitors_max": max((p[1] for p in pages if scen == "slowapi" and p[3] in VISITORS), default=None),
            "slow_probes": [p[:3] for p in probes if p[2] != 200 or p[1] > 1][:30],
@@ -544,6 +597,9 @@ def main():
                          "(default: every request at once)")
     ap.add_argument("--rate", type=float, default=0.0, metavar="R",
                     help="send the burst open-loop at R requests a second (default: all at once)")
+    ap.add_argument("--exact", action="store_true",
+                    help="no date-blanked replays: a URL with today's date that the recording lacks fails "
+                         "as offline (how runs before 2026-11-19 replayed)")
     ap.add_argument("--gzip", action="store_true",
                     help="burst requests ask for gzip, as Cloudflare and Googlebot do")
     ap.add_argument("--switch", type=float, metavar="S",
@@ -560,7 +616,7 @@ def main():
         raise SystemExit("no server.py in %s" % tree)
     run(tree, a.scenario, a.on_ms, a.life, a.label or os.path.basename(tree), a.verbose, a.crawl,
         a.block, [p for p in a.burst.split(",") if p] if a.burst is not None else None, a.burst_at,
-        a.block_code, a.slow_s, a.switch, a.clients, a.page_timeout, a.rate, a.gzip)
+        a.block_code, a.slow_s, a.switch, a.clients, a.page_timeout, a.rate, a.gzip, a.exact)
 
 
 if __name__ == "__main__":

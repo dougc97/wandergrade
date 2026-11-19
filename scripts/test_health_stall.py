@@ -52,7 +52,8 @@ What it holds the code to:
     ends (--page-timeout to set it), so a slow cold page reports its time;
     --rate R sends request i at i/R s (open loop), --gzip asks for gzip, the
     docstring gives the Nov 16 replay, and the FX history's pieces are cut
-    from the recorded whole reply.
+    from the recorded whole reply; a URL carrying today's date on the rates
+    or World Bank hosts gets the recording's reply for it, dates blanked.
   * cheaper pages: the country centroids are computed once per process
     (fare_context's own default still computes them, the newsletter's path);
     the default origin's flight-value build is memoized exactly on what it
@@ -1232,6 +1233,35 @@ results.append(ok(ao is not None and ao(4, 2.0) == [0.0, 0.5, 1.0, 1.5] and len(
                   "stall_check --rate R sends request i at i/R s whether or not the others are answered "
                   "(130 at 2.8/s over %.1f s), --gzip asks for gzip, and the docstring gives the Nov 16 replay"
                   % (ao(130, 2.8)[-1] if ao else -1)))
+
+# A URL carrying today's date (the rates' timeseries, the World Bank's year
+# range) is answered with the recording's reply for it with the dates blanked,
+# so a later day's replay renders with rates; Frankfurter never (a tail
+# request must not get the whole history), and --exact turns it off.
+nc2 = tempfile.mkdtemp(prefix="stall_nc_")
+REC = {"https://api.fxratesapi.com/timeseries?start_date=2025-11-17&end_date=2026-11-16&base=USD": 200,
+       "https://api.worldbank.org/v2/country/all/indicator/PA.NUS.PPP?format=json&date=1990:2027&per_page=20000": 200,
+       "https://api.frankfurter.dev/v1/2026-11-03..?base=USD&symbols=EUR": 200,
+       "https://api.worldbank.org/v2/country/all/indicator/FP.CPI.TOTL?format=json&date=2020:2026": 503}
+for u_, st_ in REC.items():
+    with open(os.path.join(nc2, _hl.sha1(u_.encode()).hexdigest() + ".json"), "w") as f:
+        json.dump({"url": u_, "status": st_, "headers": {}}, f)
+try:
+    di = sc.dated_index(nc2) if hasattr(sc, "dated_index") else {}
+finally:
+    shutil.rmtree(nc2, ignore_errors=True)
+asked = {"https://api.fxratesapi.com/timeseries?start_date=2025-11-19&end_date=2026-11-18&base=USD":
+         list(REC)[0],
+         "https://api.worldbank.org/v2/country/all/indicator/PA.NUS.PPP?format=json&date=2017:2027&per_page=20000":
+         list(REC)[1],
+         "https://api.frankfurter.dev/v1/2026-11-08..?base=USD&symbols=EUR": None,
+         "https://api.worldbank.org/v2/country/all/indicator/FP.CPI.TOTL?format=json&date=2021:2027": None}
+dated_wrong = [u_ for u_, want in asked.items()
+               if di.get(sc.dated_key(u_)) != (_hl.sha1(want.encode()).hexdigest() if want else None)]
+results.append(ok(di and not dated_wrong and "--exact" in main_src and "dated_used.append(url)" in inspect.getsource(sc.serve),
+                  "stall_check answers a URL with today's date (rates timeseries, World Bank years) from the "
+                  "recording's same URL with dates blanked, never Frankfurter or a recorded error; --exact turns it "
+                  "off (wrong: %s)" % dated_wrong))
 
 # --- server.py: Canada's notes, two fetches at a time ------------------------------------
 server._warm_watchouts = WARM_WATCHOUTS
