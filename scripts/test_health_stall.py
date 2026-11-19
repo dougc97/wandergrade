@@ -42,7 +42,9 @@ What it holds the code to:
     redirect on a slot route (/?tab=guide&gc=JP, /guide/Japan, /guide/usa,
     the onrender.com host) never waits for a slot nor is shed, and answers
     with the very bytes it does with slots off, while /?gc=SC&tab=guide (no
-    guide: the homepage) and a guide miss's 404 page are pages; and a
+    guide: the homepage), a guide miss's 404 page and a URL past
+    REDIRECT_CHECK_MAX are pages; main() loads the guide data that check
+    reads before it serves (cold, a burst parsed it once per request); and a
     slotted page waiting on the network (another thread's computation, /data's
     dataset rebuild, a cold advisory list) gives its slot back meanwhile and,
     if it can't get one back within PAGE_SLOT_WAIT, finishes without it; a
@@ -76,8 +78,9 @@ What it holds the code to:
     whole history when the reply disagrees with the copy, skips a day of it
     or has a day it lacks; INDEX_MASK, HISTORY_STALE and the failure backoff
     as before (recorded reply, scripts/fixtures/fx_history/).
-  * logging (X-Uptime on every /healthz but the public site's Host,
-    wandergrade.com and www., CF-Ray or not; a 503 carries no
+  * logging (X-Uptime on /healthz only for the onrender.com host, an IP,
+    a dotless name (localhost) or no Host, CF-Ray or not: never the public
+    site's Host nor any other domain; a 503 carries no
     X-Robots-Tag): a client hanging up mid-response (an error from this
     request's own socket) is one [disconnect] line; any other exception,
     the same classes raised by an upstream included, keeps its traceback;
@@ -1577,8 +1580,8 @@ RD_REDIRECTS = [("/?tab=guide&gc=JP", "wandergrade.com", "/guide/japan"),
                 ("/guide/Japan", "wandergrade.com", "/guide/japan"),
                 ("/guide/usa?utm_source=reddit", "wandergrade.com", "/guide/united-states?utm_source=reddit"),
                 ("/guide/jp/", "wandergrade.com", "/guide/japan"),
-                ("/guide/japan", "fx-tracker-er52.onrender.com", "https://wandergrade.com/guide/japan"),
-                ("/?tab=guide&gc=SC", "fx-tracker-er52.onrender.com:443", "https://wandergrade.com/?tab=guide&gc=SC")]
+                ("/guide/japan", "svc-x.onrender.com", "https://wandergrade.com/guide/japan"),
+                ("/?tab=guide&gc=SC", "svc-x.onrender.com:443", "https://wandergrade.com/?tab=guide&gc=SC")]
 RD_PAGES = [("/?gc=SC&tab=guide", "wandergrade.com"), ("/?tab=guide&gc=JP&ai=1", "wandergrade.com"),
             ("/guide/japan", "wandergrade.com"), ("/guide/nowhere", "wandergrade.com"), ("/", "WanderGrade.com")]
 
@@ -1629,13 +1632,21 @@ results.append(ok(not shed_wrong and rd_pages == [],
                   "miss's 404 page and / are pages, shed with the 503 page, none rendered (wrong: %s, rendered: %s)"
                   % (shed_wrong, rd_pages)))
 RO_CASES = [("/", "/?tab=guide&gc=JP", "wandergrade.com", True), ("/guide/Japan", "/guide/Japan", "", True),
-            ("/data", "/data", "fx-tracker-er52.onrender.com", True), ("/", "/", "wandergrade.com", False),
+            ("/data", "/data", "svc-x.onrender.com", True), ("/", "/", "wandergrade.com", False),
             ("/", "/?gc=SC&tab=guide", "wandergrade.com", False), ("/", "/?tab=guide&gc=TV", "", False),
             ("/", "/?tab=guide&gc=MT", "", False), ("/", "/?tab=guide&gc=jp", "", False),
             ("/guide/japan", "/guide/japan", "wandergrade.com", False), ("/guide/", "/guide/", "", False),
             ("/guide/japan/x", "/guide/japan/x", "", False), ("/guide/nowhere", "/guide/nowhere?x=1", "", False),
             ("/data", "/data", "wandergrade.com", False), ("/privacy", "/privacy", "", False)]
-ro_wrong = [c for c in RO_CASES if server._redirect_only(*c[:3]) is not c[3]]
+# REDIRECT_CHECK_MAX: a longer URL isn't parsed before a slot (it queues, and
+# _do_get still answers it 301 inside one); the onrender.com host parses nothing.
+RO_LONG = "/?tab=guide&gc=JP&utm_content="
+RO_CASES += [("/", RO_LONG + "x" * (server.REDIRECT_CHECK_MAX - len(RO_LONG)), "", True),
+             ("/", RO_LONG + "x" * (server.REDIRECT_CHECK_MAX - len(RO_LONG) + 1), "", False),
+             ("/", RO_LONG + "x" * 65000, "", False),
+             ("/guide/Japan", "/guide/Japan?u=" + "x" * server.REDIRECT_CHECK_MAX, "", False),
+             ("/guide/japan", "/guide/japan?u=" + "x" * 65000, "svc-x.onrender.com", True)]
+ro_wrong = [c[:2] + (len(c[1]),) + c[2:] for c in RO_CASES if server._redirect_only(*c[:3]) is not c[3]]
 saved_ifs = server.render_guide.iso_for_slug
 server.render_guide.iso_for_slug = lambda s: 1 / 0
 try:
@@ -1647,7 +1658,58 @@ results.append(ok(not ro_wrong and ro_err is False
                   in inspect.getsource(server.Handler.do_GET).split("_take_slot(")[0]
                   and "_guide_path_redirect(raw, self.path)" in inspect.getsource(server.Handler._do_get),
                   "_redirect_only, asked before _take_slot, is True only where _do_get redirects (from the same "
-                  "helpers), and False when it errors, so the request queues as before (wrong: %s)" % ro_wrong))
+                  "helpers), and False when it errors or the URL is past REDIRECT_CHECK_MAX (%d), so the request "
+                  "queues as before (wrong: %s)" % (server.REDIRECT_CHECK_MAX, [c[:1] + c[2:] for c in ro_wrong])))
+
+# main() loads the guide data before the first request. _redirect_only reads it
+# for every /guide/ request outside the slots, and render_guide._load has no
+# lock: on a fresh process each request of a burst that arrived before the
+# first load finished parsed the six files itself (stall_check
+# nov18_scrape_all --on-ms 2: 19-20 parses, probes 14-26 over 5 s against
+# main's 6-12). Here a burst of 8 on cold data, each parse slowed so they
+# overlap, then the same burst on data loaded first, as main() leaves it.
+src_m = inspect.getsource(server.main)
+i_load, i_srv = src_m.find("render_guide._load()"), src_m.find("httpd = _Server(")
+herd_real_load = server.render_guide.json.load
+herd_saved = server.render_guide._data
+
+
+def herd(warm):
+    loads = []
+
+    def slow_load(f, *a, **k):
+        loads.append(threading.get_ident())
+        time.sleep(0.005)
+        return herd_real_load(f, *a, **k)
+    server.render_guide._data = None
+    server.render_guide.json.load = slow_load
+    try:
+        if warm:
+            server.render_guide._load()
+        n_warm = len(loads)
+        gate = threading.Barrier(8)
+        got = []
+        ths = [threading.Thread(target=lambda: (gate.wait(), got.append(
+            server._redirect_only("/guide/Japan", "/guide/Japan", "wandergrade.com")))) for _ in range(8)]
+        for t in ths:
+            t.start()
+        for t in ths:
+            t.join()
+    finally:
+        server.render_guide.json.load = herd_real_load
+    return len(loads) - n_warm, got
+
+
+try:
+    herd_cold, herd_cold_got = herd(False)
+    herd_warm, herd_warm_got = herd(True)
+finally:
+    server.render_guide._data = herd_saved
+results.append(ok(0 <= i_load < i_srv and herd_cold > 6 and herd_warm == 0
+                  and herd_cold_got == herd_warm_got == [True] * 8,
+                  "main() loads the guide data (render_guide._load) before it serves: 8 requests on cold data parsed "
+                  "the files %d times outside the slots (one load is 6), on data loaded first %d times"
+                  % (herd_cold, herd_warm)))
 
 # --- server.py: the page memo (rendered guide and home bytes) ---------------------------
 import collections  # noqa: E402
@@ -2217,28 +2279,31 @@ saved_boot = server._BOOT
 server._BOOT = time.monotonic() - 100.4
 try:
     hz_with = {(hst, cf): handler_get("/healthz", cf, host=hst)
-               for hst in ("fx-tracker-er52.onrender.com", "10.214.3.7:10000", "FX-Tracker-er52.onrender.com:443")
+               for hst in ("svc-x.onrender.com", "10.214.3.7:10000", "SVC-X.onrender.com:443", "localhost:8000",
+                           "127.0.0.1:8000", "[::1]:8000", "svc-x:10000", "")
                for cf in ("", CF_RAY)}
     hz_without = {(hst, cf): handler_get("/healthz", cf, host=hst)
                   for hst in ("wandergrade.com", "www.wandergrade.com", "WanderGrade.com", "WWW.WANDERGRADE.COM",
-                              "wandergrade.com:443", "www.WanderGrade.com:8080")
+                              "wandergrade.com:443", "www.WanderGrade.com:8080", "wandergrade.com.",
+                              "wandergrade.com.:443", "travel.example.org", "onrender.com", "svc-x.onrender.com.",
+                              "svc-x.onrender.com.example.org", "10.214.3", "1.2.3.4.5")
                   for cf in ("", CF_RAY)}
 finally:
     server._BOOT = saved_boot
-hz_head, hz_body = hz_with["fx-tracker-er52.onrender.com", ""]
+hz_head, hz_body = hz_with["svc-x.onrender.com", ""]
 up = re.search(r"\r\nX-Uptime: (\d+)\r\n", hz_head)
 up_wrong = [k for k, (h, b) in hz_with.items()
             if not (b == b"ok" and h.startswith("HTTP/1.0 200") and "\r\nX-Uptime: 100\r\n" in h)]
 results.append(ok(up and int(up.group(1)) == 100 and not up_wrong,
-                  "/healthz says X-Uptime: %s (whole seconds since boot), still 200 ok, on the onrender.com host and "
-                  "Render's internal probe (10.x:10000), any case, port or CF-Ray (wrong: %s)"
-                  % (up and up.group(1), up_wrong)))
+                  "/healthz says X-Uptime: %s (whole seconds since boot), still 200 ok, on the onrender.com host, "
+                  "Render's internal probe (10.x:10000), an IP or a dotless name (localhost) and no Host, any case, "
+                  "port or CF-Ray (wrong: %s)" % (up and up.group(1), up_wrong)))
 ref_hz = no_date(hz_head).replace("\r\nX-Uptime: 100", "")
 pub_wrong = [k for k, (h, b) in hz_without.items() if not (b == b"ok" and no_date(h) == ref_hz)]
-results.append(ok(not pub_wrong and "X-Uptime" not in ref_hz and server._PUBLIC_HOSTS == {"wandergrade.com",
-                                                                                          "www.wandergrade.com"},
-                  "on the public site's Host (wandergrade.com, www., any case, with a port, with or without "
-                  "CF-Ray) /healthz leaves X-Uptime out and is otherwise the same bytes: restart times stay "
+results.append(ok(not pub_wrong and "X-Uptime" not in ref_hz,
+                  "on the public site's Host (wandergrade.com, www., any case, with a port or a trailing dot, with "
+                  "or without CF-Ray) and any other name (another domain, a look-alike of the onrender.com host) "
+                  "/healthz leaves X-Uptime out and is otherwise the same bytes: an allow-list, restart times stay "
                   "private (wrong: %s)" % pub_wrong))
 
 # [busy]: one line at once, the rest of the window counted and written by a timer.

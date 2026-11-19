@@ -431,9 +431,6 @@ def _guide_template():
 
 
 _SITE = "https://wandergrade.com"   # canonical origin for sitemap URLs
-_SITE_HOST = urllib.parse.urlsplit(_SITE).hostname   # wandergrade.com
-# The public site's Host names (lowercase, no port), as _request_host gives them.
-_PUBLIC_HOSTS = frozenset((_SITE_HOST, "www." + _SITE_HOST))
 
 
 _dataset_cache = {"at": 0, "payload": None, "csv": None, "retry_at": 0, "error": ""}
@@ -2380,7 +2377,9 @@ _slot_since = {}        # thread ident -> time.monotonic() it took the slot it h
 # pages are shed, finish without a slot, or BUSY_QUEUE_DEEP or more wait:
 # counts since the last line, so a health-check failure can be laid beside
 # the load that caused it (Render keeps ~7 days of logs). A timer writes the
-# last window's counts once things go quiet.
+# last window's counts once things go quiet. Redirects take no slot
+# (_redirect_only), so they are in none of the counts: a crawl like Nov 18's
+# reads lower here than it did on 0c811b5, where its 301s queued and were shed.
 BUSY_LOG_EVERY = 30
 BUSY_QUEUE_DEEP = 4
 _busy = {"at": 0.0, "queue": 0, "wait": 0, "slotless": 0, "deep": 0, "peak": 0, "stuck": 0, "bot": 0,
@@ -2472,6 +2471,25 @@ def _request_host(headers):
     return (headers.get("Host") or "").split(":", 1)[0].lower()
 
 
+def _uptime_host(host):
+    """True when /healthz may say X-Uptime to this Host (_request_host): the
+    onrender.com host and what Render's own probe or a local run sends (an
+    IPv4 address, a name without a dot such as localhost, no Host at all).
+    Never the public site, nor any other domain: an allow-list, so a second
+    custom domain, or wandergrade.com with a trailing dot, stays private."""
+    return host.endswith(".onrender.com") or "." not in host or bool(_IPV4_RE.fullmatch(host))
+
+
+_IPV4_RE = re.compile(r"\d{1,3}(\.\d{1,3}){3}")
+
+
+# _redirect_only parses a URL before any slot is taken; past this many bytes
+# (real links, UTM tags and all, are a few hundred) it doesn't, and the
+# request queues for a slot as every page did before, so a 64 KB query can't
+# buy ~6 ms of parsing per request outside the slots.
+REDIRECT_CHECK_MAX = 2048
+
+
 def _redirect_only(path, raw_path, host):
     """True when Handler._do_get answers this slot-route request with a
     redirect and renders nothing, so do_GET runs it without a slot (class (ii)
@@ -2480,11 +2498,16 @@ def _redirect_only(path, raw_path, host):
     the same helpers, in the order it makes them: the onrender.com host's
     301, the query-form guide URL on / (_guide_query_redirect) and a /guide/
     path that isn't the exact slug but names a guide (_guide_path_redirect).
-    Anything else, or an error here, is False: the request queues for a slot
-    as before and _do_get decides (and raises) on its own."""
+    Anything else, a URL longer than REDIRECT_CHECK_MAX, or an error here, is
+    False: the request queues for a slot as before and _do_get decides (and
+    raises) on its own. The guide data it reads (render_guide._load) is
+    loaded by main() before the first request: lazily, every request of a
+    burst on a fresh process parsed the six files itself, outside the slots."""
     try:
         if host.endswith(".onrender.com"):
             return True
+        if len(raw_path) > REDIRECT_CHECK_MAX:
+            return False
         if path == "/":
             return _guide_query_redirect(raw_path) is not None
         if path.startswith("/guide/"):
@@ -3123,12 +3146,12 @@ class Handler(BaseHTTPRequestHandler):
             # Whole seconds since this process started, so a restart Render
             # made (a failed check) can be seen after the fact: on Render's
             # own probe (Host: its internal address) and the onrender.com
-            # host, never on the public site (_PUBLIC_HOSTS: wandergrade.com,
-            # www.), where anyone could read its restart times. Keyed on Host,
-            # not CF-Ray: Render's own edge is Cloudflare too, so every outside
-            # request carries a CF-Ray, the onrender.com host's included
-            # (seen 2026-11-19), and X-Uptime showed only to the probe.
-            if _request_host(self.headers) not in _PUBLIC_HOSTS:
+            # host (_uptime_host), never on the public site, where anyone
+            # could read its restart times. Keyed on Host, not CF-Ray:
+            # Render's own edge is Cloudflare too, so every outside request
+            # carries a CF-Ray, the onrender.com host's included (seen
+            # 2026-11-19), and X-Uptime showed only to the probe.
+            if _uptime_host(_request_host(self.headers)):
                 self.send_header("X-Uptime", str(int(time.monotonic() - _BOOT)))
             self.send_header("Content-Length", "2")
             self._end_headers_with(b"ok")
@@ -3878,6 +3901,18 @@ def main():
     global _page_slots, _page_memo
     _page_slots = threading.BoundedSemaphore(PAGE_SLOTS)
     _page_memo = collections.OrderedDict()
+    # The guides' slugs, names and data (render_guide._load, six files, ~330
+    # KB), loaded once here, before the first request: _redirect_only reads
+    # them for every /guide/ request before it takes a slot, and the lazy
+    # load has no lock, so the first burst on a fresh process (a deploy, or
+    # Render's restart mid-crawl, as on Nov 18) parsed them once per request
+    # in flight, outside the slots: stall_check --scenario nov18_scrape_all
+    # --on-ms 2 saw 19-20 parses, and 14-26 probes over 5 s against main's
+    # 6-12. A failure here is left to the requests, as before.
+    try:
+        render_guide._load()
+    except Exception as e:
+        sys.stderr.write("[boot] guide data not loaded: %r\n" % (e,))
     _warm_flight_value()
     _warm_rates()
     _warm_fx_history()
