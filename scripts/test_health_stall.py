@@ -57,7 +57,9 @@ What it holds the code to:
     again, GET, HEAD and any query string alike, with the very bytes and
     headers as before, until an input is replaced, the day turns, its
     Cache-Control would change or PAGE_MEMO_TTL passes (no-store pages are
-    never kept; at most PAGE_MEMO_MAX).
+    never kept; at most PAGE_MEMO_MAX); an input that raises when read (a
+    flight-value build on a bad curve) never costs the page: it is rendered
+    as with the memo off and not kept, with one [page-memo] line.
   * fxtracker/rates.py get_history: the first fetch is the whole history,
     in 5-year pieces each of which must reach both its ends; a copy in hand
     is brought up to date from its last 10 days on, falling back to the
@@ -1551,6 +1553,59 @@ results.append(ok(home_once == [None] and h1 == h2 and "public, max-age=300" in 
                   "the homepage renders once and is handed out again; new popularity figures render it again"))
 results.append(ok(held == ["CL", "KE"], "at most PAGE_MEMO_MAX pages are kept, the least recently used dropped "
                                         "first (%s)" % held))
+# Reading a page's inputs raises: the flight-value build on a bad fare curve
+# (KeyError), the popularity thread that can't start. The render drops only
+# the block it was building, so the page must still go out with the memo on,
+# rendered as with it off, not kept, with one [page-memo] line.
+import io as io_mod  # noqa: E402
+from fxtracker import flightvalue as _fvmod, flights as _flmod  # noqa: E402
+saved_fe = (server._page_memo, _fvmod.build, _flmod.is_configured, _fvmod.has_warmed,
+            server._flights_cache.get(_fvmod.DEFAULT_ORIGIN), server._warm_popularity, server._warm_watchouts,
+            server.PAGE_MEMO_LOG_EVERY, dict(server._page_memo_err))
+
+
+def bad_build(*a, **k):
+    raise KeyError("price")
+
+
+def no_thread():
+    raise RuntimeError("can't start new thread")
+
+
+load(10)
+err_pm, saved_err = io_mod.StringIO(), sys.stderr
+try:
+    _fvmod.build, _flmod.is_configured, _fvmod.has_warmed = bad_build, (lambda: True), (lambda o: True)
+    server._flights_cache[_fvmod.DEFAULT_ORIGIN] = (time.time(), {"configured": True, "countries": []})
+    server._warm_watchouts, server._warm_popularity = (lambda iso: None), no_thread
+    server._pop_cache["data"] = None
+    server.PAGE_MEMO_LOG_EVERY = 60
+    server._page_memo_err.update(at=0.0, held=0)
+    sys.stderr = err_pm
+    server._page_memo = None
+    fe_off = [page("/guide/japan"), page("/")]
+    server._page_memo = collections.OrderedDict()
+    fe_on = [page("/guide/japan"), page("/"), page("/guide/japan", method="HEAD")]
+    fe_kept = list(server._page_memo)
+finally:
+    sys.stderr = saved_err
+    (server._page_memo, _fvmod.build, _flmod.is_configured, _fvmod.has_warmed, fl_saved, server._warm_popularity,
+     server._warm_watchouts, server.PAGE_MEMO_LOG_EVERY, pm_err) = saved_fe
+    server._page_memo_err.clear()
+    server._page_memo_err.update(pm_err)
+    if fl_saved is None:
+        server._flights_cache.pop(_fvmod.DEFAULT_ORIGIN, None)
+    else:
+        server._flights_cache[_fvmod.DEFAULT_ORIGIN] = fl_saved
+pm_lines = [ln for ln in err_pm.getvalue().splitlines() if ln.startswith("[page-memo]")]
+results.append(ok(all(p_[0].startswith("HTTP/1.0 200") for p_ in fe_off + fe_on) and fe_on[0] == fe_off[0]
+                  and fe_on[1] == fe_off[1] and fe_on[2][1] == b"" and fe_kept == []
+                  and len(pm_lines) == 1 and "KeyError" in pm_lines[0] and "rendered without the memo" in pm_lines[0],
+                  "a flight-value build that raises (and a popularity thread that won't start) costs the page "
+                  "nothing with the memo on: guide and homepage 200 with the memo-off bytes, nothing kept, one "
+                  "[page-memo] line per PAGE_MEMO_LOG_EVERY (%s; %r)"
+                  % ([p_[0].split("\r\n")[0] for p_ in fe_on], pm_lines[:1])))
+
 src_main = inspect.getsource(server.main)
 results.append(ok(server._page_memo is None and "_page_memo = collections.OrderedDict()" in src_main
                   and server.PAGE_MEMO_TTL == 300 and server.PAGE_MEMO_CACHE == "public, max-age=300",

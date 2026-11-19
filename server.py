@@ -1816,6 +1816,26 @@ PAGE_MEMO_MAX = 64          # ~100 KB raw + ~28 KB gzipped each: ~8 MB at most
 PAGE_MEMO_CACHE = "public, max-age=300"
 _page_memo = None           # OrderedDict: iso or "" -> (born, objs, vals, raw, gz or None)
 _page_memo_lock = threading.Lock()
+# "[page-memo]" when reading a page's inputs raised (the page is rendered
+# without the memo): at most one line per PAGE_MEMO_LOG_EVERY seconds, the
+# ones held back counted, since a bad input fails every guide alike.
+PAGE_MEMO_LOG_EVERY = 60
+_page_memo_err = {"at": 0.0, "held": 0}
+
+
+def _page_inputs_failed(iso, e):
+    now = time.time()
+    with _page_memo_lock:
+        line = now - _page_memo_err["at"] >= PAGE_MEMO_LOG_EVERY
+        held = _page_memo_err["held"]
+        if line:
+            _page_memo_err.update(at=now, held=0)
+        else:
+            _page_memo_err["held"] += 1
+    if line:
+        print("[page-memo] %s: reading its inputs raised %s: %s; rendered without the memo%s"
+              % (iso or "home", type(e).__name__, e, ", %d more since" % held if held else ""),
+              file=sys.stderr, flush=True)
 
 
 def _page_inputs(iso):
@@ -1849,8 +1869,21 @@ def _page_inputs(iso):
 def _page_bytes(iso, want_gz):
     """(raw, gzipped or None) for a guide (iso) or the homepage (None) that
     goes out as PAGE_MEMO_CACHE: from the memo when nothing it was rendered
-    from has changed, else rendered (and kept). gzipped only when asked."""
-    objs, vals = _page_inputs(iso)
+    from has changed, else rendered (and kept). gzipped only when asked.
+
+    Reading the inputs must never cost the page: they go through the very
+    accessors the render calls, but the render catches what those raise
+    block by block (a flight-value build that raises drops the fare column,
+    a popularity thread that won't start leaves the skeleton), where an
+    exception here would drop the connection on every public guide and the
+    homepage until the bad input left its cache. So when they raise, the page
+    is rendered as with the memo off, and not kept."""
+    try:
+        objs, vals = _page_inputs(iso)
+    except Exception as e:
+        _page_inputs_failed(iso, e)
+        raw = _render_index(iso)
+        return raw, (gzip.compress(raw, GZIP_LEVEL) if want_gz else None)
     key, now = iso or "", time.time()
     with _page_memo_lock:
         hit = _page_memo.get(key)
