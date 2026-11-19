@@ -2334,9 +2334,20 @@ PAGE_SLOTS = 2
 PAGE_SLOT_WAIT = 15
 PAGE_QUEUE_MAX = 8      # slot-route requests waiting at once before new ones get 503 at once
 SHED_RETRY_AFTER = 30   # seconds, the 503's Retry-After
+# The way out if the slot holders themselves hang (no known path does: a
+# stalled write gives up after Handler.CLIENT_IO_TIMEOUT, inline network
+# waits give their slot back and time out): when every slot has been held
+# PAGE_STUCK_AFTER seconds or more, a page that would be shed runs without a
+# slot instead, as every page did after its wait before shedding, and the
+# [busy] line counts it. Shedding alone would answer every page 503 for as
+# long as they stay stuck while /healthz, which takes no slot, kept Render
+# from restarting anything. A render takes milliseconds; two minutes is not
+# load.
+PAGE_STUCK_AFTER = 120
 _page_slots = None
 _slot_waiting = [0]     # requests waiting in _take_slot right now
 _slot_wait_lock = threading.Lock()
+_slot_since = {}        # thread ident -> time.monotonic() it took the slot it holds
 # One "[busy]" line on stderr, at most every BUSY_LOG_EVERY seconds, while
 # pages are shed, finish without a slot, or BUSY_QUEUE_DEEP or more wait:
 # counts since the last line, so a health-check failure can be laid beside
@@ -2344,7 +2355,7 @@ _slot_wait_lock = threading.Lock()
 # last window's counts once things go quiet.
 BUSY_LOG_EVERY = 30
 BUSY_QUEUE_DEEP = 4
-_busy = {"at": 0.0, "queue": 0, "wait": 0, "slotless": 0, "deep": 0, "peak": 0, "timer": None}
+_busy = {"at": 0.0, "queue": 0, "wait": 0, "slotless": 0, "deep": 0, "peak": 0, "stuck": 0, "timer": None}
 _busy_lock = threading.Lock()
 
 
@@ -2367,17 +2378,22 @@ def _busy_note(kind):
 def _busy_line(now):
     """The [busy] line for the counts so far and reset them, or None (inside
     BUSY_LOG_EVERY of the last one, or nothing counted). Under _busy_lock."""
-    if now - _busy["at"] < BUSY_LOG_EVERY or not any(_busy[k] for k in ("queue", "wait", "slotless", "deep")):
+    if now - _busy["at"] < BUSY_LOG_EVERY or not any(_busy.get(k) for k in ("queue", "wait", "slotless", "deep",
+                                                                             "stuck")):
         return None
     slots = _page_slots
     size = slots._initial_value if slots is not None else PAGE_SLOTS
     in_use = (size - slots._value) if slots is not None else 0
+    stuck = ""
+    if _busy.get("stuck"):
+        oldest = max([time.monotonic() - t for t in list(_slot_since.values())] or [0])
+        stuck = ", %d run without a slot past stuck slots (oldest held %ds)" % (_busy["stuck"], oldest)
     line = ("[busy] %s: shed %d (%d with %d+ waiting, %d after %ds), %d slotless, %d queued deep, "
-            "queue peak %d, now %d waiting, %d/%d slots in use\n"
+            "queue peak %d, now %d waiting, %d/%d slots in use%s\n"
             % ("last %gs" % BUSY_LOG_EVERY if _busy["at"] else "since boot", _busy["queue"] + _busy["wait"],
                _busy["queue"], PAGE_QUEUE_MAX, _busy["wait"], PAGE_SLOT_WAIT, _busy["slotless"], _busy["deep"],
-               _busy["peak"], _slot_waiting[0], in_use, size))
-    _busy.update(at=now, queue=0, wait=0, slotless=0, deep=0, peak=0)
+               _busy["peak"], _slot_waiting[0], in_use, size, stuck))
+    _busy.update(at=now, queue=0, wait=0, slotless=0, deep=0, peak=0, stuck=0)
     return line
 
 
@@ -2413,11 +2429,32 @@ def _slot_route(path):
     return path in _SLOT_PATHS or path.startswith("/guide/")
 
 
+def _slot_taken():
+    with _slot_wait_lock:
+        _slot_since[threading.get_ident()] = time.monotonic()
+
+
+def _slot_given_back():
+    with _slot_wait_lock:
+        _slot_since.pop(threading.get_ident(), None)
+
+
+def _slots_stuck(size):
+    """True when all `size` slots have been held PAGE_STUCK_AFTER or more."""
+    now = time.monotonic()
+    with _slot_wait_lock:
+        held = list(_slot_since.values())
+    return len(held) >= size and all(now - t >= PAGE_STUCK_AFTER for t in held)
+
+
 def _take_slot(slots):
     """Take one of `slots` for a request arriving on a slot route: None once
-    taken, else why it is shed: "queue" (PAGE_QUEUE_MAX others already
-    waiting: no wait at all) or "wait" (none came within PAGE_SLOT_WAIT)."""
+    taken (recorded in _slot_since), "stuck" when it is to run without one
+    (every slot held past PAGE_STUCK_AFTER), else why it is shed: "queue"
+    (PAGE_QUEUE_MAX others already waiting: no wait at all) or "wait" (none
+    came within PAGE_SLOT_WAIT)."""
     if slots.acquire(blocking=False):
+        _slot_taken()
         return None
     with _slot_wait_lock:
         full = _slot_waiting[0] >= PAGE_QUEUE_MAX
@@ -2425,6 +2462,9 @@ def _take_slot(slots):
             _slot_waiting[0] += 1
         deep = _slot_waiting[0] >= BUSY_QUEUE_DEEP
     if full:
+        if _slots_stuck(slots._initial_value):
+            _busy_note("stuck")
+            return "stuck"
         _busy_note("queue")
         return "queue"
     if deep:
@@ -2435,8 +2475,12 @@ def _take_slot(slots):
         with _slot_wait_lock:
             _slot_waiting[0] -= 1
     if not got:
+        if _slots_stuck(slots._initial_value):
+            _busy_note("stuck")
+            return "stuck"
         _busy_note("wait")
         return "wait"
+    _slot_taken()
     return None
 
 
@@ -2462,11 +2506,13 @@ def _no_slot():
         yield
         return
     _slot_held.slots = None
+    _slot_given_back()
     slots.release()
     try:
         yield
     finally:
         if slots.acquire(timeout=PAGE_SLOT_WAIT):
+            _slot_taken()
             _slot_held.slots = slots
         else:
             _busy_note("slotless")
@@ -2962,7 +3008,10 @@ class Handler(BaseHTTPRequestHandler):
         slots = _page_slots
         if slots is None or not _slot_route(self.path.split("?", 1)[0]):
             return self._do_get()
-        if _take_slot(slots):
+        why = _take_slot(slots)
+        if why == "stuck":
+            return self._do_get()
+        if why:
             self._send_busy()
             return
         _slot_held.slots = slots
@@ -2971,6 +3020,7 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             if getattr(_slot_held, "slots", None) is slots:
                 _slot_held.slots = None
+                _slot_given_back()
                 slots.release()
 
     def _do_get(self):

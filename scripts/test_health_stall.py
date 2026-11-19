@@ -36,7 +36,8 @@ What it holds the code to:
     pages at once (GET or HEAD); static files, /api/* and /healthz never wait
     for a slot; a page that waits PAGE_SLOT_WAIT for one, or arrives to find
     PAGE_QUEUE_MAX already waiting (at once), is shed: 503, Retry-After,
-    no-store, a small page (HEAD: no body), never rendered; and a
+    no-store, a small page (HEAD: no body), never rendered, unless every
+    slot has been held PAGE_STUCK_AFTER (then it runs without one); and a
     slotted page waiting on the network (another thread's computation, /data's
     dataset rebuild, a cold advisory list) gives its slot back meanwhile and,
     if it can't get one back within PAGE_SLOT_WAIT, finishes without it; a
@@ -1976,6 +1977,66 @@ results.append(ok("SO_SNDTIMEO" in inspect.getsource(server.Handler.setup)
                   and "settimeout" not in inspect.getsource(server.Handler.setup) and server.Handler.timeout is None,
                   "the bound is SO_SNDTIMEO/SO_RCVTIMEO, not a Python socket timeout (one more poll, and GIL "
                   "hand-off, per read and write)"))
+
+# Slot holders that hang (no known path does any more): once every slot has
+# been held PAGE_STUCK_AFTER, a page that would be shed runs without a slot
+# instead, counted in the [busy] line; held for less, it is shed as before.
+saved_st = (server._page_slots, server.PAGE_QUEUE_MAX, server.PAGE_STUCK_AFTER, dict(server._slot_since),
+            server.BUSY_LOG_EVERY, dict(server._busy))
+err6, saved_err = io.StringIO(), sys.stderr
+try:
+    server._page_slots = threading.BoundedSemaphore(2)
+    server._page_slots.acquire()
+    server._page_slots.acquire()
+    server._slot_since.clear()
+    server._slot_since.update({-1: time.monotonic() - 50, -2: time.monotonic() - 130})
+    server.PAGE_QUEUE_MAX = 0
+    young = server._take_slot(server._page_slots)
+    server._slot_since[-1] = time.monotonic() - 125
+    if server._busy.get("timer") is not None:
+        server._busy["timer"].cancel()
+    server._busy.update(at=0.0, queue=0, wait=0, slotless=0, deep=0, peak=0, stuck=0, timer=None)
+    sys.stderr = err6
+    old_kind = server._take_slot(server._page_slots)
+    stuck_page = handler_get("/guide/japan")
+finally:
+    sys.stderr = saved_err
+    if server._busy.get("timer") is not None:
+        server._busy["timer"].cancel()
+    server._page_slots, server.PAGE_QUEUE_MAX, server.PAGE_STUCK_AFTER = saved_st[:3]
+    server._slot_since.clear()
+    server._slot_since.update(saved_st[3])
+    server.BUSY_LOG_EVERY = saved_st[4]
+    server._busy.clear()
+    server._busy.update(saved_st[5], timer=None)
+st_lines = [ln for ln in err6.getvalue().splitlines() if ln.startswith("[busy]")]
+results.append(ok(server.PAGE_STUCK_AFTER == 120 and young == "queue" and old_kind == "stuck"
+                  and stuck_page[0].startswith("HTTP/1.0 200") and len(st_lines) == 1
+                  and "1 run without a slot past stuck slots (oldest held 1" in st_lines[0],
+                  "both slots held, one for only 50 s: the page is shed (%s); both held past PAGE_STUCK_AFTER (%d s): "
+                  "it runs without a slot (%s, %s) and the [busy] line says so (%r)"
+                  % (young, server.PAGE_STUCK_AFTER, old_kind, stuck_page[0].split("\r\n")[0], st_lines[:1])))
+saved_pr = (server._page_slots, server._render_privacy_page)
+during = {}
+try:
+    server._page_slots = threading.BoundedSemaphore(2)
+    # (the slot tests above hand this thread a semaphore by hand, so _no_slot
+    # recorded a re-take here that no do_GET ever gave back)
+    server._slot_since.pop(threading.get_ident(), None)
+    before_since = dict(server._slot_since)
+
+    def watched_privacy():
+        during.update((k, v) for k, v in server._slot_since.items() if k not in before_since)
+        return saved_pr[1]()
+
+    server._render_privacy_page = watched_privacy
+    pv = handler_get("/privacy")
+    after_since = dict(server._slot_since)
+finally:
+    server._page_slots, server._render_privacy_page = saved_pr
+results.append(ok(pv[0].startswith("HTTP/1.0 200") and len(during) == 1 and after_since == before_since,
+                  "a page's slot is recorded with its time while it renders and forgotten when given back "
+                  "(%d recorded during, %d left after)" % (len(during), len(after_since) - len(before_since))))
 
 # --- server.py: diagnostics for next time ([busy], [refresh], X-Uptime) ------------------
 # X-Uptime on /healthz: whole seconds since the process started.
