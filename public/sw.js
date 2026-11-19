@@ -2,7 +2,9 @@
 //
 // Strategy:
 //  - Pages (navigations): network-first, falling back to the cached copy of
-//    that page, then to the cached home shell when fully offline. Keyed by
+//    that page, then to the cached home shell when fully offline; a 5xx
+//    answer (the server busy, the origin restarting) also falls back to the
+//    page's cached copy when there is one. Keyed by
 //    path (utm/fbclid variants are one page) and capped, so the cache doesn't
 //    grow a copy per campaign link.
 //  - ?v=-stamped assets (app.js, styles.css, ppp.json): cache-first — the stamp
@@ -82,6 +84,12 @@ self.addEventListener("fetch", (e) => {
           if (storable(r)) {
             const copy = r.clone();
             e.waitUntil(caches.open(PAGES).then((c) => c.put(key, copy).then(() => trimPages(c))));
+          }
+          // A 5xx (the server shedding a crawl's load with 503 + Retry-After,
+          // Cloudflare's 502/504 while the origin restarts): this page's copy
+          // from an earlier visit beats the error page. No copy: the error.
+          if (r.status >= 500) {
+            return caches.match(key, { cacheName: PAGES }).then((m) => m || r);
           }
           return r;
         })
