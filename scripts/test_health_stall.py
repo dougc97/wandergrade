@@ -70,7 +70,8 @@ What it holds the code to:
     whole history when the reply disagrees with the copy, skips a day of it
     or has a day it lacks; INDEX_MASK, HISTORY_STALE and the failure backoff
     as before (recorded reply, scripts/fixtures/fx_history/).
-  * logging: a client hanging up mid-response (an error from this
+  * logging (X-Uptime only off Cloudflare, no CF-Ray; a 503 carries no
+    X-Robots-Tag): a client hanging up mid-response (an error from this
     request's own socket) is one [disconnect] line; any other exception,
     the same classes raised by an upstream included, keeps its traceback;
     a peer that stops reading, or never sends its request, frees the handler
@@ -736,7 +737,7 @@ def fetch_full(path, method="GET"):
 
 def shed_ok(res, method="GET"):
     st, h, body, _took = res
-    return (st == 503 and h.get("Retry-After") == str(server.SHED_RETRY_AFTER)
+    return (st == 503 and h.get("Retry-After") == str(server.SHED_RETRY_AFTER) and h.get("X-Robots-Tag") is None
             and h.get("Cache-Control") == "no-store" and h.get("Content-Type", "").startswith("text/html")
             and int(h.get("Content-Length", -1)) == len(server.Handler._BUSY_PAGE)
             and (body == b"" if method == "HEAD" else body == server.Handler._BUSY_PAGE))
@@ -2045,8 +2046,11 @@ server._BOOT = time.monotonic() - 100.4
 hz_head, hz_body = handler_get("/healthz")
 server._BOOT = saved_boot
 up = re.search(r"\r\nX-Uptime: (\d+)\r\n", hz_head)
+hz_cf_head, hz_cf_body = handler_get("/healthz", "CF-Ray: 8f1e2d3c4b5a6978-SIN\r\n")
 results.append(ok(hz_body == b"ok" and up and int(up.group(1)) == 100 and hz_head.startswith("HTTP/1.0 200"),
                   "/healthz says X-Uptime: %s (whole seconds since boot), still 200 ok" % (up and up.group(1))))
+results.append(ok(hz_cf_body == b"ok" and hz_cf_head.startswith("HTTP/1.0 200") and "X-Uptime" not in hz_cf_head,
+                  "through Cloudflare (a CF-Ray header) /healthz leaves X-Uptime out: restart times stay private"))
 
 # [busy]: one line at once, the rest of the window counted and written by a timer.
 saved_busy = (server.BUSY_LOG_EVERY, dict(server._busy), server._page_slots, server.PAGE_QUEUE_MAX)

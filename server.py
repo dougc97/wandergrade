@@ -3001,8 +3001,11 @@ class Handler(BaseHTTPRequestHandler):
                   '</body></html>').encode("utf-8")
 
     def _send_busy(self):
+        # No X-Robots-Tag: Google ignores a 5xx's body anyway, and a crawler
+        # that applied noindex whatever the status could drop the URL itself;
+        # 503 + Retry-After says "come back later" on its own.
         self._send_body(self._BUSY_PAGE, "text/html; charset=utf-8", 503, cache="no-store",
-                        extra=[("Retry-After", str(SHED_RETRY_AFTER)), ("X-Robots-Tag", "noindex")])
+                        extra=[("Retry-After", str(SHED_RETRY_AFTER))])
 
     def do_GET(self):
         slots = _page_slots
@@ -3035,8 +3038,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Date", self.date_time_string())
             self.send_header("Content-Type", "text/plain")
             # Whole seconds since this process started, so a restart Render
-            # made (a failed check) can be seen from outside, after the fact.
-            self.send_header("X-Uptime", str(int(time.monotonic() - _BOOT)))
+            # made (a failed check) can be seen after the fact: on Render's
+            # own probe and the onrender.com host, not through Cloudflare
+            # (CF-Ray), where anyone could read the site's restart times.
+            if not self.headers.get("CF-Ray"):
+                self.send_header("X-Uptime", str(int(time.monotonic() - _BOOT)))
             self.send_header("Content-Length", "2")
             self.end_headers()
             self.wfile.write(b"ok")
