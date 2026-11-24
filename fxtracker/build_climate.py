@@ -622,8 +622,11 @@ def main(only=None, rain_only=False, elev_only=False):
         except (urllib.error.HTTPError, urllib.error.URLError, Exception) as e:
             print("  [{0}/{1}] {2} {3} FAILED: {4}".format(i + 1, len(feats), iso, name, e))
         # 0.4s was fine for one-year requests; five-year ones are ~5x the payload
-        # and Open-Meteo started returning 429 about 190 countries in.
-        time.sleep(0.9)
+        # and Open-Meteo started returning 429 about 190 countries in. It weighs
+        # a five-year, two-variable request as ~26 calls against 600 a minute:
+        # at 0.9s a refetch of 24 countries was refused on the 25th (2026-11-24),
+        # so 3s keeps a run under the minute's budget (an hour's is 5,000).
+        time.sleep(3.0)
 
     # MERGE onto whatever is already committed rather than replacing it. A run
     # that gets rate-limited half way through used to write only the countries
