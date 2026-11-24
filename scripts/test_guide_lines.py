@@ -491,8 +491,12 @@ results.append(ok((cdiv("TH", snap_th) in cold if snap_th else '<div id="guideCo
                   "the 💰 line is served under the grades: the snapshot's words with the caches cold (%r), live once "
                   "they are warm, with its pre-paint script; on the US's guide empty and hidden, with the script "
                   "(a reader from elsewhere gets its room); none on the homepage" % snap_th[:60]))
-results.append(ok(".guidecost.pend:empty { min-height: 18px; }" in open(P("public", "styles.css"), encoding="utf-8").read(),
-                  "styles.css: an empty held line (the US's guide) keeps one line's room"))
+CSS = open(P("public", "styles.css"), encoding="utf-8").read()
+results.append(ok(re.search(r"\.guidecost \{[^}]*line-height: 18px; min-height: 18px;", CSS)
+                  and "@media (max-width: 560px) { .guidecost { min-height: 36px; align-content: center; } }" in CSS
+                  and ".guidecost.pend:empty" not in CSS,
+                  "styles.css: the line's room is the same whoever's words fill it (one 18px line, two on a phone), "
+                  "empty and held (the US's guide) too"))
 COST_HOLD = re.search(r"<script>(.*)</script>", server._COST_HOLD, re.S).group(1)
 COST_PAGE = r"""
 function USP(s) { var o = {}; (s || "").replace(/^\?/, "").split("&").forEach(function (kv) { if (!kv) return;
@@ -520,8 +524,12 @@ COST_CASES = [
     ("a link back to the US over a saved Germany", "?vo=US", {"fx_origin": "DE"}, "TH", ["guidecost", False]),
     ("a German reader on Germany's guide", "", {"fx_origin": "DE"}, "DE", ["guidecost", True]),
     ("a British reader on Scotland's (the UK's figure)", "", {"fx_origin": "GB"}, "GB", ["guidecost", True]),
-    # The US's own guide: served empty and hidden (a US reader gets none).
-    ("a first visit on the US's guide", "", {}, "US", ["guidecost", True]),
+    # The US's own guide: served empty and hidden (a US reader gets none). A
+    # first visit holds its room until /api/geo's guess (wg_geo) says whose.
+    ("a first visit on the US's guide", "", {}, "US", ["guidecost pend", False]),
+    ("a US guess on the US's guide", "", {"wg_geo": "US"}, "US", ["guidecost", True]),
+    ("an unsupported guess (no home saved) on the US's guide", "", {"wg_geo": "BG"}, "US", ["guidecost", True]),
+    ("a link back to the US on the US's guide", "?vo=US", {}, "US", ["guidecost", True]),
     ("a saved US origin on the US's guide", "", {"fx_origin": "US"}, "US", ["guidecost", True]),
     ("a saved home country on the US's guide", "", {"fx_origin": "DE"}, "US", ["guidecost pend", False]),
     ("a shared link's From on the US's guide", "?vo=GB", {}, "US", ["guidecost pend", False]),
@@ -566,6 +574,10 @@ const snap = () => [gc.hidden, gc.classList.contains("pend"), gc.innerHTML.slice
   localStorage.setItem("fx_origin", "US"); gc.dataset = { iso: "US" }; gc.innerHTML = ""; gc.hidden = true;
   gc.classList.remove("pend");
   await renderGuideCost("US"); o.push(snap());
+  // A first visit's held room on the US's guide, the reader still the US
+  // (geo not in, or a US guess): kept, unseen, not given back.
+  gc.dataset = { iso: "US" }; gc.innerHTML = ""; gc.hidden = false; gc.classList.add("pend");
+  await renderGuideCost("US"); o.push(snap());
   print(JSON.stringify(o));
 })().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
 """
@@ -580,11 +592,11 @@ except Exception:
     co = {"error": (r.stderr or r.stdout)[-300:]}
 LINE = "💰 <b>"
 results.append(ok(co == [[False, False, LINE], [False, True, LINE], [False, False, LINE], [True, False, ""],
-                         [False, False, LINE], [True, False, ""]],
+                         [False, False, LINE], [True, False, ""], [False, True, ""]],
                   "app.js renderGuideCost: a first visit from the UK keeps the US line's room unseen once /api/geo "
                   "makes the UK's guide its own (it moved the hero 22px), another guide draws, the UK's guide "
-                  "entered afresh shows none; on the US's guide a German reader's line fills the held room and a "
-                  "US reader gets none %s" % ("" if isinstance(co, list) else co)))
+                  "entered afresh shows none; on the US's guide a German reader's line fills the held room, a "
+                  "US reader gets none, and a first visit's held room stays %s" % ("" if isinstance(co, list) else co)))
 
 HOLD = re.search(r"<script>(.*)</script>", server._GUIDE_HOLD, re.S).group(1)
 PAGE = r"""

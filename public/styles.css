@@ -1123,16 +1123,23 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
    answers the "Is X cheap?" most guide titles ask. Served filled on a guide
    (guide_lines.cost); .pend keeps its room, unseen, for a reader from
    elsewhere until renderGuideCost draws theirs (server.py _COST_HOLD). */
-.guidecost { display: block; margin: 4px 0 0; font-size: 12.5px; color: var(--gray); }
+/* Its room is the same whoever's line it holds: the served line is a US
+   reader's, and a reader from elsewhere gets their own words (another band
+   word, another country's name), which wrapped where the US line didn't, or
+   the other way round (the hero moved 18px for a UK reader at 390, CLS
+   0.012). One line from 561px (every reader's fits, the longest about 74
+   characters in 455px at 1280), two on a phone, the one-line ones centred in
+   it; a fixed line-height, so the font swap can't change it either. The
+   US's own guide, served empty (a US reader gets none), holds the same room
+   for a reader from elsewhere (.pend, CLS 0.028 at 390 drawn into none). */
+.guidecost { display: block; margin: 4px 0 0; font-size: 12.5px; line-height: 18px; min-height: 18px;
+  color: var(--gray); }
+@media (max-width: 560px) { .guidecost { min-height: 36px; align-content: center; } }
 /* [hidden] has to say so here: the display above outranks the browser's own
    [hidden] rule, and a German reader's served line on Germany's guide (hidden
    before first paint) stayed on screen until app.js emptied it. */
 .guidecost[hidden] { display: none; }
 .guidecost.pend { visibility: hidden; }
-/* The US's own guide serves it empty (a US reader gets none): the room of
-   one line for a reader from elsewhere until theirs is drawn (CLS 0.028 at
-   390 drawn into none). */
-.guidecost.pend:empty { min-height: 18px; }
 .guidecost b { color: var(--ink); }
 .guidecost .fxinfo { margin-left: 5px; cursor: help; }
 /* A mandatory daily visitor fee beside the price level (Bhutan's, app.js

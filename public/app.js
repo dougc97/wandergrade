@@ -3330,8 +3330,13 @@ async function renderGuideCost(iso) {
   // collapsed it moved the hero, the grid and the jump nav up 22px (CLS 0.030
   // at 390 on the UK's guide, 0.014 before). The next visit, the home saved,
   // hides it before paint (server.py _COST_HOLD).
+  // So does the room the pre-paint script holds on the US's own guide for a
+  // first visit (no home saved, none guessed yet: .pend, empty), whoever
+  // /api/geo then says the reader is: given back, it moved the hero for a US
+  // reader instead (seedGeoDefaults saves the guess, wg_geo, so it is held
+  // once).
   if (plIso === originIso()) {
-    if (!host.hidden && host.innerHTML) { host.classList.add("pend"); return; }
+    if (!host.hidden && (host.innerHTML || host.classList.contains("pend"))) { host.classList.add("pend"); return; }
     return show("");
   }
   // Level 4 drops the band word. guideAdvLevel is null while the advisories
@@ -12098,7 +12103,9 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
 // Geo-seeded defaults: first-time visitors start on their own country instead
 // of the US — home country, currency, budget and fare display all follow.
 // Strictly a SEED: any stored choice wins, and nothing is written until the
-// seed applies so a later explicit pick behaves exactly as before. The country
+// seed applies so a later explicit pick behaves exactly as before (wg_geo, the
+// guess itself, aside: it is no choice, only what tells a guide's pre-paint
+// script a first visit from a later one). The country
 // comes from Cloudflare's per-request header via /api/geo (no-store; the HTML
 // is edge-cached and must never carry one visitor's country to the next).
 (async function seedGeoDefaults() {
@@ -12110,6 +12117,10 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
     const q = new URLSearchParams(location.search);
     if (/^[A-Z]{2}$/.test(q.get("vo") || q.get("fo") || "")) return;
     const g = await getJSON("/api/geo");
+    // The guess, whatever it is (a US one sets no home): a guide's pre-paint
+    // script holds the 💰 line's room on the US's guide only while there is
+    // neither a home nor a guess (server.py _COST_HOLD).
+    try { const gc = ((g && g.country) || "").toUpperCase(); if (/^[A-Z]{2}$/.test(gc)) localStorage.setItem("wg_geo", gc); } catch (e) {}
     // A currency-only link (hc=, db=) is on screen too, and this seed runs
     // before preApplyShared, so the check waits for the await. Seeding over it
     // went through setTravelOrigin's by-hand path, which adopts the view: a
