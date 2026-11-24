@@ -13518,8 +13518,13 @@ document.addEventListener("mousemove", (e) => {
 // they still filter on click.
 // The pointer behind the next click: click events don't carry pointerType in
 // every browser (older Safari), so remember it from pointerdown.
-let _lastPtrType = "";
-document.addEventListener("pointerdown", (e) => { _lastPtrType = e.pointerType || ""; }, true);
+// _tipAtDown: the element whose tip was up when this press began, before the
+// press's own mouseover/focus could show one (a tiplink's second tap, below).
+let _lastPtrType = "", _tipAtDown = null;
+document.addEventListener("pointerdown", (e) => {
+  _lastPtrType = e.pointerType || "";
+  _tipAtDown = _tipEl.hidden ? null : _tipFor;
+}, true);
 document.addEventListener("click", (e) => {
   // Every info-only mark that lives inside a clickable row/cell belongs on
   // this list — anything missing navigates on tap and its tip is unreachable
@@ -13531,6 +13536,16 @@ document.addEventListener("click", (e) => {
   // which already got the tip on hover — clicks through them to the row.
   const t = e.target.closest ? e.target : null;
   const mouse = (e.pointerType || _lastPtrType) === "mouse";
+  // An ⓘ that is also a link (a.tiplink: the grades' ⓘ, to /how-grades-work).
+  // A mouse read its tip on hover and a keyboard on focus (detail 0), so their
+  // click follows the link; a tap shows the tip first, and a tap while that
+  // tip is up follows it. Never the row's or cell's own navigation.
+  const tl = t && t.closest("a.tiplink[data-tip]");
+  if (tl) {
+    e.stopPropagation();
+    if (!mouse && e.detail !== 0 && _tipAtDown !== tl) { e.preventDefault(); _showTipFor(tl); }
+    return;
+  }
   const info = t && (t.closest(".hzmark, .muted[data-tip], .legendinfo, .fxinfo, .covmark")
     || (!mouse && t.closest(".fxmark, .advmv, .advmoved, .farestrip .fcell, .seasonstrip[data-tip], .wochip, .fv, .gr.grx[data-tip], #advRows .lvl[data-tip], #rows .pegnote, #advRows .advmvp, #advRows .rkwrap[data-tip], #advRows .hzwrap[data-tip], #advRows .sftext[data-tip], #affRows td.num [data-tip], #affRows .range")));
   if (info) { _showTipFor(info.dataset && info.dataset.tip ? info : e.target.closest("[data-tip]")); e.stopPropagation(); return; }
@@ -13568,6 +13583,7 @@ function _tipMarks() {
     const txt = el.textContent;
     if (!/[ⓘ⚠]/.test(txt) && !el.matches(".awardtag, .wochip")) continue;
     if (el.parentElement && el.parentElement.closest('button, a, [role="button"]')) continue;
+    if (el.matches("a[href]")) continue;   // a.tiplink: a link, already a Tab stop with its own name
     el.tabIndex = 0;
     el.setAttribute("role", "button");
     const g = txt.trim();
