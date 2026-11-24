@@ -313,6 +313,9 @@ HOLD_CASES = [
     ("saved factors", "", {"fx_factors2": "[]"}, (2026, 10, 28), False),
     ("Canada's advisories", "", {"wg_advsrc": "ca"}, (2026, 10, 28), False),
     ("a visited list", "", {"fx_visited": '["FR"]'}, (2026, 10, 28), False),
+    ("Include visited, nothing visited", "", {"wg_showvisited": "1"}, (2026, 10, 28), True),
+    ("the ★ want-to-go list", "", {"wg_showvisited": "want"}, (2026, 10, 28), False),
+    ("a link with vb=want", "?vb=want", {}, (2026, 10, 28), False),
 ]
 cases = [{"ssr": W, "search": q, "store": st, "y": d[0], "m": d[1], "d": d[2]} for _n, q, st, d, _k in HOLD_CASES]
 with tempfile.TemporaryDirectory() as d:
