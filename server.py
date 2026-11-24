@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
     flightvalue, guide_facts, guide_lines, guide_sizers, health, home_picks, llms_txt, mailer, map_picks, picks, popularity, rates,
-    render_cheapest, render_guide, render_lists, render_methodology, render_privacy, store, watchouts
+    render_cheapest, render_guide, render_lists, render_methodology, render_privacy, store, strip_comments, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -316,11 +316,23 @@ def _asset_version(name):
         return "0"
 
 
+# The raw template's <!-- --> notes (about 30% of its bytes, 9 KB of a
+# guide's gzipped page) and every stylesheet's /* */ ones (styles.css 72 KB
+# -> 28 KB gzipped) are taken out before anything is served
+# (fxtracker/strip_comments.py): the template once, before any token is
+# filled, so a rendered page's own markers (<!--tN-->, <!--email_off-->)
+# are never touched; the stylesheets in _static_bytes. FX_STRIP_COMMENTS=0
+# (Render -> Environment, which restarts the server) serves both as written.
+STRIP_COMMENTS = os.environ.get("FX_STRIP_COMMENTS", "1").strip() != "0"
+
+
 def _index_template():
     global _html_tpl
     if _html_tpl is None:
         with open(os.path.join(PUBLIC, "index.html"), encoding="utf-8") as f:
             tpl = f.read()
+        if STRIP_COMMENTS:
+            tpl = strip_comments.html(tpl)
         # Stamp asset URLs with the file's mtime so browsers can cache them
         # long-term (see _send_file) yet always fetch fresh after a deploy.
         tpl = re.sub(r"/app\.js(\?v=\d+)?", "/app.js?v=" + _asset_version("app.js"), tpl)
@@ -2645,6 +2657,63 @@ def _idle_wait(event, timeout):
 GZIP_LEVEL = 6
 
 
+# ---- static files in memory -----------------------------------------------------
+# _send_file read a static file from disk and gzipped it again on every
+# request: world.geojson (186 KB), activities.json (209 KB) and app.js
+# (810 KB, 17 ms of zlib on Render's CPU) for every visitor whose browser or
+# Cloudflare POP didn't have them. Text files are kept here, raw and (once a
+# client asks) gzipped, each checked against its mtime and size on every
+# request, so a changed file is read again at once. Stylesheets are kept
+# with their comments out (STRIP_COMMENTS). Images, fonts and media are read
+# per request as before: only text is compressed, and the share cards alone
+# are ~10 MB. A text file over STATIC_MEMO_MAX is read per request too.
+STATIC_MEMO_MAX = 2 * 1024 * 1024
+_static_memo = {}          # path -> ((mtime_ns, size), raw, gz or None)
+_static_lock = threading.Lock()
+_FONT_DIR = os.path.join(PUBLIC, "fonts") + os.sep
+_OG_DIR = os.path.join(PUBLIC, "og") + os.sep
+
+
+def _immutable_font(path):
+    return path.startswith(_FONT_DIR) and path.endswith(".woff2")
+
+
+def _og_card_file(path):
+    return path.startswith(_OG_DIR) and path.endswith(".jpg")
+
+
+def _static_text(path):
+    """True for a file _static_bytes keeps: text by its type."""
+    ctype = CONTENT_TYPES.get(os.path.splitext(path)[1], "application/octet-stream")
+    return ctype.startswith(("text/", "application/javascript", "application/json", "application/geo+json",
+                             "application/xml", "image/svg+xml"))
+
+
+def _static_bytes(path, wants_gz):
+    """(raw, gzipped or None) for the static file at `path`: raw as served
+    (a stylesheet without its comments), gzipped when wants_gz(raw) says the
+    response is. From the memo while the file's mtime and size are the same."""
+    st = os.stat(path)
+    key = (st.st_mtime_ns, st.st_size)
+    if not _static_text(path) or st.st_size > STATIC_MEMO_MAX:
+        with open(path, "rb") as f:
+            raw = f.read()
+        return raw, None
+    with _static_lock:
+        hit = _static_memo.get(path)
+    if hit is None or hit[0] != key:
+        with open(path, "rb") as f:
+            raw = f.read()
+        if STRIP_COMMENTS and path.endswith(".css"):
+            raw = strip_comments.css(raw.decode("utf-8")).encode("utf-8")
+        hit = (key, raw, None)
+    if hit[2] is None and wants_gz(hit[1]):
+        hit = hit[:2] + (gzip.compress(hit[1], GZIP_LEVEL),)
+    with _static_lock:
+        _static_memo[path] = hit
+    return hit[1], (hit[2] if wants_gz(hit[1]) else None)
+
+
 # What a read or write on a request's own socket raises when the client is
 # gone: Handler.handle writes one [disconnect] line for these, and only for
 # these when _ClientIO tagged them.
@@ -2940,23 +3009,26 @@ class Handler(BaseHTTPRequestHandler):
         ext = os.path.splitext(path)[1]
         ctype = CONTENT_TYPES.get(ext, "application/octet-stream")
         # ?v=<mtime>-stamped assets (the template rewrites app.js/styles.css)
-        # can cache forever — the URL itself changes on deploy. geojson is
-        # effectively static; other data files change with deploys, so keep
-        # their staleness window short (10 min) to not mask fresh releases.
-        cache = "public, max-age=31536000, immutable" if versioned \
-            else "public, max-age=86400" if ext in (".geojson", ".mp3") \
+        # can cache forever — the URL itself changes on deploy. So can the
+        # font files: their names are Google Fonts' own, which change with
+        # the font (jakarta.css names them, and it isn't immutable). geojson
+        # is effectively static; the share cards (/og/<slug>.jpg) change only
+        # when scripts/dev/og_cards.mjs is re-run; other data files change
+        # with deploys, so keep their staleness window short (10 min) to not
+        # mask fresh releases.
+        cache = "public, max-age=31536000, immutable" if versioned or _immutable_font(path) \
+            else "public, max-age=86400" if ext in (".geojson", ".mp3") or _og_card_file(path) \
             else "public, max-age=600" if ext == ".json" \
             else "public, max-age=300"
         if ctype.startswith(("audio/", "video/")):
             self._send_media(path, ctype, cache)
             return
         try:
-            with open(path, "rb") as f:
-                body = f.read()
+            body, gz = _static_bytes(path, lambda raw: self._gzips(raw, ctype))
         except OSError:
             self._send_not_found()
             return
-        self._send_body(body, ctype, cache=cache)
+        self._send_body(body, ctype, cache=cache, gzipped=gz)
 
     def _send_media(self, path, ctype, cache):
         """Media with byte-range support. iOS Safari won't play audio/video
