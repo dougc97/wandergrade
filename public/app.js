@@ -10473,7 +10473,7 @@ function renderActivity(iso) {
     return `<li><span class="actemoji">${activityEmoji(label)}</span><span class="actmain">`
       + `<span class="actlabel">${esc(label)}${zoneMarkHTML(iso, "activity", label, zw)}</span>`
       + (desc ? `<span class="actdesc">${esc(desc)}</span>` : "")
-      + `</span><span class="actthumbslot" data-subj="${esc(subj)}"></span></li>`;
+      + `</span><span class="actthumbslot" data-subj="${esc(subj)}" data-place="${esc(label)}"></span></li>`;
   }).join("");
   const seas = (a.seasonal || []).map((s) => {
     const on = s.months.includes(m);
@@ -10568,13 +10568,17 @@ function loadActivityThumbs(iso) {
     // An interactive control, so it is neither alt="" (invisible to SRs) nor
     // mouse-only: named, focusable, Enter/Space opens the same viewer.
     img.className = "actthumb"; img.loading = "lazy";
-    // Named for its place: every one of them read "Photo — open viewer".
-    img.alt = slot.dataset.subj + " — open the photo viewer";
+    // Named for its row ("Northern lights — open the photo viewer"): every
+    // one of them read "Photo — open viewer". Not for its subject, which can
+    // be a Commons file name ("File:Aurora Borealis over … (16283783717).jpg")
+    // or carry a Wikipedia disambiguation ("Blue Lagoon (geothermal spa)").
+    const place = slot.dataset.place || "";
+    img.alt = (place || "Photo") + " — open the photo viewer";
     img.title = "view photo";
     img.tabIndex = 0; img.setAttribute("role", "button");
     img.onerror = () => { img.onerror = null; img.src = p.thumb; };
     img.src = small;
-    const open = () => openLightboxSingle({ ...p, place: slot.dataset.subj });
+    const open = () => openLightboxSingle({ ...p, place });
     img.addEventListener("click", open);
     img.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }

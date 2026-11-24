@@ -27,6 +27,8 @@
     uploader linked by username credits the name, not "c:User:<name>"), and
     a title still going through pageimages; PHOTO_LICENCE_OK and
     gallery_entry.LICENCE_OK agree on a table of licence names;
+  * an activity photo is named for its row's label, as is the viewer it
+    opens, never its subject (a Commons file name, a disambiguation);
   * photo_sweep.py, offline: a kept pinned file Commons has since deleted,
     relicensed or shrunk is flagged, and the hero strip it saves for raters
     is the desktop hero's 1158x300 centre crop.
@@ -357,5 +359,53 @@ results.append(ok(px(s3.get("phone")) == "960" and px(s3.get("desk")) == "1920" 
 results.append(ok(s1.get("places") == ["Golden Circle", "Lumley Beach", "Wat Arun"]
                   and s1.get("where") == ["Wat Arun, Thailand", "Ella, Sri Lanka", "Thailand"],
                   "the hero's name is its slide's place, with the country unless it says it (%s)" % s1.get("where")))
+
+# --- the activity thumbnails' names (#39) ---
+# Each is named for its row's label, and so is the viewer it opens ("Northern lights,
+# Iceland"): named for its photo subject, 20 rows read a Commons file name
+# ("File:Aurora Borealis over … (16283783717).jpg — open the photo viewer") and 9 a
+# Wikipedia disambiguation ("Blue Lagoon (geothermal spa)").
+THUMB_DRIVER = r"""
+activities = JSON.parse(read(ACTS_PATH));
+ccGuideIso = "IS";
+renderActivity("IS");
+const html = $("actDetail").innerHTML, slots = [], made = [], opened = [];
+html.replace(/<span class="actthumbslot" data-subj="([^"]*)" data-place="([^"]*)"><\/span>/g, (m, subj, place) => {
+  const kids = [];
+  slots.push({ dataset: { subj: unesc(subj), place: unesc(place) }, childElementCount: 0, isConnected: true,
+               appendChild(c) { kids.push(c); this.childElementCount = kids.length; return c; } });
+});
+function unesc(s) { return s.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"); }
+document.querySelectorAll = (q) => (q.indexOf("actthumbslot") >= 0 ? slots : []);
+document.createElement = () => { const on = {}, el = __mkEl(); el.addEventListener = (k, f) => { on[k] = f; }; el._on = on; made.push(el); return el; };
+let n = 0;
+actPhoto = async (subj) => { n++; const f = "P" + n + ".jpg";
+  return { thumb: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/" + f + "/1920px-" + f, full: "https://upload.wikimedia.org/wikipedia/commons/a/ab/" + f, file: f }; };
+loadPhotoCredits = async () => {};
+openLightboxSingle = (p) => { opened.push(photoWhere(p, "IS")); };
+loadActivityThumbs("IS").then(() => {
+  made.forEach((img) => img._on.click && img._on.click());
+  print(JSON.stringify({ subj: slots.map((x) => x.dataset.subj), alts: made.map((i) => i.alt), opened: opened }));
+}).catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
+"""
+import tempfile  # noqa: E402
+HARNESS = open(os.path.join(ROOT, "scripts", "appjs_harness.js"), encoding="utf-8").read()
+with tempfile.TemporaryDirectory() as d:
+    sp = os.path.join(d, "thumbs.js")
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + app + "\n"
+                                          + THUMB_DRIVER.replace("ACTS_PATH", json.dumps(os.path.join(PUBLIC, "activities.json"))))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=60)
+try:
+    th = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    th = {"error": (r.stderr or r.stdout)[-300:]}
+results.append(ok(any(x.startswith("File:") for x in th.get("subj", [])) and "Blue Lagoon (geothermal spa)" in th.get("subj", [])
+                  and th.get("alts") == ["Waterfalls & glaciers (Golden Circle) — open the photo viewer",
+                                         "Northern lights — open the photo viewer",
+                                         "Blue Lagoon spa — open the photo viewer", "Ring Road drive — open the photo viewer"]
+                  and th.get("opened") == ["Waterfalls & glaciers (Golden Circle), Iceland", "Northern lights, Iceland",
+                                           "Blue Lagoon spa, Iceland", "Ring Road drive, Iceland"],
+                  "each activity photo is named for its row, never its subject's file name or disambiguation, "
+                  "and so is the viewer it opens %s" % ({k: th[k] for k in ("alts", "opened", "error") if k in th})))
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)
