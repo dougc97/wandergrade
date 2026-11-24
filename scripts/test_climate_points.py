@@ -22,7 +22,14 @@ every guide, item 19):
   * the points the review measured as wrong now read like the places
     visitors go: the Dominican Republic's January is beach-warm, not 18°C;
     Switzerland's July isn't 13°C; Timor-Leste is Dili-hot; Bhutan's best
-    month is near 60, not 35.
+    month is near 60, not 35;
+  * the 2026-07 points re-judged by the same rule (review of batch B,
+    2026-11-24): Indonesia at Bali, not Jakarta; Fiji at Nadi, not wet Suva;
+    Croatia on the Dalmatian coast (Split), not Zagreb; Mexico at Cancún and
+    Colombia at Cartagena, not at 2,200-2,600 m; Cabo Verde on Sal, not
+    Praia; and no REVIEWED reason leans on curated best months, which don't
+    take a point out of the Weather grade (picks._score and app.js
+    valueScores read the scores either way).
 """
 import json, os, sys
 
@@ -116,6 +123,21 @@ results.append(ok(max(c["BT"]["scores"]) >= 55 and c["BT"]["best"] == [9, 10, 11
 results.append(ok(max(c["TW"]["temps"]) >= 28 and c["SE"]["temps"][0] > -5,
                   "Taipei summers reach %d°C; Stockholm's January is %d°C (was −7°C)"
                   % (max(c["TW"]["temps"]), c["SE"]["temps"][0])))
+
+# The 2026-07 points, re-judged by the rule (review of batch B, 2026-11-24).
+moved = {"ID": "Denpasar, Bali", "FJ": "Nadi", "HR": "Split", "MX": "Cancún", "CO": "Cartagena",
+         "CV": "Santa Maria, Sal"}
+results.append(ok(all(c[i]["at"] == p and c[i]["elev"] < 100 for i, p in moved.items()),
+                  "re-judged 2026-07 points sit where visitors go, near sea level: %s"
+                  % ", ".join("%s %s (%d m)" % (i, c[i]["at"], c[i]["elev"]) for i in moved)))
+results.append(ok(min(c["MX"]["temps"]) >= 22 and min(c["CO"]["temps"]) >= 25 and c["HR"]["temps"][6] >= 25
+                  and max(c["ID"]["scores"][6:9]) >= 85 and max(c["FJ"]["scores"][5:9]) >= 85,
+                  "Cancún's coolest month is %d°C (Mexico City read 15°C), Cartagena's %d°C (Bogotá 13°C); Split's "
+                  "July %d°C; Bali's best dry-season month scores %d (Jakarta 75), Nadi's %d (Suva 82)"
+                  % (min(c["MX"]["temps"]), min(c["CO"]["temps"]), c["HR"]["temps"][6],
+                     max(c["ID"]["scores"][6:9]), max(c["FJ"]["scores"][5:9]))))
+results.append(ok(not [i for i, w in bc.REVIEWED.items() if "curated" in w],
+                  "no REVIEWED reason excuses a point by its curated best months (the scores still grade Weather)"))
 
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

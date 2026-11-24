@@ -68,8 +68,8 @@ CURATED = {
 
 # Where to sample, as (lat, lon, place, reason): every country with a month
 # table names its place (review 2026-11-23 item 1; the tables reach every
-# guide with MONTH_TABLE_ALL). The first 41 replaced geometric points that
-# were nowhere anyone goes: a vertex average over every part put France's
+# guide with MONTH_TABLE_ALL). The first 41 (2026-07) replaced geometric
+# points that were nowhere anyone goes: a vertex average over every part put France's
 # sample in the Atlantic west of Morocco (dragged by French Guiana) and Fiji's
 # in the Indian Ocean; the big ones' interior points were the US at Mt Hood,
 # Canada in Nunavut, Chile in the high Andes, China on the Gansu plateau, Peru
@@ -79,9 +79,12 @@ CURATED = {
 # Palestine polygon. The rest (2026-11) fixed the same fault at smaller
 # scale: the Dominican Republic read 18°C in January from its central
 # mountains (the coast is ~25°C), Switzerland 13°C in July from the Alps,
-# Timor-Leste 18-21°C (Dili ~27°C). Rule for those: the place most visitors
-# actually spend time — usually the main tourist city or the capital at
-# normal altitude, a beach hub where the beaches are the draw. Coordinates
+# Timor-Leste 18-21°C (Dili ~27°C). Rule for every point: the place most
+# visitors actually spend time — usually the main tourist city or the capital
+# at normal altitude, a beach hub where the beaches are the draw. Re-judged by
+# it (2026-11-24), six of the 2026-07 points moved: Jakarta to Bali, Suva (the
+# wet side) to Nadi, Zagreb to Split, Mexico City (2,230 m) to Cancún, Bogotá
+# (2,550 m) to Cartagena, Praia to Sal; the rest stand. Coordinates
 # cross-checked against GeoNames (Open-Meteo's geocoder): each within 10 km
 # of the town's own GeoNames point (the big cities' centres, Dubai's or
 # Dhaka's, sit a few km from it).
@@ -127,9 +130,9 @@ SAMPLE_POINTS = {
     "CL": (-33.449, -70.669, "Santiago", "capital; the interior point was in the high Andes"),
     "CM": (4.048, 9.704, "Douala", "largest city and main airport"),
     "CN": (39.904, 116.407, "Beijing", "capital; the interior point was on the Gansu plateau"),
-    "CO": (4.711, -74.072, "Bogotá", "capital, the big-country rule"),
+    "CO": (10.391, -75.479, "Cartagena", "the main leisure destination, at sea level; Bogotá is at 2,550 m"),
     "CU": (23.113, -82.366, "Havana", "capital and most-visited city"),
-    "CV": (14.933, -23.513, "Praia", "capital of a multi-part country"),
+    "CV": (16.598, -22.905, "Santa Maria, Sal", "Sal's beach resorts, where most visitors stay (Praia, the capital, is on Santiago)"),
     "CW": (12.109, -68.932, "Willemstad", "capital, beside the main beaches"),
     "CY": (34.707, 33.022, "Limassol", "the south-coast resorts are the draw; Limassol sits between Paphos and Larnaca"),
     "CZ": (50.076, 14.438, "Prague", "capital and most-visited city"),
@@ -146,7 +149,7 @@ SAMPLE_POINTS = {
     "ES": (41.385, 2.173, "Barcelona", "most-visited city, with the Mediterranean climate of the coasts"),
     "ET": (9.030, 38.740, "Addis Ababa", "capital and arrival city"),
     "FI": (60.170, 24.938, "Helsinki", "capital and most-visited city"),
-    "FJ": (-18.141, 178.442, "Suva", "capital; the vertex average fell in the Indian Ocean"),
+    "FJ": (-17.803, 177.416, "Nadi", "the airport and the Denarau resorts, on the dry side (Suva, the capital, is on the wet side)"),
     "FK": (-51.697, -57.852, "Stanley", "capital, where nearly all visitors arrive"),
     "FO": (62.011, -6.776, "Tórshavn", "capital of a multi-part country"),
     "FR": (48.857, 2.352, "Paris", "capital; the vertex average fell in the Atlantic"),
@@ -170,10 +173,10 @@ SAMPLE_POINTS = {
     "GY": (6.801, -58.155, "Georgetown", "capital and arrival city"),
     "HK": (22.298, 114.172, "Kowloon", "Victoria Harbour, where visitors stay; the old point was in the hills"),
     "HN": (16.316, -86.540, "Roatán", "the Bay Islands are the main draw"),
-    "HR": (45.815, 15.982, "Zagreb", "capital"),
+    "HR": (43.508, 16.440, "Split", "the Dalmatian coast is the draw; Split sits between Zadar and Dubrovnik"),
     "HT": (18.594, -72.307, "Port-au-Prince", "capital of a multi-part country"),
     "HU": (47.498, 19.040, "Budapest", "capital and most-visited city"),
-    "ID": (-6.209, 106.846, "Jakarta", "capital of a multi-part country"),
+    "ID": (-8.650, 115.216, "Denpasar, Bali", "Bali is where most visitors go; Denpasar sits between Kuta, Sanur and Ubud"),
     "IE": (53.350, -6.260, "Dublin", "capital and most-visited city"),
     "IL": (32.085, 34.782, "Tel Aviv", "main city (the map puts East Jerusalem in Palestine)"),
     "IM": (54.150, -4.482, "Douglas", "capital, where most visitors stay"),
@@ -212,7 +215,7 @@ SAMPLE_POINTS = {
     "MR": (18.079, -15.965, "Nouakchott", "capital and arrival city"),
     "MU": (-20.013, 57.580, "Grand Baie", "biggest resort area; the old point was on the cooler central plateau"),
     "MW": (-14.020, 34.840, "Cape Maclear", "Lake Malawi is the main draw"),
-    "MX": (19.433, -99.133, "Mexico City", "capital, the big-country rule"),
+    "MX": (21.161, -86.851, "Cancún", "Cancún and the Riviera Maya draw the most visitors; Mexico City is at 2,230 m"),
     "MY": (3.139, 101.687, "Kuala Lumpur", "capital of a multi-part country"),
     "MZ": (-25.969, 32.573, "Maputo", "capital, on the southern beach coast"),
     "NA": (-22.560, 17.083, "Windhoek", "capital, where road trips start"),
@@ -294,9 +297,11 @@ MAX_OFFSHORE_KM = 40
 # lands on another continent.
 OFF_MAP = {
     "BS": "New Providence (Nassau) isn't on the simplified map",
+    "CV": "Sal (Santa Maria) isn't on the simplified map",
     "EH": "the simplified map draws the coast about 200 km inland of Dakhla",
     "GQ": "Bioko (Malabo) isn't on the simplified map",
     "HN": "the Bay Islands (Roatán) aren't on the simplified map",
+    "ID": "Bali isn't on the simplified map",
     "VU": "Efate (Port Vila) isn't on the simplified map",
     "ZM": "the simplified map draws the Zambezi south of Livingstone, inside Zimbabwe's outline",
 }
@@ -318,7 +323,6 @@ REVIEWED = {
            "reanalysis reads Paro's spring far wetter than the valley's own records, which holds the "
            "scores near 60; its best months (Sep-Nov) are the main season"),
     "BW": "Maun is at 945 m; Botswana is Kalahari plateau throughout",
-    "CO": "Bogotá is at 2,550 m; Colombia's best months are curated, not scored (2026-07 point)",
     "CR": "left alone (review 2026-11-23): the geometric point is in the Central Valley, where trips start",
     "EC": "Quito, where nearly every trip starts, is at 2,800 m",
     "ER": "Asmara, where visitors stay, is at 2,300 m",
@@ -326,18 +330,18 @@ REVIEWED = {
     "GT": "Antigua is at 1,500 m, as are Lake Atitlán and the capital",
     "IR": "Tehran is at about 1,200 m; Isfahan and Shiraz are higher",
     "JO": "Amman is at 800-1,000 m, as is Petra",
-    "KE": "Nairobi is at 1,670 m; Kenya's best months are curated (2026-07 point)",
+    "KE": "Nairobi, where every trip starts, is at 1,670 m; the Masai Mara and the other safari parks are high too",
     "KZ": "Almaty, the main arrival city, is at the foot of the Tian Shan, about 850 m",
     "LS": "Maseru is Lesotho's lowest city; the whole country is above 1,400 m",
     "MG": "Antananarivo, where every trip starts, is on the central plateau at 1,250 m",
     "MN": "Ulaanbaatar, where nearly every trip starts, is at 1,300 m, as the steppe is",
-    "MX": "Mexico City is at 2,230 m; Mexico's best months are curated (2026-07 point)",
     "NA": "Windhoek, where road trips start, is at 1,650 m on the central plateau",
     "NP": "Kathmandu, where nearly every trip starts, is at 1,300 m",
-    "PE": "Cusco, where most visitors go, is at 3,340 m; Peru's best months are curated (2026-07 point)",
+    "PE": ("Cusco, the base for Machu Picchu and the Sacred Valley, where most visitors spend their time, is "
+           "at 3,340 m; Lima's coast is grey and cool most of the year"),
     "RW": "Kigali is at 1,550 m; Rwanda is highland throughout",
     "TJ": "Dushanbe, the arrival city, is at about 800 m",
-    "TZ": "Arusha, the safari gateway, is at 1,360 m; Tanzania's best months are curated (2026-07 point)",
+    "TZ": "Arusha, the safari gateway, is at 1,360 m, on the plateau the northern parks share (Serengeti, Ngorongoro)",
     "UG": "Kampala is at 1,200 m beside Lake Victoria; most of Uganda is plateau",
     "VE": "Caracas, the arrival city, is in a valley at about 900 m",
     "YE": "Sanaa is at 2,250 m",
