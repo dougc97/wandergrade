@@ -124,6 +124,25 @@ for iso in GUIDES:
                                ("typical month", "fill typ")) if pat in f}
 results.append(ok({"no fare", "days", "Level 4", "low month", "no-fare month", "typical month"} <= kinds,
                   "the guides between them show: %s" % ", ".join(sorted(kinds))))
+# The places scoring leaves out on purpose are graded on their guide: the
+# parent's advisory (and price level and currency where they have none), their
+# own weather, no fare. Scoring itself (picks._score, so Top Picks and the
+# newsletter) still never sees them.
+BORROW = ["GB-ENG", "GB-SCT", "GB-WLS", "FO", "IM", "GG"]
+gm = G.guide_month(TODAY)
+gb, sct, fo = G.score("GB", inputs, gm), G.score("GB-SCT", inputs, gm), G.score("FO", inputs, gm)
+sct_wx = FIX["climate"]["GB-SCT"]["scores"][gm - 1]
+import fxtracker.picks as _P  # noqa: E402
+rp = {r["code"]: r["rate_now"] for r in FIX["rates"]["rows"] if "code" in r and "rate_now" in r}
+results.append(ok(all('data-gg="ov"' in js[i]["grades"] for i in BORROW)
+                  and gb and sct and sct["afford"] == gb["afford"] and sct["safe"] == gb["safe"] and sct["wx"] == sct_wx
+                  and sct["fare"] is None and "Flights" in js["GB-SCT"]["grades"] and fo and fo["pl"] != gb["pl"]
+                  and all(_P._score(i, gm, FIX["ppp"], FIX["climate"], rp, {}, {"GB": 2, "DK": 1}) is None for i in BORROW),
+                  "England, Scotland, Wales, the Faroes, Man and Guernsey graded on their guide (Scotland: the UK's "
+                  "affordability %s and safety %s, its own weather %s, no fare; the Faroes their own prices), "
+                  "never by scoring itself: %s"
+                  % (gb and gb["afford"], gb and gb["safe"], sct_wx,
+                     [re.sub(r"<[^>]+>", " ", js[i]["grades"]).split()[:2] for i in BORROW])))
 # The search link: under every strip but a Level 4 country's, which keeps its
 # line empty (one height for every strip), sponsored, for the travel month or
 # else the cheapest, from the hub to that month's city.

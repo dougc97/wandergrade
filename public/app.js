@@ -2598,7 +2598,7 @@ async function renderGuideGrades(iso) {
   if (holdServedGuide(iso)) return;   // the served line stays (above)
   const month = travelMonth();
   let s = null;
-  try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), plAnchor(originIso()).pl); } catch (e) {}
+  try { s = guideScores(iso, month); } catch (e) {}
   // A graded line is drawn once, with its fares: drawn before them too, its
   // "—" for flights made it 445px against 438 after, and on an 810px iPad
   // the country picker beside the title wrapped under it and came back
@@ -2641,8 +2641,9 @@ async function renderGuideGrades(iso) {
   host.innerHTML = (pending ? wait("ov", "gr big", "A") + wait("num", "ggnum", s.value)
       : gradePill(s.value, "Overall " + grade(s.value) + " · " + s.value + "/100 for " + MONTHS[month - 1], "big")
         .replace('class="', 'data-gg="ov" class="') + '<span class="ggnum" data-gg="num">' + s.value + "</span>")
-    + f("💰", "Affordability", gradePill(s.afford, affordTitle(s).replace(" · click for cost-of-living detail", "")))
-    + f("🛡️", "Safety", safetyPill(s.advLvl, iso))
+    + f("💰", "Affordability", gradePill(s.afford, affordTitle(s).replace(" · click for cost-of-living detail", "")
+      + (s.plOf ? " · " + parentWide(s.plOf) + " figure" : "")))
+    + f("🛡️", "Safety", guideSafetyPill(s.advLvl, iso))
     + f("🌤️", "Weather", s.wx == null ? grey("—", "No weather data") : gradePill(s.wx, s.wx + "/100 weather comfort in " + MONTHS[month - 1]))
     + f("✈️", "Flights", pending ? fly : fly.replace('class="', 'data-gg="fly" class="')) + days
     + '<span class="muted" data-tip="' + esc("Graded for " + MONTHS[month - 1] + " from " + originLabel()
@@ -3500,6 +3501,47 @@ const advChangedOn = (it) => (it && (it.changed || it.updated)) || "";
 // Faroes under Denmark). The guide shows the parent's level and says so;
 // scoring never sees these ISOs, so nothing is ranked on it.
 const ADV_PARENT = { ...GUIDE_PARENT, GG: "GB", IM: "GB", JE: "GB", FO: "DK" };
+// A guide's grades for a place scoring leaves out on purpose — England,
+// Scotland, Wales, the Faroes, the Isle of Man and Guernsey: no advisory of
+// their own, and the home nations, Man and Guernsey no price level either.
+// Each showed a grey "—" ("Not enough data to grade it") right above the
+// UK-wide price line and the UK's advisory. Graded here, on the guide only
+// (its line, its share card): the parent's advisory, and the parent's price
+// level and currency where the place has none of its own (the Faroes keep
+// theirs); its own weather; no fare of its own there (none has a route), so
+// the Overall is over the rest, as valueScores does for any country missing
+// a measure. valueScores itself, so Top Picks and the newsletter, never
+// sees these places. guide_lines.score mirrors it for the served line.
+function guideScoreInputs(iso, advMap) {
+  const parent = ADV_PARENT[iso], lvl = parent && (advMap[iso] || advMap[parent]);
+  if (!lvl) return null;
+  return { parent, adv: { ...advMap, [iso]: lvl }, own: priceLevel(iso) != null };
+}
+function guideScores(iso, month) {
+  const advMap = advisoryByIso(), fares = buildFareContext(), anchorPl = plAnchor(originIso()).pl;
+  const b = guideScoreInputs(iso, advMap);
+  if (!b) return valueScores(iso, month, advMap, fares, anchorPl);
+  if (b.own) return valueScores(iso, month, b.adv, fares, anchorPl);
+  const p = valueScores(b.parent, month, b.adv, fares, anchorPl);
+  if (!p) return null;
+  const cl = climate && climate[iso];
+  const wx = cl && cl.scores && cl.scores[month - 1] != null ? cl.scores[month - 1] : null;
+  // valueScores' weighted mean, over the parent's affordability and safety
+  // and this place's weather.
+  const w = loadWeights(), comps = { afford: p.afford, safe: p.safe };
+  if (wx != null) comps.wx = wx;
+  let num = 0, den = 0;
+  for (const k in comps) { num += (w[k] || 0) * comps[k]; den += (w[k] || 0); }
+  return { ...p, iso, name: (cl && cl.name) || iso, raw: den ? num / den : 0, value: den ? clamp100(num / den) : 0,
+           wx, wxMissing: wx == null, fly: undefined, fare: null, fareEst: false, fareMin: null, fareBase: null,
+           dealRatio: null, flyBasis: null, flyMissing: !!fares, plOf: b.parent };
+}
+// The guide's 🛡️ pill: a place reading its parent's advisory says whose.
+function guideSafetyPill(lvl, iso) {
+  const parent = ADV_PARENT[iso] && !advisoryMetaByIso()[iso] ? ADV_PARENT[iso] : null;
+  if (!parent || !lvl) return safetyPill(lvl, iso);
+  return safetyPill(lvl, parent).replace(/ title="([^"]*)"/, (m, t) => ' title="' + t + esc(" (" + countryName(parent) + " advisory)") + '"');
+}
 // The level the reader's chosen source gives a guide's country (a territory
 // reads its parent's, as the badge does); 0 unrated, null while loading.
 function guideAdvLevel(iso) {
@@ -12662,7 +12704,7 @@ function buildGuideCardSVG(iso) {
   const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
 
   let s = null;
-  try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), anchorPl); } catch (e) {}
+  try { s = guideScores(iso, month); } catch (e) {}   // a home nation graded as its guide is
   const g = s ? grade(s.value) : null;
 
   const facts = [];

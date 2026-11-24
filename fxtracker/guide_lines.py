@@ -48,8 +48,16 @@ def adv_level(iso, payload):
 
 
 def score(iso, inputs, month):
-    """valueScores(iso, month, advisoryByIso(), buildFareContext(), anchor)
-    for a US reader, or None (no price level, unrated, or Level 4)."""
+    """app.js guideScores(iso, month) for a US reader — valueScores(iso,
+    month, advisoryByIso(), buildFareContext(), anchor) for a country — or
+    None (no price level, unrated, or Level 4).
+
+    A place scoring leaves out on purpose (ADV_PARENT: England, Scotland,
+    Wales, the Faroes, the Isle of Man, Guernsey) is graded on its parent's
+    advisory, and on its parent's price level and currency where it has none
+    of its own (the Faroes keep theirs), with its own weather and no fare:
+    the parent's affordability and safety and its weather, averaged as
+    picks._score averages, which itself never sees these places."""
     ppp = inputs["ppp"]
     rows = inputs["rates"].get("rows") or []
     rate_by_code = {r["code"]: r["rate_now"] for r in rows if "code" in r and "rate_now" in r}
@@ -59,8 +67,27 @@ def score(iso, inputs, month):
     fares = picks.fare_context(inputs.get("flights"), geo.site_centroids()) if inputs.get("flights") else None
     if fares:
         fares["fv"] = inputs.get("fv")
-    return picks._score(iso, month, ppp, inputs["climate"], rate_by_code, strength,
-                        advisory_by_iso(inputs["advisories"]), fit, fares, anchor)
+    adv = advisory_by_iso(inputs["advisories"])
+    clim = inputs["climate"]
+    parent = guide_sizers.ADV_PARENT.get(iso)
+    lvl = parent and (adv.get(iso) or adv.get(parent))
+    if lvl:
+        adv = dict(adv, **{iso: lvl})
+        if picks._price_level(iso, ppp, rate_by_code, fit) is None:
+            p = picks._score(parent, month, ppp, clim, rate_by_code, strength, adv, fit, fares, anchor)
+            if not p:
+                return None
+            sc = (clim.get(iso) or {}).get("scores") or []
+            wx = sc[month - 1] if len(sc) >= month else None
+            comps = {"afford": p["afford"], "safe": p["safe"]}
+            if wx is not None:
+                comps["wx"] = wx
+            num = sum(picks.WEIGHTS[k] * v for k, v in comps.items())
+            den = sum(picks.WEIGHTS[k] for k in comps)
+            return dict(p, iso=iso, name=(clim.get(iso) or {}).get("name") or iso, wx=wx, fly=None, fare=None,
+                        fareEst=False, fly_basis=None, raw=num / den if den else 0,
+                        value=picks.clamp100(num / den) if den else 0, pl_of=parent)
+    return picks._score(iso, month, ppp, clim, rate_by_code, strength, adv, fit, fares, anchor)
 
 
 def _ggf(emo, word, pill_html):
