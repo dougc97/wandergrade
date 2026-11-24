@@ -2143,9 +2143,14 @@ function plCls(rel) { const b = plBand(rel); return b < 0 ? "pos" : b > 0 ? "neg
 // Taiwan is a flight origin with no World Bank PPP row; it used to fall back to
 // the US silently while every label said "vs Taiwan", so the fallback now says
 // whose prices it really is.
+// The name reads in a sentence ("≈ 91% of the UK", "cheaper than the
+// Netherlands"): "of United Kingdom" was the guide's price line for every UK
+// reader, and the long form wrapped that line where the US one didn't.
+const PL_SHORT = { US: "the US", GB: "the UK", AE: "the UAE" };
+function plAnchorName(iso) { return PL_SHORT[iso] || countryNameInText(iso); }
 function plAnchor(iso) {
   const pl = iso ? priceLevel(iso) : null;
-  if (pl) return { iso, pl, name: iso === "US" ? "the US" : countryName(iso), cur: CUR_BY_ISO[iso] || "USD", home: true };
+  if (pl) return { iso, pl, name: plAnchorName(iso), cur: CUR_BY_ISO[iso] || "USD", home: true };
   return { iso: "US", pl: 1, name: "the US", cur: "USD", home: iso === "US" };
 }
 // "home" in the copy, unless the comparison had to fall back to the US.
@@ -3268,7 +3273,7 @@ function localPricesText(iso) {
   const pl = priceLevel(plIso);
   if (!pl) return null;
   return "≈ " + Math.round(100 * pl / A.pl) + "% of " + A.name
-    + (A.home ? "" : " (no figure for " + countryName(originIso()) + ")")
+    + (A.home ? "" : " (no figure for " + plAnchorName(originIso()) + ")")
     + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "");
 }
 // A mandatory daily fee every visitor pays (visa.json "fee": Bhutan's
@@ -5854,7 +5859,7 @@ async function renderCol() {
   stockChart(host, pts, {
     byDate: true,
     color: cheaper ? cssVar("--green", "#0a7d28") : cssVar("--red", "#b00020"),
-    ref: { value: 1, label: anchor.name === "the US" ? "US prices" : anchor.name + " prices" },
+    ref: { value: 1, label: anchor.name.replace(/^the /, "") + " prices" },
     aria: `${name}: price level ${lastP.value.toFixed(2)} vs ${anchor.name}, ${chgText(lastP).text}`,
     onScrub: (i) => (i ? showHead(pts[i], when(pts[i]))
       : ($("colNow").textContent = pts[0].value.toFixed(2),
