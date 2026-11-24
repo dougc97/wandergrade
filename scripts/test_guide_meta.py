@@ -120,7 +120,7 @@ results.append(ok(not l4_band, "no Level 4 description or fact line gives a barg
 fee_isos = sorted(i for i in guides if rg.visitor_fee(i))
 fee_bad = [i for i in fee_isos
            if re.search(r"(\(|💰 )(very cheap|cheap|a bit cheaper|about the same|pricey)", R[i]["desc"] + R[i]["body"], re.I)
-           or "(plus a $%d/%s fee)" % (rg.visitor_fee(i)["usd"], rg.visitor_fee(i)["per"]) not in R[i]["desc"]
+           or "(%s)" % rg.fee_short(rg.visitor_fee(i)) not in R[i]["desc"]
            or "💰 Local prices ≈ " not in R[i]["body"]]
 results.append(ok(fee_isos == ["BT"] and not fee_bad,
                   "no band word beside a visitor fee (%s): the description names the fee instead (%r) %s"

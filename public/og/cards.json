@@ -18,7 +18,7 @@
  "belgium": {"iso":"BE","name":"Belgium","best":[6,7,8],"curated":false},
  "belize": {"iso":"BZ","name":"Belize","best":[2,3,4],"curated":false},
  "benin": {"iso":"BJ","name":"Benin","best":[8,12,1],"curated":false},
- "bhutan": {"iso":"BT","name":"Bhutan","best":[5,6,9],"curated":false},
+ "bhutan": {"iso":"BT","name":"Bhutan","best":[3,4,5,9,10,11],"curated":true},
  "bolivia": {"iso":"BO","name":"Bolivia","best":[7,9,10],"curated":false},
  "bosnia-and-herzegovina": {"iso":"BA","name":"Bosnia and Herzegovina","best":[6,7,8],"curated":false},
  "botswana": {"iso":"BW","name":"Botswana","best":[5,8,9],"curated":false},

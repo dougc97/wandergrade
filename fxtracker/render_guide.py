@@ -362,10 +362,12 @@ def _desc(iso, f, asof):
         if has_p:
             # A mandatory daily visitor fee (Bhutan's) in the band's place:
             # "very cheap" beside US$100 a night misled, as on the 💰 line.
+            # In the 💰 line's words, and kept on every rung: a fact the price
+            # is wrong without, not a verdict to drop for room (Bhutan's
+            # curated months pushed the band rung, and the fee went with it).
             fee = visitor_fee(iso)
-            word = ("plus a $%s/%s fee" % (format(int(fee["usd"]), ","), fee.get("per") or "day") if fee
-                    else f.get("band"))
-            extra = ([word] if band and word else []) + (
+            word = fee_short(fee) if fee else (f.get("band") if band else None)
+            extra = ([word] if word else []) + (
                 ["%s-wide figure" % ("UK" if f.get("plof") == "GB" else d["names"].get(f["plof"], f["plof"]))]
                 if f.get("plof") else [])
             P = "%s: local prices ≈ %d%% of the US%s." % (
