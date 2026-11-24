@@ -24,6 +24,8 @@ The rule, stated once here and printed on every page from these constants:
   * local prices at or under MAX_PCT % of the US, the whole-percent figure
     the page prints;
   * a weather score of MIN_WX or more that month (public/climate.json);
+  * no mandatory daily visitor fee (render_guide.visitor_fee: Bhutan's
+    US$100 a night, which no price level carries);
   * a country with a guide, never a subdivision; unrated is out (_score).
 
 A page whose inputs are incomplete still renders, says what is missing and
@@ -32,6 +34,8 @@ reports `degraded`, so the server sends it with no-store.
 
 import datetime
 import html
+import re
+import urllib.parse
 
 from . import advisories, flightvalue, geo, picks, pricelevel
 from . import render_guide as rg
@@ -57,6 +61,9 @@ HUB_TOP = 3
 TITLE_MAX = RL.TITLE_MAX
 DESC_MAX = RL.DESC_MAX
 FV_WORD = {"low": "Low", "typical": "Typical", "high": "High"}   # app.js FV_WORD
+# The Travelpayouts marker on every Aviasales link (app.js TP_MARKER): the
+# affiliate id, public by design (render_guide's EKTA link carries it too).
+TP_MARKER = "738472"
 
 
 def path_for(month):
@@ -68,6 +75,23 @@ def month_of(path):
     for i, s in enumerate(SLUGS):
         if path == "%s/%s" % (HUB, s):
             return i + 1
+    return None
+
+
+def month_alias(seg):
+    """1-12 for a short spelling of a month as the one path segment after
+    /cheapest/ — "feb", "Sept", "2", "02" — else None. Only the spellings
+    people type for a month, so the server can 301 them to the page; the
+    full name in any case is the lowercase redirect's, not this."""
+    s = (seg or "").strip().lower()
+    if s.isdigit() and len(s) <= 2 and 1 <= int(s) <= 12:
+        return int(s)
+    if s == "sept":
+        return 9
+    if len(s) == 3:
+        for i, slug in enumerate(SLUGS):
+            if slug.startswith(s):
+                return i + 1
     return None
 
 
@@ -148,6 +172,10 @@ def context(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, cent=Non
         fares["fv"] = fv
     ctx["fares"] = fares
     ctx["fv"] = fv
+    # The fare link's ends (search_url): the origin's hub, and each country's
+    # cheapest-fare city for a month whose curve record names none.
+    ctx["hub"] = (flights or {}).get("hub")
+    ctx["dests"] = {r["iso"]: r.get("dest") for r in (flights or {}).get("countries") or [] if r.get("iso")}
     return ctx
 
 
@@ -185,14 +213,25 @@ def why_out(iso, s, ctx):
 
 
 def _rest_out(iso, s, ctx):
-    """The rule past the US level: anyone's do not travel, price, weather."""
+    """The rule past the US level: anyone's do not travel, price, weather,
+    then a mandatory daily visitor fee."""
     if advisories.dnt_for(iso, ctx["own"], ADV_PARENT):
         return "do not travel"
     if pct_of(s) > MAX_PCT:
         return "price"
     if s.get("wx") is None or s["wx"] < MIN_WX:
         return "weather"
+    if rg.visitor_fee(iso):
+        return "fee"
     return None
+
+
+def fee_out(ctx, month, scored=None):
+    """Guide countries that meet the month's rule but for a mandatory daily
+    visitor fee, named on the page beside their fee. ISO codes, by name."""
+    scored = score_all(ctx, month) if scored is None else scored
+    out = [iso for iso, s in scored.items() if why_out(iso, s, ctx) == "fee"]
+    return sorted(out, key=RL._name)
 
 
 def feed_gaps(ctx, month, scored=None):
@@ -223,25 +262,61 @@ def rank_month(ctx, month, score=None, scored=None):
     return keep
 
 
+def month_key(fv, month, today):
+    """The flight-value month key ("2027-02") picks.month_fare reads for
+    `month`: the payload's own window, else the month's next occurrence."""
+    t = _date(today)
+    mm = "%02d" % month
+    key = next((k for k in (fv or {}).get("months") or [] if k[5:] == mm), None)
+    return key or "%04d-%s" % (t.year if month > t.month else t.year + 1, mm)
+
+
+def search_url(hub, dest, key, today):
+    """app.js flightSearchURL with the hub handed in: an Aviasales search
+    from `hub` to `dest` leaving the 15th of month `key` (tomorrow if that
+    has passed) for 10 days, with the affiliate marker; None without a hub
+    or a destination."""
+    if not hub or not dest:
+        return None
+    t = _date(today)
+    dep = t + datetime.timedelta(days=60)
+    if re.fullmatch(r"\d{4}-\d{2}", key or ""):
+        dep = max(datetime.date(int(key[:4]), int(key[5:]), 15), t + datetime.timedelta(days=1))
+    ret = dep + datetime.timedelta(days=10)
+    seg = lambda d: "%02d%02d" % (d.day, d.month)
+    path = hub + seg(dep) + dest + seg(ret) + "1"
+    return "https://www.aviasales.com/search/" + urllib.parse.quote(path, safe="") + "?marker=" + TP_MARKER
+
+
 def fare_of(ctx, iso, month, today):
-    """(price, band) for the month's US fare where the route has a range and a
-    fare that month (picks.month_fare, banded as the Flights tab bands it:
-    flightvalue.band against the route's own year), else None."""
+    """(price, band, stats, search URL or None) for the month's US fare where
+    the route has a range and a fare that month (picks.month_fare, banded as
+    the Flights tab bands it: flightvalue.band against the route's own year),
+    else None. The URL searches the city that month's fare is to (the Flights
+    tab's link), only with all three lists in hand: a list not in hand can't
+    say the country isn't Level 4, and no booking link goes there (the
+    guides' rule)."""
     fv = ctx.get("fv")
     mf = picks.month_fare(fv, iso, month, _date(today)) if fv else None
     if not mf:
         return None
     c = (fv.get("countries") or {}).get(iso) or {}
     band = flightvalue.band(mf[0], c)
-    return (mf[0], band, c) if band else None
+    if not band:
+        return None
+    key = month_key(fv, month, today)
+    rec = (c.get("curve") or {}).get(key) or []
+    dest = rec[1] if len(rec) > 1 and rec[1] else (ctx.get("dests") or {}).get(iso)
+    url = search_url(ctx.get("hub"), dest, key, today) if not ctx["missing"] else None
+    return (mf[0], band, c, url)
 
 
 # ---- the pages -------------------------------------------------------------------
 
 def _rule_html(month_name=None):
     return ("<strong>US State Department Level %d or %d</strong>, no “do not travel” from the US, Canada "
-            "or Germany, <strong>local prices at or under %d%% of the US</strong> and a <strong>weather "
-            "score of %d+</strong>%s"
+            "or Germany, <strong>local prices at or under %d%% of the US</strong>, a <strong>weather "
+            "score of %d+</strong>%s and <strong>no mandatory daily visitor fee</strong>"
             % (US_LEVELS[0], US_LEVELS[1], MAX_PCT, MIN_WX, (" in %s" % month_name) if month_name else " that month"))
 
 
@@ -252,20 +327,26 @@ def _and(names):
     return ("%s and %s" % (", ".join(names[:-1]), names[-1])) if len(names) > 1 else "".join(names)
 
 
+def _guide_link(iso):
+    """The country's name linked to its guide (plain text without one)."""
+    nm = html.escape(RL._name(iso))
+    return '<a href="/guide/%s">%s</a>' % (RL._slug(iso), nm) if RL._slug(iso) else nm
+
+
 def _excluded(gaps=(), when="this month"):
     """The one line on what the rule leaves out. `gaps`: the guide countries
     missing from the State Department's feed that would otherwise qualify
     (feed_gaps), named so the reason given is theirs."""
     line = ("Left out: US Level 3 and 4, any country the US, Canada or Germany says not to travel to, "
-            "and countries missing from the State Department's feed")
+            "countries with a mandatory daily visitor fee, and countries missing from the State Department's "
+            "feed")
     if gaps:
         one = len(gaps) == 1
         tip = ("Not in the State Department's feed, so there is no US level to go by. Canada or Germany "
                "rates %s, and %s otherwise %s the rule." % (_plural(len(gaps), "it", "them"),
                                                             _plural(len(gaps), "it", "they"),
                                                             "meets" if one else "meet"))
-        names = [('<a href="/guide/%s">%s</a>' % (RL._slug(i), html.escape(RL._name(i))))
-                 if RL._slug(i) else html.escape(RL._name(i)) for i in gaps]
+        names = [_guide_link(i) for i in gaps]
         line += ' (<span title="%s">%s: %s</span>)' % (html.escape(tip, quote=True), when, _and(names))
     return line + "."
 
@@ -301,18 +382,25 @@ def _weather(s, c, month):
 
 
 def _fare_cell(f):
+    """The month's fare, linked to a live search of that route (the Flights
+    tab's affiliate link: sponsored, nofollow, a new tab), with its band."""
     if not f:
         return "—<sup class=\"fn\">*</sup>"
-    price, band, c = f
+    price, band, c, url = f
     tip = "Typical for this route: %s–%s (the middle half of its monthly fares)" % (_money(c["lo"]), _money(c["hi"]))
+    fare = _money(price)
+    if url:
+        fare = ('<a class="farelink" href="%s" target="_blank" rel="sponsored nofollow noopener" '
+                'title="Cached fare: check it live on Aviasales">%s&nbsp;↗</a>' % (html.escape(url, quote=True), fare))
     return ('%s <span class="fvband %s" title="%s">%s</span>'
-            % (_money(price), band, html.escape(tip, quote=True), FV_WORD[band]))
+            % (fare, band, html.escape(tip, quote=True), FV_WORD[band]))
 
 
 def _wrap(h1, lede, body, notes, sources):
-    """render_lists._page with the page's own class beside .listpage."""
-    return RL._page(h1, lede, body, notes, sources).replace('<div class="listpage">',
-                                                             '<div class="listpage cheap">', 1)
+    """render_lists._page with the page's own class beside .listpage, and
+    the newsletter box (review #9)."""
+    return RL._page(h1, lede, body, notes, sources, subscribe=True).replace('<div class="listpage">',
+                                                                             '<div class="listpage cheap">', 1)
 
 
 def _problems(ctx, facts, fares_state):
@@ -374,11 +462,15 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
     scored = {m: score_all(ctx, m, score) for m in range(1, 13)}
     ranked = {m: rank_month(ctx, m, scored=scored[m]) for m in range(1, 13)}
     gaps = {m: (feed_gaps(ctx, m, scored[m]) if have else []) for m in range(1, 13)}
+    fees = {m: (fee_out(ctx, m, scored[m]) if have else []) for m in range(1, 13)}
     alt = RL.alt_marked(pl_alt)
     us_items = ctx["items"].get("us") or {}
     fare_note = ("* Fares are cached searches, not live prices, and many months have none. Where a month "
                  "has one: the cheapest round trip from the US, marked Low, Typical or High against the "
                  "route's own year.")
+    # Said on a page whose fares carry the link (review #6), the Flights tab's words.
+    aff_note = (" Fares ↗ open a live search on Aviasales: affiliate links, so booking through them may "
+                "earn us a commission, at no extra cost to you.")
     unavailable = ("The list isn't available right now: %s not loaded (see the note below)."
                    % ("prices or climate are" if not ctx["ok"] else "the US levels are"))
     out = {}
@@ -387,24 +479,27 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
         name, year = rg.MON_FULL[m - 1], year_for(m, today_d)
         rows = ranked[m]
         n = len(rows)
-        trs, alt_used = [], False
+        trs, alt_used, linked = [], False, False
         for i, s in enumerate(rows):
             iso = s["iso"]
             lvl = ctx["own"]["us"][iso]
             f = fare_of(ctx, iso, m, today_d)
+            linked = linked or bool(f and f[3])
             pct = "%d%%" % pct_of(s)
             if iso in alt:
                 alt_used = True
                 pct += '<sup class="fn">†</sup>'
+            pct += RL.fee_mark(iso)
             cells = [
                 '<td class="num" data-l="#">%d</td>' % (i + 1),
                 '<td class="name" data-l="Country"><span class="rk">%d.</span> %s</td>'
                 % (i + 1, RL._country(iso, RL._name(iso))),
+                # Short card labels (review #28); the desktop headers keep the full words.
                 RL._cell("Grade", _grade_pill(s, name)),
-                RL._cell("Prices vs US", pct),
-                RL._cell("Weather score", _weather(s, ctx["clim"].get(iso), m)),
-                RL._cell("US State Dept", _us_pill(us_items.get(iso), lvl, today_d.isoformat())),
-                RL._cell("US round trip", _fare_cell(f)),
+                RL._cell("Prices", pct),
+                RL._cell("Weather", _weather(s, ctx["clim"].get(iso), m)),
+                RL._cell("US level", _us_pill(us_items.get(iso), lvl, today_d.isoformat())),
+                RL._cell("Fare", _fare_cell(f)),
             ]
             trs.append("<tr>%s</tr>" % "".join(cells))
         head = ["#", "Country", "Grade", "Prices vs US", "Weather (score · avg daily mean)",
@@ -426,13 +521,15 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
         else:
             lede = "The rule: %s. %s" % (_rule_html(name), unavailable)
         body = nav + table
+        if fees[m]:
+            body += RL.fee_left_out(fees[m], lambda iso, m=m: pct_of(scored[m][iso]))
         body += ('<p class="xlink">See also: <a href="/safe-and-cheap">the safest cheap countries, any '
                  'month</a> · <a href="/?vmn=%d&amp;vo=US">%s in Top Picks</a> · '
                  '<a href="/do-not-travel">the Do Not Travel list</a>.</p>' % (m, name))
         page_notes = [_excluded(gaps[m]),
                       "Grade: WanderGrade's overall value from the US in %s (prices, safety, weather and "
                       "flights), as Top Picks shows it. Prices: national averages vs the US (100%%)." % name,
-                      fare_note] + ([RL.ALT_NOTE] if alt_used else []) + notes
+                      fare_note + (aff_note if linked else "")] + ([RL.ALT_NOTE] if alt_used else []) + notes
         h1 = "Cheapest countries to visit in %s %d, from the US" % (name, year)
         title = RL._fit(["Cheapest Countries to Visit in %s %d (From the US)" % (name, year),
                          "Cheapest Countries to Visit in %s %d (US)" % (name, year),
@@ -457,7 +554,7 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
             "title": title, "desc": desc, "h1": h1,
             "html": _wrap(html.escape(h1), lede, body, page_notes, sources),
             "lastmod": lastmod, "degraded": degraded,
-            "counts": {"rows": len(rows)}, "isos": [s["iso"] for s in rows], "gaps": gaps[m],
+            "counts": {"rows": len(rows)}, "isos": [s["iso"] for s in rows], "gaps": gaps[m], "fee": fees[m],
             "available": have,
         }
 
@@ -465,7 +562,9 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
     trs = []
     for m in month_order(today_d):
         p = out[path_for(m)]
-        names = ", ".join(html.escape(RL._name(i)) for i in p["isos"][:HUB_TOP]) or "—"
+        # Each name links to its guide, as a month's rows do (a row is only
+        # ever a guide country, so every one has a slug).
+        names = ", ".join(_guide_link(i) for i in p["isos"][:HUB_TOP]) or "—"
         trs.append('<tr><td class="name" data-l="Month"><a href="%s">%s %d</a></td>%s%s</tr>'
                    % (p["path"], rg.MON_FULL[m - 1], p["year"],
                       RL._cell("Countries", str(p["counts"]["rows"]) if have else "—"),

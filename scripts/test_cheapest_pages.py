@@ -172,6 +172,8 @@ def expected(month):
             continue
         if pricelevel.js_round(100 * s["pl"]) > 50 or s["wx"] is None or s["wx"] < 70:
             continue
+        if rg.visitor_fee(iso):            # a mandatory daily visitor fee (review #10)
+            continue
         keep.append(s)
     keep.sort(key=lambda s: (-s["value"], -s["raw"], s["name"]))
     return keep
@@ -189,7 +191,7 @@ for m in range(1, 13):
     for s, tr in zip(exp, trs):
         g = picks.grade(s["value"])
         good = good and ('>%s</span> %d<' % (g, s["value"]) in tr
-                         and '"Prices vs US"><span class="v">%d%%<' % pricelevel.js_round(100 * s["pl"]) in tr
+                         and '"Prices"><span class="v">%d%%<' % pricelevel.js_round(100 * s["pl"]) in tr
                          and "/guide/" in tr and "<strong>%d</strong>" % s["wx"] in tr)
     row_ok.append(good)
 results.append(ok(len(same) == 12 and total > 200,
@@ -240,6 +242,33 @@ f["adv_ca"]["items"] = [it for it in f["adv_ca"]["items"] if it.get("iso") != to
 f["adv_de"]["items"] = [it for it in f["adv_de"]["items"] if it.get("iso") != top]
 without_top(f, "rated by nobody")
 
+# A mandatory daily visitor fee (review #10): a stand-in scorer puts Bhutan
+# (visa.json's US$100 a night) inside every other rule in November; it stays
+# off, is named under the table with its price and fee, and the rule says so.
+def _bt_score(iso, month, *a, **k):
+    s = picks._score(iso, month, *a, **k)
+    if iso == "BT" and s:
+        s = dict(s, wx=max(s["wx"] or 0, 90), pl=0.25)
+    return s
+
+
+BTP = render(score=_bt_score)
+bnov = BTP["/cheapest/november"]
+_bl = re.search(r'<p class="sub feeout">(.*?)</p>', bnov["html"])
+results.append(ok(RC.why_out("BT", _bt_score("BT", 11, FIX["ppp"], CLIM, rate_by, strength, adv_by, fit, fares, anchor,
+                                             home_iso="US", home_cur="USD"), RC.context(
+                      FIX["adv_us"], FIX["adv_ca"], FIX["adv_de"], FIX["rates"], FIX["ppp"], CLIM, FACTS)) == "fee"
+                  and "BT" not in bnov["isos"] and bnov["fee"] == ["BT"] and _bl
+                  and '<a href="/guide/bhutan">Bhutan</a> (25% <span class="fee"' in _bl.group(1)
+                  and "+ $100/night fee</span>)" in _bl.group(1),
+                  "Bhutan meeting every other rule is left out for its fee, named under the table with its price "
+                  "and fee"))
+results.append(ok(all("no mandatory daily visitor fee" in p["html"] and "countries with a mandatory daily visitor fee"
+                      in p["html"] for p in P.values())
+                  and all(not p.get("fee") for p in P.values()) and "feeout" not in P["/cheapest/november"]["html"],
+                  "every page states the fee rule and the Left-out clause; on production data no month names a fee "
+                  "country (Bhutan's weather keeps it off anyway)"))
+
 # Fares: month_fare's price and band; a dash and the footnote otherwise.
 fare_rows, dash_rows, fare_good = 0, 0, True
 for s in expected(11):
@@ -254,12 +283,62 @@ for s in expected(11):
                                    and ">%s</span>" % RC.FV_WORD[band] in tr)
     else:
         dash_rows += 1
-        fare_good = fare_good and '"US round trip"><span class="v">—<sup class="fn">*</sup>' in tr
+        fare_good = fare_good and '"Fare" class="nil"><span class="v">—<sup class="fn">*</sup>' in tr
 results.append(ok(fare_good and fare_rows > 5 and dash_rows > 5,
                   "November fares: month_fare's price with its Low/Typical/High band (%d rows), a dash with the "
                   "footnote mark otherwise (%d rows)" % (fare_rows, dash_rows)))
 results.append(ok(nov["html"].count("Fares are cached searches, not live prices, and many months have none") == 1,
                   "one footnote on the fares"))
+# The fare links (review #6): with the production shape — the fares' hub
+# and each month's [price, city] — each shown fare links to a live search of
+# that route, the city that month's fare is to, leaving the 15th (tomorrow
+# once past) for 10 days, with the marker; the * note then names the
+# commission. The trimmed fixture has neither, so its fares stay plain text.
+results.append(ok("farelink" not in nov["html"] and "commission" not in nov["html"],
+                  "no hub in the fares: no fare links and no affiliate wording"))
+fl = fx()
+fl["flights"]["hub"] = "NYC"
+_dest_of = {r["iso"]: r.get("dest") for r in fl["flights"]["countries"]}
+for _iso, _c in fl["fv"]["countries"].items():
+    for _k, _rec in (_c.get("curve") or {}).items():
+        if _iso == "TH" and _k == "2026-11":
+            _rec.append("HKT")                       # this month's fare is to another city than the row's
+        elif _dest_of.get(_iso):
+            _rec.append(_dest_of[_iso])
+FL = render(fl)
+fnov = FL["/cheapest/november"]
+links = re.findall(r'<a class="farelink" href="([^"]+)" target="_blank" rel="sponsored nofollow noopener" '
+                   r'title="Cached fare: check it live on Aviasales">\$([\d,]+)&nbsp;↗</a> <span class="fvband', fnov["html"])
+_want = []
+for s in expected(11):
+    mf = picks.month_fare(fl["fv"], s["iso"], 11)
+    if mf and flightvalue.band(mf[0], fl["fv"]["countries"][s["iso"]]):
+        rec = fl["fv"]["countries"][s["iso"]]["curve"]["2026-11"]
+        _want.append(("https://www.aviasales.com/search/NYC1511%s25111?marker=738472" % rec[1], format(mf[0], ",")))
+results.append(ok(links == [(html.unescape(u), p) for u, p in _want] and len(links) == fare_rows,
+                  "November: every shown fare links to NYC -> that month's city, 15 Nov to 25 Nov, marker 738472 "
+                  "(%d links): %s" % (len(links), links[:1])))
+results.append(ok("TH" not in fnov["isos"] or "NYC1511HKT25111" in fnov["html"],
+                  "a month whose fare is to another city searches that city (Thailand: HKT)"))
+results.append(ok(fnov["html"].count("Fares ↗ open a live search on Aviasales: affiliate links, so booking through "
+                                     "them may earn us a commission, at no extra cost to you.") == 1
+                  and all(("commission" in p["html"]) == ("farelink" in p["html"]) for p in FL.values()),
+                  "the * note names the commission exactly where a page has fare links"))
+results.append(ok(RC.search_url("NYC", "BKK", "2026-10", "2026-10-23") ==
+                  "https://www.aviasales.com/search/NYC2410BKK03111?marker=738472"
+                  and RC.search_url("NYC", "BKK", "2027-02", "2026-10-23").startswith(
+                      "https://www.aviasales.com/search/NYC1502BKK25021")
+                  and RC.search_url("NYC", "BKK", None, "2026-10-23") ==
+                  "https://www.aviasales.com/search/NYC2212BKK01011?marker=738472"
+                  and RC.search_url(None, "BKK", "2027-02", "2026-10-23") is None
+                  and RC.search_url("NYC", None, "2027-02", "2026-10-23") is None,
+                  "search_url is app.js flightSearchURL: the 15th, tomorrow once that has passed, 60 days out "
+                  "without a month, 10 nights; none without a hub or a city"))
+_nolist = RC.pages(fl["adv_us"], None, fl["adv_de"], fl["rates"], fl["ppp"], CLIM, FACTS, flights=fl["flights"],
+                   fv=fl["fv"], fares_state="warm", fetched=FETCHED, today=TODAY, cent=CENT)
+results.append(ok("farelink" not in _nolist["/cheapest/november"]["html"]
+                  and "commission" not in _nolist["/cheapest/november"]["html"],
+                  "a list not in hand (Canada's): no fare links, as a guide offers no booking then"))
 off = render(flights=None, fv=None, fares_state="off")["/cheapest/november"]
 results.append(ok(not off["degraded"] and "fvband" not in off["html"] and off["counts"]["rows"] > 0,
                   "no fare source configured: every fare a dash, the page not degraded for that"))
@@ -388,6 +467,15 @@ results.append(ok(all(RC.path_for(m) in hub.hrefs for m in range(1, 13)) and "Oc
                   "the hub: a row per month with its link, year and count"))
 results.append(ok(all(rg.name_for_iso(i) in P["/cheapest"]["html"] for i in P["/cheapest/november"]["isos"][:3]),
                   "the hub names each month's top three"))
+_top_cells = re.findall(r'data-l="Top three"><span class="v">(.*?)</span></td>', P["/cheapest"]["html"])
+_top_ok = len(_top_cells) == 12
+for m, cell in zip(RC.month_order(TODAY), _top_cells):
+    want = ", ".join('<a href="/guide/%s">%s</a>' % (RL._slug(i), html.escape(rg.name_for_iso(i)))
+                     for i in P[RC.path_for(m)]["isos"][:3]) or "—"
+    _top_ok = _top_ok and cell == want
+results.append(ok(_top_ok and all(RL._slug(i) for m in range(1, 13) for i in P[RC.path_for(m)]["isos"][:3]),
+                  "the hub's top three each link to their guide, in the month's order (item 36): %s"
+                  % (_top_cells[:1],)))
 results.append(ok(all("at or under 50% of the US" in p["html"] and "weather score of 70+" in p["html"]
                       and "US State Department Level 1 or 2" in p["html"] for p in P.values())
                   and all("Left out: US Level 3 and 4" in p["html"] for p in P.values()),
@@ -407,7 +495,7 @@ for label, page_set in (("rates missing", render(dict(FIX, rates=None))),
                          and "No country meets" not in p["desc"] and "0</strong> countr" not in h
                          and not re.search(r"\b0 countr", p["desc"]) and "isn't available right now" in h
                          and len(p["desc"]) <= 157)
-    hub_cells = re.findall(r'data-l="Countries"><span class="v">([^<]*)<', page_set["/cheapest"]["html"])
+    hub_cells = re.findall(r'data-l="Countries"(?: class="nil")?><span class="v">([^<]*)<', page_set["/cheapest"]["html"])
     results.append(ok(good and hub_cells == ["—"] * 12 and len({p["desc"] for p in page_set.values()}) == 13,
                       "%s: every page says the list isn't available (no count, no \"No country meets\", in the page "
                       "or the description), the hub's counts are dashes, the 13 descriptions stay unique" % label))
@@ -470,9 +558,18 @@ results.append(ok("<strong>%d</strong> countries qualify," % len(nov["isos"]) in
                   "more than one stays plural"))
 
 # --- cards: the same words as the desktop headers ----------------------------------------------------
-results.append(ok('data-l="US round trip"' in nov["html"] and 'data-l="Weather score"' in nov["html"]
-                  and 'data-l="US fare"' not in nov["html"] and 'data-l="Weather"' not in nov["html"],
-                  "a phone card labels the fare \"US round trip\" and the weather \"Weather score\", as the header does"))
+# Short card labels (review #28): Prices, Weather, US level, Fare; the
+# desktop headers keep the full words.
+results.append(ok(all('data-l="%s"' % l in nov["html"] for l in ("Grade", "Prices", "Weather", "US level", "Fare"))
+                  and not any('data-l="%s"' % l in nov["html"] for l in ("Prices vs US", "Weather score",
+                                                                          "US State Dept", "US round trip"))
+                  and all("<th>%s</th>" % h in nov["html"] for h in ("Prices vs US", "US State Dept", "US round trip")),
+                  "a phone card's labels are short (Prices, Weather, US level, Fare); the table headers keep the "
+                  "full words"))
+_nils = re.findall(r'<td data-l="([^"]+)" class="nil"><span class="v">(.*?)</span></td>', nov["html"])
+results.append(ok(_nils and all(re.sub(r"<[^>]+>", "", v) in ("—", "—*") for _l, v in _nils)
+                  and not re.search(r'class="nil"><span class="v">(?!—)', nov["html"]),
+                  "a cell with only a dash is class nil (left out of the phone card), nothing else (%d)" % len(_nils)))
 
 # --- the alternative-rate dagger, as /safe-and-cheap marks it --------------------------------------
 A = render(pl_alt=["TM"])
@@ -582,8 +679,37 @@ st2, hd2, _b = get("/cheapest/november/?utm_source=x")
 results.append(ok(st == 301 and hd.get("Location") == "/cheapest" and st2 == 301
                   and hd2.get("Location") == "/cheapest/november?utm_source=x",
                   "a trailing slash 301s to the canonical URL, query kept"))
-nf = [get(p)[0] for p in ("/cheapest/nov", "/cheapest/november/x", "/cheapest/13", "/cheapest//")]
-results.append(ok(nf[:3] == [404] * 3 and nf[3] == 301, "anything else under /cheapest/ is a 404: %s" % nf))
+nf = [get(p)[0] for p in ("/cheapest/novv", "/cheapest/november/x", "/cheapest/13", "/cheapest//",
+                          "/cheapest/0", "/cheapest/nov/x")]
+results.append(ok(nf[:3] == [404] * 3 and nf[3] == 301 and nf[4:] == [404, 404],
+                  "anything else under /cheapest/ is a 404: %s" % nf))
+# A short spelling of a month (three letters, Sept, 1-12, zero-padded) 301s
+# to the month's page in one hop, query kept (review #38).
+short = [get(p)[:2] for p in ("/cheapest/feb", "/cheapest/Sept?utm_source=ig", "/cheapest/2", "/cheapest/09/",
+                              "/cheapest/DEC")]
+results.append(ok([(st, hd.get("Location")) for st, hd in short]
+                  == [(301, "/cheapest/february"), (301, "/cheapest/september?utm_source=ig"),
+                      (301, "/cheapest/february"), (301, "/cheapest/september"), (301, "/cheapest/december")],
+                  "/cheapest/feb, /Sept, /2, /09/ and /DEC 301 to the month's page, query kept: %s"
+                  % [(st, hd.get("Location")) for st, hd in short]))
+results.append(ok([RC.month_alias(s) for s in ("jan", "Sept", "sep", "1", "01", "12", "13", "0", "ju", "june", "001")]
+                  == [1, 9, 9, 1, 1, 12, None, None, None, None, None],
+                  "month_alias: three letters, Sept, 1-12 (zero-padded too), nothing else"))
+# The 404 page suggests the page a typo was one or two letters from, and
+# opens the guide index (review #38).
+dym = {p: get(p) for p in ("/guide/columbia", "/cheapest/febuary", "/safe-and-cheep", "/guide/xyzzy", "/app.jsx")}
+_dym = lambda p: re.search(r'<p class="didyoumean">Did you mean <a href="([^"]+)"><strong>([^<]+)</strong></a>\?</p>',
+                           dym[p][2])
+results.append(ok(all(v[0] == 404 and v[1].get("Cache-Control") == "no-store" for v in dym.values())
+                  and _dym("/guide/columbia") and _dym("/guide/columbia").groups() == ("/guide/colombia", "Colombia")
+                  and _dym("/cheapest/febuary").groups() == ("/cheapest/february", "Cheapest countries in February")
+                  and _dym("/safe-and-cheep").groups() == ("/safe-and-cheap", "Safest cheap countries")
+                  and not _dym("/guide/xyzzy") and not _dym("/app.jsx")
+                  and all('<details class="guideindex" open>' in v[2] for v in dym.values()),
+                  "404: \"Did you mean Colombia?\" for /guide/columbia, February for /cheapest/febuary, the list "
+                  "for /safe-and-cheep, nothing for a non-word; the guide index open on every one"))
+results.append(ok(server._did_you_mean("/guide/" + "x" * 90) is None and server._did_you_mean("") is None,
+                  "no suggestion past %d characters or for an empty path" % server._SUGGEST_MAX))
 # Another case 301s to the lowercase URL in one hop, query kept, as /guide/Japan does.
 cs = [get(p)[:2] for p in ("/cheapest/November", "/Cheapest/January/?utm_source=x", "/Cheapest", "/Safe-and-cheap")]
 results.append(ok([(st, hd.get("Location")) for st, hd in cs]
@@ -670,6 +796,27 @@ results.append(ok(st1 == st2 == 200 and hd1.get("Cache-Control") == "no-store"
                   and hd2.get("Cache-Control") == "public, max-age=300" and "<strong>3 countries</strong>" in b2,
                   "/data: no-store while the dataset is down, cached once it is back (%s / %s)"
                   % (hd1.get("Cache-Control"), hd2.get("Cache-Control"))))
+# /data's Dataset markup and shorter title (review #32): the two downloads,
+# the sources, the rates' date as dateModified, and no licence claimed.
+_ld = re.findall(r'<script type="application/ld\+json">(.*?)</script>', b2, re.S)
+_ds = [d for d in (json.loads(x) for x in _ld) if d.get("@type") == "Dataset"]
+_d = _ds[0] if _ds else {}
+_title = re.search(r"<title>(.*?)</title>", b2).group(1)
+results.append(ok(len(_ds) == 1 and _d.get("@context") == "https://schema.org"
+                  and _d.get("url") == "https://wandergrade.com/data"
+                  and sorted((x["encodingFormat"], x["contentUrl"]) for x in _d.get("distribution", []))
+                  == [("application/json", "https://wandergrade.com/data/price-levels.json"),
+                      ("text/csv", "https://wandergrade.com/data/price-levels.csv")]
+                  and _d.get("dateModified") == "2026-10-23" and "license" not in _d
+                  and "https://data.worldbank.org" in _d.get("isBasedOn", [])
+                  and 50 <= len(_d.get("description", "")) <= 5000 and _d.get("isAccessibleForFree") is True,
+                  "/data carries one schema.org Dataset: both downloads, World Bank among its sources, "
+                  "dateModified the rates' date, no license property"))
+results.append(ok(_title == "Cost of Living by Country: Free CSV &amp; JSON Dataset" and len(html.unescape(_title)) <= 50,
+                  "/data's title is the 50-character one: %r" % _title))
+_ld_down = re.findall(r'<script type="application/ld\+json">(.*?)</script>', _b, re.S)
+results.append(ok(_ld_down and "dateModified" not in json.loads(_ld_down[0]),
+                  "the dataset down: the markup without a dateModified (no date to claim)"))
 st, hd, body = get("/cheapest", "HEAD")
 results.append(ok(st == 200 and body == "", "HEAD answers 200 with no body"))
 st, hd, sm = get("/sitemap.xml")
@@ -750,12 +897,56 @@ finally:
     server._ppp_cache.update(saved_ppp)
     if saved_ca:
         server._adv_cache["ca"] = saved_ca
-results.append(ok(not fetches and all(st == 200 and hd.get("Cache-Control") == "no-store" for st, hd, _b in cold_codes)
+results.append(ok(not fetches and all(st == 503 and hd.get("Cache-Control") == "no-store"
+                                      and hd.get("Retry-After") == str(server.LIST_UNAVAILABLE_RETRY) == "300"
+                                      and hd.get("X-Robots-Tag") is None for st, hd, _b in cold_codes)
                   and all("isn't available right now" in b and "No country meets" not in b and "0</strong> countr" not in b
-                          and "Global Affairs Canada list is not available" in b for _s, _h, b in cold_codes),
-                  "rates, PPP and Canada's list not cached: 200, no-store, \"isn't available right now\", and no "
-                  "upstream call on the request path (urlopen, get_advisories, fetch_json, get_flights: %s)"
-                  % (fetches or "none")))
+                          and "Global Affairs Canada list is not available" in b and "<h1>" in b
+                          for _s, _h, b in cold_codes),
+                  "rates, PPP and Canada's list not cached: the page itself as a 503 with Retry-After 300 and "
+                  "no-store (review #4), \"isn't available right now\", and no upstream call on the request "
+                  "path (urlopen, get_advisories, fetch_json, get_flights: %s)" % (fetches or "none")))
+# The US list alone missing: every month still has the snapshot's US levels
+# (available), so 200 no-store, not a 503.
+saved_us = server._adv_cache.pop("us", None)
+try:
+    us_cold = get("/cheapest/november")
+finally:
+    if saved_us:
+        server._adv_cache["us"] = saved_us
+results.append(ok(us_cold[0] == 200 and us_cold[1].get("Cache-Control") == "no-store"
+                  and "daily snapshot" in us_cold[2],
+                  "the US list alone missing: the snapshot's levels stand in, 200 no-store (%s)" % us_cold[0]))
+
+# /safe-and-cheap without the US feed (none cached, the fetch failing): the
+# snapshot's US levels stand in, a full list, so 200 no-store as /cheapest
+# (never a 503 for the whole outage). With no snapshot either (no US levels
+# and no prices at all) the page goes out as a 503 with Retry-After 300
+# (review #4); with the feed back, 200 again.
+saved_us, saved_get = server._adv_cache.pop("us", None), server.advisories.get_advisories
+saved_doc = server.guide_facts.get_doc
+server.advisories.get_advisories = no_fetch("advisories.get_advisories (us)")
+try:
+    sc_cold = get("/safe-and-cheap")
+    server.guide_facts.get_doc = lambda: None
+    sc_none = get("/safe-and-cheap")
+finally:
+    server.advisories.get_advisories, server.guide_facts.get_doc = saved_get, saved_doc
+    if saved_us:
+        server._adv_cache["us"] = saved_us
+sc_warm = get("/safe-and-cheap")
+results.append(ok(sc_cold[0] == 200 and sc_cold[1].get("Cache-Control") == "no-store"
+                  and sc_cold[1].get("Retry-After") is None
+                  and "daily snapshot of" in sc_cold[2] and "No country meets" not in sc_cold[2]
+                  and "isn't available right now" not in sc_cold[2],
+                  "/safe-and-cheap without the US feed: the snapshot's US levels stand in, 200 no-store (%s)"
+                  % sc_cold[0]))
+results.append(ok(sc_none[0] == 503 and sc_none[1].get("Retry-After") == "300"
+                  and sc_none[1].get("Cache-Control") == "no-store" and sc_none[1].get("X-Robots-Tag") is None
+                  and "isn't available right now" in sc_none[2] and "No country meets" not in sc_none[2]
+                  and "<h1>" in sc_none[2] and sc_warm[0] == 200,
+                  "/safe-and-cheap with no feed and no snapshot: the page as a 503, Retry-After 300, no-store; "
+                  "200 once the feed is back (%s, %s)" % (sc_none[0], sc_warm[0])))
 
 # --- the footer: both links once on every page, guides included -------------------------------
 # index.html's footer (the homepage and every guide, since the Search Console check of

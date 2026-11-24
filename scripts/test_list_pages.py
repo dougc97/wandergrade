@@ -18,7 +18,10 @@ What it holds the code to:
     date;
   * a missing feed still renders, says so (grammar right for two), and
     reports `degraded`; a feed whose refresh is failing (`stale`) is noted by
-    its fetch time, to the hour, and degrades the page too;
+    its fetch time, to the hour, and degrades the page too; the US feed
+    down with the snapshot's US levels standing in is a full list, still
+    available; only no US levels at all, or no prices, is unavailable (the
+    server's 503) and says "isn't available right now", never a count of 0;
   * titles <= 60 characters, descriptions <= 157, exactly one h1, no class
     or id an ad blocker would hide, every /guide/ link a real slug, HTML
     that html.parser accepts, no "None" in the text, the as-of dates on the
@@ -52,7 +55,7 @@ def payload(src, rows):
 
 
 # --- fixtures ---------------------------------------------------------------------
-# Vietnam L1/27%: on the list, Canada says caution (no agree mark). Bhutan
+# Vietnam L1/27%: on the list, Canada says caution (no agree mark). Laos
 # L1/21%: all three lowest (mark). Turkmenistan L1/45% on the alt list, and
 # Canada's caution keeps it off the agree mark too.
 # Portugal L1/60%: the boundary, in. Poland L1/61%: just out. Puerto Rico:
@@ -62,7 +65,7 @@ def payload(src, rows):
 # US and CA; Palestine L4 US+DE, no Canada row.
 US = payload("us", [
     item("VN", 1, "us", updated="2026-06-24", risks=[], summary="Exercise normal precautions in Vietnam."),
-    item("BT", 1, "us", updated="2026-09-04", risks=[]),
+    item("LA", 1, "us", updated="2026-09-04", risks=[]),
     item("TM", 1, "us", updated="2026-03-01", risks=[]),
     item("PT", 1, "us", updated="2026-01-10", risks=[]),
     item("PL", 1, "us", updated="2026-01-10", risks=[]),
@@ -78,7 +81,7 @@ US = payload("us", [
     item("PR", 1, "ca", via="ca", via_name="Global Affairs Canada"),
 ])
 CA = payload("ca", [
-    item("VN", 2, "ca"), item("BT", 1, "ca"), item("TM", 2, "ca"), item("PT", 1, "ca"), item("PL", 1, "ca"),
+    item("VN", 2, "ca"), item("LA", 1, "ca"), item("TM", 2, "ca"), item("PT", 1, "ca"), item("PL", 1, "ca"),
     item("AL", 2, "ca"), item("EG", 2, "ca"), item("AF", 4, "ca"),
     # WanderGrade's record saw Chad move 3 -> 4 and back: today it is 3, raised on 2026-09-30.
     item("TD", 3, "ca", changed="2026-09-30", change="up"),
@@ -86,7 +89,7 @@ CA = payload("ca", [
     item("PR", 1, "ca"),
 ])
 DE = payload("de", [
-    item("VN", 1, "de", updated="2026-02-02"), item("BT", 1, "de", updated="2026-02-02"),
+    item("VN", 1, "de", updated="2026-02-02"), item("LA", 1, "de", updated="2026-02-02"),
     item("TM", 1, "de", updated="2026-02-02"), item("PT", 1, "de", updated="2026-02-02"),
     item("PL", 1, "de", updated="2026-02-02"), item("AL", 1, "de", updated="2026-02-02"),
     item("EG", 2, "de", updated="2026-02-02"), item("AF", 4, "de", updated="2026-08-19"),
@@ -96,7 +99,7 @@ DE = payload("de", [
 ])
 FACTS = {"_asof": "2026-09-28",
          "VN": {"pct": 27, "band": "very cheap", "adv": 1, "src": "us"},
-         "BT": {"pct": 21, "band": "very cheap", "adv": 1, "src": "us"},
+         "LA": {"pct": 21, "band": "very cheap", "adv": 1, "src": "us"},
          "TM": {"pct": 45, "band": "very cheap", "adv": 1, "src": "us"},
          "PT": {"pct": 60, "band": "cheap", "adv": 1, "src": "us"},
          "PL": {"pct": 61, "band": "cheap", "adv": 1, "src": "us"},
@@ -106,10 +109,10 @@ FACTS = {"_asof": "2026-09-28",
          "PR": {"pct": 30, "band": "very cheap", "adv": 1, "src": "ca"},
          # A subdivision carries the UK's figures and is never a row.
          "GB-ENG": {"pct": 20, "band": "very cheap", "adv": 1, "src": "us", "plof": "GB", "advof": "GB"}}
-CLIM = {"VN": {"best": [2, 3, 4, 11], "curated": True}, "BT": {"best": [10, 11, 3, 4], "curated": False},
+CLIM = {"VN": {"best": [2, 3, 4, 11], "curated": True}, "LA": {"best": [10, 11, 3, 4], "curated": False},
         "TM": {"best": [4, 5, 9]}, "PT": {"best": [5, 6, 9, 10], "curated": True}}
 HEALTH = {"built": "2026-09-30", "c": {"VN": {"h": ["Dengue", "Malaria"], "a": ["Malaria"]},
-                                       "BT": {"h": []}, "PT": {"h": []}}}
+                                       "LA": {"h": []}, "PT": {"h": []}}}
 PLH = {"alt": ["TM", "VE"], "years": [], "pl": {}}
 FETCHED = {"us": 1791300000, "ca": 1791300100, "de": 1791300200}   # 2026-10-06 UTC
 TODAY = "2026-10-06"
@@ -177,17 +180,17 @@ def hygiene(page, label):
 
 
 # --- /safe-and-cheap ----------------------------------------------------------------
-fx = {"VND": 4.0, "BTN": -2.0, "EUR": 1.5}
-ppp = {"VN": {"infl": 3.5, "infl_year": 2025}, "BT": {"infl": 4.0, "infl_year": 2025}, "PT": {"infl": 2.0, "infl_year": 2025},
+fx = {"VND": 4.0, "LAK": -2.0, "EUR": 1.5}
+ppp = {"VN": {"infl": 3.5, "infl_year": 2025}, "LA": {"infl": 4.0, "infl_year": 2025}, "PT": {"infl": 2.0, "infl_year": 2025},
        "US": {"infl": 3.0, "infl_year": 2025}}
 S = RL.safe_and_cheap(US, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, fx=fx, ppp=ppp, today=TODAY)
 c, text = hygiene(S, "/safe-and-cheap")
-results.append(ok(S["isos"]["safe"] == ["BT", "VN", "TM", "PT"],
+results.append(ok(S["isos"]["safe"] == ["LA", "VN", "TM", "PT"],
                   "rule: US Level 1 and pct <= 60, by price (Poland at 61 out, Portugal at 60 in, Puerto "
                   "Rico's Canadian fill out, GB-ENG out): %s" % S["isos"]["safe"]))
 results.append(ok(S["counts"] == {"safe": 4, "agree": 2, "near": 1}, "counts %s" % S["counts"]))
-results.append(ok(S["isos"]["agree"] == ["BT", "PT"] and S["html"].count("all three agree") == 2,
-                  "the agree mark where Canada and Germany are at their lowest level (Bhutan, Portugal), "
+results.append(ok(S["isos"]["agree"] == ["LA", "PT"] and S["html"].count("all three agree") == 2,
+                  "the agree mark where Canada and Germany are at their lowest level (Laos, Portugal), "
                   "not Vietnam or Turkmenistan (Canada: high degree of caution)"))
 results.append(ok(re.search(r"<strong>4</strong> countries qualify", S["html"]) and "<strong>2</strong> of them" in S["html"],
                   "the intro's counts are the rows'"))
@@ -208,7 +211,7 @@ lr = re.search(r'<tr>.*?/guide/liberia.*?</tr>', SL["html"], re.S)
 results.append(ok(lr and "49%" in lr.group(0) and '<sup class="fn">†</sup>' not in SL["html"]
                   and RL.ALT_NOTE not in SL["html"],
                   "Liberia (priced in the World Bank's dollar unit, no exchange rate): listed with no † and no note"))
-bt = re.search(r'<tr>.*?/guide/bhutan.*?</tr>', S["html"], re.S).group(0)
+bt = re.search(r'<tr>.*?/guide/laos.*?</tr>', S["html"], re.S).group(0)
 results.append(ok('21% <span class="band">very cheap</span>' in bt and 'title="Very cheap"' not in S["html"]
                   and '60% <span class="band">cheap</span>' in re.search(r'<tr>.*?/guide/portugal.*?</tr>', S["html"], re.S).group(0),
                   "the price band is visible text beside the number, not a tooltip"))
@@ -216,10 +219,10 @@ vn = re.search(r'<tr>.*?/guide/vietnam.*?</tr>', S["html"], re.S).group(0)
 results.append(ok("Normal precautions" in vn and "High degree of caution" in vn and "No warning" in vn,
                   "each government's level in its own words on the row"))
 results.append(ok("February–April and November" in vn and "weather: March, April, October and November" in
-                  re.search(r'<tr>.*?/guide/bhutan.*?</tr>', S["html"], re.S).group(0),
+                  re.search(r'<tr>.*?/guide/laos.*?</tr>', S["html"], re.S).group(0),
                   "best months: curated as such, else the best-weather months, as the guide claims them"))
 results.append(ok('<span class="hnote">Dengue</span><span class="hnote" title="in certain areas">Malaria*</span>' in vn
-                  and "only the usual" in re.search(r'<tr>.*?/guide/bhutan.*?</tr>', S["html"], re.S).group(0),
+                  and "only the usual" in re.search(r'<tr>.*?/guide/laos.*?</tr>', S["html"], re.S).group(0),
                   "Canada's health notes where the document has them, areas marked"))
 results.append(ok("Dollar vs 1-yr avg" in S["html"] and re.search(r'data-l="Dollar vs 1-yr avg"><span class="v">[+-]\d+\.\d%<', vn),
                   "the inflation-adjusted dollar column from the cached rates"))
@@ -230,9 +233,9 @@ SX = RL.safe_and_cheap(US, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED,
                        fx=dict(fx, TMT=0.0), ppp=ppp, today=TODAY)
 cell = lambda page, slug: re.search(r'<tr>.*?/guide/%s.*?data-l="Dollar vs 1-yr avg"><span class="v">(.*?)</span></td>'
                                     % slug, page["html"], re.S).group(1)
-results.append(ok(cell(SX, "bhutan") == "\u22122.5%" and cell(SX, "vietnam").startswith("+")
+results.append(ok(cell(SX, "laos") == "\u22122.5%" and cell(SX, "vietnam").startswith("+")
                   and "%+." not in SX["html"] and not re.search(r'data-l="Dollar vs 1-yr avg"><span class="v">-', SX["html"]),
-                  "the dollar column's minus is U+2212: Bhutan %r" % cell(SX, "bhutan")))
+                  "the dollar column's minus is U+2212: Laos %r" % cell(SX, "laos")))
 results.append(ok(cell(SX, "turkmenistan").endswith('>0.0%</span><sup class="fn">‡</sup>')
                   and "No inflation figure for Turkmenistan" in cell(SX, "turkmenistan")
                   and RL.NO_INFL_NOTE in SX["html"] and RL.NO_INFL_NOTE not in S["html"]
@@ -240,7 +243,7 @@ results.append(ok(cell(SX, "turkmenistan").endswith('>0.0%</span><sup class="fn"
                   "Turkmenistan (no inflation figure): \"0.0%‡\", never \"+0.0%\" as if after inflation, and the "
                   "‡ note; no mark or note where every figure is adjusted"))
 # The rank rides in the name on a phone card, where # is hidden (as /cheapest's .rk).
-results.append(ok(re.search(r'<td class="name" data-l="Country"><span class="rk">1\.</span> \S+ <a href="/guide/bhutan"', S["html"])
+results.append(ok(re.search(r'<td class="name" data-l="Country"><span class="rk">1\.</span> \S+ <a href="/guide/laos"', S["html"])
                   and re.search(r'<span class="rk">4\.</span> \S+ <a href="/guide/portugal"', S["html"])
                   and re.search(r'<span class="rk">1\.</span> \S+ <a href="/guide/albania"', S["html"]),
                   "each row's rank rides in its name cell, both tables"))
@@ -264,9 +267,31 @@ results.append(ok(S3["degraded"] and "Global Affairs Canada feed is not availabl
                   and S3["html"].count("not loaded") >= 4 and S3["counts"]["safe"] == 4 and S3["counts"]["agree"] == 0,
                   "Canada down: renders, says so, degraded, column reads \"not loaded\", no agree marks"))
 S4 = RL.safe_and_cheap(None, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
-results.append(ok(S4["degraded"] and S4["isos"]["safe"] == ["BT", "VN", "TM", "PT"]
+results.append(ok(S4["degraded"] and S4["isos"]["safe"] == ["LA", "VN", "TM", "PT"]
                   and "daily snapshot of 28 Sep 2026" in S4["html"],
                   "US down: the snapshot's US levels stand in, dated, and the page is degraded"))
+results.append(ok(S4["available"] is True and S3["available"] is True and S["available"] is True,
+                  "US down with the snapshot standing in: a full list, available (200 no-store, as /cheapest), "
+                  "never a 503"))
+# No list to draw: no US levels from the feed or the snapshot, or no prices.
+# Only then is the page unavailable (the server's 503, review #4), and it says
+# so: never a count of 0 or "No country meets the rule", in the page or the
+# description.
+no_us = {k: dict(v, src="ca") if isinstance(v, dict) and v.get("src") == "us" else v for k, v in FACTS.items()}
+S8 = RL.safe_and_cheap(None, CA, DE, no_us, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+S9 = RL.safe_and_cheap(US, CA, DE, {}, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+S10 = RL.safe_and_cheap(None, CA, DE, None, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+blank = lambda pg: ("No country meets" not in pg["html"] and "None today" not in pg["html"]
+                    and "<strong>0</strong>" not in pg["html"] and not re.match(r"0 ", pg["desc"])
+                    and "Nearly made it" not in pg["html"] and pg["degraded"] and pg["available"] is False)
+results.append(ok(blank(S8) and "isn't available right now: the US levels are not loaded" in S8["html"]
+                  and "daily snapshot of" not in S8["html"],
+                  "no US feed and no snapshot US levels: unavailable, \"the US levels are not loaded\", no rows"))
+results.append(ok(blank(S9) and "isn't available right now: prices are not loaded" in S9["html"]
+                  and "daily price snapshot is not available" in S9["html"],
+                  "the US feed but no price snapshot: unavailable, \"prices are not loaded\", no rows"))
+results.append(ok(blank(S10) and len(S10["desc"]) <= RL.DESC_MAX and "<h1>" in S10["html"],
+                  "no feed and no snapshot at all: unavailable, the page still renders with its h1 (%r)" % S10["desc"]))
 S5 = RL.safe_and_cheap(US, None, None, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
 results.append(ok("Global Affairs Canada and German Federal Foreign Office (Auswärtiges Amt) feeds are not available right now, "
                   "so their columns read “not loaded”: this page is served uncached until they are back." in S5["html"]
@@ -341,8 +366,121 @@ results.append(ok(newest_ok and RL._newest(RL.own_by_iso(US_FUT)) == "2026-12-02
                   and all("2 Dec 2026" not in p["html"] and "newest advisory dated" in p["html"] for p in (DF, SF)),
                   "a future-dated feed item is not the newest advisory on either page (today caps it; no today: no cap)"))
 
+# --- a mandatory daily visitor fee (review #10) -----------------------------------------
+# Bhutan (visa.json's "fee": US$100 a night) at US Level 1 and 22%: off the
+# list by the rule, named under it with its price and fee; the rule says so.
+FEE = rg.visitor_fee("BT")
+SB = RL.safe_and_cheap(payload("us", US["items"] + [item("BT", 1, "us", updated="2026-09-04", risks=[])]), CA, DE,
+                       dict(FACTS, BT={"pct": 22, "band": "very cheap", "adv": 1, "src": "us"}),
+                       CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+hygiene(SB, "/safe-and-cheap with a fee country")
+feeline = re.search(r'<p class="sub feeout">(.*?)</p>', SB["html"])
+results.append(ok(FEE and FEE["usd"] == 100 and FEE["per"] == "night" and FEE["name"] == "Sustainable Development Fee"
+                  and "BT" not in SB["isos"]["safe"] and SB["isos"]["fee"] == ["BT"]
+                  and SB["isos"]["safe"] == S["isos"]["safe"],
+                  "Bhutan's US$100-a-night fee keeps it off /safe-and-cheap; the rest of the list is unchanged"))
+results.append(ok(feeline and '<a href="/guide/bhutan">Bhutan</a> (22% <span class="fee" title="Sustainable Development Fee: '
+                  'US$100 per person per night' in feeline.group(1) and "+ $100/night fee</span>)" in feeline.group(1)
+                  and "no mandatory daily visitor fee" in SB["html"] and "no mandatory daily visitor fee" in S["html"]
+                  and "feeout" not in S["html"],
+                  "the rule names the fee; the left-out line gives Bhutan's price and fee (tooltip in full), only "
+                  "where a fee country would otherwise qualify"))
+results.append(ok(RL.fee_mark("BT").startswith(' <span class="fee" title="') and RL.fee_mark("VN") == ""
+                  and "Not in the price level." in RL.fee_mark("BT") and "(set until 31 Aug 2027)" in RL.fee_mark("BT"),
+                  "fee_mark: the fee beside a price, the tooltip with its end date; nothing for a country without one"))
+SBn = RL.safe_and_cheap(payload("us", US["items"] + [item("BT", 2, "us", risks=["Crime"])]), CA, DE,
+                        dict(FACTS, BT={"pct": 22, "band": "very cheap", "adv": 2, "src": "us"}),
+                        CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+results.append(ok("BT" not in SBn["isos"]["near"] and SBn["isos"]["near"] == S["isos"]["near"],
+                  "a fee country is never \"Nearly made it\" either"))
+_css = open(os.path.join(ROOT, "public", "styles.css"), encoding="utf-8").read()
+results.append(ok(".listpage .fee {" in _css and ".guidecost .guidefee {" in _css,
+                  "CSS: the fee's own style on the list rows and the guide line"))
+_g = rg.render("BT")["body"]
+results.append(ok(re.search(r"<p>💰 Local prices ≈ \d+% of the US \([^)]*\) \+ \$100/night fee</p>", _g) is not None
+                  and "+ $100/night fee" not in rg.render("NP")["body"],
+                  "the Bhutan guide's served price line carries the fee beside the figure (no other guide)"))
+_app = open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8").read()
+results.append(ok("function visitorFee(iso)" in _app and "${feeHtml}" in _app and _app.count("${feeHtml}") == 2
+                  and "ensureVisa().catch(() => {})]);" in _app,
+                  "app.js renderGuideCost draws the fee beside both of its lines (live and snapshot), from visa.json"))
+
+# --- the newsletter box on the list pages (review #9) ------------------------------------
+# The guides' USD form as server HTML: the same pitch, Buttondown endpoint and
+# embed=1, a plain post into a new tab (no script), the US-dollars line; on
+# /safe-and-cheap, every /cheapest page and /dollar-strength, not
+# /do-not-travel. The account is app.js's own.
+_app = open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8").read()
+_bd = re.search(r'const BUTTONDOWN_USER = "([^"]+)";', _app).group(1)
+_box = RL.subscribe_html()
+from fxtracker import render_strength as RS2, render_cheapest as RC2  # noqa: E402
+_pages = {"/safe-and-cheap": S["html"],
+          "/dollar-strength": RS2.dollar_strength({"as_of": "2026-10-06", "threshold_pct": 2.0, "rows": [
+              {"code": "VND", "strength_pct": 4.0, "favorable": True, "rate_now": 26000.0}]}, ppp, today=TODAY)["html"],
+          "/cheapest/november": RC2._wrap("h", "l", "", ["n"], "s"), "/do-not-travel": D["html"]}
+results.append(ok(RL.BUTTONDOWN_USER == _bd
+                  and '<form action="https://buttondown.com/api/emails/embed-subscribe/%s" method="post" '
+                      'target="_blank" class="subform">' % _bd in _box
+                  and '<input type="hidden" name="embed" value="1">' in _box
+                  and '<input type="email" name="email" placeholder="you@email.com" aria-label="Email address" required>' in _box
+                  and "📬 Once a month: the best-value places to travel, straight to your inbox." in _box
+                  and "Written in US dollars, from a US traveler's point of view." in _box
+                  and "onsubmit" not in _box and "window.open" not in _box and "<script" not in _box
+                  and "next month" not in _box.lower(),
+                  "the box: app.js's account (%s), its pitch and US-dollars line, embed=1, a plain post into a new "
+                  "tab, no popup script, no promise of the list by email" % _bd))
+results.append(ok(all(_box in h for p, h in _pages.items() if p != "/do-not-travel") and _box not in D["html"]
+                  and all(h.count("<form") == 1 for p, h in _pages.items() if p != "/do-not-travel")
+                  and S["html"].index(_box) > S["html"].index('<p class="asof">'),
+                  "on /safe-and-cheap, /cheapest/<month> and /dollar-strength, after the notes and sources; not on "
+                  "/do-not-travel"))
+_c = Check()
+_c.feed('<div class="listpage">%s</div>' % _box)
+_c.close()
+results.append(ok(not _c.open and not [n for n in _c.names if FORBIDDEN.search(n)],
+                  "the box parses and its class names pass the ad-blocker rule: %s" % sorted(set(_c.names))))
+import server  # noqa: E402
+_csp = server.SECURITY_HEADERS["Content-Security-Policy"]
+results.append(ok("form-action" not in _csp or "https://buttondown.com" in _csp.split("form-action", 1)[1].split(";")[0],
+                  "CSP lets the form post to Buttondown (no form-action, or one naming it)"))
+
+# --- phone cards (review #28) -------------------------------------------------------------
+# Two columns below 1024px at every width, labels above values, a dash-only
+# cell left out of the card, /dollar-strength's "Before inflation" out below
+# 520px; short labels on the rows.
+_cssall = open(os.path.join(ROOT, "public", "styles.css"), encoding="utf-8").read()
+_lb = _cssall[_cssall.index(".listbox {"):_cssall.index("/* /dollar-strength (fxtracker/render_strength.py)")]
+_phone = re.search(r"@media \(max-width: 519px\) \{(.*?)\n\}", _lb, re.S)
+results.append(ok(".listtable tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);" in _lb
+                  and "@media (min-width: 520px) and (max-width: 1023px)" not in _lb
+                  and re.search(r"@media \(max-width: 1023px\) \{\s*\.listtable td\.nil \{ display: none; \}", _lb)
+                  and _phone and ".listtable td { display: block;" in _phone.group(1)
+                  and ".listtable td::before { display: block;" in _phone.group(1)
+                  and ".listtable td.wide { grid-column: 1 / -1; }" in _phone.group(1)
+                  and ".listtable td.dsbefore { display: none; }" in _phone.group(1),
+                  "CSS: two-column cards below 1024px at every width (label beside from 520px, above below it), "
+                  "dash-only cells out; below 520px a lone row of chips full width and Before inflation out"))
+_chip = RL._cell("Health notes", '<span class="chips"><span class="hnote">Dengue</span></span>')
+_odd = RL._card([RL._cell("A", "1"), RL._cell("B", "2"), _chip])
+_even = RL._card([RL._cell("A", "1"), _chip])
+_nil = RL._card([RL._cell("A", "1"), RL._cell("B", "—"), _chip])
+results.append(ok('<td data-l="Health notes" class="wide">' in _odd and 'class="wide"' not in _even
+                  and 'class="wide"' not in _nil
+                  and '<td data-l="Health notes" class="wide">' in re.search(r'<tr>.*?/guide/vietnam.*?</tr>', S["html"], re.S).group(0)
+                  and 'class="wide"' not in D["html"],
+                  "_card: a row of chips that would start the card's last pair alone is wide (a nil cell not "
+                  "counted); beside a neighbour it isn't (/do-not-travel's US reasons sit by Germany)"))
+results.append(ok('data-l="Prices"><span class="v">' in S["html"] and 'data-l="Prices vs US"' not in S["html"]
+                  and "<th>Prices vs US</th>" in S["html"]
+                  and re.search(r'<td data-l="Best months" class="nil"><span class="v">—</span></td>', S["html"])
+                  and RL._cell("X", "—<sup class=\"fn\">*</sup>").startswith('<td data-l="X" class="nil">')
+                  and RL._cell("X", '<span title="t">—</span>', cls="k").startswith('<td data-l="X" class="k nil">')
+                  and RL._cell("X", "only the usual") == '<td data-l="X"><span class="v">only the usual</span></td>',
+                  "rows: the short \"Prices\" label (the header keeps \"Prices vs US\"); a dash, footnote mark or "
+                  "tooltip and all, is class nil; anything else is not"))
+
 # --- one of a kind: the counts read in the singular ------------------------------------
-S1 = RL.safe_and_cheap(US, CA, DE, {"_asof": FACTS["_asof"], "BT": FACTS["BT"], "AL": FACTS["AL"]},
+S1 = RL.safe_and_cheap(US, CA, DE, {"_asof": FACTS["_asof"], "LA": FACTS["LA"], "AL": FACTS["AL"]},
                        CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
 D1 = RL.do_not_travel(payload("us", [item("AF", 4, "us"), item("CO", 3, "us")]),
                       payload("ca", [item("AF", 4, "ca"), item("CO", 2, "ca")]),

@@ -159,11 +159,16 @@ def _country_cell(iso, name, extra=""):
     return '<td class="name" data-l="Country">%s%s</td>' % (_country(iso, name), extra)
 
 
-def _cell(label, inner, attrs=""):
-    """A labelled cell: on a phone the label is drawn from data-l and the
-    value sits beside it as ONE flex item (.v), so a pill, its date and a
-    row of chips wrap inside the value instead of each becoming a column."""
-    return '<td data-l="%s"%s><span class="v">%s</span></td>' % (html.escape(label, quote=True), attrs, inner)
+def _cell(label, inner, attrs="", cls=""):
+    """A labelled cell: below 1024px the row is a two-column card and the
+    label, drawn from data-l, sits above the value (ONE block, .v), so a
+    pill, its date and a row of chips wrap inside the value. A cell with
+    nothing to say (a bare dash, footnote mark and all) is class "nil",
+    which the card leaves out (styles.css); the table keeps its dash."""
+    text = re.sub(r"<[^>]+>", "", inner or "").strip()
+    classes = " ".join(c for c in (cls, "nil" if text in ("—", "—*") else "") if c)
+    return '<td data-l="%s"%s%s><span class="v">%s</span></td>' % (
+        html.escape(label, quote=True), ' class="%s"' % classes if classes else "", attrs, inner)
 
 
 def _pill(src, it, missing="no rating"):
@@ -195,6 +200,24 @@ def _when(it):
         # dated by its publish date — the only change a feed reports itself.
         bits.append({"up": "raised", "down": "lowered"}[it["change"]])
     return ('<span class="when">%s</span>' % " · ".join(bits)) if bits else ""
+
+
+def _card(cells):
+    """A row's labelled cells with the phone card's one layout hint: a row
+    of chips that would start the last pair of the card alone (an even
+    count of shown cells before it; a "nil" cell isn't shown) is class
+    "wide", the card's full width below 520px (styles.css), where its chips
+    would otherwise wrap down a half-width column beside nothing. Anywhere
+    else it keeps its half: widened, it would leave its neighbour alone."""
+    shown = [i for i, td in enumerate(cells) if not re.match(r'<td [^>]*class="[^"]*\bnil\b', td)]
+    if shown and len(shown) % 2 == 1:
+        i = shown[-1]
+        td = cells[i]
+        if 'class="chips"' in td:
+            head, rest = td.split(">", 1)
+            head = (head.replace(' class="', ' class="wide ', 1) if ' class="' in head else head + ' class="wide"')
+            cells = cells[:i] + [head + ">" + rest] + cells[i + 1:]
+    return "".join(cells)
 
 
 def _gov_cell(src, it, missing="no rating"):
@@ -230,16 +253,40 @@ def _fit(variants, limit):
     return rg._clip(variants[-1], limit)
 
 
-def _page(h1, lede, body, notes, sources):
+# The newsletter's Buttondown account (app.js BUTTONDOWN_USER; scripts/
+# test_list_pages.py holds the two equal).
+BUTTONDOWN_USER = "wandergrade"
+
+
+def subscribe_html():
+    """The guides' US-dollar newsletter box (app.js subscribeFormHTML's
+    USD-only form) as server HTML, for the list pages, which load no app.js:
+    the same pitch, the same Buttondown endpoint with embed=1, a plain form
+    post into a new tab (no popup script), and the same "US dollars" line.
+    Never "next month's list by email": the issue is a digest, not the list."""
+    return ('<div class="subscribe listsub">'
+            '<span class="sublabel">📬 Once a month: the best-value places to travel, straight to your '
+            'inbox.</span>'
+            '<form action="https://buttondown.com/api/emails/embed-subscribe/%s" method="post" target="_blank" '
+            'class="subform">'
+            '<input type="email" name="email" placeholder="you@email.com" aria-label="Email address" required>'
+            '<input type="hidden" name="embed" value="1">'
+            '<button type="submit">Subscribe</button></form>'
+            '<span class="subnote">Written in US dollars, from a US traveler\'s point of view.</span></div>'
+            % BUTTONDOWN_USER)
+
+
+def _page(h1, lede, body, notes, sources, subscribe=False):
     """One page body: a single h1, the rule or counts as the lede, the
-    sections, footnotes, then the dated sources. Minimal copy by design — the
-    tables do the talking, the rest is in tooltips (title attributes: these
-    pages carry no JavaScript)."""
+    sections, footnotes, then the dated sources, and (subscribe=True: the
+    pages a monthly reader would follow, not /do-not-travel) the newsletter
+    box last. Minimal copy by design — the tables do the talking, the rest
+    is in tooltips (title attributes: these pages carry no JavaScript)."""
     return ('<div class="listpage"><h1>%s</h1><p class="lede">%s</p>%s%s'
-            '<p class="asof">%s</p></div>'
+            '<p class="asof">%s</p>%s</div>'
             % (h1, lede, body,
                "".join('<p class="note">%s</p>' % n for n in notes if n),
-               sources))
+               sources, subscribe_html() if subscribe else ""))
 
 
 def _missing_note(missing):
@@ -347,6 +394,27 @@ def _plural(n, one, many):
     return one if n == 1 else many
 
 
+def fee_mark(iso):
+    """A mandatory daily visitor fee beside a row's price (render_guide
+    visitor_fee: Bhutan's), the fee in full in its tooltip, or ''."""
+    fee = rg.visitor_fee(iso)
+    if not fee:
+        return ""
+    return ' <span class="fee" title="%s">%s</span>' % (html.escape(rg.fee_tip(fee), quote=True),
+                                                       html.escape(rg.fee_short(fee)))
+
+
+def fee_left_out(isos, pct_of, when=""):
+    """The line naming the countries the "no mandatory daily visitor fee"
+    rule keeps off a list they otherwise make, each with its price and fee
+    (`pct_of`: ISO -> the whole percent the page prints), or ''."""
+    if not isos:
+        return ""
+    return ('<p class="sub feeout">Left out for a mandatory daily visitor fee%s: %s.</p>'
+            % (when, ", ".join("%s (%d%%%s)" % (_country(iso, _name(iso)), pct_of(iso), fee_mark(iso))
+                               for iso in isos)))
+
+
 def _fx_cell(real, iso=None, ppp=None):
     """The Dollar vs 1-yr avg cell: app.js signedPct's figure (a true minus,
     "0.0%" unsigned), ‡-marked when the country has no inflation figure."""
@@ -361,10 +429,13 @@ def _fx_cell(real, iso=None, ppp=None):
     return txt
 
 
-def safe_rows(us, facts):
-    """[(pct, iso)] for the rule: the US's own Level 1 and pct <= SAFE_PCT, by
-    price. Only guides (the facts document's entries), never a subdivision
-    (England, Scotland and Wales carry the UK's figures and aren't countries)."""
+def safe_rows(us, facts, fee=False):
+    """[(pct, iso)] for the rule: the US's own Level 1, pct <= SAFE_PCT and no
+    mandatory daily visitor fee (render_guide.visitor_fee: Bhutan's US$100 a
+    night is no part of its 21%), by price. Only guides (the facts
+    document's entries), never a subdivision (England, Scotland and Wales
+    carry the UK's figures and aren't countries). fee=True: instead the
+    countries the fee alone keeps off."""
     rows = []
     for iso, f in (facts or {}).items():
         if iso.startswith("_") or "-" in iso or not isinstance(f, dict):
@@ -373,20 +444,23 @@ def safe_rows(us, facts):
         it = us.get(iso)
         if pct is None or not it or it["level"] != SAFE_US_LEVEL or pct > SAFE_PCT:
             continue
+        if bool(rg.visitor_fee(iso)) != fee:
+            continue
         rows.append((pct, iso))
     return sorted(rows, key=lambda r: (r[0], _name(r[1])))
 
 
 def near_rows(us, facts):
-    """[(pct, iso)]: US Level 2 and prices under NEAR_PCT — the cheap places
-    one government's "increased caution" keeps off the list above."""
+    """[(pct, iso)]: US Level 2 and prices under NEAR_PCT, no mandatory daily
+    visitor fee — the cheap places one government's "increased caution"
+    keeps off the list above."""
     rows = []
     for iso, f in (facts or {}).items():
         if iso.startswith("_") or "-" in iso or not isinstance(f, dict):
             continue
         pct = f.get("pct")
         it = us.get(iso)
-        if pct is None or not it or it["level"] != 2 or pct >= NEAR_PCT:
+        if pct is None or not it or it["level"] != 2 or pct >= NEAR_PCT or rg.visitor_fee(iso):
             continue
         rows.append((pct, iso))
     return sorted(rows, key=lambda r: (r[0], _name(r[1])))
@@ -416,14 +490,26 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
         # The snapshot's US levels: same source, up to a day older.
         us_own = {iso: {"level": f["adv"], "level_text": ""} for iso, f in facts.items()
                   if isinstance(f, dict) and f.get("src") == "us" and isinstance(f.get("adv"), int)}
-        notes.append("The US State Department feed is not available right now: the US levels are "
-                     "from WanderGrade's daily snapshot of %s. This page is served uncached until "
-                     "the feed is back." % html.escape(_day(facts.get("_asof"))))
+        if us_own:
+            notes.append("The US State Department feed is not available right now: the US levels are "
+                         "from WanderGrade's daily snapshot of %s. This page is served uncached until "
+                         "the feed is back." % html.escape(_day(facts.get("_asof"))))
+    # Whether the rule can be applied at all (render_cheapest.available's
+    # test): some US levels, the feed's or the snapshot's, and prices. Only
+    # without them is the page "not available" (a 503, review #4); the
+    # snapshot standing in for the feed is a full list, served uncached.
+    priced = any(isinstance(f, dict) and f.get("pct") is not None
+                 for iso, f in facts.items() if not iso.startswith("_"))
+    have = bool(us_own) and priced
+    if not priced:
+        notes.append("WanderGrade's daily price snapshot is not available right now: this page is "
+                     "served uncached until it is back.")
     ca_own, de_own = own["ca"] or {}, own["de"] or {}
     alt = alt_marked((pl_history or {}).get("alt"))
     hc = (health or {}).get("c") or {}
 
     rows = safe_rows(us_own, facts)
+    fee_out = [iso for _p, iso in safe_rows(us_own, facts, fee=True)]
     agree = [iso for _p, iso in rows
              if (ca_own.get(iso) or {}).get("level") == LOWEST["ca"]
              and (de_own.get(iso) or {}).get("level") == LOWEST["de"]]
@@ -449,9 +535,10 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
             # The space is for the text alone ("21% very cheap" copied or
             # crawled); the CSS draws a dot on phones and a new line from 900px.
             pct_txt += ' <span class="band">%s</span>' % html.escape(band)
+        pct_txt += fee_mark(iso)
         # The rank rides in the name on a phone, where the # column is hidden (as /cheapest's).
         cells = ['<td class="name" data-l="Country"><span class="rk">%d.</span> %s%s</td>'
-                 % (n, _country(iso, _name(iso)), mark), _cell("Prices vs US", pct_txt)]
+                 % (n, _country(iso, _name(iso)), mark), _cell("Prices", pct_txt)]
         if nearly:
             it = us_own.get(iso) or {}
             cells.append(_cell("US", _pill("us", it) + _chips(it.get("risks") or [], title=it.get("summary") or None)))
@@ -477,7 +564,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
                     '<span class="hnote"%s>%s%s</span>'
                     % (' title="in certain areas"' if w in areas else "", html.escape(w), "*" if w in areas else "")
                     for w in h["h"])))
-        return '<tr><td class="num" data-l="#">%d</td>%s</tr>' % (n, "".join(cells))
+        return '<tr><td class="num" data-l="#">%d</td>%s%s</tr>' % (n, cells[0], _card(cells[1:]))
 
     head = ["#", "Country", "Prices vs US", "US State Dept", "Global Affairs Canada", "German Foreign Office"]
     if show_fx:
@@ -500,15 +587,23 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
     else:
         also = ("<strong>%d</strong> of them %s also at the lowest level for Canada and Germany"
                 % (len(agree), _plural(len(agree), "is", "are")))
-    lede = ("The rule: <strong>US State Department Level %d</strong> (“exercise normal precautions”) "
-            "and <strong>local prices at or under %d%% of the US</strong>. <strong>%d</strong> %s "
-            "today, cheapest first; %s." % (SAFE_US_LEVEL, SAFE_PCT, len(rows),
-                                            _plural(len(rows), "country qualifies", "countries qualify"), also))
-    body = table
-    body += ('<h2>Nearly made it: cheap, but US Level 2</h2>'
-             '<p class="sub"><strong>%d</strong> %s under %d%% of US prices where the State Department '
-             "says “exercise increased caution”, with its reasons.</p>%s"
-             % (len(near), _plural(len(near), "country", "countries"), NEAR_PCT, near_table))
+    rule = ("The rule: <strong>US State Department Level %d</strong> (“exercise normal precautions”), "
+            "<strong>local prices at or under %d%% of the US</strong> and <strong>no mandatory daily visitor "
+            "fee</strong>." % (SAFE_US_LEVEL, SAFE_PCT))
+    if have:
+        lede = ("%s <strong>%d</strong> %s today, cheapest first; %s."
+                % (rule, len(rows), _plural(len(rows), "country qualifies", "countries qualify"), also))
+        body = table + fee_left_out(fee_out, lambda iso: facts[iso]["pct"])
+        body += ('<h2>Nearly made it: cheap, but US Level 2</h2>'
+                 '<p class="sub"><strong>%d</strong> %s under %d%% of US prices where the State Department '
+                 "says “exercise increased caution”, with its reasons.</p>%s"
+                 % (len(near), _plural(len(near), "country", "countries"), NEAR_PCT, near_table))
+    else:
+        # No count and no empty table: never "0 countries qualify" or "No
+        # country meets the rule" for a list that can't be drawn (as /cheapest).
+        lede = ("%s The list isn't available right now: %s not loaded (see the note below)."
+                % (rule, "prices are" if not priced else "the US levels are"))
+        body = ""
     if alt_used:
         notes.append(ALT_NOTE)
     if no_infl:
@@ -529,21 +624,31 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
     title = _fit(["Safest Cheap Countries to Visit in %s (Data, Not Opinion)" % year,
                   "Safest Cheap Countries to Visit in %s (Data)" % year], TITLE_MAX)
     cn = _plural(len(rows), "country", "countries")
-    desc = _fit(["%d %s at US State Dept Level 1 with prices at or under %d%% of the US, cheapest "
-                 "first, with Canada's and Germany's levels, best months and health notes. As of %s."
-                 % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today)),
-                 "%d %s at US Level 1 with prices at or under %d%% of the US, with Canada's and "
-                 "Germany's levels, best months and health notes. As of %s."
-                 % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today))], DESC_MAX)
+    if have:
+        desc = _fit(["%d %s at US State Dept Level 1 with prices at or under %d%% of the US, cheapest "
+                     "first, with Canada's and Germany's levels, best months and health notes. As of %s."
+                     % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today)),
+                     "%d %s at US Level 1 with prices at or under %d%% of the US, with Canada's and "
+                     "Germany's levels, best months and health notes. As of %s."
+                     % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today))], DESC_MAX)
+    else:
+        desc = _fit(["Countries at US State Dept Level 1 with prices at or under %d%% of the US, cheapest "
+                     "first, with Canada's and Germany's levels, best months and health notes." % SAFE_PCT],
+                    DESC_MAX)
     return {
         "path": "/safe-and-cheap",
         "title": title, "desc": desc, "h1": h1,
-        "html": _page(html.escape(h1), lede, body, notes, sources),
+        "html": _page(html.escape(h1), lede, body, notes, sources, subscribe=True),
         # The day the page's data last changed: the snapshot's own date.
         "lastmod": lastmod_of(facts.get("_asof")),
-        "degraded": bool(missing or stale),
+        "degraded": bool(missing or stale or not have),
+        # Only a page with no list to draw (no US levels from the feed or the
+        # snapshot, or no prices) goes out as a 503, so a crawler keeps its
+        # last good copy (server.py, review #4); the snapshot standing in for
+        # the US feed is a full list, 200 and uncached, as on /cheapest.
+        "available": have,
         "counts": {"safe": len(rows), "agree": len(agree), "near": len(near)},
-        "isos": {"safe": [i for _p, i in rows], "agree": agree, "near": [i for _p, i in near]},
+        "isos": {"safe": [i for _p, i in rows], "agree": agree, "near": [i for _p, i in near], "fee": fee_out},
     }
 
 
@@ -607,7 +712,7 @@ def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
             cells.append(_gov_cell(src, (own[src] or {}).get(iso), "not loaded" if src in missing else "no rating"))
         risks = (us_it or {}).get("risks") or []
         cells.append(_cell("US reasons", _chips(risks, title=(us_it or {}).get("summary") or None) or "—"))
-        return "<tr>%s</tr>" % "".join(cells)
+        return "<tr>%s%s</tr>" % (cells[0], _card(cells[1:]))
 
     def table(isos, empty):
         head = ["Country", "US State Dept", "Global Affairs Canada", "German Foreign Office", "US reasons"]

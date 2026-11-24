@@ -16,6 +16,7 @@ import _thread
 import base64
 import collections
 import contextlib
+import difflib
 import gzip
 import hmac
 import html
@@ -729,7 +730,8 @@ def _sitemap():
     return ("\n".join(out) + "\n").encode("utf-8")   # _send_body takes bytes
 
 
-_DATA_TITLE = "Cost of Living by Country — Free CSV & JSON Dataset | WanderGrade"
+# 50 characters: the 65 with " | WanderGrade" were cut in results (review #32).
+_DATA_TITLE = "Cost of Living by Country: Free CSV & JSON Dataset"
 def _dataset_count():
     """Rows in the live dataset — the count the /data copy quotes. It was
     hardcoded, and went stale the day Aruba, Curacao and Sierra Leone joined."""
@@ -882,6 +884,42 @@ def _shell_page(title, body, head="", analytics=True, credits=True):
     ).encode("utf-8")
 
 
+def _data_jsonld():
+    """schema.org Dataset markup for /data (Google's dataset search reads
+    it): the two downloads, the sources it is built on, and the rates' date
+    as dateModified (left out while the dataset is down). No license
+    property: the page offers reuse with attribution, which is no named
+    licence, so none is claimed (Doug's call, review #32)."""
+    try:
+        asof = _dataset()["payload"]["meta"]["rates_as_of"]
+    except Exception:
+        asof = None
+    doc = {
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "name": "Cost of living by country: price levels vs the US",
+        "description": _data_desc(),
+        "url": _SITE + "/data",
+        "keywords": ["cost of living", "price level", "purchasing power parity", "PPP",
+                     "exchange rates", "travel costs"],
+        "isAccessibleForFree": True,
+        "creator": {"@type": "Organization", "name": "WanderGrade", "url": _SITE + "/"},
+        "isBasedOn": ["https://data.worldbank.org", "https://fxratesapi.com"],
+        "variableMeasured": ["price_level", "usd100_buys"],
+        "distribution": [
+            {"@type": "DataDownload", "encodingFormat": "text/csv",
+             "contentUrl": _SITE + "/data/price-levels.csv"},
+            {"@type": "DataDownload", "encodingFormat": "application/json",
+             "contentUrl": _SITE + "/data/price-levels.json"},
+        ],
+    }
+    if asof and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(asof)):
+        doc["dateModified"] = asof
+    # "</" can't close the script early: the JSON's own escape for "/".
+    return ('<script type="application/ld+json">%s</script>'
+            % json.dumps(doc, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/"))
+
+
 def _render_data_page():
     """A whole, self-contained HTML document for /data — no app.js.
     Carries the same og:image/twitter card as every other page: this is the
@@ -897,7 +935,7 @@ def _render_data_page():
         '<meta property="og:site_name" content="WanderGrade">'
         '<meta property="og:image" content="%s/og.png">'
         '<meta name="twitter:card" content="summary_large_image">'
-        % (desc, _SITE, desc, _SITE, _SITE))
+        % (desc, _SITE, desc, _SITE, _SITE)) + _data_jsonld()
     return _shell_page(_DATA_TITLE, _data_page_body(), head)
 
 
@@ -1176,7 +1214,7 @@ def _list_page(path):
     page = render()
     out = {"bytes": _shell_page(page["title"], page["html"], _list_head(path, page["title"], page["desc"]),
                                 credits=_LIST_CREDITS[path]),
-           "degraded": page["degraded"]}
+           "degraded": page["degraded"], "available": page.get("available", True)}
     _list_memo[path] = (key, docs, out)
     return out
 
@@ -1201,7 +1239,7 @@ _STRENGTH_CREDITS = ('Data: <a href="https://fxratesapi.com" rel="noopener" targ
                      'euro_reference_exchange_rates/html/index.en.html" rel="noopener" target="_blank">'
                      "ECB reference rates</a> (index history since 1999) &middot; "
                      '<a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
-                     "(PPP, inflation) &middot; ")
+                     "(PPP, inflation) &middot; Advisories: " + _ADV_LINKS + " &middot; ")
 _strength_memo = [None]        # (key, inputs, out), swapped whole: request threads share it
 _strength_idx_memo = [None]    # (history snapshot, day, index payloads)
 _strength_warm = {"busy": False, "at": 0.0}
@@ -1259,16 +1297,20 @@ def _strength_page():
     # Currency tab (app.js nowYearFrac) carry them, so the three agree.
     utc_day = time.strftime("%Y-%m-%d", time.gmtime())
     idx = _strength_index(_strength_history(), day)
-    key = (id(rp), id(ppp), id(idx), day, utc_day)
+    # The three advisory lists as the cache holds them, never a fetch (as
+    # /cheapest reads them): the red "Do not travel" pill beside a place any
+    # of them rates Level 4 (review #27).
+    adv, _fetched, _stale = _cheap_adv()
+    key = (id(rp), id(ppp), id(idx), day, utc_day) + tuple(id(adv[s]) for s in _ADV_SRCS)
     hit = _strength_memo[0]
     if hit and hit[0] == key:
         return hit[2]
-    page = render_strength.dollar_strength(rp, ppp, idx, today=day, price_day=utc_day)
+    page = render_strength.dollar_strength(rp, ppp, idx, today=day, price_day=utc_day, adv=adv)
     out = {"bytes": _shell_page(page["title"], page["html"],
                                 _list_head(render_strength.PATH, page["title"], page["desc"]),
                                 credits=_STRENGTH_CREDITS),
            "degraded": page["degraded"]}
-    _strength_memo[0] = (key, (rp, ppp, idx), out)
+    _strength_memo[0] = (key, (rp, ppp, idx, tuple(adv[s] for s in _ADV_SRCS)), out)
     return out
 
 
@@ -1347,7 +1389,7 @@ def _cheap_fares():
 
 
 def _cheap_page(path):
-    """{bytes, degraded} for one of render_cheapest.PATHS, memoized on the
+    """{bytes, degraded, available} for one of render_cheapest.PATHS, memoized on the
     identity of the inputs (a refreshed list, rates entry, PPP table,
     snapshot or fares payload is a new object), the UTC day (the months'
     years, the curves' window), the fares' state, a failing list's age to
@@ -1367,7 +1409,7 @@ def _cheap_page(path):
                                   stale=stale, today=today, pl_alt=(docs[8] or {}).get("alt"))
     out = {p: {"bytes": _shell_page(pg["title"], pg["html"], _list_head(p, pg["title"], pg["desc"]),
                                     credits=_CHEAP_CREDITS),
-               "degraded": pg["degraded"]} for p, pg in pages.items()}
+               "degraded": pg["degraded"], "available": pg["available"]} for p, pg in pages.items()}
     _cheap_memo[0] = (key, docs, fv, out)
     return out[path]
 
@@ -1375,14 +1417,81 @@ def _cheap_page(path):
 _NOINDEX = '<meta name="robots" content="noindex">'
 
 
-def _render_404_page(message):
-    """Human-facing 404: a way back in plus the guide index, not bare JSON."""
+# The shell pages a 404 may point to, by the footer's own names. Any other
+# lowercase page (_LOWER_PATHS, the months included) is named from its path.
+_PAGE_LABELS = {"/safe-and-cheap": "Safest cheap countries", "/do-not-travel": "Do Not Travel list",
+                "/cheapest": "Cheapest by month", "/dollar-strength": "Dollar strength",
+                "/data": "The price-level dataset", "/privacy": "Privacy"}
+# Past this many characters a 404 path is nobody's typo: no suggestion, so a
+# long junk URL can't buy difflib time.
+_SUGGEST_MAX = 80
+_guide_candidates = None
+
+
+def _guide_suggest_map():
+    """{spelling: slug} for every guide: its slug, its name slugified and the
+    aliases _guide_redirect already 301s — what a typo is measured against.
+    Built once: the slug list only changes on deploy."""
+    global _guide_candidates
+    if _guide_candidates is None:
+        iso_to_slug = {iso: sl for sl, iso in render_guide.all_slugs()}
+        out = {}
+        for slug, iso in render_guide.all_slugs():
+            out[slug] = slug
+            out.setdefault(_slugish(render_guide.name_for_iso(iso) or slug), slug)
+        for alias, iso in GUIDE_ALIASES.items():
+            if iso in iso_to_slug:
+                out.setdefault(alias, iso_to_slug[iso])
+        _guide_candidates = out
+    return _guide_candidates
+
+
+def _did_you_mean(path):
+    """(href, label) for a 404 path one typo away from a page, else None:
+    /guide/columbia -> Colombia, /cheapest/febuary -> February,
+    /safe-and-cheep -> Safest cheap countries. difflib's ratio, so a
+    near-miss of a few letters, never a guess from a word or two."""
+    if not path or len(path) > _SUGGEST_MAX:
+        return None
+    low = path.lower().rstrip("/")
+    if low.startswith("/guide/"):
+        word = _slugish(low[len("/guide/"):])
+        cands = _guide_suggest_map()
+        hit = difflib.get_close_matches(word, list(cands), n=1, cutoff=0.75) if word else []
+        if not hit:
+            return None
+        slug = cands[hit[0]]
+        iso = render_guide.iso_for_slug(slug)
+        return "/guide/" + slug, render_guide.name_for_iso(iso) or slug
+    if low.startswith(render_cheapest.HUB + "/"):
+        word = low[len(render_cheapest.HUB) + 1:]
+        hit = difflib.get_close_matches(word, list(render_cheapest.SLUGS), n=1, cutoff=0.7)
+        if not hit:
+            return None
+        m = render_cheapest.SLUGS.index(hit[0]) + 1
+        return render_cheapest.path_for(m), "Cheapest countries in " + render_guide.MON_FULL[m - 1]
+    pages = sorted(_LOWER_PATHS)
+    hit = difflib.get_close_matches(low, pages, n=1, cutoff=0.8)
+    if not hit:
+        return None
+    m = render_cheapest.month_of(hit[0])
+    label = _PAGE_LABELS.get(hit[0]) or ("Cheapest countries in " + render_guide.MON_FULL[m - 1] if m
+                                         else hit[0].strip("/").replace("-", " ").capitalize())
+    return hit[0], label
+
+
+def _render_404_page(message, suggest=None):
+    """Human-facing 404: a way back in plus the guide index, open (it is
+    what the reader came for), not bare JSON. `suggest`: _did_you_mean's
+    (href, label), said first."""
+    dym = ('<p class="didyoumean">Did you mean <a href="%s"><strong>%s</strong></a>?</p>'
+           % (html.escape(suggest[0], quote=True), html.escape(suggest[1]))) if suggest else ""
     body = (
-        '<div class="ssrguide"><h1>%s</h1>'
+        '<div class="ssrguide"><h1>%s</h1>%s'
         '<p><a href="/"><strong>Back to WanderGrade →</strong></a></p></div>'
-        '<details class="guideindex"><summary>Browse all %d country guides</summary>'
+        '<details class="guideindex" open><summary>Browse all %d country guides</summary>'
         '<nav class="guideindex-links">%s</nav></details>'
-        % (html.escape(message), _guide_count(), _guide_links()))
+        % (html.escape(message), dym, _guide_count(), _guide_links()))
     # No data on this page, so no data credits in its footer.
     return _shell_page("Not found | WanderGrade", body, _NOINDEX, credits=False)
 
@@ -2375,6 +2484,13 @@ PAGE_SLOTS = 2
 PAGE_SLOT_WAIT = 15
 PAGE_QUEUE_MAX = 8      # slot-route requests waiting at once before new ones get 503 at once
 SHED_RETRY_AFTER = 30   # seconds, the 503's Retry-After
+# A list page whose inputs aren't in hand yet (after a restart, prices, climate
+# or every US level missing: render_cheapest.available, or /safe-and-cheap
+# with no US levels from the feed or the snapshot, or no prices) is the same
+# page sent as a 503 with this Retry-After, so a crawler never stores its
+# "isn't available right now" copy. The snapshot standing in for the US feed
+# is a full list: 200, uncached.
+LIST_UNAVAILABLE_RETRY = 300
 # The way out if the slot holders themselves hang (no known path does: a
 # stalled write gives up after Handler.CLIENT_IO_TIMEOUT, inline network
 # waits give their slot back and time out): when every slot has been held
@@ -2923,7 +3039,12 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/") or path.endswith(".json"):
             self._send_json({"error": "not found"}, 404)
             return
-        self._send_body(_render_404_page(message), "text/html; charset=utf-8", 404,
+        try:
+            suggest = _did_you_mean(path)
+        except Exception as e:   # a suggestion is a nicety: never a 500 instead of the 404
+            print("[404] no suggestion for %r: %s" % (path[:80], e), flush=True)
+            suggest = None
+        self._send_body(_render_404_page(message, suggest), "text/html; charset=utf-8", 404,
                         cache="no-store", extra=[("X-Robots-Tag", "noindex")])
 
     def _send_file(self, path, versioned=False):
@@ -3119,12 +3240,15 @@ class Handler(BaseHTTPRequestHandler):
                   'right now. Please try again in a minute.</p><p><a href="/">WanderGrade</a></p>'
                   '</body></html>').encode("utf-8")
 
-    def _send_busy(self):
+    def _send_busy(self, body=None, retry_after=None):
         # No X-Robots-Tag: Google ignores a 5xx's body anyway, and a crawler
         # that applied noindex whatever the status could drop the URL itself;
-        # 503 + Retry-After says "come back later" on its own.
-        self._send_body(self._BUSY_PAGE, "text/html; charset=utf-8", 503, cache="no-store",
-                        extra=[("Retry-After", str(SHED_RETRY_AFTER))])
+        # 503 + Retry-After says "come back later" on its own. `body`: a page
+        # rendered without its data (a list page before its inputs load,
+        # LIST_UNAVAILABLE_RETRY) goes out as itself, the reader sees what it
+        # says, and Google keeps its last good copy instead of the empty one.
+        self._send_body(self._BUSY_PAGE if body is None else body, "text/html; charset=utf-8", 503,
+                        cache="no-store", extra=[("Retry-After", str(retry_after or SHED_RETRY_AFTER))])
 
     def do_GET(self):
         slots = _page_slots
@@ -3367,6 +3491,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path in _LIST_PATHS:
             page = _list_page(path)
+            if not page.get("available", True):
+                # /safe-and-cheap with no list to draw: a 503 with the page.
+                self._send_busy(page["bytes"], LIST_UNAVAILABLE_RETRY)
+                return
             # no-store while a feed is down: Cloudflare must never hold a copy
             # whose column reads "not loaded" for its five minutes.
             self._send_body(page["bytes"], "text/html; charset=utf-8",
@@ -3407,13 +3535,25 @@ class Handler(BaseHTTPRequestHandler):
             # The hub and the twelve months; the slash variant 301s to its
             # canonical URL, query and all, and anything else under /cheapest/
             # (another spelling, a deeper path) is the site's 404.
+            seg = path[len(render_cheapest.HUB) + 1:].rstrip("/")
             if path in render_cheapest.PATHS:
                 page = _cheap_page(path)
-                self._send_body(page["bytes"], "text/html; charset=utf-8",
-                                cache="no-store" if page["degraded"] else "public, max-age=300")
+                if not page["available"]:
+                    # No list can be drawn yet (render_cheapest.available):
+                    # the page says so, as a 503, never a 200 to be indexed.
+                    self._send_busy(page["bytes"], LIST_UNAVAILABLE_RETRY)
+                else:
+                    self._send_body(page["bytes"], "text/html; charset=utf-8",
+                                    cache="no-store" if page["degraded"] else "public, max-age=300")
             elif path.endswith("/") and path.rstrip("/") in render_cheapest.PATHS:
                 query = self.path.split("?", 1)[1] if "?" in self.path else ""
                 self._redirect(path.rstrip("/") + ("?" + query if query else ""))
+            elif "/" not in seg and render_cheapest.month_alias(seg):
+                # /cheapest/feb, /cheapest/Sept, /cheapest/2: the month's
+                # page, in one 301, query and all (no slot: not a slot path).
+                query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                self._redirect(render_cheapest.path_for(render_cheapest.month_alias(seg))
+                               + ("?" + query if query else ""))
             else:
                 self._send_not_found()
             return
