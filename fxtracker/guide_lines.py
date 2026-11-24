@@ -62,6 +62,12 @@ def score(iso, inputs, month):
                         advisory_by_iso(inputs["advisories"]), fit, fares, anchor)
 
 
+# The line's closing ⓘ: a link to /how-grades-work (fxtracker/render_methodology.py),
+# app.js's a.tiplink without its tip.
+GRADES_LINK = ('<a class="muted tiplink" href="/how-grades-work"><span aria-hidden="true">ⓘ</span>'
+               '<span class="vh">How grades work</span></a>')
+
+
 def _ggf(emo, word, pill_html):
     return ('<span class="ggf"><span aria-hidden="true">%s</span><span class="vh">%s </span>%s</span>'
             % (emo, word, pill_html))
@@ -95,7 +101,7 @@ def grades(iso, inputs, today):
             + _ggf("🛡️", "Safety", safe)
             + _ggf("🌤️", "Weather", grey("—") if s.get("wx") is None else pill(s["wx"]))
             + _ggf("✈️", "Flights", fly.replace('class="', 'data-gg="fly" class="', 1)) + days
-            + '<span class="muted">ⓘ</span>')
+            + GRADES_LINK)
 
 
 # ---- the fares strip ---------------------------------------------------------------

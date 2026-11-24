@@ -2623,8 +2623,11 @@ async function renderGuideGrades(iso) {
     + f("🛡️", "Safety", safetyPill(s.advLvl, iso))
     + f("🌤️", "Weather", s.wx == null ? grey("—", "No weather data") : gradePill(s.wx, s.wx + "/100 weather comfort in " + MONTHS[month - 1]))
     + f("✈️", "Flights", pending ? fly : fly.replace('class="', 'data-gg="fly" class="')) + days
-    + '<span class="muted" data-tip="' + esc("Graded for " + MONTHS[month - 1] + " from " + originLabel()
-      + ", weighted by your Top Picks priorities — the grades the Top Picks table and this page's 📸 share card show.") + '" title="">ⓘ</span>';
+    // The ⓘ links to the page with every grade's numbers (a.tiplink: a tap
+    // shows the tip, a second follows it). guide_lines.py serves the same link.
+    + '<a class="muted tiplink" href="/how-grades-work" data-tip="' + esc("Graded for " + MONTHS[month - 1] + " from " + originLabel()
+      + ", weighted by your Top Picks priorities — the grades the Top Picks table and this page's 📸 share card show."
+      + " Click for how every grade is worked out.") + '" title=""><span aria-hidden="true">ⓘ</span><span class="vh">How grades work</span></a>';
   // The pending boxes' widths, kept for this guide: every later draw of it
   // (the fares' own redraw, and their settling's) gives each grade at least
   // its box's width.

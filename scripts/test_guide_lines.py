@@ -119,6 +119,15 @@ for iso in GUIDES:
                                ("typical month", "fill typ")) if pat in f}
 results.append(ok({"no fare", "days", "Level 4", "low month", "no-fare month", "typical month"} <= kinds,
                   "the guides between them show: %s" % ", ".join(sorted(kinds))))
+# The graded line's ⓘ is a link to /how-grades-work that keeps its tip (the
+# tip engine's a.tiplink: a tap shows the tip, a second follows the link).
+linked = [iso for iso in GUIDES if 'data-gg="ov"' in js[iso]["grades"]
+          and re.search(r'<a class="muted tiplink" href="/how-grades-work" data-tip="Graded for [^"]+" title="">'
+                        r'<span aria-hidden="true">ⓘ</span><span class="vh">How grades work</span></a>$',
+                        js[iso]["grades"])]
+results.append(ok(len(linked) == graded and G.GRADES_LINK in G.grades(linked[0], inputs, TODAY),
+                  "every graded line's ⓘ links to /how-grades-work with its tip, served too (%d of %d)"
+                  % (len(linked), graded)))
 
 # --- the page -----------------------------------------------------------------------------
 import server  # noqa: E402
