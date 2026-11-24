@@ -2469,9 +2469,11 @@ PAGE_SLOT_WAIT = 15
 PAGE_QUEUE_MAX = 8      # slot-route requests waiting at once before new ones get 503 at once
 SHED_RETRY_AFTER = 30   # seconds, the 503's Retry-After
 # A list page whose inputs aren't in hand yet (after a restart, prices, climate
-# or the US list still loading: render_cheapest.available, or /safe-and-cheap
-# without the US feed) is the same page sent as a 503 with this Retry-After,
-# so a crawler never stores its "isn't available right now" copy.
+# or every US level missing: render_cheapest.available, or /safe-and-cheap
+# with no US levels from the feed or the snapshot, or no prices) is the same
+# page sent as a 503 with this Retry-After, so a crawler never stores its
+# "isn't available right now" copy. The snapshot standing in for the US feed
+# is a full list: 200, uncached.
 LIST_UNAVAILABLE_RETRY = 300
 # The way out if the slot holders themselves hang (no known path does: a
 # stalled write gives up after Handler.CLIENT_IO_TIMEOUT, inline network
@@ -3474,7 +3476,7 @@ class Handler(BaseHTTPRequestHandler):
         if path in _LIST_PATHS:
             page = _list_page(path)
             if not page.get("available", True):
-                # /safe-and-cheap without the US feed: a 503 with the page.
+                # /safe-and-cheap with no list to draw: a 503 with the page.
                 self._send_busy(page["bytes"], LIST_UNAVAILABLE_RETRY)
                 return
             # no-store while a feed is down: Cloudflare must never hold a copy

@@ -490,9 +490,20 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
         # The snapshot's US levels: same source, up to a day older.
         us_own = {iso: {"level": f["adv"], "level_text": ""} for iso, f in facts.items()
                   if isinstance(f, dict) and f.get("src") == "us" and isinstance(f.get("adv"), int)}
-        notes.append("The US State Department feed is not available right now: the US levels are "
-                     "from WanderGrade's daily snapshot of %s. This page is served uncached until "
-                     "the feed is back." % html.escape(_day(facts.get("_asof"))))
+        if us_own:
+            notes.append("The US State Department feed is not available right now: the US levels are "
+                         "from WanderGrade's daily snapshot of %s. This page is served uncached until "
+                         "the feed is back." % html.escape(_day(facts.get("_asof"))))
+    # Whether the rule can be applied at all (render_cheapest.available's
+    # test): some US levels, the feed's or the snapshot's, and prices. Only
+    # without them is the page "not available" (a 503, review #4); the
+    # snapshot standing in for the feed is a full list, served uncached.
+    priced = any(isinstance(f, dict) and f.get("pct") is not None
+                 for iso, f in facts.items() if not iso.startswith("_"))
+    have = bool(us_own) and priced
+    if not priced:
+        notes.append("WanderGrade's daily price snapshot is not available right now: this page is "
+                     "served uncached until it is back.")
     ca_own, de_own = own["ca"] or {}, own["de"] or {}
     alt = alt_marked((pl_history or {}).get("alt"))
     hc = (health or {}).get("c") or {}
@@ -576,16 +587,23 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
     else:
         also = ("<strong>%d</strong> of them %s also at the lowest level for Canada and Germany"
                 % (len(agree), _plural(len(agree), "is", "are")))
-    lede = ("The rule: <strong>US State Department Level %d</strong> (“exercise normal precautions”), "
+    rule = ("The rule: <strong>US State Department Level %d</strong> (“exercise normal precautions”), "
             "<strong>local prices at or under %d%% of the US</strong> and <strong>no mandatory daily visitor "
-            "fee</strong>. <strong>%d</strong> %s today, cheapest first; %s."
-            % (SAFE_US_LEVEL, SAFE_PCT, len(rows), _plural(len(rows), "country qualifies", "countries qualify"),
-               also))
-    body = table + fee_left_out(fee_out, lambda iso: facts[iso]["pct"])
-    body += ('<h2>Nearly made it: cheap, but US Level 2</h2>'
-             '<p class="sub"><strong>%d</strong> %s under %d%% of US prices where the State Department '
-             "says “exercise increased caution”, with its reasons.</p>%s"
-             % (len(near), _plural(len(near), "country", "countries"), NEAR_PCT, near_table))
+            "fee</strong>." % (SAFE_US_LEVEL, SAFE_PCT))
+    if have:
+        lede = ("%s <strong>%d</strong> %s today, cheapest first; %s."
+                % (rule, len(rows), _plural(len(rows), "country qualifies", "countries qualify"), also))
+        body = table + fee_left_out(fee_out, lambda iso: facts[iso]["pct"])
+        body += ('<h2>Nearly made it: cheap, but US Level 2</h2>'
+                 '<p class="sub"><strong>%d</strong> %s under %d%% of US prices where the State Department '
+                 "says “exercise increased caution”, with its reasons.</p>%s"
+                 % (len(near), _plural(len(near), "country", "countries"), NEAR_PCT, near_table))
+    else:
+        # No count and no empty table: never "0 countries qualify" or "No
+        # country meets the rule" for a list that can't be drawn (as /cheapest).
+        lede = ("%s The list isn't available right now: %s not loaded (see the note below)."
+                % (rule, "prices are" if not priced else "the US levels are"))
+        body = ""
     if alt_used:
         notes.append(ALT_NOTE)
     if no_infl:
@@ -606,23 +624,29 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
     title = _fit(["Safest Cheap Countries to Visit in %s (Data, Not Opinion)" % year,
                   "Safest Cheap Countries to Visit in %s (Data)" % year], TITLE_MAX)
     cn = _plural(len(rows), "country", "countries")
-    desc = _fit(["%d %s at US State Dept Level 1 with prices at or under %d%% of the US, cheapest "
-                 "first, with Canada's and Germany's levels, best months and health notes. As of %s."
-                 % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today)),
-                 "%d %s at US Level 1 with prices at or under %d%% of the US, with Canada's and "
-                 "Germany's levels, best months and health notes. As of %s."
-                 % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today))], DESC_MAX)
+    if have:
+        desc = _fit(["%d %s at US State Dept Level 1 with prices at or under %d%% of the US, cheapest "
+                     "first, with Canada's and Germany's levels, best months and health notes. As of %s."
+                     % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today)),
+                     "%d %s at US Level 1 with prices at or under %d%% of the US, with Canada's and "
+                     "Germany's levels, best months and health notes. As of %s."
+                     % (len(rows), cn, SAFE_PCT, _day(facts.get("_asof")) or _day(today))], DESC_MAX)
+    else:
+        desc = _fit(["Countries at US State Dept Level 1 with prices at or under %d%% of the US, cheapest "
+                     "first, with Canada's and Germany's levels, best months and health notes." % SAFE_PCT],
+                    DESC_MAX)
     return {
         "path": "/safe-and-cheap",
         "title": title, "desc": desc, "h1": h1,
         "html": _page(html.escape(h1), lede, body, notes, sources, subscribe=True),
         # The day the page's data last changed: the snapshot's own date.
         "lastmod": lastmod_of(facts.get("_asof")),
-        "degraded": bool(missing or stale),
-        # Without the US feed the rule has no live list to apply: the page
-        # (the snapshot's levels, or no rows at all) goes out as a 503, so a
-        # crawler keeps its last good copy (server.py, review #4).
-        "available": own["us"] is not None,
+        "degraded": bool(missing or stale or not have),
+        # Only a page with no list to draw (no US levels from the feed or the
+        # snapshot, or no prices) goes out as a 503, so a crawler keeps its
+        # last good copy (server.py, review #4); the snapshot standing in for
+        # the US feed is a full list, 200 and uncached, as on /cheapest.
+        "available": have,
         "counts": {"safe": len(rows), "agree": len(agree), "near": len(near)},
         "isos": {"safe": [i for _p, i in rows], "agree": agree, "near": [i for _p, i in near], "fee": fee_out},
     }

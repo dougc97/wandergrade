@@ -18,7 +18,10 @@ What it holds the code to:
     date;
   * a missing feed still renders, says so (grammar right for two), and
     reports `degraded`; a feed whose refresh is failing (`stale`) is noted by
-    its fetch time, to the hour, and degrades the page too;
+    its fetch time, to the hour, and degrades the page too; the US feed
+    down with the snapshot's US levels standing in is a full list, still
+    available; only no US levels at all, or no prices, is unavailable (the
+    server's 503) and says "isn't available right now", never a count of 0;
   * titles <= 60 characters, descriptions <= 157, exactly one h1, no class
     or id an ad blocker would hide, every /guide/ link a real slug, HTML
     that html.parser accepts, no "None" in the text, the as-of dates on the
@@ -267,8 +270,28 @@ S4 = RL.safe_and_cheap(None, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, 
 results.append(ok(S4["degraded"] and S4["isos"]["safe"] == ["LA", "VN", "TM", "PT"]
                   and "daily snapshot of 28 Sep 2026" in S4["html"],
                   "US down: the snapshot's US levels stand in, dated, and the page is degraded"))
-results.append(ok(S4["available"] is False and S3["available"] is True and S["available"] is True,
-                  "available only with the US feed in hand: the server sends the US-down page as a 503 (review #4)"))
+results.append(ok(S4["available"] is True and S3["available"] is True and S["available"] is True,
+                  "US down with the snapshot standing in: a full list, available (200 no-store, as /cheapest), "
+                  "never a 503"))
+# No list to draw: no US levels from the feed or the snapshot, or no prices.
+# Only then is the page unavailable (the server's 503, review #4), and it says
+# so: never a count of 0 or "No country meets the rule", in the page or the
+# description.
+no_us = {k: dict(v, src="ca") if isinstance(v, dict) and v.get("src") == "us" else v for k, v in FACTS.items()}
+S8 = RL.safe_and_cheap(None, CA, DE, no_us, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+S9 = RL.safe_and_cheap(US, CA, DE, {}, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+S10 = RL.safe_and_cheap(None, CA, DE, None, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
+blank = lambda pg: ("No country meets" not in pg["html"] and "None today" not in pg["html"]
+                    and "<strong>0</strong>" not in pg["html"] and not re.match(r"0 ", pg["desc"])
+                    and "Nearly made it" not in pg["html"] and pg["degraded"] and pg["available"] is False)
+results.append(ok(blank(S8) and "isn't available right now: the US levels are not loaded" in S8["html"]
+                  and "daily snapshot of" not in S8["html"],
+                  "no US feed and no snapshot US levels: unavailable, \"the US levels are not loaded\", no rows"))
+results.append(ok(blank(S9) and "isn't available right now: prices are not loaded" in S9["html"]
+                  and "daily price snapshot is not available" in S9["html"],
+                  "the US feed but no price snapshot: unavailable, \"prices are not loaded\", no rows"))
+results.append(ok(blank(S10) and len(S10["desc"]) <= RL.DESC_MAX and "<h1>" in S10["html"],
+                  "no feed and no snapshot at all: unavailable, the page still renders with its h1 (%r)" % S10["desc"]))
 S5 = RL.safe_and_cheap(US, None, None, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
 results.append(ok("Global Affairs Canada and German Federal Foreign Office (Auswärtiges Amt) feeds are not available right now, "
                   "so their columns read “not loaded”: this page is served uncached until they are back." in S5["html"]

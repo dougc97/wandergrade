@@ -919,23 +919,34 @@ results.append(ok(us_cold[0] == 200 and us_cold[1].get("Cache-Control") == "no-s
                   "the US list alone missing: the snapshot's levels stand in, 200 no-store (%s)" % us_cold[0]))
 
 # /safe-and-cheap without the US feed (none cached, the fetch failing): the
-# page, snapshot levels and all, as a 503 with Retry-After 300 (review #4);
-# with the feed back, 200 again.
+# snapshot's US levels stand in, a full list, so 200 no-store as /cheapest
+# (never a 503 for the whole outage). With no snapshot either (no US levels
+# and no prices at all) the page goes out as a 503 with Retry-After 300
+# (review #4); with the feed back, 200 again.
 saved_us, saved_get = server._adv_cache.pop("us", None), server.advisories.get_advisories
+saved_doc = server.guide_facts.get_doc
 server.advisories.get_advisories = no_fetch("advisories.get_advisories (us)")
 try:
     sc_cold = get("/safe-and-cheap")
+    server.guide_facts.get_doc = lambda: None
+    sc_none = get("/safe-and-cheap")
 finally:
-    server.advisories.get_advisories = saved_get
+    server.advisories.get_advisories, server.guide_facts.get_doc = saved_get, saved_doc
     if saved_us:
         server._adv_cache["us"] = saved_us
 sc_warm = get("/safe-and-cheap")
-results.append(ok(sc_cold[0] == 503 and sc_cold[1].get("Retry-After") == "300"
-                  and sc_cold[1].get("Cache-Control") == "no-store"
-                  and "US State Department feed is not available" in sc_cold[2] and "<h1>" in sc_cold[2]
-                  and sc_warm[0] == 200,
-                  "/safe-and-cheap without the US feed: the page as a 503, Retry-After 300, no-store; 200 once it "
-                  "is back (%s, %s)" % (sc_cold[0], sc_warm[0])))
+results.append(ok(sc_cold[0] == 200 and sc_cold[1].get("Cache-Control") == "no-store"
+                  and sc_cold[1].get("Retry-After") is None
+                  and "daily snapshot of" in sc_cold[2] and "No country meets" not in sc_cold[2]
+                  and "isn't available right now" not in sc_cold[2],
+                  "/safe-and-cheap without the US feed: the snapshot's US levels stand in, 200 no-store (%s)"
+                  % sc_cold[0]))
+results.append(ok(sc_none[0] == 503 and sc_none[1].get("Retry-After") == "300"
+                  and sc_none[1].get("Cache-Control") == "no-store" and sc_none[1].get("X-Robots-Tag") is None
+                  and "isn't available right now" in sc_none[2] and "No country meets" not in sc_none[2]
+                  and "<h1>" in sc_none[2] and sc_warm[0] == 200,
+                  "/safe-and-cheap with no feed and no snapshot: the page as a 503, Retry-After 300, no-store; "
+                  "200 once the feed is back (%s, %s)" % (sc_none[0], sc_warm[0])))
 
 # --- the footer: both links once on every page, guides included -------------------------------
 # index.html's footer (the homepage and every guide, since the Search Console check of
