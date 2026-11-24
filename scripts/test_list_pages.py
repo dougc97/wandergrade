@@ -382,6 +382,45 @@ results.append(ok("function visitorFee(iso)" in _app and "${feeHtml}" in _app an
                   and "ensureVisa().catch(() => {})]);" in _app,
                   "app.js renderGuideCost draws the fee beside both of its lines (live and snapshot), from visa.json"))
 
+# --- the newsletter box on the list pages (review #9) ------------------------------------
+# The guides' USD form as server HTML: the same pitch, Buttondown endpoint and
+# embed=1, a plain post into a new tab (no script), the US-dollars line; on
+# /safe-and-cheap, every /cheapest page and /dollar-strength, not
+# /do-not-travel. The account is app.js's own.
+_app = open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8").read()
+_bd = re.search(r'const BUTTONDOWN_USER = "([^"]+)";', _app).group(1)
+_box = RL.subscribe_html()
+from fxtracker import render_strength as RS2, render_cheapest as RC2  # noqa: E402
+_pages = {"/safe-and-cheap": S["html"],
+          "/dollar-strength": RS2.dollar_strength({"as_of": "2026-10-06", "threshold_pct": 2.0, "rows": [
+              {"code": "VND", "strength_pct": 4.0, "favorable": True, "rate_now": 26000.0}]}, ppp, today=TODAY)["html"],
+          "/cheapest/november": RC2._wrap("h", "l", "", ["n"], "s"), "/do-not-travel": D["html"]}
+results.append(ok(RL.BUTTONDOWN_USER == _bd
+                  and '<form action="https://buttondown.com/api/emails/embed-subscribe/%s" method="post" '
+                      'target="_blank" class="subform">' % _bd in _box
+                  and '<input type="hidden" name="embed" value="1">' in _box
+                  and '<input type="email" name="email" placeholder="you@email.com" aria-label="Email address" required>' in _box
+                  and "📬 Once a month: the best-value places to travel, straight to your inbox." in _box
+                  and "Written in US dollars, from a US traveler's point of view." in _box
+                  and "onsubmit" not in _box and "window.open" not in _box and "<script" not in _box
+                  and "next month" not in _box.lower(),
+                  "the box: app.js's account (%s), its pitch and US-dollars line, embed=1, a plain post into a new "
+                  "tab, no popup script, no promise of the list by email" % _bd))
+results.append(ok(all(_box in h for p, h in _pages.items() if p != "/do-not-travel") and _box not in D["html"]
+                  and all(h.count("<form") == 1 for p, h in _pages.items() if p != "/do-not-travel")
+                  and S["html"].index(_box) > S["html"].index('<p class="asof">'),
+                  "on /safe-and-cheap, /cheapest/<month> and /dollar-strength, after the notes and sources; not on "
+                  "/do-not-travel"))
+_c = Check()
+_c.feed('<div class="listpage">%s</div>' % _box)
+_c.close()
+results.append(ok(not _c.open and not [n for n in _c.names if FORBIDDEN.search(n)],
+                  "the box parses and its class names pass the ad-blocker rule: %s" % sorted(set(_c.names))))
+import server  # noqa: E402
+_csp = server.SECURITY_HEADERS["Content-Security-Policy"]
+results.append(ok("form-action" not in _csp or "https://buttondown.com" in _csp.split("form-action", 1)[1].split(";")[0],
+                  "CSP lets the form post to Buttondown (no form-action, or one naming it)"))
+
 # --- one of a kind: the counts read in the singular ------------------------------------
 S1 = RL.safe_and_cheap(US, CA, DE, {"_asof": FACTS["_asof"], "LA": FACTS["LA"], "AL": FACTS["AL"]},
                        CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)

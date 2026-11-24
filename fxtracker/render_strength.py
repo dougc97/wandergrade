@@ -589,10 +589,11 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None, ad
     else:
         desc = RL._fit(["Where the US dollar goes furthest right now: every currency ranked by its move vs its "
                         "1-year average after inflation, with local prices vs the US."], DESC_MAX)
-    page_html = ('<div class="listpage dspage"><h1>%s</h1><p class="lede">%s</p>%s%s%s%s</div>'
+    page_html = ('<div class="listpage dspage"><h1>%s</h1><p class="lede">%s</p>%s%s%s%s%s</div>'
                  % (html.escape(h1), lede, spark, body,
                     "".join('<p class="note">%s</p>' % n for n in notes if n),
-                    '<p class="asof">%s</p>' % sources if sources else ""))
+                    '<p class="asof">%s</p>' % sources if sources else "",
+                    RL.subscribe_html()))   # the newsletter box, as the other lists (review #9)
     return {
         "path": PATH,
         "title": title, "desc": desc, "h1": h1,

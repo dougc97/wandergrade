@@ -397,9 +397,10 @@ def _fare_cell(f):
 
 
 def _wrap(h1, lede, body, notes, sources):
-    """render_lists._page with the page's own class beside .listpage."""
-    return RL._page(h1, lede, body, notes, sources).replace('<div class="listpage">',
-                                                             '<div class="listpage cheap">', 1)
+    """render_lists._page with the page's own class beside .listpage, and
+    the newsletter box (review #9)."""
+    return RL._page(h1, lede, body, notes, sources, subscribe=True).replace('<div class="listpage">',
+                                                                             '<div class="listpage cheap">', 1)
 
 
 def _problems(ctx, facts, fares_state):

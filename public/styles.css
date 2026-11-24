@@ -3295,6 +3295,13 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .listpage .changes li:first-child { border-top: none; }
 .listpage .changes .when { display: inline; margin: 0 6px 0 0; font-weight: 700; }
 .listpage .changes .name { font-weight: 700; }
+/* The newsletter box at the foot of /safe-and-cheap, /cheapest and
+   /dollar-strength (render_lists.subscribe_html): the guides' .subscribe
+   card; its email field gives way to the button at 320px instead of
+   pushing it out of the card. */
+.listpage .listsub { margin-top: 24px; }
+.listsub .subform { flex-wrap: wrap; justify-content: center; }
+.listsub .subform input[type=email] { flex: 1 1 200px; min-width: 0; }
 /* /privacy (fxtracker/render_privacy.py): the list pages' type, at a reading
    measure — short sections, each an h2 and a line or two. */
 .privacy { max-width: 72ch; }

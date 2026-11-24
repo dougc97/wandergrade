@@ -230,16 +230,40 @@ def _fit(variants, limit):
     return rg._clip(variants[-1], limit)
 
 
-def _page(h1, lede, body, notes, sources):
+# The newsletter's Buttondown account (app.js BUTTONDOWN_USER; scripts/
+# test_list_pages.py holds the two equal).
+BUTTONDOWN_USER = "wandergrade"
+
+
+def subscribe_html():
+    """The guides' US-dollar newsletter box (app.js subscribeFormHTML's
+    USD-only form) as server HTML, for the list pages, which load no app.js:
+    the same pitch, the same Buttondown endpoint with embed=1, a plain form
+    post into a new tab (no popup script), and the same "US dollars" line.
+    Never "next month's list by email": the issue is a digest, not the list."""
+    return ('<div class="subscribe listsub">'
+            '<span class="sublabel">📬 Once a month: the best-value places to travel, straight to your '
+            'inbox.</span>'
+            '<form action="https://buttondown.com/api/emails/embed-subscribe/%s" method="post" target="_blank" '
+            'class="subform">'
+            '<input type="email" name="email" placeholder="you@email.com" aria-label="Email address" required>'
+            '<input type="hidden" name="embed" value="1">'
+            '<button type="submit">Subscribe</button></form>'
+            '<span class="subnote">Written in US dollars, from a US traveler\'s point of view.</span></div>'
+            % BUTTONDOWN_USER)
+
+
+def _page(h1, lede, body, notes, sources, subscribe=False):
     """One page body: a single h1, the rule or counts as the lede, the
-    sections, footnotes, then the dated sources. Minimal copy by design — the
-    tables do the talking, the rest is in tooltips (title attributes: these
-    pages carry no JavaScript)."""
+    sections, footnotes, then the dated sources, and (subscribe=True: the
+    pages a monthly reader would follow, not /do-not-travel) the newsletter
+    box last. Minimal copy by design — the tables do the talking, the rest
+    is in tooltips (title attributes: these pages carry no JavaScript)."""
     return ('<div class="listpage"><h1>%s</h1><p class="lede">%s</p>%s%s'
-            '<p class="asof">%s</p></div>'
+            '<p class="asof">%s</p>%s</div>'
             % (h1, lede, body,
                "".join('<p class="note">%s</p>' % n for n in notes if n),
-               sources))
+               sources, subscribe_html() if subscribe else ""))
 
 
 def _missing_note(missing):
@@ -568,7 +592,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
     return {
         "path": "/safe-and-cheap",
         "title": title, "desc": desc, "h1": h1,
-        "html": _page(html.escape(h1), lede, body, notes, sources),
+        "html": _page(html.escape(h1), lede, body, notes, sources, subscribe=True),
         # The day the page's data last changed: the snapshot's own date.
         "lastmod": lastmod_of(facts.get("_asof")),
         "degraded": bool(missing or stale),
