@@ -272,10 +272,28 @@ guides = {iso: server._render_index(iso).decode("utf-8") for iso in ["JP", "GB-S
 docs = dict({"/": home, "/how-grades-work": served, "/privacy": server._render_privacy_page().decode("utf-8"),
              "a shell page": server._shell_page("t", "<p>x</p>").decode("utf-8"),
              "404": server._render_404_page("x").decode("utf-8")}, **guides)
-bad = [k for k, doc in docs.items() if footer(doc).count(LINK) != 1 or doc.count('href="/how-grades-work"') != 1]
+# Besides the footer's, the only links to it are the grades' ⓘ (a.muted.tiplink:
+# the Full ranking's in the homepage shell, a graded guide's grade row).
+TIP = '<a class="muted tiplink" href="/how-grades-work"'
+bad = [k for k, doc in docs.items() if footer(doc).count(LINK) != 1
+       or doc.count('href="/how-grades-work"') - doc.count(TIP) != 1]
 results.append(ok(st5 == 200 and not bad,
                   "the footer links /how-grades-work exactly once: the homepage, the guides, /privacy, "
                   "the shell pages (/data, the lists), 404 and the page itself (%s)" % (", ".join(bad) or "all")))
+
+# --- the grades' ⓘ -----------------------------------------------------------------------
+# The Full ranking's ⓘ is a tip and a link (app.js tip engine: a tap shows the
+# tip, a second or a click follows); the guide's grade row is test_guide_lines'.
+rk = re.search(r'<p class="tablekey rankkey">.*?</p>', home, re.S)
+rk = rk.group(0) if rk else ""
+results.append(ok(re.search(TIP + r' data-tip="[^"]*Click for how every grade is worked out\." title="">'
+                            r' <span aria-hidden="true">ⓘ</span><span class="vh">How grades work</span></a>', rk)
+                  and home.count(TIP) == 1,
+                  "the Full ranking's ⓘ links /how-grades-work, its tip kept and its name said"))
+app = open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8").read()
+results.append(ok('closest("a.tiplink[data-tip]")' in app and "_tipAtDown !== tl" in app
+                  and 'if (el.matches("a[href]")) continue;' in app,
+                  "app.js: a tap on a tiplink shows its tip first, a click follows it, and it is no role=button"))
 
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)
