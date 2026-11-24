@@ -451,15 +451,25 @@ def meta_numberfree(iso):
     return _desc(iso, {}, None)
 
 
+def cost_lead(band):
+    """'Very cheap: local' — the 💰 line opens with its band word (review #11):
+    most guide titles ask "Is X Cheap to Visit?", and the page answered only
+    in numbers. Plain 'Local' with no band (a Level 4 guide gets none: no
+    bargain talk where a government says not to go). app.js costLead."""
+    return band[0].upper() + band[1:] + ": local" if band else "Local"
+
+
 def _cost_line(iso, f, asof):
-    """'Local prices ≈ 47% of the US (Sep 2026)' — the hydrated 💰 line's words."""
+    """'Very cheap: local prices ≈ 47% of the US (Sep 2026)' — the hydrated
+    💰 line's words when live rates didn't load (renderGuideCost)."""
     if f.get("pct") is None:
         return ""
     tag = _mon_year(asof)
     if f.get("plof"):
         tag = "%s figure, %s" % ("UK-wide" if f["plof"] == "GB" else
                                  _load()["names"].get(f["plof"], f["plof"]) + "-wide", tag)
-    return "Local prices ≈ %d%% of the US (%s)" % (f["pct"], tag)
+    return "%s prices ≈ %d%% of the US (%s)" % (cost_lead(None if f.get("adv") == 4 else f.get("band")),
+                                                f["pct"], tag)
 
 
 def _safety_line(iso, f, asof):
@@ -776,9 +786,10 @@ def render(iso, fv=None, fares_at=None, no_bookings=False, notes=None):
         # The weather chart's month-hazard lines (monsoon, smoke season…):
         # 25px each at 768, the chart's whole spread between countries.
         "hz": len(a.get("hazards") or []),
-        # The snapshot's price figure: without one the guide's local-prices
-        # line has nothing to say either (Taiwan, Cuba), so its room isn't held.
-        "pct": _facts(iso, doc).get("pct"),
+        # The dated snapshot's 💰 line (the SSR block's), for server.py's
+        # #guideCost when its live rates aren't in: what renderGuideCost
+        # draws then too. "" past the staleness guard or with no figure.
+        "cost": cost,
     }
 
 

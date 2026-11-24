@@ -1,6 +1,7 @@
-"""Every guide's served grades line and fares-by-month strip
-(fxtracker/guide_lines.py) against what public/app.js renderGuideGrades and
-renderGuideFares draw for a first visit (from the US, Any time), with app.js
+"""Every guide's served grades line, local-prices line and fares-by-month
+strip (fxtracker/guide_lines.py) against what public/app.js
+renderGuideGrades, renderGuideCost and renderGuideFares draw for a first
+visit (from the US, Any time), with app.js
 itself run under jsc (scripts/appjs_harness.js) on one fixture: production's
 own /api answers in scripts/parity/fixture_*.json, the country curves taken
 from fixture_flight_value.json, public/ppp.json, climate.json and
@@ -12,7 +13,10 @@ What it holds the code to:
   * for all 190 guides: the served grades line is the client's markup with
     the tooltips taken out (title, data-tip, aria-label) — the Overall pill
     and number, the four grades, the 🧳 days, "—" and the reason for an
-    ungraded country — and the served strip is the client's (or both are
+    ungraded country — the served 💰 line is the client's (its band word
+    first, none on a Level 4 guide, "UK-wide" for England, none on the US's
+    own guide or without a figure), from live rates and from the dated
+    snapshot alike, and the served strip is the client's (or both are
     none: fewer than three months), so the browser's copy replaces them
     without anything moving;
   * the page: a guide serves both when the caches hold their inputs and
@@ -60,7 +64,10 @@ const out = {};
     $("guideGrades").innerHTML = ""; $("guideFares").innerHTML = ""; $("guideFares").hidden = true;
     await renderGuideGrades(iso);
     await renderGuideFares(iso);
-    out[iso] = { grades: $("guideGrades").innerHTML, fares: $("guideFares").hidden ? "" : $("guideFares").innerHTML };
+    const gc = $("guideCost"); gc.innerHTML = ""; gc.hidden = true; gc.dataset = {};
+    await renderGuideCost(iso);
+    out[iso] = { grades: $("guideGrades").innerHTML, fares: $("guideFares").hidden ? "" : $("guideFares").innerHTML,
+                 cost: gc.hidden ? "" : gc.innerHTML };
   }
   print(JSON.stringify(out));
 })().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
@@ -120,6 +127,72 @@ for iso in GUIDES:
 results.append(ok({"no fare", "days", "Level 4", "low month", "no-fare month", "typical month"} <= kinds,
                   "the guides between them show: %s" % ", ".join(sorted(kinds))))
 
+# --- the 💰 line (review #11) -------------------------------------------------------------
+bad_c = [(iso, G.cost(iso, FIX["rates"], FIX["ppp"], FIX["advisories"]), bare(js[iso]["cost"]))
+         for iso in GUIDES if G.cost(iso, FIX["rates"], FIX["ppp"], FIX["advisories"]) != bare(js[iso]["cost"])]
+for iso, a, b in bad_c[:2]:
+    print("        %s\n        served %r\n        client %r" % (iso, a, b))
+leads = {}
+for iso in GUIDES:
+    m = re.match(r"💰 <b>([A-Z][a-z ]+): local prices ≈ \d+% of the US", js[iso]["cost"])
+    leads.setdefault(m.group(1) if m else ("Local" if js[iso]["cost"].startswith("💰 <b>Local prices") else
+                                          js[iso]["cost"][:12] or "none"), []).append(iso)
+results.append(ok(not bad_c and {"Very cheap", "Cheap", "A bit cheaper", "About the same", "Pricey"} <= set(leads)
+                  and "US" in leads.get("none", []) and "AF" in leads.get("Local", [])
+                  and "UK-wide figure" in js["GB-SCT"]["cost"] and set(leads) <= {
+                      "Very cheap", "Cheap", "A bit cheaper", "About the same", "Pricey", "Local", "none"},
+                  "every guide's 💰 line is the client's, tooltip aside, opening with its band word (%s) %s"
+                  % (", ".join("%s %d" % (k, len(v)) for k, v in sorted(leads.items())), [x[0] for x in bad_c][:10] or "")))
+l4 = [iso for iso in GUIDES if G.adv_level(iso, FIX["advisories"]) == 4]
+results.append(ok(l4 and all(iso in leads.get("Local", []) + leads.get("none", []) for iso in l4)
+                  and all(G.adv_level(iso, FIX["advisories"]) == 4 for iso in leads.get("Local", [])),
+                  "no band word on the %d Level 4 guides, and only there (%s)" % (len(l4), " ".join(l4[:8]))))
+results.append(ok("A+ up to about 24% of home prices and F above about 82%" in js["TH"]["cost"]
+                  and "about 24%" not in js["AF"]["cost"],
+                  "the ⓘ says why a cheap place can grade C or D (not on a Level 4 guide)"))
+# The scale those numbers state: afford = (1.3 - pl) / 1.15 x 100, rounded (valueScores).
+edge = lambda g: max(p / 1000 for p in range(50, 1500) if (lambda a: a >= g)(
+    max(0, min(100, int((1.3 - p / 1000) / 1.15 * 100 + 0.5)))))
+results.append(ok(round(edge(93) * 100) == 24 and round(edge(42) * 100) == 82,
+                  "A+ ends at %.1f%% and D at %.1f%%: the ⓘ's 24%% and 82%%" % (edge(93) * 100, edge(42) * 100)))
+
+# The dated snapshot's words when live rates didn't load (render_guide._cost_line).
+DOC = dict(load("public", "guide-facts.json"), _asof=TODAY.isoformat())
+SNAP_ISOS = ["TH", "AF", "GB-SCT", "DE", "CH", "US", "TW"]
+SNAP_DRIVER = r"""
+const FIX = JSON.parse(read(FIX_PATH));
+ppp = FIX.ppp; lastRates = null; advisories = FIX.advisories; activities = FIX.activities;
+SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
+ensureAdvisories = async () => advisories; ensurePPP = async () => ppp; _guideFacts = FIX.doc;
+const out = {};
+(async () => {
+  for (const iso of FIX.isos) {
+    ccGuideIso = iso; const gc = $("guideCost"); gc.innerHTML = ""; gc.hidden = true; gc.dataset = {};
+    await renderGuideCost(iso);
+    out[iso] = gc.hidden ? "" : gc.innerHTML;
+  }
+  print(JSON.stringify(out));
+})().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
+"""
+with tempfile.TemporaryDirectory() as d:
+    fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
+    json.dump(dict(FIX, doc=DOC, isos=SNAP_ISOS), open(fp, "w"))
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + SNAP_DRIVER.replace("FIX_PATH", json.dumps(fp)))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
+try:
+    sj = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    sj = {"error": (r.stderr or r.stdout)[-300:]}
+snap = {iso: G.cost(iso, None, None, FIX["advisories"],
+                    render_guide._cost_line(iso, {k: v for k, v in DOC.get(iso, {}).items()}, TODAY))
+        for iso in SNAP_ISOS}
+results.append(ok("error" not in sj and all(snap[i] == bare(sj.get(i)) for i in SNAP_ISOS)
+                  and "Very cheap: local prices ≈" in snap["TH"] and "(UK-wide figure, " in snap["GB-SCT"]
+                  and snap["AF"].startswith("💰 <b>Local prices") and snap["US"] == "" and snap["TW"] == "",
+                  "live rates out: the served line is the snapshot's dated words, as the client's fallback "
+                  "draws them %s" % ({i: (snap[i], sj.get(i)) for i in SNAP_ISOS if snap[i] != bare(sj.get(i))}
+                                     if "error" not in sj else sj)))
+
 # --- the page -----------------------------------------------------------------------------
 import server  # noqa: E402
 
@@ -136,6 +209,7 @@ try:
     server._rates_cache[rkey] = (now, FIX["rates"])
     server._ppp_cache.update(at=now, data=FIX["ppp"])
     warm = {iso: server._render_index(iso).decode("utf-8") for iso in ("TH", "AF", "GB-ENG")}
+    warm_us = server._render_index("US").decode("utf-8")
     home = server._render_index(None).decode("utf-8")
 finally:
     server.flights.is_configured = real_conf
@@ -153,6 +227,58 @@ results.append(ok(len(gw) == 3 and 'data-gg="ov"' in warm["TH"] and "Level 4, do
 results.append(ok("data-gssr" not in home and server._GUIDE_HOLD not in home
                   and '<div id="guideGrades" class="guidegrades"></div>' in home,
                   "the homepage serves no guide line"))
+cdiv = lambda iso, line: ('<div id="guideCost" class="guidecost" data-iso="%s" data-pl="%s">%s</div>\n          %s'
+                          % (iso, G.guide_sizers.GUIDE_PARENT.get(iso, iso), line, server._COST_HOLD))
+snap_th = G.cost("TH", None, None, None, render_guide.render("TH")["cost"])
+results.append(ok((cdiv("TH", snap_th) in cold if snap_th else '<div id="guideCost" class="guidecost" hidden></div>' in cold)
+                  and all(cdiv(i, G.cost(i, FIX["rates"], FIX["ppp"], FIX["advisories"])) in warm[i] for i in warm)
+                  and "UK-wide figure" in warm["GB-ENG"] and "💰 <b>Local prices" in warm["AF"]
+                  and '<div id="guideCost" class="guidecost" hidden></div>' in warm_us and server._COST_HOLD not in warm_us
+                  and '<div id="guideCost" class="guidecost" hidden></div>' in home and server._COST_HOLD not in home,
+                  "the 💰 line is served under the grades: the snapshot's words with the caches cold (%r), live once "
+                  "they are warm, with its pre-paint script; none on the US's guide or the homepage" % snap_th[:60]))
+COST_HOLD = re.search(r"<script>(.*)</script>", server._COST_HOLD, re.S).group(1)
+COST_PAGE = r"""
+function USP(s) { var o = {}; (s || "").replace(/^\?/, "").split("&").forEach(function (kv) { if (!kv) return;
+  var i = kv.indexOf("="); o[i < 0 ? kv : kv.slice(0, i)] = i < 0 ? "" : kv.slice(i + 1); });
+  this.get = function (k) { return k in o ? o[k] : null; }; }
+function run(c) {
+  var attrs = { "data-pl": c.pl }, el = { className: "guidecost", hidden: false,
+    getAttribute: function (k) { return k in attrs ? attrs[k] : null; } };
+  var document = { getElementById: function (id) { return id === "guideCost" ? el : null; } };
+  var location = { search: c.search }, store = c.store;
+  var localStorage = { getItem: function (k) { return k in store ? store[k] : null; } };
+  (function (document, location, localStorage, URLSearchParams) { eval(HOLD_SRC); })(document, location, localStorage, USP);
+  return [el.className, el.hidden];
+}
+var CASES = JSON.parse(CASES_JSON), out = [];
+for (var i = 0; i < CASES.length; i++) out.push(run(CASES[i]));
+print(JSON.stringify(out));
+"""
+COST_CASES = [
+    ("a first visit", "", {}, "TH", ["guidecost", False]),
+    ("a saved US origin and a month link", "?vmn=12", {"fx_origin": "US"}, "TH", ["guidecost", False]),
+    ("a saved home country", "", {"fx_origin": "DE"}, "TH", ["guidecost pend", False]),
+    ("a shared link's From", "?vo=GB", {}, "TH", ["guidecost pend", False]),
+    ("the Flights tab's share link", "?fo=CA", {}, "TH", ["guidecost pend", False]),
+    ("a link back to the US over a saved Germany", "?vo=US", {"fx_origin": "DE"}, "TH", ["guidecost", False]),
+    ("a German reader on Germany's guide", "", {"fx_origin": "DE"}, "DE", ["guidecost", True]),
+    ("a British reader on Scotland's (the UK's figure)", "", {"fx_origin": "GB"}, "GB", ["guidecost", True]),
+]
+with tempfile.TemporaryDirectory() as d:
+    sp = os.path.join(d, "cost.js")
+    cc = [{"search": q, "store": st, "pl": pl} for _n, q, st, pl, _w in COST_CASES]
+    open(sp, "w", encoding="utf-8").write(COST_PAGE.replace("HOLD_SRC", json.dumps(COST_HOLD))
+                                          .replace("CASES_JSON", json.dumps(json.dumps(cc))))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=60)
+try:
+    cg = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    cg = None
+bad = [(c[0], g) for c, g in zip(COST_CASES, cg or []) if g != c[4]]
+results.append(ok(cg is not None and len(cg) == len(COST_CASES) and not bad,
+                  "the 💰 line's pre-paint script keeps it for a US reader, holds its room unseen for a reader from "
+                  "elsewhere and hides it on their own country's guide %s" % (bad or (r.stderr[-300:] if cg is None else ""))))
 
 HOLD = re.search(r"<script>(.*)</script>", server._GUIDE_HOLD, re.S).group(1)
 PAGE = r"""

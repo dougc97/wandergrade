@@ -285,7 +285,7 @@ th = rg.render("TH")
 pct = doc["TH"]["pct"]
 results.append(ok(th["title"] == doc["TH"]["t"] and th["desc"] == doc["TH"]["d"]
                   and ("≈ %d%%" % pct) in th["desc"] and "As of Oct 2026" in th["desc"]
-                  and ("Local prices ≈ %d%% of the US (Oct 2026)" % pct) in th["body"],
+                  and ("%s: local prices ≈ %d%% of the US (Oct 2026)" % (doc["TH"]["band"].capitalize(), pct)) in th["body"],
                   "Thailand's title, description and SSR cost line say %d%% as of Oct 2026" % pct))
 page = server._render_index("TH").decode("utf-8")
 results.append(ok("<title>%s</title>" % html.escape(th["title"]) in page

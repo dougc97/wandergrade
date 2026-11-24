@@ -304,6 +304,9 @@ _HTML_DEFAULTS = {
     # (fxtracker/guide_lines.py, _guide_lines); empty, the strip hidden, as
     # index.html had them, wherever they aren't served.
     "GUIDE_GRADES": "", "FARES_HIDDEN": " hidden", "GUIDE_FARES": "", "GUIDE_HOLD": "",
+    # A guide's 💰 local-prices line under its grades (guide_lines.cost,
+    # _guide_cost); hidden and empty, as index.html had it, elsewhere.
+    "COST_ATTRS": " hidden", "GUIDE_COST": "", "COST_HOLD": "",
 }
 _html_tpl = None
 
@@ -1474,16 +1477,16 @@ def _guide_fv(iso):
         return None, None
 
 
-def _fare_col_hints(iso, pct):
-    """The fare column's other two lines for a reader at home in the US (the
-    default), as data- marks styles.css reads to hold their room or not: FX
-    (data-fx) "0" when the country has no currency the FX feed charts — none
-    at all, or a trend shorter than the 6 months renderGuideFx needs, by the
-    server's own cached trends — and "home" when it uses the dollar (no FX
-    story for a dollar reader); local prices (data-cost) "home" on the US's
-    own guide and "0" with no price figure in the snapshot. Held anyway,
-    they were given back: Puerto Rico's column fell from 250px to 18 at 768
-    (CLS 0.12 for a reader scrolling during a slow load)."""
+def _fare_col_hints(iso):
+    """The fare column's FX line for a reader at home in the US (the
+    default), as a data- mark styles.css reads to hold its room or not
+    (data-fx): "0" when the country has no currency the FX feed charts —
+    none at all, or a trend shorter than the 6 months renderGuideFx needs,
+    by the server's own cached trends — and "home" when it uses the dollar
+    (no FX story for a dollar reader). Held anyway, it was given back:
+    Puerto Rico's column fell from 250px to 18 at 768 (CLS 0.12 for a reader
+    scrolling during a slow load). The local-prices line (data-cost) left
+    the column for a place under the grades (review #11, _guide_cost)."""
     out = ""
     home = guide_sizers.GUIDE_PARENT.get(iso, iso)
     cur = picks.CUR_BY_ISO.get(home)
@@ -1493,10 +1496,6 @@ def _fare_col_hints(iso, pct):
         out += ' data-fx="0"'
     elif cur == "USD":
         out += ' data-fx="home"'
-    if home == "US":
-        out += ' data-cost="home"'
-    elif pct is None:
-        out += ' data-cost="0"'
     return out
 
 
@@ -1682,6 +1681,34 @@ def _guide_lines(iso):
             "GUIDE_HOLD": "\n          " + _GUIDE_HOLD}
 
 
+# Before first paint, on a guide whose 💰 line is served (_guide_cost): it is
+# a US reader's, so for a reader from elsewhere (a saved home country, or a
+# shared link's ?vo= / ?fo=) it keeps its room invisibly (.pend) until
+# renderGuideCost draws theirs, and goes at once on their own country's guide
+# (theirs draws none there). ES5, like index.html's other inline scripts.
+_COST_HOLD = (
+    '<script>(function(){var c=document.getElementById("guideCost");if(!c)return;'
+    'try{var q=new URLSearchParams(location.search),v=q.get("vo")||q.get("fo"),'
+    'o=/^[A-Z]{2}$/.test(v||"")?v:(localStorage.getItem("fx_origin")||"US");'
+    'if(o!=="US"){if(o===c.getAttribute("data-pl"))c.hidden=true;else c.className+=" pend";}}catch(e){}})();</script>')
+
+
+def _guide_cost(iso, snapshot, snapshot_l4):
+    """A guide's 💰 local-prices line under its grades (review #11), as
+    tokens: guide_lines.cost from the rates, PPP table and US advisory list
+    the server caches (never fetched here), else the dated snapshot's words,
+    with the pre-paint script. Hidden and empty where there is nothing to
+    say (the US's own guide, no figure), as index.html had it."""
+    rp, ppp = _fx_inputs()
+    hit = _adv_cache.get("us")
+    line = guide_lines.cost(iso, rp if ppp else None, ppp if rp else None,
+                            hit[1] if hit else None, snapshot, snapshot_l4)
+    if not line:
+        return {}
+    return {"COST_ATTRS": ' data-iso="%s" data-pl="%s"' % (iso, guide_sizers.GUIDE_PARENT.get(iso, iso)),
+            "GUIDE_COST": line, "COST_HOLD": "\n          " + _COST_HOLD}
+
+
 def _warm_popularity():
     """Fetch the tourism figures /api/popularity serves in the background
     (once at a time), so the homepage's Top Picks can be served next render."""
@@ -1788,7 +1815,7 @@ def _render_index(gc_iso=None):
             + (' data-hz="%d"' % min(r.get("hz") or 0, 2) if r.get("hz") else "")
             + ("" if not no_book and guide_sizers.stay(gc_iso) else ' data-nostay="1"')
             + (' data-fm="1"' if _fare_strip_hint(gc_iso) else "")
-            + _fare_col_hints(gc_iso, r.get("pct")),
+            + _fare_col_hints(gc_iso),
             VALUE_ACTIVE="",
             GUIDE_ACTIVE=' class="active"',
             # No first-paint stand-ins for tabs a guide never shows first —
@@ -1806,6 +1833,10 @@ def _render_index(gc_iso=None):
             gl = {}
         vals["GUIDE_DATA"] += gl.pop("_ATTRS", "")
         vals.update(gl)
+        try:
+            vals.update(_guide_cost(gc_iso, r.get("cost") or "", r.get("adv") == 4))
+        except Exception as e:   # hidden, as before: never the page
+            print("[guide-cost] %s %s" % (gc_iso, e), file=sys.stderr, flush=True)
         if r.get("ogimage"):                          # country hero photo
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
     out = _guide_template() if gc_iso else _index_template()

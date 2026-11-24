@@ -2711,15 +2711,14 @@ function renderGuide(iso) {
       : iso === window.__WGGC__ ? null : false;
     if (fm) gtab.setAttribute("data-fm", "1");
     else if (fm === false) gtab.removeAttribute("data-fm");
-    // The FX and local-prices lines likewise (data-fx, data-cost): none for
-    // a currency the reader holds or a country without one, none on the
-    // reader's own country; the server's marks stand for its own guide
-    // otherwise (it also knows which have no price figure or FX chart).
+    // The FX line likewise (data-fx): none for a currency the reader holds
+    // or a country without one; the server's mark stands for its own guide
+    // otherwise (it also knows which have no FX chart). The local-prices
+    // line left this column for a place under the grades (review #11) and
+    // holds its own room (renderGuideCost).
     const fxIso = GUIDE_PARENT[iso] || iso, cur = CUR_BY_ISO[fxIso];
     if (!cur || cur === (homeBase || "USD")) gtab.setAttribute("data-fx", cur ? "home" : "0");
     else if (iso !== window.__WGGC__ || gtab.getAttribute("data-fx") === "home") gtab.removeAttribute("data-fx");
-    if (fxIso === originIso()) gtab.setAttribute("data-cost", "home");
-    else if (iso !== window.__WGGC__ || gtab.getAttribute("data-cost") === "home") gtab.removeAttribute("data-cost");
   }
   // The page's one h1. On /guide/<slug> the server already sent this exact
   // markup (render_guide.h1_html), so hydration writes nothing and nothing
@@ -2772,15 +2771,16 @@ function renderGuide(iso) {
       .then(() => requestAnimationFrame(() => requestAnimationFrame(release)));
   }
   renderGuideStay(iso);
-  // The fare column (fares by month, local prices, FX) fills in three
-  // fetches, 0 -> 19 -> 96px at 768 and 250 with the fares: each block keeps
-  // its place (.farecol.loading, styles.css) until all three have settled,
-  // then the ones that didn't come go at once — released as each landed, the
-  // column moved what is under it at every step.
+  // The fare column (fares by month, FX) fills in two fetches: each block
+  // keeps its place (.farecol.loading, styles.css) until both have settled,
+  // then one that didn't come goes — released as each landed, the column
+  // moved what is under it at every step. (The local-prices line was its
+  // third block until review #11 moved it under the grades.)
+  renderGuideCost(iso);
   const fc = document.querySelector("#tab-guide .farecol");
   const fcSeq = ++_fareColSeq;
   if (fc) fc.classList.add("loading");
-  Promise.allSettled([renderGuideFares(iso), renderGuideCost(iso), renderGuideFx(iso)])
+  Promise.allSettled([renderGuideFares(iso), renderGuideFx(iso)])
     .then(() => { if (fc && fcSeq === _fareColSeq) fc.classList.remove("loading"); });
   syncURL();
 }
@@ -3117,37 +3117,56 @@ function localPricesText(iso) {
     + (A.home ? "" : " (no figure for " + countryName(originIso()) + ")")
     + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "");
 }
+// The line opens with its band word ("Very cheap: local prices ≈ 27% of the
+// US", review #11): most guide titles ask "Is Japan Cheap to Visit?", and the
+// page answered only in numbers. plWord on the same anchor as the number.
+// Never on a Level 4 guide: no bargain talk where a government says not to
+// go (its title and description give none either). render_guide.cost_lead is
+// the server's copy.
+const costLead = (band) => band ? band[0].toUpperCase() + band.slice(1) + ": local" : "Local";
+// The ⓘ's last sentence: the line can say "cheap" beside an Affordability C,
+// so it says why (the grade's scale, valueScores: 100 at 15%, 0 at 130%).
+const COST_GRADE_TIP = " The 💰 Affordability grade puts every country on one scale, A+ up to about 24%"
+  + " of home prices and F above about 82%, so a cheap place can still grade C or D.";
 async function renderGuideCost(iso) {
   const host = $("guideCost");
   if (!host) return;
-  host.hidden = true;
-  await ensurePPP().catch(() => {});
+  // Under the grades line since review #11 (it was two to three screens down
+  // on a phone, in the fare column). On /guide/<slug> the server sends it
+  // filled for a reader from the US (guide_lines.cost, this markup less the
+  // tip, data-iso its country), and index.html's pre-paint script makes it
+  // invisible for a reader from elsewhere (.pend): it keeps its room until
+  // this draw, so nothing under it moves. Another guide's line goes at once.
+  if (host.dataset.iso !== iso) { host.hidden = true; host.dataset.iso = iso; }
+  const show = (h) => { host.innerHTML = h || ""; host.hidden = !h; host.classList.remove("pend"); };
+  await Promise.all([ensurePPP(), ensureAdvisories()].map((p) => p.catch(() => {})));
   if (ccGuideIso !== iso) return;
+  const plIso = GUIDE_PARENT[iso] || iso;
   // The reader's own country: "≈ 100% of the US" tells them nothing.
-  if ((GUIDE_PARENT[iso] || iso) === originIso()) return;
+  if (plIso === originIso()) return show("");
+  const l4 = guideAdvLevel(iso) === 4;
   const line = localPricesText(iso);
   if (!line) {
     // Live rates or ppp.json didn't load: the dated snapshot the title and
     // snippet were written from (render_guide's SSR line, word for word), so
     // the page still shows what its description claims. Never when live data
     // loaded and found no honest figure.
-    if (ppp && lastRates) return;
+    if (ppp && lastRates) return show("");
     const f = await ensureGuideFacts().then((d) => d[iso]).catch(() => null);
-    if (ccGuideIso !== iso || !f || f.pct == null || !guideFactsFresh()) return;
-    const when = guideFactsMonth();
-    host.innerHTML = `💰 <b>Local prices ≈ ${f.pct}% of the US (${esc(
+    if (ccGuideIso !== iso) return;
+    if (!f || f.pct == null || !guideFactsFresh()) return show("");
+    const when = guideFactsMonth(), fl4 = l4 || (!advisories && f.adv === 4);
+    return show(`💰 <b>${esc(costLead(fl4 ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b><span class="fxinfo" data-tip="${esc(
       "World Bank price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
-      + " averages: tourist areas and foreigner rent run well above this.")}" title="">ⓘ</span>`;
-    host.hidden = false;
-    return;
+      + " averages: tourist areas and foreigner rent run well above this." + (fl4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
   }
-  host.innerHTML = `💰 <b>Local prices ${esc(line)}</b><span class="fxinfo" data-tip="${esc(
+  const band = l4 ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
+  show(`💰 <b>${esc(costLead(band))} prices ${esc(line)}</b><span class="fxinfo" data-tip="${esc(
     "World Bank price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
-    + " foreigner rent run well above this.")}" title="">ⓘ</span>`;
-  host.hidden = false;
+    + " foreigner rent run well above this." + (l4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
 }
 
 // ---- Travel Guide: "Where to stay" Stay22 map -------------------------------
