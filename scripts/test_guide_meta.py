@@ -25,6 +25,8 @@ What it holds the code to:
   * weather-only countries never claim "best months to visit";
   * names that take "the" have it inside every sentence, on both sides;
   * Level 3/4 titles ask "safe?", Level 4 never "cheap?" or "(very cheap)";
+    no band word beside a mandatory visitor fee (Bhutan's), whose
+    description names the fee instead;
   * a title with a price figure says "Costs vs US" wherever its rung fits in
     TITLE_MAX, on the best-time fallback too (only the Dominican Republic's
     ": Weather & Costs vs US" rung, 64, is too long);
@@ -112,6 +114,17 @@ l4_band = [i for i in guides if facts[i].get("adv") == 4
            and re.search(r"(\(|💰 )(very cheap|cheap|a bit cheaper|about the same|pricey)",
                          R[i]["desc"] + R[i]["body"], re.I)]
 results.append(ok(not l4_band, "no Level 4 description or fact line gives a bargain band %s" % (l4_band or "")))
+# Nor where every visitor pays a mandatory daily fee (Bhutan's US$100 a night,
+# item D): the description names the fee where the band would be, and the
+# fact line opens "Local prices" with the fee beside it.
+fee_isos = sorted(i for i in guides if rg.visitor_fee(i))
+fee_bad = [i for i in fee_isos
+           if re.search(r"(\(|💰 )(very cheap|cheap|a bit cheaper|about the same|pricey)", R[i]["desc"] + R[i]["body"], re.I)
+           or "(plus a $%d/%s fee)" % (rg.visitor_fee(i)["usd"], rg.visitor_fee(i)["per"]) not in R[i]["desc"]
+           or "💰 Local prices ≈ " not in R[i]["body"]]
+results.append(ok(fee_isos == ["BT"] and not fee_bad,
+                  "no band word beside a visitor fee (%s): the description names the fee instead (%r) %s"
+                  % (" ".join(fee_isos), R["BT"]["desc"][:62], fee_bad or "")))
 def cost_vs_us_fits(i):
     nt = rg.name_in_text(i)
     if rg.best_time_title_on(i, facts[i]):

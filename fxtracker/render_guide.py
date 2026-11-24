@@ -23,7 +23,7 @@ import os
 import re
 import sys
 
-from . import avoid_marks, flightvalue, guide_facts, guide_sizers, pricelevel
+from . import avoid_marks, flightvalue, guide_facts, guide_sizers, picks, pricelevel
 
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public")
 SITE = "https://wandergrade.com"
@@ -360,7 +360,12 @@ def _desc(iso, f, asof):
                    else (n, nt))
         P = None
         if has_p:
-            extra = ([f["band"]] if band and f.get("band") else []) + (
+            # A mandatory daily visitor fee (Bhutan's) in the band's place:
+            # "very cheap" beside US$100 a night misled, as on the 💰 line.
+            fee = visitor_fee(iso)
+            word = ("plus a $%s/%s fee" % (format(int(fee["usd"]), ","), fee.get("per") or "day") if fee
+                    else f.get("band"))
+            extra = ([word] if band and word else []) + (
                 ["%s-wide figure" % ("UK" if f.get("plof") == "GB" else d["names"].get(f["plof"], f["plof"]))]
                 if f.get("plof") else [])
             P = "%s: local prices ≈ %d%% of the US%s." % (
@@ -461,15 +466,16 @@ def cost_lead(band):
 
 def _cost_line(iso, f, asof):
     """'Very cheap: local prices ≈ 47% of the US (Sep 2026)' — the hydrated
-    💰 line's words when live rates didn't load (renderGuideCost)."""
+    💰 line's words when live rates didn't load (renderGuideCost). No band
+    word at Level 4 nor beside a mandatory visitor fee (Bhutan's)."""
     if f.get("pct") is None:
         return ""
     tag = _mon_year(asof)
     if f.get("plof"):
         tag = "%s figure, %s" % ("UK-wide" if f["plof"] == "GB" else
                                  _load()["names"].get(f["plof"], f["plof"]) + "-wide", tag)
-    return "%s prices ≈ %d%% of the US (%s)" % (cost_lead(None if f.get("adv") == 4 else f.get("band")),
-                                                f["pct"], tag)
+    return "%s prices ≈ %d%% of the US (%s)" % (
+        cost_lead(None if f.get("adv") == 4 or visitor_fee(iso) else f.get("band")), f["pct"], tag)
 
 
 def visitor_fee(iso):
@@ -477,10 +483,11 @@ def visitor_fee(iso):
     Sustainable Development Fee) as {usd, per, name, until, note}, or None.
     Not in the price level, which prices what residents pay: said beside it
     on the guide and the list rows, and it keeps a country off the lists'
-    rules (render_lists.SAFE rule, render_cheapest)."""
-    v = _load()["visa"].get(iso) or {}
-    f = v.get("fee") if isinstance(v, dict) else None
-    return f if isinstance(f, dict) and isinstance(f.get("usd"), (int, float)) and f["usd"] > 0 else None
+    rules (render_lists.SAFE rule, render_cheapest) and every best-value
+    ranking (picks.fee_isos), and the band word off its price line (no
+    "Very cheap" beside US$100 a night). picks.visitor_fee on this module's
+    copy of visa.json."""
+    return picks.visitor_fee(iso, _load()["visa"])
 
 
 def fee_short(fee):

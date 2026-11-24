@@ -7,7 +7,7 @@
      is the same text. Against the code the Dec 2026 redesign started from
      (digest_snapshot.BASE, run on this tree's data with
      digest_snapshot.GRAFTS: the scoring changes made on purpose since,
-     review #21's Affordability), every edition's
+     review #21's Affordability and item D's visitor-fee rule), every edition's
      payload, every month, is equal field for field but for
      digest_snapshot.ADDED_FIELDS and CHANGED_FIELDS, and its subject and
      hidden preheader are the same text: the redesign changes wording and
@@ -59,6 +59,11 @@
      site's own list, hand-made top cards for every country it touches
      (none of them is featured in a frozen month), three faults the checks
      must report, and no code but the email's builds those highlights.
+ 10. No country with a mandatory visitor fee (picks.fee_isos: Bhutan's
+     US$100 a night) is a pick or a gem in any edition or month; where the
+     frozen fixtures score Bhutan in (CNY, JPY, KRW gems; USD with its
+     weather forced to 100) it is there with the rule off and gone with it
+     on, the rest moving up in order.
 
     /usr/bin/python3 scripts/test_digest_variants.py [--against <rev>]
 
@@ -1448,6 +1453,46 @@ def main():
                       "is not followed)%s"
                       % (", ".join(sorted(callers)), len(probes),
                          "" if not (unseen or quiet) else " -> unseen %r, wrongly found %r" % (unseen, quiet))))
+
+    print("10. no country with a mandatory visitor fee is a pick or a gem")
+    # picks.fee_isos (visa.json "fee": Bhutan's US$100 a night), as the site's
+    # Top Picks and Hidden gems leave it out (Doug, item D, 2026-11-24). On the
+    # frozen fixtures Bhutan scores into the CNY and JPY editions' October and
+    # November gems and the KRW edition's November ones, and into a USD
+    # reader's February once its weather is forced to 100 every month: with
+    # the rule switched off it is there, with it on it is gone and nothing
+    # else moves (the next pick or gem moves up).
+    picks, newsletter, dv = ds.install(ROOT)
+    fee = picks.fee_isos()
+    in_any = sorted({(c_, m_, s_["iso"]) for c_ in datas for m_, d_ in datas[c_].items()
+                     for s_ in d_["picks"] + d_["gems"] if s_["iso"] in fee})
+    results.append(ok(fee == {"BT"} and not in_any and len(datas) == len(dv.VARIANTS),
+                      "no visitor-fee country (%s) among any edition's picks or gems, any month %s"
+                      % (" ".join(sorted(fee)), in_any or "")))
+    real_fee, seen, bad_fee = picks.fee_isos, [], []
+    for c_, m_, forced in [("CNY", 10, False), ("CNY", 11, False), ("JPY", 10, False), ("JPY", 11, False),
+                           ("KRW", 11, False), ("USD", 2, True)]:
+        shared = picks.gather(m_)
+        if forced:
+            clim = copy.deepcopy(shared["climate"])
+            clim["BT"]["scores"] = [100] * 12
+            shared = dict(shared, climate=clim)
+        on = picks.build_variant(shared, dv.VARIANTS[c_])
+        picks.fee_isos = lambda visa=None: set()
+        try:
+            off = picks.build_variant(shared, dv.VARIANTS[c_], n_picks=6, n_gems=4)
+        finally:
+            picks.fee_isos = real_fee
+        ids = lambda xs: [s_["iso"] for s_ in xs]
+        where = "picks" if "BT" in ids(off["picks"]) else "gems" if "BT" in ids(off["gems"]) else None
+        seen.append("%s %s%s: %s" % (c_, picks.MONTHS[m_ - 1][:3], " (weather forced)" if forced else "", where))
+        if (not where or "BT" in ids(on["picks"] + on["gems"])
+                or ids(on["picks"]) != [i for i in ids(off["picks"]) if i != "BT"][:5]
+                or ids(on["gems"]) != [i for i in ids(off["gems"]) if i != "BT"][:3]):
+            bad_fee.append((c_, m_, ids(on["picks"] + on["gems"]), ids(off["picks"] + off["gems"])))
+    results.append(ok(not bad_fee and picks.fee_isos is real_fee,
+                      "where Bhutan would score in with the rule off it is gone with it on, and the rest move up in "
+                      "order (%s)%s" % ("; ".join(seen), " -> %r" % bad_fee if bad_fee else "")))
 
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1

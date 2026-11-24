@@ -14,9 +14,10 @@ What it holds the code to:
     the tooltips taken out (title, data-tip, aria-label) — the Overall pill
     and number, the four grades, the 🧳 days, "—" and the reason for an
     ungraded country — the served 💰 line is the client's (its band word
-    first, none on a Level 4 guide, "UK-wide" for England, Bhutan's visitor
-    fee beside it, none on the US's own guide or without a figure), from
-    live rates and from the dated snapshot alike, and the served strip is
+    first, none on a Level 4 guide nor beside Bhutan's visitor fee, which
+    its ⓘ says the grade leaves out, "UK-wide" for England, the home line
+    on the US's own guide, none without a figure), from live rates and
+    from the dated snapshot alike, and the served strip is
     the client's, tooltips aside but its ⓘ's, which names the search link's
     commission (or both are none: fewer than three months), so the
     browser's copy replaces them
@@ -27,7 +28,12 @@ What it holds the code to:
   * the page: a guide serves both when the caches hold their inputs and
     neither when they don't; the homepage serves neither; the pre-paint
     script empties them for a reader they aren't for and keeps them for a
-    first visit; app.js holds them until its fares are in.
+    first visit; app.js holds them until its fares are in;
+  * the 💰 line's room is never left empty: the reader's own country's
+    guide (the US's for a first visit, a UK reader's England, Scotland and
+    Wales) carries the home line, served on the US's guide and drawn for
+    everyone else; the pre-paint script only makes a line unseen, never
+    hides it, and its words don't depend on /api/geo's guess.
 """
 import datetime, json, os, re, subprocess, sys, tempfile, time
 
@@ -312,28 +318,40 @@ bad_c = [(iso, G.cost(iso, FIX["rates"], FIX["ppp"], FIX["advisories"]), bare(js
 for iso, a, b in bad_c[:2]:
     print("        %s\n        served %r\n        client %r" % (iso, a, b))
 leads = {}
+HOME = G.home_line()
 for iso in GUIDES:
     m = re.match(r"💰 <b>([A-Z][a-z ]+): local prices ≈ \d+% of the US", js[iso]["cost"])
     leads.setdefault(m.group(1) if m else ("Local" if js[iso]["cost"].startswith("💰 <b>Local prices") else
+                                          "Home" if bare(js[iso]["cost"]) == HOME else
                                           js[iso]["cost"][:12] or "none"), []).append(iso)
 results.append(ok(not bad_c and {"Very cheap", "Cheap", "A bit cheaper", "About the same", "Pricey"} <= set(leads)
-                  and "US" in leads.get("none", []) and "AF" in leads.get("Local", [])
+                  and leads.get("Home") == ["US"] and "US" not in leads.get("none", [])
+                  and "AF" in leads.get("Local", []) and "BT" in leads.get("Local", [])
                   and "UK-wide figure" in js["GB-SCT"]["cost"] and set(leads) <= {
-                      "Very cheap", "Cheap", "A bit cheaper", "About the same", "Pricey", "Local", "none"},
+                      "Very cheap", "Cheap", "A bit cheaper", "About the same", "Pricey", "Local", "Home", "none"},
                   "every guide's 💰 line is the client's, tooltip aside, opening with its band word (%s) %s"
                   % (", ".join("%s %d" % (k, len(v)) for k, v in sorted(leads.items())), [x[0] for x in bad_c][:10] or "")))
 l4 = [iso for iso in GUIDES if G.adv_level(iso, FIX["advisories"]) == 4]
+FEES = sorted(G.picks.fee_isos())
 results.append(ok(l4 and all(iso in leads.get("Local", []) + leads.get("none", []) for iso in l4)
-                  and all(G.adv_level(iso, FIX["advisories"]) == 4 for iso in leads.get("Local", [])),
-                  "no band word on the %d Level 4 guides, and only there (%s)" % (len(l4), " ".join(l4[:8]))))
+                  and all(G.adv_level(iso, FIX["advisories"]) == 4 or iso in FEES for iso in leads.get("Local", []))
+                  and FEES == ["BT"] and all(iso in leads.get("Local", []) for iso in FEES),
+                  "no band word on the %d Level 4 guides nor beside a visitor fee (%s), and only there (%s)"
+                  % (len(l4), " ".join(FEES), " ".join(l4[:8]))))
 # Bhutan's visitor fee (review #10) beside the figure, served and drawn alike
 # (the comparison above), and on no other guide.
 FEE = ' <span class="guidefee">+ $100/night fee</span><span class="fxinfo"'
-results.append(ok(FEE in js["BT"]["cost"] and FEE in G.cost("BT", FIX["rates"], FIX["ppp"], FIX["advisories"])
-                  and "Not in the price level." in js["BT"]["cost"]
-                  and [i for i in GUIDES if "guidefee" in js[i]["cost"]] == ["BT"],
-                  "Bhutan's 💰 line carries its $100/night fee beside the figure, served and drawn, its ⓘ the "
-                  "fee in full; no other guide's does"))
+FEE_TIP = "The 💰 Affordability grade counts local prices only: the fee comes on top."
+bt_served = G.cost("BT", FIX["rates"], FIX["ppp"], FIX["advisories"])
+results.append(ok(FEE in js["BT"]["cost"] and FEE in bt_served
+                  and re.match(r"💰 <b>Local prices ≈ \d+% of the US</b> <span class=\"guidefee\">", bt_served)
+                  and "Not in the price level." in js["BT"]["cost"] and FEE_TIP in js["BT"]["cost"]
+                  and "so a cheap place can still grade C or D" not in js["BT"]["cost"]
+                  and [i for i in GUIDES if "guidefee" in js[i]["cost"]] == ["BT"]
+                  and not [i for i in GUIDES if FEE_TIP in js[i]["cost"] and i != "BT"],
+                  "Bhutan's 💰 line has no band word (\"Very cheap\" beside US$100 a night misled) and carries its "
+                  "$100/night fee beside the figure, served and drawn: %r; its ⓘ the fee in full and that the "
+                  "grade counts local prices only; no other guide's does" % bt_served[:60]))
 results.append(ok("A+ up to about 24% of home prices and F above about 82%" in js["TH"]["cost"]
                   and "about 24%" not in js["AF"]["cost"],
                   "the ⓘ says why a cheap place can grade C or D (not on a Level 4 guide)"))
@@ -376,11 +394,11 @@ snap = {iso: G.cost(iso, None, None, FIX["advisories"],
         for iso in SNAP_ISOS}
 results.append(ok("error" not in sj and all(snap[i] == bare(sj.get(i)) for i in SNAP_ISOS)
                   and "Very cheap: local prices ≈" in snap["TH"] and "(UK-wide figure, " in snap["GB-SCT"]
-                  and snap["AF"].startswith("💰 <b>Local prices") and snap["US"] == "" and snap["CU"] == ""
-                  and "Very cheap: local prices ≈" in snap["TW"]
+                  and snap["AF"].startswith("💰 <b>Local prices") and snap["US"] == G.home_line() and snap["CU"] == ""
+                  and "Very cheap: local prices ≈" in snap["TW"] and snap["BT"].startswith("💰 <b>Local prices ≈")
                   and ' <span class="guidefee">+ $100/night fee</span>' in snap["BT"],
                   "live rates out: the served line is the snapshot's dated words, as the client's fallback "
-                  "draws them %s" % ({i: (snap[i], sj.get(i)) for i in SNAP_ISOS if snap[i] != bare(sj.get(i))}
+                  "draws them (the US's guide its home line, which needs no data) %s" % ({i: (snap[i], sj.get(i)) for i in SNAP_ISOS if snap[i] != bare(sj.get(i))}
                                      if "error" not in sj else sj)))
 
 # Advisories out (a failed, slow or blocked /api/advisories): still no band word
@@ -488,18 +506,18 @@ results.append(ok(len(gw) == 3 and 'data-gg="ov"' in warm["TH"] and "Level 4, do
 results.append(ok("data-gssr" not in home and server._GUIDE_HOLD not in home
                   and '<div id="guideGrades" class="guidegrades"></div>' in home,
                   "the homepage serves no guide line"))
-US_COST = '<div id="guideCost" class="guidecost" hidden data-iso="US" data-pl="US"></div>\n          ' + server._COST_HOLD
-cdiv = lambda iso, line: ('<div id="guideCost" class="guidecost" data-iso="%s" data-pl="%s">%s</div>\n          %s'
-                          % (iso, G.guide_sizers.GUIDE_PARENT.get(iso, iso), line, server._COST_HOLD))
+cdiv = lambda iso, line: ('<div id="guideCost" class="guidecost" data-iso="%s">%s</div>\n          %s'
+                          % (iso, line, server._COST_HOLD))
+US_COST = cdiv("US", G.home_line())
 snap_th = G.cost("TH", None, None, None, render_guide.render("TH")["cost"])
 results.append(ok((cdiv("TH", snap_th) in cold if snap_th else '<div id="guideCost" class="guidecost" hidden></div>' in cold)
                   and all(cdiv(i, G.cost(i, FIX["rates"], FIX["ppp"], FIX["advisories"])) in warm[i] for i in warm)
                   and "UK-wide figure" in warm["GB-ENG"] and "💰 <b>Local prices" in warm["AF"]
-                  and all(US_COST in h for h in (cold_us, warm_us))
+                  and all(US_COST in h for h in (cold_us, warm_us)) and "data-pl" not in warm_us + warm["TH"]
                   and '<div id="guideCost" class="guidecost" hidden></div>' in home and server._COST_HOLD not in home,
                   "the 💰 line is served under the grades: the snapshot's words with the caches cold (%r), live once "
-                  "they are warm, with its pre-paint script; on the US's guide empty and hidden, with the script "
-                  "(a reader from elsewhere gets its room); none on the homepage" % snap_th[:60]))
+                  "they are warm, with its pre-paint script; on the US's guide its home line, caches cold or warm, "
+                  "with the script; none on the homepage" % snap_th[:60]))
 boot_th = G.cost("TH", FIX["rates"], FIX["ppp"], None)
 results.append(ok(boot_th and cdiv("TH", boot_th) in booting and "(Sep 20" not in boot_th and boot_th != snap_th,
                   "just after boot (rates in, the PPP refresh still running) the 💰 line is the live one from the "
@@ -507,49 +525,56 @@ results.append(ok(boot_th and cdiv("TH", boot_th) in booting and "(Sep 20" not i
 CSS = open(P("public", "styles.css"), encoding="utf-8").read()
 results.append(ok(re.search(r"\.guidecost \{[^}]*line-height: 18px; min-height: 18px;", CSS)
                   and "@media (max-width: 560px) { .guidecost { min-height: 36px; align-content: center; } }" in CSS
-                  and ".guidecost.pend:empty" not in CSS,
+                  and ".guidecost.pend:empty" not in CSS and ".guidecost.pend { visibility: hidden; }" in CSS,
                   "styles.css: the line's room is the same whoever's words fill it (one 18px line, two on a phone), "
-                  "empty and held (the US's guide) too"))
+                  "and an unseen (.pend) line keeps it"))
 COST_HOLD = re.search(r"<script>(.*)</script>", server._COST_HOLD, re.S).group(1)
 COST_PAGE = r"""
 function USP(s) { var o = {}; (s || "").replace(/^\?/, "").split("&").forEach(function (kv) { if (!kv) return;
   var i = kv.indexOf("="); o[i < 0 ? kv : kv.slice(0, i)] = i < 0 ? "" : kv.slice(i + 1); });
   this.get = function (k) { return k in o ? o[k] : null; }; }
 function run(c) {
-  var attrs = { "data-pl": c.pl }, el = { className: "guidecost", hidden: c.pl === "US",
-    getAttribute: function (k) { return k in attrs ? attrs[k] : null; } };
+  var el = { className: "guidecost", hidden: false, innerHTML: "SERVED",
+    getAttribute: function (k) { return k === "data-iso" ? c.iso : null; } };
   var document = { getElementById: function (id) { return id === "guideCost" ? el : null; } };
   var location = { search: c.search }, store = c.store;
   var localStorage = { getItem: function (k) { return k in store ? store[k] : null; } };
   (function (document, location, localStorage, URLSearchParams) { eval(HOLD_SRC); })(document, location, localStorage, USP);
-  return [el.className, el.hidden];
+  return [el.className, el.hidden, el.innerHTML];
 }
 var CASES = JSON.parse(CASES_JSON), out = [];
 for (var i = 0; i < CASES.length; i++) out.push(run(CASES[i]));
 print(JSON.stringify(out));
 """
+# Every guide with a served line serves it filled (the US's its home line):
+# the script never hides it and never empties it; a reader the served words
+# aren't for (anyone but the US) gets them unseen, their room kept, until
+# renderGuideCost draws theirs (on their own country's guide, the home line).
+KEEP, PEND = ["guidecost", False, "SERVED"], ["guidecost pend", False, "SERVED"]
 COST_CASES = [
-    ("a first visit", "", {}, "TH", ["guidecost", False]),
-    ("a saved US origin and a month link", "?vmn=12", {"fx_origin": "US"}, "TH", ["guidecost", False]),
-    ("a saved home country", "", {"fx_origin": "DE"}, "TH", ["guidecost pend", False]),
-    ("a shared link's From", "?vo=GB", {}, "TH", ["guidecost pend", False]),
-    ("the Flights tab's share link", "?fo=CA", {}, "TH", ["guidecost pend", False]),
-    ("a link back to the US over a saved Germany", "?vo=US", {"fx_origin": "DE"}, "TH", ["guidecost", False]),
-    ("a German reader on Germany's guide", "", {"fx_origin": "DE"}, "DE", ["guidecost", True]),
-    ("a British reader on Scotland's (the UK's figure)", "", {"fx_origin": "GB"}, "GB", ["guidecost", True]),
-    # The US's own guide: served empty and hidden (a US reader gets none). A
-    # first visit holds its room until /api/geo's guess (wg_geo) says whose.
-    ("a first visit on the US's guide", "", {}, "US", ["guidecost pend", False]),
-    ("a US guess on the US's guide", "", {"wg_geo": "US"}, "US", ["guidecost", True]),
-    ("an unsupported guess (no home saved) on the US's guide", "", {"wg_geo": "BG"}, "US", ["guidecost", True]),
-    ("a link back to the US on the US's guide", "?vo=US", {}, "US", ["guidecost", True]),
-    ("a saved US origin on the US's guide", "", {"fx_origin": "US"}, "US", ["guidecost", True]),
-    ("a saved home country on the US's guide", "", {"fx_origin": "DE"}, "US", ["guidecost pend", False]),
-    ("a shared link's From on the US's guide", "?vo=GB", {}, "US", ["guidecost pend", False]),
+    ("a first visit", "", {}, "TH", KEEP),
+    ("a saved US origin and a month link", "?vmn=12", {"fx_origin": "US"}, "TH", KEEP),
+    ("a saved home country", "", {"fx_origin": "DE"}, "TH", PEND),
+    ("a shared link's From", "?vo=GB", {}, "TH", PEND),
+    ("the Flights tab's share link", "?fo=CA", {}, "TH", PEND),
+    ("a link back to the US over a saved Germany", "?vo=US", {"fx_origin": "DE"}, "TH", KEEP),
+    ("a German reader on Germany's guide (their home line to come)", "", {"fx_origin": "DE"}, "DE", PEND),
+    ("a French reader on France's guide", "", {"fx_origin": "FR"}, "FR", PEND),
+    ("a Canadian reader on Canada's guide", "", {"fx_origin": "CA"}, "CA", PEND),
+    ("a British reader on the UK's guide", "", {"fx_origin": "GB"}, "GB", PEND),
+    ("a British reader on Scotland's (the UK's figure)", "", {"fx_origin": "GB"}, "GB-SCT", PEND),
+    # The US's own guide: served with its home line, a US reader's.
+    ("a first visit on the US's guide", "", {}, "US", KEEP),
+    ("a leftover /api/geo guess from before (wg_geo) changes nothing", "", {"wg_geo": "DE"}, "US", KEEP),
+    ("a link back to the US on the US's guide", "?vo=US", {}, "US", KEEP),
+    ("a saved US origin on the US's guide", "", {"fx_origin": "US"}, "US", KEEP),
+    ("a saved home country on the US's guide", "", {"fx_origin": "DE"}, "US", PEND),
+    ("a British reader on the US's guide", "", {"fx_origin": "GB"}, "US", PEND),
+    ("a shared link's From on the US's guide", "?vo=GB", {}, "US", PEND),
 ]
 with tempfile.TemporaryDirectory() as d:
     sp = os.path.join(d, "cost.js")
-    cc = [{"search": q, "store": st, "pl": pl} for _n, q, st, pl, _w in COST_CASES]
+    cc = [{"search": q, "store": st, "iso": iso} for _n, q, st, iso, _w in COST_CASES]
     open(sp, "w", encoding="utf-8").write(COST_PAGE.replace("HOLD_SRC", json.dumps(COST_HOLD))
                                           .replace("CASES_JSON", json.dumps(json.dumps(cc))))
     r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=60)
@@ -558,14 +583,19 @@ try:
 except Exception:
     cg = None
 bad = [(c[0], g) for c, g in zip(COST_CASES, cg or []) if g != c[4]]
-results.append(ok(cg is not None and len(cg) == len(COST_CASES) and not bad,
-                  "the 💰 line's pre-paint script keeps it for a US reader, holds its room unseen for a reader from "
-                  "elsewhere (on the US's guide too, served hidden) and hides it on their own country's guide %s" % (bad or (r.stderr[-300:] if cg is None else ""))))
+results.append(ok(cg is not None and len(cg) == len(COST_CASES) and not bad and "wg_geo" not in COST_HOLD
+                  and "hidden" not in COST_HOLD and "data-pl" not in COST_HOLD,
+                  "the 💰 line's pre-paint script keeps it for a US reader (the US's guide's home line too) and "
+                  "holds its room unseen for every other reader, their own country's guide included; it never "
+                  "hides or empties it, and no /api/geo guess decides it %s"
+                  % (bad or (r.stderr[-300:] if cg is None else ""))))
 
-# app.js renderGuideCost after paint: a first visit from abroad (the served
-# line drawn for the US until /api/geo seeds a home) keeps the room of a line
-# it no longer shows on that reader's own guide; the US's guide fills the room
-# the pre-paint script held.
+# app.js renderGuideCost after paint. The home line on the reader's own
+# country's guide (a UK reader's England, Scotland and Wales too: the UK-wide
+# figure is theirs), the same markup whoever the reader, tooltip aside, as the
+# served US guide's; a first visit from abroad (the served US line until
+# /api/geo seeds a home) gets theirs in the same room, never hidden; another
+# guide's line, entered from it, is theirs.
 COST_DRIVER = r"""
 const FIX = JSON.parse(read(FIX_PATH));
 lastRates = FIX.rates; ppp = FIX.ppp; climate = FIX.climate; activities = FIX.activities; worldGeo = FIX.world;
@@ -573,43 +603,72 @@ advisories = FIX.advisories;
 SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
 ensureAdvisories = async () => advisories; ensurePPP = async () => ppp; visa = FIX.visa; ensureVisa = async () => visa;
 const gc = $("guideCost"), o = [];
-const snap = () => [gc.hidden, gc.classList.contains("pend"), gc.innerHTML.slice(0, 6)];
+const snap = () => [gc.hidden, gc.classList.contains("pend"), gc.innerHTML];
+const enter = (iso, served, pend) => { ccGuideIso = iso; gc.dataset = { iso }; gc.innerHTML = served; gc.hidden = false;
+  if (pend) gc.classList.add("pend"); else gc.classList.remove("pend"); };
 (async () => {
-  ccGuideIso = "GB"; gc.dataset = { iso: "GB" }; gc.innerHTML = "SERVED"; gc.hidden = false;
-  await renderGuideCost("GB"); o.push(snap());
-  localStorage.setItem("fx_origin", "GB");
-  await renderGuideCost("GB"); o.push(snap());
-  ccGuideIso = "DE"; await renderGuideCost("DE"); o.push(snap());
-  ccGuideIso = "GB"; await renderGuideCost("GB"); o.push(snap());
-  localStorage.setItem("fx_origin", "DE");
-  ccGuideIso = "US"; gc.dataset = { iso: "US" }; gc.innerHTML = ""; gc.hidden = false; gc.classList.add("pend");
-  await renderGuideCost("US"); o.push(snap());
-  localStorage.setItem("fx_origin", "US"); gc.dataset = { iso: "US" }; gc.innerHTML = ""; gc.hidden = true;
-  gc.classList.remove("pend");
-  await renderGuideCost("US"); o.push(snap());
-  // A first visit's held room on the US's guide, the reader still the US
-  // (geo not in, or a US guess): kept, unseen, not given back.
-  gc.dataset = { iso: "US" }; gc.innerHTML = ""; gc.hidden = false; gc.classList.add("pend");
-  await renderGuideCost("US"); o.push(snap());
+  for (const c of FIX.costCases) {
+    localStorage.removeItem("fx_origin");
+    if (c.origin) localStorage.setItem("fx_origin", c.origin);
+    if (c.fresh) enter(c.iso, "SERVED", c.pend); else ccGuideIso = c.iso;
+    await renderGuideCost(c.iso);
+    o.push(snap());
+  }
   print(JSON.stringify(o));
 })().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
 """
+COST_RUN = [
+    # name, guide, saved origin, entered fresh (served line on screen), held unseen (.pend), want
+    ("a US reader on the US's guide (served home line, kept)", "US", None, True, False, "home"),
+    ("a first visit from the UK on the UK's guide, /api/geo not in yet", "GB", None, True, False, "line"),
+    ("… then /api/geo seeds the UK: its home line, same room", "GB", "GB", False, False, "home"),
+    ("… then Germany's guide, from the UK", "DE", "GB", False, False, "line"),
+    ("… then back to the UK's guide", "GB", "GB", False, False, "home"),
+    ("a saved UK reader on Scotland's guide (held unseen)", "GB-SCT", "GB", True, True, "home-uk"),
+    ("a saved UK reader on England's guide", "GB-ENG", "GB", True, True, "home-uk"),
+    ("a saved UK reader on the US's guide", "US", "GB", True, True, "line"),
+    ("a German reader on Germany's guide", "DE", "DE", True, True, "home"),
+    ("a French reader on France's guide", "FR", "FR", True, True, "home"),
+    ("a Canadian reader on Canada's guide", "CA", "CA", True, True, "home"),
+    ("a German reader on the US's guide", "US", "DE", True, True, "line"),
+    ("a first visit on the US's guide that /api/geo makes German", "US", "DE", False, False, "line"),
+    ("a German reader on Bhutan's guide: no band word, the fee", "BT", "DE", True, True, "fee"),
+]
 with tempfile.TemporaryDirectory() as d:
     fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
-    json.dump(FIX, open(fp, "w"))
+    json.dump(dict(FIX, costCases=[{"iso": i, "origin": og, "fresh": fr, "pend": pd} for _n, i, og, fr, pd, _w in COST_RUN]),
+              open(fp, "w"))
     open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + COST_DRIVER.replace("FIX_PATH", json.dumps(fp)))
     r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
 try:
     co = json.loads(r.stdout.strip().splitlines()[-1])
 except Exception:
     co = {"error": (r.stderr or r.stdout)[-300:]}
-LINE = "💰 <b>"
-results.append(ok(co == [[False, False, LINE], [False, True, LINE], [False, False, LINE], [True, False, ""],
-                         [False, False, LINE], [True, False, ""], [False, True, ""]],
-                  "app.js renderGuideCost: a first visit from the UK keeps the US line's room unseen once /api/geo "
-                  "makes the UK's guide its own (it moved the hero 22px), another guide draws, the UK's guide "
-                  "entered afresh shows none; on the US's guide a German reader's line fills the held room, a "
-                  "US reader gets none, and a first visit's held room stays %s" % ("" if isinstance(co, list) else co)))
+
+
+def cost_ok(want, got):
+    hidden, pend, h = got
+    if hidden or pend or not h.startswith("💰 <b>"):
+        return False
+    tip = re.search(r'data-tip="([^"]*)"', h)
+    tip = tip.group(1) if tip else ""
+    if want == "home":
+        return bare(h) == G.home_line() and tip == "Every other guide&#39;s percentage is measured against prices here."
+    if want == "home-uk":
+        return bare(h) == G.home_line() and "UK-wide prices, which apply here too" in tip
+    if want == "fee":
+        return (h.startswith("💰 <b>Local prices ≈ ") and "+ $100/night fee" in h and "of Germany" in h
+                and "counts local prices only: the fee comes on top." in tip)
+    return h != "SERVED" and bare(h) != G.home_line() and " prices ≈ " in h
+
+
+bad = [(c[0], g) for c, g in zip(COST_RUN, co if isinstance(co, list) else []) if not cost_ok(c[5], g)]
+results.append(ok(isinstance(co, list) and len(co) == len(COST_RUN) and not bad,
+                  "app.js renderGuideCost: the reader's own country's guide shows the home line (the served US "
+                  "guide's markup, tooltip aside; a UK reader's England and Scotland say UK-wide), drawn into the "
+                  "room held for it; a first visit from the UK gets its home line in the US line's room once "
+                  "/api/geo seeds it; the US's guide for a German or British reader is their comparison; nothing "
+                  "is ever left hidden or unseen (%d cases) %s" % (len(COST_RUN), bad or ("" if isinstance(co, list) else co))))
 
 HOLD = re.search(r"<script>(.*)</script>", server._GUIDE_HOLD, re.S).group(1)
 PAGE = r"""

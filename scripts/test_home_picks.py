@@ -20,6 +20,11 @@ What it holds the code to:
   * each piece for every country and month, not only five rows: the Any time
     seasonal tag (seasonalTags), the season strip, the price-data ⚠️
     (pppNotes), the FX mark, the advisory-move mark;
+  * no ranking lists a country with a mandatory visitor fee (Bhutan's):
+    app.js FEE_ISOS is picks.fee_isos (visa.json), and with Bhutan's weather
+    forced to 100 it is in none of Top Picks, Hidden gems (Any time and a
+    month) or the ★ list (which says why), served or drawn, where with the
+    rule off it ranks first;
   * the page: index.html keeps its skeleton for the guides and for a reader
     the served view isn't for; the homepage serves the table and note when
     the caches hold their inputs and the skeleton when they don't; the
@@ -256,6 +261,98 @@ results.append(ok(not bad["fx"] and any(p["fx"] for p in js["parts"].values()),
                   % (sum(1 for p in js["parts"].values() if p["fx"]), bad["fx"] or "")))
 results.append(ok(not bad["adv"], "the advisory-move mark for every country (%d marked) %s"
                   % (sum(1 for p in js["parts"].values() if p["adv"]), bad["adv"] or "")))
+
+# --- no ranking lists a country with a mandatory visitor fee (item D) ------------------
+# Bhutan's US$100 a night (visa.json "fee") is no part of its price level, so
+# its grades stand but no list ranks it: the served table (home_picks.rank),
+# app.js renderValue's Top Picks, Hidden gems and ★ list, in Any time and in
+# a month. Its weather is forced to 100 every month, which with its prices
+# and safety ranks it first; with the rule off (FEE_ISOS emptied in app.js,
+# picks.fee_isos in Python) it is there, served and drawn alike.
+m_fee = re.search(r"^const FEE_ISOS = new Set\(\[([^\]]*)\]\);$", APP, re.M)
+app_fee = sorted(re.findall(r'"([A-Z]{2})"', m_fee.group(1))) if m_fee else None
+results.append(ok(app_fee == sorted(picks.fee_isos()) == ["BT"],
+                  "app.js FEE_ISOS is visa.json's visitor-fee countries (picks.fee_isos): %s" % app_fee))
+FEE_DRIVER = r"""
+const FIX = JSON.parse(read(FIX_PATH));
+lastRates = FIX.rates; ppp = FIX.ppp; climate = FIX.climate; activities = FIX.activities; worldGeo = FIX.world;
+advisories = FIX.advisories; flightsData = FIX.flights; flightValue = FIX.fv;
+SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
+loaded.value = true; drawMap = function () {};
+$("pickCount").value = "5"; $("safeFloor").value = "b";
+const isos = (h) => [...String(h).matchAll(/<tr data-iso="([A-Z]+)"/g)].map((m) => m[1]);
+const out = [];
+try {
+  for (const rule of [true, false]) {
+    if (!rule) FEE_ISOS.clear();
+    for (const v of FIX.feeViews) {
+      $("valueMonth").value = v.month; $("beenFilter").value = v.been;
+      wishlist = new Set(v.want || []);
+      popularSet = new Set(v.popular); popularDataBacked = true;
+      renderValue();
+      out.push({ rule, name: v.name, top: isos($("topCards").innerHTML),
+                 gems: $("gemsBox").hidden ? [] : isos($("gemRows").innerHTML),
+                 table: $("topCards").innerHTML, note: $("picksNote").innerHTML });
+    }
+  }
+  print(JSON.stringify(out));
+} catch (e) { print(JSON.stringify({ error: String(e && e.stack || e) })); }
+"""
+FEE_CLIM = json.loads(json.dumps(FIX["climate"]))
+FEE_CLIM["BT"]["scores"] = [100] * 12
+POP_BT = POPULAR + ["BT"]
+FEE_VIEWS = [
+    {"name": "Any time, Bhutan popular", "month": "0", "been": "", "popular": POP_BT, "want_in": "top"},
+    {"name": "Any time, Bhutan off the beaten path", "month": "0", "been": "", "popular": POPULAR, "want_in": "gems"},
+    {"name": "February, Bhutan popular", "month": "2", "been": "", "popular": POP_BT, "want_in": "top"},
+    {"name": "February, Bhutan off the beaten path", "month": "2", "been": "", "popular": POPULAR, "want_in": "gems"},
+    {"name": "the ★ list, Bhutan starred", "month": "0", "been": "want", "popular": POPULAR,
+     "want": ["BT", "TH", "JP"], "want_in": "top"},
+]
+with tempfile.TemporaryDirectory() as d:
+    fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
+    json.dump(dict(FIX, climate=FEE_CLIM, feeViews=FEE_VIEWS), open(fp, "w"))
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + FEE_DRIVER.replace("FIX_PATH", json.dumps(fp)))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
+try:
+    fj = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    fj = {"error": (r.stderr or r.stdout)[-400:]}
+if isinstance(fj, dict):
+    results.append(ok(False, "app.js ran the visitor-fee views under jsc: %s" % fj.get("error")))
+else:
+    on = [v for v in fj if v["rule"]]
+    off = [v for v in fj if not v["rule"]]
+    bad_on = [(v["name"], v["top"], v["gems"]) for v in on if "BT" in v["top"] + v["gems"] or not v["top"]]
+    bad_off = [(v["name"], v["top"], v["gems"]) for v, c in zip(off, FEE_VIEWS) if "BT" not in v[c["want_in"]]]
+    results.append(ok(len(on) == len(off) == len(FEE_VIEWS) and not bad_on and not bad_off,
+                      "renderValue lists Bhutan nowhere with its weather forced to 100 (Top Picks and Hidden gems, "
+                      "Any time and February, the ★ list), where with the rule off it is %s %s"
+                      % ("; ".join("%s: %s" % (v["name"], "#%d" % (v[c["want_in"]].index("BT") + 1) + " in " + c["want_in"]
+                                             if "BT" in v[c["want_in"]] else "absent") for v, c in zip(off, FEE_VIEWS)),
+                         bad_on or bad_off or "")))
+    want_note = on[-1]["note"]
+    results.append(ok("Bhutan: a daily visitor fee comes on top of its prices" in want_note
+                      and "1 not ranked" in want_note,
+                      "the ★ list says why its starred Bhutan isn't ranked, in its \"not ranked ⓘ\" tip"))
+    # Served and drawn alike: the served view (Any time, Bhutan popular) with
+    # the rule on and off is the client's table, row for row.
+    inputs = dict({k: FIX[k] for k in ("rates", "advisories", "ppp", "activities")}, climate=FEE_CLIM,
+                  flights=FIX["flights"], fv=FIX["fv"], popular=set(POP_BT))
+    served_on = H.build(inputs, SLUGS, TODAY)
+    real_fee = picks.fee_isos
+    picks.fee_isos = lambda visa=None: set()
+    try:
+        served_off = H.build(inputs, SLUGS, TODAY)
+    finally:
+        picks.fee_isos = real_fee
+    rows = lambda h: re.findall(r'<tr data-iso="([A-Z]+)"', h or "")
+    results.append(ok(served_on and served_off and served_on["table"] == mark_sorted(bare(on[0]["table"]))
+                      and served_off["table"] == mark_sorted(bare(off[0]["table"]))
+                      and "BT" not in rows(served_on["table"]) and rows(served_off["table"])[:1] == ["BT"],
+                      "the served Top Picks leave Bhutan out as app.js does, row for row (%s), where with the rule off "
+                      "both rank it first (%s)" % (" ".join(rows((served_on or {}).get("table"))),
+                                                    " ".join(rows((served_off or {}).get("table"))))))
 
 # --- the page -----------------------------------------------------------------------------
 import time  # noqa: E402

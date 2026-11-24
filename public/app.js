@@ -3291,6 +3291,14 @@ function visitorFee(iso) {
   const f = visa && visa[iso] && visa[iso].fee;
   return f && f.usd > 0 ? f : null;
 }
+// The countries with such a fee, for the rankings: Top Picks, Hidden gems and
+// the ★ list leave them out (renderValue), as the cheap lists do
+// (render_lists, render_cheapest), while their grades stand (the guide, the
+// map, the Full ranking table): US$100 a night on top of a 23% price level is
+// no bargain to rank on. Known before visa.json loads (the homepage never
+// fetches it); picks.fee_isos reads the file, and scripts/test_home_picks.py
+// holds the two equal.
+const FEE_ISOS = new Set(["BT"]);
 function feeShort(f) {
   return "+ $" + Number(f.usd).toLocaleString("en-US") + "/" + (f.per || "day") + " fee";
 }
@@ -3307,46 +3315,52 @@ function feeTip(f) {
 // US", review #11): most guide titles ask "Is Japan Cheap to Visit?", and the
 // page answered only in numbers. plWord on the same anchor as the number.
 // Never on a Level 4 guide: no bargain talk where a government says not to
-// go (its title and description give none either). render_guide.cost_lead is
-// the server's copy.
+// go (its title and description give none either), nor beside a mandatory
+// daily visitor fee: "Very cheap" next to Bhutan's US$100 a night misled.
+// render_guide.cost_lead is the server's copy.
 const costLead = (band) => band ? band[0].toUpperCase() + band.slice(1) + ": local" : "Local";
 // The ⓘ's last sentence: the line can say "cheap" beside an Affordability C,
 // so it says why (the grade's scale, valueScores: 100 at 15%, 0 at 130%).
 const COST_GRADE_TIP = " The 💰 Affordability grade puts every country on one scale, A+ up to about 24%"
   + " of home prices and F above about 82%, so a cheap place can still grade C or D.";
+// A fee country's instead: its grade can be A+ on prices the fee isn't in.
+const COST_FEE_TIP = " The 💰 Affordability grade counts local prices only: the fee comes on top.";
+// The reader's own country's line, in place of "≈ 100% of the US", which
+// tells them nothing: what every other guide's figure is measured against.
+// England, Scotland and Wales are a UK reader's own (the UK-wide figure is
+// home's). guide_lines.HOME_LINE / home_line are the server's copy: the
+// served US guide carries it, its reader being the US.
+const COST_HOME = "Home prices: the 100% other guides compare to";
+function costHomeHtml(iso) {
+  const plIso = GUIDE_PARENT[iso] || iso;
+  return `💰 <b>${esc(COST_HOME)}</b><span class="fxinfo" data-tip="${esc(plIso !== iso
+    ? "Every other guide's percentage is measured against " + parentWide(plIso) + " prices, which apply here too."
+    : "Every other guide's percentage is measured against prices here.")}" title="">ⓘ</span>`;
+}
 async function renderGuideCost(iso) {
   const host = $("guideCost");
   if (!host) return;
   // Under the grades line since review #11 (it was two to three screens down
   // on a phone, in the fare column). On /guide/<slug> the server sends it
   // filled for a reader from the US (guide_lines.cost, this markup less the
-  // tip, data-iso its country), and index.html's pre-paint script makes it
-  // invisible for a reader from elsewhere (.pend): it keeps its room until
-  // this draw, so nothing under it moves. On the US's own guide it is served
-  // empty, and the script gives a reader from elsewhere a line's room (.pend
-  // while empty, the room .guidecost's min-height). Another guide's line
-  // goes at once.
+  // tip, data-iso its country; the US's own guide its home line), and
+  // index.html's pre-paint script makes it invisible for a reader from
+  // elsewhere (.pend): it keeps its room until this draw, so nothing under
+  // it moves. Another guide's line goes at once.
   if (host.dataset.iso !== iso) { host.hidden = true; host.dataset.iso = iso; }
   const show = (h) => { host.innerHTML = h || ""; host.hidden = !h; host.classList.remove("pend"); };
   await Promise.all([ensurePPP(), ensureAdvisories(), ensureVisa()].map((p) => p.catch(() => {})));
   if (ccGuideIso !== iso) return;
   const plIso = GUIDE_PARENT[iso] || iso;
-  // The reader's own country: "≈ 100% of the US" tells them nothing. A line
-  // still on screen here keeps its room, unseen, as the pre-paint script's
-  // .pend does: on a first visit the served line stands for the US until
-  // /api/geo seeds this reader's home, after paint (seedGeoDefaults), and
-  // collapsed it moved the hero, the grid and the jump nav up 22px (CLS 0.030
-  // at 390 on the UK's guide, 0.014 before). The next visit, the home saved,
-  // hides it before paint (server.py _COST_HOLD).
-  // So does the room the pre-paint script holds on the US's own guide for a
-  // first visit (no home saved, none guessed yet: .pend, empty), whoever
-  // /api/geo then says the reader is: given back, it moved the hero for a US
-  // reader instead (seedGeoDefaults saves the guess, wg_geo, so it is held
-  // once).
-  if (plIso === originIso()) {
-    if (!host.hidden && (host.innerHTML || host.classList.contains("pend"))) { host.classList.add("pend"); return; }
-    return show("");
-  }
+  // The reader's own country: the home line. It used to be hidden, so the
+  // room stayed empty (18px, 36px on a phone) on the US's guide for every
+  // first visit, the default reader being the US, and a first visit from
+  // abroad needed its own case (the served line held unseen until /api/geo
+  // said whose, wg_geo). Now some line always fills the room, whoever the
+  // reader turns out to be. Not where live data is in with no figure for
+  // home: every percentage is then the US's (plAnchor), and the line below
+  // says so.
+  if (plIso === originIso() && (!(ppp && lastRates) || plAnchor(plIso).home)) return show(costHomeHtml(iso));
   // Level 4 drops the band word. guideAdvLevel is null while the advisories
   // are out (a failed, slow or blocked fetch), which drew "Very cheap" under
   // "Level 4, do not travel": then the server's mark for its own guide
@@ -3363,6 +3377,7 @@ async function renderGuideCost(iso) {
   const fee = visitorFee(iso);
   const feeHtml = fee ? ' <span class="guidefee">' + esc(feeShort(fee)) + "</span>" : "";
   const feeTipTxt = fee ? " " + feeTip(fee) : "";
+  const gradeTip = l4 ? "" : fee ? COST_FEE_TIP : COST_GRADE_TIP;
   const line = localPricesText(iso);
   if (!line) {
     // Live rates or ppp.json didn't load: the dated snapshot the title and
@@ -3374,19 +3389,19 @@ async function renderGuideCost(iso) {
     if (ccGuideIso !== iso) return;
     if (!f || f.pct == null || !guideFactsFresh()) return show("");
     const when = guideFactsMonth();
-    return show(`💰 <b>${esc(costLead(l4 ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
+    return show(`💰 <b>${esc(costLead(l4 || fee ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
       srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
       + " averages: tourist areas and foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
-      + feeTipTxt + (l4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
+      + feeTipTxt + gradeTip)}" title="">ⓘ</span>`);
   }
-  const band = l4 ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
+  const band = l4 || fee ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
   show(`💰 <b>${esc(costLead(band))} prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
     srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
     + " foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
-    + feeTipTxt + (l4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
+    + feeTipTxt + gradeTip)}" title="">ⓘ</span>`);
 }
 
 // ---- Travel Guide: "Where to stay" Stay22 map -------------------------------
@@ -9429,7 +9444,8 @@ function renderValue() {
   const bm = beenMode(), wantMode = bm === "want";
   const wantSet = wantMode ? wantRankable() : null;
   const showVisited = bm !== "hide";
-  const preBudget = rankedAll.filter((s) =>
+  // A country with a mandatory daily visitor fee (FEE_ISOS) is in no list.
+  const preBudget = rankedAll.filter((s) => !FEE_ISOS.has(s.iso) &&
     (wantMode ? wantSet.has(s.iso) : (showVisited || !been.has(s.iso))) && passesFloor(s, floor) && matchesInterests(s.iso));
   const eligible = preBudget.filter(passesBudget);
   // Counted so the note can say the filter did something. At a roomy budget it
@@ -9471,7 +9487,8 @@ function renderValue() {
     for (const iso of wantSet) {
       if (shown.has(iso)) continue;
       const s = scored[iso];
-      const why = s ? (!passesFloor(s, floor) ? "below your safety filter"
+      const why = s ? (FEE_ISOS.has(iso) ? "a daily visitor fee comes on top of its prices"
+                       : !passesFloor(s, floor) ? "below your safety filter"
                        : !matchesInterests(iso) ? "doesn't match your interests"
                        : "its flight alone is over your budget")
         : region !== "all" && ISO_REGION[iso] !== region ? "outside " + (REGIONS[region] || "this region")
@@ -12111,9 +12128,7 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
 // Geo-seeded defaults: first-time visitors start on their own country instead
 // of the US — home country, currency, budget and fare display all follow.
 // Strictly a SEED: any stored choice wins, and nothing is written until the
-// seed applies so a later explicit pick behaves exactly as before (wg_geo, the
-// guess itself, aside: it is no choice, only what tells a guide's pre-paint
-// script a first visit from a later one). The country
+// seed applies so a later explicit pick behaves exactly as before. The country
 // comes from Cloudflare's per-request header via /api/geo (no-store; the HTML
 // is edge-cached and must never carry one visitor's country to the next).
 (async function seedGeoDefaults() {
@@ -12125,10 +12140,6 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
     const q = new URLSearchParams(location.search);
     if (/^[A-Z]{2}$/.test(q.get("vo") || q.get("fo") || "")) return;
     const g = await getJSON("/api/geo");
-    // The guess, whatever it is (a US one sets no home): a guide's pre-paint
-    // script holds the 💰 line's room on the US's guide only while there is
-    // neither a home nor a guess (server.py _COST_HOLD).
-    try { const gc = ((g && g.country) || "").toUpperCase(); if (/^[A-Z]{2}$/.test(gc)) localStorage.setItem("wg_geo", gc); } catch (e) {}
     // A currency-only link (hc=, db=) is on screen too, and this seed runs
     // before preApplyShared, so the check waits for the await. Seeding over it
     // went through setTravelOrigin's by-hand path, which adopts the view: a

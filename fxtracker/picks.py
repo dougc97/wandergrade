@@ -196,6 +196,32 @@ def _load(name):
         return json.load(f)
 
 
+def visitor_fee(iso, visa=None):
+    """The mandatory daily fee every visitor pays (visa.json's "fee": Bhutan's
+    Sustainable Development Fee) as {usd, per, name, until, note}, or None.
+    `visa`: visa.json as loaded, else it is read here. No part of the price
+    level, which prices what residents pay: the guide says it beside the
+    price (render_guide.visitor_fee) and fee_isos keeps the country out of
+    every ranking."""
+    v = (visa if visa is not None else _load("visa.json")).get(iso) or {}
+    f = v.get("fee") if isinstance(v, dict) else None
+    return f if isinstance(f, dict) and isinstance(f.get("usd"), (int, float)) and f["usd"] > 0 else None
+
+
+def fee_isos(visa=None):
+    """The countries with a visitor_fee (today only Bhutan). No best-value
+    ranking lists them: the newsletter's picks and gems (build_variant), the
+    homepage's served Top Picks (home_picks.rank) and app.js renderValue's
+    Top Picks, Hidden gems and ★ list (its FEE_ISOS, which
+    scripts/test_home_picks.py holds equal to this set), as the cheap lists
+    don't (render_lists.safe_rows, render_cheapest). Their grades stand
+    everywhere else (the guide, the map, the Full ranking table): they grade
+    local prices, and US$100 a night on top of a 23% price level is no
+    bargain to rank on."""
+    visa = visa if visa is not None else _load("visa.json")
+    return {iso for iso in visa if visitor_fee(iso, visa)}
+
+
 def flag(iso):
     """Regional-indicator flag emoji from an ISO-2 code (e.g. 'TR' -> 🇹🇷)."""
     if not iso or len(iso) != 2 or not iso.isalpha():
@@ -920,9 +946,10 @@ def build_variant(shared, v, n_picks=5, n_gems=3, cover_check=None):
 
     `picks` are the most-popular destinations (by tourism receipts) ranked by
     value; `gems` are off-the-beaten-path high-value ones. Both exclude Level 3
-    (Reconsider Travel) and Level 4, matching the site's default "safe" floor.
-    Picks are enriched with a cover photo + things-to-do; gems stay compact.
-    A non-USD edition leaves its own home country out (v.exclude_home).
+    (Reconsider Travel) and Level 4, matching the site's default "safe" floor,
+    and any country with a mandatory daily visitor fee (fee_isos: Bhutan), as
+    the site's Top Picks and Hidden gems do. Picks are enriched with a cover
+    photo + things-to-do; gems stay compact. A non-USD edition leaves its own home country out (v.exclude_home).
 
     `cover_check` (a cover_check.CoverCheck, one for the whole run) is what
     send_digest.py passes so no issue goes out with a photo that does not
@@ -940,12 +967,15 @@ def build_variant(shared, v, n_picks=5, n_gems=3, cover_check=None):
     fares = fares_for(shared, v.home_iso)
 
     scored = []
+    fee = fee_isos()
     for iso in CUR_BY_ISO:
         if v.exclude_home and iso == v.home_iso:
             continue
         s = _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
                    fit, fares, anchor, home_iso=v.home_iso, home_cur=v.code)
-        if s and s["advLvl"] != 3:   # default "safe" floor: drop Level 3 (4 already gone)
+        # The default "safe" floor drops Level 3 (4 is already gone), and a
+        # mandatory daily visitor fee keeps a country out (fee_isos).
+        if s and s["advLvl"] != 3 and iso not in fee:
             scored.append(s)
 
     # Ties on the shown score break on the unrounded one, then the name, as
