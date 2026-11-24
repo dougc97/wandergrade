@@ -204,6 +204,7 @@ cfg = server.store.load_config()
 rkey = (cfg["baseline_days"], cfg["threshold_pct"], tuple(cfg["watch"]), "USD")
 try:
     cold = server._render_index("TH").decode("utf-8")
+    cold_us = server._render_index("US").decode("utf-8")
     now = time.time()
     server._adv_cache["us"] = (now, FIX["advisories"])
     server._rates_cache[rkey] = (now, FIX["rates"])
@@ -227,23 +228,27 @@ results.append(ok(len(gw) == 3 and 'data-gg="ov"' in warm["TH"] and "Level 4, do
 results.append(ok("data-gssr" not in home and server._GUIDE_HOLD not in home
                   and '<div id="guideGrades" class="guidegrades"></div>' in home,
                   "the homepage serves no guide line"))
+US_COST = '<div id="guideCost" class="guidecost" hidden data-iso="US" data-pl="US"></div>\n          ' + server._COST_HOLD
 cdiv = lambda iso, line: ('<div id="guideCost" class="guidecost" data-iso="%s" data-pl="%s">%s</div>\n          %s'
                           % (iso, G.guide_sizers.GUIDE_PARENT.get(iso, iso), line, server._COST_HOLD))
 snap_th = G.cost("TH", None, None, None, render_guide.render("TH")["cost"])
 results.append(ok((cdiv("TH", snap_th) in cold if snap_th else '<div id="guideCost" class="guidecost" hidden></div>' in cold)
                   and all(cdiv(i, G.cost(i, FIX["rates"], FIX["ppp"], FIX["advisories"])) in warm[i] for i in warm)
                   and "UK-wide figure" in warm["GB-ENG"] and "💰 <b>Local prices" in warm["AF"]
-                  and '<div id="guideCost" class="guidecost" hidden></div>' in warm_us and server._COST_HOLD not in warm_us
+                  and all(US_COST in h for h in (cold_us, warm_us))
                   and '<div id="guideCost" class="guidecost" hidden></div>' in home and server._COST_HOLD not in home,
                   "the 💰 line is served under the grades: the snapshot's words with the caches cold (%r), live once "
-                  "they are warm, with its pre-paint script; none on the US's guide or the homepage" % snap_th[:60]))
+                  "they are warm, with its pre-paint script; on the US's guide empty and hidden, with the script "
+                  "(a reader from elsewhere gets its room); none on the homepage" % snap_th[:60]))
+results.append(ok(".guidecost.pend:empty { min-height: 18px; }" in open(P("public", "styles.css"), encoding="utf-8").read(),
+                  "styles.css: an empty held line (the US's guide) keeps one line's room"))
 COST_HOLD = re.search(r"<script>(.*)</script>", server._COST_HOLD, re.S).group(1)
 COST_PAGE = r"""
 function USP(s) { var o = {}; (s || "").replace(/^\?/, "").split("&").forEach(function (kv) { if (!kv) return;
   var i = kv.indexOf("="); o[i < 0 ? kv : kv.slice(0, i)] = i < 0 ? "" : kv.slice(i + 1); });
   this.get = function (k) { return k in o ? o[k] : null; }; }
 function run(c) {
-  var attrs = { "data-pl": c.pl }, el = { className: "guidecost", hidden: false,
+  var attrs = { "data-pl": c.pl }, el = { className: "guidecost", hidden: c.pl === "US",
     getAttribute: function (k) { return k in attrs ? attrs[k] : null; } };
   var document = { getElementById: function (id) { return id === "guideCost" ? el : null; } };
   var location = { search: c.search }, store = c.store;
@@ -264,6 +269,11 @@ COST_CASES = [
     ("a link back to the US over a saved Germany", "?vo=US", {"fx_origin": "DE"}, "TH", ["guidecost", False]),
     ("a German reader on Germany's guide", "", {"fx_origin": "DE"}, "DE", ["guidecost", True]),
     ("a British reader on Scotland's (the UK's figure)", "", {"fx_origin": "GB"}, "GB", ["guidecost", True]),
+    # The US's own guide: served empty and hidden (a US reader gets none).
+    ("a first visit on the US's guide", "", {}, "US", ["guidecost", True]),
+    ("a saved US origin on the US's guide", "", {"fx_origin": "US"}, "US", ["guidecost", True]),
+    ("a saved home country on the US's guide", "", {"fx_origin": "DE"}, "US", ["guidecost pend", False]),
+    ("a shared link's From on the US's guide", "?vo=GB", {}, "US", ["guidecost pend", False]),
 ]
 with tempfile.TemporaryDirectory() as d:
     sp = os.path.join(d, "cost.js")
@@ -278,7 +288,7 @@ except Exception:
 bad = [(c[0], g) for c, g in zip(COST_CASES, cg or []) if g != c[4]]
 results.append(ok(cg is not None and len(cg) == len(COST_CASES) and not bad,
                   "the 💰 line's pre-paint script keeps it for a US reader, holds its room unseen for a reader from "
-                  "elsewhere and hides it on their own country's guide %s" % (bad or (r.stderr[-300:] if cg is None else ""))))
+                  "elsewhere (on the US's guide too, served hidden) and hides it on their own country's guide %s" % (bad or (r.stderr[-300:] if cg is None else ""))))
 
 # app.js renderGuideCost after paint: a first visit from abroad (the served
 # line drawn for the US until /api/geo seeds a home) keeps the room of a line

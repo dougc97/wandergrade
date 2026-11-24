@@ -3136,7 +3136,9 @@ async function renderGuideCost(iso) {
   // filled for a reader from the US (guide_lines.cost, this markup less the
   // tip, data-iso its country), and index.html's pre-paint script makes it
   // invisible for a reader from elsewhere (.pend): it keeps its room until
-  // this draw, so nothing under it moves. Another guide's line goes at once.
+  // this draw, so nothing under it moves. On the US's own guide it is served
+  // empty, and the script gives a reader from elsewhere a line's room
+  // (.guidecost.pend:empty). Another guide's line goes at once.
   if (host.dataset.iso !== iso) { host.hidden = true; host.dataset.iso = iso; }
   const show = (h) => { host.innerHTML = h || ""; host.hidden = !h; host.classList.remove("pend"); };
   await Promise.all([ensurePPP(), ensureAdvisories()].map((p) => p.catch(() => {})));

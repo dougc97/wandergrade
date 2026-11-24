@@ -1129,6 +1129,10 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
    before first paint) stayed on screen until app.js emptied it. */
 .guidecost[hidden] { display: none; }
 .guidecost.pend { visibility: hidden; }
+/* The US's own guide serves it empty (a US reader gets none): the room of
+   one line for a reader from elsewhere until theirs is drawn (CLS 0.028 at
+   390 drawn into none). */
+.guidecost.pend:empty { min-height: 18px; }
 .guidecost b { color: var(--ink); }
 .guidecost .fxinfo { margin-left: 5px; cursor: help; }
 

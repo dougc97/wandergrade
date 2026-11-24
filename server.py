@@ -1685,12 +1685,16 @@ def _guide_lines(iso):
 # a US reader's, so for a reader from elsewhere (a saved home country, or a
 # shared link's ?vo= / ?fo=) it keeps its room invisibly (.pend) until
 # renderGuideCost draws theirs, and goes at once on their own country's guide
-# (theirs draws none there). ES5, like index.html's other inline scripts.
+# (theirs draws none there). On the US's own guide it is served empty and
+# hidden (a US reader gets none): a reader from elsewhere gets a line's room
+# there (.guidecost.pend:empty), which renderGuideCost fills. ES5, like
+# index.html's other inline scripts.
 _COST_HOLD = (
     '<script>(function(){var c=document.getElementById("guideCost");if(!c)return;'
     'try{var q=new URLSearchParams(location.search),v=q.get("vo")||q.get("fo"),'
     'o=/^[A-Z]{2}$/.test(v||"")?v:(localStorage.getItem("fx_origin")||"US");'
-    'if(o!=="US"){if(o===c.getAttribute("data-pl"))c.hidden=true;else c.className+=" pend";}}catch(e){}})();</script>')
+    'if(o!=="US"){if(o===c.getAttribute("data-pl"))c.hidden=true;else{c.hidden=false;c.className+=" pend";}}}'
+    'catch(e){}})();</script>')
 
 
 def _guide_cost(iso, snapshot, snapshot_l4):
@@ -1698,14 +1702,21 @@ def _guide_cost(iso, snapshot, snapshot_l4):
     tokens: guide_lines.cost from the rates, PPP table and US advisory list
     the server caches (never fetched here), else the dated snapshot's words,
     with the pre-paint script. Hidden and empty where there is nothing to
-    say (the US's own guide, no figure), as index.html had it."""
+    say (no figure), as index.html had it. The US's own guide, which says
+    nothing to a US reader, is served empty and hidden with the script, so a
+    reader from elsewhere has its room held before their line is drawn (it
+    was drawn into none, moving everything under it 22px: CLS 0.028 at 390)."""
+    home = guide_sizers.GUIDE_PARENT.get(iso, iso)
+    if home == "US":
+        return {"COST_ATTRS": ' hidden data-iso="%s" data-pl="US"' % iso,
+                "GUIDE_COST": "", "COST_HOLD": "\n          " + _COST_HOLD}
     rp, ppp = _fx_inputs()
     hit = _adv_cache.get("us")
     line = guide_lines.cost(iso, rp if ppp else None, ppp if rp else None,
                             hit[1] if hit else None, snapshot, snapshot_l4)
     if not line:
         return {}
-    return {"COST_ATTRS": ' data-iso="%s" data-pl="%s"' % (iso, guide_sizers.GUIDE_PARENT.get(iso, iso)),
+    return {"COST_ATTRS": ' data-iso="%s" data-pl="%s"' % (iso, home),
             "GUIDE_COST": line, "COST_HOLD": "\n          " + _COST_HOLD}
 
 
