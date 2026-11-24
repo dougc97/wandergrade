@@ -5,7 +5,9 @@
   1. The USD email's 12 months hash to scripts/digest_golden/usd_sha256.json,
      and the USD edition built the per-currency way (gather + build_variant)
      is the same text. Against the code the Dec 2026 redesign started from
-     (digest_snapshot.BASE, run on this tree's data), every edition's
+     (digest_snapshot.BASE, run on this tree's data with
+     digest_snapshot.GRAFTS: the scoring changes made on purpose since,
+     review #21's Affordability), every edition's
      payload, every month, is equal field for field but for
      digest_snapshot.ADDED_FIELDS and CHANGED_FIELDS, and its subject and
      hidden preheader are the same text: the redesign changes wording and
@@ -491,8 +493,8 @@ def main():
     cad = "".join(b for _, b in snap["CAD"].values())
     results.append(ok("\U0001f4b5&nbsp;marks where your Canadian dollar goes further than usual right now." in cad
                       and re.search(r">\U0001f4b5 Canadian dollar goes ~\d+% further than&nbsp;usual</div>", cad)
-                      and "partly whether your Canadian dollar goes further than usual" in snap["CAD"]["1"][1]
-                      and "local prices against Canada," in snap["CAD"]["1"][1]
+                      and "is local prices against Canada." in snap["CAD"]["1"][1]
+                      and "partly whether your" not in cad
                       and "\U0001f4b4" in "".join(b for _, b in snap["JPY"].values()),
                       "CAD: the intro, the dollar line and the grade key name the Canadian dollar and Canada; "
                       "JPY uses the yen banknote"))
@@ -992,8 +994,6 @@ def main():
         ("the footer's border on its second line", "check",
          body.replace('margin:8px 0 0">Grades are for', 'border-top:1px solid #e0e0e0;margin:8px 0 0">Grades are for', 1)),
         ("the grade key without what ~ means", "check", body.replace(" (~&nbsp;=&nbsp;estimated)", "", 1)),
-        ("'1-year' free to break at its hyphen", "check",
-         body.replace('<span style="white-space:nowrap">1-year</span>', "1-year", 1)),
         ("'re-grade' free to break at its hyphen", "check",
          body.replace('<span style="white-space:nowrap">re-grade</span>', "re-grade", 1)),
         ("the date free to break at a hyphen", "check",
@@ -1217,7 +1217,6 @@ def main():
 
     # The grade key (newsletter._grade_key). Each fact it states, held to the
     # scoring code and to every pick and gem of every frozen render.
-    import inspect
     climate = picks._load("climate.json")
     every = [(c, int(m), s_) for c, m in cells for s_ in datas[c][int(m)]["picks"] + datas[c][int(m)]["gems"]]
     comps = lambda s_: [s_[k] for k in ("afford", "safe", "wx", "fly") if s_.get(k) is not None]
@@ -1229,20 +1228,20 @@ def main():
                       "every one of %d picks and gems has an Overall that is the plain mean of the grades it "
                       "has (some have three: no weather data)%s" % (len(every), "" if not off else " -> %r" % off[:3])))
 
+    # Review #21 (Nov 2026): the price level alone, 100 at 15% of home
+    # prices and 0 at 130%. A currency move in the formula would show here:
+    # the frozen months have picks whose real move is far from 0.
     def afford(s_):
-        price = picks.clamp100(((1.3 - s_["pl"]) / 0.95) * 100)
-        move = picks.clamp100(50 + s_["fx"] * 6.25) if s_["fx"] is not None else 50
-        return picks.clamp100(price * 0.7 + move * 0.3)
+        return picks.clamp100(((1.3 - s_["pl"]) / 1.15) * 100)
     off = [(c, m, s_["iso"]) for c, m, s_ in every
            if afford(s_) != s_["afford"]
            or s_["fx"] != pl.real_fx_pct(s_["fx_nominal"], s_["iso"], V[c].home_iso, ppp)]
-    results.append(ok(not off and inspect.signature(rates.compute_favorability).parameters["baseline_days"].default == 365
-                      and abs(rates.MAX_HISTORY_DAYS - 365) <= 7 and newsletter._span_words(rates.MAX_HISTORY_DAYS) == "1-year",
-                      "'mostly local prices against {home}, partly whether your {money} goes further than usual "
-                      "(against its 1-year average, after inflation)': every Affordability is 0.7 x the price "
-                      "level's score + 0.3 x the currency move's, the move being pricelevel.real_fx_pct of the "
-                      "nominal one, measured over %d days%s"
-                      % (rates.MAX_HISTORY_DAYS, "" if not off else " -> %r" % off[:3])))
+    moved = [s_ for _c, _m, s_ in every if s_["fx"] is not None and abs(s_["fx"]) >= 2]
+    results.append(ok(not off and moved,
+                      "'local prices against {home}': every Affordability is the price level's score alone "
+                      "(1.3 - pl) / 1.15, whatever the currency's move (%d picks and gems moved 2%% or more), "
+                      "and the payload's fx is still pricelevel.real_fx_pct of the nominal move%s"
+                      % (len(moved), "" if not off else " -> %r" % off[:3])))
     off = [(c, m, s_["iso"], s_["advLvl"]) for c, m, s_ in every if s_["advLvl"] not in (1, 2)]
     named = [(c, m) for c, m in cells
              if ("is the %s advisory level (Level&nbsp;1&nbsp;=&nbsp;A, Level&nbsp;2&nbsp;=&nbsp;B) unless "

@@ -412,7 +412,7 @@
             <thead><tr>
               <th class="rank"><span class="vh">Rank</span></th>
               <th class="dest sortable" aria-sort="none" data-sk="country"><button type="button" class="sortbtn">Country</button></th>
-              <th class="num sortable" aria-sort="none" data-sk="afford" title="cost of living vs home + how strong your currency is now"><button type="button" class="sortbtn"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></button></th>
+              <th class="num sortable" aria-sort="none" data-sk="afford" title="cost of living vs home"><button type="button" class="sortbtn"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></button></th>
               <th class="num sortable" aria-sort="none" data-sk="safety" title="government travel-advisory level — source picked under Data → Safety"><button type="button" class="sortbtn"><span aria-hidden="true">🛡️</span> <span class="thword">Safety</span></button></th>
               <th class="num sortable" aria-sort="none" data-sk="weather" title="weather comfort in the month graded"><button type="button" class="sortbtn"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></button></th>
               <th class="num sortable" aria-sort="none" data-sk="flight" title="the graded month's fare vs the route's usual where we have cached months; otherwise the year-round fare vs a typical fare for the distance · ~ = no cached fare, counted as typical"><button type="button" class="sortbtn"><span aria-hidden="true">✈️</span> <span class="thword">Flights</span></button></th>
@@ -737,9 +737,9 @@
               <th class="sortable" aria-sort="none" data-sk="code"><button type="button" class="sortbtn">Currency</button></th><th class="num sortable" aria-sort="none" data-sk="rate" id="rateColHead"><button type="button" class="sortbtn">1 USD =</button></th>
               <!-- Name the baseline: this column sits under the chart's 1M/3M/6M/1Y
                    toggle and reads as though that toggle drives it. It doesn't, and
-                   must not — strength_pct is 30% of every Affordability grade, so a
-                   view control cannot own it. The window is always a year. -->
-              <th class="num sortable" aria-sort="none" data-sk="vsavg" id="vsAvgHead" title="vs its own 1-year average — positive = the dollar buys more of this currency than usual. Nominal: in a high-inflation country local prices can rise faster than the currency falls, so the Affordability grade uses the inflation-adjusted move instead."><button type="button" class="sortbtn">vs <span class="lbl-lg">1-yr </span>avg<span class="muted favinfo" id="favInfo" data-tip="Green rows: your money is stronger than usual there, even after inflation." title="">&nbsp;ⓘ</span></button></th>
+                   must not — strength_pct is every currency chip on Top Picks and the
+                   guides, so a view control cannot own it. The window is always a year. -->
+              <th class="num sortable" aria-sort="none" data-sk="vsavg" id="vsAvgHead" title="vs its own 1-year average — positive = the dollar buys more of this currency than usual. Nominal: in a high-inflation country local prices can rise faster than the currency falls, so Top Picks' currency marks use the inflation-adjusted move instead."><button type="button" class="sortbtn">vs <span class="lbl-lg">1-yr </span>avg<span class="muted favinfo" id="favInfo" data-tip="Green rows: your money is stronger than usual there, even after inflation." title="">&nbsp;ⓘ</span></button></th>
               <!-- Against the home country (renderRates rewrites the title with
                    its name), the same measure as the Cost of living tab. -->
               <th class="num sortable" aria-sort="none" data-sk="price" title="local prices vs your home country; below 1.00 = cheaper than home. A currency several countries share shows the range across them."><button type="button" class="sortbtn">Price level</button></th>

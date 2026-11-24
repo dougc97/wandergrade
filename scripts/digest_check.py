@@ -576,16 +576,14 @@ def expected(nl, pk, v, d):
     # The flights sentence, with what "~" means, is there when a card or gem
     # has a fare grade.
     line("key", ("Reading the grades: the badge is the Overall grade, an equal mix of the others. "
-                 "{money}{nb}is mostly local prices against {home}, partly whether your {noun} goes further than "
-                 "usual (against its 1-year average, after inflation). "
+                 "{money}{nb}is local prices against {home}. "
                  "{shield}{nb}is the {main} advisory level (Level{nb}1{nb}={nb}A, Level{nb}2{nb}={nb}B) "
                  "unless another government is named. "
                  "{sun}{nb}is {month}’s usual weather."
                  + (" {plane}{nb}is the fare against the usual for that route or distance "
                     "(~{nb}={nb}estimated)." if flights else ""))
-         .format(money=MONEY, shield=SHIELD, sun=SUN, plane=PLANE, nb=NB, home=v.vs_place, noun=v.noun,
+         .format(money=MONEY, shield=SHIELD, sun=SUN, plane=PLANE, nb=NB, home=v.vs_place,
                  main=main, month=mn))
-    held.append(("key", "1-year"))
     switch = "" if usd else (" Want another currency’s edition? Reply and say which, or change it in your "
                              "account on wandergrade.com (sign in with this address).")
     # The date's hyphens are U+2011 (non-breaking, same look), so a mail app
@@ -745,7 +743,7 @@ def check(nl, pk, v, d, subject, body):
         bad.append("%d badges for %d name rows, each with its own size" % (len(got.badges), len(rows)))
     elif len(rows) > 1 and rows[0][0] == "name" and not all(_px(got.badges[0]) > _px(b) for b in got.badges[1:]):
         bad.append("the top card's badge is not the biggest")
-    # Words the small print must not break at a hyphen ("1-year", "re-grade",
+    # Words the small print must not break at a hyphen ("re-grade",
     # the date) sit in a span that can't wrap.
     for key, words in want["held"]:
         if not any(x.tag == "span" and x.style.get("white-space") == "nowrap" and norm(x.text()) == words

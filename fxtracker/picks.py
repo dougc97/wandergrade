@@ -3,8 +3,9 @@
 Generates the monthly newsletter's graded destination picks using the same
 data and formulas the website uses, so the email matches what users see:
 
-  Affordability = cheapness (PPP price level, carried forward for inflation)
-                  nudged by the REAL FX move vs the 1-yr average
+  Affordability = cheapness alone (PPP price level, carried forward for
+                  inflation); the REAL FX move vs the 1-yr average is reported
+                  beside it ("fx"), not graded (review #21, Nov 2026)
   Safety        = advisory level (1-3); unrated countries are not graded
   Weather       = Open-Meteo climate comfort score for the chosen month
                   (left out of the mean where a country has no climate data)
@@ -575,14 +576,18 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     cur = CUR_BY_ISO.get(iso)
     cl = climate.get(iso)
 
-    aff = clamp100(((1.3 - pl) / 0.95) * 100)
     # The dollar's move vs its 1-yr average, net of the inflation gap: a steadily
     # depreciating high-inflation currency always sits above its own average.
+    # Not in any grade since review #21 (Nov 2026): it is the payload's "fx",
+    # the email's 💵 line and the site's currency chip.
     nominal = strength_by_code.get(cur) if cur and cur != home_cur else None
     real = pricelevel.real_fx_pct(nominal, iso, home_iso, ppp)
-    fx = clamp100(50 + real * 6.25) if real is not None else 50
     comps = {
-        "afford": clamp100(aff * 0.7 + fx * 0.3),
+        # Affordability is the price level alone: 100 at 15% of home prices,
+        # 0 at 130% (app.js valueScores). It was 0.7 x a price part that maxed
+        # at 35% + 0.3 x the currency move, so under 35% the move alone
+        # ordered countries, and it was partly counted twice.
+        "afford": clamp100(((1.3 - pl) / 1.15) * 100),
         "safe": {1: 100, 2: 70, 3: 35}.get(adv, 70),
     }
     # No climate entry = no weather measure, averaged over the rest (app.js

@@ -40,7 +40,9 @@ BASE is the commit the Dec 2026 redesign started from. The tests compare this
 tree with it in two ways that don't read the body: the payloads must be equal
 but for ADDED_FIELDS and CHANGED_FIELDS below, each held to its rule
 (test_digest_variants 1), and every Buttondown call and printed line must be
-equal once each body is swapped for a token (test_send_digest 1). Until then
+equal once each body is swapped for a token (test_send_digest 1). The base
+runs with GRAFTS applied: the scoring changes made on purpose since (review
+#21's Affordability), each named with its reason. Until then
 the tests compared bodies with commit 4788fd2's, less a list of stripped
 pieces; that machinery went with the redesign (REVIEW3, COVERS, CHEAP_LINK,
 the cost-line and weights grafts, the subject mapping), since a body nearly
@@ -89,18 +91,47 @@ CHANGED_FIELDS = (
 )
 
 
+# Scoring changes made on purpose since BASE, grafted onto the base's code by
+# extract_code, so the comparisons with it (test_digest_variants 1,
+# test_send_digest 1) still prove that the redesign changed wording and
+# layout and nothing else, and that these are the only changes to which
+# countries, grades and numbers go out. Each is (file, the base's text, what
+# replaces it, why); the base's text must occur once.
+GRAFTS = (
+    # Review #21 (Doug, 2026-11-23): Affordability is the price level alone,
+    # 100 at 15% of home prices and 0 at 130% (was 0.7 x a price part that
+    # maxed at 35% + 0.3 x the currency move vs its 1-yr average).
+    ("fxtracker/picks.py", "    aff = clamp100(((1.3 - pl) / 0.95) * 100)\n",
+     "    aff = clamp100(((1.3 - pl) / 1.15) * 100)\n", "review #21: Affordability's wider price scale"),
+    ("fxtracker/picks.py", '        "afford": clamp100(aff * 0.7 + fx * 0.3),\n',
+     '        "afford": aff,\n', "review #21: no currency move inside Affordability"),
+)
+
+
 def extract_code(root, rev, dest):
     """Commit `rev`'s code (fxtracker/ and send_digest.py, from `root`'s
     repository) into the empty directory `dest`, on `root`'s data: dest/public
     is a link to root/public. The data is input, not code, so a comparison
     with `rev` shows what the code changed and nothing a data refresh did
-    (as the 4788fd2 comparisons took this tree's climate.json). Raises
-    RuntimeError with git's message when `rev` can't be read."""
+    (as the 4788fd2 comparisons took this tree's climate.json). GRAFTS are
+    applied where `rev` has the text they replace (a later `rev` that has the
+    change already is left alone). Raises RuntimeError with git's message
+    when `rev` can't be read, and when a graft's text occurs more than once."""
     q = lambda x: "'" + x.replace("'", "'\\''") + "'"
     p = subprocess.run("git -C %s archive %s fxtracker send_digest.py | tar -x -C %s"
                        % (q(root), q(rev), q(dest)), shell=True, capture_output=True, text=True, timeout=50)
     if p.returncode != 0 or not os.path.isdir(os.path.join(dest, "fxtracker")):
         raise RuntimeError("git archive %s failed: %s" % (rev, (p.stderr or p.stdout).strip()))
+    for rel, old, new, why in GRAFTS:
+        path = os.path.join(dest, rel)
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        n = text.count(old)
+        if n > 1:
+            raise RuntimeError("graft %r: its text occurs %d times in %s at %s" % (why, n, rel, rev))
+        if n == 1:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text.replace(old, new))
     os.symlink(os.path.join(root, "public"), os.path.join(dest, "public"))
 
 

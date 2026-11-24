@@ -950,14 +950,13 @@ def _grade_key(v, mn, flights=True):
           weight, and picks._score's Overall is their weighted mean over the
           ones a place has (a place with no weather or fare data is averaged
           over the rest, hence "the others", not "the four").
-      mostly local prices against <home>, partly whether your <money> goes
-      further than usual (against its 1-year average, after inflation)
-          picks._score: afford = 0.7 x the price level against the edition's
-          home (pl = the place's level / the home's) + 0.3 x the currency
-          move; the move is rates.compute_favorability's rate now against its
-          average over MAX_HISTORY_DAYS (364 days, _span_words' "1-year"),
-          made real by pricelevel.real_fx_pct (the inflation gap). The 💵
-          lines and the intro say "further than usual" for the same figure.
+      local prices against <home>
+          picks._score: afford is the price level against the edition's home
+          alone (pl = the place's level / the home's; review #21, Nov 2026).
+          The key used to say "mostly local prices, partly whether your
+          <money> goes further than usual" for the 0.3 x currency move the
+          grade then carried; that move is now the 💵 lines and the intro's
+          alone ("further than usual").
       the <main source> advisory level (Level 1 = A, Level 2 = B)
       unless another government is named
           _FLAG (picks.SAFE_GRADE) by the level; picks.build_variant leaves
@@ -980,15 +979,13 @@ def _grade_key(v, mn, flights=True):
           out, as the rows leave ✈️ out.
     """
     # Non-breaking spaces hold each icon to its "is" and each "Level 1 = A"
-    # and "~ = estimated" together, so a line never starts with "= B)";
-    # "1-year" can't break at its hyphen either.
+    # and "~ = estimated" together, so a line never starts with "= B)".
     return ("<b>Reading the grades:</b> the badge is the Overall grade, an equal mix of the others. "
-            "\U0001f4b0&nbsp;is mostly local prices against %s, partly whether your %s goes further than "
-            "usual (against its %s average, after inflation). "
+            "\U0001f4b0&nbsp;is local prices against %s. "
             "\U0001f6e1️&nbsp;is the %s advisory level (Level&nbsp;1&nbsp;=&nbsp;A, "
             "Level&nbsp;2&nbsp;=&nbsp;B) unless another government is named. "
             "\U0001f324️&nbsp;is %s’s usual weather.%s"
-            % (_esc(v.vs_place), _esc(v.noun), _hold("1-year"), _esc(_adv_main(v)), _esc(mn),
+            % (_esc(v.vs_place), _esc(_adv_main(v)), _esc(mn),
                " ✈️&nbsp;is the fare against the usual for that route or distance "
                "(~&nbsp;=&nbsp;estimated)." if flights else ""))
 

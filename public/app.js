@@ -692,13 +692,15 @@ function renderRates(data) {
   const rch = $("rateColHead");
   (rch.querySelector(".sortbtn") || rch).textContent = `1 ${base} =`;
   // Says "fixed at a year" on purpose: the chart's window toggle sits directly
-  // above this column and looks like it drives it. It must not — this figure is
-  // 30% of every Affordability grade, so a zoom control cannot be allowed to
-  // re-grade the site, and a one-month average is noise anyway.
+  // above this column and looks like it drives it. It must not — this figure
+  // is every currency chip on Top Picks and the guides (and the newsletter's
+  // 💵 lines), so a zoom control cannot be allowed to change them, and a
+  // one-month average is noise anyway. (It was 30% of every Affordability
+  // grade until review #21, Nov 2026.)
   $("vsAvgHead").title =
     `vs its own 1-year average — positive = ${w} is stronger than usual. `
     + `Nominal exchange rate: in high-inflation countries local prices can rise faster `
-    + `than the currency falls, so the Affordability grade uses this net of inflation. `
+    + `than the currency falls, so Top Picks' currency marks use this net of inflation. `
     + `Fixed at a year (the chart's window above doesn't change it): a shorter `
     + `average is mostly noise.`;
   $("asof").textContent = "As of " + fmtDay(data.as_of);
@@ -2991,8 +2993,8 @@ async function renderGuideFares(iso) {
 // A LINE, deliberately not bars: bars on this page mean "pick a month" (fares,
 // temperature). FX has no forecastable seasonality, so this chart answers only
 // "is your money going further than usual right now" — backward-looking
-// monthly averages, the same 1-yr-average anchor the affordability score's FX
-// component already uses. Never a month-picker. Plotted in today's prices
+// monthly averages, the same 1-yr-average anchor Top Picks' currency chips
+// (fxMark) use. Never a month-picker. Plotted in today's prices
 // (inflation gap removed, see realFxPct), so the headline matches the table's
 // FX mark and a steady depreciation no longer reads as a bargain.
 const _fxTrendCache = {};
@@ -5522,14 +5524,15 @@ async function renderCol() {
 }
 
 // ===========================================================================
-//  Best value now (blend affordability + currency timing + safety + weather)
+//  Best value now (blend affordability + safety + weather + flights)
 // ===========================================================================
 const clamp100 = (x) => Math.max(0, Math.min(100, Math.round(x)));
 
 // User-adjustable priorities: High / Medium / Low per factor (simpler than
 // numeric sliders). "fly" only participates for countries with a fare loaded.
-// "afford" blends cost-of-living (PPP price level) with current FX strength into
-// one Affordability factor — users found "Dollar" vs "Prices" hard to tell apart.
+// "afford" is the cost of living (PPP price level) alone since review #21 (Nov
+// 2026); it used to blend in the currency's move, which the rows now show as a
+// chip beside the grade (fxMark) instead.
 // Every factor starts at Med (Doug, 2026-10-14). Affordability started on
 // High, a leftover of the site's FX-tracker beginnings ("Cheap" was High
 // before there was a ranking to speak of), and flights are a cost too: at
@@ -5893,13 +5896,16 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   const wxKnown = !!(cl && cl.scores && cl.scores[month - 1] != null);
 
   const w = loadWeights();
-  // Sub-scores (kept for tooltips/detail): cheapness maxes once prices are ~1/3
-  // of home prices; FX maxes at +8% vs the 1-year average.
-  const aff = clamp100(((1.3 - pl) / 0.95) * 100);
-  const fx = fxReal != null ? clamp100(50 + fxReal * 6.25) : 50;
   const comps = {
-    // Affordability = mostly structural cost of living, nudged by FX timing.
-    afford: clamp100(aff * 0.7 + fx * 0.3),
+    // Affordability is the price level alone (review #21, Nov 2026): 100 at
+    // 15% of home prices, 0 at 130%. It was 70% a price part that maxed at
+    // 35% and 30% the currency's move vs its 1-yr average (+8% = full), so
+    // every country under 35% scored the same on price and the move alone
+    // ordered them (Vietnam at 27% B+, Poland at 49% A), and the move was
+    // partly counted twice: the price level is at today's rate already. The
+    // move stays on screen as the row's currency chip (fxMark), not in the
+    // grade. picks.py _score mirrors this.
+    afford: clamp100(((1.3 - pl) / 1.15) * 100),
     safe: advLvl ? { 1: 100, 2: 70, 3: 35 }[advLvl] : 70,
   };
   // No climate entry = no weather measure. It used to be a made-up 50 (a D pill)
@@ -8454,7 +8460,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   const flexRows = list.some((s) => s.month);
   host.innerHTML = `<table class="gradetable">
     <thead><tr><th><span class="vh">Rank</span></th><th class="dest${sc}"${sa("dest")}>Destination</th>
-      <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></th>
+      <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></th>
       <th class="${sc.trim()}"${sa("safety")} title="${esc(advSafetyTitle())}"><span aria-hidden="true">🛡️</span> <span class="thword">Safety</span></th>
       <th class="${sc.trim()}"${sa("weather")} title="weather comfort for ${flexRows ? "each row's month" : "your chosen month"}"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></th>
       <th class="${sc.trim()}"${sa("flights")} title="${flexRows ? "the fare in each row's month" : "this month's fare"} vs the route's usual where we have cached months; otherwise the year-round fare vs a typical fare for the distance (the strip shows each month)"><span aria-hidden="true">✈️</span> <span class="thword">Flights</span></th>
@@ -8464,8 +8470,10 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   if (!reducedMotion() && !served) host.querySelectorAll(".grnum").forEach(countUp);
   fillRowFareStrips("#" + host.id, month);
 }
-// Tooltip for the merged Affordability cell: explains both the price level and
-// the FX timing, both measured against the traveler's home country/currency.
+// Tooltip for the Affordability cell: the price level against the traveller's
+// home, the one thing the grade measures since review #21 (Nov 2026). The
+// currency's move vs its 1-yr average had a clause here while it was 30% of
+// the grade; it is the row's own chip now (fxMark), with its own tip.
 function affordTitle(s) {
   const parts = [];
   const home = plHomeWord();
@@ -8474,11 +8482,6 @@ function affordTitle(s) {
   // the US (0.904) read "about the same" here but "0.90 cheap" in the table
   // and "~10% cheaper" in its guide (Vanuatu vs Germany, 1.1048, the reverse).
   if (s.pl != null) parts.push("daily prices " + plPhrase(s.pl, home));
-  // "after inflation" only when a destination figure was actually netted out.
-  // Whole percentages: two decimals on a cached 1-yr average claimed a
-  // precision the figure doesn't have.
-  if (s.fx != null && Math.abs(s.fx) >= 1)
-    parts.push(`your ${homeBase} is ${signedPct(Math.round(s.fx))} vs its 1-yr average${s.fxAdj ? ", after inflation" : ""}`);
   // Repeatedly the sharpest critique this gets: PPP is a national consumption
   // basket, so it under-weights the one cost a visitor most feels — rent in the
   // few neighbourhoods foreigners actually stay in. Say so where the number is
