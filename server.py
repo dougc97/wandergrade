@@ -1924,24 +1924,19 @@ def _guide_lines(iso):
 
 
 # Before first paint, on a guide whose 💰 line is served (_guide_cost): it is
-# a US reader's, so for a reader from elsewhere (a saved home country, or a
-# shared link's ?vo= / ?fo=) it keeps its room invisibly (.pend) until
-# renderGuideCost draws theirs, and goes at once on their own country's guide
-# (theirs draws none there). On the US's own guide it is served empty and
-# hidden (a US reader gets none): a reader from elsewhere gets a line's room
-# there (.pend while empty: .guidecost's own min-height), which
-# renderGuideCost fills — and so does a first visit, with neither a home nor
-# /api/geo's guess saved yet (wg_geo, seedGeoDefaults): drawn into none once
-# the guess came, a German reader's line moved the hero 22px. The room is the
-# same whoever's line fills it (styles.css .guidecost: one line, two on a
-# phone). ES5, like index.html's other inline scripts.
+# a US reader's (the US's own guide its home line), so for a reader from
+# elsewhere (a saved home country, or a shared link's ?vo= / ?fo=) it keeps its
+# room invisibly (.pend) until renderGuideCost draws theirs: another band word
+# and country, or their home line on their own country's guide. A first visit
+# keeps it as it is (the reader is the US until /api/geo says otherwise, after
+# paint, and their line then takes the same room). The room is the same
+# whoever's line fills it (styles.css .guidecost: one line, two on a phone).
+# ES5, like index.html's other inline scripts.
 _COST_HOLD = (
     '<script>(function(){var c=document.getElementById("guideCost");if(!c)return;'
-    'try{var q=new URLSearchParams(location.search),v=q.get("vo")||q.get("fo"),L=localStorage,'
-    's=L.getItem("fx_origin"),k=/^[A-Z]{2}$/.test(v||""),o=k?v:(s||"US");'
-    'if(o!=="US"){if(o===c.getAttribute("data-pl"))c.hidden=true;else{c.hidden=false;c.className+=" pend";}}'
-    'else if(!k&&!s&&!L.getItem("wg_geo")&&c.getAttribute("data-pl")==="US"){c.hidden=false;c.className+=" pend";}}'
-    'catch(e){}})();</script>')
+    'try{var q=new URLSearchParams(location.search),v=q.get("vo")||q.get("fo"),'
+    'o=/^[A-Z]{2}$/.test(v||"")?v:(localStorage.getItem("fx_origin")||"US");'
+    'if(o!=="US")c.className+=" pend";}catch(e){}})();</script>')
 
 
 def _guide_cost(iso, snapshot, snapshot_l4):
@@ -1949,14 +1944,13 @@ def _guide_cost(iso, snapshot, snapshot_l4):
     tokens: guide_lines.cost from the rates, PPP table and US advisory list
     the server caches (never fetched here), else the dated snapshot's words,
     with the pre-paint script. Hidden and empty where there is nothing to
-    say (no figure), as index.html had it. The US's own guide, which says
-    nothing to a US reader, is served empty and hidden with the script, so a
-    reader from elsewhere has its room held before their line is drawn (it
-    was drawn into none, moving everything under it 22px: CLS 0.028 at 390)."""
+    say (no figure), as index.html had it. The US's own guide carries its
+    home line (guide_lines.HOME_LINE, the served reader being the US), which
+    needs no data, so its room is never served empty."""
     home = guide_sizers.GUIDE_PARENT.get(iso, iso)
     if home == "US":
-        return {"COST_ATTRS": ' hidden data-iso="%s" data-pl="US"' % iso,
-                "GUIDE_COST": "", "COST_HOLD": "\n          " + _COST_HOLD}
+        return {"COST_ATTRS": ' data-iso="%s"' % iso, "GUIDE_COST": guide_lines.cost(iso, None, None),
+                "COST_HOLD": "\n          " + _COST_HOLD}
     # The PPP table as /ppp.json serves it right now: the committed file until
     # the World Bank refresh has run (_ppp_data), not None as _fx_inputs has
     # it until then (up to ~40 s after boot). Waiting served the dated
@@ -1969,8 +1963,7 @@ def _guide_cost(iso, snapshot, snapshot_l4):
                             hit[1] if hit else None, snapshot, snapshot_l4)
     if not line:
         return {}
-    return {"COST_ATTRS": ' data-iso="%s" data-pl="%s"' % (iso, home),
-            "GUIDE_COST": line, "COST_HOLD": "\n          " + _COST_HOLD}
+    return {"COST_ATTRS": ' data-iso="%s"' % iso, "GUIDE_COST": line, "COST_HOLD": "\n          " + _COST_HOLD}
 
 
 def _warm_popularity():

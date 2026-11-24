@@ -149,19 +149,30 @@ def graded_tip(month):
 
 # ---- the local-prices line ---------------------------------------------------------
 
+# The reader's own country's line (app.js COST_HOME, costHomeHtml): what every
+# other guide's percentage is measured against, where "≈ 100% of the US" said
+# nothing. The served US guide carries it (its reader is the US).
+HOME_LINE = "Home prices: the 100% other guides compare to"
+
+
+def home_line():
+    """costHomeHtml's line, tooltip aside."""
+    return '💰 <b>%s</b><span class="fxinfo">ⓘ</span>' % esc(HOME_LINE)
+
+
 def cost(iso, rates, ppp, adv_payload=None, snapshot="", snapshot_l4=False):
     """renderGuideCost's 💰 line for a reader from the US (review #11: under
-    the grades, opening with its band word), tooltip aside, or "" (the US
-    itself, no figure, or nothing to say it from). From the live rates and
-    PPP table when both are in, as localPricesText and plWord read them;
-    else `snapshot`, the dated words app.js falls back to too
-    (render_guide._cost_line). No band word on a Level 4 guide (by the US
-    advisory list when it is in, guideAdvLevel, else the snapshot's), nor
-    where every visitor pays a mandatory daily fee (Bhutan's): "Very cheap"
-    beside US$100 a night misled."""
+    the grades, opening with its band word), tooltip aside, or "" (no figure,
+    or nothing to say it from). The US's own guide gets the home line, which
+    needs no data. From the live rates and PPP table when both are in, as
+    localPricesText and plWord read them; else `snapshot`, the dated words
+    app.js falls back to too (render_guide._cost_line). No band word on a
+    Level 4 guide (by the US advisory list when it is in, guideAdvLevel,
+    else the snapshot's), nor where every visitor pays a mandatory daily fee
+    (Bhutan's): "Very cheap" beside US$100 a night misled."""
     home = guide_sizers.GUIDE_PARENT.get(iso, iso)
     if home == "US":
-        return ""
+        return home_line()
     fee = render_guide.visitor_fee(iso)
     if rates and ppp:
         rate_by_code = {r["code"]: r["rate_now"] for r in rates.get("rows") or [] if "code" in r and "rate_now" in r}

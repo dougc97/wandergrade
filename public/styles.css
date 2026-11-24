@@ -1130,14 +1130,15 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
    0.012). One line from 561px (every reader's fits, the longest about 74
    characters in 455px at 1280), two on a phone, the one-line ones centred in
    it; a fixed line-height, so the font swap can't change it either. The
-   US's own guide, served empty (a US reader gets none), holds the same room
-   for a reader from elsewhere (.pend, CLS 0.028 at 390 drawn into none). */
+   reader's own country's guide has a line too (the home line: the 100% the
+   others compare to), so the room is never left empty: the US's guide is
+   served with it, for a first visit as much as anyone. */
 .guidecost { display: block; margin: 4px 0 0; font-size: 12.5px; line-height: 18px; min-height: 18px;
   color: var(--gray); }
 @media (max-width: 560px) { .guidecost { min-height: 36px; align-content: center; } }
 /* [hidden] has to say so here: the display above outranks the browser's own
-   [hidden] rule, and a German reader's served line on Germany's guide (hidden
-   before first paint) stayed on screen until app.js emptied it. */
+   [hidden] rule, and a hidden line (a guide with no figure, or another
+   guide's line on its way out) stayed on screen until app.js emptied it. */
 .guidecost[hidden] { display: none; }
 .guidecost.pend { visibility: hidden; }
 .guidecost b { color: var(--ink); }

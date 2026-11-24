@@ -3318,39 +3318,42 @@ const COST_GRADE_TIP = " The 💰 Affordability grade puts every country on one 
   + " of home prices and F above about 82%, so a cheap place can still grade C or D.";
 // A fee country's instead: its grade can be A+ on prices the fee isn't in.
 const COST_FEE_TIP = " The 💰 Affordability grade counts local prices only: the fee comes on top.";
+// The reader's own country's line, in place of "≈ 100% of the US", which
+// tells them nothing: what every other guide's figure is measured against.
+// England, Scotland and Wales are a UK reader's own (the UK-wide figure is
+// home's). guide_lines.HOME_LINE / home_line are the server's copy: the
+// served US guide carries it, its reader being the US.
+const COST_HOME = "Home prices: the 100% other guides compare to";
+function costHomeHtml(iso) {
+  const plIso = GUIDE_PARENT[iso] || iso;
+  return `💰 <b>${esc(COST_HOME)}</b><span class="fxinfo" data-tip="${esc(plIso !== iso
+    ? "Every other guide's percentage is measured against " + parentWide(plIso) + " prices, which apply here too."
+    : "Every other guide's percentage is measured against prices here.")}" title="">ⓘ</span>`;
+}
 async function renderGuideCost(iso) {
   const host = $("guideCost");
   if (!host) return;
   // Under the grades line since review #11 (it was two to three screens down
   // on a phone, in the fare column). On /guide/<slug> the server sends it
   // filled for a reader from the US (guide_lines.cost, this markup less the
-  // tip, data-iso its country), and index.html's pre-paint script makes it
-  // invisible for a reader from elsewhere (.pend): it keeps its room until
-  // this draw, so nothing under it moves. On the US's own guide it is served
-  // empty, and the script gives a reader from elsewhere a line's room (.pend
-  // while empty, the room .guidecost's min-height). Another guide's line
-  // goes at once.
+  // tip, data-iso its country; the US's own guide its home line), and
+  // index.html's pre-paint script makes it invisible for a reader from
+  // elsewhere (.pend): it keeps its room until this draw, so nothing under
+  // it moves. Another guide's line goes at once.
   if (host.dataset.iso !== iso) { host.hidden = true; host.dataset.iso = iso; }
   const show = (h) => { host.innerHTML = h || ""; host.hidden = !h; host.classList.remove("pend"); };
   await Promise.all([ensurePPP(), ensureAdvisories(), ensureVisa()].map((p) => p.catch(() => {})));
   if (ccGuideIso !== iso) return;
   const plIso = GUIDE_PARENT[iso] || iso;
-  // The reader's own country: "≈ 100% of the US" tells them nothing. A line
-  // still on screen here keeps its room, unseen, as the pre-paint script's
-  // .pend does: on a first visit the served line stands for the US until
-  // /api/geo seeds this reader's home, after paint (seedGeoDefaults), and
-  // collapsed it moved the hero, the grid and the jump nav up 22px (CLS 0.030
-  // at 390 on the UK's guide, 0.014 before). The next visit, the home saved,
-  // hides it before paint (server.py _COST_HOLD).
-  // So does the room the pre-paint script holds on the US's own guide for a
-  // first visit (no home saved, none guessed yet: .pend, empty), whoever
-  // /api/geo then says the reader is: given back, it moved the hero for a US
-  // reader instead (seedGeoDefaults saves the guess, wg_geo, so it is held
-  // once).
-  if (plIso === originIso()) {
-    if (!host.hidden && (host.innerHTML || host.classList.contains("pend"))) { host.classList.add("pend"); return; }
-    return show("");
-  }
+  // The reader's own country: the home line. It used to be hidden, so the
+  // room stayed empty (18px, 36px on a phone) on the US's guide for every
+  // first visit, the default reader being the US, and a first visit from
+  // abroad needed its own case (the served line held unseen until /api/geo
+  // said whose, wg_geo). Now some line always fills the room, whoever the
+  // reader turns out to be. Not where live data is in with no figure for
+  // home: every percentage is then the US's (plAnchor), and the line below
+  // says so.
+  if (plIso === originIso() && (!(ppp && lastRates) || plAnchor(plIso).home)) return show(costHomeHtml(iso));
   // Level 4 drops the band word. guideAdvLevel is null while the advisories
   // are out (a failed, slow or blocked fetch), which drew "Very cheap" under
   // "Level 4, do not travel": then the server's mark for its own guide
@@ -12118,9 +12121,7 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
 // Geo-seeded defaults: first-time visitors start on their own country instead
 // of the US — home country, currency, budget and fare display all follow.
 // Strictly a SEED: any stored choice wins, and nothing is written until the
-// seed applies so a later explicit pick behaves exactly as before (wg_geo, the
-// guess itself, aside: it is no choice, only what tells a guide's pre-paint
-// script a first visit from a later one). The country
+// seed applies so a later explicit pick behaves exactly as before. The country
 // comes from Cloudflare's per-request header via /api/geo (no-store; the HTML
 // is edge-cached and must never carry one visitor's country to the next).
 (async function seedGeoDefaults() {
@@ -12132,10 +12133,6 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
     const q = new URLSearchParams(location.search);
     if (/^[A-Z]{2}$/.test(q.get("vo") || q.get("fo") || "")) return;
     const g = await getJSON("/api/geo");
-    // The guess, whatever it is (a US one sets no home): a guide's pre-paint
-    // script holds the 💰 line's room on the US's guide only while there is
-    // neither a home nor a guess (server.py _COST_HOLD).
-    try { const gc = ((g && g.country) || "").toUpperCase(); if (/^[A-Z]{2}$/.test(gc)) localStorage.setItem("wg_geo", gc); } catch (e) {}
     // A currency-only link (hc=, db=) is on screen too, and this seed runs
     // before preApplyShared, so the check waits for the await. Seeding over it
     // went through setTravelOrigin's by-hand path, which adopts the view: a
