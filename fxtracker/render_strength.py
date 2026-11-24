@@ -389,7 +389,7 @@ def _after(row, ppp):
     txt = signed_pct(row["real"])
     cls = "pos" if row["real"] > 0 and txt != "0.0%" else "neg" if row["real"] < 0 and txt != "0.0%" else ""
     if row["adj"]:
-        tip = "After inflation: %s (%s)." % (_infl_words(row["iso"], ppp), pricelevel.infl_source(row["iso"], ppp))
+        tip = "After inflation: %s (%s)." % (_infl_words(row["iso"], ppp), pricelevel.source_name(row["iso"], ppp))
         mark = ""
     else:
         tip = ("No inflation figure for %s: the exchange-rate move alone, rising local prices not netted out."
@@ -540,7 +540,7 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
         parts.append("Exchange rates: fxratesapi.com, as of %s, each vs its own %d-day average"
                      % (html.escape(RL._day(asof)), (rates_payload or {}).get("baseline_days") or 364))
         parts.append("Inflation and PPP: World Bank" + (" (Taiwan: IMF)" if any(
-            pricelevel.infl_source(r["iso"], ppp) == "IMF" for r in ranked) else ""))
+            pricelevel.source_name(r["iso"], ppp) == "IMF" for r in ranked) else ""))
     if ix:
         parts.append("Dollar index: ECB euro reference rates, to %s" % html.escape(RL._day(idx["all"]["as_of"])))
     sources = (" · ".join(parts) + ".") if parts else ""

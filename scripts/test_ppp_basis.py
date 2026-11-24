@@ -194,10 +194,12 @@ results.append(ok(bool(twd) and re.search(r"\d+%</span><sup class=\"fn\">‡</su
                   and "Inflation and PPP: World Bank." in plain,
                   "/dollar-strength: Taiwan's row gets a price (it had none), marked ‡ with the IMF source, and "
                   "its inflation is credited to the IMF"))
-results.append(ok("(${gap}, ${inflSource(fxIso)})" in APP and '" (" + inflSource(iso) + ")."' in APP
-                  and 'src === "imf" ? "IMF" : "World Bank"' in APP and pricelevel.infl_source("TW", PPP) == "IMF"
-                  and pricelevel.infl_source("VN", PPP) == "World Bank",
-                  "app.js's inflation tips credit the IMF for Taiwan (inflSource), as infl_source does"))
+results.append(ok("(${gap}, ${srcName(fxIso)})" in APP and '" (" + srcName(iso) + ")."' in APP
+                  and gc.count("srcName(GUIDE_PARENT[iso] || iso) + \" price level for residents") == 2
+                  and 'src === "imf" ? "IMF" : "World Bank"' in APP and pricelevel.source_name("TW", PPP) == "IMF"
+                  and pricelevel.source_name("VN", PPP) == "World Bank",
+                  "app.js credits the IMF for Taiwan's price (both guide ⓘ leads) and inflation tips (srcName), "
+                  "as source_name does"))
 
 # The dataset: per-row basis and source, the meta naming both factors and the IMF.
 real_fav = build_dataset.rates.compute_favorability

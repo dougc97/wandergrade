@@ -66,9 +66,9 @@ def basis_note(iso, ppp):
     return ""
 
 
-def infl_source(iso, ppp):
-    """Whose inflation figure a country's is: the IMF's for a hand-entered
-    row (Taiwan), else the World Bank's. app.js inflSource."""
+def source_name(iso, ppp):
+    """Whose price and inflation figures a country's are: the IMF's for a
+    hand-entered row (Taiwan), else the World Bank's. app.js srcName."""
     return "IMF" if ((ppp or {}).get(iso) or {}).get("src") == "imf" else "World Bank"
 
 
