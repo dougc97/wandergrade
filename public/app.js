@@ -6433,10 +6433,13 @@ function buildValueTab() {
   buildFactorChips();
   buildInterestChips();
   if ($("beenFilter")) {
-    $("beenFilter").value = localStorage.getItem("wg_showvisited") === "1" ? "show" : "hide";
+    const saved = localStorage.getItem("wg_showvisited");
+    $("beenFilter").value = saved === "1" ? "show" : saved === "want" ? "want" : "hide";
     $("beenFilter").addEventListener("change", () => {
-      localStorage.setItem("wg_showvisited", $("beenFilter").value === "show" ? "1" : "0");
+      const v = $("beenFilter").value;
+      localStorage.setItem("wg_showvisited", v === "show" ? "1" : v === "want" ? "want" : "0");
       renderValue();
+      syncURL();
     });
   }
   for (const b of document.querySelectorAll("#valueMapMode button")) {
@@ -8062,6 +8065,24 @@ function whyLine(s, month) {
 // How many answer cards to show (persisted per browser; default 5 so the map
 // stays visible below the fold).
 const PICK_COUNT_DEFAULT = 5;
+// Top Picks' Been-to filter: "hide" (Somewhere new, the default), "show"
+// (Include visited) or "want" (rank only the ★ want-to-go list). The select
+// is the truth once built (a link's vb=want sets it for the visit only);
+// before that, what was saved (wg_showvisited "1" / "want").
+function beenMode() {
+  const v = ($("beenFilter") || {}).value;
+  if (v === "hide" || v === "show" || v === "want") return v;
+  const s = localStorage.getItem("wg_showvisited");
+  return s === "1" ? "show" : s === "want" ? "want" : "hide";
+}
+// The ★ list as Top Picks can rank it: England, Scotland and Wales are graded
+// as the United Kingdom (GUIDE_PARENT), so a ★ on any of them ranks the UK.
+function wantRankable() {
+  const out = new Set();
+  for (const iso of loadWishlist()) out.add(GUIDE_PARENT[iso] || iso);
+  return out;
+}
+
 function pickCount() {
   const sel = $("pickCount");
   const v = parseInt((sel && sel.value) || localStorage.getItem("fx_pickcount") || "5", 10);
@@ -8746,7 +8767,8 @@ function holdServedPicks(flex, win) {
   const view = flex && win.join() === servedPicks && originIso() === "US" && homeBase === "USD"
     && regionSel === "all" && pickCount() === PICK_COUNT_DEFAULT && safetyFloor() === "b"
     && valueMapMode === "score" && advisorySource() === "us" && !budgetOf().total
-    && !loadInterests().size && !ownVisited().size && JSON.stringify(loadWeights()) === _servedWeights;
+    && !loadInterests().size && !ownVisited().size && beenMode() !== "want"
+    && JSON.stringify(loadWeights()) === _servedWeights;
   if (view && !servedPicksReady()) return true;
   releaseServedPicks();
   return false;
@@ -8954,10 +8976,14 @@ function renderValue() {
   // off-the-beaten-path. Both come from the safety-filtered, unvisited pool.
   const floor = safetyFloor();
   // "Somewhere new" (default) keeps your ✓ been countries out of the picks;
-  // interests narrow to countries matching any selected tag.
-  const showVisited = localStorage.getItem("wg_showvisited") === "1";
+  // interests narrow to countries matching any selected tag. "★ My
+  // want-to-go" ranks the wishlist alone, ✓ been or not, with every other
+  // filter still on, and no popular/hidden-gems split (it is your list).
+  const bm = beenMode(), wantMode = bm === "want";
+  const wantSet = wantMode ? wantRankable() : null;
+  const showVisited = bm !== "hide";
   const preBudget = rankedAll.filter((s) =>
-    (showVisited || !been.has(s.iso)) && passesFloor(s, floor) && matchesInterests(s.iso));
+    (wantMode ? wantSet.has(s.iso) : (showVisited || !been.has(s.iso))) && passesFloor(s, floor) && matchesInterests(s.iso));
   const eligible = preBudget.filter(passesBudget);
   // Counted so the note can say the filter did something. At a roomy budget it
   // drops nothing, and a control that silently changes nothing reads as broken.
@@ -8984,10 +9010,30 @@ function renderValue() {
     note.hidden = !bits.length;
     note.textContent = bits.join(" · ");
   }
-  const popular = eligible.filter((s) => popularSet.has(s.iso));
-  const offbeat = eligible.filter((s) => !popularSet.has(s.iso));
+  const popular = wantMode ? eligible : eligible.filter((s) => popularSet.has(s.iso));
+  const offbeat = wantMode ? [] : eligible.filter((s) => !popularSet.has(s.iso));
   // Fall back to the full list if no popular destinations match the filters.
   const picks = (popular.length ? popular : eligible).slice(0, pickCount());
+  // The ★ countries the want list can't show, each with its reason (one
+  // muted count in the note, the list in its tip), so none vanish silently:
+  // Level 4 or ungraded (no price level, no rating, not a country we grade),
+  // or set aside by a filter the reader can change.
+  let wantNote = "";
+  if (wantMode) {
+    const shown = new Set(eligible.map((s) => s.iso)), miss = [];
+    for (const iso of wantSet) {
+      if (shown.has(iso)) continue;
+      const s = scored[iso];
+      const why = s ? (!passesFloor(s, floor) ? "below your safety filter"
+                       : !matchesInterests(iso) ? "doesn't match your interests"
+                       : "its flight alone is over your budget")
+        : region !== "all" && ISO_REGION[iso] !== region ? "outside " + (REGIONS[region] || "this region")
+        : advMap[iso] === 4 ? "Level 4: Do Not Travel"
+        : notScoredReason(iso);
+      miss.push(countryName(iso) + ": " + why);
+    }
+    if (miss.length) wantNote = ` <span class="muted wantmiss" data-tip="${esc(miss.sort().join("\n"))}" title="">· ${miss.length} not ranked ⓘ</span>`;
+  }
   const picksNote = $("picksNote");
   initBudgetCur();
   const bud = budgetOf();
@@ -9011,13 +9057,19 @@ function renderValue() {
   // (the Been-to filter's own "Include visited", so it persists the same way).
   const beenNote = hiddenVisited
     ? ` <span class="beennote">${hiddenVisited} you've been to hidden · <button type="button" class="linkbtn" id="showBeen">show</button></span>` : "";
-  if (picksNote && !held) picksNote.innerHTML = (popular.length
+  if (picksNote && !held) picksNote.innerHTML = wantMode
+    ? `★ Your want-to-go list, ranked by ${rankedBy}${wantNote}` + budNote
+    : (popular.length
     ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""}<span class="morefinds"> — more finds under 💎 Hidden gems.</span>`
     : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + beenNote + budNote;
   // lastPicksMonth stays a real month (the Trip tab and the stays plan for
   // one); lastPicksFlex tells the exports to word "the next 6 months".
   lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex; lastPicksWx = weatherMode;   // for the share image + re-sort
   if (!held) renderGradeTable($("topCards"), picks, month, false, true);
+  // An empty ★ list (or one the filters empty) says where the stars come from.
+  if (!held && wantMode && !picks.length && $("topCards")) $("topCards").innerHTML = wantSet.size
+    ? "<p class='hint'>None of your ★ want-to-go countries match these filters.</p>"
+    : "<p class='hint'>Your ★ want-to-go list is empty. Star countries on your <button type='button' class='linkbtn' id='wantGo'>🗺️ Wander List</button>.</p>";
   // Pulse the picked countries on the map so table and map visibly agree.
   if (!reducedMotion()) {
     const pickSet = new Set(picks.map((s) => s.iso));
@@ -11318,6 +11370,15 @@ $("showMore").addEventListener("click", () => {
   renderValue();
 });
 
+// The empty ★ list's door: the Wander List on its ★ Want to go switch.
+$("topCards").addEventListener("click", (e) => {
+  if (!e.target.closest("#wantGo")) return;
+  activateTab("visited", true).then(() => {
+    const b = document.querySelector('#visitedMode button[data-vm="wishlist"]');
+    if (b && !b.classList.contains("active")) b.click();
+  });
+});
+
 // The picks note's "show" (beenNote): the Been-to filter's "Include visited",
 // through its own change handler so it is saved like a pick there.
 $("picksNote").addEventListener("click", (e) => {
@@ -11814,6 +11875,7 @@ function buildShareURL(forShare) {
     if (own && originIso() !== "US") q.set("vo", originIso());
     if (own && homeManual && homeBase !== homeCurAuto()) q.set("hc", homeBase);
     if (valueMapMode === "weather") q.set("vmm", "weather");
+    if (beenMode() === "want") q.set("vb", "want");
     const p = loadPriorities();
     const compact = WEIGHT_DEFS.map((w) => p[w.key][0]).join(".");   // e.g. h.m.m.m.m
     if (compact !== WEIGHT_DEFS.map((w) => w.def[0]).join(".")) q.set("pri", compact);
@@ -12074,6 +12136,8 @@ async function postApplyShared() {
   }
   if (sharedQ.get("pc")) { $("pickCount").value = sharedQ.get("pc"); rerender = true; }
   if (["a", "b", "any"].includes(sharedQ.get("sf"))) { $("safeFloor").value = sharedQ.get("sf"); rerender = true; }
+  // The reader's OWN ★ list (wishlists aren't shared), for this visit.
+  if (sharedQ.get("vb") === "want" && $("beenFilter")) { $("beenFilter").value = "want"; rerender = true; }
   if (sharedQ.get("fac")) {
     const keys = sharedQ.get("fac").split(".").filter((k) => WEIGHT_DEFS.some((w) => w.key === k));
     if (keys.length) { factors = keys; sharedPrefsView = true; buildFactorChips(); rerender = true; }   // a view, as pri= is
