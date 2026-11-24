@@ -13577,10 +13577,16 @@ function _tipMarks() {
   }
 }
 _tipMarks();
+// One rescan per burst of changes, not one per change: a home load made 273
+// of them (~680 ms of main thread on a 4x-slowed phone), most for rows and
+// pills drawn a few ms apart. A mark drawn now is a Tab stop within
+// TIPMARK_BATCH_MS, long before anyone can Tab to it.
+const TIPMARK_BATCH_MS = 120;
+let _tipMarksT = 0;
 new MutationObserver((muts) => {
   // The tooltip's own text swaps on every hover; nothing to mark there.
   if (muts.every((m) => m.target === _tipEl)) return;
-  _tipMarks();
+  if (!_tipMarksT) _tipMarksT = setTimeout(() => { _tipMarksT = 0; _tipMarks(); }, TIPMARK_BATCH_MS);
 }).observe(document.body, { childList: true, subtree: true });
 // role=button answers Enter and Space: both (re)show the tip — after Escape,
 // say — and Space must not scroll the page out from under it.
