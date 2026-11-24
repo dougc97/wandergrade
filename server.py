@@ -2135,8 +2135,17 @@ def _advisories_fresh(source):
     # whose level it saw change. Only here, where the list is computed — never
     # per request — and it can't fail the list: a storage error just leaves
     # the items unstamped.
-    return _timed_refresh("advisories " + source, lambda: advhistory.record_and_annotate(
-        source, advisories.get_advisories(source)))
+    return _timed_refresh("advisories " + source, lambda: _stamp_fetched(advhistory.record_and_annotate(
+        source, advisories.get_advisories(source))))
+
+
+def _stamp_fetched(payload):
+    """The list with `fetched`, the UTC day it was read, for the guide
+    badge's tip ("Advisory dated 7 Jul 2026 · fetched 23 Nov 2026"). A stale
+    copy served on a failed refresh keeps the day it was really read."""
+    if not isinstance(payload, dict):
+        return payload
+    return dict(payload, fetched=time.strftime("%Y-%m-%d", time.gmtime()))
 
 
 def _rates_payload(cfg, base="USD"):

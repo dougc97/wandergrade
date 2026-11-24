@@ -3567,8 +3567,15 @@ function renderGuideSafety(iso) {
     const deCall = advSrcOf(it) === "de";
     const badge = (deCall ? "" : "Level " + lvl + " · ") + (advLvlWords(it) || "");
     const badgeCls = deCall && lvl === 1 ? "nowarn" : "advlvl" + lvl;
+    // When the government issued it and when this site last read the list,
+    // in the badge's tip, not a visible line (the list pages show the date:
+    // Thailand's is 7 Jul 2026). Canada's feed carries no date of its own.
+    const dated = [it.updated ? "Advisory dated " + fmtDay(String(it.updated).slice(0, 10)) : "",
+      advisories.fetched ? (it.updated ? "fetched " : "Fetched ") + fmtDay(String(advisories.fetched).slice(0, 10)) : ""]
+      .filter(Boolean).join(" · ");
+    const badgeTip = dated ? ` data-tip="${esc(dated)}" title=""` : "";
     host.hidden = false;
-    host.innerHTML = `<span class="advbadge ${badgeCls}">🛡️ ${esc(badge.replace(/ · $/, ""))}</span>${moved}
+    host.innerHTML = `<span class="advbadge ${badgeCls}"${badgeTip}>🛡️ ${esc(badge.replace(/ · $/, ""))}</span>${moved}
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
       <span class="advlinks"><a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a> · <button type="button" class="linkbtn advsrcjump">switch source (US · CA · DE) → Safety tab</button></span>
       <span id="guideWatchouts"></span></span>`;
@@ -3599,7 +3606,7 @@ function renderGuideSafetySnapshot(iso) {
     const de = f.src === "de";
     const words = de ? DE_LVL_LABEL[f.adv] || "" : (ADV_LVL_WORDS[f.src] || ADV_LVL_WORDS.us)[f.adv - 1] || "";
     const badge = de ? words : "Level " + f.adv + " · " + words;
-    const when = guideFactsMonth();
+    const when = "checked " + guideFactsMonth();   // render_guide._safety_line's words
     host.innerHTML = `<span class="advbadge ${de && f.adv === 1 ? "nowarn" : "advlvl" + f.adv}">🛡️ ${esc(badge)}</span>
       <span class="guidevisa-txt"><b>Safety · per ${esc(ADV_SRC_SHORT[f.src] || ADV_SRC_SHORT.us)} (${esc(
         f.advof ? countryName(f.advof) + " advisory, " + when : when)})</b></span>`;

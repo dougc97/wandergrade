@@ -2399,6 +2399,18 @@ results.append(ok(v1 == 41 and v2 == 42 and len(rl) == 4
 results.append(ok("_timed_refresh(\"advisories \"" in inspect.getsource(server._advisories_fresh)
                   and "_timed_refresh(\"rates \"" in inspect.getsource(server._rates_payload),
                   "the advisory lists and the rates refresh through it"))
+_saved_adv = (server.advisories.get_advisories, server.advhistory.record_and_annotate)
+try:
+    server.advisories.get_advisories = lambda src: {"items": [{"iso": "TH", "level": 1, "updated": "2026-07-07"}],
+                                                    "source": src}
+    server.advhistory.record_and_annotate = lambda src, p: p
+    _fresh = server._advisories_fresh("us")
+finally:
+    server.advisories.get_advisories, server.advhistory.record_and_annotate = _saved_adv
+results.append(ok(_fresh.get("fetched") == time.strftime("%Y-%m-%d", time.gmtime())
+                  and _fresh["items"] == [{"iso": "TH", "level": 1, "updated": "2026-07-07"}]
+                  and server._stamp_fetched(None) is None,
+                  "a list read fresh carries the UTC day it was read (the guide badge's \"fetched\"), items untouched"))
 
 # --- server.py: /healthz writes its log line after its answer ----------------------------
 order = []
