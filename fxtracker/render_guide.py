@@ -221,8 +221,10 @@ def _mon_year(d, full=False):
 
 
 def _band_q(f):
-    """"Cheap" or "Expensive": which question the title asks."""
-    return "Cheap" if f.get("band") in ("cheap", "very cheap") else "Expensive"
+    """"Cheap" or "Expensive": which question the title asks. "a bit cheaper"
+    (75-90%, review #20) still asks "Cheap": whether those 16 titles should
+    stop asking it waits on Search Console (review #20 option b)."""
+    return "Cheap" if f.get("band") in ("cheap", "very cheap", "a bit cheaper") else "Expensive"
 
 
 def _months_ranges(best):

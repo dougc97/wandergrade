@@ -100,10 +100,13 @@ class InputError(Exception):
 def band(pl):
     """app.js plWord(pl) against the US: banded on toFixed(2), the digits the
     page prints. Decimal(pl) is the exact binary value, and HALF_UP on it is
-    toFixed's rounding."""
+    toFixed's rounding. "a bit cheaper" (75% to 90%) since review #20 (Nov
+    2026): "cheap" ran from 55% to 90%, so France at 75%, Germany at 80% and
+    the Bahamas at 90% were all called cheap. The scoring's three-way plBand
+    (cheaper / about the same / pricier) is unchanged."""
     r = float(Decimal(pl).quantize(Decimal("0.01"), ROUND_HALF_UP))
     if r <= 1 - 0.1:
-        return "very cheap" if r < 0.55 else "cheap"
+        return "very cheap" if r < 0.55 else "cheap" if r < 0.75 else "a bit cheaper"
     return "about the same" if r <= 1 + 0.1 else "pricey"
 
 

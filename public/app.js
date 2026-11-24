@@ -2104,9 +2104,13 @@ function currencyFlag(code, iso) {
 const PL_SAME = 0.1;
 const plShown = (rel) => +rel.toFixed(2);
 function plBand(rel) { const r = plShown(rel); return r <= 1 - PL_SAME ? -1 : r <= 1 + PL_SAME ? 0 : 1; }
+// "a bit cheaper" from 75% to 90% (review #20, Nov 2026): "cheap" ran from 55%
+// to 90%, so Germany at 80% and the Bahamas at 90% read "cheap". plBand, the
+// three-way split the scoring and colours use, is unchanged. guide_facts.band
+// is the server's copy.
 function plWord(pl) {
-  const b = plBand(pl);
-  return b < 0 ? (plShown(pl) < 0.55 ? "very cheap" : "cheap") : b > 0 ? "pricey" : "about the same";
+  const b = plBand(pl), r = plShown(pl);
+  return b < 0 ? (r < 0.55 ? "very cheap" : r < 0.75 ? "cheap" : "a bit cheaper") : b > 0 ? "pricey" : "about the same";
 }
 // The price level in words, one way everywhere it is read (pill tip, row tip,
 // map card, AI prompts, share images). 1 − pl is how much cheaper prices are;
