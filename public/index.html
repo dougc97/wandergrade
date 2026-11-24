@@ -297,15 +297,27 @@
           </tbody>
         </table>{{TOP_PICKS}}
         <!-- As many placeholder rows as the Top N the table will show (the
-             head script's data-pc: Top 10 or 20); and on a weather-ranked
-             link the note's stand-in says what renderValue will (a line
-             longer at 768, where it wrapped to two when it came). -->
+             head script's data-pc: Top 10 or 20); and the note's stand-in
+             says what renderValue will: Any time (no vmn=, or vmf=1) ranks
+             by "each one's best month in Dec–May" (flexWindow, flexSpan), a
+             weather-ranked link by its weather (a line longer at 768, where
+             it wrapped to two when it came), and the ★ want-to-go list
+             (vb=want, or saved) has its own words and no "more finds". On a
+             phone, where "more finds" is hidden, the Any time line is two
+             lines where "ranked by value" is one. -->
         <script>(function(){var n=+document.documentElement.getAttribute("data-pc")||5,
           b=document.querySelector("#topCards tbody"),r=b&&b.lastElementChild;
           for(var i=6;i<=n&&r;i++){var c=r.cloneNode(true);c.querySelector(".rank").textContent="#"+i;b.appendChild(c);}
           var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),k=document.querySelector("#picksNote > .skeltext");
-          if(k&&q.get("vmm")==="weather"){if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
-            k.replaceChild(document.createTextNode("🌤️ Popular destinations, ranked by weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]+" ⓘ"),k.firstChild);}})();</script>{{TOP_HOLD}}
+          if(!k)return;
+          var wx=q.get("vmm")==="weather",flex=q.get("vmf")==="1"||!(m>=1&&m<=12),w=q.get("vb")==="want",by;
+          try{w=w||localStorage.getItem("wg_showvisited")==="want";}catch(e){}
+          if(flex){var A=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],d=new Date(),o=d.getMonth(),
+            s=new Date(d.getFullYear(),o+1,0).getDate()-d.getDate()+1<10?o+1:o;
+            by="each one's best "+(wx?"weather":"month")+" in "+A[s%12]+"–"+A[(s+5)%12];}
+          else by=wx?"weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]:"value";
+          if(flex||wx||w)k.replaceChild(document.createTextNode((w?"★ Your want-to-go list":(wx?"🌤️":"🌍")+" Popular destinations")+", ranked by "+by+" ⓘ"),k.firstChild);
+          if(w)k.removeChild(k.lastChild);})();</script>{{TOP_HOLD}}
       </div>
       <button id="showMore" class="showmore" type="button" hidden>Show top 10 ↓</button>
 
