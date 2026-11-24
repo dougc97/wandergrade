@@ -6,18 +6,25 @@
 //   M_CPU=4           Emulation.setCPUThrottlingRate                   M_SETTLE  ms to wait after load (default 3500)
 //   M_SEED='{"fx_visited":["FR"]}'  localStorage before each load (a returning visitor)
 //   M_RAW=1           store M_SEED's string values as they are (fx_origin is a bare "GB", not '"GB"')
-//   M_HEADERS='{"CF-IPCountry":"DE"}'  extra request headers (a first visit /api/geo places abroad)
+//   M_GEO=DE          /api/geo answers DE (a first visit from abroad): the request goes on to the
+//                     server as /api/geo?as=DE, through the emulated link. (An extra CF-IPCountry
+//                     request header went to every host and broke the Wikimedia hero photo.)
 //   M_KEEP=1          keep localStorage between runs (default: cleared, a cold visitor every run)
 // Prints one JSON line (the per-run CLS values and their median), then each run's shifts: time,
 // value, the first three source nodes and the first source's [prevY, newY, prevH, newH].
-export default async ({ send, evaluate, setSize, nav, sleep }) => {
+export default async ({ send, on, evaluate, setSize, nav, sleep }) => {
   const url = process.env.M_URL, w = +process.env.M_W || 390, h = +process.env.M_H || 844;
   const mobile = process.env.M_MOBILE === '1', cpu = +process.env.M_CPU || 1, runs = +process.env.M_RUNS || 3;
   const settle = +process.env.M_SETTLE || 3500;
   await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__cls = 0; window.__shifts = []; new PerformanceObserver((l) => { for (const e of l.getEntries()) if (!e.hadRecentInput) { window.__cls += e.value; window.__shifts.push({ t: Math.round(e.startTime), v: +e.value.toFixed(4), src: (e.sources || []).map((s) => (s.node && (s.node.id ? '#' + s.node.id : s.node.tagName + '.' + (s.node.className || ''))) || '?').slice(0, 3), rect: (e.sources || []).slice(0,1).map((s) => s.previousRect && s.currentRect ? [s.previousRect.y, s.currentRect.y, s.previousRect.height, s.currentRect.height] : null) }); } }).observe({ type: 'layout-shift', buffered: true });` });
   // M_SEED: JSON object of localStorage items to set before each load (a returning visitor).
   if (process.env.M_SEED) await send('Page.addScriptToEvaluateOnNewDocument', { source: `try { var s = ${process.env.M_SEED}; for (var k in s) localStorage.setItem(k, ${process.env.M_RAW === '1' ? "typeof s[k] === 'string' ? s[k] : JSON.stringify(s[k])" : 'JSON.stringify(s[k])'}); } catch(e){}` });
-  if (process.env.M_HEADERS) { await send('Network.enable'); await send('Network.setExtraHTTPHeaders', { headers: JSON.parse(process.env.M_HEADERS) }); }
+  if (process.env.M_GEO) {
+    on((d) => { if (d.method === 'Fetch.requestPaused') {
+      const u = new URL(d.params.request.url); u.searchParams.set('as', process.env.M_GEO);
+      send('Fetch.continueRequest', { requestId: d.params.requestId, url: u.href }); } });
+    await send('Fetch.enable', { patterns: [{ urlPattern: '*/api/geo*' }] });
+  }
   await setSize(w, h, mobile);
   // M_NET=latencyMs,kbps : emulate a slow link (production assets arrive late; localhost never does).
   if (process.env.M_NET) { const [lat, kbps] = process.env.M_NET.split(',').map(Number);
