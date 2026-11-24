@@ -280,6 +280,51 @@ results.append(ok(cg is not None and len(cg) == len(COST_CASES) and not bad,
                   "the 💰 line's pre-paint script keeps it for a US reader, holds its room unseen for a reader from "
                   "elsewhere and hides it on their own country's guide %s" % (bad or (r.stderr[-300:] if cg is None else ""))))
 
+# app.js renderGuideCost after paint: a first visit from abroad (the served
+# line drawn for the US until /api/geo seeds a home) keeps the room of a line
+# it no longer shows on that reader's own guide; the US's guide fills the room
+# the pre-paint script held.
+COST_DRIVER = r"""
+const FIX = JSON.parse(read(FIX_PATH));
+lastRates = FIX.rates; ppp = FIX.ppp; climate = FIX.climate; activities = FIX.activities; worldGeo = FIX.world;
+advisories = FIX.advisories;
+SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
+ensureAdvisories = async () => advisories; ensurePPP = async () => ppp;
+const gc = $("guideCost"), o = [];
+const snap = () => [gc.hidden, gc.classList.contains("pend"), gc.innerHTML.slice(0, 6)];
+(async () => {
+  ccGuideIso = "GB"; gc.dataset = { iso: "GB" }; gc.innerHTML = "SERVED"; gc.hidden = false;
+  await renderGuideCost("GB"); o.push(snap());
+  localStorage.setItem("fx_origin", "GB");
+  await renderGuideCost("GB"); o.push(snap());
+  ccGuideIso = "DE"; await renderGuideCost("DE"); o.push(snap());
+  ccGuideIso = "GB"; await renderGuideCost("GB"); o.push(snap());
+  localStorage.setItem("fx_origin", "DE");
+  ccGuideIso = "US"; gc.dataset = { iso: "US" }; gc.innerHTML = ""; gc.hidden = false; gc.classList.add("pend");
+  await renderGuideCost("US"); o.push(snap());
+  localStorage.setItem("fx_origin", "US"); gc.dataset = { iso: "US" }; gc.innerHTML = ""; gc.hidden = true;
+  gc.classList.remove("pend");
+  await renderGuideCost("US"); o.push(snap());
+  print(JSON.stringify(o));
+})().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
+"""
+with tempfile.TemporaryDirectory() as d:
+    fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
+    json.dump(FIX, open(fp, "w"))
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + COST_DRIVER.replace("FIX_PATH", json.dumps(fp)))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
+try:
+    co = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    co = {"error": (r.stderr or r.stdout)[-300:]}
+LINE = "💰 <b>"
+results.append(ok(co == [[False, False, LINE], [False, True, LINE], [False, False, LINE], [True, False, ""],
+                         [False, False, LINE], [True, False, ""]],
+                  "app.js renderGuideCost: a first visit from the UK keeps the US line's room unseen once /api/geo "
+                  "makes the UK's guide its own (it moved the hero 22px), another guide draws, the UK's guide "
+                  "entered afresh shows none; on the US's guide a German reader's line fills the held room and a "
+                  "US reader gets none %s" % ("" if isinstance(co, list) else co)))
+
 HOLD = re.search(r"<script>(.*)</script>", server._GUIDE_HOLD, re.S).group(1)
 PAGE = r"""
 function El(id) { this.id = id; this.hidden = false; this.innerHTML = "SERVED"; this.attrs = {}; }

@@ -3142,8 +3142,17 @@ async function renderGuideCost(iso) {
   await Promise.all([ensurePPP(), ensureAdvisories()].map((p) => p.catch(() => {})));
   if (ccGuideIso !== iso) return;
   const plIso = GUIDE_PARENT[iso] || iso;
-  // The reader's own country: "≈ 100% of the US" tells them nothing.
-  if (plIso === originIso()) return show("");
+  // The reader's own country: "≈ 100% of the US" tells them nothing. A line
+  // still on screen here keeps its room, unseen, as the pre-paint script's
+  // .pend does: on a first visit the served line stands for the US until
+  // /api/geo seeds this reader's home, after paint (seedGeoDefaults), and
+  // collapsed it moved the hero, the grid and the jump nav up 22px (CLS 0.030
+  // at 390 on the UK's guide, 0.014 before). The next visit, the home saved,
+  // hides it before paint (server.py _COST_HOLD).
+  if (plIso === originIso()) {
+    if (!host.hidden && host.innerHTML) { host.classList.add("pend"); return; }
+    return show("");
+  }
   const l4 = guideAdvLevel(iso) === 4;
   const line = localPricesText(iso);
   if (!line) {
