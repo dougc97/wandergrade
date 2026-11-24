@@ -136,7 +136,8 @@ export default async ({ send, evaluate, setSize, nav, sleep, errs }) => {
   }
   const sorted = {};
   for (const k of Object.keys(manifest).sort()) if (slugs[k]) sorted[k] = manifest[k];
-  fs.writeFileSync(manifestPath, JSON.stringify(sorted, null, 1) + '\n');
+  // One card a line: a re-render that moves one card's facts is a one-line diff.
+  fs.writeFileSync(manifestPath, '{\n' + Object.entries(sorted).map(([k, v]) => ` ${JSON.stringify(k)}: ${JSON.stringify(v)}`).join(',\n') + '\n}\n');
   fs.rmSync(path.dirname(tmp), { recursive: true, force: true });
   console.log(`cards: ${list.length} rendered (${wrote} written, ${same} unchanged), ${(total / 1024).toFixed(0)} KB this run`);
 };
