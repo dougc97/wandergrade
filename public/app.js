@@ -12740,6 +12740,9 @@ function openGuidedPicker() {
     // Land the user on the answer, not back at the top of the page.
     // The picks, not #valueRows: that always exists, inside the closed fold.
     const rows = $("topCards");
+    // Focus goes to the first answer, not back to the button (see the modal
+    // observer's _returnTo); the scroll below stays the fallback.
+    m._returnTo = () => { const t = $("topCards"); return t && t.querySelector("a.destlink"); };
     if (rows) rows.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
   };
 }
@@ -13662,9 +13665,15 @@ new MutationObserver((muts) => {
       if (n.dataset.nofocus && !n._kbdIn) continue;
       // Only when focus went down with the modal — never yank it from
       // somewhere the visitor has since moved to.
+      // A modal whose answer is elsewhere on the page names it (_returnTo,
+      // asked now: the rows drawn since it closed are the ones to land on),
+      // and focus goes there without scrolling: Help me choose has already
+      // scrolled to its ranking, and focus back on its button, far above,
+      // snapped the page up again (Chrome on Android: 449 -> 56).
       const a = document.activeElement;
-      if (n._opener && n._opener.isConnected && (!a || a === document.body || n.contains(a)))
-        n._opener.focus({ preventScroll: !!n.dataset.nofocus });
+      const back = (n._returnTo && n._returnTo()) || n._opener;
+      if (back && back.isConnected && (!a || a === document.body || n.contains(a)))
+        back.focus({ preventScroll: !!n.dataset.nofocus || !!n._returnTo });
     }
   }
 }).observe(document.body, { childList: true });
