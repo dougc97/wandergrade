@@ -4104,8 +4104,8 @@ async function iconicPhotos(iso) {
   const settled = await Promise.all(photoSubjects(iso).map((s) =>
     wikiIconic(s).then((p) => (p ? { ...p, place: photoPlace(s) } : p))));
   const out = [], seen = new Set();
-  // An unscaled original shows as a thumb (heroThumb); the viewer still opens
-  // the original.
+  // An unscaled original shows as a thumb (heroThumb); the viewer links the
+  // original ("full size").
   for (const p of settled) if (p && !seen.has(fileKey(p.full))) { seen.add(fileKey(p.full)); out.push(p.w ? { ...p, thumb: heroThumb(p.thumb, p.w) } : p); }
   if (out.length) _heroCache[iso] = out;
   return out;
@@ -12726,10 +12726,10 @@ function buildGuideCardSVG(iso) {
   const F = "Helvetica Neue, Helvetica, Arial, sans-serif";
   const esc2 = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const month = travelMonth();
-  const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
-
+  // guideScores anchors on the home's price level (the US's when the home
+  // has none), as the guide's line does; a home nation is graded as there.
   let s = null;
-  try { s = guideScores(iso, month); } catch (e) {}   // a home nation graded as its guide is
+  try { s = guideScores(iso, month); } catch (e) {}
   const g = s ? grade(s.value) : null;
 
   const facts = [];
