@@ -8386,9 +8386,21 @@ function seasonalTags(iso, month, max, flex) {
 // The chosen month gets the season strip's tick, dimmed at rest like it.
 // A row with a month of its own ("Any time": data-m, its best month) ticks
 // that one instead.
+// Only slots on screen are asked for: below 640px the strips are hidden
+// (styles.css) and the Hidden gems rows sit in a closed fold, and phones
+// fetched 12-14 strips they never showed (21 calls where 9 are seen). The
+// rest fill when they can be seen: the gems fold opening, the screen
+// widening past 640px, or the tab coming back (renderValue redraws).
+const _rowFareMonth = {};   // host id -> the month its strips tick
 function fillRowFareStrips(hostSel, month) {
+  const host = document.querySelector(hostSel);
+  if (host && host.id) _rowFareMonth[host.id] = month;
   const slots = document.querySelectorAll(hostSel + " .rowfares");
   slots.forEach(async (slot) => {
+    // Filled already, or not on screen. A closed fold's rows still have
+    // boxes in Chrome (its content is content-visibility: hidden), so the
+    // fold is asked directly.
+    if (slot.firstChild || slot.closest("details:not([open])") || !slot.getClientRects().length) return;
     const iso = slot.dataset.iso;
     const fm = await ensureFareMonths(iso);
     if (!fm || !fm.months || !slot.isConnected) return;
@@ -8396,6 +8408,18 @@ function fillRowFareStrips(hostSel, month) {
     if (strip) slot.innerHTML = '<span class="farestrip" role="img" aria-label="'
       + esc("Fares by month — " + strip.note) + '">' + strip.cells + "</span>";
   });
+}
+// The strips a hidden slot skipped, once it can be seen.
+function fillSeenRowFares() {
+  for (const id of ["topCards", "gemRows"])
+    if (_rowFareMonth[id] != null) fillRowFareStrips("#" + id, _rowFareMonth[id]);
+}
+if ($("gemsBox")) $("gemsBox").addEventListener("toggle", () => { if ($("gemsBox").open) fillSeenRowFares(); });
+if (window.matchMedia) {
+  const _rowFareMq = matchMedia("(max-width: 640px)");
+  const onMq = () => { if (!_rowFareMq.matches) fillSeenRowFares(); };
+  if (_rowFareMq.addEventListener) _rowFareMq.addEventListener("change", onMq);
+  else if (_rowFareMq.addListener) _rowFareMq.addListener(onMq);
 }
 
 // Table-sized versions of the guide's two trend signals, compressed to the
