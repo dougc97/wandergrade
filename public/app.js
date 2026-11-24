@@ -3291,11 +3291,12 @@ function visitorFee(iso) {
   const f = visa && visa[iso] && visa[iso].fee;
   return f && f.usd > 0 ? f : null;
 }
-// The countries with such a fee, for the rankings: Top Picks, Hidden gems and
-// the ★ list leave them out (renderValue), as the cheap lists do
-// (render_lists, render_cheapest), while their grades stand (the guide, the
-// map, the Full ranking table): US$100 a night on top of a 23% price level is
-// no bargain to rank on. Known before visa.json loads (the homepage never
+// The countries with such a fee, for the rankings: Top Picks, Hidden gems,
+// the ★ list and the Full ranking table leave them out (renderValue), as the
+// cheap lists do (render_lists, render_cheapest), while their grades stand
+// (the guide, the map, the Data tab, with the fee in pppNotes' ⚠️): US$100 a
+// night on top of a 23% price level is no bargain to rank on, and
+// /how-grades-work says such a country "isn't ranked". Known before visa.json loads (the homepage never
 // fetches it); picks.fee_isos reads the file, and scripts/test_home_picks.py
 // holds the two equal.
 const FEE_ISOS = new Set(["BT"]);
@@ -5582,8 +5583,16 @@ function pppAgeNote(iso) {
   return `⚠️ The World Bank's latest price data here is from ${y} (${most} for most countries), `
     + "so this figure is rougher than most.";
 }
+// A mandatory daily visitor fee, which the price level leaves out: in full
+// once visa.json is in (feeTip), else in general words (the Data tab never
+// fetches it; FEE_ISOS is known without it). "" for every other country.
+function feeNote(iso) {
+  const f = visitorFee(iso);
+  if (f) return "⚠️ " + feeTip(f);
+  return FEE_ISOS.has(iso) ? "⚠️ Every visitor pays a daily fee on top of what they pay to stay. Not in the price level." : "";
+}
 // Every price-data caveat for a country, one per line, for a single ⚠️.
-function pppNotes(iso) { return [pppDriftNote(iso), pppAgeNote(iso)].filter(Boolean).join("\n"); }
+function pppNotes(iso) { return [pppDriftNote(iso), pppAgeNote(iso), feeNote(iso)].filter(Boolean).join("\n"); }
 function renderAfford() {
   // The trend columns read the yearly history; its arrival re-renders.
   // (Not gated on loaded.afford: on a direct /?dm=afford load the history can
@@ -8705,8 +8714,8 @@ function seasonStrip(iso, month) {
   // is a different proposition from one that is pleasant all year.
   const scarce = good > 0 && good <= 4;
   // Names the months the guide sentence and the "🗓️ Best in" tag name
-  // (climate.best: hand-curated for 35 countries, top weather months for the
-  // rest). The bright cells are weather alone; a "Best: May–Aug" beside a
+  // (climate.best: hand-curated for build_climate.CURATED's countries, top
+  // weather months for the rest). The bright cells are weather alone; a "Best: May–Aug" beside a
   // curated "Best in Apr, May, Sep, Oct" read as the site contradicting itself.
   const bestM = (cl.best || []).filter((m) => m >= 1 && m <= 12);
   const best = bestM.map((m) => MON_ABBR[m - 1]);
@@ -9444,7 +9453,8 @@ function renderValue() {
   const bm = beenMode(), wantMode = bm === "want";
   const wantSet = wantMode ? wantRankable() : null;
   const showVisited = bm !== "hide";
-  // A country with a mandatory daily visitor fee (FEE_ISOS) is in no list.
+  // A country with a mandatory daily visitor fee (FEE_ISOS) is in no list,
+  // the Full ranking below included.
   const preBudget = rankedAll.filter((s) => !FEE_ISOS.has(s.iso) &&
     (wantMode ? wantSet.has(s.iso) : (showVisited || !been.has(s.iso))) && passesFloor(s, floor) && matchesInterests(s.iso));
   const eligible = preBudget.filter(passesBudget);
@@ -9585,7 +9595,7 @@ function renderValue() {
          : gems.length === 1 ? `💎 1 ${gemWord} ↓` : `💎 All ${gems.length} ${gemWord} ↓`)
       : cap === 5 ? "Show top 10 ↓" : "Show top 20 ↓";
   }
-  const ranked = sortRows(rankedAll, fullSort, FULL_GET).slice(0, 40);
+  const ranked = sortRows(rankedAll.filter((s) => !FEE_ISOS.has(s.iso)), fullSort, FULL_GET).slice(0, 40);
   markSort("#valueTable", fullSort);
   // Same vocabulary as the popular table (rank, flag, the four factor emoji,
   // Overall last on its band), but the raw 0–100 numbers stay: this is "the

@@ -265,8 +265,8 @@ results.append(ok(not bad["adv"], "the advisory-move mark for every country (%d 
 # --- no ranking lists a country with a mandatory visitor fee (item D) ------------------
 # Bhutan's US$100 a night (visa.json "fee") is no part of its price level, so
 # its grades stand but no list ranks it: the served table (home_picks.rank),
-# app.js renderValue's Top Picks, Hidden gems and ★ list, in Any time and in
-# a month. Its weather is forced to 100 every month, which with its prices
+# app.js renderValue's Top Picks, Hidden gems, ★ list and Full ranking table
+# (/how-grades-work says it "isn't ranked"), in Any time and in a month. Its weather is forced to 100 every month, which with its prices
 # and safety ranks it first; with the rule off (FEE_ISOS emptied in app.js,
 # picks.fee_isos in Python) it is there, served and drawn alike.
 m_fee = re.search(r"^const FEE_ISOS = new Set\(\[([^\]]*)\]\);$", APP, re.M)
@@ -292,7 +292,8 @@ try {
       renderValue();
       out.push({ rule, name: v.name, top: isos($("topCards").innerHTML),
                  gems: $("gemsBox").hidden ? [] : isos($("gemRows").innerHTML),
-                 table: $("topCards").innerHTML, note: $("picksNote").innerHTML });
+                 table: $("topCards").innerHTML, note: $("picksNote").innerHTML,
+                 full: /\bBhutan\b/.test($("valueRows").innerHTML) });
     }
   }
   print(JSON.stringify(out));
@@ -331,6 +332,10 @@ else:
                       % ("; ".join("%s: %s" % (v["name"], "#%d" % (v[c["want_in"]].index("BT") + 1) + " in " + c["want_in"]
                                              if "BT" in v[c["want_in"]] else "absent") for v, c in zip(off, FEE_VIEWS)),
                          bad_on or bad_off or "")))
+    results.append(ok(not [v["name"] for v in on if v["full"]] and all(v["full"] for v in off),
+                      "the \"Full ranking & the math\" table leaves Bhutan out too, in every view, where with the "
+                      "rule off it is there %s" % ([v["name"] for v in on if v["full"]]
+                                                   + [v["name"] + " (rule off)" for v in off if not v["full"]] or "")))
     want_note = on[-1]["note"]
     results.append(ok("Bhutan: a daily visitor fee comes on top of its prices" in want_note
                       and "1 not ranked" in want_note,

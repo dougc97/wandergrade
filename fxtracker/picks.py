@@ -212,12 +212,12 @@ def fee_isos(visa=None):
     """The countries with a visitor_fee (today only Bhutan). No best-value
     ranking lists them: the newsletter's picks and gems (build_variant), the
     homepage's served Top Picks (home_picks.rank) and app.js renderValue's
-    Top Picks, Hidden gems and ★ list (its FEE_ISOS, which
-    scripts/test_home_picks.py holds equal to this set), as the cheap lists
-    don't (render_lists.safe_rows, render_cheapest). Their grades stand
-    everywhere else (the guide, the map, the Full ranking table): they grade
-    local prices, and US$100 a night on top of a 23% price level is no
-    bargain to rank on."""
+    Top Picks, Hidden gems, ★ list and Full ranking table (its FEE_ISOS,
+    which scripts/test_home_picks.py holds equal to this set), as the cheap
+    lists don't (render_lists.safe_rows, render_cheapest). Their grades stand
+    everywhere else (the guide, the map, the Data tab): they grade local
+    prices, and US$100 a night on top of a 23% price level is no bargain to
+    rank on."""
     visa = visa if visa is not None else _load("visa.json")
     return {iso for iso in visa if visitor_fee(iso, visa)}
 

@@ -299,7 +299,8 @@ def ppp_year(ppp):
 def ppp_note(iso, ppp, strength):
     """Whether app.js pppNotes(iso) says anything (the afford pill's ⚠️):
     the currency well below its average (pppDrift), high inflation with no
-    current figure (highInflUnknown), or old World Bank data (pppAgeNote)."""
+    current figure (highInflUnknown), old World Bank data (pppAgeNote), or a
+    mandatory daily visitor fee the price level leaves out (feeNote)."""
     code = picks.CUR_BY_ISO.get(iso)
     nom = strength.get(code) if code and code != "USD" else None
     if isinstance(nom, (int, float)) and not isinstance(nom, bool):
@@ -309,7 +310,7 @@ def ppp_note(iso, ppp, strength):
     if pricelevel.high_infl_unknown(iso, ppp):
         return True
     y, most = (ppp.get(iso) or {}).get("year"), ppp_year(ppp)
-    return bool(y and most and y < most - 1)
+    return bool(y and most and y < most - 1) or iso in picks.fee_isos()
 
 
 def fx_mark(s):
