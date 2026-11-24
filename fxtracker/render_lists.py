@@ -282,8 +282,8 @@ def _sources_line(fetched, own, facts_asof=None, health_built=None, stale=None, 
     parts = []
     stale = stale or {}
     if facts_asof:
-        parts.append("Prices: WanderGrade's daily snapshot as of %s (World Bank PPP carried "
-                     "forward for inflation, at that day's exchange rates)" % html.escape(_day(facts_asof)))
+        parts.append("Prices: WanderGrade's daily snapshot as of %s (World Bank PPP, the IMF's for Taiwan, "
+                     "carried forward for inflation, at that day's exchange rates)" % html.escape(_day(facts_asof)))
     for src in GOVS:
         items = own.get(src)
         if items is None:
@@ -513,8 +513,8 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
         notes.append(ALT_NOTE)
     if no_infl:
         notes.append(NO_INFL_NOTE)
-    notes.append("Prices are national averages vs the US (100%%), from World Bank PPP at the snapshot's "
-                 "exchange rates. Best months: the guide's hand-picked months, or the best-weather months "
+    notes.append("Prices are national averages vs the US (100%%), from World Bank PPP (Taiwan: IMF) at the "
+                 "snapshot's exchange rates. Best months: the guide's hand-picked months, or the best-weather months "
                  "where it has none. Health notes are Canada's risk-to-travellers list (* in certain areas).%s"
                  % (" Dollar vs 1-yr avg: how much further a US dollar goes there than its one-year average, "
                     "after local and US inflation." if show_fx else ""))

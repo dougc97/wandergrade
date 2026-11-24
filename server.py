@@ -921,7 +921,7 @@ _ADV_LINKS = ('<a href="https://travel.state.gov" rel="noopener" target="_blank"
               'rel="noopener" target="_blank">German Foreign Office</a>')
 _LIST_CREDITS = {
     "/safe-and-cheap": ('Data: <a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
-                        "(PPP) &middot; Advisories: " + _ADV_LINKS + " &middot; Health notes: Global Affairs "
+                        "(PPP; Taiwan: IMF) &middot; Advisories: " + _ADV_LINKS + " &middot; Health notes: Global Affairs "
                         'Canada &middot; Climate: <a href="https://open-meteo.com" rel="noopener" target="_blank">'
                         "Open-Meteo</a> &middot; "),
     "/do-not-travel": "Advisories: " + _ADV_LINKS + " &middot; ",
@@ -1207,7 +1207,7 @@ _STRENGTH_CREDITS = ('Data: <a href="https://fxratesapi.com" rel="noopener" targ
                      'euro_reference_exchange_rates/html/index.en.html" rel="noopener" target="_blank">'
                      "ECB reference rates</a> (index history since 1999) &middot; "
                      '<a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
-                     "(PPP, inflation) &middot; ")
+                     "(PPP, inflation; Taiwan: IMF) &middot; ")
 _strength_memo = [None]        # (key, inputs, out), swapped whole: request threads share it
 _strength_idx_memo = [None]    # (history snapshot, day, index payloads)
 _strength_warm = {"busy": False, "at": 0.0}
@@ -1312,7 +1312,7 @@ def _render_privacy_page():
 # their flight-value curves (flightvalue.build reads the curve cache alone).
 # All 13 pages render together on a miss; every other request is a lookup.
 _CHEAP_CREDITS = ('Data: <a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
-                  '(PPP) &amp; <a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
+                  '(PPP; Taiwan: IMF) &amp; <a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
                   "&middot; Advisories: " + _ADV_LINKS + " &middot; Climate: "
                   '<a href="https://open-meteo.com" rel="noopener" target="_blank">Open-Meteo</a> &middot; '
                   'Flights: <a href="https://www.aviasales.com" rel="noopener" target="_blank">Aviasales</a> '

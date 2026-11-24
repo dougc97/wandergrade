@@ -348,7 +348,8 @@ def _sources(ctx, fetched, stale, rates_asof, today=None):
     parts = []
     if rates_asof:
         parts.append("Prices and grades: WanderGrade's snapshot of %s (exchange rates from fxratesapi.com, "
-                     "World Bank PPP carried forward for inflation)" % html.escape(RL._day(rates_asof)))
+                     "World Bank PPP, the IMF's for Taiwan, carried forward for inflation)"
+                     % html.escape(RL._day(rates_asof)))
     adv = RL._sources_line(fetched, ctx["items"], stale={s: a for s, a in (stale or {}).items()
                                                          if a and s not in ctx["missing"]}, today=today)
     return " · ".join(parts + [adv[:-1]]) + "."

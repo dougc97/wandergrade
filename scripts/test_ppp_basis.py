@@ -29,7 +29,10 @@ What it holds the code and data to (review 2026-11-23 items 15 and 23):
   * the words: pricelevel.basis_note and app.js plBasisNote say the same
     thing; the guide's price ⓘ and the history chart's ⓘ carry them;
     /dollar-strength marks a flagged price ‡ with its note; the dataset says
-    ppp_basis and ppp_source per row.
+    ppp_basis and ppp_source per row;
+  * the IMF is credited wherever WanderGrade's prices are sourced while a
+    MANUAL row is the IMF's: /safe-and-cheap's and /cheapest's sources lines
+    and notes, the list and strength pages' footers, and the site footer.
 """
 import copy, datetime, html, json, os, re, sys
 
@@ -269,6 +272,25 @@ results.append(ok(build_dataset.FIELDS[-2:] == ["ppp_basis", "ppp_source"]
                   and "IMF" in ds["meta"]["ppp_source"] and "IMF" in ds["meta"]["licence"],
                   "dataset: ppp_basis and ppp_source on the end of every row (Taiwan: IMF, gdp); the meta names "
                   "PRVT.PP, PPP and the IMF"))
+
+# The IMF credit, wherever prices are sourced (Taiwan's figure is the IMF's).
+from fxtracker import render_cheapest as RC, render_lists as RL  # noqa: E402
+SRV = open(os.path.join(ROOT, "server.py"), encoding="utf-8").read()
+IDX = open(os.path.join(ROOT, "public", "index.html"), encoding="utf-8").read()
+RLS = open(os.path.join(ROOT, "fxtracker", "render_lists.py"), encoding="utf-8").read()
+imf_rows = any(r.get("src") == "imf" for r in build_ppp.MANUAL.values())
+credits = {
+    "/safe-and-cheap sources line": "World Bank PPP, the IMF's for Taiwan" in RL._sources_line({}, {}, "2026-09-28"),
+    "/cheapest sources line": "World Bank PPP, the IMF's for Taiwan" in RC._sources(
+        {"items": {}, "missing": []}, {}, {}, "2026-09-28"),
+    "/safe-and-cheap notes": "from World Bank PPP (Taiwan: IMF) at the" in RLS,
+    "list footers": SRV.count("(PPP; Taiwan: IMF)") == 2,
+    "/dollar-strength footer": "(PPP, inflation; Taiwan: IMF)" in SRV,
+    "site footer": "PPP: World Bank (Taiwan: IMF) ·" in IDX,
+}
+results.append(ok(imf_rows and all(credits.values()),
+                  "the IMF is credited for Taiwan's figure on %s%s" % (", ".join(credits), "" if all(credits.values())
+                  else ": MISSING on " + ", ".join(k for k, v in credits.items() if not v))))
 
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)
