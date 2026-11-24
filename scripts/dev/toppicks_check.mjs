@@ -5,11 +5,16 @@
 //               focus lands on row #1's link (it used to snap back up to the button)
 //   hold    #5  ?vmn=12&vo=US with popularity, fares and fare curves answering late: the skeleton
 //               gives way to ONE order of rows (it used to reshuffle twice)
+//   holdtap #5  the same with a tap on the skeleton's row #1 and a scroll key during the hold: still
+//               one order (any click or key used to end the hold and bring the reshuffle back)
+//   geo     #5  a first visit (nothing saved) whose /api/geo says DE, DE fares replayed from the US
+//               recordings: the served rows give way to ONE order (they were redrawn four times)
 //   month   #14 the month picker on a touch phone: read-only, no keyboard, keeps its value, opens on
 //               this month inside the screen, no group tip, a tap picks; desktop still searchable
 //   fares   #25 row fare strips: none fetched on a phone load, the gems' only once the fold opens,
 //               the rest when the screen widens past 640px
-//   want    #18 Been-to "★ My want-to-go": the rows, the note's count, vb=want, the empty state
+//   want    #18 Been-to "★ My want-to-go": the rows, the note's count, vb=want, the empty state, no
+//               vb in a share link, no "Show top 10" for exactly five
 //   trip    #29 the Trip tab's AI bar hidden while the trip is empty, shown with a trip
 // T_CACHE  a directory of recorded production API answers (files sha1(pathname+search).json holding
 //          {url,status,ct,body base64}); hold and fares replay /api/flight*, /api/popularity from it.
@@ -30,6 +35,7 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {
   if (RATES) pats.push({ urlPattern: '*/api/rates', requestStage: 'Request' });
   if (CACHE) pats.push({ urlPattern: '*/api/flight*', requestStage: 'Request' }, { urlPattern: '*/api/popularity*', requestStage: 'Request' });
   else pats.push({ urlPattern: '*/api/flight-months*', requestStage: 'Request' });
+  if (CASE === 'geo') pats.push({ urlPattern: '*/api/geo*', requestStage: 'Request' });
   await send('Fetch.enable', { patterns: pats });
   on(async (d) => {
     if (d.method !== 'Fetch.requestPaused') return;
@@ -38,9 +44,19 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {
     if (u.pathname === '/api/rates' && RATES) return json(RATES);
     if (u.pathname === '/api/flight-months') fm.push(u.searchParams.get('iso'));
     if (!CACHE) return send('Fetch.continueRequest', { requestId: id });
-    if (CASE === 'hold' && delays[u.pathname]) await sleep(delays[u.pathname]);
+    if (/^hold|^geo$/.test(CASE) && delays[u.pathname]) await sleep(delays[u.pathname]);
+    if (u.pathname === '/api/geo') return json(Buffer.from('{"country":"DE"}').toString('base64'));
+    // geo: DE asks are answered from the US recordings, marked DE (app.js drops another origin's answer).
+    const de = CASE === 'geo' && u.searchParams.get('origin') === 'DE';
+    if (de) u.searchParams.set('origin', 'US');
     const f = CACHE + '/' + key(u.pathname + u.search) + '.json';
-    if (fs.existsSync(f)) { const c = JSON.parse(fs.readFileSync(f, 'utf8')); return json(c.body, c.status, c.ct); }
+    if (fs.existsSync(f)) {
+      const c = JSON.parse(fs.readFileSync(f, 'utf8'));
+      if (!de) return json(c.body, c.status, c.ct);
+      const j = JSON.parse(Buffer.from(c.body, 'base64').toString('utf8'));
+      if (j.origin) { j.origin = 'DE'; j.origin_name = 'Germany'; }
+      return json(Buffer.from(JSON.stringify(j)).toString('base64'), c.status, c.ct);
+    }
     if (u.pathname === '/api/flight-months') return json(Buffer.from('{"months":{}}').toString('base64'));
     return send('Fetch.continueRequest', { requestId: id });
   });
@@ -69,7 +85,7 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {
     ok(r.row1[0] >= 0 && r.row1[1] <= r.vh, 'row #1 is on screen ' + JSON.stringify(r.row1));
   }
 
-  if (CASE === 'hold') {
+  if (CASE === 'hold' || CASE === 'holdtap' || CASE === 'geo') {
     await send('Page.addScriptToEvaluateOnNewDocument', { source: `(function(){ window.__orders = []; let last = ''; const t0 = performance.now();
       const look = () => { const h = document.getElementById('topCards'); if (h) { const skel = !!h.querySelector('table.skeleton:not([hidden])');
         const k = skel ? 'SKELETON' : [...h.querySelectorAll('tbody tr[data-iso]')].map((r) => r.dataset.iso).join(' ');
@@ -77,12 +93,36 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {
         if (performance.now() - t0 < 7000) setTimeout(look, 25); };
       document.addEventListener('DOMContentLoaded', look); })();` });
     await setSize(390, 664, true);
-    await nav(BASE + '/?vmn=12&vo=US&cb=' + Date.now(), 6000);
+    if (CASE === 'geo') {
+      await nav(BASE + '/privacy', 300);
+      await evaluate(`(function(){ localStorage.clear(); sessionStorage.clear(); return 1; })()`);
+    }
+    const url = CASE === 'geo' ? '/?utm_source=check' : '/?vmn=12&vo=US&cb=' + Date.now();
+    if (CASE === 'holdtap') {
+      // nav() waits for the network to go quiet, past the hold: navigate by hand, input mid-hold.
+      send('Page.navigate', { url: BASE + url });
+      let held = false;
+      for (let i = 0; i < 80 && !held; i++) { await sleep(25); held = await evaluate(`(function(){ try { return !!_firstHold.t0 && !_firstHold.done; } catch (e) { return false; } })()`) === true; }
+      await send('Input.synthesizeTapGesture', { x: 200, y: 640, gestureSourceType: 'touch' });
+      await send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 });
+      const st = await evaluate(`(function(){ return _firstHold.done; })()`);
+      ok(held && st === false, 'a tap on the skeleton and a scroll key mid-hold leave it on (held ' + held + ', done ' + st + ')');
+      await sleep(5000);
+    } else await nav(BASE + url, 6000);
     const o = await evaluate(`(function(){ return window.__orders; })()`);
     o.forEach((x) => console.log('    ' + String(x[0]).padStart(5) + 'ms  ' + x[1]));
     const orders = o.filter((x) => x[1] !== 'SKELETON' && x[1]);
-    ok(o.length && o[0][1] === 'SKELETON', 'the skeleton shows first');
-    ok(orders.length === 1, 'one order of rows, no reshuffle (' + orders.length + ')' + (CACHE ? '' : ' [no T_CACHE: fares off]'));
+    if (CASE === 'geo') {
+      const st = await evaluate(`(function(){ return document.getElementById('valueOrigin').value; })()`);
+      ok(st === 'DE', 'the geo seed set From to DE (' + st + ')');
+      // The served rows (if the server had them ready), then the DE rows once.
+      ok(orders.length <= 2 && (o[0][1] === 'SKELETON' ? orders.length === 1 : true),
+         'served rows, then one order of rows (' + orders.length + ' orders)' + (CACHE ? '' : ' [no T_CACHE: fares off]'));
+    } else {
+      ok(o.length && o[0][1] === 'SKELETON', 'the skeleton shows first');
+      ok(orders.length === 1, 'one order of rows, no reshuffle (' + orders.length + ')' + (CACHE ? '' : ' [no T_CACHE: fares off]'));
+    }
   }
 
   if (CASE === 'month') {
@@ -148,6 +188,12 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {
     ok(a.rows.length === 5 && a.rows.includes('TH') && a.rows.includes('GB') && !a.rows.includes('SY'), 'the rows are ★ countries (✓ TH in, Scotland as GB, no Level 4): ' + a.rows);
     ok(a.note.startsWith('★ Your want-to-go list') && /· 2 not ranked ⓘ/.test(a.note) && /Syria: Level 4/.test(a.miss) && a.tabbable === 0, 'the note counts the 2 it can\'t rank, reasons in a reachable tip');
     ok(a.gems && /vb=want/.test(a.url), 'no gems fold; the address bar keeps vb=want');
+    const share = await evaluate(`(function(){ return buildShareURL(true); })()`);
+    ok(!/vb=/.test(share), 'a share link leaves vb out (the recipient has no ★ list of the sharer\'s): ' + share);
+    await evaluate(`(function(){ localStorage.setItem('fx_wishlist', JSON.stringify(['JP','PT','TH','MX','GR'])); localStorage.setItem('wg_showvisited', 'want'); return 1; })()`);
+    await nav(BASE + '/?cb=' + Date.now(), 4000);
+    const f = await evaluate(`(function(){ return { rows: document.querySelectorAll('#topCards tr[data-iso]').length, more: document.getElementById('showMore').hidden, url: location.search }; })()`);
+    ok(f.rows === 5 && f.more && !/vb=/.test(f.url), 'exactly five ★: no "Show top 10"; saved, the bar has no vb ' + JSON.stringify(f));
     await evaluate(`(function(){ localStorage.setItem('fx_wishlist', '[]'); const s = document.getElementById('beenFilter'); s.value = 'want'; s.dispatchEvent(new Event('change')); return 1; })()`);
     await nav(BASE + '/?cb=' + Date.now(), 4000);
     const b = await evaluate(st);
@@ -167,5 +213,6 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {
     const gone = await evaluate(st);
     ok(empty === 'none' && one !== 'none' && gone === 'none', 'the AI bar: hidden empty (' + empty + '), shown with a trip (' + one + '), hidden again (' + gone + ')');
   }
-  console.log('  errors: ' + errs.filter((e) => !/api\/rates/.test(e)).length);
+  // holdtap navigates by hand (cdp.mjs lists that navigation as unasked-for).
+  console.log('  errors: ' + errs.filter((e) => !/api\/rates/.test(e) && !(CASE === 'holdtap' && /^navigated \(not by nav/.test(e))).length);
 };
