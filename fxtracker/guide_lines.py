@@ -93,6 +93,16 @@ def score(iso, inputs, month):
     return picks._score(iso, month, ppp, clim, rate_by_code, strength, adv, fit, fares, anchor)
 
 
+# The line's closing "Dec ⓘ": the month the grades are for, and a link to
+# /how-grades-work (fxtracker/render_methodology.py) that keeps its tip:
+# app.js's a.tiplink (a tap shows the tip, a second follows the link), held at
+# the widest month's width (.ggmon).
+def grades_link(month):
+    return ('<a class="muted ggmon tiplink" href="/how-grades-work" data-tip="%s" title="">%s '
+            '<span aria-hidden="true">ⓘ</span><span class="vh">, how grades work</span></a>'
+            % (esc(graded_tip(month) + " Click for how every grade is worked out."), MON_ABBR[month - 1]))
+
+
 def _ggf(emo, word, pill_html):
     return ('<span class="ggf"><span aria-hidden="true">%s</span><span class="vh">%s </span>%s</span>'
             % (emo, word, pill_html))
@@ -126,7 +136,7 @@ def grades(iso, inputs, today):
             + _ggf("🛡️", "Safety", safe)
             + _ggf("🌤️", "Weather", grey("—") if s.get("wx") is None else pill(s["wx"]))
             + _ggf("✈️", "Flights", fly.replace('class="', 'data-gg="fly" class="', 1)) + days
-            + '<span class="muted ggmon" data-tip="%s" title="">%s ⓘ</span>' % (esc(graded_tip(month)), MON_ABBR[month - 1]))
+            + grades_link(month))
 
 
 def graded_tip(month):

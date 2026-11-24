@@ -95,7 +95,8 @@ if "error" in js:
 inputs = {k: FIX[k] for k in ("rates", "advisories", "flights", "fv", "ppp", "climate", "activities")}
 bad_g, bad_f = [], []
 tip_bad, ftip_bad = [], []
-TIP = re.compile(r'<span class="muted ggmon" data-tip="([^"]*)" title="">(\w+) ⓘ</span>')
+TIP = re.compile(r'<a class="muted ggmon tiplink" href="/how-grades-work" data-tip="([^"]*)" title="">(\w+) '
+                 r'<span aria-hidden="true">ⓘ</span>')
 FTIP = re.compile(r'<span class="legendinfo" data-tip="([^"]*)" title="">ⓘ</span>')
 for iso in GUIDES:
     g = G.grades(iso, inputs, TODAY)
@@ -126,7 +127,7 @@ results.append(ok(not bad_g and graded > 120,
 gm0 = G.guide_month(TODAY)
 th_tip = TIP.findall(G.grades("TH", inputs, TODAY))
 results.append(ok(not tip_bad and th_tip == [("Graded for %s from the US, weighted by your Top Picks priorities — the grades "
-                                              "the Top Picks table and this page&#39;s 📸 share card show."
+                                              "the Top Picks table and this page&#39;s 📸 share card show. Click for how every grade is worked out."
                                               % G.MON_FULL[gm0 - 1], G.MON_ABBR[gm0 - 1])],
                   "every graded line ends in the month it is for (\"%s ⓘ\"), and the served one keeps that ⓘ's tip, "
                   "word for word the client's %s" % (G.MON_ABBR[gm0 - 1], tip_bad[:2] or "")))
@@ -285,6 +286,17 @@ results.append(ok(rd.get("wait") == ["", 1] and rd.get("once") == 1 and rd.get("
                   "a guide opened from Top Picks while the month curves are out: another country's line goes, "
                   "one 2.5 s timer, then the grey boxes, then the grades once they land %s"
                   % {k: rd.get(k) for k in ("wait", "once", "boxes", "landed", "error") if k in rd}))
+# The graded line's "Dec ⓘ" is also a link to /how-grades-work that keeps its
+# tip (the tip engine's a.tiplink: a tap shows the tip, a second follows the
+# link), served too.
+LINKED = re.compile(r'<a class="muted ggmon tiplink" href="/how-grades-work" data-tip="Graded for [^"]+'
+                    r' Click for how every grade is worked out\." title="">\w+ '
+                    r'<span aria-hidden="true">ⓘ</span><span class="vh">, how grades work</span></a>$')
+linked = [iso for iso in GUIDES if 'data-gg="ov"' in js[iso]["grades"] and LINKED.search(js[iso]["grades"])
+          and LINKED.search(G.grades(iso, inputs, TODAY))]
+results.append(ok(len(linked) == graded,
+                  "every graded line's month ⓘ links to /how-grades-work with its tip, served too (%d of %d)"
+                  % (len(linked), graded)))
 
 # --- the page -----------------------------------------------------------------------------
 import server  # noqa: E402

@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
     flightvalue, guide_facts, guide_lines, guide_sizers, health, home_picks, llms_txt, mailer, map_picks, picks, popularity, rates,
-    render_cheapest, render_guide, render_lists, render_privacy, store, watchouts
+    render_cheapest, render_guide, render_lists, render_methodology, render_privacy, store, strip_comments, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -317,11 +317,23 @@ def _asset_version(name):
         return "0"
 
 
+# The raw template's <!-- --> notes (about 30% of its bytes, 9 KB of a
+# guide's gzipped page) and every stylesheet's /* */ ones (styles.css 72 KB
+# -> 28 KB gzipped) are taken out before anything is served
+# (fxtracker/strip_comments.py): the template once, before any token is
+# filled, so a rendered page's own markers (<!--tN-->, <!--email_off-->)
+# are never touched; the stylesheets in _static_bytes. FX_STRIP_COMMENTS=0
+# (Render -> Environment, which restarts the server) serves both as written.
+STRIP_COMMENTS = os.environ.get("FX_STRIP_COMMENTS", "1").strip() != "0"
+
+
 def _index_template():
     global _html_tpl
     if _html_tpl is None:
         with open(os.path.join(PUBLIC, "index.html"), encoding="utf-8") as f:
             tpl = f.read()
+        if STRIP_COMMENTS:
+            tpl = strip_comments.html(tpl)
         # Stamp asset URLs with the file's mtime so browsers can cache them
         # long-term (see _send_file) yet always fetch fresh after a deploy.
         tpl = re.sub(r"/app\.js(\?v=\d+)?", "/app.js?v=" + _asset_version("app.js"), tpl)
@@ -714,7 +726,11 @@ def _sitemap():
            '  <url><loc>%s/dollar-strength</loc><lastmod>%s</lastmod></url>' % (_SITE, strength_lm),
            # Dated by its own "Last updated", the day its words last changed:
            # a content-stamp bump for the guides' data doesn't touch it.
-           '  <url><loc>%s/privacy</loc><lastmod>%s</lastmod></url>' % (_SITE, render_privacy.UPDATED)]
+           '  <url><loc>%s/privacy</loc><lastmod>%s</lastmod></url>' % (_SITE, render_privacy.UPDATED),
+           # The same for the methodology page: its own date, moved with its
+           # words (scripts/test_how_grades_work.py holds the two together).
+           '  <url><loc>%s%s</loc><lastmod>%s</lastmod></url>'
+           % (_SITE, render_methodology.PATH, render_methodology.UPDATED)]
     # /cheapest and its 12 months, by the exchange rates' own date (every
     # row's price and grade moves with them), else the snapshot's; floored
     # at the stamp like the lists above, never today.
@@ -876,6 +892,7 @@ def _shell_page(title, body, head="", analytics=True, credits=True):
         '<a href="/do-not-travel">Do Not Travel list</a> &middot; '
         '<a href="/cheapest">Cheapest by month</a> &middot; '
         '<a href="/dollar-strength">Dollar strength</a> &middot; '
+        '<a href="/how-grades-work">How grades work</a> &middot; '
         '<a href="/privacy">Privacy</a> &middot; '
         '<a href="/">Back to WanderGrade</a></footer></body></html>'
         % (html.escape(title), _SHELL_ICON, head, _asset_version("styles.css"),
@@ -1232,7 +1249,7 @@ from fxtracker import render_strength  # noqa: E402
 # a capital and a slash at once) 301 to their lowercase URL. Never /guide/:
 # that has its own redirects (_guide_redirect).
 _LOWER_PATHS = frozenset(_LIST_PATHS + render_cheapest.PATHS
-                         + (render_strength.PATH, "/privacy", "/data"))
+                         + (render_strength.PATH, "/privacy", render_methodology.PATH, "/data"))
 
 _STRENGTH_CREDITS = ('Data: <a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
                      '(rates) &middot; <a href="https://www.ecb.europa.eu/stats/policy_and_exchange_rates/'
@@ -1327,6 +1344,20 @@ def _strength_lastmod(stamp):
 
 
 _privacy_memo = [None]
+_methodology_memo = [None]
+
+
+def _render_methodology_page():
+    """/how-grades-work in the list pages' shell (fxtracker/render_methodology.py),
+    its numbers read from the scoring code and the refresh intervals from this
+    file's TTLs. Fixed per deploy, so built once per process."""
+    if _methodology_memo[0] is None:
+        p = render_methodology.page({"rates": CACHE_TTL, "ppp": PPP_TTL, "adv": ADV_TTL,
+                                     "flights": FLIGHTS_TTL})
+        _methodology_memo[0] = _shell_page(p["title"], p["html"],
+                                           _list_head(render_methodology.PATH, p["title"], p["desc"]),
+                                           credits=False)
+    return _methodology_memo[0]
 
 
 def _render_privacy_page():
@@ -1853,6 +1884,43 @@ def _home_picks():
             "NOTE_SKEL_HIDDEN": " hidden", "PICKS_NOTE": r["note"]}
 
 
+# Per-country share cards: public/og/<slug>.jpg, 1200x630, rendered offline by
+# scripts/dev/og_cards.mjs (the server can't render images), which records the
+# facts each card shows in public/og/cards.json. A guide's og:image and
+# twitter:image are its card while the file exists and those facts are still
+# the data's (name, best months, curated or not); otherwise /og.png, as every
+# page had before. So a climate.json rebuild that moves a country's best
+# months falls back to the site card until the cards are re-rendered
+# (scripts/test_og_cards.py names the stale ones). Read once per process.
+_og_cards_memo = [None]
+
+
+def _og_cards():
+    """{iso: card URL} for every card that exists and matches the data."""
+    if _og_cards_memo[0] is None:
+        out = {}
+        try:
+            with open(os.path.join(PUBLIC, "og", "cards.json"), encoding="utf-8") as f:
+                cards = json.load(f)
+            d = render_guide._load()
+            for slug, iso in d["slugs"].items():
+                c, clim = cards.get(slug), d["clim"].get(iso) or {}
+                want = {"iso": iso, "name": d["names"].get(iso) or slug,
+                        "best": [m for m in clim.get("best") or [] if 1 <= m <= 12],
+                        "curated": bool(clim.get("curated"))}
+                if c == want and os.path.isfile(os.path.join(PUBLIC, "og", slug + ".jpg")):
+                    out[iso] = "%s/og/%s.jpg" % (_SITE, slug)
+        except (OSError, ValueError) as e:
+            print("[og-cards] none: %s" % e, file=sys.stderr, flush=True)
+        _og_cards_memo[0] = out
+    return _og_cards_memo[0]
+
+
+def _og_image(iso):
+    """The guide's own share card URL, or None (the page keeps /og.png)."""
+    return _og_cards().get(iso)
+
+
 def _render_index(gc_iso=None):
     """Fill index.html's tokens. gc_iso=None -> homepage defaults; otherwise a
     country page with server-rendered <title>/meta/canonical and body."""
@@ -1922,8 +1990,11 @@ def _render_index(gc_iso=None):
             gl = {}
         vals["GUIDE_DATA"] += gl.pop("_ATTRS", "")
         vals.update(gl)
-        if r.get("ogimage"):                          # country hero photo
+        if r.get("ogimage"):                          # the site's card (render_guide)
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
+        card = _og_image(gc_iso)
+        if card:                                      # the country's own card
+            vals["OGIMAGE"] = card
     out = _guide_template() if gc_iso else _index_template()
     for k, v in vals.items():
         out = out.replace("{{%s}}" % k, v)
@@ -2590,7 +2661,8 @@ def _busy_arm():
         with _busy_lock:
             _busy["timer"] = None
 _slot_held = threading.local()   # .slots: the semaphore this request thread holds a slot of
-_SLOT_PATHS = frozenset(("/", "/data", "/privacy", render_strength.PATH) + _LIST_PATHS + render_cheapest.PATHS)
+_SLOT_PATHS = frozenset(("/", "/data", "/privacy", render_methodology.PATH, render_strength.PATH)
+                        + _LIST_PATHS + render_cheapest.PATHS)
 
 
 def _slot_route(path):
@@ -2755,6 +2827,63 @@ def _idle_wait(event, timeout):
 # asset pays it on Render's 0.15 CPU. zlib lets go of the GIL while it works,
 # so this is quota, not /healthz latency.
 GZIP_LEVEL = 6
+
+
+# ---- static files in memory -----------------------------------------------------
+# _send_file read a static file from disk and gzipped it again on every
+# request: world.geojson (186 KB), activities.json (209 KB) and app.js
+# (810 KB, 17 ms of zlib on Render's CPU) for every visitor whose browser or
+# Cloudflare POP didn't have them. Text files are kept here, raw and (once a
+# client asks) gzipped, each checked against its mtime and size on every
+# request, so a changed file is read again at once. Stylesheets are kept
+# with their comments out (STRIP_COMMENTS). Images, fonts and media are read
+# per request as before: only text is compressed, and the share cards alone
+# are ~10 MB. A text file over STATIC_MEMO_MAX is read per request too.
+STATIC_MEMO_MAX = 2 * 1024 * 1024
+_static_memo = {}          # path -> ((mtime_ns, size), raw, gz or None)
+_static_lock = threading.Lock()
+_FONT_DIR = os.path.join(PUBLIC, "fonts") + os.sep
+_OG_DIR = os.path.join(PUBLIC, "og") + os.sep
+
+
+def _immutable_font(path):
+    return path.startswith(_FONT_DIR) and path.endswith(".woff2")
+
+
+def _og_card_file(path):
+    return path.startswith(_OG_DIR) and path.endswith(".jpg")
+
+
+def _static_text(path):
+    """True for a file _static_bytes keeps: text by its type."""
+    ctype = CONTENT_TYPES.get(os.path.splitext(path)[1], "application/octet-stream")
+    return ctype.startswith(("text/", "application/javascript", "application/json", "application/geo+json",
+                             "application/xml", "image/svg+xml"))
+
+
+def _static_bytes(path, wants_gz):
+    """(raw, gzipped or None) for the static file at `path`: raw as served
+    (a stylesheet without its comments), gzipped when wants_gz(raw) says the
+    response is. From the memo while the file's mtime and size are the same."""
+    st = os.stat(path)
+    key = (st.st_mtime_ns, st.st_size)
+    if not _static_text(path) or st.st_size > STATIC_MEMO_MAX:
+        with open(path, "rb") as f:
+            raw = f.read()
+        return raw, None
+    with _static_lock:
+        hit = _static_memo.get(path)
+    if hit is None or hit[0] != key:
+        with open(path, "rb") as f:
+            raw = f.read()
+        if STRIP_COMMENTS and path.endswith(".css"):
+            raw = strip_comments.css(raw.decode("utf-8")).encode("utf-8")
+        hit = (key, raw, None)
+    if hit[2] is None and wants_gz(hit[1]):
+        hit = hit[:2] + (gzip.compress(hit[1], GZIP_LEVEL),)
+    with _static_lock:
+        _static_memo[path] = hit
+    return hit[1], (hit[2] if wants_gz(hit[1]) else None)
 
 
 # What a read or write on a request's own socket raises when the client is
@@ -3057,23 +3186,26 @@ class Handler(BaseHTTPRequestHandler):
         ext = os.path.splitext(path)[1]
         ctype = CONTENT_TYPES.get(ext, "application/octet-stream")
         # ?v=<mtime>-stamped assets (the template rewrites app.js/styles.css)
-        # can cache forever — the URL itself changes on deploy. geojson is
-        # effectively static; other data files change with deploys, so keep
-        # their staleness window short (10 min) to not mask fresh releases.
-        cache = "public, max-age=31536000, immutable" if versioned \
-            else "public, max-age=86400" if ext in (".geojson", ".mp3") \
+        # can cache forever — the URL itself changes on deploy. So can the
+        # font files: their names are Google Fonts' own, which change with
+        # the font (jakarta.css names them, and it isn't immutable). geojson
+        # is effectively static; the share cards (/og/<slug>.jpg) change only
+        # when scripts/dev/og_cards.mjs is re-run; other data files change
+        # with deploys, so keep their staleness window short (10 min) to not
+        # mask fresh releases.
+        cache = "public, max-age=31536000, immutable" if versioned or _immutable_font(path) \
+            else "public, max-age=86400" if ext in (".geojson", ".mp3") or _og_card_file(path) \
             else "public, max-age=600" if ext == ".json" \
             else "public, max-age=300"
         if ctype.startswith(("audio/", "video/")):
             self._send_media(path, ctype, cache)
             return
         try:
-            with open(path, "rb") as f:
-                body = f.read()
+            body, gz = _static_bytes(path, lambda raw: self._gzips(raw, ctype))
         except OSError:
             self._send_not_found()
             return
-        self._send_body(body, ctype, cache=cache)
+        self._send_body(body, ctype, cache=cache, gzipped=gz)
 
     def _send_media(self, path, ctype, cache):
         """Media with byte-range support. iOS Safari won't play audio/video
@@ -3530,6 +3662,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/privacy/":
             query = self.path.split("?", 1)[1] if "?" in self.path else ""
             self._redirect("/privacy" + ("?" + query if query else ""))
+            return
+        if path == render_methodology.PATH:
+            # Like /privacy: fixed words, cached at the edge, no cookie.
+            self._send_body(_render_methodology_page(), "text/html; charset=utf-8",
+                            cache="public, max-age=300")
+            return
+        if path == render_methodology.PATH + "/":
+            query = self.path.split("?", 1)[1] if "?" in self.path else ""
+            self._redirect(render_methodology.PATH + ("?" + query if query else ""))
             return
         if path == render_cheapest.HUB or path.startswith(render_cheapest.HUB + "/"):
             # The hub and the twelve months; the slash variant 301s to its
@@ -4067,6 +4208,7 @@ def main():
     # 6-12. A failure here is left to the requests, as before.
     try:
         render_guide._load()
+        _og_cards()   # and the share cards' facts (one small file), for the same reason
     except Exception as e:
         sys.stderr.write("[boot] guide data not loaded: %r\n" % (e,))
     _warm_flight_value()

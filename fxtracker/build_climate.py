@@ -189,18 +189,27 @@ def sample_place(iso, pt):
     return o[2] if o and pt == (o[1], o[0]) else None
 
 
+# comfort()'s numbers, named so /how-grades-work (fxtracker/render_methodology.py)
+# prints the ones in use: full marks for a month averaging COMFORT_LO-COMFORT_HI
+# °C; HOT_PTS_PER_C off per degree above, COLD_PTS_PER_C per degree below;
+# RAIN_PTS_PER_MM off per mm of the month's rain, at most RAIN_PTS_MAX.
+COMFORT_LO, COMFORT_HI = 18, 26
+HOT_PTS_PER_C, COLD_PTS_PER_C = 6, 4
+RAIN_PTS_PER_MM, RAIN_PTS_MAX = 0.18, 60
+
+
 def comfort(temp, rain):
     """0-100 monthly comfort from avg temp (C) and total rain (mm). Sweet spot
     ~18-26C; hot months penalized harder (humidity); rain reduces the score."""
     if temp is None:
         return None
-    if temp > 26:
-        t_pen = (temp - 26) * 6
-    elif temp < 18:
-        t_pen = (18 - temp) * 4
+    if temp > COMFORT_HI:
+        t_pen = (temp - COMFORT_HI) * HOT_PTS_PER_C
+    elif temp < COMFORT_LO:
+        t_pen = (COMFORT_LO - temp) * COLD_PTS_PER_C
     else:
         t_pen = 0
-    r_pen = min(60, (rain or 0) * 0.18)
+    r_pen = min(RAIN_PTS_MAX, (rain or 0) * RAIN_PTS_PER_MM)
     return max(0, min(100, round(100 - t_pen - r_pen)))
 
 
