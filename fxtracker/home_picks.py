@@ -415,12 +415,16 @@ def note(win, popular_found, data_backed):
 
 def popular_set(arrivals):
     """app.js ensurePopularity: the top POPULAR_N of CUR_BY_ISO by tourism
-    receipts, or None (the fallback set stays) with 20 or fewer figures."""
+    receipts, plus every curated (FALLBACK_POPULAR) country the feed has no
+    figure for, as app.js and picks._popular_set keep them; or None (the
+    fallback set stays) with 20 or fewer figures. Leaving the curated ones out
+    served a different top 5 from the one app.js redraws (Taiwan, Spain, the
+    UK, Canada, China … have no figure in the live feed)."""
     if not arrivals or len(arrivals) <= 20:
         return None
     ranked = sorted((iso for iso in picks.CUR_BY_ISO if arrivals.get(iso) is not None),
                     key=lambda i: -arrivals[i])
-    return set(ranked[:_POPULAR_N])
+    return set(ranked[:_POPULAR_N]) | {i for i in picks.FALLBACK_POPULAR if arrivals.get(i) is None}
 
 
 def build(inputs, slugs, today=None):

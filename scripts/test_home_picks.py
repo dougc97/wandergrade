@@ -2,7 +2,8 @@
 against what public/app.js draws for the same view, with app.js itself run
 under jsc (scripts/appjs_harness.js) on one fixture: production's own /api
 answers in scripts/parity/fixture_*.json, public/ppp.json, climate.json,
-activities.json, and a fixed popular set.
+activities.json, fixed popular sets and one app.js derives from an arrivals
+fixture (ensurePopularity), which home_picks.popular_set must equal.
 
     /usr/bin/python3 scripts/test_home_picks.py
 
@@ -58,10 +59,17 @@ SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO
 loaded.value = true;
 drawMap = function () {};
 $("pickCount").value = "5"; $("safeFloor").value = "b";
-const out = { views: [], parts: {}, flex: [], best: [] };
+(async () => {
+// app.js's own popular set for the arrivals fixture: ensurePopularity on a
+// stubbed /api/popularity (the curated countries with no figure stay popular).
+getJSON = async (u) => (u === "/api/popularity" ? { arrivals: FIX.arrivals } : null);
+_arrivals = null;
+await ensurePopularity();
+const fromArrivals = [...popularSet].sort();
+const out = { views: [], parts: {}, flex: [], best: [], fromArrivals: fromArrivals };
 for (const v of FIX.variants) {
   flightsData = v.flights ? FIX.flights : null; flightValue = v.fv ? FIX.fv : null;
-  popularSet = new Set(v.popular); popularDataBacked = v.backed;
+  popularSet = new Set(v.popular === "arrivals" ? fromArrivals : v.popular); popularDataBacked = v.backed;
   renderValue();
   out.views.push({ top: $("topCards").innerHTML, note: $("picksNote").innerHTML });
 }
@@ -79,6 +87,7 @@ for (const c of FIX.bestCases) {
   out.best.push(r ? { month: r.month, moved: !!r.moved, own: !!r.own } : null);
 }
 print(JSON.stringify(out));
+})().catch((e) => print(JSON.stringify({ error: String(e) })));
 """
 
 # bestOfWindow cases: ties (the sooner wins), value vs weather ranking, a missing
@@ -109,14 +118,25 @@ VARIANTS = [
     {"name": "no fares", "flights": False, "fv": False, "popular": POPULAR, "backed": False},
     {"name": "no popular set", "flights": True, "fv": True, "popular": [], "backed": True},
     {"name": "off the beaten path", "flights": True, "fv": False, "popular": OFFBEAT, "backed": True},
+    # The live feed's shape: curated countries with no figure (Taiwan, Spain, the
+    # UK …) stay popular in app.js, so the server's set must keep them too.
+    {"name": "popular from arrivals", "flights": True, "fv": True, "popular": "arrivals", "backed": True},
     # No climate.json entry: graded on 3 of 4 measures (the coverage mark), no strip.
     {"name": "no weather data", "flights": True, "fv": True, "popular": ["MO", "KM", "SC", "MT", "AD", "SM", "MH",
                                                                          "FM", "PW", "TC", "VG"], "backed": True},
 ]
 
 
+# /api/popularity as the live feed answers it: a figure for most countries, none
+# for these curated ones (the World Bank's 2026-10-08 update blanked them), so
+# the top POPULAR_N by figure alone would leave them out.
+NO_FIGURE = ["TW", "ES", "GB", "CA", "CN", "IS", "JM", "SE"]
+ARRIVALS = {iso: (None if iso in NO_FIGURE else 100000 - 7 * i)
+            for i, iso in enumerate(sorted(picks.CUR_BY_ISO, key=lambda c: (c not in picks.FALLBACK_POPULAR, c)))}
+
+
 def run_jsc():
-    fix = dict(FIX, days=DAYS, bestCases=CASES, variants=VARIANTS)
+    fix = dict(FIX, days=DAYS, bestCases=CASES, variants=VARIANTS, arrivals=ARRIVALS)
     with tempfile.TemporaryDirectory() as d:
         fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
         json.dump(fix, open(fp, "w"))
@@ -147,6 +167,15 @@ if js is None:
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     sys.exit(1)
 
+# --- the popular set ---------------------------------------------------------------------
+py_pop = H.popular_set(ARRIVALS)
+results.append(ok(py_pop is not None and sorted(py_pop) == js["fromArrivals"]
+                  and set(NO_FIGURE) <= py_pop and "TW" in py_pop,
+                  "popular_set(arrivals) == ensurePopularity's set (%d countries), the curated ones with no "
+                  "figure kept (%s) %s" % (len(js["fromArrivals"]), " ".join(NO_FIGURE),
+                                           "" if py_pop and sorted(py_pop) == js["fromArrivals"]
+                                           else (sorted(set(js["fromArrivals"]) ^ set(py_pop or ()))))))
+
 # --- flexWindow / bestOfWindow ---------------------------------------------------------
 py_flex = [",".join(map(str, H.flex_window(datetime.date.fromisoformat(d)))) for d in DAYS]
 bad = [(d, a, b) for d, a, b in zip(DAYS, js["flex"], py_flex) if a != b]
@@ -165,8 +194,9 @@ results.append(ok(py_best == js["best"], "best_of_window == bestOfWindow on %d c
 seen = set()
 for v, view in zip(VARIANTS, js["views"]):
     inputs = {k: FIX[k] for k in ("rates", "advisories", "ppp", "climate", "activities")}
+    popular = H.popular_set(ARRIVALS) if v["popular"] == "arrivals" else set(v["popular"])
     inputs.update(flights=FIX["flights"] if v["flights"] else None, fv=FIX["fv"] if v["fv"] else None,
-                  popular=set(v["popular"]) if v["backed"] else None)
+                  popular=popular if v["backed"] else None)
     if not v["backed"]:
         # Not data-backed: app.js keeps its own fallback set (== picks.FALLBACK_POPULAR).
         assert set(v["popular"]) == picks.FALLBACK_POPULAR
