@@ -18,7 +18,7 @@ const localStorage = (() => {
   };
 })();
 
-// This script's own deploy stamp (server.py rewrites /app.js to /app.js?v=<mtime>).
+// This script's own deploy stamp (server.py _app_js_version: /app.js?v=<stamp>, new every deploy).
 // Must be read at top level: document.currentScript is only set while the script
 // is first executing, not later inside a function.
 const ASSET_V = (() => {

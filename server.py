@@ -18,6 +18,7 @@ import collections
 import contextlib
 import difflib
 import gzip
+import hashlib
 import hmac
 import html
 import json
@@ -317,6 +318,93 @@ def _asset_version(name):
         return "0"
 
 
+# /app.js goes out minified (301 KB -> 143 KB gzipped): public/app.min.js, which
+# scripts/build_min_js.py writes with a pinned esbuild beside
+# public/app.min.js.sha256, the sha256 of the app.js it was built from. It is
+# served only while that hash is app.js's own. An app.js edited without a
+# rebuild goes out as written, with one [min-js] log line, so a forgotten
+# rebuild ships the bigger file, never stale code. FX_MIN_JS=0 (Render ->
+# Environment, which restarts the server) serves app.js as written. The
+# choice is kept while the three files' mtimes and sizes hold: app.js is
+# hashed once per change, not per request.
+MIN_JS = os.environ.get("FX_MIN_JS", "1").strip() != "0"
+APP_JS = os.path.join(PUBLIC, "app.js")
+APP_MIN_JS = os.path.join(PUBLIC, "app.min.js")
+APP_MIN_SHA = APP_MIN_JS + ".sha256"
+_app_js_memo = None        # (the files' stat keys and the switch, path served)
+_app_js_lock = threading.Lock()
+
+
+def _stat_key(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
+def _choose_app_js():
+    """(path to serve for /app.js, why app.js is served as written or None)."""
+    if not MIN_JS:
+        return APP_JS, "FX_MIN_JS=0"
+    if not os.path.isfile(APP_MIN_JS):
+        return APP_JS, "no app.min.js"
+    try:
+        with open(APP_MIN_SHA, encoding="utf-8") as f:
+            stored = (f.read().split() or [""])[0].lower()
+        with open(APP_JS, "rb") as f:
+            actual = hashlib.sha256(f.read()).hexdigest()
+    except (OSError, ValueError) as e:
+        return APP_JS, "no app.min.js.sha256 (%s)" % e.__class__.__name__
+    if not re.fullmatch(r"[0-9a-f]{64}", stored):
+        return APP_JS, "app.min.js.sha256 holds no sha256"
+    if stored != actual:
+        return APP_JS, ("app.min.js was built from app.js %s, app.js is now %s: rebuild with "
+                        "/usr/bin/python3 scripts/build_min_js.py" % (stored[:12], actual[:12]))
+    return APP_MIN_JS, None
+
+
+def _app_js_file():
+    """The file /app.js serves: app.min.js while it is current, else app.js.
+    Each new choice writes one line to the log."""
+    global _app_js_memo
+    key = (MIN_JS, _stat_key(APP_JS), _stat_key(APP_MIN_JS), _stat_key(APP_MIN_SHA))
+    memo = _app_js_memo
+    if memo is not None and memo[0] == key:
+        return memo[1]
+    with _app_js_lock:
+        if _app_js_memo is not None and _app_js_memo[0] == key:
+            return _app_js_memo[1]
+        path, why = _choose_app_js()
+        if why:
+            print("[min-js] serving app.js as written: %s" % why, flush=True)
+        else:
+            print("[min-js] serving app.min.js for /app.js", flush=True)
+        _app_js_memo = (key, path)
+    return path
+
+
+def _app_js_version():
+    """/app.js's ?v= stamp: app.js's mtime, as styles.css's is its own (new on
+    every deploy, which ppp.json and pl_history.json borrow through app.js's
+    stamped()), then, while the minified copy is what goes out, 8 digits of
+    that file's sha256. So the stamp changes whenever the bytes served do,
+    also when only the copy (a rebuild) or FX_MIN_JS does, and a browser's
+    year-long copy, or the service worker's, never outlives them."""
+    try:
+        v = str(int(os.path.getmtime(APP_JS)))
+    except OSError:
+        v = "0"
+    path = _app_js_file()
+    if path != APP_JS:
+        try:
+            with open(path, "rb") as f:
+                v += "%08d" % (int(hashlib.sha256(f.read()).hexdigest(), 16) % 10 ** 8)
+        except OSError:
+            pass
+    return v
+
+
 # The raw template's <!-- --> notes (about 30% of its bytes, 9 KB of a
 # guide's gzipped page) and every stylesheet's /* */ ones (styles.css 72 KB
 # -> 28 KB gzipped) are taken out before anything is served
@@ -336,7 +424,7 @@ def _index_template():
             tpl = strip_comments.html(tpl)
         # Stamp asset URLs with the file's mtime so browsers can cache them
         # long-term (see _send_file) yet always fetch fresh after a deploy.
-        tpl = re.sub(r"/app\.js(\?v=\d+)?", "/app.js?v=" + _asset_version("app.js"), tpl)
+        tpl = re.sub(r"/app\.js(\?v=\d+)?", "/app.js?v=" + _app_js_version(), tpl)
         tpl = re.sub(r"/styles\.css(\?v=\d+)?", "/styles.css?v=" + _asset_version("styles.css"), tpl)
         _html_tpl = tpl
     return _html_tpl
@@ -3782,6 +3870,14 @@ class Handler(BaseHTTPRequestHandler):
         if os.path.commonpath([PUBLIC, safe]) != PUBLIC:
             self._send_json({"error": "forbidden"}, 403)
             return
+        # The minified copy has one URL, /app.js, and only while it is
+        # current (_app_js_file); its own path and hash file aren't pages.
+        name = os.path.relpath(safe, PUBLIC)
+        if name in ("app.min.js", "app.min.js.sha256"):
+            self._send_not_found()
+            return
+        if name == "app.js":
+            safe = _app_js_file()
         versioned = "v=" in (self.path.split("?", 1)[1] if "?" in self.path else "") \
             and os.path.splitext(safe)[1] in (".js", ".css")
         self._send_file(safe, versioned=versioned)
