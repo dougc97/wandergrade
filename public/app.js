@@ -3085,14 +3085,19 @@ async function renderGuideFares(iso) {
   const html = strip(guideFareLink(iso, fm, selM, prices));
   setBlockHTML(host, html);
   host._wgCurve = curveKey;
+  const draw = host._wgDraw = {};
   // Not known yet whether any government says not to go (guideNoBookings
   // null: the lists still loading): the row holds its line, empty, and the
-  // link fills it once that is known, or never does. The strip then counts
-  // as written with it, so the next redraw finds it unchanged.
+  // link fills it once that is known, or never does. The latest draw fills
+  // it, with its own month's link, and the strip then counts as written
+  // with it, so the next redraw finds it unchanged. An earlier draw's wait
+  // (the strip drawn again meanwhile: the month curves landing) steps back:
+  // it filled the link in first, the strip was still counted without it,
+  // and the next poll's redraw rewrote it from under the reader's focus.
   if (guideNoBookings(iso) == null) {
     ensureBookingsKnown().then(() => {
       const slot = host.querySelector(".faresearch");
-      if (ccGuideIso !== iso || !slot || !slot.isConnected || slot.firstChild) return;
+      if (host._wgDraw !== draw || ccGuideIso !== iso || !slot || !slot.isConnected || slot.firstChild) return;
       const link = guideFareLink(iso, fm, selM, prices);
       slot.innerHTML = link;
       if (host._wgHtml === html) host._wgHtml = strip(link);

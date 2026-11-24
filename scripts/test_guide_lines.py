@@ -232,6 +232,23 @@ const gg = $("guideGrades"), gf = $("guideFares"), o = {};
   gg.innerHTML = "";
   await renderGuideGrades("TH");
   o.emptied = [wg.writes, gg.innerHTML.indexOf('data-gg="ov"') >= 0];
+  // The search link known only once the advisory lists land (guideNoBookings null), the
+  // strip drawn twice meanwhile (without the range, then with it): the latest draw fills
+  // the link in, the strip counts as written with it, and the next redraw writes nothing.
+  const realNB = guideNoBookings, realBK = ensureBookingsKnown;
+  let known = null, settle = null;
+  const bookingsP = new Promise((r) => { settle = r; });
+  guideNoBookings = () => known; ensureBookingsKnown = () => bookingsP;
+  const slot = { firstChild: null, isConnected: true, html: "",
+                 get innerHTML() { return this.html; }, set innerHTML(v) { this.html = v; this.firstChild = v ? {} : null; } };
+  gf.querySelector = (q) => (q === ".faresearch" ? slot : null);
+  flightValue = null; await renderGuideFares("TH");
+  flightValue = FIX.fv; await renderGuideFares("TH");
+  known = false; settle(); await bookingsP;
+  const w0 = wf.writes;
+  await renderGuideFares("TH");
+  o.link = [slot.html.indexOf("Search ") >= 0, wf.writes - w0];
+  guideNoBookings = realNB; ensureBookingsKnown = realBK;
   // VN opened (from Top Picks: the fares are in) while the first month curves are out.
   flightValue = null; _fvAsk = { origin: "US", done: false }; _guideFareLate = false; timers = [];
   ccGuideIso = "VN";
@@ -259,9 +276,10 @@ try:
 except Exception:
     rd = {"error": (r.stderr or r.stdout)[-300:]}
 results.append(ok(rd.get("same") == [0, 0, 0, False, True, True] and rd.get("moved") == [1, 0]
-                  and rd.get("emptied") == [2, True],
-                  "a redraw that changes nothing writes nothing and never hides the strip (a poll's answer); "
-                  "a moved range redraws the strip, an emptied line is drawn again %s" % rd))
+                  and rd.get("emptied") == [2, True] and rd.get("link") == [True, 0],
+                  "a redraw that changes nothing writes nothing and never hides the strip (a poll's answer), "
+                  "a search link filled in late included; a moved range redraws the strip, an emptied line is "
+                  "drawn again %s" % rd))
 results.append(ok(rd.get("wait") == ["", 1] and rd.get("once") == 1 and rd.get("boxes") == [True, 3]
                   and rd.get("landed") == [0, True],
                   "a guide opened from Top Picks while the month curves are out: another country's line goes, "
