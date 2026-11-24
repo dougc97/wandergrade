@@ -1929,12 +1929,12 @@ def _guide_lines(iso):
 # renderGuideCost draws theirs, and goes at once on their own country's guide
 # (theirs draws none there). On the US's own guide it is served empty and
 # hidden (a US reader gets none): a reader from elsewhere gets a line's room
-# there (.guidecost.pend:empty), which renderGuideCost fills — and so does a
-# first visit, with neither a home nor /api/geo's guess saved yet (wg_geo,
-# seedGeoDefaults): drawn into none once the guess came, a German reader's
-# line moved the hero 22px. The room is the same whoever's line fills it
-# (styles.css .guidecost: one line, two on a phone). ES5, like index.html's
-# other inline scripts.
+# there (.pend while empty: .guidecost's own min-height), which
+# renderGuideCost fills — and so does a first visit, with neither a home nor
+# /api/geo's guess saved yet (wg_geo, seedGeoDefaults): drawn into none once
+# the guess came, a German reader's line moved the hero 22px. The room is the
+# same whoever's line fills it (styles.css .guidecost: one line, two on a
+# phone). ES5, like index.html's other inline scripts.
 _COST_HOLD = (
     '<script>(function(){var c=document.getElementById("guideCost");if(!c)return;'
     'try{var q=new URLSearchParams(location.search),v=q.get("vo")||q.get("fo"),L=localStorage,'
