@@ -95,23 +95,31 @@ HOUSEHOLD_UNTIL = {
 # own household / GDP price-level ratio ("hh_ratio"): the Penn World Table
 # (Groningen Growth and Development Centre), release 11.0, through FRED's
 # copies of its series (PLCCPPTWA670NRUG = pl_c, household consumption;
-# PLGDPOTWA670NRUG = pl_gdpo, output-side GDP; and the same two for the US,
-# fetched 2026-11-24). PWT states both against the US GDP price level, so
-# Taiwan's pl_c / pl_gdpo is divided by the US's own (the World Bank's
-# factors are each against the same US aggregate) and averaged over the last
-# three years it has, for stability:
-#   2021  TW 0.5430 / 0.5575, US 0.9651 / 1.0000 -> 1.0092
-#   2022  TW 0.5242 / 0.5291, US 1.0264 / 1.0714 -> 1.0340
-#   2023  TW 0.5130 / 0.5213, US 1.0672 / 1.1097 -> 1.0233   mean 1.0221
-# Sanity check, World Bank household / GDP-wide factor (PA.NUS.PRVT.PP /
+# PLGDPOTWA670NRUG = pl_gdpo, output-side GDP; CGDPOSTWA666NRUG = cgdpo and
+# CGDPESTWA666NRUG = cgdpe, output- and spending-side real GDP; and the same
+# four for the US, fetched 2026-11-24). The IMF's PPPEX, like the World
+# Bank's GDP factor, is spending-side, and PWT publishes no spending-side GDP
+# price level, so it is worked out as pl_gdpe = pl_gdpo x cgdpo / cgdpe (the
+# same dollars of GDP over spending-side volume; review 2026-11-24 caught the
+# first cut dividing by pl_gdpo itself, 1.0221, which left Taiwan about 2%
+# cheap). PWT states its levels against the US GDP price level, so Taiwan's
+# pl_c / pl_gdpe is divided by the US's own (the World Bank's factors are
+# each against the same US aggregate) and averaged over the last three years
+# it has, for stability:
+#   2021  TW 0.5430 / 0.5296, US 0.9651 / 0.9799 -> 1.0410
+#   2022  TW 0.5242 / 0.5084, US 1.0264 / 1.0410 -> 1.0457
+#   2023  TW 0.5130 / 0.4991, US 1.0672 / 1.0834 -> 1.0433   mean 1.0433
+# Check, World Bank household / GDP-wide factor (PA.NUS.PRVT.PP /
 # PA.NUS.PPP), 2021-2023 mean: Hong Kong 1.079, Japan 1.084, Korea 1.121,
-# Singapore 1.269 (median 1.10). Taiwan's 1.022 sits just under its peers,
-# so the scaling, if anything, under-corrects. Refresh hh_ratio with a new
-# PWT release (hh_version) — not on the IMF's timetable.
+# Singapore 1.269 (median 1.10); the same PWT sum for Japan and Korea gives
+# 1.099 and 1.155 (2021: 1.099 vs the World Bank's 1.103, 1.156 vs 1.158),
+# where pl_gdpo gave 1.147 and 1.258. Taiwan's 1.043 sits just under its
+# peers, so the scaling, if anything, under-corrects. Refresh hh_ratio with a
+# new PWT release (hh_version) — not on the IMF's timetable.
 MANUAL = {
     "TW": {"ppp_gdp": 13.655061, "year": 2025, "name": "Taiwan", "src": "imf",
            "src_note": "World Economic Outlook, October 2026",
-           "hh_ratio": 1.0221, "hh_src": "Penn World Table", "hh_version": "11.0",
+           "hh_ratio": 1.0433, "hh_src": "Penn World Table", "hh_version": "11.0",
            "hh_years": [2021, 2022, 2023],
            "gdppc": 39511.56, "gdppc_year": 2025, "infl": 1.66, "infl_year": 2025,
            "refresh_by": "2027-05-15"},

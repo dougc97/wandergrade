@@ -181,16 +181,16 @@ m = build_ppp.MANUAL["TW"]
 results.append(ok(tw.get("ppp_gdp") == 13.655061 and tw.get("year") == 2025 and tw.get("src") == "imf"
                   and "basis" not in tw and tw.get("infl") == 1.66 and tw.get("gdppc") == 39511.56
                   and tw.get("src_note") == "World Economic Outlook, October 2026" and "refresh_by" not in tw
-                  and tw.get("ppp") == round(13.655061 * m["hh_ratio"], 6) == 13.956838
+                  and tw.get("ppp") == round(13.655061 * m["hh_ratio"], 6) == 14.246325
                   and tw == build_ppp.manual_row("TW"),
                   "Taiwan: the IMF's October 2026 WEO figures as entered in MANUAL (PPPEX 13.655061 GDP-wide, CPI "
                   "1.66%%, GDP/head $39,512), its factor %s = PPPEX x the household/GDP ratio, flagged imf and on "
                   "household spending (no basis flag)" % tw.get("ppp")))
-results.append(ok(m.get("hh_ratio") == 1.0221 and m.get("hh_src") == "Penn World Table" and m.get("hh_version") == "11.0"
+results.append(ok(m.get("hh_ratio") == 1.0433 and m.get("hh_src") == "Penn World Table" and m.get("hh_version") == "11.0"
                   and m.get("hh_years") == [2021, 2022, 2023]
                   and tw.get("hh_ratio") == m["hh_ratio"] and tw.get("hh_years") == m["hh_years"],
                   "Taiwan's household/GDP ratio is recorded with its source, release and years (Penn World Table "
-                  "11.0, 2021-2023 average, 1.0221), in MANUAL and on the row"))
+                  "11.0, 2021-2023 average, 1.0433), in MANUAL and on the row"))
 yrs = m.get("hh_years") or []
 results.append(ok(isinstance(m.get("hh_ratio"), float) and 0.95 <= m["hh_ratio"] <= 1.3
                   and len(yrs) == 3 and yrs == list(range(yrs[0], yrs[0] + 3))
@@ -328,7 +328,7 @@ results.append(ok(build_dataset.FIELDS[-2:] == ["ppp_basis", "ppp_source"]
                   and "PA.NUS.PRVT.PP" in ds["meta"]["ppp_source"] and "PA.NUS.PPP" in ds["meta"]["ppp_source"]
                   and "IMF" in ds["meta"]["ppp_source"] and "IMF" in ds["meta"]["licence"]
                   and "Penn World Table 11.0" in ds["meta"]["ppp_source"] and "2021-2023" in ds["meta"]["ppp_source"]
-                  and "1.0221" in ds["meta"]["ppp_source"] and "Penn World Table" in ds["meta"]["licence"]
+                  and "1.0433" in ds["meta"]["ppp_source"] and "Penn World Table" in ds["meta"]["licence"]
                   and "Penn World Table" in ds["meta"]["notes"] and "Taiwan: IMF" in ds["meta"]["inflation_source"],
                   "dataset: ppp_basis and ppp_source on the end of every row (Taiwan: household, IMF + Penn World "
                   "Table); the meta names PRVT.PP, PPP, the IMF and the Penn World Table release, years and ratio"))

@@ -56,8 +56,8 @@ def _taiwan_src(ppp):
     if not e.get("hh_ratio"):
         return imf + ", entered by hand"
     yrs = e.get("hh_years") or []
-    return ("%s times Taiwan's household/GDP price ratio, %s, from the %s%s (pl_c / pl_gdpo against the "
-            "US's own%s), entered by hand" % (
+    return ("%s times Taiwan's household/GDP price ratio, %s, from the %s%s (pl_c over the spending-side GDP price level, "
+            "pl_gdpo x cgdpo / cgdpe, against the US's own%s), entered by hand" % (
                 imf, e["hh_ratio"], e.get("hh_src") or "Penn World Table",
                 " " + e["hh_version"] if e.get("hh_version") else "",
                 ", %d-%d average" % (min(yrs), max(yrs)) if yrs else ""))
