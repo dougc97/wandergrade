@@ -159,11 +159,16 @@ def _country_cell(iso, name, extra=""):
     return '<td class="name" data-l="Country">%s%s</td>' % (_country(iso, name), extra)
 
 
-def _cell(label, inner, attrs=""):
-    """A labelled cell: on a phone the label is drawn from data-l and the
-    value sits beside it as ONE flex item (.v), so a pill, its date and a
-    row of chips wrap inside the value instead of each becoming a column."""
-    return '<td data-l="%s"%s><span class="v">%s</span></td>' % (html.escape(label, quote=True), attrs, inner)
+def _cell(label, inner, attrs="", cls=""):
+    """A labelled cell: below 1024px the row is a two-column card and the
+    label, drawn from data-l, sits above the value (ONE block, .v), so a
+    pill, its date and a row of chips wrap inside the value. A cell with
+    nothing to say (a bare dash, footnote mark and all) is class "nil",
+    which the card leaves out (styles.css); the table keeps its dash."""
+    text = re.sub(r"<[^>]+>", "", inner or "").strip()
+    classes = " ".join(c for c in (cls, "nil" if text in ("—", "—*") else "") if c)
+    return '<td data-l="%s"%s%s><span class="v">%s</span></td>' % (
+        html.escape(label, quote=True), ' class="%s"' % classes if classes else "", attrs, inner)
 
 
 def _pill(src, it, missing="no rating"):
@@ -195,6 +200,24 @@ def _when(it):
         # dated by its publish date — the only change a feed reports itself.
         bits.append({"up": "raised", "down": "lowered"}[it["change"]])
     return ('<span class="when">%s</span>' % " · ".join(bits)) if bits else ""
+
+
+def _card(cells):
+    """A row's labelled cells with the phone card's one layout hint: a row
+    of chips that would start the last pair of the card alone (an even
+    count of shown cells before it; a "nil" cell isn't shown) is class
+    "wide", the card's full width below 520px (styles.css), where its chips
+    would otherwise wrap down a half-width column beside nothing. Anywhere
+    else it keeps its half: widened, it would leave its neighbour alone."""
+    shown = [i for i, td in enumerate(cells) if not re.match(r'<td [^>]*class="[^"]*\bnil\b', td)]
+    if shown and len(shown) % 2 == 1:
+        i = shown[-1]
+        td = cells[i]
+        if 'class="chips"' in td:
+            head, rest = td.split(">", 1)
+            head = (head.replace(' class="', ' class="wide ', 1) if ' class="' in head else head + ' class="wide"')
+            cells = cells[:i] + [head + ">" + rest] + cells[i + 1:]
+    return "".join(cells)
 
 
 def _gov_cell(src, it, missing="no rating"):
@@ -504,7 +527,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
         pct_txt += fee_mark(iso)
         # The rank rides in the name on a phone, where the # column is hidden (as /cheapest's).
         cells = ['<td class="name" data-l="Country"><span class="rk">%d.</span> %s%s</td>'
-                 % (n, _country(iso, _name(iso)), mark), _cell("Prices vs US", pct_txt)]
+                 % (n, _country(iso, _name(iso)), mark), _cell("Prices", pct_txt)]
         if nearly:
             it = us_own.get(iso) or {}
             cells.append(_cell("US", _pill("us", it) + _chips(it.get("risks") or [], title=it.get("summary") or None)))
@@ -530,7 +553,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
                     '<span class="hnote"%s>%s%s</span>'
                     % (' title="in certain areas"' if w in areas else "", html.escape(w), "*" if w in areas else "")
                     for w in h["h"])))
-        return '<tr><td class="num" data-l="#">%d</td>%s</tr>' % (n, "".join(cells))
+        return '<tr><td class="num" data-l="#">%d</td>%s%s</tr>' % (n, cells[0], _card(cells[1:]))
 
     head = ["#", "Country", "Prices vs US", "US State Dept", "Global Affairs Canada", "German Foreign Office"]
     if show_fx:
@@ -665,7 +688,7 @@ def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
             cells.append(_gov_cell(src, (own[src] or {}).get(iso), "not loaded" if src in missing else "no rating"))
         risks = (us_it or {}).get("risks") or []
         cells.append(_cell("US reasons", _chips(risks, title=(us_it or {}).get("summary") or None) or "—"))
-        return "<tr>%s</tr>" % "".join(cells)
+        return "<tr>%s%s</tr>" % (cells[0], _card(cells[1:]))
 
     def table(isos, empty):
         head = ["Country", "US State Dept", "Global Affairs Canada", "German Foreign Office", "US reasons"]

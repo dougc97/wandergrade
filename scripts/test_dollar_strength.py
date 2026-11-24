@@ -288,8 +288,9 @@ results.append(ok(J["strong"] == P["counts"]["strong"]
                   "\"stronger than usual\" is the tab's green-row count (%d)" % J["strong"]))
 # Spot-check the printed cells against the JS figures.
 cells = re.findall(r'<tr><td class="num"[^>]*>\d+</td><td class="name"[^>]*>.*?<span class="dscode">([A-Z]{3})</span>.*?'
-                   r'data-l="Before inflation"><span class="v">([^<]*)</span>.*?data-l="After inflation"><span class="v">'
-                   r'<span[^>]*>([^<]*)</span>.*?data-l="Prices vs US"><span class="v">(.*?)</span></td></tr>', P["html"], re.S)
+                   r'data-l="Before inflation" class="dsbefore"><span class="v">([^<]*)</span>.*?data-l="After inflation">'
+                   r'<span class="v"><span[^>]*>([^<]*)</span>.*?data-l="Prices"(?: class="nil")?><span class="v">(.*?)</span></td></tr>',
+                   P["html"], re.S)
 bad = []
 for code, before, after, prices in cells:
     j = J["rows"][code]

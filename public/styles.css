@@ -3315,7 +3315,16 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .listbox { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 10px 0 0; }
 .listtable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .listtable thead { display: none; }
-.listtable tbody tr { display: block; padding: 10px 12px; border-top: 1px solid var(--line); }
+/* Below 1024px each row is a card of two columns at every width, phones
+   included (one cell per line made /cheapest/february ~10,000px and
+   /dollar-strength ~27,000px tall at 390): the name across the top, then
+   the cells in pairs. From 520px a cell's label (data-l) sits beside its
+   value; below it, above the value, in short words, and a row of chips
+   that would end the card alone (render_lists._card's "wide") takes its
+   full width. A cell with only a dash (_cell's "nil") is left out of the
+   card. */
+.listtable tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 16px;
+  padding: 10px 12px; border-top: 1px solid var(--line); }
 .listtable tbody tr:first-child { border-top: none; }
 .listtable td { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; min-width: 0; }
 .listtable td::before { content: attr(data-l); flex: 0 0 6.2em; color: var(--gray); font-size: 11px;
@@ -3324,15 +3333,28 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    and a row of chips wrap inside it. As separate items they sat side by
    side and the "Nearly made it" rows pushed the table 30px past its box at 320. */
 .listtable td .v { flex: 1 1 auto; min-width: 0; }
-.listtable td.name { display: block; font-weight: 800; font-size: 15.5px; padding-bottom: 4px; }
+.listtable td.name { grid-column: 1 / -1; display: block; font-weight: 800; font-size: 15.5px; padding-bottom: 4px; }
 .listtable td.name::before { content: none; }
 .listtable td.num { display: none; }
 /* The rank rides in the name cell below 1024px, where the # column is hidden
    (render_lists, render_cheapest, render_strength: <span class="rk">N.</span>). */
 .listtable .rk { color: var(--gray); font-weight: 700; margin-right: 2px; }
-@media (min-width: 520px) and (max-width: 1023px) {
-  .listtable tbody tr { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; }
-  .listtable td.name { grid-column: 1 / -1; }
+@media (max-width: 1023px) {
+  .listtable td.nil { display: none; }
+}
+@media (max-width: 519px) {
+  .listtable tbody tr { column-gap: 14px; row-gap: 8px; }
+  .listtable td.wide { grid-column: 1 / -1; }
+  .listtable td { display: block; padding: 0; border-bottom: none; overflow-wrap: anywhere; }
+  .listtable td.name { padding-bottom: 0; overflow-wrap: normal; }
+  .listtable td::before { display: block; line-height: 1.3; margin-bottom: 1px; }
+  .listtable td .v { display: block; }
+  /* A pill's words wrap inside a half-width column ("High degree of
+     caution" is wider than one at 320px). */
+  .listtable .lvl { white-space: normal; line-height: 1.35; border-radius: 9px; }
+  /* /dollar-strength's "Before inflation" leaves the card on a phone: the
+     rank is by the after-inflation figure beside it. */
+  .listtable td.dsbefore { display: none; }
 }
 /* 1024, not 900: at 900-1023 the nine-column safe-and-cheap table only fits by
    scrolling inside its box, and overlay scrollbars never show that it can. */

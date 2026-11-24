@@ -494,11 +494,12 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
                 '<td class="num" data-l="#">%d</td>' % (i + 1),
                 '<td class="name" data-l="Country"><span class="rk">%d.</span> %s</td>'
                 % (i + 1, RL._country(iso, RL._name(iso))),
+                # Short card labels (review #28); the desktop headers keep the full words.
                 RL._cell("Grade", _grade_pill(s, name)),
-                RL._cell("Prices vs US", pct),
-                RL._cell("Weather score", _weather(s, ctx["clim"].get(iso), m)),
-                RL._cell("US State Dept", _us_pill(us_items.get(iso), lvl, today_d.isoformat())),
-                RL._cell("US round trip", _fare_cell(f)),
+                RL._cell("Prices", pct),
+                RL._cell("Weather", _weather(s, ctx["clim"].get(iso), m)),
+                RL._cell("US level", _us_pill(us_items.get(iso), lvl, today_d.isoformat())),
+                RL._cell("Fare", _fare_cell(f)),
             ]
             trs.append("<tr>%s</tr>" % "".join(cells))
         head = ["#", "Country", "Grade", "Prices vs US", "Weather (score · avg daily mean)",

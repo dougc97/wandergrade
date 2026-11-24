@@ -518,9 +518,11 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None, ad
             trs.append('<tr><td class="num" data-l="#">%d</td>%s%s%s%s%s</tr>' % (
                 n, _currency_cell(row, n),
                 RL._cell("Used in", _used_in(row, ppp, dnt)),
-                RL._cell("Before inflation", signed_pct(row["nominal"])),
+                # "Before inflation" leaves the card below 520px (review #28):
+                # the after-inflation figure is the one the rank is by.
+                RL._cell("Before inflation", signed_pct(row["nominal"]), cls="dsbefore"),
                 RL._cell("After inflation", _after(row, ppp)),
-                RL._cell("Prices vs US", _prices(row, ppp))))
+                RL._cell("Prices", _prices(row, ppp))))
         counts = ('<p class="sub"><strong>%d</strong> %s, the strongest dollar after inflation first: '
                   '<strong>%d</strong> %s stronger than usual <span class="dstip" title="%s">ⓘ</span></p>'
                   % (len(ranked), RL._plural(len(ranked), "currency", "currencies"), strong,

@@ -421,6 +421,41 @@ _csp = server.SECURITY_HEADERS["Content-Security-Policy"]
 results.append(ok("form-action" not in _csp or "https://buttondown.com" in _csp.split("form-action", 1)[1].split(";")[0],
                   "CSP lets the form post to Buttondown (no form-action, or one naming it)"))
 
+# --- phone cards (review #28) -------------------------------------------------------------
+# Two columns below 1024px at every width, labels above values, a dash-only
+# cell left out of the card, /dollar-strength's "Before inflation" out below
+# 520px; short labels on the rows.
+_cssall = open(os.path.join(ROOT, "public", "styles.css"), encoding="utf-8").read()
+_lb = _cssall[_cssall.index(".listbox {"):_cssall.index("/* /dollar-strength (fxtracker/render_strength.py)")]
+_phone = re.search(r"@media \(max-width: 519px\) \{(.*?)\n\}", _lb, re.S)
+results.append(ok(".listtable tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);" in _lb
+                  and "@media (min-width: 520px) and (max-width: 1023px)" not in _lb
+                  and re.search(r"@media \(max-width: 1023px\) \{\s*\.listtable td\.nil \{ display: none; \}", _lb)
+                  and _phone and ".listtable td { display: block;" in _phone.group(1)
+                  and ".listtable td::before { display: block;" in _phone.group(1)
+                  and ".listtable td.wide { grid-column: 1 / -1; }" in _phone.group(1)
+                  and ".listtable td.dsbefore { display: none; }" in _phone.group(1),
+                  "CSS: two-column cards below 1024px at every width (label beside from 520px, above below it), "
+                  "dash-only cells out; below 520px a lone row of chips full width and Before inflation out"))
+_chip = RL._cell("Health notes", '<span class="chips"><span class="hnote">Dengue</span></span>')
+_odd = RL._card([RL._cell("A", "1"), RL._cell("B", "2"), _chip])
+_even = RL._card([RL._cell("A", "1"), _chip])
+_nil = RL._card([RL._cell("A", "1"), RL._cell("B", "—"), _chip])
+results.append(ok('<td data-l="Health notes" class="wide">' in _odd and 'class="wide"' not in _even
+                  and 'class="wide"' not in _nil
+                  and '<td data-l="Health notes" class="wide">' in re.search(r'<tr>.*?/guide/vietnam.*?</tr>', S["html"], re.S).group(0)
+                  and 'class="wide"' not in D["html"],
+                  "_card: a row of chips that would start the card's last pair alone is wide (a nil cell not "
+                  "counted); beside a neighbour it isn't (/do-not-travel's US reasons sit by Germany)"))
+results.append(ok('data-l="Prices"><span class="v">' in S["html"] and 'data-l="Prices vs US"' not in S["html"]
+                  and "<th>Prices vs US</th>" in S["html"]
+                  and re.search(r'<td data-l="Best months" class="nil"><span class="v">—</span></td>', S["html"])
+                  and RL._cell("X", "—<sup class=\"fn\">*</sup>").startswith('<td data-l="X" class="nil">')
+                  and RL._cell("X", '<span title="t">—</span>', cls="k").startswith('<td data-l="X" class="k nil">')
+                  and RL._cell("X", "only the usual") == '<td data-l="X"><span class="v">only the usual</span></td>',
+                  "rows: the short \"Prices\" label (the header keeps \"Prices vs US\"); a dash, footnote mark or "
+                  "tooltip and all, is class nil; anything else is not"))
+
 # --- one of a kind: the counts read in the singular ------------------------------------
 S1 = RL.safe_and_cheap(US, CA, DE, {"_asof": FACTS["_asof"], "LA": FACTS["LA"], "AL": FACTS["AL"]},
                        CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)

@@ -191,7 +191,7 @@ for m in range(1, 13):
     for s, tr in zip(exp, trs):
         g = picks.grade(s["value"])
         good = good and ('>%s</span> %d<' % (g, s["value"]) in tr
-                         and '"Prices vs US"><span class="v">%d%%<' % pricelevel.js_round(100 * s["pl"]) in tr
+                         and '"Prices"><span class="v">%d%%<' % pricelevel.js_round(100 * s["pl"]) in tr
                          and "/guide/" in tr and "<strong>%d</strong>" % s["wx"] in tr)
     row_ok.append(good)
 results.append(ok(len(same) == 12 and total > 200,
@@ -283,7 +283,7 @@ for s in expected(11):
                                    and ">%s</span>" % RC.FV_WORD[band] in tr)
     else:
         dash_rows += 1
-        fare_good = fare_good and '"US round trip"><span class="v">—<sup class="fn">*</sup>' in tr
+        fare_good = fare_good and '"Fare" class="nil"><span class="v">—<sup class="fn">*</sup>' in tr
 results.append(ok(fare_good and fare_rows > 5 and dash_rows > 5,
                   "November fares: month_fare's price with its Low/Typical/High band (%d rows), a dash with the "
                   "footnote mark otherwise (%d rows)" % (fare_rows, dash_rows)))
@@ -495,7 +495,7 @@ for label, page_set in (("rates missing", render(dict(FIX, rates=None))),
                          and "No country meets" not in p["desc"] and "0</strong> countr" not in h
                          and not re.search(r"\b0 countr", p["desc"]) and "isn't available right now" in h
                          and len(p["desc"]) <= 157)
-    hub_cells = re.findall(r'data-l="Countries"><span class="v">([^<]*)<', page_set["/cheapest"]["html"])
+    hub_cells = re.findall(r'data-l="Countries"(?: class="nil")?><span class="v">([^<]*)<', page_set["/cheapest"]["html"])
     results.append(ok(good and hub_cells == ["—"] * 12 and len({p["desc"] for p in page_set.values()}) == 13,
                       "%s: every page says the list isn't available (no count, no \"No country meets\", in the page "
                       "or the description), the hub's counts are dashes, the 13 descriptions stay unique" % label))
@@ -558,9 +558,18 @@ results.append(ok("<strong>%d</strong> countries qualify," % len(nov["isos"]) in
                   "more than one stays plural"))
 
 # --- cards: the same words as the desktop headers ----------------------------------------------------
-results.append(ok('data-l="US round trip"' in nov["html"] and 'data-l="Weather score"' in nov["html"]
-                  and 'data-l="US fare"' not in nov["html"] and 'data-l="Weather"' not in nov["html"],
-                  "a phone card labels the fare \"US round trip\" and the weather \"Weather score\", as the header does"))
+# Short card labels (review #28): Prices, Weather, US level, Fare; the
+# desktop headers keep the full words.
+results.append(ok(all('data-l="%s"' % l in nov["html"] for l in ("Grade", "Prices", "Weather", "US level", "Fare"))
+                  and not any('data-l="%s"' % l in nov["html"] for l in ("Prices vs US", "Weather score",
+                                                                          "US State Dept", "US round trip"))
+                  and all("<th>%s</th>" % h in nov["html"] for h in ("Prices vs US", "US State Dept", "US round trip")),
+                  "a phone card's labels are short (Prices, Weather, US level, Fare); the table headers keep the "
+                  "full words"))
+_nils = re.findall(r'<td data-l="([^"]+)" class="nil"><span class="v">(.*?)</span></td>', nov["html"])
+results.append(ok(_nils and all(re.sub(r"<[^>]+>", "", v) in ("—", "—*") for _l, v in _nils)
+                  and not re.search(r'class="nil"><span class="v">(?!—)', nov["html"]),
+                  "a cell with only a dash is class nil (left out of the phone card), nothing else (%d)" % len(_nils)))
 
 # --- the alternative-rate dagger, as /safe-and-cheap marks it --------------------------------------
 A = render(pl_alt=["TM"])
