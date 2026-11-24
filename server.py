@@ -4052,6 +4052,7 @@ def main():
     # 6-12. A failure here is left to the requests, as before.
     try:
         render_guide._load()
+        _og_cards()   # and the share cards' facts (one small file), for the same reason
     except Exception as e:
         sys.stderr.write("[boot] guide data not loaded: %r\n" % (e,))
     _warm_flight_value()
