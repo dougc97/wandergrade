@@ -30,7 +30,7 @@ What it holds the code to:
     (That each table's place is a named one is review #1's test, with the
     named points.)
 """
-import copy, datetime, json, os, re, sys, threading, urllib.error, urllib.request
+import copy, datetime, html, json, os, re, sys, threading, urllib.error, urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -170,7 +170,8 @@ none = sorted(i for i in GUIDES if not rg.month_table(i, FV, DAY))
 results.append(ok(not miss and none == ["AQ", "GB-ENG", "GB-SCT", "GB-WLS"] and len(GUIDES) - len(none) >= 186,
                   "%d of %d guides have their table from the committed climate.json, the first 23 among them; none "
                   "for %s (flat, or no rain data) %s" % (len(GUIDES) - len(none), len(GUIDES), " ".join(none), miss or "")))
-at = {i: re.search(r"<caption>Measured at (.*?), Open-Meteo", rg.month_table(i)).group(1)
+# The caption is HTML: Chad's "N'Djamena" is served as N&#x27;Djamena.
+at = {i: html.unescape(re.search(r"<caption>Measured at (.*?), Open-Meteo", rg.month_table(i)).group(1))
       for i in GUIDES if rg.month_table(i)}
 results.append(ok(at.get("AU") == "Sydney" and at.get("CL") == "Santiago" and at.get("GL") == "Nuuk"
                   and all(v == REAL_CLIM[i].get("at", "one representative point in the country") for i, v in at.items()),

@@ -397,7 +397,8 @@ _css = open(os.path.join(ROOT, "public", "styles.css"), encoding="utf-8").read()
 results.append(ok(".listpage .fee {" in _css and ".guidecost .guidefee {" in _css,
                   "CSS: the fee's own style on the list rows and the guide line"))
 _g = rg.render("BT")["body"]
-results.append(ok(re.search(r"<p>💰 Local prices ≈ \d+% of the US \([^)]*\) \+ \$100/night fee</p>", _g) is not None
+results.append(ok(re.search(r"<p>💰 (?:[A-Z][a-z ]+: local|Local) prices ≈ \d+% of the US \([^)]*\) \+ \$100/night fee</p>", _g)
+                  is not None
                   and "+ $100/night fee" not in rg.render("NP")["body"],
                   "the Bhutan guide's served price line carries the fee beside the figure (no other guide)"))
 _app = open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8").read()

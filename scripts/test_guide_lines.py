@@ -48,7 +48,7 @@ FIX = {"rates": load("scripts", "parity", "fixture_rates.json"),
        "fv": load("scripts", "parity", "fixture_flight_value.json"),
        "ppp": load("public", "ppp.json"), "climate": load("public", "climate.json"),
        "activities": load("public", "activities.json"), "world": load("public", "world.geojson"),
-       "slugs": load("public", "slugs.json")}
+       "slugs": load("public", "slugs.json"), "visa": load("public", "visa.json")}
 GUIDES = [iso for _s, iso in render_guide.all_slugs()]
 # The country's one curve (/api/flight-months), as the flight-value build holds it,
 # with the origin's hub the search link starts from.
@@ -62,7 +62,7 @@ const FIX = JSON.parse(read(FIX_PATH));
 lastRates = FIX.rates; ppp = FIX.ppp; climate = FIX.climate; activities = FIX.activities; worldGeo = FIX.world;
 advisories = FIX.advisories; flightsData = FIX.flights; flightValue = FIX.fv;
 SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
-ensureAdvisories = async () => advisories; ensurePPP = async () => ppp;
+ensureAdvisories = async () => advisories; ensurePPP = async () => ppp; visa = FIX.visa; ensureVisa = async () => visa;
 for (const iso of FIX.guides) _fareMonthsCache["US:" + iso] = Promise.resolve(FIX.curves[iso] || null);
 const out = {};
 (async () => {
@@ -326,6 +326,14 @@ l4 = [iso for iso in GUIDES if G.adv_level(iso, FIX["advisories"]) == 4]
 results.append(ok(l4 and all(iso in leads.get("Local", []) + leads.get("none", []) for iso in l4)
                   and all(G.adv_level(iso, FIX["advisories"]) == 4 for iso in leads.get("Local", [])),
                   "no band word on the %d Level 4 guides, and only there (%s)" % (len(l4), " ".join(l4[:8]))))
+# Bhutan's visitor fee (review #10) beside the figure, served and drawn alike
+# (the comparison above), and on no other guide.
+FEE = ' <span class="guidefee">+ $100/night fee</span><span class="fxinfo"'
+results.append(ok(FEE in js["BT"]["cost"] and FEE in G.cost("BT", FIX["rates"], FIX["ppp"], FIX["advisories"])
+                  and "Not in the price level." in js["BT"]["cost"]
+                  and [i for i in GUIDES if "guidefee" in js[i]["cost"]] == ["BT"],
+                  "Bhutan's 💰 line carries its $100/night fee beside the figure, served and drawn, its ⓘ the "
+                  "fee in full; no other guide's does"))
 results.append(ok("A+ up to about 24% of home prices and F above about 82%" in js["TH"]["cost"]
                   and "about 24%" not in js["AF"]["cost"],
                   "the ⓘ says why a cheap place can grade C or D (not on a Level 4 guide)"))
@@ -337,12 +345,13 @@ results.append(ok(round(edge(93) * 100) == 24 and round(edge(42) * 100) == 82,
 
 # The dated snapshot's words when live rates didn't load (render_guide._cost_line).
 DOC = dict(load("public", "guide-facts.json"), _asof=TODAY.isoformat())
-SNAP_ISOS = ["TH", "AF", "GB-SCT", "DE", "CH", "US", "TW"]
+SNAP_ISOS = ["TH", "AF", "GB-SCT", "DE", "CH", "US", "TW", "BT", "CU"]
 SNAP_DRIVER = r"""
 const FIX = JSON.parse(read(FIX_PATH));
 ppp = FIX.ppp; lastRates = null; advisories = FIX.advisories; activities = FIX.activities;
 SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
 ensureAdvisories = async () => advisories; ensurePPP = async () => ppp; _guideFacts = FIX.doc;
+visa = FIX.visa; ensureVisa = async () => visa;
 const out = {};
 (async () => {
   for (const iso of FIX.isos) {
@@ -367,7 +376,9 @@ snap = {iso: G.cost(iso, None, None, FIX["advisories"],
         for iso in SNAP_ISOS}
 results.append(ok("error" not in sj and all(snap[i] == bare(sj.get(i)) for i in SNAP_ISOS)
                   and "Very cheap: local prices ≈" in snap["TH"] and "(UK-wide figure, " in snap["GB-SCT"]
-                  and snap["AF"].startswith("💰 <b>Local prices") and snap["US"] == "" and snap["TW"] == "",
+                  and snap["AF"].startswith("💰 <b>Local prices") and snap["US"] == "" and snap["CU"] == ""
+                  and "Very cheap: local prices ≈" in snap["TW"]
+                  and ' <span class="guidefee">+ $100/night fee</span>' in snap["BT"],
                   "live rates out: the served line is the snapshot's dated words, as the client's fallback "
                   "draws them %s" % ({i: (snap[i], sj.get(i)) for i in SNAP_ISOS if snap[i] != bare(sj.get(i))}
                                      if "error" not in sj else sj)))
@@ -478,7 +489,7 @@ const FIX = JSON.parse(read(FIX_PATH));
 lastRates = FIX.rates; ppp = FIX.ppp; climate = FIX.climate; activities = FIX.activities; worldGeo = FIX.world;
 advisories = FIX.advisories;
 SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
-ensureAdvisories = async () => advisories; ensurePPP = async () => ppp;
+ensureAdvisories = async () => advisories; ensurePPP = async () => ppp; visa = FIX.visa; ensureVisa = async () => visa;
 const gc = $("guideCost"), o = [];
 const snap = () => [gc.hidden, gc.classList.contains("pend"), gc.innerHTML.slice(0, 6)];
 (async () => {
