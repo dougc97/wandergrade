@@ -66,6 +66,12 @@ def basis_note(iso, ppp):
     return ""
 
 
+def infl_source(iso, ppp):
+    """Whose inflation figure a country's is: the IMF's for a hand-entered
+    row (Taiwan), else the World Bank's. app.js inflSource."""
+    return "IMF" if ((ppp or {}).get(iso) or {}).get("src") == "imf" else "World Bank"
+
+
 def js_round(x):
     """JavaScript Math.round: the nearest integer, halves toward +infinity.
     Python's round() sends halves to even, and floor(x + 0.5) rounds

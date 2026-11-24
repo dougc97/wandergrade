@@ -3068,7 +3068,7 @@ async function renderGuideFx(iso) {
         + " countries prices can rise faster than the currency falls. "
       : nominal
       ? `Nominal — ${countryName(b.stale)}'s inflation data isn't current, so we can't say whether your money goes further. `
-      : gap ? `After inflation: the exchange-rate move minus the inflation gap (${gap}, World Bank)`
+      : gap ? `After inflation: the exchange-rate move minus the inflation gap (${gap}, ${inflSource(fxIso)})`
           + (Math.abs(t.pct - pct) >= 0.1 ? `; the plain rate moved ${signedPct(Number(t.pct), 1)}` : "") + ". "
         : `No current inflation figure for ${countryName(fxIso)}, so this is the plain exchange-rate move. `)
     + `Monthly averages of the daily ${base}→${dest} rate, ${mLabel(months[0].m)} to ${mLabel(months[months.length - 1].m)}`
@@ -3111,6 +3111,9 @@ function plBasisNote(iso) {
   if (e.basis === "gdp") return "GDP-wide figure: the World Bank has no recent household-spending one for it.";
   return "";
 }
+// Whose inflation figure a country's is: the IMF's for a hand-entered row
+// (Taiwan), else the World Bank's. pricelevel.infl_source.
+function inflSource(iso) { return ((ppp || {})[iso] || {}).src === "imf" ? "IMF" : "World Bank"; }
 function localPricesText(iso) {
   const A = plAnchor(originIso());
   const plIso = GUIDE_PARENT[iso] || iso;       // England etc: the UK's figure
@@ -8389,7 +8392,7 @@ function fxMark(iso) {
     ? "After inflation, your " + homeBase + " buys " + Math.abs(Math.round(pct)) + "% " + (up ? "more" : "less")
       + " in " + cn + " than its 1-yr average — your money goes " + (up ? "further" : "less far")
       + " there than usual right now. Exchange-rate move " + signedPct(Math.round(f.nom))
-      + "; inflation " + inflGapText(iso, f.homeIso) + " (World Bank)."
+      + "; inflation " + inflGapText(iso, f.homeIso) + " (" + inflSource(iso) + ")."
     : "Your " + homeBase + " is " + Math.abs(Math.round(pct)) + "% " + (up ? "stronger" : "weaker")
       + " in " + cn + " than its 1-yr average. Exchange rate only — no inflation figure for " + cn
       + ", so rising local prices aren't netted out.";

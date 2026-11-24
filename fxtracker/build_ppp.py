@@ -14,7 +14,8 @@ high-investment places read cheap: Singapore 60% of US prices (78% on
 household spending), Qatar 55% (73%), Macau 53% "very cheap" (59%). Where a country
 has no household figure within HOUSEHOLD_MAX_LAG years of its GDP-wide one
 (26 stop at the 2021 benchmark: Argentina, Aruba, Puerto Rico...), the GDP
-figure stands in, flagged "basis": "gdp" (review 2026-11-23 item 15).
+figure stands in, flagged "basis": "gdp" (review 2026-11-23 item 15). Taiwan,
+which the World Bank doesn't cover, comes from MANUAL (item 23).
 
 Run: python3 -m fxtracker.build_ppp
 """
@@ -52,7 +53,19 @@ HOUSEHOLD_MAX_LAG = 1
 # ("refresh_by"). They join every build (the committed file and the server's
 # monthly live refresh alike) unless the World Bank ever publishes the
 # country itself.
-MANUAL = {}
+# Taiwan (review 2026-11-23 item 23): the IMF's World Economic Outlook,
+# October 2026 (published 2026-10-13), from the IMF's SDMX API
+# (api.imf.org, dataset IMF.RES:WEO, series TWN.PPPEX.A, TWN.PCPIPCH.A,
+# TWN.NGDPDPC.A; 2025 is the latest actual year): PPPEX 13.655061 NT$ per
+# international $ — GDP-wide, as the IMF publishes no household factor —
+# consumer-price inflation 1.657958%, GDP per head US$39,511.56. Refresh
+# after each April and October WEO; `refresh_by` is when the next one is out
+# and scripts/test_ppp_basis.py fails after it.
+MANUAL = {
+    "TW": {"ppp": 13.655061, "year": 2025, "name": "Taiwan", "basis": "gdp", "src": "imf",
+           "gdppc": 39511.56, "gdppc_year": 2025, "infl": 1.66, "infl_year": 2025,
+           "src_note": "IMF World Economic Outlook, October 2026", "refresh_by": "2027-05-15"},
+}
 # GDP per capita in current US$. Not used for the grade — only to sanity-check the
 # price level. Price level tracks income log-linearly (the Penn effect), so a
 # country whose price level is wildly out of line with its income is almost always

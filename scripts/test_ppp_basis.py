@@ -3,8 +3,7 @@ build_pl_history.py), offline: no network.
 
     /usr/bin/python3 scripts/test_ppp_basis.py
 
-What it holds the code and data to (review 2026-11-23 item 15, and item
-23's plumbing for hand-entered rows):
+What it holds the code and data to (review 2026-11-23 items 15 and 23):
   * pick_basis: the household-consumption factor (PA.NUS.PRVT.PP) where its
     newest year is at most HOUSEHOLD_MAX_LAG behind the GDP-wide one, the
     GDP-wide factor (PA.NUS.PPP) flagged "basis": "gdp" otherwise, and the
@@ -15,7 +14,9 @@ What it holds the code and data to (review 2026-11-23 item 15, and item
   * the committed ppp.json: household for the rich, high-investment places
     the GDP basis read cheap (Singapore, Qatar, Brunei, Macau), the GDP-wide
     fallback flagged for the countries stuck on the 2021 benchmark
-    (Argentina, Aruba, Puerto Rico...);
+    (Argentina, Aruba, Puerto Rico...); Taiwan's IMF row as entered;
+  * Taiwan's hand-entered figures are not past refresh_by — this fails once
+    a newer IMF World Economic Outlook is out (the dated reminder);
   * pl_history.json: each country's series on its map figure's basis — the
     fallback countries GDP-wide throughout, a household country's years
     without a household figure linked to the GDP-wide moves (no splice jump),
@@ -25,7 +26,7 @@ What it holds the code and data to (review 2026-11-23 item 15, and item
     /dollar-strength marks a flagged price ‡ with its note; the dataset says
     ppp_basis and ppp_source per row.
 """
-import copy, datetime, json, os, re, sys
+import copy, datetime, html, json, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -113,6 +114,19 @@ results.append(ok(all(not PPP[i].get("basis") for i in ("SG", "QA", "BN", "MO", 
 n_hh = sum(1 for r in PPP.values() if not r.get("basis"))
 results.append(ok(n_hh >= 170 and sum(1 for r in PPP.values() if r.get("basis")) <= 32,
                   "%d countries on household spending, %d on a fallback" % (n_hh, len(PPP) - n_hh)))
+tw = PPP.get("TW") or {}
+m = build_ppp.MANUAL["TW"]
+results.append(ok(tw.get("ppp") == 13.655061 and tw.get("year") == 2025 and tw.get("src") == "imf"
+                  and tw.get("basis") == "gdp" and tw.get("infl") == 1.66 and tw.get("gdppc") == 39511.56
+                  and tw.get("src_note") == "IMF World Economic Outlook, October 2026" and "refresh_by" not in tw
+                  and tw == {k: v for k, v in m.items() if k != "refresh_by"},
+                  "Taiwan: the IMF's October 2026 WEO figures as entered in MANUAL (PPPEX 13.655061, CPI 1.66%, "
+                  "GDP/head $39,512), flagged imf and GDP-wide"))
+overdue = build_ppp.manual_overdue()
+results.append(ok(not overdue, "Taiwan's IMF figures are current (refresh_by %s)%s" % (
+    m["refresh_by"], "" if not overdue else ": PAST DUE — enter the newest IMF World Economic Outlook figures "
+                                            "in build_ppp.MANUAL and bump refresh_by")))
+
 # ---- pl_history.json --------------------------------------------------------------
 G = PLH.get("gdp") or {}
 Y = PLH["years"]
@@ -141,11 +155,11 @@ results.append(ok("PA.NUS.PRVT.PP" in PLH.get("source", ""), "pl_history.json na
 
 # ---- the words, in both languages ------------------------------------------------
 gdp_txt = pricelevel.basis_note("AR", PPP)
-imf_txt = pricelevel.basis_note("TW", {"TW": {"src": "imf", "src_note": "IMF World Economic Outlook, October 2026"}})
+imf_txt = pricelevel.basis_note("TW", PPP)
 results.append(ok(gdp_txt == "GDP-wide figure: the World Bank has no recent household-spending one for it."
                   and imf_txt == "IMF figure (IMF World Economic Outlook, October 2026), GDP-wide: the World Bank "
                                  "doesn't cover it." and pricelevel.basis_note("SG", PPP) == "",
-                  "basis_note: GDP-wide (Argentina), IMF (a hand-entered row), nothing for household (Singapore)"))
+                  "basis_note: GDP-wide (Argentina), IMF (Taiwan), nothing for household (Singapore)"))
 results.append(ok('if (e.basis === "gdp") return "%s";' % gdp_txt in APP
                   and "return `IMF figure (${e.src_note || \"World Economic Outlook\"}), GDP-wide: the World Bank "
                       "doesn't cover it.`;" in APP,
@@ -169,6 +183,21 @@ results.append(ok(bool(bob) and '<sup class="fn">‡</sup>' in bob.group(0) and 
 plain = RS.dollar_strength(rates_p, json.load(open(os.path.join(SF, "ppp_2026-10-23.json"), encoding="utf-8")), None,
                            today="2026-10-23")["html"]
 results.append(ok("‡" not in plain, "/dollar-strength: no ‡ and no note when no priced country is flagged"))
+tppp = json.load(open(os.path.join(SF, "ppp_2026-10-23.json"), encoding="utf-8"))
+tppp["TW"] = {k: v for k, v in build_ppp.MANUAL["TW"].items() if k != "refresh_by"}
+tpage = RS.dollar_strength(rates_p, tppp, None, today="2026-10-23")["html"]
+twd = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">TWD</span>.*?</tr>', tpage, re.S)
+results.append(ok(bool(twd) and re.search(r"\d+%</span><sup class=\"fn\">‡</sup>", twd.group(0)) is not None
+                  and html.escape(imf_txt, quote=True) in twd.group(0) and "Taiwan's is the IMF's" in tpage
+                  and "vs the US ~3%/yr (IMF)." in twd.group(0) and "(World Bank)" not in twd.group(0)
+                  and "Inflation and PPP: World Bank (Taiwan: IMF)." in tpage
+                  and "Inflation and PPP: World Bank." in plain,
+                  "/dollar-strength: Taiwan's row gets a price (it had none), marked ‡ with the IMF source, and "
+                  "its inflation is credited to the IMF"))
+results.append(ok("(${gap}, ${inflSource(fxIso)})" in APP and '" (" + inflSource(iso) + ")."' in APP
+                  and 'src === "imf" ? "IMF" : "World Bank"' in APP and pricelevel.infl_source("TW", PPP) == "IMF"
+                  and pricelevel.infl_source("VN", PPP) == "World Bank",
+                  "app.js's inflation tips credit the IMF for Taiwan (inflSource), as infl_source does"))
 
 # The dataset: per-row basis and source, the meta naming both factors and the IMF.
 real_fav = build_dataset.rates.compute_favorability
@@ -181,8 +210,11 @@ by = {r["iso"]: r for r in ds["countries"]}
 results.append(ok(build_dataset.FIELDS[-2:] == ["ppp_basis", "ppp_source"]
                   and by.get("VN", {}).get("ppp_basis") == "household" and by["VN"]["ppp_source"] == "World Bank"
                   and (by.get("AR") is None or by["AR"]["ppp_basis"] == "gdp")
-                  and "PA.NUS.PRVT.PP" in ds["meta"]["ppp_source"] and "PA.NUS.PPP" in ds["meta"]["ppp_source"],
-                  "dataset: ppp_basis and ppp_source on the end of every row; the meta names PRVT.PP and PPP"))
+                  and by.get("TW", {}).get("ppp_source") == "IMF" and by["TW"]["ppp_basis"] == "gdp"
+                  and "PA.NUS.PRVT.PP" in ds["meta"]["ppp_source"] and "PA.NUS.PPP" in ds["meta"]["ppp_source"]
+                  and "IMF" in ds["meta"]["ppp_source"] and "IMF" in ds["meta"]["licence"],
+                  "dataset: ppp_basis and ppp_source on the end of every row (Taiwan: IMF, gdp); the meta names "
+                  "PRVT.PP, PPP and the IMF"))
 
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

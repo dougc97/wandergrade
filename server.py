@@ -778,7 +778,7 @@ def _data_page_body_tpl():
         "current figure).</li>"
         "<li><strong>ppp_basis</strong> — <code>household</code>, or <code>gdp</code> where the World "
         "Bank has no recent household figure and its GDP-wide factor stands in; "
-        "<code>ppp_source</code> says whose figure it is.</li>"
+        "<code>ppp_source</code> says whose figure it is (Taiwan's is the IMF's, entered by hand).</li>"
         "</ul>"
         # The table is US-based because World Bank PPP is quoted against the US;
         # a reader from anywhere else needs one line on how to compare from home.
@@ -804,7 +804,8 @@ def _data_page_body_tpl():
         "<h2>Sources and licence</h2>"
         "<p>PPP conversion factors, consumer-price inflation and GDP per capita from the World Bank "
         "(<a href=\"https://data.worldbank.org\" rel=\"noopener\" target=\"_blank\">data.worldbank.org</a>, "
-        "CC BY 4.0); exchange rates from "
+        "CC BY 4.0), and for Taiwan, which it doesn't cover, from the IMF's World Economic Outlook; "
+        "exchange rates from "
         "<a href=\"https://fxratesapi.com\" rel=\"noopener\" target=\"_blank\">fxratesapi.com</a>. "
         "The derived figures are free to reuse with attribution to "
         "<a href=\"/\">WanderGrade</a>.</p>"
