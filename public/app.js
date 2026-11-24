@@ -11347,15 +11347,19 @@ function renderFeedback() {
 }
 
 function subscribeFormHTML() {
-  const base = "https://buttondown.com/" + BUTTONDOWN_USER;
   if (!BUTTONDOWN_USER)
     return '<span class="hint">📬 Newsletter signup not configured yet — set BUTTONDOWN_USER in app.js.</span>';
   // embed-subscribe, with a HYPHEN. It was embed/subscribe — a slash — which
   // Buttondown 404s, so every visitor who ever tried to subscribe landed on
   // "Not found" and no one was ever added to the list. The endpoint is otherwise
   // unchanged; nothing here was ever going to reveal it, because the form posts
-  // to a popup and the site never sees the response.
+  // to Buttondown and the site never sees the response.
   // The hidden embed=1 is what Buttondown's own embed docs specify.
+  // A plain post into a new tab (target="_blank"), no scripted popup: an
+  // in-app browser (Instagram's on iOS) can block a scripted popup, and the
+  // post then went nowhere while the page counted the visitor as subscribed.
+  // The list pages' server-rendered box (render_lists.subscribe_html) is the
+  // same form.
   if (digestCurs().length > 1) {
     // The currency rides as Buttondown's `tag` field. No "written in US
     // dollars" line: the reader picks the edition written for them.
@@ -11371,8 +11375,7 @@ function subscribeFormHTML() {
     // subform-cur: only the picker form changes shape on a phone (styles.css).
     return `<span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
     <form action="https://buttondown.com/api/emails/embed-subscribe/${BUTTONDOWN_USER}"
-          method="post" target="popupwindow"
-          onsubmit="window.open('${base}','popupwindow')" class="subform subform-cur">
+          method="post" target="_blank" class="subform subform-cur">
       <input type="email" name="email" placeholder="you@email.com" aria-label="Email address" required>
       <span class="subcurwrap"><select name="tag" class="subcur" aria-label="Newsletter currency">${subCurOptions(subCurDefault(), true)}</select><span class="muted subcurtip" data-tip="${esc(tip)}" title="">ⓘ</span></span>
       <input type="hidden" name="embed" value="1">
@@ -11384,8 +11387,7 @@ function subscribeFormHTML() {
   // should know that before they type an email — so it is text, not a ⓘ.
   return `<span class="sublabel">📬 Once a month: the best-value places to travel, straight to your inbox.</span>
     <form action="https://buttondown.com/api/emails/embed-subscribe/${BUTTONDOWN_USER}"
-          method="post" target="popupwindow"
-          onsubmit="window.open('${base}','popupwindow')" class="subform">
+          method="post" target="_blank" class="subform">
       <input type="email" name="email" placeholder="you@email.com" aria-label="Email address" required>
       <input type="hidden" name="embed" value="1">
       <button type="submit">Subscribe</button>
@@ -11403,18 +11405,35 @@ function renderSubscribe() {
 
 // Newsletter modal — opened by the header "📬 Subscribe" button, or auto-shown
 // after the visitor has engaged (see armSubscribeAutoPrompt below). Two states
-// govern the auto-invite: submitting a subscribe form marks the visitor as
-// subscribed (never auto-invite again); closing without subscribing records a
-// dismissal that re-arms the invite after 30 days.
-const SUB_DONE_KEY = "wg_sub_done";          // "1" once they submit a signup form
+// govern the auto-invite: submitting a subscribe form snoozes it for 60 days
+// (the form posts to Buttondown in a new tab and the page never learns whether
+// the signup went through, so it must not count the visitor subscribed for
+// good); closing without subscribing records a dismissal that re-arms the
+// invite after 30 days.
+const SUB_SENT_KEY = "wg_sub_sent";          // ms timestamp of the last signup submit
+const SUB_SNOOZE_MS = 60 * 24 * 60 * 60 * 1000;
+// The old permanent mark ("1" once they had submitted): read once and turned
+// into a snooze from that day, so a signup that silently failed is invited again.
+const SUB_DONE_KEY = "wg_sub_done";
 const SUB_DISMISS_KEY = "wg_sub_dismissed";  // ms timestamp of last dismissal
 const SUB_REARM_MS = 30 * 24 * 60 * 60 * 1000;
 
-function subDone() {
-  try { return localStorage.getItem(SUB_DONE_KEY) === "1"; } catch (e) { return false; }
+function subSentAt() {
+  try {
+    if (localStorage.getItem(SUB_DONE_KEY) === "1") {
+      localStorage.setItem(SUB_SENT_KEY, String(Date.now()));
+      localStorage.removeItem(SUB_DONE_KEY);
+    }
+    return parseInt(localStorage.getItem(SUB_SENT_KEY) || "0", 10) || 0;
+  } catch (e) { return 0; }
 }
-function markSubscribed() {
-  try { localStorage.setItem(SUB_DONE_KEY, "1"); } catch (e) {}
+// Submitted a signup within the last 60 days.
+function subDone() {
+  const ts = subSentAt();
+  return ts > 0 && Date.now() - ts < SUB_SNOOZE_MS;
+}
+function snoozeAfterSignup() {
+  try { localStorage.setItem(SUB_SENT_KEY, String(Date.now())); } catch (e) {}
 }
 function markDismissed() {
   try { localStorage.setItem(SUB_DISMISS_KEY, String(Date.now())); } catch (e) {}
@@ -11427,10 +11446,10 @@ function shouldAutoPrompt() {
   } catch (e) {}
   return true;
 }
-// Submitting any subscribe form (modal or footer) = subscribed → stop inviting.
+// Submitting any subscribe form (modal or footer) snoozes the invite 60 days.
 function wireSubForm(root) {
   const f = root && root.querySelector("form.subform");
-  if (f) f.addEventListener("submit", markSubscribed);
+  if (f) f.addEventListener("submit", snoozeAfterSignup);
   if (f) touchSubCur(f.querySelector("select.subcur"));
 }
 
@@ -11447,7 +11466,7 @@ function openSubscribeModal(opts) {
   requestAnimationFrame(() => m.classList.add("show"));
   const close = () => {
     document.removeEventListener("keydown", onKey);   // however it closes
-    // Closed without subscribing → count as a dismissal (re-arm in 30 days).
+    // Closed without submitting → count as a dismissal (re-arm in 30 days).
     if (!subDone()) markDismissed();
     m.classList.remove("show");
     setTimeout(() => m.remove(), 220);
@@ -11464,8 +11483,8 @@ if ($("subscribeBtn")) $("subscribeBtn").addEventListener("click", () => openSub
 
 // Auto-invite: surface the newsletter after the visitor has shown interest —
 // whichever comes first of ~50% scroll depth or 45s dwell. Never interrupts
-// another overlay. Suppressed permanently once they subscribe, and for 30 days
-// after a dismissal, so a not-yet-convinced visitor gets a second chance later.
+// another overlay. Suppressed for 60 days after a signup submit, and for 30
+// days after a dismissal, so a not-yet-convinced visitor gets a second chance later.
 // Geo-seeded defaults: first-time visitors start on their own country instead
 // of the US — home country, currency, budget and fare display all follow.
 // Strictly a SEED: any stored choice wins, and nothing is written until the
