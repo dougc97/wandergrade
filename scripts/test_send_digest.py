@@ -483,12 +483,17 @@ def main():
                        line, "cover check: Chile: could not check Easter Island (timed out), keeping it\n" + line)),
                    "the summary after the issues": dict(ten, out=late)}
         slipped = [k for k, m in mutants.items() if photo_checked(m)]
-        results.append(ok(n > 10 and photo_checked(ten) and ten["out"].count(line) == 1 and not slipped
+        # More addresses than the USD edition alone asks for that month (its
+        # "send --month 3" run, usd_only[1]): the check covers every edition's
+        # covers, each once. (It was "more than 10", which the batch B picks,
+        # sharing more countries across editions, brought down to 10.)
+        n_usd = len(usd_only[1]["asked"]) if len(usd_only) > 1 else 0
+        results.append(ok(n > n_usd >= 5 and photo_checked(ten) and ten["out"].count(line) == 1 and not slipped
                           and comparable(mutants["another line of the check's"]) != ten_old
                           and comparable(mutants["the line twice"]) != ten_old,
-                          "controls for the photo check: the all-ten run asked for %d addresses and passes; %d "
-                          "spoiled copies of it don't (%s)%s"
-                          % (n, len(mutants), ", ".join(mutants), "" if not slipped else " -> slipped: %r" % slipped)))
+                          "controls for the photo check: the all-ten run asked for %d addresses (USD alone %d) and "
+                          "passes; %d spoiled copies of it don't (%s)%s"
+                          % (n, n_usd, len(mutants), ", ".join(mutants), "" if not slipped else " -> slipped: %r" % slipped)))
         results.append(ok(len(usd_only) == 5 and all(not (c[3] or {}).get("X-API-Version") and "filters" not in (c[2] or {})
                                                      for r in usd_only for c in r["calls"]),
                           "USD-only sends no X-API-Version header and no filters (all five USD-only runs)"))

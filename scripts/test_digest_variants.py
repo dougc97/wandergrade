@@ -1222,11 +1222,24 @@ def main():
     comps = lambda s_: [s_[k] for k in ("afford", "safe", "wx", "fly") if s_.get(k) is not None]
     off = [(c, m, s_["iso"]) for c, m, s_ in every
            if picks.clamp100(sum(comps(s_)) / float(len(comps(s_)))) != s_["value"]]
+    # "the others", not "the four": a place with no weather data is averaged
+    # over the grades it has. The frozen renders showed one (Malta, which has
+    # no climate entry, in EUR's gems) until review #1's weather points moved
+    # the picks; _score itself shows it either way.
+    real_pl = picks._price_level
+    try:
+        picks._price_level = lambda iso, ppp_, rates, fit=None: 0.5
+        nowx = picks._score("MT", 1, {}, {}, {}, {}, {"MT": 1}) or {}
+    finally:
+        picks._price_level = real_pl
+    three = sum(len(comps(s_)) == 3 for _c, _m, s_ in every)
     results.append(ok(len(set(picks.WEIGHTS.values())) == 1 and sorted(picks.WEIGHTS) == ["afford", "fly", "safe", "wx"]
-                      and not off and any(len(comps(s_)) == 3 for _c, _m, s_ in every),
-                      "'the badge is the Overall grade, an equal mix of the others': picks.WEIGHTS are equal, and "
+                      and not off and "MT" not in climate and nowx.get("wx") is None and comps(nowx)
+                      and nowx["value"] == picks.clamp100(sum(comps(nowx)) / float(len(comps(nowx)))),
+                      "'the badge is the Overall grade, an equal mix of the others': picks.WEIGHTS are equal, "
                       "every one of %d picks and gems has an Overall that is the plain mean of the grades it "
-                      "has (some have three: no weather data)%s" % (len(every), "" if not off else " -> %r" % off[:3])))
+                      "has (%d with three), and _score averages a place with no weather data (Malta) over the "
+                      "rest%s" % (len(every), three, "" if not off else " -> %r" % off[:3])))
 
     # Review #21 (Nov 2026): the price level alone, 100 at 15% of home
     # prices and 0 at 130%. A currency move in the formula would show here:
