@@ -203,6 +203,13 @@ bob = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">BOB</span>.*?</tr>', P
 results.append(ok('<a href="/guide/bolivia">Bolivia</a>' in bob and "+41.8%" in bob and ">+31.6%<" in bob
                   and 'class="pos"' in bob and "Bolivia ~" in bob and '%</span> <span class="band">very cheap' in bob,
                   "Bolivia's row: guide link, before and after inflation, the inflation gap in the tooltip, prices with the band"))
+# A mandatory daily visitor fee (render_guide.visitor_fee: Bhutan's) takes the
+# band word's place, as on the guide's price line: no "very cheap" beside it.
+btn = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">BTN</span>.*?</tr>', P["html"], re.S)
+btn = btn.group(0) if btn else ""
+results.append(ok('<span class="fee" title="' in btn and "/night fee</span>" in btn and 'class="band"' not in btn
+                  and "Not in the price level." in btn,
+                  "Bhutan's row: its price with the visitor fee beside it (in full in the tooltip), no band word"))
 tmt = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">TMT</span>.*?</tr>', P["html"], re.S).group(0)
 results.append(ok('<sup class="fn">†</sup>' in tmt and "No inflation figure for Turkmenistan" in tmt
                   and "† No inflation figure for that country" in text and '<sup class="fn">†</sup>' not in bob,

@@ -25,9 +25,9 @@ WanderGrade answers "where should I go, and when?" for a traveller from a given 
 
 ## How the grades are made
 
-- Affordability: everyday local prices versus the traveller's home country, and nothing else (World Bank purchasing-power parities for household spending, Taiwan's estimated from IMF and Penn World Table figures, at today's exchange rates from fxratesapi.com): A+ up to about 24% of home prices, F above about 82%. How strong the home currency is against its one-year average after inflation (history from Frankfurter/ECB) is shown beside it, not graded.
+- Affordability: everyday local prices versus the traveller's home country, and nothing else (World Bank purchasing-power parities for household spending, Taiwan's estimated from IMF and Penn World Table figures, at today's exchange rates from fxratesapi.com): A+ up to about 24% of home prices, F above about 82%. How strong the home currency is against its one-year average after inflation (history from Frankfurter/ECB) is shown beside it, not graded. A country where every visitor pays a mandatory daily fee (Bhutan) keeps its grades but is left out of rankings: the fee isn't in its price level.
 - Safety: the government travel advisory level (U.S. State Department, Global Affairs Canada or the German Federal Foreign Office, the reader's own country first, gaps filled from the others). Level 4 "Do Not Travel" countries are left out of rankings.
-- Weather: a monthly comfort score from five years of daily weather history (Open-Meteo archive).
+- Weather: a monthly comfort score from five years of daily weather history (Open-Meteo archive; for the few places where its rain is far off, long-run local rain averages, mostly from weather stations).
 - Flights: round-trip fares Aviasales has seen recently (via Travelpayouts), judged against each route's own usual range for the month. Cached fares, not live quotes.
 - Also on the guides: visa notes per passport with the official link, health notices (Government of Canada; West Nile from ECDC and CDC), best months and seasonal hazards, things to do and what is in season.
 - [How grades work]({site}/how-grades-work): each grade's formula with the numbers in use, the letter bands, the data sources and how often each refreshes, and the known limits. Cite it for how a grade is made.

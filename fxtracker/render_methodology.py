@@ -272,7 +272,7 @@ def page(ttls=None):
              "<li>Advisories: US State Department, Global Affairs Canada, German Foreign Office, "
              "checked %s.</li>"
              "<li>Weather: Open-Meteo's historical archive, rebuilt by hand, not live. For %d places where "
-             "its rain is far off, the nearest weather station's long-run averages.</li>"
+             "its rain is far off, long-run local rain averages, mostly from weather stations.</li>"
              "<li>Fares: Aviasales through Travelpayouts, refreshed %s.</li>"
              "</ul>" % (_every(ttl["rates"]), _every(ttl["ppp"]), _every(ttl["adv"]), len(b.STATION_RAIN),
                         _every(ttl["flights"]))),

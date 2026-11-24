@@ -108,8 +108,11 @@ GRAFTS = (
     # Item D of the 2026-11-24 follow-ups: no country with a mandatory daily
     # visitor fee (visa.json "fee": Bhutan's US$100 a night) is a pick or a
     # gem, as the site's Top Picks and Hidden gems leave it out (picks.fee_isos).
-    # On the frozen fixtures Bhutan was a gem in the CNY and JPY editions'
-    # October and November and the KRW edition's November; USD never had it.
+    # On the frozen fixtures, before the station rain (r6/rain), Bhutan was a
+    # gem in the CNY and JPY editions' October and November and the KRW
+    # edition's November, and never in USD. With Paro's station rain it would
+    # be a USD gem in 9 months (Mar-Jun, Aug-Dec; staged runs 2026-11-24),
+    # and the rule takes it out of each.
     ("fxtracker/picks.py", "def _load(name):\n",
      'def fee_isos():\n    v = _load("visa.json")\n'
      '    return {i for i, x in v.items() if isinstance(x, dict) and isinstance(x.get("fee"), dict)\n'

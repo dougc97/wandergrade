@@ -434,10 +434,13 @@ def _prices(row, ppp):
     if len(pr) == 1:
         rel, iso = pr[0]
         why = pricelevel.basis_note(iso, ppp)
-        return '<span title="%s">%d%%</span>%s <span class="band">%s</span>' % (
+        # A mandatory daily visitor fee (Bhutan's) in place of the band word,
+        # as on the guide's price line: no "very cheap" beside US$100 a night.
+        fee = RL.fee_mark(iso)
+        return '<span title="%s">%d%%</span>%s%s' % (
             html.escape("%s: local prices vs the US%s" % (place_name(iso, ppp), (". " + why) if why else ""),
                         quote=True), _pct(rel), '<sup class="fn">‡</sup>' if why else "",
-            html.escape(guide_facts.band(rel)))
+            fee or ' <span class="band">%s</span>' % html.escape(guide_facts.band(rel)))
     (lo, lo_iso), (hi, hi_iso) = pr[0], pr[-1]
     n = len(pr)
     mid = pr[(n - 1) // 2][0] if n % 2 else (pr[n // 2 - 1][0] + pr[n // 2][0]) / 2
