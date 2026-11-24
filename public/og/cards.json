@@ -1,0 +1,1945 @@
+{
+ "afghanistan": {
+  "iso": "AF",
+  "name": "Afghanistan",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "albania": {
+  "iso": "AL",
+  "name": "Albania",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "algeria": {
+  "iso": "DZ",
+  "name": "Algeria",
+  "best": [
+   3,
+   4,
+   10
+  ],
+  "curated": false
+ },
+ "angola": {
+  "iso": "AO",
+  "name": "Angola",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "antarctica": {
+  "iso": "AQ",
+  "name": "Antarctica",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "argentina": {
+  "iso": "AR",
+  "name": "Argentina",
+  "best": [
+   3,
+   4,
+   10,
+   11
+  ],
+  "curated": true
+ },
+ "armenia": {
+  "iso": "AM",
+  "name": "Armenia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "aruba": {
+  "iso": "AW",
+  "name": "Aruba",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "australia": {
+  "iso": "AU",
+  "name": "Australia",
+  "best": [
+   3,
+   4,
+   9,
+   10,
+   11
+  ],
+  "curated": true
+ },
+ "austria": {
+  "iso": "AT",
+  "name": "Austria",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "azerbaijan": {
+  "iso": "AZ",
+  "name": "Azerbaijan",
+  "best": [
+   4,
+   9,
+   10
+  ],
+  "curated": false
+ },
+ "bahamas": {
+  "iso": "BS",
+  "name": "Bahamas",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "bahrain": {
+  "iso": "BH",
+  "name": "Bahrain",
+  "best": [
+   2,
+   3,
+   11
+  ],
+  "curated": false
+ },
+ "bangladesh": {
+  "iso": "BD",
+  "name": "Bangladesh",
+  "best": [
+   11,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "barbados": {
+  "iso": "BB",
+  "name": "Barbados",
+  "best": [
+   2,
+   3,
+   4
+  ],
+  "curated": false
+ },
+ "belarus": {
+  "iso": "BY",
+  "name": "Belarus",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "belgium": {
+  "iso": "BE",
+  "name": "Belgium",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "belize": {
+  "iso": "BZ",
+  "name": "Belize",
+  "best": [
+   2,
+   3,
+   4
+  ],
+  "curated": false
+ },
+ "benin": {
+  "iso": "BJ",
+  "name": "Benin",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "bhutan": {
+  "iso": "BT",
+  "name": "Bhutan",
+  "best": [
+   10,
+   11,
+   12
+  ],
+  "curated": false
+ },
+ "bolivia": {
+  "iso": "BO",
+  "name": "Bolivia",
+  "best": [
+   7,
+   9,
+   10
+  ],
+  "curated": false
+ },
+ "bosnia-and-herzegovina": {
+  "iso": "BA",
+  "name": "Bosnia and Herzegovina",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "botswana": {
+  "iso": "BW",
+  "name": "Botswana",
+  "best": [
+   5,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "brazil": {
+  "iso": "BR",
+  "name": "Brazil",
+  "best": [
+   4,
+   5,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "brunei": {
+  "iso": "BN",
+  "name": "Brunei",
+  "best": [
+   2,
+   6,
+   7
+  ],
+  "curated": false
+ },
+ "bulgaria": {
+  "iso": "BG",
+  "name": "Bulgaria",
+  "best": [
+   7,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "burkina-faso": {
+  "iso": "BF",
+  "name": "Burkina Faso",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "burundi": {
+  "iso": "BI",
+  "name": "Burundi",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "cambodia": {
+  "iso": "KH",
+  "name": "Cambodia",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "cameroon": {
+  "iso": "CM",
+  "name": "Cameroon",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "canada": {
+  "iso": "CA",
+  "name": "Canada",
+  "best": [
+   6,
+   7,
+   8,
+   9
+  ],
+  "curated": true
+ },
+ "cape-verde": {
+  "iso": "CV",
+  "name": "Cape Verde",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "central-african-republic": {
+  "iso": "CF",
+  "name": "Central African Republic",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "chad": {
+  "iso": "TD",
+  "name": "Chad",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "chile": {
+  "iso": "CL",
+  "name": "Chile",
+  "best": [
+   3,
+   4,
+   11,
+   12
+  ],
+  "curated": true
+ },
+ "china": {
+  "iso": "CN",
+  "name": "China",
+  "best": [
+   4,
+   5,
+   9
+  ],
+  "curated": false
+ },
+ "colombia": {
+  "iso": "CO",
+  "name": "Colombia",
+  "best": [
+   12,
+   1,
+   2,
+   7
+  ],
+  "curated": true
+ },
+ "costa-rica": {
+  "iso": "CR",
+  "name": "Costa Rica",
+  "best": [
+   12,
+   1,
+   2,
+   3,
+   4
+  ],
+  "curated": true
+ },
+ "cote-d-ivoire": {
+  "iso": "CI",
+  "name": "Côte d'Ivoire",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "croatia": {
+  "iso": "HR",
+  "name": "Croatia",
+  "best": [
+   5,
+   6,
+   9
+  ],
+  "curated": true
+ },
+ "cuba": {
+  "iso": "CU",
+  "name": "Cuba",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "curacao": {
+  "iso": "CW",
+  "name": "Curaçao",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "cyprus": {
+  "iso": "CY",
+  "name": "Cyprus",
+  "best": [
+   6,
+   9,
+   10
+  ],
+  "curated": false
+ },
+ "czechia": {
+  "iso": "CZ",
+  "name": "Czechia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "denmark": {
+  "iso": "DK",
+  "name": "Denmark",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "djibouti": {
+  "iso": "DJ",
+  "name": "Djibouti",
+  "best": [
+   11,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "dominican-republic": {
+  "iso": "DO",
+  "name": "Dominican Republic",
+  "best": [
+   12,
+   1,
+   6
+  ],
+  "curated": false
+ },
+ "dr-congo": {
+  "iso": "CD",
+  "name": "DR Congo",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "ecuador": {
+  "iso": "EC",
+  "name": "Ecuador",
+  "best": [
+   8,
+   9,
+   11
+  ],
+  "curated": false
+ },
+ "egypt": {
+  "iso": "EG",
+  "name": "Egypt",
+  "best": [
+   10,
+   11,
+   3,
+   4
+  ],
+  "curated": true
+ },
+ "el-salvador": {
+  "iso": "SV",
+  "name": "El Salvador",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "england": {
+  "iso": "GB-ENG",
+  "name": "England",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "equatorial-guinea": {
+  "iso": "GQ",
+  "name": "Equatorial Guinea",
+  "best": [
+   1,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "eritrea": {
+  "iso": "ER",
+  "name": "Eritrea",
+  "best": [
+   6,
+   9,
+   11
+  ],
+  "curated": false
+ },
+ "estonia": {
+  "iso": "EE",
+  "name": "Estonia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "eswatini": {
+  "iso": "SZ",
+  "name": "eSwatini",
+  "best": [
+   5,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "ethiopia": {
+  "iso": "ET",
+  "name": "Ethiopia",
+  "best": [
+   2,
+   5,
+   11
+  ],
+  "curated": false
+ },
+ "falkland-islands": {
+  "iso": "FK",
+  "name": "Falkland Islands",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "faroe-islands": {
+  "iso": "FO",
+  "name": "Faroe Islands",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "fiji": {
+  "iso": "FJ",
+  "name": "Fiji",
+  "best": [
+   5,
+   6,
+   7,
+   8,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "finland": {
+  "iso": "FI",
+  "name": "Finland",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "france": {
+  "iso": "FR",
+  "name": "France",
+  "best": [
+   5,
+   6,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "french-southern-territories": {
+  "iso": "TF",
+  "name": "French Southern Territories",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "gabon": {
+  "iso": "GA",
+  "name": "Gabon",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "gambia": {
+  "iso": "GM",
+  "name": "Gambia",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "georgia": {
+  "iso": "GE",
+  "name": "Georgia",
+  "best": [
+   7,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "germany": {
+  "iso": "DE",
+  "name": "Germany",
+  "best": [
+   5,
+   6,
+   9
+  ],
+  "curated": true
+ },
+ "ghana": {
+  "iso": "GH",
+  "name": "Ghana",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "greece": {
+  "iso": "GR",
+  "name": "Greece",
+  "best": [
+   5,
+   6,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "greenland": {
+  "iso": "GL",
+  "name": "Greenland",
+  "best": [
+   7,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "guam": {
+  "iso": "GU",
+  "name": "Guam",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "guatemala": {
+  "iso": "GT",
+  "name": "Guatemala",
+  "best": [
+   3,
+   4,
+   5
+  ],
+  "curated": false
+ },
+ "guernsey": {
+  "iso": "GG",
+  "name": "Guernsey",
+  "best": [
+   7,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "guinea": {
+  "iso": "GN",
+  "name": "Guinea",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "guinea-bissau": {
+  "iso": "GW",
+  "name": "Guinea-Bissau",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "guyana": {
+  "iso": "GY",
+  "name": "Guyana",
+  "best": [
+   1,
+   2,
+   9
+  ],
+  "curated": false
+ },
+ "haiti": {
+  "iso": "HT",
+  "name": "Haiti",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "honduras": {
+  "iso": "HN",
+  "name": "Honduras",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "hong-kong": {
+  "iso": "HK",
+  "name": "Hong Kong",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "hungary": {
+  "iso": "HU",
+  "name": "Hungary",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "iceland": {
+  "iso": "IS",
+  "name": "Iceland",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "india": {
+  "iso": "IN",
+  "name": "India",
+  "best": [
+   10,
+   11,
+   2,
+   3
+  ],
+  "curated": true
+ },
+ "indonesia": {
+  "iso": "ID",
+  "name": "Indonesia",
+  "best": [
+   5,
+   6,
+   7,
+   8,
+   9
+  ],
+  "curated": true
+ },
+ "iran": {
+  "iso": "IR",
+  "name": "Iran",
+  "best": [
+   4,
+   5,
+   10
+  ],
+  "curated": false
+ },
+ "iraq": {
+  "iso": "IQ",
+  "name": "Iraq",
+  "best": [
+   3,
+   4,
+   11
+  ],
+  "curated": false
+ },
+ "ireland": {
+  "iso": "IE",
+  "name": "Ireland",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "isle-of-man": {
+  "iso": "IM",
+  "name": "Isle of Man",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "israel": {
+  "iso": "IL",
+  "name": "Israel",
+  "best": [
+   5,
+   6,
+   10
+  ],
+  "curated": false
+ },
+ "italy": {
+  "iso": "IT",
+  "name": "Italy",
+  "best": [
+   4,
+   5,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "jamaica": {
+  "iso": "JM",
+  "name": "Jamaica",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "japan": {
+  "iso": "JP",
+  "name": "Japan",
+  "best": [
+   3,
+   4,
+   10,
+   11
+  ],
+  "curated": true
+ },
+ "jordan": {
+  "iso": "JO",
+  "name": "Jordan",
+  "best": [
+   4,
+   5,
+   9
+  ],
+  "curated": false
+ },
+ "kazakhstan": {
+  "iso": "KZ",
+  "name": "Kazakhstan",
+  "best": [
+   5,
+   6,
+   8
+  ],
+  "curated": false
+ },
+ "kenya": {
+  "iso": "KE",
+  "name": "Kenya",
+  "best": [
+   1,
+   2,
+   6,
+   7,
+   8,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "kosovo": {
+  "iso": "XK",
+  "name": "Kosovo",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "kuwait": {
+  "iso": "KW",
+  "name": "Kuwait",
+  "best": [
+   2,
+   3,
+   11
+  ],
+  "curated": false
+ },
+ "kyrgyzstan": {
+  "iso": "KG",
+  "name": "Kyrgyzstan",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "laos": {
+  "iso": "LA",
+  "name": "Laos",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "latvia": {
+  "iso": "LV",
+  "name": "Latvia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "lebanon": {
+  "iso": "LB",
+  "name": "Lebanon",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "lesotho": {
+  "iso": "LS",
+  "name": "Lesotho",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "liberia": {
+  "iso": "LR",
+  "name": "Liberia",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "libya": {
+  "iso": "LY",
+  "name": "Libya",
+  "best": [
+   3,
+   4,
+   10
+  ],
+  "curated": false
+ },
+ "lithuania": {
+  "iso": "LT",
+  "name": "Lithuania",
+  "best": [
+   6,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "luxembourg": {
+  "iso": "LU",
+  "name": "Luxembourg",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "madagascar": {
+  "iso": "MG",
+  "name": "Madagascar",
+  "best": [
+   5,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "malawi": {
+  "iso": "MW",
+  "name": "Malawi",
+  "best": [
+   6,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "malaysia": {
+  "iso": "MY",
+  "name": "Malaysia",
+  "best": [
+   1,
+   2,
+   6,
+   7
+  ],
+  "curated": true
+ },
+ "mali": {
+  "iso": "ML",
+  "name": "Mali",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "mauritania": {
+  "iso": "MR",
+  "name": "Mauritania",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "mauritius": {
+  "iso": "MU",
+  "name": "Mauritius",
+  "best": [
+   6,
+   9,
+   10
+  ],
+  "curated": false
+ },
+ "mexico": {
+  "iso": "MX",
+  "name": "Mexico",
+  "best": [
+   11,
+   12,
+   3,
+   4
+  ],
+  "curated": true
+ },
+ "moldova": {
+  "iso": "MD",
+  "name": "Moldova",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "mongolia": {
+  "iso": "MN",
+  "name": "Mongolia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "montenegro": {
+  "iso": "ME",
+  "name": "Montenegro",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "morocco": {
+  "iso": "MA",
+  "name": "Morocco",
+  "best": [
+   3,
+   4,
+   5,
+   10
+  ],
+  "curated": true
+ },
+ "mozambique": {
+  "iso": "MZ",
+  "name": "Mozambique",
+  "best": [
+   5,
+   7,
+   9
+  ],
+  "curated": false
+ },
+ "myanmar": {
+  "iso": "MM",
+  "name": "Myanmar",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "namibia": {
+  "iso": "NA",
+  "name": "Namibia",
+  "best": [
+   5,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "nepal": {
+  "iso": "NP",
+  "name": "Nepal",
+  "best": [
+   3,
+   4,
+   11
+  ],
+  "curated": false
+ },
+ "netherlands": {
+  "iso": "NL",
+  "name": "Netherlands",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "new-caledonia": {
+  "iso": "NC",
+  "name": "New Caledonia",
+  "best": [
+   5,
+   6,
+   9
+  ],
+  "curated": false
+ },
+ "new-zealand": {
+  "iso": "NZ",
+  "name": "New Zealand",
+  "best": [
+   11,
+   12,
+   1,
+   2,
+   3
+  ],
+  "curated": true
+ },
+ "nicaragua": {
+  "iso": "NI",
+  "name": "Nicaragua",
+  "best": [
+   2,
+   3,
+   4
+  ],
+  "curated": false
+ },
+ "niger": {
+  "iso": "NE",
+  "name": "Niger",
+  "best": [
+   11,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "nigeria": {
+  "iso": "NG",
+  "name": "Nigeria",
+  "best": [
+   11,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "north-korea": {
+  "iso": "KP",
+  "name": "North Korea",
+  "best": [
+   5,
+   6,
+   9
+  ],
+  "curated": false
+ },
+ "north-macedonia": {
+  "iso": "MK",
+  "name": "North Macedonia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "norway": {
+  "iso": "NO",
+  "name": "Norway",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "oman": {
+  "iso": "OM",
+  "name": "Oman",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "pakistan": {
+  "iso": "PK",
+  "name": "Pakistan",
+  "best": [
+   5,
+   9,
+   10
+  ],
+  "curated": false
+ },
+ "palestine": {
+  "iso": "PS",
+  "name": "Palestine",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "panama": {
+  "iso": "PA",
+  "name": "Panama",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "papua-new-guinea": {
+  "iso": "PG",
+  "name": "Papua New Guinea",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "paraguay": {
+  "iso": "PY",
+  "name": "Paraguay",
+  "best": [
+   5,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "peru": {
+  "iso": "PE",
+  "name": "Peru",
+  "best": [
+   5,
+   6,
+   7,
+   8
+  ],
+  "curated": true
+ },
+ "philippines": {
+  "iso": "PH",
+  "name": "Philippines",
+  "best": [
+   12,
+   1,
+   2,
+   3
+  ],
+  "curated": true
+ },
+ "poland": {
+  "iso": "PL",
+  "name": "Poland",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "portugal": {
+  "iso": "PT",
+  "name": "Portugal",
+  "best": [
+   5,
+   6,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "puerto-rico": {
+  "iso": "PR",
+  "name": "Puerto Rico",
+  "best": [
+   12,
+   1,
+   3
+  ],
+  "curated": false
+ },
+ "qatar": {
+  "iso": "QA",
+  "name": "Qatar",
+  "best": [
+   2,
+   3,
+   11
+  ],
+  "curated": false
+ },
+ "republic-of-the-congo": {
+  "iso": "CG",
+  "name": "Republic of the Congo",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "romania": {
+  "iso": "RO",
+  "name": "Romania",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "russia": {
+  "iso": "RU",
+  "name": "Russia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "rwanda": {
+  "iso": "RW",
+  "name": "Rwanda",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "saudi-arabia": {
+  "iso": "SA",
+  "name": "Saudi Arabia",
+  "best": [
+   3,
+   4,
+   11
+  ],
+  "curated": false
+ },
+ "scotland": {
+  "iso": "GB-SCT",
+  "name": "Scotland",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "senegal": {
+  "iso": "SN",
+  "name": "Senegal",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "serbia": {
+  "iso": "RS",
+  "name": "Serbia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "sierra-leone": {
+  "iso": "SL",
+  "name": "Sierra Leone",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "singapore": {
+  "iso": "SG",
+  "name": "Singapore",
+  "best": [
+   2,
+   7,
+   10
+  ],
+  "curated": false
+ },
+ "slovakia": {
+  "iso": "SK",
+  "name": "Slovakia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "slovenia": {
+  "iso": "SI",
+  "name": "Slovenia",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "solomon-islands": {
+  "iso": "SB",
+  "name": "Solomon Islands",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "somalia": {
+  "iso": "SO",
+  "name": "Somalia",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "south-africa": {
+  "iso": "ZA",
+  "name": "South Africa",
+  "best": [
+   9,
+   10,
+   4,
+   5
+  ],
+  "curated": true
+ },
+ "south-korea": {
+  "iso": "KR",
+  "name": "South Korea",
+  "best": [
+   4,
+   5,
+   10,
+   11
+  ],
+  "curated": true
+ },
+ "south-sudan": {
+  "iso": "SS",
+  "name": "South Sudan",
+  "best": [
+   1,
+   9,
+   10
+  ],
+  "curated": false
+ },
+ "spain": {
+  "iso": "ES",
+  "name": "Spain",
+  "best": [
+   4,
+   5,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "sri-lanka": {
+  "iso": "LK",
+  "name": "Sri Lanka",
+  "best": [
+   3,
+   6,
+   7
+  ],
+  "curated": false
+ },
+ "sudan": {
+  "iso": "SD",
+  "name": "Sudan",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "suriname": {
+  "iso": "SR",
+  "name": "Suriname",
+  "best": [
+   9,
+   10,
+   11
+  ],
+  "curated": false
+ },
+ "sweden": {
+  "iso": "SE",
+  "name": "Sweden",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "switzerland": {
+  "iso": "CH",
+  "name": "Switzerland",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "syria": {
+  "iso": "SY",
+  "name": "Syria",
+  "best": [
+   5,
+   9,
+   10
+  ],
+  "curated": false
+ },
+ "taiwan": {
+  "iso": "TW",
+  "name": "Taiwan",
+  "best": [
+   3,
+   11,
+   12
+  ],
+  "curated": false
+ },
+ "tajikistan": {
+  "iso": "TJ",
+  "name": "Tajikistan",
+  "best": [
+   7,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "tanzania": {
+  "iso": "TZ",
+  "name": "Tanzania",
+  "best": [
+   6,
+   7,
+   8,
+   9
+  ],
+  "curated": true
+ },
+ "thailand": {
+  "iso": "TH",
+  "name": "Thailand",
+  "best": [
+   11,
+   12,
+   1,
+   2
+  ],
+  "curated": true
+ },
+ "timor-leste": {
+  "iso": "TL",
+  "name": "Timor-Leste",
+  "best": [
+   5,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "togo": {
+  "iso": "TG",
+  "name": "Togo",
+  "best": [
+   11,
+   12,
+   1
+  ],
+  "curated": false
+ },
+ "trinidad-and-tobago": {
+  "iso": "TT",
+  "name": "Trinidad and Tobago",
+  "best": [
+   1,
+   2,
+   3
+  ],
+  "curated": false
+ },
+ "tunisia": {
+  "iso": "TN",
+  "name": "Tunisia",
+  "best": [
+   5,
+   10,
+   11
+  ],
+  "curated": false
+ },
+ "turkey": {
+  "iso": "TR",
+  "name": "Turkey",
+  "best": [
+   4,
+   5,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "turkmenistan": {
+  "iso": "TM",
+  "name": "Turkmenistan",
+  "best": [
+   4,
+   5,
+   9
+  ],
+  "curated": false
+ },
+ "uganda": {
+  "iso": "UG",
+  "name": "Uganda",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "ukraine": {
+  "iso": "UA",
+  "name": "Ukraine",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "united-arab-emirates": {
+  "iso": "AE",
+  "name": "United Arab Emirates",
+  "best": [
+   11,
+   12,
+   1,
+   2,
+   3
+  ],
+  "curated": true
+ },
+ "united-kingdom": {
+  "iso": "GB",
+  "name": "United Kingdom",
+  "best": [
+   5,
+   6,
+   7,
+   9
+  ],
+  "curated": true
+ },
+ "united-states": {
+  "iso": "US",
+  "name": "United States",
+  "best": [
+   5,
+   6,
+   9,
+   10
+  ],
+  "curated": true
+ },
+ "uruguay": {
+  "iso": "UY",
+  "name": "Uruguay",
+  "best": [
+   1,
+   2,
+   10
+  ],
+  "curated": false
+ },
+ "uzbekistan": {
+  "iso": "UZ",
+  "name": "Uzbekistan",
+  "best": [
+   4,
+   5,
+   9
+  ],
+  "curated": false
+ },
+ "vanuatu": {
+  "iso": "VU",
+  "name": "Vanuatu",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "venezuela": {
+  "iso": "VE",
+  "name": "Venezuela",
+  "best": [
+   12,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "vietnam": {
+  "iso": "VN",
+  "name": "Vietnam",
+  "best": [
+   2,
+   3,
+   4,
+   11
+  ],
+  "curated": true
+ },
+ "wales": {
+  "iso": "GB-WLS",
+  "name": "Wales",
+  "best": [
+   6,
+   7,
+   8
+  ],
+  "curated": false
+ },
+ "western-sahara": {
+  "iso": "EH",
+  "name": "Western Sahara",
+  "best": [
+   3,
+   4,
+   5
+  ],
+  "curated": false
+ },
+ "yemen": {
+  "iso": "YE",
+  "name": "Yemen",
+  "best": [
+   11,
+   1,
+   2
+  ],
+  "curated": false
+ },
+ "zambia": {
+  "iso": "ZM",
+  "name": "Zambia",
+  "best": [
+   5,
+   8,
+   9
+  ],
+  "curated": false
+ },
+ "zimbabwe": {
+  "iso": "ZW",
+  "name": "Zimbabwe",
+  "best": [
+   5,
+   8,
+   9
+  ],
+  "curated": false
+ }
+}

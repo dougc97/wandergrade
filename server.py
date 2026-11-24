@@ -1768,6 +1768,43 @@ def _home_picks():
             "NOTE_SKEL_HIDDEN": " hidden", "PICKS_NOTE": r["note"]}
 
 
+# Per-country share cards: public/og/<slug>.jpg, 1200x630, rendered offline by
+# scripts/dev/og_cards.mjs (the server can't render images), which records the
+# facts each card shows in public/og/cards.json. A guide's og:image and
+# twitter:image are its card while the file exists and those facts are still
+# the data's (name, best months, curated or not); otherwise /og.png, as every
+# page had before. So a climate.json rebuild that moves a country's best
+# months falls back to the site card until the cards are re-rendered
+# (scripts/test_og_cards.py names the stale ones). Read once per process.
+_og_cards_memo = [None]
+
+
+def _og_cards():
+    """{iso: card URL} for every card that exists and matches the data."""
+    if _og_cards_memo[0] is None:
+        out = {}
+        try:
+            with open(os.path.join(PUBLIC, "og", "cards.json"), encoding="utf-8") as f:
+                cards = json.load(f)
+            d = render_guide._load()
+            for slug, iso in d["slugs"].items():
+                c, clim = cards.get(slug), d["clim"].get(iso) or {}
+                want = {"iso": iso, "name": d["names"].get(iso) or slug,
+                        "best": [m for m in clim.get("best") or [] if 1 <= m <= 12],
+                        "curated": bool(clim.get("curated"))}
+                if c == want and os.path.isfile(os.path.join(PUBLIC, "og", slug + ".jpg")):
+                    out[iso] = "%s/og/%s.jpg" % (_SITE, slug)
+        except (OSError, ValueError) as e:
+            print("[og-cards] none: %s" % e, file=sys.stderr, flush=True)
+        _og_cards_memo[0] = out
+    return _og_cards_memo[0]
+
+
+def _og_image(iso):
+    """The guide's own share card URL, or None (the page keeps /og.png)."""
+    return _og_cards().get(iso)
+
+
 def _render_index(gc_iso=None):
     """Fill index.html's tokens. gc_iso=None -> homepage defaults; otherwise a
     country page with server-rendered <title>/meta/canonical and body."""
@@ -1837,8 +1874,11 @@ def _render_index(gc_iso=None):
             gl = {}
         vals["GUIDE_DATA"] += gl.pop("_ATTRS", "")
         vals.update(gl)
-        if r.get("ogimage"):                          # country hero photo
+        if r.get("ogimage"):                          # the site's card (render_guide)
             vals["OGIMAGE"] = html.escape(r["ogimage"], quote=True)
+        card = _og_image(gc_iso)
+        if card:                                      # the country's own card
+            vals["OGIMAGE"] = card
     out = _guide_template() if gc_iso else _index_template()
     for k, v in vals.items():
         out = out.replace("{{%s}}" % k, v)
