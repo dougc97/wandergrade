@@ -7,9 +7,10 @@ used to get an empty grades line and no fares at all.
 They are what app.js renderGuideGrades and renderGuideFares write for that
 reader once its data is in, in the same markup, so when the browser draws
 its own nothing moves; only the tooltips are left out (data-tip, title,
-aria-label: the browser's copy brings them), all but the ⓘ's after the
-month the grades are for ("Graded for December from the US…"), which a
-reader without the script needs too. index.html's pre-paint script
+aria-label: the browser's copy brings them), all but two ⓘ's a reader
+without the script needs too: the one after the month the grades are for
+("Graded for December from the US…") and the fares strip's, which names
+the search link's commission. index.html's pre-paint script
 (server.py _GUIDE_HOLD) empties them again for a reader they aren't for —
 whose saved home country, currency, priorities, advisory source or fare
 currency, or whose link or six-month window, differ — who then gets the
@@ -260,7 +261,19 @@ def fares(iso, curve, fv, today, names, book=True):
                     % (cls, _locale(n), fare_short(n), " typ" if band == "typical" else "", _js_num(h), fill,
                        MON_ABBR[i]))
     origin = names((curve or {}).get("origin") or "US") or "US"
-    return ('<span class="fareshead">✈️ Fares by month<span class="legendinfo">ⓘ</span> <span class="muted">%s</span>'
-            '</span><div class="bars farebars" role="img">%s</div><div class="faresearch">%s</div>'
-            % (esc("%s → %s · round-trip, USD" % (origin, names(iso) or iso)), "".join(cols),
-               _fare_link(curve, months, prices, sel, today, book)))
+    return ('<span class="fareshead">✈️ Fares by month<span class="legendinfo" data-tip="%s" title="">ⓘ</span> '
+            '<span class="muted">%s</span></span><div class="bars farebars" role="img">%s</div>'
+            '<div class="faresearch">%s</div>'
+            % (esc(fares_tip(typ is not None)), esc("%s → %s · round-trip, USD" % (origin, names(iso) or iso)),
+               "".join(cols), _fare_link(curve, months, prices, sel, today, book)))
+
+
+def fares_tip(typ):
+    """renderGuideFares' ⓘ for a USD reader (nothing converted); `typ`
+    whether the Flights tab's range colours the bars. The strip's one
+    tooltip kept: it names the search link's commission, which a reader
+    without the script needs as much as one with it."""
+    return ("Cheapest cached round-trip Aviasales has seen for each departure month — indicative, not live. "
+            "Taller = cheaper. Colour = the month against the route's typical fare: green low, pale typical, red high"
+            + (" (the Flights tab's range)." if typ else ".")
+            + " The ✈️ search link is an affiliate link: we may earn a commission, at no extra cost to you.")

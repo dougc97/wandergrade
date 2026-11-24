@@ -12,8 +12,9 @@ What it holds the code to:
   * for all 190 guides: the served grades line is the client's markup with
     the tooltips taken out (title, data-tip, aria-label) — the Overall pill
     and number, the four grades, the 🧳 days, "—" and the reason for an
-    ungraded country — and the served strip is the client's (or both are
-    none: fewer than three months), so the browser's copy replaces them
+    ungraded country — and the served strip is the client's, tooltips
+    aside but its ⓘ's, which names the search link's commission (or both
+    are none: fewer than three months), so the browser's copy replaces them
     without anything moving;
   * redraws: drawn again unchanged (each /api/flight-value poll's answer),
     neither writes anything nor hides the strip; a line waiting for the
@@ -93,8 +94,9 @@ if "error" in js:
 
 inputs = {k: FIX[k] for k in ("rates", "advisories", "flights", "fv", "ppp", "climate", "activities")}
 bad_g, bad_f = [], []
-tip_bad = []
+tip_bad, ftip_bad = [], []
 TIP = re.compile(r'<span class="muted ggmon" data-tip="([^"]*)" title="">(\w+) ⓘ</span>')
+FTIP = re.compile(r'<span class="legendinfo" data-tip="([^"]*)" title="">ⓘ</span>')
 for iso in GUIDES:
     g = G.grades(iso, inputs, TODAY)
     if bare(g) != bare(js[iso]["grades"]):
@@ -106,8 +108,11 @@ for iso in GUIDES:
     # fixture (no do-not-travel marks, every list in) anywhere but Level 4.
     f = G.fares(iso, CURVES.get(iso), FIX["fv"], TODAY, render_guide.name_for_iso,
                 G.adv_level(iso, FIX["advisories"]) != 4)
-    if f != bare(js[iso]["fares"]):
-        bad_f.append((iso, f, bare(js[iso]["fares"])))
+    if bare(f) != bare(js[iso]["fares"]):
+        bad_f.append((iso, bare(f), bare(js[iso]["fares"])))
+    # The strip's one tooltip kept: its ⓘ's, which names the search link's commission.
+    if FTIP.findall(f) != FTIP.findall(js[iso]["fares"]) or (f and len(FTIP.findall(f)) != 1):
+        ftip_bad.append((iso, FTIP.findall(f), FTIP.findall(js[iso]["fares"])))
 for iso, a, b in (bad_g + bad_f)[:2]:
     i = next((k for k in range(min(len(a), len(b))) if a[k] != b[k]), min(len(a), len(b)))
     print("        %s first difference at %d:\n        served %r\n        client %r" % (iso, i, a[i - 60:i + 100], b[i - 60:i + 100]))
@@ -126,8 +131,13 @@ results.append(ok(not tip_bad and th_tip == [("Graded for %s from the US, weight
                   "every graded line ends in the month it is for (\"%s ⓘ\"), and the served one keeps that ⓘ's tip, "
                   "word for word the client's %s" % (G.MON_ABBR[gm0 - 1], tip_bad[:2] or "")))
 results.append(ok(not bad_f and strips >= 50,
-                  "every guide's fares strip is the client's, or none in both (%d strips) %s"
+                  "every guide's fares strip is the client's, tooltips aside, or none in both (%d strips) %s"
                   % (strips, [x[0] for x in bad_f][:10] or "")))
+th_ftip = FTIP.findall(js["TH"]["fares"])
+results.append(ok(not ftip_bad and len(th_ftip) == 1 and "we may earn a commission" in th_ftip[0]
+                  and "the Flights tab&#39;s range" in th_ftip[0],
+                  "every served strip keeps its ⓘ's tip, word for word the client's, commission and all %s"
+                  % (ftip_bad[:2] or "")))
 kinds = set()
 for iso in GUIDES:
     h = js[iso]["grades"]
