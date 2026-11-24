@@ -870,22 +870,27 @@ def _data_page_body_tpl():
         '<a href="/data/price-levels.json"><strong>Download JSON</strong></a></p>'
         "<h2>What's in it</h2>"
         "<ul>"
-        "<li><strong>price_level</strong> — World Bank PPP conversion factor, carried "
+        "<li><strong>price_level</strong> — World Bank PPP conversion factor for household "
+        "consumption, carried "
         "forward from its year by the gap between local and US inflation, divided by "
         "the market exchange rate. 1.00 means prices match the US, 0.50 means half.</li>"
         "<li><strong>usd100_buys</strong> — the local purchasing power of US$100, in US "
-        "dollars. Vietnam sits near US$370.</li>"
+        "dollars. Vietnam sits near US$360.</li>"
         "<li>Plus the inputs, so you can check the arithmetic: PPP factor and its year, "
         "GDP per capita and its year, the currency used, the currency the PPP factor is "
         "quoted in (<code>ppp_unit</code>), the inflation rate and its year "
         "(<code>inflation_pct</code>, <code>inflation_year</code>), and the carry-forward "
         "multiplier it produced (<code>inflation_factor</code>, 1 when there is no "
         "current figure).</li>"
+        "<li><strong>ppp_basis</strong> — <code>household</code>, or <code>gdp</code> where the World "
+        "Bank has no usable recent household figure: its last one, carried forward along the GDP-wide "
+        "factor; "
+        "<code>ppp_source</code> says whose figure it is (Taiwan's is the IMF's, entered by hand).</li>"
         "</ul>"
         # The table is US-based because World Bank PPP is quoted against the US;
         # a reader from anywhere else needs one line on how to compare from home.
         "<p>Comparing from somewhere else? Divide one price_level by the other: "
-        "Vietnam 0.27 &divide; Germany 0.80 &asymp; 0.34, so prices are about a third "
+        "Vietnam 0.28 &divide; Germany 0.81 &asymp; 0.35, so prices are about a third "
         "of Germany's. The <a href=\"/?tab=data&amp;dm=afford\">Data tab</a> does this "
         "for your home currency. Join on <code>iso</code>; <code>country</code> uses "
         "World Bank naming.</p>"
@@ -906,7 +911,8 @@ def _data_page_body_tpl():
         "<h2>Sources and licence</h2>"
         "<p>PPP conversion factors, consumer-price inflation and GDP per capita from the World Bank "
         "(<a href=\"https://data.worldbank.org\" rel=\"noopener\" target=\"_blank\">data.worldbank.org</a>, "
-        "CC BY 4.0); exchange rates from "
+        "CC BY 4.0), and for Taiwan, which it doesn't cover, from the IMF's World Economic Outlook; "
+        "exchange rates from "
         "<a href=\"https://fxratesapi.com\" rel=\"noopener\" target=\"_blank\">fxratesapi.com</a>. "
         "The derived figures are free to reuse with attribution to "
         "<a href=\"/\">WanderGrade</a>.</p>"
@@ -1058,7 +1064,7 @@ _ADV_LINKS = ('<a href="https://travel.state.gov" rel="noopener" target="_blank"
               'rel="noopener" target="_blank">German Foreign Office</a>')
 _LIST_CREDITS = {
     "/safe-and-cheap": ('Data: <a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
-                        "(PPP) &middot; Advisories: " + _ADV_LINKS + " &middot; Health notes: Global Affairs "
+                        "(PPP; Taiwan: IMF) &middot; Advisories: " + _ADV_LINKS + " &middot; Health notes: Global Affairs "
                         'Canada &middot; Climate: <a href="https://open-meteo.com" rel="noopener" target="_blank">'
                         "Open-Meteo</a> &middot; "),
     "/do-not-travel": "Advisories: " + _ADV_LINKS + " &middot; ",
@@ -1344,7 +1350,7 @@ _STRENGTH_CREDITS = ('Data: <a href="https://fxratesapi.com" rel="noopener" targ
                      'euro_reference_exchange_rates/html/index.en.html" rel="noopener" target="_blank">'
                      "ECB reference rates</a> (index history since 1999) &middot; "
                      '<a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
-                     "(PPP, inflation) &middot; Advisories: " + _ADV_LINKS + " &middot; ")
+                     "(PPP, inflation; Taiwan: IMF) &middot; Advisories: " + _ADV_LINKS + " &middot; ")
 _strength_memo = [None]        # (key, inputs, out), swapped whole: request threads share it
 _strength_idx_memo = [None]    # (history snapshot, day, index payloads)
 _strength_warm = {"busy": False, "at": 0.0}
@@ -1467,7 +1473,7 @@ def _render_privacy_page():
 # their flight-value curves (flightvalue.build reads the curve cache alone).
 # All 13 pages render together on a miss; every other request is a lookup.
 _CHEAP_CREDITS = ('Data: <a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
-                  '(PPP) &amp; <a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
+                  '(PPP; Taiwan: IMF) &amp; <a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
                   "&middot; Advisories: " + _ADV_LINKS + " &middot; Climate: "
                   '<a href="https://open-meteo.com" rel="noopener" target="_blank">Open-Meteo</a> &middot; '
                   'Flights: <a href="https://www.aviasales.com" rel="noopener" target="_blank">Aviasales</a> '

@@ -3208,7 +3208,7 @@ async function renderGuideFx(iso) {
         + " countries prices can rise faster than the currency falls. "
       : nominal
       ? `Nominal — ${countryName(b.stale)}'s inflation data isn't current, so we can't say whether your money goes further. `
-      : gap ? `After inflation: the exchange-rate move minus the inflation gap (${gap}, World Bank)`
+      : gap ? `After inflation: the exchange-rate move minus the inflation gap (${gap}, ${srcName(fxIso)})`
           + (Math.abs(t.pct - pct) >= 0.1 ? `; the plain rate moved ${signedPct(Number(t.pct), 1)}` : "") + ". "
         : `No current inflation figure for ${countryName(fxIso)}, so this is the plain exchange-rate move. `)
     + `Monthly averages of the daily ${base}→${dest} rate, ${mLabel(months[0].m)} to ${mLabel(months[months.length - 1].m)}`
@@ -3242,6 +3242,20 @@ async function renderGuideFx(iso) {
 // prompts state the same level in plPhrase's framing, Top Picks' own:
 // aiPriceWords.) Against the traveller's home; the US only as a fallback,
 // and then the line says so.
+// Why a price figure isn't a current World Bank household-spending one
+// (build_ppp.py), or "": Taiwan's hand-entered IMF figure, an older household
+// figure carried forward along the GDP-wide one (hh_year), or, where the two
+// never overlap, the GDP-wide figure itself. pricelevel.basis_note, word for word.
+function plBasisNote(iso) {
+  const e = (ppp || {})[GUIDE_PARENT[iso] || iso] || {};
+  if (e.src === "imf") return `IMF figure (${e.src_note || "World Economic Outlook"}), GDP-wide: the World Bank doesn't cover it.`;
+  if (e.basis === "gdp" && e.hh_year) return `Household-spending figure of ${e.hh_year}, carried forward along the GDP-wide one: the World Bank has no usable newer household figure for it.`;
+  if (e.basis === "gdp") return "GDP-wide figure: the World Bank has no household-spending one for it.";
+  return "";
+}
+// Whose price and inflation figures a country's are: the IMF's for a
+// hand-entered row (Taiwan), else the World Bank's. pricelevel.source_name.
+function srcName(iso) { return ((ppp || {})[iso] || {}).src === "imf" ? "IMF" : "World Bank"; }
 function localPricesText(iso) {
   const A = plAnchor(originIso());
   const plIso = GUIDE_PARENT[iso] || iso;       // England etc: the UK's figure
@@ -3294,16 +3308,17 @@ async function renderGuideCost(iso) {
     const when = guideFactsMonth();
     host.innerHTML = `💰 <b>Local prices ≈ ${f.pct}% of the US (${esc(
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
-      "World Bank price level for residents, carried to the " + when + " exchange rate (live rates"
+      srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
-      + " averages: tourist areas and foreigner rent run well above this." + feeTipTxt)}" title="">ⓘ</span>`;
+      + " averages: tourist areas and foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
+      + feeTipTxt)}" title="">ⓘ</span>`;
     host.hidden = false;
     return;
   }
   host.innerHTML = `💰 <b>Local prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
-    "World Bank price level for residents, carried to today's exchange rate — what a local basket"
+    srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
-    + " foreigner rent run well above this." + feeTipTxt)}" title="">ⓘ</span>`;
+    + " foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "") + feeTipTxt)}" title="">ⓘ</span>`;
   host.hidden = false;
 }
 
@@ -5688,6 +5703,19 @@ function colSeries(iso, anchor) {
   return out;
 }
 
+// The years a country's line follows the World Bank's GDP-wide figure
+// (build_pl_history "gdp"): the years with no usable household one, linked
+// to it; all of them only where the two never overlap (no hh_year: the map's
+// figure is GDP-wide too).
+function colBasisNote(iso) {
+  const r = iso !== "world" && plHist && plHist.gdp && plHist.gdp[iso];
+  if (!r) return "";
+  const e = (ppp || {})[iso] || {};
+  if (e.basis === "gdp" && !e.hh_year) return " " + countryName(iso) + "'s are GDP-wide figures: the World Bank has no household-spending one for it.";
+  return " " + r.map(([a, b]) => (a === b ? String(a) : a + "–" + b)).join(", ")
+    + " follow the GDP-wide figure's moves (no usable household-spending one), linked at the nearest year with both.";
+}
+
 // Whether today's map figure can follow a country's yearly ones. Not where the
 // World Bank converts that economy at another rate than the official one the
 // map uses (plHist.alt: Burundi's yearly 0.19 beside today's 0.46), nor across
@@ -5782,7 +5810,8 @@ async function renderCol() {
     + (lastP.year == null ? "" : " (no figures since)");
   $("colNote").innerHTML = esc("Lower = your money buys more there. Yearly averages from the World Bank"
     + (lastP.year == null ? ", then today's figure from the map." : "."))
-    + ` <span class="muted" data-tip="${esc("A year's price level is the World Bank's purchasing-power-parity factor over that year's exchange rate — the same measure as the map, which brings the latest year up to date with inflation and today's rate. National averages: the places visitors go run above them."
+    + ` <span class="muted" data-tip="${esc("A year's price level is the World Bank's household-spending purchasing-power-parity factor over that year's exchange rate — the same measure as the map, which brings the latest year up to date with inflation and today's rate. National averages: the places visitors go run above them."
+      + colBasisNote(colIso)
       + (colIso === "world" ? " A typical country is the geometric mean across every country with figures, chained year to year so countries joining the data don't move it." : ""))}" title="">ⓘ</span>`;
   const cheaper = lastP.value < first.value;
   stockChart(host, pts, {
@@ -8784,7 +8813,7 @@ function fxMark(iso) {
     ? "After inflation, your " + homeBase + " buys " + Math.abs(Math.round(pct)) + "% " + (up ? "more" : "less")
       + " in " + cn + " than its 1-yr average — your money goes " + (up ? "further" : "less far")
       + " there than usual right now. Exchange-rate move " + signedPct(Math.round(f.nom))
-      + "; inflation " + inflGapText(iso, f.homeIso) + " (World Bank)."
+      + "; inflation " + inflGapText(iso, f.homeIso) + " (" + srcName(iso) + ")."
     : "Your " + homeBase + " is " + Math.abs(Math.round(pct)) + "% " + (up ? "stronger" : "weaker")
       + " in " + cn + " than its 1-yr average. Exchange rate only — no inflation figure for " + cn
       + ", so rising local prices aren't netted out.";

@@ -415,7 +415,7 @@ def _after(row, ppp):
     txt = signed_pct(row["real"])
     cls = "pos" if row["real"] > 0 and txt != "0.0%" else "neg" if row["real"] < 0 and txt != "0.0%" else ""
     if row["adj"]:
-        tip = "After inflation: %s (World Bank)." % _infl_words(row["iso"], ppp)
+        tip = "After inflation: %s (%s)." % (_infl_words(row["iso"], ppp), pricelevel.source_name(row["iso"], ppp))
         mark = ""
     else:
         tip = ("No inflation figure for %s: the exchange-rate move alone, rising local prices not netted out."
@@ -433,8 +433,10 @@ def _prices(row, ppp):
         return '<span title="%s">—</span>' % html.escape(tip, quote=True)
     if len(pr) == 1:
         rel, iso = pr[0]
-        return '<span title="%s">%d%%</span> <span class="band">%s</span>' % (
-            html.escape("%s: local prices vs the US" % place_name(iso, ppp), quote=True), _pct(rel),
+        why = pricelevel.basis_note(iso, ppp)
+        return '<span title="%s">%d%%</span>%s <span class="band">%s</span>' % (
+            html.escape("%s: local prices vs the US%s" % (place_name(iso, ppp), (". " + why) if why else ""),
+                        quote=True), _pct(rel), '<sup class="fn">‡</sup>' if why else "",
             html.escape(guide_facts.band(rel)))
     (lo, lo_iso), (hi, hi_iso) = pr[0], pr[-1]
     n = len(pr)
@@ -485,6 +487,12 @@ HEAD = (("#", ""),
                             "the figure behind the Currency tab's green rows and Top Picks."),
         ("Prices vs US", "Local prices vs the US (100%): World Bank PPP carried forward for inflation, at the "
                          "same day's exchange rates. A shared currency shows the range across its places."))
+
+
+# The Prices column's ‡: a figure that isn't a current World Bank household-
+# spending one (pricelevel.basis_note says which, in the cell's title).
+BASIS_NOTE = ("‡ Where the World Bank has no usable recent household-spending figure: its last one, carried "
+              "forward along the GDP-wide figure (Taiwan's is the IMF's GDP-wide figure).")
 
 
 def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None, adv=None):
@@ -544,6 +552,8 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None, ad
             body += ('<h2>No inflation-adjusted figure (%d)</h2><ul class="dsnone">%s</ul>' % (len(apart), items))
         if any(not r["adj"] for r in ranked):
             notes.append("† No inflation figure for that country: the exchange-rate move alone.")
+        if any(len(r["priced"]) == 1 and pricelevel.basis_note(r["priced"][0][1], ppp) for r in ranked):
+            notes.append(BASIS_NOTE)
         if adv_missing:
             one = len(adv_missing) == 1
             notes.append("%s %s not available right now, so its “Do not travel” marks may be missing: this page "
@@ -570,7 +580,8 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None, ad
     if have_fx:
         parts.append("Exchange rates: fxratesapi.com, as of %s, each vs its own %d-day average"
                      % (html.escape(RL._day(asof)), (rates_payload or {}).get("baseline_days") or 364))
-        parts.append("Inflation and PPP: World Bank")
+        parts.append("Inflation and PPP: World Bank" + (" (Taiwan: IMF)" if any(
+            pricelevel.source_name(r["iso"], ppp) == "IMF" for r in ranked) else ""))
     if ix:
         parts.append("Dollar index: ECB euro reference rates, to %s" % html.escape(RL._day(idx["all"]["as_of"])))
     sources = (" · ".join(parts) + ".") if parts else ""

@@ -203,10 +203,20 @@ bob = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">BOB</span>.*?</tr>', P
 results.append(ok('<a href="/guide/bolivia">Bolivia</a>' in bob and "+41.8%" in bob and ">+31.6%<" in bob
                   and 'class="pos"' in bob and "Bolivia ~" in bob and '%</span> <span class="band">very cheap' in bob,
                   "Bolivia's row: guide link, before and after inflation, the inflation gap in the tooltip, prices with the band"))
-twd = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">TWD</span>.*?</tr>', P["html"], re.S).group(0)
-results.append(ok('<sup class="fn">†</sup>' in twd and "No inflation figure for Taiwan" in twd
+tmt = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">TMT</span>.*?</tr>', P["html"], re.S).group(0)
+results.append(ok('<sup class="fn">†</sup>' in tmt and "No inflation figure for Turkmenistan" in tmt
                   and "† No inflation figure for that country" in text and '<sup class="fn">†</sup>' not in bob,
-                  "a country with no inflation figure (Taiwan) is marked † and footnoted: its figure is the exchange rate alone"))
+                  "a country with no inflation figure (Turkmenistan) is marked † and footnoted: its figure is the "
+                  "exchange rate alone"))
+# Taiwan was that example until it got the IMF's figures (build_ppp.MANUAL, review 2026-11-23 item 23):
+# the fixture predates them, so add its row as the committed table has it.
+from fxtracker import build_ppp  # noqa: E402
+tw_ppp = dict(PPP, TW={k: v for k, v in build_ppp.MANUAL["TW"].items() if k != "refresh_by"})
+twd = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">TWD</span>.*?</tr>',
+                RS.dollar_strength(RATES, tw_ppp, None, today="2026-10-23")["html"], re.S).group(0)
+results.append(ok('<sup class="fn">†</sup>' not in twd and "(IMF)." in twd and "No inflation figure" not in twd,
+                  "Taiwan, with the IMF's inflation figure, is no longer marked †: its after-inflation move is "
+                  "credited to the IMF"))
 
 # Every figure against app.js, run under jsc from its own functions.
 GRAB = ["const EUROZONE", "const USD_USING", "const CUR_BY_ISO", "const PPP_UNIT", "const PL_PLAUSIBLE_SD",
