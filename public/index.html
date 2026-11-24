@@ -722,7 +722,7 @@
       </div>
 
       <div class="filterbar">
-        <input id="curFilter" class="tablefilter" type="search" placeholder="🔍 Filter by currency or country…">
+        <input id="curFilter" class="tablefilter" type="search" aria-label="Filter the currency table by currency or country" placeholder="🔍 Filter by currency or country…">
         <!-- The four Data Region pickers carry their options in the markup
              (REGIONS in app.js, which only binds them): filled by app.js, each
              grew 144px when it arrived and pushed the checkbox beside it along.
@@ -810,7 +810,7 @@
       </section>
       </div>
       <div class="filterbar">
-        <input id="affFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
+        <input id="affFilter" class="tablefilter" type="search" aria-label="Filter the cost-of-living table by country" placeholder="🔍 Filter by country…">
         <select id="affRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"><option value="all">🌍 All regions</option><option value="AMER">Americas</option><option value="EUR">Europe</option><option value="MENA">Middle East &amp; N. Africa</option><option value="ASIA">Asia</option><option value="AFRICA">Africa (Sub-Saharan)</option><option value="OCEANIA">Oceania</option></select>
         <label class="chk"><input type="checkbox" id="affRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>
       </div>
@@ -879,7 +879,7 @@
       </section>
       </div>
       <div class="filterbar">
-        <input id="advFilter" class="tablefilter" type="search" placeholder="🔍 Filter by country…">
+        <input id="advFilter" class="tablefilter" type="search" aria-label="Filter the safety table by country" placeholder="🔍 Filter by country…">
         <select id="advRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"><option value="all">🌍 All regions</option><option value="AMER">Americas</option><option value="EUR">Europe</option><option value="MENA">Middle East &amp; N. Africa</option><option value="ASIA">Asia</option><option value="AFRICA">Africa (Sub-Saharan)</option><option value="OCEANIA">Oceania</option></select>
         <select id="advLevel" title="filter by advisory level">
           <option value="all">All levels</option>
@@ -984,7 +984,7 @@
       </section>
       </div>
       <div class="filterbar">
-        <input id="flightFilter" class="tablefilter" type="search" placeholder="🔍 Filter by destination…">
+        <input id="flightFilter" class="tablefilter" type="search" aria-label="Filter the flights table by destination" placeholder="🔍 Filter by destination…">
         <select id="flightRegion" class="regionpick" aria-label="Region" title="show one region — filters this table, the list under the map and the side panel, and zooms the map; the same setting on every Data tab and Top Picks"><option value="all">🌍 All regions</option><option value="AMER">Americas</option><option value="EUR">Europe</option><option value="MENA">Middle East &amp; N. Africa</option><option value="ASIA">Asia</option><option value="AFRICA">Africa (Sub-Saharan)</option><option value="OCEANIA">Oceania</option></select>
         <label class="chk"><input type="checkbox" id="flightRisky"> <span class="lbl-lg">Include higher-risk (L3–4) destinations</span><span class="lbl-sm">Higher-risk (L3–4)</span></label>
       </div>
