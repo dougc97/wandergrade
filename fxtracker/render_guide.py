@@ -23,7 +23,7 @@ import os
 import re
 import sys
 
-from . import avoid_marks, build_climate, flightvalue, guide_facts, guide_sizers, pricelevel
+from . import avoid_marks, flightvalue, guide_facts, guide_sizers, pricelevel
 
 PUBLIC = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "public")
 SITE = "https://wandergrade.com"
@@ -624,7 +624,10 @@ def _money(p):
 def month_table(iso, fv=None, fares_at=None, no_bookings=False):
     """The #when-to-go block for a guide, or "" (not rolled out to it, or
     climate.json lacks a month's temperature or rain, or its scores are flat:
-    Antarctica's are all 0). fv: flightvalue.build() for the US, from the
+    Antarctica's are all 0). Rain days are shown where the row has them (a
+    station's rain, build_climate.STATION_RAIN, has none when the station
+    counts days at another threshold: millimetres only), and a row whose
+    rain is a station's names it in the caption (climate.json "rain_src"). fv: flightvalue.build() for the US, from the
     caches; fares_at: the date of the fares it is built on. The fare column
     needs the country's typical range (median: MIN_MONTHS months of fares,
     the Flights tab's rule) and is left off for UK_MARKET guides and where
@@ -635,14 +638,12 @@ def month_table(iso, fv=None, fares_at=None, no_bookings=False):
         return ""
     d = _load()
     c = d["clim"].get(iso) or {}
-    cols = [c.get(k) or [] for k in ("scores", "temps", "rain_mm", "rain_days")]
-    if any(len(x) != 12 or None in x for x in cols) or len(set(cols[0])) < 2:
+    cols = [c.get(k) or [] for k in ("scores", "temps", "rain_mm")]
+    rain_days = c.get("rain_days")
+    if (any(len(x) != 12 or None in x for x in cols) or len(set(cols[0])) < 2
+            or (rain_days is not None and (len(rain_days) != 12 or None in rain_days))):
         return ""
-    scores, temps, rain_mm, rain_days = cols
-    # Rain the reanalysis reads far over the place's own records (Paro about
-    # four times, Quito 2.5: build_climate.RAIN_REF): left out, not printed.
-    # The temperatures and scores stay, as the Weather grade reads them.
-    rain = not build_climate.rain_doubtful(iso, c)
+    scores, temps, rain_mm = cols
     best = set(c.get("best") or [])
     hazards = [h for h in (d["acts"].get(iso) or {}).get("hazards") or [] if isinstance(h, dict) and h.get("note")]
     fc = ((fv or {}).get("countries") or {}).get(iso) or {}
@@ -652,8 +653,8 @@ def month_table(iso, fv=None, fares_at=None, no_bookings=False):
         fares = {m: ((fc.get("curve") or {}).get(key.get(m)) or [None])[0] for m in range(1, 13)}
     e = lambda x: html.escape(str(x), quote=True)
     head = ['<th scope="col">Month</th>', '<th scope="col">Avg temp</th>']
-    if rain:
-        head.append('<th scope="col" title="Monthly total, and the days with more than 1 mm">Rain</th>')
+    head.append('<th scope="col" title="Monthly total%s">Rain</th>'
+                % (", and the days with more than 1 mm" if rain_days else ""))
     head.append('<th scope="col" title="Weather comfort, 0–100; ★ = %s">Weather score</th>'
                 % ("the curated best months to visit" if c.get("curated") else "the best-weather months"))
     if hazards:
@@ -667,9 +668,9 @@ def month_table(iso, fv=None, fares_at=None, no_bookings=False):
         i, t = m - 1, temps[m - 1]
         cells = ['<th scope="row">%s</th>' % MON_FULL[i],
                  '<td>%d°C<span class="wtg2"><span class="wtgsep"> / </span>%d°F</span></td>' % (t, pricelevel.js_round(t * 9 / 5 + 32))]
-        if rain:
-            cells.append('<td>%d mm<span class="wtg2"><span class="wtgsep"> · </span>%d %s</span></td>'
-                         % (rain_mm[i], rain_days[i], "day" if rain_days[i] == 1 else "days"))
+        cells.append('<td>%d mm<span class="wtg2"><span class="wtgsep"> · </span>%d %s</span></td>'
+                     % (rain_mm[i], rain_days[i], "day" if rain_days[i] == 1 else "days")
+                     if rain_days else "<td>%d mm</td>" % rain_mm[i])
         cells.append("<td>%d%s</td>" % (scores[i], " ★" if m in best else ""))
         if hazards:
             notes = [h["note"] for h in hazards if m in (h.get("months") or [])]
@@ -681,7 +682,10 @@ def month_table(iso, fv=None, fares_at=None, no_bookings=False):
                                           '<span class="fvband %s">%s</span></span>' % (_money(p), b, b.capitalize())))
         rows.append('<tr id="%s"%s>%s</tr>' % (MONTH_IDS[i], ' class="best"' if m in best else "", "".join(cells)))
     where = c.get("at") or "one representative point in the country"
-    cap = "%s at %s, Open-Meteo %s" % ("Measured" if rain else "Temperatures measured", where, c.get("window") or "")
+    cap = "%s at %s, Open-Meteo %s" % ("Temperatures measured" if c.get("rain_src") else "Measured", where,
+                                       c.get("window") or "")
+    if c.get("rain_src"):
+        cap += "; rain: %s" % c["rain_src"]
     if fares and fares_at:
         cap += "; fares as of %s" % _day(fares_at)
     lines = "".join('<div class="hazardline">⚠️ <b>%s:</b> %s</div>'

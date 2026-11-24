@@ -263,11 +263,19 @@ results.append(ok(RC.why_out("BT", _bt_score("BT", 11, FIX["ppp"], CLIM, rate_by
                   and "+ $100/night fee</span>)" in _bl.group(1),
                   "Bhutan meeting every other rule is left out for its fee, named under the table with its price "
                   "and fee"))
+# On production data the one fee country is Bhutan, named in exactly the months whose
+# Weather score meets the rule: with Paro's own station rain (build_climate.STATION_RAIN,
+# 2026-11-24) that is most of the year; the reanalysis's rain had kept it under.
+_bt_wx = ["/cheapest/" + rg.MON_FULL[m].lower() for m in range(12) if CLIM["BT"]["scores"][m] >= RC.MIN_WX]
+_named = sorted(k for k, p in P.items() if p.get("fee"))
 results.append(ok(all("no mandatory daily visitor fee" in p["html"] and "countries with a mandatory daily visitor fee"
                       in p["html"] for p in P.values())
-                  and all(not p.get("fee") for p in P.values()) and "feeout" not in P["/cheapest/november"]["html"],
-                  "every page states the fee rule and the Left-out clause; on production data no month names a fee "
-                  "country (Bhutan's weather keeps it off anyway)"))
+                  and all(p.get("fee") in (None, [], ["BT"]) for p in P.values())
+                  and _named == sorted(_bt_wx) and len(_bt_wx) >= 6
+                  and all(('class="sub feeout"' in P[k]["html"]) == (k in _bt_wx) for k in P if k != "/cheapest"),
+                  "every page states the fee rule and the Left-out clause; on production data the one fee country "
+                  "named is Bhutan, in the %d months its weather meets the rule (%s)"
+                  % (len(_bt_wx), " ".join(k.split("/")[-1][:3] for k in _bt_wx))))
 
 # Fares: month_fare's price and band; a dash and the footnote otherwise.
 fare_rows, dash_rows, fare_good = 0, 0, True
