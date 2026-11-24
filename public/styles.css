@@ -2300,6 +2300,9 @@ button.chip2 { border: 0; }
 .faresearch { height: 19px; margin-top: 6px; font-size: 13px; line-height: 19px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .faresearch .ext { font-size: 11px; opacity: .6; }
+/* Its focus ring drawn inside the link: outside, the line's overflow (the
+   ellipsis) clipped it to a sliver. */
+.faresearch a:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; border-radius: 3px; }
 .farestrip { display: inline-flex; gap: 2px; }
 .farestrip .fcell { width: 13px; height: 15px; border-radius: 2px; cursor: help; }
 .farestrip.big .fcell { width: 22px; height: 18px; border-radius: 3px; }
