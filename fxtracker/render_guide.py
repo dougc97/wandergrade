@@ -563,11 +563,13 @@ def _insurance_link(slug):
 # their "best time to visit X" searches; the chart answers them only in bars
 # and hover titles. Its own host after #bestDetail (server.py GUIDE_MONTHS),
 # outside the blocks app.js rewrites; app.js hides it when another country is
-# opened in-app. Rolled out first to the guides with measured best-time
-# demand; MONTH_TABLE_ALL turns it on for every guide with the data.
+# opened in-app. Rolled out first (Oct 2026) to the 23 guides with measured
+# best-time demand (MONTH_TABLE); on every guide with the data since review
+# #19 (Doug, Nov 2026: MONTH_TABLE_ALL), each measured at a named place where
+# visitors spend their time (climate.json "at", review #1).
 MONTH_TABLE = {"PR", "DO", "CV", "LA", "IM", "MA", "CI", "TL", "GL", "AU", "SI", "OM", "PG", "AZ",
                "PT", "CL", "SE", "MU", "CH", "TG", "HT", "GG", "CM"}
-MONTH_TABLE_ALL = False
+MONTH_TABLE_ALL = True
 # Guides whose best-time readers are mostly in the UK (Search Console): a fare
 # from the US answers nobody there, so the table leaves that column out.
 UK_MARKET = {"CV", "IM", "GG", "LT"}
