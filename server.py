@@ -1239,7 +1239,7 @@ _STRENGTH_CREDITS = ('Data: <a href="https://fxratesapi.com" rel="noopener" targ
                      'euro_reference_exchange_rates/html/index.en.html" rel="noopener" target="_blank">'
                      "ECB reference rates</a> (index history since 1999) &middot; "
                      '<a href="https://data.worldbank.org" rel="noopener" target="_blank">World Bank</a> '
-                     "(PPP, inflation) &middot; ")
+                     "(PPP, inflation) &middot; Advisories: " + _ADV_LINKS + " &middot; ")
 _strength_memo = [None]        # (key, inputs, out), swapped whole: request threads share it
 _strength_idx_memo = [None]    # (history snapshot, day, index payloads)
 _strength_warm = {"busy": False, "at": 0.0}
@@ -1297,16 +1297,20 @@ def _strength_page():
     # Currency tab (app.js nowYearFrac) carry them, so the three agree.
     utc_day = time.strftime("%Y-%m-%d", time.gmtime())
     idx = _strength_index(_strength_history(), day)
-    key = (id(rp), id(ppp), id(idx), day, utc_day)
+    # The three advisory lists as the cache holds them, never a fetch (as
+    # /cheapest reads them): the red "Do not travel" pill beside a place any
+    # of them rates Level 4 (review #27).
+    adv, _fetched, _stale = _cheap_adv()
+    key = (id(rp), id(ppp), id(idx), day, utc_day) + tuple(id(adv[s]) for s in _ADV_SRCS)
     hit = _strength_memo[0]
     if hit and hit[0] == key:
         return hit[2]
-    page = render_strength.dollar_strength(rp, ppp, idx, today=day, price_day=utc_day)
+    page = render_strength.dollar_strength(rp, ppp, idx, today=day, price_day=utc_day, adv=adv)
     out = {"bytes": _shell_page(page["title"], page["html"],
                                 _list_head(render_strength.PATH, page["title"], page["desc"]),
                                 credits=_STRENGTH_CREDITS),
            "degraded": page["degraded"]}
-    _strength_memo[0] = (key, (rp, ppp, idx), out)
+    _strength_memo[0] = (key, (rp, ppp, idx, tuple(adv[s] for s in _ADV_SRCS)), out)
     return out
 
 

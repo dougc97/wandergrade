@@ -457,6 +457,46 @@ results.append(ok(".listpage .dstable td.name { color: var(--ink); }" in blk and
                   "CSS (in the /dollar-strength block): the currency cell is ink, not the site-wide .name gray; "
                   "the card rank hides from 1024px, where # shows"))
 
+# ---- "Do not travel" pills (review #27) ------------------------------------------------------
+# The three advisory lists of the same day (the /cheapest fixture, 2026-10-23):
+# a place any government rates Level 4 in its own list carries the red pill
+# linked to /do-not-travel; the lede is untouched; a list not in hand is said
+# and degrades the page.
+_CF = json.load(open(os.path.join(ROOT, "scripts", "fixtures", "cheapest_2026-10-23.json"), encoding="utf-8"))
+ADV = {s: _CF["adv_" + s] for s in ("us", "ca", "de")}
+PA = RS.dollar_strength(RATES, PPP, IDX, today=TODAY, adv=ADV)
+hygiene(PA, "/dollar-strength with pills")
+_dnt = RS.dnt_by_iso(ADV)
+_row = lambda code, page: re.search(r'<tr><td class="num"[^>]*>\d+</td><td class="name"[^>]*><span class="rk">\d+\.</span> '
+                                    r'\S+ <span class="dscode">%s</span>.*?</tr>' % code, page["html"], re.S)
+_pill = '<a class="lvl lvl4" href="/do-not-travel" title="Do not travel, per '
+results.append(ok({"IQ", "IR", "AF", "LY", "RU", "BY"} <= set(_dnt)
+                  and all(_row(c, PA) and _pill in _row(c, PA).group(0) for c in ("IQD", "IRR", "AFN", "LYD", "RUB", "BYN")
+                          if c in PA["codes"]["ranked"])
+                  and {"IQD", "IRR"} <= set(PA["dnt"]),
+                  "Iraq, Iran, Afghanistan, Libya, Russia and Belarus carry the red Do not travel pill linked to "
+                  "/do-not-travel (%s)" % PA["dnt"]))
+_by_code = {r["code"]: r for r in PA["rows"]}
+results.append(ok(all(_pill not in (_row(c, PA).group(0) if _row(c, PA) else "")
+                      for c, r in _by_code.items() if not any(i in _dnt for i in r["places"]))
+                  and PA["html"].count(_pill) >= len([c for c, r in _by_code.items()
+                                                     if any(i in _dnt for i in r["places"][:4])]),
+                  "no pill on a currency none of whose places is do-not-travel; one on each that is"))
+_lede = lambda page: re.search(r'<p class="lede">.*?</p>', page["html"], re.S).group(0)
+results.append(ok(_lede(PA) == _lede(P) and not PA["degraded"] and P["dnt"] == [] and _pill not in P["html"],
+                  "no lede text added; all three lists in hand: not degraded; no lists given: no pills"))
+_iq = re.search(r'title="(Do not travel, per [^"]+)"', _row("IQD", PA).group(0)).group(1)
+results.append(ok(_iq == "Do not travel, per %s. See the Do Not Travel list." % (
+                      ", ".join(rg.ADV_SRC_SHORT[s] for s in _dnt["IQ"][:-1]) + " and " + rg.ADV_SRC_SHORT[_dnt["IQ"][-1]]
+                      if len(_dnt["IQ"]) > 1 else rg.ADV_SRC_SHORT[_dnt["IQ"][0]]),
+                  "the pill's tooltip names whose list says so: %r" % _iq))
+PM = RS.dollar_strength(RATES, PPP, IDX, today=TODAY, adv=dict(ADV, ca=None))
+results.append(ok(PM["degraded"] and "Global Affairs Canada feed is not available right now, so its “Do not travel” "
+                  "marks may be missing" in PM["html"],
+                  "Canada's list not in hand: degraded (no-store), and the note says the marks may be missing"))
+_css = open(os.path.join(ROOT, "public", "styles.css"), encoding="utf-8").read()
+results.append(ok(".listpage a.lvl4 { color: #fff;" in _css, "CSS: the pill's link text stays white on red"))
+
 # ---- the server ------------------------------------------------------------------------------
 import server  # noqa: E402
 
@@ -468,14 +508,22 @@ rates.get_history = lambda: fetches.append(1) or (_ for _ in ()).throw(RuntimeEr
 server._ppp_cache.update(at=now, data=PPP)
 server._rates_cache[key] = (now, RATES)
 rates._history["snap"] = (now, dates, cols)
+for _s in ("us", "ca", "de"):     # the three lists in hand (no fetch from a test)
+    server._adv_cache[_s] = (now, ADV[_s])
 try:
     a = server._strength_page()
     b = server._strength_page()
     page = a["bytes"].decode("utf-8")
     results.append(ok(not a["degraded"] and a is b and "<title>Where the US Dollar Is Strongest Now, Inflation-Adjusted</title>" in page
                       and '<link rel="canonical" href="https://wandergrade.com/dollar-strength">' in page
-                      and "ECB reference rates</a> (index history since 1999)" in page and "<polyline" in page,
-                      "server: the page from the caches (title, canonical, credits, the line); a repeat is the memo's object"))
+                      and "ECB reference rates</a> (index history since 1999)" in page and "<polyline" in page
+                      and _pill in page and "Advisories: " in page,
+                      "server: the page from the caches (title, canonical, credits, the line, the pills); a repeat is "
+                      "the memo's object"))
+    # A refreshed list is a new object: the memo re-renders.
+    server._adv_cache["us"] = (now, json.loads(json.dumps(ADV["us"])))
+    c2 = server._strength_page()
+    results.append(ok(c2 is not a and c2["bytes"] == a["bytes"], "a refreshed advisory list re-renders (same bytes)"))
     sm = server._sitemap().decode("utf-8")
     lines = sm.splitlines()
     i = next(n for n, l in enumerate(lines) if "/do-not-travel<" in l)

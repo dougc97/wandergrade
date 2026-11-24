@@ -354,16 +354,41 @@ def _flag(code, iso):
     return CUR_SUPRA_FLAG.get(code) or (rg.flag_emoji(iso) if iso else "🌍")
 
 
-def _place_link(iso, ppp):
+def dnt_by_iso(adv):
+    """{ISO: [government, ...]} for every country at least one of the three
+    governments rates at its top level in its OWN list ("do not travel":
+    render_lists.level4_sets' all three plus one or two, the /do-not-travel
+    page's two groups), from {"us"|"ca"|"de": payload or None}."""
+    own = {s: (RL.own_by_iso(p) if p is not None else None) for s, p in (adv or {}).items()}
+    all3, some, _three = RL.level4_sets(own)
+    return {iso: [s for s in RL.GOVS if ((own.get(s) or {}).get(iso) or {}).get("level") == 4]
+            for iso in list(all3) + list(some)}
+
+
+def _dnt_pill(iso, dnt):
+    """The red Level 4 pill beside a place some government says not to
+    travel to, linked to /do-not-travel; whose words, in the tooltip."""
+    who = (dnt or {}).get(iso)
+    if not who:
+        return ""
+    names = [RL.GOV_SHORT[s] for s in who]
+    tip = "Do not travel, per %s. See the Do Not Travel list." % (
+        names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1])
+    return ' <a class="lvl lvl4" href="/do-not-travel" title="%s">Do not travel</a>' % html.escape(tip, quote=True)
+
+
+def _place_link(iso, ppp, dnt=None):
     nm = html.escape(place_name(iso, ppp))
     slug = RL._slug(iso)
-    return '<a href="/guide/%s">%s</a>' % (slug, nm) if slug else nm
+    return ('<a href="/guide/%s">%s</a>' % (slug, nm) if slug else nm) + _dnt_pill(iso, dnt)
 
 
-def _used_in(row, ppp):
+def _used_in(row, ppp, dnt=None):
     """The places using the currency, its representative first, the rest by
     name; past NAMES_SHOWN + 1 it is cut to NAMES_SHOWN and "and N more",
-    the whole list in the tooltip."""
+    the whole list in the tooltip. `dnt` (dnt_by_iso): a place some
+    government says not to travel to carries the red pill (in the tooltip
+    of a place past the cut, "(do not travel)")."""
     places = list(row["places"])
     if not places:
         return "—"
@@ -371,11 +396,12 @@ def _used_in(row, ppp):
     rest = sorted((i for i in places if i != rep), key=lambda i: place_name(i, ppp))
     order = ([rep] if rep else []) + rest
     if len(order) <= NAMES_SHOWN + 1:
-        return ", ".join(_place_link(i, ppp) for i in order)
+        return ", ".join(_place_link(i, ppp, dnt) for i in order)
     shown = order[:NAMES_SHOWN]
-    full = ", ".join(place_name(i, ppp) for i in order)
+    full = ", ".join(place_name(i, ppp) + (" (do not travel)" if (dnt or {}).get(i) else "") for i in order)
     return ('%s <span class="dsmore" title="%s">and %d more</span>'
-            % (", ".join(_place_link(i, ppp) for i in shown), html.escape(full, quote=True), len(order) - len(shown)))
+            % (", ".join(_place_link(i, ppp, dnt) for i in shown), html.escape(full, quote=True),
+               len(order) - len(shown)))
 
 
 def _infl_words(iso, ppp):
@@ -461,14 +487,20 @@ HEAD = (("#", ""),
                          "same day's exchange rates. A shared currency shows the range across its places."))
 
 
-def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
+def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None, adv=None):
     """The /dollar-strength page. `rates_payload` is the cached USD /api/rates
     payload, `ppp` the PPP table, `idx` {"1y", "all"} index payloads
     (index_payloads, or /api/index answers) — each None when the server
     doesn't hold it, and then the page still renders, says so and reports
     `degraded` (the server sends it no-store). `price_day`: the UTC day
-    prices are carried to (price_levels), `today` when not given."""
+    prices are carried to (price_levels), `today` when not given. `adv`:
+    {"us"|"ca"|"de": /api/advisories payload or None} for the red "Do not
+    travel" pill beside a place any of the three rates Level 4 (no lede
+    text); a list not in hand is said in a note and degrades the page, as
+    its pills may be missing. None: no pills (and no note)."""
     today = today or datetime.date.today().isoformat()
+    dnt = dnt_by_iso(adv) if adv is not None else {}
+    adv_missing = [s for s in RL.GOVS if adv is not None and adv.get(s) is None]
     have_fx = bool(rates_payload and (rates_payload.get("rows") or []) and ppp)
     lede, spark, ix = index_lede(idx)
     notes = []
@@ -485,7 +517,7 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
         for n, row in enumerate(ranked, 1):
             trs.append('<tr><td class="num" data-l="#">%d</td>%s%s%s%s%s</tr>' % (
                 n, _currency_cell(row, n),
-                RL._cell("Used in", _used_in(row, ppp)),
+                RL._cell("Used in", _used_in(row, ppp, dnt)),
                 RL._cell("Before inflation", signed_pct(row["nominal"])),
                 RL._cell("After inflation", _after(row, ppp)),
                 RL._cell("Prices vs US", _prices(row, ppp))))
@@ -503,12 +535,19 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
                              "".join(trs) or '<tr><td class="name" data-l="Currency">None today.</td></tr>'))
         if apart:
             items = "".join(
-                '<li>%s <span class="dscode">%s</span> %s: <strong>%s</strong> before inflation — %s.</li>'
+                '<li>%s <span class="dscode">%s</span> %s%s: <strong>%s</strong> before inflation — %s.</li>'
                 % (_flag(r["code"], r["iso"]), html.escape(r["code"]), html.escape(r["name"]),
+                   _dnt_pill(r["iso"], dnt),
                    signed_pct(r["nominal"]), html.escape(_reason(r, ppp))) for r in apart)
             body += ('<h2>No inflation-adjusted figure (%d)</h2><ul class="dsnone">%s</ul>' % (len(apart), items))
         if any(not r["adj"] for r in ranked):
             notes.append("† No inflation figure for that country: the exchange-rate move alone.")
+        if adv_missing:
+            one = len(adv_missing) == 1
+            notes.append("%s %s not available right now, so its “Do not travel” marks may be missing: this page "
+                         "is served uncached until %s back."
+                         % (" and ".join(html.escape(RL.SOURCES[s]) for s in adv_missing),
+                            "feed is" if one else "feeds are", "it is" if one else "they are"))
         notes.append("Before inflation: the dollar's exchange rate on %s vs its average over the past year. "
                      "After inflation: that move net of the gap between local and US inflation, for the "
                      "currency's main country (Germany for the euro). Prices are national averages vs the US. "
@@ -560,9 +599,12 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
         "html": page_html,
         # The day the figures are from: the rates' own date (never "today").
         "lastmod": RL.lastmod_of(asof),
-        "degraded": not (have_fx and ix),
+        "degraded": not (have_fx and ix) or bool(adv_missing),
         "counts": {"ranked": len(ranked), "strong": strong, "apart": len(apart),
                    "pegged": sum(len(v) for v in folded.values())},
         "codes": {"ranked": [r["code"] for r in ranked], "apart": [r["code"] for r in apart]},
         "rows": ranked, "apart": apart, "index": ix,
+        # The currencies whose places carry the "Do not travel" pill.
+        "dnt": sorted([r["code"] for r in ranked if any(i in dnt for i in r["places"])]
+                      + [r["code"] for r in apart if r["iso"] in dnt]),
     }
