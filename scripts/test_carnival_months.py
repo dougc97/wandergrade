@@ -15,7 +15,7 @@ What it holds the data to:
 import datetime, json, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or c
+ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or bool(c)
 results = []
 
 
