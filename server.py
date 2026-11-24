@@ -769,7 +769,7 @@ def _data_page_body_tpl():
         "forward from its year by the gap between local and US inflation, divided by "
         "the market exchange rate. 1.00 means prices match the US, 0.50 means half.</li>"
         "<li><strong>usd100_buys</strong> — the local purchasing power of US$100, in US "
-        "dollars. Vietnam sits near US$370.</li>"
+        "dollars. Vietnam sits near US$360.</li>"
         "<li>Plus the inputs, so you can check the arithmetic: PPP factor and its year, "
         "GDP per capita and its year, the currency used, the currency the PPP factor is "
         "quoted in (<code>ppp_unit</code>), the inflation rate and its year "
@@ -784,7 +784,7 @@ def _data_page_body_tpl():
         # The table is US-based because World Bank PPP is quoted against the US;
         # a reader from anywhere else needs one line on how to compare from home.
         "<p>Comparing from somewhere else? Divide one price_level by the other: "
-        "Vietnam 0.27 &divide; Germany 0.80 &asymp; 0.34, so prices are about a third "
+        "Vietnam 0.28 &divide; Germany 0.81 &asymp; 0.35, so prices are about a third "
         "of Germany's. The <a href=\"/?tab=data&amp;dm=afford\">Data tab</a> does this "
         "for your home currency. Join on <code>iso</code>; <code>country</code> uses "
         "World Bank naming.</p>"
