@@ -155,11 +155,14 @@ def cost(iso, rates, ppp, adv_payload=None, snapshot="", snapshot_l4=False):
     itself, no figure, or nothing to say it from). From the live rates and
     PPP table when both are in, as localPricesText and plWord read them;
     else `snapshot`, the dated words app.js falls back to too
-    (render_guide._cost_line). No band word on a Level 4 guide: by the US
-    advisory list when it is in (guideAdvLevel), else the snapshot's."""
+    (render_guide._cost_line). No band word on a Level 4 guide (by the US
+    advisory list when it is in, guideAdvLevel, else the snapshot's), nor
+    where every visitor pays a mandatory daily fee (Bhutan's): "Very cheap"
+    beside US$100 a night misled."""
     home = guide_sizers.GUIDE_PARENT.get(iso, iso)
     if home == "US":
         return ""
+    fee = render_guide.visitor_fee(iso)
     if rates and ppp:
         rate_by_code = {r["code"]: r["rate_now"] for r in rates.get("rows") or [] if "code" in r and "rate_now" in r}
         fit = pricelevel.plausibility_fit(ppp, rate_by_code, picks.CUR_BY_ISO)
@@ -169,15 +172,14 @@ def cost(iso, rates, ppp, adv_payload=None, snapshot="", snapshot_l4=False):
         rel = pl / (picks._price_level("US", ppp, rate_by_code, fit) or 1)   # plAnchor("US")
         l4 = adv_level(iso, adv_payload) == 4 if adv_payload else snapshot_l4
         txt = "%s prices ≈ %d%% of the US%s" % (
-            render_guide.cost_lead("" if l4 else guide_facts.band(rel)), pricelevel.js_round(100 * rel),
+            render_guide.cost_lead("" if l4 or fee else guide_facts.band(rel)), pricelevel.js_round(100 * rel),
             "" if home == iso else " (%s-wide figure)" % ("UK" if home == "GB" else render_guide.name_for_iso(home)))
     else:
         txt = snapshot
     if not txt:
         return ""
-    # A mandatory daily visitor fee (Bhutan's) beside the figure it isn't part
-    # of, as renderGuideCost's feeHtml has it (review #10).
-    fee = render_guide.visitor_fee(iso)
+    # The fee beside the figure it isn't part of, as renderGuideCost's
+    # feeHtml has it (review #10).
     return '💰 <b>%s</b>%s<span class="fxinfo">ⓘ</span>' % (
         esc(txt), ' <span class="guidefee">%s</span>' % esc(render_guide.fee_short(fee)) if fee else "")
 

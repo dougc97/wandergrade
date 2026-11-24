@@ -14,6 +14,8 @@ Every number on it is read from the code that grades, never typed here:
   * Weather:               build_climate.COMFORT_* / *_PTS_* and comfort()
                            (the example is its output), WINDOW_YEARS, CURATED
   * Flights:               picks.FLY_TYPICAL / FLY_SLOPE
+  * visitor fees:          picks.fee_isos / visitor_fee (visa.json), the
+                           countries no ranking lists
   * refresh intervals:     passed in by server.py (its CACHE_TTL, ADV_TTL,
                            FLIGHTS_TTL, PPP_TTL), so a changed TTL changes the page
 
@@ -164,6 +166,19 @@ def weather_example():
     return t, r, hot, rain, b.comfort(t, r)
 
 
+def fee_item():
+    """The Known limits line on mandatory visitor fees, from visa.json
+    (picks.fee_isos), or "" when no country has one."""
+    visa, names = picks._load("visa.json"), picks._load("country-names.json")
+    isos = sorted(picks.fee_isos(visa), key=lambda i: names.get(i, i))
+    if not isos:
+        return ""
+    each = "; ".join("%s: US$%s a %s" % (names.get(i, i), format(int(f["usd"]), ","), f.get("per") or "day")
+                     for i, f in ((i, picks.visitor_fee(i, visa)) for i in isos))
+    return ("<li>A country where every visitor pays a daily fee (%s) keeps its grades but isn't ranked: "
+            "the fee isn't in its price level.</li>" % html.escape(each))
+
+
 def _f(c):
     return round(c * 9 / 5 + 32)
 
@@ -269,6 +284,7 @@ def page(ttls=None):
              "carried forward along the GDP-wide figure, or the GDP-wide figure itself.</li>"
              "<li>A country with no price figure (no World Bank data, or an exchange rate too far out of "
              "line to trust) isn't ranked.</li>"
+             + fee_item() +
              "</ul>"),
 
         _sec("about", "Who makes this",

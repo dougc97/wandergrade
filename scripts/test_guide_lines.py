@@ -14,8 +14,9 @@ What it holds the code to:
     the tooltips taken out (title, data-tip, aria-label) — the Overall pill
     and number, the four grades, the 🧳 days, "—" and the reason for an
     ungraded country — the served 💰 line is the client's (its band word
-    first, none on a Level 4 guide, "UK-wide" for England, Bhutan's visitor
-    fee beside it, none on the US's own guide or without a figure), from
+    first, none on a Level 4 guide nor beside Bhutan's visitor fee, which
+    its ⓘ says the grade leaves out, "UK-wide" for England, none on the
+    US's own guide or without a figure), from
     live rates and from the dated snapshot alike, and the served strip is
     the client's, tooltips aside but its ⓘ's, which names the search link's
     commission (or both are none: fewer than three months), so the
@@ -318,22 +319,32 @@ for iso in GUIDES:
                                           js[iso]["cost"][:12] or "none"), []).append(iso)
 results.append(ok(not bad_c and {"Very cheap", "Cheap", "A bit cheaper", "About the same", "Pricey"} <= set(leads)
                   and "US" in leads.get("none", []) and "AF" in leads.get("Local", [])
+                  and "BT" in leads.get("Local", [])
                   and "UK-wide figure" in js["GB-SCT"]["cost"] and set(leads) <= {
                       "Very cheap", "Cheap", "A bit cheaper", "About the same", "Pricey", "Local", "none"},
                   "every guide's 💰 line is the client's, tooltip aside, opening with its band word (%s) %s"
                   % (", ".join("%s %d" % (k, len(v)) for k, v in sorted(leads.items())), [x[0] for x in bad_c][:10] or "")))
 l4 = [iso for iso in GUIDES if G.adv_level(iso, FIX["advisories"]) == 4]
+FEES = sorted(G.picks.fee_isos())
 results.append(ok(l4 and all(iso in leads.get("Local", []) + leads.get("none", []) for iso in l4)
-                  and all(G.adv_level(iso, FIX["advisories"]) == 4 for iso in leads.get("Local", [])),
-                  "no band word on the %d Level 4 guides, and only there (%s)" % (len(l4), " ".join(l4[:8]))))
+                  and all(G.adv_level(iso, FIX["advisories"]) == 4 or iso in FEES for iso in leads.get("Local", []))
+                  and FEES == ["BT"] and all(iso in leads.get("Local", []) for iso in FEES),
+                  "no band word on the %d Level 4 guides nor beside a visitor fee (%s), and only there (%s)"
+                  % (len(l4), " ".join(FEES), " ".join(l4[:8]))))
 # Bhutan's visitor fee (review #10) beside the figure, served and drawn alike
 # (the comparison above), and on no other guide.
 FEE = ' <span class="guidefee">+ $100/night fee</span><span class="fxinfo"'
-results.append(ok(FEE in js["BT"]["cost"] and FEE in G.cost("BT", FIX["rates"], FIX["ppp"], FIX["advisories"])
-                  and "Not in the price level." in js["BT"]["cost"]
-                  and [i for i in GUIDES if "guidefee" in js[i]["cost"]] == ["BT"],
-                  "Bhutan's 💰 line carries its $100/night fee beside the figure, served and drawn, its ⓘ the "
-                  "fee in full; no other guide's does"))
+FEE_TIP = "The 💰 Affordability grade counts local prices only: the fee comes on top."
+bt_served = G.cost("BT", FIX["rates"], FIX["ppp"], FIX["advisories"])
+results.append(ok(FEE in js["BT"]["cost"] and FEE in bt_served
+                  and re.match(r"💰 <b>Local prices ≈ \d+% of the US</b> <span class=\"guidefee\">", bt_served)
+                  and "Not in the price level." in js["BT"]["cost"] and FEE_TIP in js["BT"]["cost"]
+                  and "so a cheap place can still grade C or D" not in js["BT"]["cost"]
+                  and [i for i in GUIDES if "guidefee" in js[i]["cost"]] == ["BT"]
+                  and not [i for i in GUIDES if FEE_TIP in js[i]["cost"] and i != "BT"],
+                  "Bhutan's 💰 line has no band word (\"Very cheap\" beside US$100 a night misled) and carries its "
+                  "$100/night fee beside the figure, served and drawn: %r; its ⓘ the fee in full and that the "
+                  "grade counts local prices only; no other guide's does" % bt_served[:60]))
 results.append(ok("A+ up to about 24% of home prices and F above about 82%" in js["TH"]["cost"]
                   and "about 24%" not in js["AF"]["cost"],
                   "the ⓘ says why a cheap place can grade C or D (not on a Level 4 guide)"))
@@ -377,7 +388,7 @@ snap = {iso: G.cost(iso, None, None, FIX["advisories"],
 results.append(ok("error" not in sj and all(snap[i] == bare(sj.get(i)) for i in SNAP_ISOS)
                   and "Very cheap: local prices ≈" in snap["TH"] and "(UK-wide figure, " in snap["GB-SCT"]
                   and snap["AF"].startswith("💰 <b>Local prices") and snap["US"] == "" and snap["CU"] == ""
-                  and "Very cheap: local prices ≈" in snap["TW"]
+                  and "Very cheap: local prices ≈" in snap["TW"] and snap["BT"].startswith("💰 <b>Local prices ≈")
                   and ' <span class="guidefee">+ $100/night fee</span>' in snap["BT"],
                   "live rates out: the served line is the snapshot's dated words, as the client's fallback "
                   "draws them %s" % ({i: (snap[i], sj.get(i)) for i in SNAP_ISOS if snap[i] != bare(sj.get(i))}

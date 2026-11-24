@@ -42,12 +42,12 @@ but for ADDED_FIELDS and CHANGED_FIELDS below, each held to its rule
 (test_digest_variants 1), and every Buttondown call and printed line must be
 equal once each body is swapped for a token (test_send_digest 1). The base
 runs with GRAFTS applied: the scoring changes made on purpose since (review
-#21's Affordability), each named with its reason. Until then
-the tests compared bodies with commit 4788fd2's, less a list of stripped
-pieces; that machinery went with the redesign (REVIEW3, COVERS, CHEAP_LINK,
-the cost-line and weights grafts, the subject mapping), since a body nearly
-every piece of which changed can't be compared that way. What the body says
-is now checked against its own payload (digest_check.py).
+#21's Affordability, item D's visitor-fee rule), each named with its
+reason. Until then the tests compared bodies with commit 4788fd2's, less a
+list of stripped pieces; that machinery went with the redesign (REVIEW3,
+COVERS, CHEAP_LINK, the cost-line and weights grafts, the subject mapping),
+since a body nearly every piece of which changed can't be compared that way.
+What the body says is now checked against its own payload (digest_check.py).
 """
 
 import argparse
@@ -105,6 +105,24 @@ GRAFTS = (
      "    aff = clamp100(((1.3 - pl) / 1.15) * 100)\n", "review #21: Affordability's wider price scale"),
     ("fxtracker/picks.py", '        "afford": clamp100(aff * 0.7 + fx * 0.3),\n',
      '        "afford": aff,\n', "review #21: no currency move inside Affordability"),
+    # Item D of the 2026-11-24 follow-ups: no country with a mandatory daily
+    # visitor fee (visa.json "fee": Bhutan's US$100 a night) is a pick or a
+    # gem, as the site's Top Picks and Hidden gems leave it out (picks.fee_isos).
+    # On the frozen fixtures Bhutan was a gem in the CNY and JPY editions'
+    # October and November and the KRW edition's November; USD never had it.
+    ("fxtracker/picks.py", "def _load(name):\n",
+     'def fee_isos():\n    v = _load("visa.json")\n'
+     '    return {i for i, x in v.items() if isinstance(x, dict) and isinstance(x.get("fee"), dict)\n'
+     '            and isinstance(x["fee"].get("usd"), (int, float)) and x["fee"]["usd"] > 0}\n\n\n'
+     "def _load(name):\n", "item D: the visitor-fee countries (picks.fee_isos)"),
+    ("fxtracker/picks.py",
+     "    scored = []\n    for iso in CUR_BY_ISO:\n        if v.exclude_home and iso == v.home_iso:\n",
+     "    scored = []\n    fee = fee_isos()\n    for iso in CUR_BY_ISO:\n        if v.exclude_home and iso == v.home_iso:\n",
+     "item D: read them once per edition"),
+    ("fxtracker/picks.py",
+     '        if s and s["advLvl"] != 3:   # default "safe" floor: drop Level 3 (4 already gone)\n',
+     '        if s and s["advLvl"] != 3 and iso not in fee:\n',
+     "item D: no visitor-fee country among the picks and gems"),
 )
 
 

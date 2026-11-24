@@ -16,8 +16,9 @@ data is in (holdServedPicks), then draws the same ones.
 
 Mirrors renderValue's ranking for that view (valueScores per month through
 picks._score, which scripts/parity/parity.py holds equal to it; flexWindow,
-bestOfWindow, cheapestFareMonth, rankValue; the safety floor "b", the
-popular split, Top 5) and renderGradeTable's row markup (flexChips,
+bestOfWindow, cheapestFareMonth, rankValue; the safety floor "b", no
+country with a mandatory visitor fee (picks.fee_isos: Bhutan), the popular
+split, Top 5) and renderGradeTable's row markup (flexChips,
 seasonalTags, the price-data ⚠️, fxMark, safetyPill, advMovedMark, the
 weather pill and ⚠️, seasonStrip, the flights pill, coverageMark) and
 renderValue's picksNote. scripts/test_home_picks.py runs app.js itself under
@@ -209,7 +210,10 @@ def rank(inputs, today):
         scored.append(s)
     # rankValue: value, then the unrounded score, then the name.
     scored.sort(key=lambda s: (-s["value"], -s["raw"], s["name"]))
-    eligible = [s for s in scored if s["advLvl"] != 3]          # safety floor "b"
+    # The safety floor "b", and no country with a mandatory daily visitor fee
+    # (picks.fee_isos; renderValue's FEE_ISOS).
+    fee = picks.fee_isos()
+    eligible = [s for s in scored if s["advLvl"] != 3 and s["iso"] not in fee]
     popular = [s for s in eligible if s["iso"] in inputs["popular"]]
     top = (popular or eligible)[:PICK_COUNT]
     # renderGradeTable re-sorts by the Overall column (raw, descending; stable).

@@ -3284,6 +3284,14 @@ function visitorFee(iso) {
   const f = visa && visa[iso] && visa[iso].fee;
   return f && f.usd > 0 ? f : null;
 }
+// The countries with such a fee, for the rankings: Top Picks, Hidden gems and
+// the ★ list leave them out (renderValue), as the cheap lists do
+// (render_lists, render_cheapest), while their grades stand (the guide, the
+// map, the Full ranking table): US$100 a night on top of a 23% price level is
+// no bargain to rank on. Known before visa.json loads (the homepage never
+// fetches it); picks.fee_isos reads the file, and scripts/test_home_picks.py
+// holds the two equal.
+const FEE_ISOS = new Set(["BT"]);
 function feeShort(f) {
   return "+ $" + Number(f.usd).toLocaleString("en-US") + "/" + (f.per || "day") + " fee";
 }
@@ -3300,13 +3308,16 @@ function feeTip(f) {
 // US", review #11): most guide titles ask "Is Japan Cheap to Visit?", and the
 // page answered only in numbers. plWord on the same anchor as the number.
 // Never on a Level 4 guide: no bargain talk where a government says not to
-// go (its title and description give none either). render_guide.cost_lead is
-// the server's copy.
+// go (its title and description give none either), nor beside a mandatory
+// daily visitor fee: "Very cheap" next to Bhutan's US$100 a night misled.
+// render_guide.cost_lead is the server's copy.
 const costLead = (band) => band ? band[0].toUpperCase() + band.slice(1) + ": local" : "Local";
 // The ⓘ's last sentence: the line can say "cheap" beside an Affordability C,
 // so it says why (the grade's scale, valueScores: 100 at 15%, 0 at 130%).
 const COST_GRADE_TIP = " The 💰 Affordability grade puts every country on one scale, A+ up to about 24%"
   + " of home prices and F above about 82%, so a cheap place can still grade C or D.";
+// A fee country's instead: its grade can be A+ on prices the fee isn't in.
+const COST_FEE_TIP = " The 💰 Affordability grade counts local prices only: the fee comes on top.";
 async function renderGuideCost(iso) {
   const host = $("guideCost");
   if (!host) return;
@@ -3356,6 +3367,7 @@ async function renderGuideCost(iso) {
   const fee = visitorFee(iso);
   const feeHtml = fee ? ' <span class="guidefee">' + esc(feeShort(fee)) + "</span>" : "";
   const feeTipTxt = fee ? " " + feeTip(fee) : "";
+  const gradeTip = l4 ? "" : fee ? COST_FEE_TIP : COST_GRADE_TIP;
   const line = localPricesText(iso);
   if (!line) {
     // Live rates or ppp.json didn't load: the dated snapshot the title and
@@ -3367,19 +3379,19 @@ async function renderGuideCost(iso) {
     if (ccGuideIso !== iso) return;
     if (!f || f.pct == null || !guideFactsFresh()) return show("");
     const when = guideFactsMonth();
-    return show(`💰 <b>${esc(costLead(l4 ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
+    return show(`💰 <b>${esc(costLead(l4 || fee ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
       srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
       + " averages: tourist areas and foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
-      + feeTipTxt + (l4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
+      + feeTipTxt + gradeTip)}" title="">ⓘ</span>`);
   }
-  const band = l4 ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
+  const band = l4 || fee ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
   show(`💰 <b>${esc(costLead(band))} prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
     srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
     + " foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
-    + feeTipTxt + (l4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
+    + feeTipTxt + gradeTip)}" title="">ⓘ</span>`);
 }
 
 // ---- Travel Guide: "Where to stay" Stay22 map -------------------------------
@@ -9422,7 +9434,8 @@ function renderValue() {
   const bm = beenMode(), wantMode = bm === "want";
   const wantSet = wantMode ? wantRankable() : null;
   const showVisited = bm !== "hide";
-  const preBudget = rankedAll.filter((s) =>
+  // A country with a mandatory daily visitor fee (FEE_ISOS) is in no list.
+  const preBudget = rankedAll.filter((s) => !FEE_ISOS.has(s.iso) &&
     (wantMode ? wantSet.has(s.iso) : (showVisited || !been.has(s.iso))) && passesFloor(s, floor) && matchesInterests(s.iso));
   const eligible = preBudget.filter(passesBudget);
   // Counted so the note can say the filter did something. At a roomy budget it
@@ -9464,7 +9477,8 @@ function renderValue() {
     for (const iso of wantSet) {
       if (shown.has(iso)) continue;
       const s = scored[iso];
-      const why = s ? (!passesFloor(s, floor) ? "below your safety filter"
+      const why = s ? (FEE_ISOS.has(iso) ? "a daily visitor fee comes on top of its prices"
+                       : !passesFloor(s, floor) ? "below your safety filter"
                        : !matchesInterests(iso) ? "doesn't match your interests"
                        : "its flight alone is over your budget")
         : region !== "all" && ISO_REGION[iso] !== region ? "outside " + (REGIONS[region] || "this region")
