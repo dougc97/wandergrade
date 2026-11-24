@@ -313,6 +313,9 @@ HOLD_CASES = [
     ("saved factors", "", {"fx_factors2": "[]"}, (2026, 10, 28), False),
     ("Canada's advisories", "", {"wg_advsrc": "ca"}, (2026, 10, 28), False),
     ("a visited list", "", {"fx_visited": '["FR"]'}, (2026, 10, 28), False),
+    ("Include visited, nothing visited", "", {"wg_showvisited": "1"}, (2026, 10, 28), True),
+    ("the ★ want-to-go list", "", {"wg_showvisited": "want"}, (2026, 10, 28), False),
+    ("a link with vb=want", "?vb=want", {}, (2026, 10, 28), False),
 ]
 cases = [{"ssr": W, "search": q, "store": st, "y": d[0], "m": d[1], "d": d[2]} for _n, q, st, d, _k in HOLD_CASES]
 with tempfile.TemporaryDirectory() as d:
@@ -372,6 +375,76 @@ results.append(ok(o is not None and o[0] == ["SERVED", "SERVED NOTE", True] and 
                   "app.js keeps the served rows and note while its activities, popularity or fares are out, draws "
                   "its own once they are in, and at once for another view (a month picked) %s"
                   % ("" if o else r.stderr[-300:])))
+
+# Phones (<=600px) drop the note's "more finds under 💎 Hidden gems" (styles.css
+# .morefinds), so every copy of the note carries it in that span: app.js's,
+# index.html's stand-in and home_picks.note. One without it would be a line
+# longer on a phone than the one replacing it, and the table would move.
+MORE = '<span class="morefinds"> — more finds under 💎 Hidden gems.</span>'
+INDEX = open(P("public", "index.html"), encoding="utf-8").read()
+CSS = open(P("public", "styles.css"), encoding="utf-8").read()
+phone = CSS.split("@media (max-width: 600px) {\n  /* The 375-600 block above", 1)[-1].split("\n}\n", 1)[0]
+results.append(ok(MORE in APP and MORE in INDEX and H.note([11, 12, 1, 2, 3, 4], True, True).endswith(MORE)
+                  and "more finds" not in APP.replace(MORE, "").split("function renderValue", 1)[1].split("\nfunction ", 1)[0]
+                  and ".morefinds { display: none; }" in phone,
+                  "the note's 'more finds' phrase is in .morefinds in all three copies, hidden at 600px and under"))
+
+# The note's stand-in (index.html, the script after the skeleton rows) says
+# what renderValue will for the view the link or the saved filter opens: on a
+# phone "more finds" is hidden, and "ranked by value" (one line) under an Any
+# time note (two) moved the table 7px when it came.
+STAND = [x for x in re.findall(r"<script>(\(function\(\)\{var n=\+document.*?)</script>", INDEX, re.S)
+         if "#picksNote > .skeltext" in x]
+SPAGE = r"""
+function run(c) {
+  var kids = [{ text: "BASE" }, { text: "MORE" }], k = { childNodes: kids,
+    replaceChild: function (n, o) { kids[kids.indexOf(o)] = n; }, removeChild: function (o) { kids.splice(kids.indexOf(o), 1); } };
+  Object.defineProperty(k, "firstChild", { get: function () { return kids[0]; } });
+  Object.defineProperty(k, "lastChild", { get: function () { return kids[kids.length - 1]; } });
+  var document = { documentElement: { getAttribute: function () { return null; }, setAttribute: function () {} },
+    createTextNode: function (t) { return { text: t }; },
+    querySelector: function (q) { return q === "#picksNote > .skeltext" ? k : null; } };
+  var location = { search: c.search }, store = c.store, localStorage = { getItem: function (x) { return x in store ? store[x] : null; } };
+  var RealDate = Date, FakeDate = function (y, m, d) { return arguments.length ? new RealDate(y, m, d) : new RealDate(c.y, c.m - 1, c.d); };
+  (function (document, location, localStorage, Date, URLSearchParams) { eval(SRC); })(document, location, localStorage, FakeDate, USP);
+  return kids.map(function (x) { return x.text; }).join("|");
+}
+function USP(s) { var o = {}; (s || "").replace(/^\?/, "").split("&").forEach(function (kv) { if (!kv) return;
+  var i = kv.indexOf("="); o[i < 0 ? kv : kv.slice(0, i)] = i < 0 ? "" : kv.slice(i + 1); });
+  this.get = function (x) { return x in o ? o[x] : null; }; }
+var CASES = JSON.parse(CASES_JSON), out = [];
+for (var i = 0; i < CASES.length; i++) out.push(run(CASES[i]));
+print(JSON.stringify(out));
+"""
+STAND_CASES = [  # search, store, date, want
+    ("", {}, (2026, 11, 23), "🌍 Popular destinations, ranked by each one's best month in Dec–May ⓘ|MORE"),
+    ("", {}, (2026, 11, 20), "🌍 Popular destinations, ranked by each one's best month in Nov–Apr ⓘ|MORE"),
+    ("?vmn=3", {}, (2026, 11, 23), "BASE|MORE"),
+    ("?vmn=3&vmf=1", {}, (2026, 11, 23), "🌍 Popular destinations, ranked by each one's best month in Dec–May ⓘ|MORE"),
+    ("?vmm=weather&vmn=1", {}, (2026, 11, 23), "🌤️ Popular destinations, ranked by weather comfort in January ⓘ|MORE"),
+    ("?vmm=weather", {}, (2026, 11, 23), "🌤️ Popular destinations, ranked by each one's best weather in Dec–May ⓘ|MORE"),
+    ("?vb=want&vmn=12", {}, (2026, 11, 23), "★ Your want-to-go list, ranked by value ⓘ"),
+    ("", {"wg_showvisited": "want"}, (2026, 11, 23), "★ Your want-to-go list, ranked by each one's best month in Dec–May ⓘ"),
+]
+got = None
+if len(STAND) == 1:
+    cases = [{"search": q, "store": st, "y": d[0], "m": d[1], "d": d[2]} for q, st, d, _w in STAND_CASES]
+    with tempfile.TemporaryDirectory() as d:
+        sp = os.path.join(d, "stand.js")
+        open(sp, "w", encoding="utf-8").write(SPAGE.replace("SRC", json.dumps(STAND[0]))
+                                              .replace("CASES_JSON", json.dumps(json.dumps(cases))))
+        r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=60)
+    try:
+        got = json.loads(r.stdout.strip().splitlines()[-1])
+    except Exception:
+        got = None
+bad = [(c[0], c[1], g) for c, g in zip(STAND_CASES, got or []) if g != c[3]]
+# The Any time stand-in is home_picks.note (the served one) word for word, tags out.
+plain = re.sub(r"<[^>]+>", "", H.note([12, 1, 2, 3, 4, 5], True, True)).replace(" — more finds under 💎 Hidden gems.", "")
+results.append(ok(got is not None and len(got) == len(STAND_CASES) and not bad
+                  and plain == STAND_CASES[0][3].split("|")[0],
+                  "the note's stand-in says what renderValue will: Any time, a month, weather, the ★ list %s"
+                  % (bad or (r.stderr[-300:] if got is None and STAND else "") or "")))
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)

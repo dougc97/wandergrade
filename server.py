@@ -1605,7 +1605,8 @@ def _home_sizers():
 # index.html's skeleton — today's page, which app.js then fills — for a reader
 # they aren't: a link that sets the view (any query but tab=value and the
 # tracking ones), a saved home country, currency, Top N, safety floor, budget,
-# interests, factors, priorities, advisory source or visited list, or a local
+# interests, factors, priorities, advisory source, visited list or a ranking of
+# the ★ want-to-go list (wg_showvisited "want"), or a local
 # date whose six months differ from the server's (flexWindow; the server's
 # date is UTC). app.js holdServedPicks keeps the served rows until its data is
 # in. ES5, like index.html's other inline scripts.
@@ -1616,7 +1617,7 @@ _TOP_HOLD = (
     'try{var L=localStorage,v=function(k){return L.getItem(k)};'
     'if((v("fx_origin")||"US")!=="US"||(v("fx_homecur")||"USD")!=="USD"||(v("fx_pickcount")||"5")!=="5"'
     '||(v("fx_safefloor")||"b")!=="b"||v("wg_budget")||v("fx_factors2")||v("fx_priorities2")'
-    '||(v("wg_advsrc")||"us")!=="us"||JSON.parse(v("wg_interests")||"[]").length'
+    '||(v("wg_advsrc")||"us")!=="us"||v("wg_showvisited")==="want"||JSON.parse(v("wg_interests")||"[]").length'
     '||JSON.parse(v("fx_visited")||"[]").length)off=true;}catch(e){}'
     'var d=new Date(),m=d.getMonth(),s=new Date(d.getFullYear(),m+1,0).getDate()-d.getDate()+1<10?m+1:m,x=[];'
     'for(var i=0;i<6;i++)x.push((s+i)%12+1);if(x.join()!==w)off=true;'

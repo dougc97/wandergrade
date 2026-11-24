@@ -235,11 +235,12 @@
           <span class="pickgroup" id="interestChips" title="only suggest countries matching at least one of these — tap to toggle">
             <span class="picklabel">Into</span>
           </span>
-          <span class="pickgroup" data-tip="countries marked ✓ been on your travel map — hide them from picks, or include them" title="">
+          <span class="pickgroup" data-tip="countries marked ✓ been on your travel map — hide them from picks, or include them; or rank only the ones you've starred ★ want to go" title="">
             <span class="picklabel" id="beenFilterLbl">Been-to</span>
             <select id="beenFilter" aria-labelledby="beenFilterLbl">
               <option value="hide" selected>Somewhere new</option>
               <option value="show">Include visited</option>
+              <option value="want">★ My want-to-go</option>
             </select>
           </span>
           <span class="pickgroup" id="factorChips" title="which factors count toward the grade — tap to toggle">
@@ -265,8 +266,8 @@
              usual one), so it wraps where the real one will: empty, it took
              no room beside the button and then grew to two lines on a phone
              (41 -> 77px), dropping the table and everything under it. -->
-        <p class="picksnote" id="picksNote"><span class="skeltext" aria-hidden="true"{{NOTE_SKEL_HIDDEN}}>🌍 Popular destinations, ranked by value ⓘ — more finds under 💎 Hidden gems.</span>{{PICKS_NOTE}}</p>
-        <button id="rankShare" class="themebtn shareimg" type="button"
+        <p class="picksnote" id="picksNote"><span class="skeltext" aria-hidden="true"{{NOTE_SKEL_HIDDEN}}>🌍 Popular destinations, ranked by value ⓘ<span class="morefinds"> — more finds under 💎 Hidden gems.</span></span>{{PICKS_NOTE}}</p>
+        <button id="rankShare" class="themebtn shareimg" type="button" aria-label="Share ranking"
           title="Download the ranked list as an image — grades, fares and sourcing included">📸 <span class="btxt">Share ranking</span></button>
       </div>
       <!-- A skeleton of the real table, not a "Loading…" line: this swaps for a
@@ -296,15 +297,39 @@
           </tbody>
         </table>{{TOP_PICKS}}
         <!-- As many placeholder rows as the Top N the table will show (the
-             head script's data-pc: Top 10 or 20); and on a weather-ranked
-             link the note's stand-in says what renderValue will (a line
-             longer at 768, where it wrapped to two when it came). -->
+             head script's data-pc: Top 10 or 20); and the note's stand-in
+             says what renderValue will: Any time (no vmn=, or vmf=1) ranks
+             by "each one's best month in Dec–May" (flexWindow, flexSpan), a
+             weather-ranked link by its weather (a line longer at 768, where
+             it wrapped to two when it came), and the ★ want-to-go list
+             (vb=want, or saved) has its own words and no "more finds". On a
+             phone, where "more finds" is hidden, the Any time line is two
+             lines where "ranked by value" is one.
+             The ★ list gets as many rows as it has countries (England,
+             Scotland and Wales as one UK; at most the Top N, at least one)
+             and, empty, renderValue's own hint in their place; data-vb
+             hides the gems fold it never has (styles.css). Its 5 rows used
+             to fold into 2 or into the hint, and the fold vanished under
+             the held skeleton (CLS 0.04-0.08). -->
         <script>(function(){var n=+document.documentElement.getAttribute("data-pc")||5,
-          b=document.querySelector("#topCards tbody"),r=b&&b.lastElementChild;
+          b=document.querySelector("#topCards tbody"),r=b&&b.lastElementChild,
+          q=new URLSearchParams(location.search),w=q.get("vb")==="want",u={},nw=0;
+          try{w=w||localStorage.getItem("wg_showvisited")==="want";
+            if(w)JSON.parse(localStorage.getItem("fx_wishlist")||"[]").forEach(function(x){
+              x=String(x).replace(/^GB-(ENG|SCT|WLS)$/,"GB");if(!u[x]){u[x]=1;nw++;}});}catch(e){}
+          if(w){n=Math.max(1,Math.min(n,nw));document.documentElement.setAttribute("data-vb",nw?"want":"empty");
+            if(!nw&&b)b.parentNode.insertAdjacentHTML("afterend","<p class='hint'>Your ★ want-to-go list is empty. Star countries on your <button type='button' class='linkbtn' id='wantGo'>🗺️ Wander List</button>.</p>");}
           for(var i=6;i<=n&&r;i++){var c=r.cloneNode(true);c.querySelector(".rank").textContent="#"+i;b.appendChild(c);}
-          var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),k=document.querySelector("#picksNote > .skeltext");
-          if(k&&q.get("vmm")==="weather"){if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
-            k.textContent="🌤️ Popular destinations, ranked by weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]+" ⓘ — more finds under 💎 Hidden gems.";}})();</script>{{TOP_HOLD}}
+          while(b&&b.children.length>n)b.removeChild(b.lastElementChild);
+          var m=parseInt(q.get("vmn"),10),k=document.querySelector("#picksNote > .skeltext");
+          if(!k)return;
+          var wx=q.get("vmm")==="weather",flex=q.get("vmf")==="1"||!(m>=1&&m<=12),by;
+          if(flex){var A=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],d=new Date(),o=d.getMonth(),
+            s=new Date(d.getFullYear(),o+1,0).getDate()-d.getDate()+1<10?o+1:o;
+            by="each one's best "+(wx?"weather":"month")+" in "+A[s%12]+"–"+A[(s+5)%12];}
+          else by=wx?"weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]:"value";
+          if(flex||wx||w)k.replaceChild(document.createTextNode((w?"★ Your want-to-go list":(wx?"🌤️":"🌍")+" Popular destinations")+", ranked by "+by+" ⓘ"),k.firstChild);
+          if(w)k.removeChild(k.lastChild);})();</script>{{TOP_HOLD}}
       </div>
       <button id="showMore" class="showmore" type="button" hidden>Show top 10 ↓</button>
 

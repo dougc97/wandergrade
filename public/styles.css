@@ -1357,6 +1357,10 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 
 /* "Plan with AI" export bar */
 .aibar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 4px; }
+/* An empty trip has nothing to plan: its green "Plan this trip with AI" only
+   answered with an error. Hidden while the bar shows the empty state (the
+   markup's own, from first paint, and renderTripBar's). */
+#tripBar:has(> .triphint) ~ .aibar { display: none; }
 .aibtn { background: var(--green-fill); color: #fff; border: none; border-radius: 10px;
   padding: 10px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
 .aibtn:hover { filter: brightness(1.06); }
@@ -1592,6 +1596,12 @@ html[data-tab="guide"] #tab-guide .cardwide { min-height: 100vh; }
    index.html ships it [hidden] and nearly every render shows it, so removing
    its box would push the gems fold and the map down on each first render. */
 #showMore[hidden] { visibility: hidden; }
+/* The ★ want-to-go ranking before renderValue first draws it (index.html's
+   stand-in sets data-vb, renderValue drops it): no gems fold, which that
+   list never has (it vanished under the held skeleton: everything below
+   moved up 64px), and an empty list shows renderValue's hint in place of
+   the skeleton (styled out, not [hidden]: _TOP_HOLD un-hides it). */
+html[data-vb] #gemsBox, html[data-vb="empty"] #topCards > table.skeleton { display: none; }
 /* The picks note's "show" (the ✓ been countries it hides): the site's green,
    not the system LinkText, which is a dark blue on the dark theme. */
 .picksnote .linkbtn { color: var(--green); font-weight: 600; text-decoration: none; }
@@ -2361,6 +2371,28 @@ button.chip2 { border: 0; }
   .charthead.compact h2 { flex: 1 1 0; min-width: 0; }
   #tab-value .herobtns { width: 100%; justify-content: flex-start; }
   #tab-value .herobtns > button { flex: 1 1 0; min-width: 0; text-align: center; }
+  /* A phone landing from the Instagram story (390x664, what its browser
+     leaves the page) showed no graded row: row #1 started at 707px. Three
+     things give way, about 100px: the section heading and its sub-line
+     (clipped, not display:none, so screen readers keep the section's
+     name; the site title above already asks the question), Share ranking
+     down to its 📸 beside the note (its name in aria-label and title), and
+     the note's "more finds under 💎 Hidden gems", whose fold is right
+     below. All three copies of the note carry .morefinds (app.js
+     renderValue, index.html's stand-in, home_picks.note), so nothing
+     moves when one replaces another. */
+  #tab-value .charthead:not(.compact) > div:first-child {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .picksrow { flex-wrap: nowrap; }
+  .picksrow .picksnote { flex: 1 1 0; }
+  .picksrow .shareimg { position: relative; padding: 5px 8px; }
+  .picksrow .shareimg .btxt {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .morefinds { display: none; }
 }
 
 /* ---- tap targets (measured, not guessed) ----
@@ -2760,6 +2792,10 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
 @media (pointer: coarse) {
   :root :is(input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit], [readonly]),
     select, textarea:not([readonly])) { font-size: 16px; }
+  /* Except the tap-only short combobox (app.js enhanceSelect: read-only on a
+     touch screen so no keyboard opens): it keeps the 16px of the field it
+     is. At 14px it stood 32px tall where the select it replaces is 34. */
+  .combo-tap .combo-input { font-size: 16px; }
   /* The When/From pair was measured at 14px (97px and 120px boxes at 375);
      at 16px "September" needs the 8px this padding gives back. */
   .pickersmain .combo-input { padding-left: 6px; padding-right: 6px; }

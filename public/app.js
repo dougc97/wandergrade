@@ -6253,6 +6253,9 @@ function isoAliases(v) {
 // fill: a select whose options come when it is first used (the guide's
 // country box holds only the country on show): enhanced whatever its size,
 // and fill() runs once, on the first focus, before the list draws.
+// The longest list a touch screen opens as tap-only (enhanceSelect's setTap):
+// the 13 of Top Picks' month picker, the Flights tab's 12.
+const COMBO_TAP_MAX = 14;
 function enhanceSelect(sel, fill) {
   if (!sel || sel.dataset.combo || (sel.options.length < 10 && !fill)) return;
   sel.dataset.combo = "1";
@@ -6291,7 +6294,23 @@ function enhanceSelect(sel, fill) {
   sel.style.display = "none";
   let active = -1;
   const labelFor = () => { const o = sel.selectedOptions[0]; return o && o.value !== "" ? o.textContent.trim() : ""; };
-  const sync = () => { if (document.activeElement !== input) input.value = labelFor(); };
+  // Touch screens, short lists (the months: 13 with Any time): a tap opens
+  // the list and does nothing else. Searching 13 names isn't needed, and the
+  // focused text box popped the phone's keyboard over half the list, emptied
+  // itself to "Type to search…" and showed the group's tip over Help me
+  // choose. Read-only with no keyboard (inputmode=none), the box keeps its
+  // value; the list still answers the arrow keys, and "pick" fires as before.
+  // Not a list filled on first focus (the guide's country picker: one
+  // option until then, 190 after): it would open read-only, unsearchable.
+  const lazy = !!fill;
+  const setTap = () => {
+    const on = !lazy && sel.options.length <= COMBO_TAP_MAX && !!window.matchMedia && matchMedia("(pointer: coarse)").matches;
+    input.readOnly = on;
+    if (on) input.setAttribute("inputmode", "none"); else input.removeAttribute("inputmode");
+    wrap.classList.toggle("combo-tap", on);
+  };
+  setTap();
+  const sync = () => { setTap(); if (document.activeElement !== input) input.value = labelFor(); };
   sel._sync = sync;
   const render = (q) => {
     q = searchFold((q || "").trim());
@@ -6311,9 +6330,42 @@ function enhanceSelect(sel, fill) {
     sel.dispatchEvent(new Event("pick"));
     input.value = labelFor(); setOpen(false);
   };
+  // Tap mode opens on the chosen option, or on the select's own anchor (the
+  // month picker's: this month, under Any time), scrolled into the middle of
+  // the list: December, next month, sat below the fold of an 8-row list.
+  let tapOpened = 0;
+  const openTap = () => {
+    render(""); setOpen(true); tapOpened = Date.now();
+    // Kept inside the screen: from the month box at 390x664 the 280px list
+    // ran 80px past the bottom, December (next month) with it. Shorter
+    // instead (not under 150px), so the page doesn't have to move.
+    list.style.maxHeight = "";
+    const room = (document.documentElement.clientHeight || window.innerHeight) - list.getBoundingClientRect().top - 8;
+    if (room > 0 && list.scrollHeight > room) list.style.maxHeight = Math.max(room, 150) + "px";
+    const items = [...list.querySelectorAll(".combo-opt[data-val]")];
+    const at = items.findIndex((li) => li.dataset.val === sel.value);
+    if (at >= 0) {
+      active = at;
+      items[at].classList.add("active");
+      input.setAttribute("aria-activedescendant", items[at].id);
+    }
+    const want = sel._tapAnchor ? sel._tapAnchor() : sel.value;
+    const li = items.find((x) => x.dataset.val === String(want)) || items[at];
+    // The list's own scroll, not scrollIntoView: that scrolls the page too.
+    if (li) list.scrollTop = Math.max(0, li.offsetTop - (list.clientHeight - li.offsetHeight) / 2);
+  };
   input.addEventListener("focus", () => {
     if (fill) { fill(); fill = null; }
+    if (input.readOnly) { openTap(); return; }
     input.value = ""; render(""); setOpen(true);
+  });
+  // Focus stays in the box after a pick, so a second tap fires no focus:
+  // it reopens the list here, and a tap on the open box closes it, as a
+  // native picker does (not the tap that just opened it).
+  input.addEventListener("click", () => {
+    if (!input.readOnly) return;
+    if (list.hidden) openTap();
+    else if (Date.now() - tapOpened > 400) setOpen(false);
   });
   input.addEventListener("input", () => { render(input.value); setOpen(true); });
   input.addEventListener("blur", () => setTimeout(() => { setOpen(false); input.value = labelFor(); }, 150));
@@ -6334,7 +6386,7 @@ function enhanceSelect(sel, fill) {
     const li = e.target.closest(".combo-opt[data-val]");
     if (li) { e.preventDefault(); choose(li.dataset.val); }
   });
-  new MutationObserver(sync).observe(sel, { childList: true });  // options rebuilt -> resync label
+  new MutationObserver(sync).observe(sel, { childList: true });  // options rebuilt -> resync label (and tap mode)
   // Programmatic picks that announce themselves (the guided picker's month)
   // left the box showing the old value while the page ranked for the new one.
   sel.addEventListener("change", sync);
@@ -6348,6 +6400,9 @@ function buildValueTab() {
   const reg = $("valueRegion"), mon = ensureMonthOptions();
   fillRegionSelect(reg);
   mon.onchange = renderValue;
+  // A phone opens the list on this month under Any time (its own row is at
+  // the top, out of the way), else on the month chosen.
+  mon._tapAnchor = () => (mon.value === "0" ? String(curMonth()) : mon.value);
   enhanceSelect(mon);
   // Fares auto-load for the home country (defaults to United States) and
   // reload whenever the user picks a different one — no button needed.
@@ -6381,10 +6436,13 @@ function buildValueTab() {
   buildFactorChips();
   buildInterestChips();
   if ($("beenFilter")) {
-    $("beenFilter").value = localStorage.getItem("wg_showvisited") === "1" ? "show" : "hide";
+    const saved = localStorage.getItem("wg_showvisited");
+    $("beenFilter").value = saved === "1" ? "show" : saved === "want" ? "want" : "hide";
     $("beenFilter").addEventListener("change", () => {
-      localStorage.setItem("wg_showvisited", $("beenFilter").value === "show" ? "1" : "0");
+      const v = $("beenFilter").value;
+      localStorage.setItem("wg_showvisited", v === "show" ? "1" : v === "want" ? "want" : "0");
       renderValue();
+      syncURL();
     });
   }
   for (const b of document.querySelectorAll("#valueMapMode button")) {
@@ -8010,6 +8068,24 @@ function whyLine(s, month) {
 // How many answer cards to show (persisted per browser; default 5 so the map
 // stays visible below the fold).
 const PICK_COUNT_DEFAULT = 5;
+// Top Picks' Been-to filter: "hide" (Somewhere new, the default), "show"
+// (Include visited) or "want" (rank only the ★ want-to-go list). The select
+// is the truth once built (a link's vb=want sets it for the visit only);
+// before that, what was saved (wg_showvisited "1" / "want").
+function beenMode() {
+  const v = ($("beenFilter") || {}).value;
+  if (v === "hide" || v === "show" || v === "want") return v;
+  const s = localStorage.getItem("wg_showvisited");
+  return s === "1" ? "show" : s === "want" ? "want" : "hide";
+}
+// The ★ list as Top Picks can rank it: England, Scotland and Wales are graded
+// as the United Kingdom (GUIDE_PARENT), so a ★ on any of them ranks the UK.
+function wantRankable() {
+  const out = new Set();
+  for (const iso of loadWishlist()) out.add(GUIDE_PARENT[iso] || iso);
+  return out;
+}
+
 function pickCount() {
   const sel = $("pickCount");
   const v = parseInt((sel && sel.value) || localStorage.getItem("fx_pickcount") || "5", 10);
@@ -8334,9 +8410,21 @@ function seasonalTags(iso, month, max, flex) {
 // The chosen month gets the season strip's tick, dimmed at rest like it.
 // A row with a month of its own ("Any time": data-m, its best month) ticks
 // that one instead.
+// Only slots on screen are asked for: below 640px the strips are hidden
+// (styles.css) and the Hidden gems rows sit in a closed fold, and phones
+// fetched 12-14 strips they never showed (21 calls where 9 are seen). The
+// rest fill when they can be seen: the gems fold opening, the screen
+// widening past 640px, or the tab coming back (renderValue redraws).
+const _rowFareMonth = {};   // host id -> the month its strips tick
 function fillRowFareStrips(hostSel, month) {
+  const host = document.querySelector(hostSel);
+  if (host && host.id) _rowFareMonth[host.id] = month;
   const slots = document.querySelectorAll(hostSel + " .rowfares");
   slots.forEach(async (slot) => {
+    // Filled already, or not on screen. A closed fold's rows still have
+    // boxes in Chrome (its content is content-visibility: hidden), so the
+    // fold is asked directly.
+    if (slot.firstChild || slot.closest("details:not([open])") || !slot.getClientRects().length) return;
     const iso = slot.dataset.iso;
     const fm = await ensureFareMonths(iso);
     if (!fm || !fm.months || !slot.isConnected) return;
@@ -8344,6 +8432,18 @@ function fillRowFareStrips(hostSel, month) {
     if (strip) slot.innerHTML = '<span class="farestrip" role="img" aria-label="'
       + esc("Fares by month — " + strip.note) + '">' + strip.cells + "</span>";
   });
+}
+// The strips a hidden slot skipped, once it can be seen.
+function fillSeenRowFares() {
+  for (const id of ["topCards", "gemRows"])
+    if (_rowFareMonth[id] != null) fillRowFareStrips("#" + id, _rowFareMonth[id]);
+}
+if ($("gemsBox")) $("gemsBox").addEventListener("toggle", () => { if ($("gemsBox").open) fillSeenRowFares(); });
+if (window.matchMedia) {
+  const _rowFareMq = matchMedia("(max-width: 640px)");
+  const onMq = () => { if (!_rowFareMq.matches) fillSeenRowFares(); };
+  if (_rowFareMq.addEventListener) _rowFareMq.addEventListener("change", onMq);
+  else if (_rowFareMq.addListener) _rowFareMq.addListener(onMq);
 }
 
 // Table-sized versions of the guide's two trend signals, compressed to the
@@ -8670,7 +8770,8 @@ function holdServedPicks(flex, win) {
   const view = flex && win.join() === servedPicks && originIso() === "US" && homeBase === "USD"
     && regionSel === "all" && pickCount() === PICK_COUNT_DEFAULT && safetyFloor() === "b"
     && valueMapMode === "score" && advisorySource() === "us" && !budgetOf().total
-    && !loadInterests().size && !ownVisited().size && JSON.stringify(loadWeights()) === _servedWeights;
+    && !loadInterests().size && !ownVisited().size && beenMode() !== "want"
+    && JSON.stringify(loadWeights()) === _servedWeights;
   if (view && !servedPicksReady()) return true;
   releaseServedPicks();
   return false;
@@ -8684,11 +8785,83 @@ if (servedPicks) {
   const t0 = Date.now(), tick = setInterval(() => {
     if (!servedPicks) { clearInterval(tick); return; }
     if (loaded.value && (servedPicksReady() || Date.now() - t0 > SERVED_HOLD_MS)) {
-      if (!servedPicksReady()) releaseServedPicks();
+      // Timed out: drawn now with what there is (the first paint's own hold
+      // below would otherwise keep the served rows FIRST_HOLD_MS more).
+      if (!servedPicksReady()) { releaseServedPicks(); _firstHold.done = true; }
       renderValue();
     }
   }, 250);
 }
+
+// The skeleton's own hold. A view the served rows aren't for (a story or
+// shared link, any query but tracking, a non-US or returning visitor: the
+// pre-paint script shows the skeleton) drew its rows as soon as the rates
+// were in, then again as popularity, the fares and the fare curves landed:
+// on the story link Thailand, Vietnam, Argentina became Egypt, Puerto Rico,
+// Vietnam within a second, Thailand's Flights went B+ to F, and a tap aimed
+// at #1 could open another country. The first draw over the skeleton now
+// waits for those — any answer from the curves, not a finished fill (only
+// the US is pre-warmed) — for at most FIRST_HOLD_MS from its first try,
+// re-checked every 250 ms. Only that first draw: what the visitor does to
+// the ranking ends the hold at once (endsFirstHold), and nothing after it is
+// held.
+// The same goes for the served rows when a change the visitor didn't make
+// takes them off (the geo seed's From on a first visit from DE): they stay
+// until that view's data is in, where they gave way at once and the rows
+// were redrawn as each piece landed (four orders in a second).
+const FIRST_HOLD_MS = 2500;
+const _firstHold = { t0: 0, done: false, tick: 0 };
+// The home currency's rates too: Affordability's FX part is neutral until
+// they land (a first visit from DE moved #5 when the EUR set came in).
+function firstPicksReady() {
+  const o = originIso();
+  return !!activities && popularitySettled && valueFlightsSettled && !!homeRatesNow()
+    && (!flightsData || !flightsData.configured
+        || !!(flightValue && flightValue.origin === o)
+        || !!(_fvAsk && _fvAsk.origin === o && _fvAsk.done));
+}
+function skeletonOnScreen() {
+  const h = $("topCards");
+  return !!(h && h.querySelector("table.skeleton:not([hidden])"));
+}
+// The skeleton, or served rows a change the visitor didn't make released.
+const firstPaintOnScreen = () => skeletonOnScreen() || servedOnScreen;
+function holdFirstPicks() {
+  const H = _firstHold;
+  if (H.done) return false;
+  // A redraw run from inside the visitor's own click, key or input (the Help
+  // me choose dialog, the map's country card) is theirs, wherever it is.
+  if (endsFirstHold(window.event, true)) { H.done = true; return false; }
+  if (servedPicks || !firstPaintOnScreen()) { H.done = true; return false; }
+  if (!H.t0) H.t0 = Date.now();
+  if (firstPicksReady() || Date.now() - H.t0 >= FIRST_HOLD_MS) { H.done = true; return false; }
+  if (!H.tick) H.tick = setInterval(() => {
+    if (!H.done && !firstPicksReady() && Date.now() - H.t0 < FIRST_HOLD_MS) return;
+    clearInterval(H.tick);
+    if (loaded.value && firstPaintOnScreen()) renderValue();
+  }, 250);
+  return true;
+}
+// What the visitor does to the ranking is drawn at once (their change's own
+// renderValue, else the tick above): a value they changed (input, change),
+// or a click, Enter or Space on a control in Top Picks. A tap on the
+// skeleton, a scroll key or a swipe re-ranks nothing and no longer ends it:
+// one tap aimed at the skeleton's #1 brought the three orders back.
+// inHandler: renderValue asking about the event it runs inside, where any
+// trusted input counts (a dialog's button lives outside Top Picks).
+const HOLD_CONTROL = "button, a[href], select, input, textarea, th.sortable, [role=button], [role=option], "
+  + "[role=tab], [role=checkbox], [role=radio], [role=switch], [role=slider]";
+const HOLD_INPUT = /^(click|dblclick|keydown|keyup|input|change|submit|pointerup|mouseup|touchend|popstate)$/;
+function endsFirstHold(e, inHandler) {
+  if (!e || !e.isTrusted || !HOLD_INPUT.test(e.type)) return false;
+  if (inHandler || e.type === "input" || e.type === "change") return true;
+  if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return false;
+  if (e.type !== "click" && e.type !== "keydown") return false;
+  const t = e.target && e.target.closest ? e.target.closest(HOLD_CONTROL) : null;
+  return !!(t && t.closest("#tab-value"));
+}
+for (const ev of ["click", "input", "change", "keydown"])
+  document.addEventListener(ev, (e) => { if (endsFirstHold(e)) _firstHold.done = true; }, true);
 
 function renderValue() {
   const region = regionSel;
@@ -8697,8 +8870,9 @@ function renderValue() {
   // Trip tab's month, a row with no month of its own).
   const flex = picksFlex();
   const win = flex ? flexWindow() : null;
-  // The served rows and note stay while held (holdServedPicks).
-  const held = holdServedPicks(flex, win || []);
+  // The served rows and note stay while held (holdServedPicks), and so does
+  // the skeleton on a first paint whose data is still coming (holdFirstPicks).
+  const held = holdServedPicks(flex, win || []) || holdFirstPicks();
   // win[0], not travelMonth(): that is the month of a row the reader opened
   // (flexFocusMonth), and the ranking is of the window, whichever row it was.
   const month = flex ? win[0] : travelMonth();
@@ -8835,10 +9009,14 @@ function renderValue() {
   // off-the-beaten-path. Both come from the safety-filtered, unvisited pool.
   const floor = safetyFloor();
   // "Somewhere new" (default) keeps your ✓ been countries out of the picks;
-  // interests narrow to countries matching any selected tag.
-  const showVisited = localStorage.getItem("wg_showvisited") === "1";
+  // interests narrow to countries matching any selected tag. "★ My
+  // want-to-go" ranks the wishlist alone, ✓ been or not, with every other
+  // filter still on, and no popular/hidden-gems split (it is your list).
+  const bm = beenMode(), wantMode = bm === "want";
+  const wantSet = wantMode ? wantRankable() : null;
+  const showVisited = bm !== "hide";
   const preBudget = rankedAll.filter((s) =>
-    (showVisited || !been.has(s.iso)) && passesFloor(s, floor) && matchesInterests(s.iso));
+    (wantMode ? wantSet.has(s.iso) : (showVisited || !been.has(s.iso))) && passesFloor(s, floor) && matchesInterests(s.iso));
   const eligible = preBudget.filter(passesBudget);
   // Counted so the note can say the filter did something. At a roomy budget it
   // drops nothing, and a control that silently changes nothing reads as broken.
@@ -8865,10 +9043,30 @@ function renderValue() {
     note.hidden = !bits.length;
     note.textContent = bits.join(" · ");
   }
-  const popular = eligible.filter((s) => popularSet.has(s.iso));
-  const offbeat = eligible.filter((s) => !popularSet.has(s.iso));
+  const popular = wantMode ? eligible : eligible.filter((s) => popularSet.has(s.iso));
+  const offbeat = wantMode ? [] : eligible.filter((s) => !popularSet.has(s.iso));
   // Fall back to the full list if no popular destinations match the filters.
   const picks = (popular.length ? popular : eligible).slice(0, pickCount());
+  // The ★ countries the want list can't show, each with its reason (one
+  // muted count in the note, the list in its tip), so none vanish silently:
+  // Level 4 or ungraded (no price level, no rating, not a country we grade),
+  // or set aside by a filter the reader can change.
+  let wantNote = "";
+  if (wantMode) {
+    const shown = new Set(eligible.map((s) => s.iso)), miss = [];
+    for (const iso of wantSet) {
+      if (shown.has(iso)) continue;
+      const s = scored[iso];
+      const why = s ? (!passesFloor(s, floor) ? "below your safety filter"
+                       : !matchesInterests(iso) ? "doesn't match your interests"
+                       : "its flight alone is over your budget")
+        : region !== "all" && ISO_REGION[iso] !== region ? "outside " + (REGIONS[region] || "this region")
+        : advMap[iso] === 4 ? "Level 4: Do Not Travel"
+        : notScoredReason(iso);
+      miss.push(countryName(iso) + ": " + why);
+    }
+    if (miss.length) wantNote = ` <span class="muted wantmiss" data-tip="${esc(miss.sort().join("\n"))}" title="">· ${miss.length} not ranked ⓘ</span>`;
+  }
   const picksNote = $("picksNote");
   initBudgetCur();
   const bud = budgetOf();
@@ -8892,13 +9090,19 @@ function renderValue() {
   // (the Been-to filter's own "Include visited", so it persists the same way).
   const beenNote = hiddenVisited
     ? ` <span class="beennote">${hiddenVisited} you've been to hidden · <button type="button" class="linkbtn" id="showBeen">show</button></span>` : "";
-  if (picksNote && !held) picksNote.innerHTML = (popular.length
-    ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
+  if (picksNote && !held) picksNote.innerHTML = wantMode
+    ? `★ Your want-to-go list, ranked by ${rankedBy}${wantNote}` + budNote
+    : (popular.length
+    ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""}<span class="morefinds"> — more finds under 💎 Hidden gems.</span>`
     : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + beenNote + budNote;
   // lastPicksMonth stays a real month (the Trip tab and the stays plan for
   // one); lastPicksFlex tells the exports to word "the next 6 months".
   lastPicks = picks; lastPicksMonth = month; lastPicksFlex = flex; lastPicksWx = weatherMode;   // for the share image + re-sort
   if (!held) renderGradeTable($("topCards"), picks, month, false, true);
+  // An empty ★ list (or one the filters empty) says where the stars come from.
+  if (!held && wantMode && !picks.length && $("topCards")) $("topCards").innerHTML = wantSet.size
+    ? "<p class='hint'>None of your ★ want-to-go countries match these filters.</p>"
+    : "<p class='hint'>Your ★ want-to-go list is empty. Star countries on your <button type='button' class='linkbtn' id='wantGo'>🗺️ Wander List</button>.</p>";
   // Pulse the picked countries on the map so table and map visibly agree.
   if (!reducedMotion()) {
     const pickSet = new Set(picks.map((s) => s.iso));
@@ -8923,6 +9127,9 @@ function renderValue() {
     gemsBox.hidden = !gems.length;
     if (gems.length) renderGradeTable($("gemRows"), gems, month, true, true, gemSort);
   }
+  // index.html's ★-list stand-in (data-vb: no gems fold, an empty list's
+  // hint) has done its job once rows are drawn; [hidden] decides from here.
+  if (!held) document.documentElement.removeAttribute("data-vb");
   // "Show more" reveals 10 then 20. When the popular list runs out before the
   // Show count (a region with most of its famous names marked ✓ been: two
   // rows under "Top 20"), the same button points at the gems instead — the
@@ -8931,8 +9138,11 @@ function renderValue() {
   const sm = $("showMore");
   if (sm) {
     const cap = pickCount();
-    const more = cap < 20 && picks.length >= cap;
-    const toGems = !more && popular.length > 0 && picks.length < cap && gems.length > 0;
+    // Only when there IS more: a ★ list of exactly five offered "Show top
+    // 10", which showed the same five and saved Top 10 for every view.
+    const pool = popular.length ? popular : eligible;
+    const more = cap < 20 && pool.length > picks.length;
+    const toGems = popular.length > 0 && pool.length <= picks.length && gems.length > 0;
     sm.hidden = !more && !toGems;
     sm.dataset.go = toGems ? "gems" : "";
     // The gems fold lists as many as the Show count, so "5 more" at Top 5
@@ -11199,6 +11409,15 @@ $("showMore").addEventListener("click", () => {
   renderValue();
 });
 
+// The empty ★ list's door: the Wander List on its ★ Want to go switch.
+$("topCards").addEventListener("click", (e) => {
+  if (!e.target.closest("#wantGo")) return;
+  activateTab("visited", true).then(() => {
+    const b = document.querySelector('#visitedMode button[data-vm="wishlist"]');
+    if (b && !b.classList.contains("active")) b.click();
+  });
+});
+
 // The picks note's "show" (beenNote): the Been-to filter's "Include visited",
 // through its own change handler so it is saved like a pick there.
 $("picksNote").addEventListener("click", (e) => {
@@ -11695,6 +11914,15 @@ function buildShareURL(forShare) {
     if (own && originIso() !== "US") q.set("vo", originIso());
     if (own && homeManual && homeBase !== homeCurAuto()) q.set("hc", homeBase);
     if (valueMapMode === "weather") q.set("vmm", "weather");
+    // The ★ list isn't in the link, so a recipient's vb=want ranked THEIR
+    // list, for most an empty one. Shares show the default ranking; the
+    // address bar keeps vb=want only for a visit a link opened it on (the
+    // saved choice comes back on a reload anyway), so a copied bar is safe.
+    if (!forShare && beenMode() === "want") {
+      let saved = false;
+      try { saved = localStorage.getItem("wg_showvisited") === "want"; } catch (e) {}
+      if (!saved) q.set("vb", "want");
+    }
     const p = loadPriorities();
     const compact = WEIGHT_DEFS.map((w) => p[w.key][0]).join(".");   // e.g. h.m.m.m.m
     if (compact !== WEIGHT_DEFS.map((w) => w.def[0]).join(".")) q.set("pri", compact);
@@ -11955,6 +12183,8 @@ async function postApplyShared() {
   }
   if (sharedQ.get("pc")) { $("pickCount").value = sharedQ.get("pc"); rerender = true; }
   if (["a", "b", "any"].includes(sharedQ.get("sf"))) { $("safeFloor").value = sharedQ.get("sf"); rerender = true; }
+  // The reader's OWN ★ list (wishlists aren't shared), for this visit.
+  if (sharedQ.get("vb") === "want" && $("beenFilter")) { $("beenFilter").value = "want"; rerender = true; }
   if (sharedQ.get("fac")) {
     const keys = sharedQ.get("fac").split(".").filter((k) => WEIGHT_DEFS.some((w) => w.key === k));
     if (keys.length) { factors = keys; sharedPrefsView = true; buildFactorChips(); rerender = true; }   // a view, as pri= is
@@ -12377,6 +12607,7 @@ function buildRankShareSVG() {
   const month = MONTHS[(lastPicksMonth || curMonth()) - 1];
   // "Any time": each pick was graded on its own best month, said on its line.
   const flexWin = lastPicksFlex ? flexWindow() : null;
+  const wantImg = beenMode() === "want";
   // A month the budget moved (s.budgetMoved) is the best one the budget
   // reaches: under USD 700 Thailand came in on October (85), and the image
   // called that its best month, where January scores 90. Said in place of
@@ -12433,12 +12664,14 @@ function buildRankShareSVG() {
     + '<text x="24" y="44" font-family="' + F + '" font-size="26" font-weight="800" fill="' + FG
     + '">' + esc2("Where to travel in " + (flexWin ? "the next 6 months" : month)) + "</text>"
     + '<text x="24" y="70" font-family="' + F + '" font-size="12.5" fill="' + MUTE
+    // The ★ want-to-go ranking (Been-to) says whose list it is, in the room
+    // its tail gives up (the line is near the image's width already).
     + '">' + esc2(flexWin
-      ? "Top " + picks.length + " by " + (lastPicksWx ? "weather" : "value") + " from " + originName
+      ? (wantImg ? "My ★ list: top " : "Top ") + picks.length + " by " + (lastPicksWx ? "weather" : "value") + " from " + originName
         + ", each on its " + (lastPicksWx ? "best-weather month" : "best month") + " of "
-        + flexSpan(flexWin) + (inBudget ? " within budget" : " — graded A+ to F")
-      : "Top " + picks.length + " by value from " + originName
-      + " — affordability, safety, weather and flights, graded A+ to F") + "</text>"
+        + flexSpan(flexWin) + (inBudget ? " within budget" : wantImg ? "" : " — graded A+ to F")
+      : (wantImg ? "My ★ list: top " : "Top ") + picks.length + " by value from " + originName
+      + (wantImg ? " — graded A+ to F" : " — affordability, safety, weather and flights, graded A+ to F")) + "</text>"
     + '<line x1="24" x2="' + (W - 24) + '" y1="' + (HEAD - 10) + '" y2="' + (HEAD - 10)
     + '" stroke="' + LINE + '" stroke-width="1"/>'
     + body
@@ -12740,6 +12973,9 @@ function openGuidedPicker() {
     // Land the user on the answer, not back at the top of the page.
     // The picks, not #valueRows: that always exists, inside the closed fold.
     const rows = $("topCards");
+    // Focus goes to the first answer, not back to the button (see the modal
+    // observer's _returnTo); the scroll below stays the fallback.
+    m._returnTo = () => { const t = $("topCards"); return t && t.querySelector("a.destlink"); };
     if (rows) rows.scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "center" });
   };
 }
@@ -13481,11 +13717,20 @@ function _placeTip(t) {
   _tipEl.style.top = top + "px";
 }
 
+// A tap into a tap-only combobox (a phone's month picker, enhanceSelect)
+// opens its list; the group's tip ("when you're going") popped up as well,
+// over Help me choose. The keyboard still gets it.
+const _tipTapCombo = (e) => !_kbdNav && !!(e.target.closest && e.target.closest(".combo-tap"));
 // A pointer or tap on the tip itself leaves it as it is.
-const _tipShowFor = (e) => { if (!_tipEl.contains(e.target)) _showTipFor(e.target.closest && e.target.closest("[data-tip]")); };
+const _tipShowFor = (e) => {
+  if (_tipEl.contains(e.target)) return;
+  if (_tipTapCombo(e)) { _hideTip(); return; }
+  _showTipFor(e.target.closest && e.target.closest("[data-tip]"));
+};
 document.addEventListener("mouseover", (e) => {
   _tipHovered = _tipEl.contains(e.target);
   if (_tipHovered) { clearTimeout(_tipHideT); return; }
+  if (_tipTapCombo(e)) return;
   const t = e.target.closest && e.target.closest("[data-tip]");
   if (!_tipEl.hidden && _tipFor && _tipFor.isConnected && t !== _tipFor && (!t || t.contains(_tipFor))) {
     clearTimeout(_tipHideT);
@@ -13577,10 +13822,16 @@ function _tipMarks() {
   }
 }
 _tipMarks();
+// One rescan per burst of changes, not one per change: a home load made 273
+// of them (~680 ms of main thread on a 4x-slowed phone), most for rows and
+// pills drawn a few ms apart. A mark drawn now is a Tab stop within
+// TIPMARK_BATCH_MS, long before anyone can Tab to it.
+const TIPMARK_BATCH_MS = 120;
+let _tipMarksT = 0;
 new MutationObserver((muts) => {
   // The tooltip's own text swaps on every hover; nothing to mark there.
   if (muts.every((m) => m.target === _tipEl)) return;
-  _tipMarks();
+  if (!_tipMarksT) _tipMarksT = setTimeout(() => { _tipMarksT = 0; _tipMarks(); }, TIPMARK_BATCH_MS);
 }).observe(document.body, { childList: true, subtree: true });
 // role=button answers Enter and Space: both (re)show the tip — after Escape,
 // say — and Space must not scroll the page out from under it.
@@ -13656,9 +13907,15 @@ new MutationObserver((muts) => {
       if (n.dataset.nofocus && !n._kbdIn) continue;
       // Only when focus went down with the modal — never yank it from
       // somewhere the visitor has since moved to.
+      // A modal whose answer is elsewhere on the page names it (_returnTo,
+      // asked now: the rows drawn since it closed are the ones to land on),
+      // and focus goes there without scrolling: Help me choose has already
+      // scrolled to its ranking, and focus back on its button, far above,
+      // snapped the page up again (Chrome on Android: 449 -> 56).
       const a = document.activeElement;
-      if (n._opener && n._opener.isConnected && (!a || a === document.body || n.contains(a)))
-        n._opener.focus({ preventScroll: !!n.dataset.nofocus });
+      const back = (n._returnTo && n._returnTo()) || n._opener;
+      if (back && back.isConnected && (!a || a === document.body || n.contains(a)))
+        back.focus({ preventScroll: !!n.dataset.nofocus || !!n._returnTo });
     }
   }
 }).observe(document.body, { childList: true });

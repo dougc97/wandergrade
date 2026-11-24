@@ -408,7 +408,7 @@ def note(win, popular_found, data_backed):
     """renderValue's picksNote for the view (no budget, nothing hidden)."""
     ranked_by = "each one's best month in " + flex_span(win)
     if popular_found:
-        return ("🌍 Popular destinations, ranked by %s%s — more finds under 💎 Hidden gems."
+        return ('🌍 Popular destinations, ranked by %s%s<span class="morefinds"> — more finds under 💎 Hidden gems.</span>'
                 % (ranked_by, ' <span class="muted">ⓘ</span>' if data_backed else ""))
     return "Ranked by %s — no mainstream destinations match these filters, so showing everything." % ranked_by
 
