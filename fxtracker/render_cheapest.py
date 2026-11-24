@@ -252,6 +252,12 @@ def _and(names):
     return ("%s and %s" % (", ".join(names[:-1]), names[-1])) if len(names) > 1 else "".join(names)
 
 
+def _guide_link(iso):
+    """The country's name linked to its guide (plain text without one)."""
+    nm = html.escape(RL._name(iso))
+    return '<a href="/guide/%s">%s</a>' % (RL._slug(iso), nm) if RL._slug(iso) else nm
+
+
 def _excluded(gaps=(), when="this month"):
     """The one line on what the rule leaves out. `gaps`: the guide countries
     missing from the State Department's feed that would otherwise qualify
@@ -264,8 +270,7 @@ def _excluded(gaps=(), when="this month"):
                "rates %s, and %s otherwise %s the rule." % (_plural(len(gaps), "it", "them"),
                                                             _plural(len(gaps), "it", "they"),
                                                             "meets" if one else "meet"))
-        names = [('<a href="/guide/%s">%s</a>' % (RL._slug(i), html.escape(RL._name(i))))
-                 if RL._slug(i) else html.escape(RL._name(i)) for i in gaps]
+        names = [_guide_link(i) for i in gaps]
         line += ' (<span title="%s">%s: %s</span>)' % (html.escape(tip, quote=True), when, _and(names))
     return line + "."
 
@@ -465,7 +470,9 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
     trs = []
     for m in month_order(today_d):
         p = out[path_for(m)]
-        names = ", ".join(html.escape(RL._name(i)) for i in p["isos"][:HUB_TOP]) or "—"
+        # Each name links to its guide, as a month's rows do (a row is only
+        # ever a guide country, so every one has a slug).
+        names = ", ".join(_guide_link(i) for i in p["isos"][:HUB_TOP]) or "—"
         trs.append('<tr><td class="name" data-l="Month"><a href="%s">%s %d</a></td>%s%s</tr>'
                    % (p["path"], rg.MON_FULL[m - 1], p["year"],
                       RL._cell("Countries", str(p["counts"]["rows"]) if have else "—"),

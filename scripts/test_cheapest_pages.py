@@ -388,6 +388,15 @@ results.append(ok(all(RC.path_for(m) in hub.hrefs for m in range(1, 13)) and "Oc
                   "the hub: a row per month with its link, year and count"))
 results.append(ok(all(rg.name_for_iso(i) in P["/cheapest"]["html"] for i in P["/cheapest/november"]["isos"][:3]),
                   "the hub names each month's top three"))
+_top_cells = re.findall(r'data-l="Top three"><span class="v">(.*?)</span></td>', P["/cheapest"]["html"])
+_top_ok = len(_top_cells) == 12
+for m, cell in zip(RC.month_order(TODAY), _top_cells):
+    want = ", ".join('<a href="/guide/%s">%s</a>' % (RL._slug(i), html.escape(rg.name_for_iso(i)))
+                     for i in P[RC.path_for(m)]["isos"][:3]) or "—"
+    _top_ok = _top_ok and cell == want
+results.append(ok(_top_ok and all(RL._slug(i) for m in range(1, 13) for i in P[RC.path_for(m)]["isos"][:3]),
+                  "the hub's top three each link to their guide, in the month's order (item 36): %s"
+                  % (_top_cells[:1],)))
 results.append(ok(all("at or under 50% of the US" in p["html"] and "weather score of 70+" in p["html"]
                       and "US State Department Level 1 or 2" in p["html"] for p in P.values())
                   and all("Left out: US Level 3 and 4" in p["html"] for p in P.values()),
