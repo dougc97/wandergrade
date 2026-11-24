@@ -15,9 +15,12 @@ What it holds the code to:
   * the caption: "Measured at {at}, Open-Meteo {window}; fares as of {date}",
     and "one representative point in the country" where climate.json names
     no place, never a guessed city;
-  * where the reanalysis reads rain far over the place's own records
-    (build_climate.RAIN_REF: Paro, Quito) no Rain column, and the caption
-    says "Temperatures measured at"; every other table keeps its rain;
+  * every table has its Rain column; where the rain is a weather station's
+    (build_climate.STATION_RAIN, climate.json "rain_src": Paro, Quito and 25
+    more whose reanalysis rain was over 1.5 times off) the caption says
+    "Temperatures measured at {at}, Open-Meteo {window}; rain: {rain_src}",
+    and a station that doesn't count days at 1 mm (rain_days None) shows
+    millimetres only, its column title without the days;
   * the fare column ("Fare from the US", price and Low/Typical/High): only
     with the country's typical range (median, i.e. MIN_MONTHS months),
     never on the UK-market guides (CV IM GG LT) or where no bookings are
@@ -182,25 +185,40 @@ results.append(ok(at.get("AU") == "Sydney" and at.get("CL") == "Santiago" and at
                   "each caption names climate.json's place or none: AU %s, CL %s, GL %s, PT %s"
                   % (at.get("AU"), at.get("CL"), at.get("GL"), at.get("PT"))))
 
-# Rain the reanalysis reads far over the place's own records (build_climate.RAIN_REF:
-# Paro about four times, Quito 2.5): the column is left out, the caption says the
-# temperatures are measured there, the scores stay; every other table keeps its rain.
+# Rain from a weather station (build_climate.STATION_RAIN: the reanalysis read it over
+# 1.5 times off): the caption names the station, the column stays, days only where the
+# station counts them at 1 mm; every table has its rain.
 from fxtracker import build_climate  # noqa: E402
-no_rain = {}
-for i in ("BT", "EC"):
+st = {}
+for i in ("BT", "HR", "EC"):
     tt = rg.month_table(i, FV, DAY)
-    no_rain[i] = (cells(rows_of(tt)[0][1]), re.search(r"<caption>(.*?)</caption>", tt).group(1),
-                  cells(rows_of(tt)[4][1]))
-doubtful = sorted(i for i in GUIDES if build_climate.rain_doubtful(i, REAL_CLIM.get(i) or {}))
-kept = [i for i in GUIDES if rg.month_table(i) and i not in doubtful and ">Rain</th>" not in rg.month_table(i)]
-results.append(ok(doubtful == ["BT", "EC"] and not kept
-                  and all("Rain" not in h and h[:2] == ["Month", "Avg temp"] and "Weather score" in h
-                          and " mm" not in "".join(apr) and apr[2].isdigit() for h, _c, apr in no_rain.values())
-                  and no_rain["BT"][1] == "Temperatures measured at Paro, Open-Meteo 2021–2025"
-                  and no_rain["EC"][1].startswith("Temperatures measured at Quito, Open-Meteo"),
-                  "rain far over the records (Paro, Quito): no Rain column, \"Temperatures measured at\", the "
-                  "scores kept; every other table keeps its rain: %s %s"
-                  % ({i: (v[0], v[1], v[2][:3]) for i, v in no_rain.items()}, kept[:5] or "")))
+    st[i] = (cells(rows_of(tt)[0][1]), re.search(r"<caption>(.*?)</caption>", tt).group(1),
+             cells(rows_of(tt)[5][1]), re.search(r'<th scope="col" title="([^"]*)">Rain</th>', tt).group(1))
+station_rows = sorted(i for i in GUIDES if REAL_CLIM.get(i, {}).get("rain_src"))
+no_rain_col = [i for i in GUIDES if rg.month_table(i) and ">Rain</th>" not in rg.month_table(i)]
+bt_may = (REAL_CLIM["BT"]["rain_mm"][4], REAL_CLIM["BT"]["rain_days"][4])
+results.append(ok(station_rows == sorted(build_climate.STATION_RAIN) and not no_rain_col
+                  and st["BT"][1] == "Temperatures measured at Paro, Open-Meteo 2021–2025; rain: Paro station normals 1996–2017"
+                  and st["BT"][2][2] == "%d mm · %d days" % bt_may
+                  and st["BT"][3] == "Monthly total, and the days with more than 1 mm"
+                  and REAL_CLIM["HR"]["rain_days"] is None and st["HR"][2][2] == "%d mm" % REAL_CLIM["HR"]["rain_mm"][4]
+                  and st["HR"][3] == "Monthly total"
+                  and st["HR"][1] == "Temperatures measured at Split, Open-Meteo 2021–2025; rain: Split station normals 1991–2020"
+                  and st["EC"][1].startswith("Temperatures measured at Quito, Open-Meteo 2021–2025; rain: Quito station")
+                  and all(h[:3] == ["Month", "Avg temp", "Rain"] for h, _c, _r, _t in st.values()),
+                  "station rain (%d guides): the caption names it, the Rain column stays, days only where the station "
+                  "counts them at 1 mm; every table has rain: %s" % (len(station_rows), {i: (v[1], v[2][2]) for i, v in st.items()})))
+CLIM["AU"] = dict(FIX, rain_days=None, rain_src="Sydney station normals 1991–2020")
+t3 = rg.month_table("AU", FV, DAY)
+results.append(ok(cells(rows_of(t3)[1][1])[2] == "133 mm" and "Monthly total\">Rain" in t3
+                  and re.search(r"<caption>(.*?)</caption>", t3).group(1)
+                  == "Temperatures measured at Sydney, Open-Meteo 2021–2025; rain: Sydney station normals 1991–2020; "
+                     "fares as of 28 Oct 2026"
+                  and rg.month_table("AU", FV, DAY) and not rg.month_table("AU", FV, DAY).count(" days<"),
+                  "a station row without days: \"133 mm\" cells, the caption's rain source before the fare date"))
+CLIM["AU"] = dict(FIX, rain_days=FIX["rain_days"][:11] + [None])
+results.append(ok(rg.month_table("AU", FV, DAY) == "", "a month's rain days missing (but not all of them): no table"))
+CLIM["AU"] = REAL_CLIM["AU"]
 
 # --- the page -----------------------------------------------------------------------------
 real_fv = server._guide_fv

@@ -17,13 +17,16 @@ every guide, item 19):
     Livingstone, which it draws inside Zimbabwe),
     so a typo'd coordinate can't sample the sea or a neighbour;
   * every month-table row carries its point's elevation ("elev"), and every
-    row the build warns about (above HIGH_M, best month under LOW_BEST, or
-    rain over RAIN_REF_MAX times the place's own records, RAIN_REF: Paro and
-    Quito) is in REVIEWED with why it stands — and REVIEWED lists nothing else;
+    row the build warns about (above HIGH_M or best month under LOW_BEST) is
+    in REVIEWED with why it stands — and REVIEWED lists nothing else; no row
+    warns about its rain (over RAIN_RATIO from the station's either way, or
+    not the station's where STATION_RAIN gives one: those are fixed in
+    STATION_RAIN, never excused, so no REVIEWED reason speaks of rain; the
+    station table itself is scripts/test_station_rain.py's);
   * the points the review measured as wrong now read like the places
     visitors go: the Dominican Republic's January is beach-warm, not 18°C;
     Switzerland's July isn't 13°C; Timor-Leste is Dili-hot; Bhutan's best
-    month is near 60, not 35;
+    month, with Paro's own rain (2026-11-24), scores over 80, not 35 or 59;
   * the 2026-07 points re-judged by the same rule (review of batch B,
     2026-11-24): Indonesia at Bali, not Jakarta; Fiji at Nadi, not wet Suva;
     Croatia on the Dalmatian coast (Split), not Zagreb; Mexico at Cancún and
@@ -47,9 +50,12 @@ FEATS = {f["properties"]["iso"]: f for f in WORLD["features"] if f["properties"]
 
 
 def table_eligible(row):
-    """render_guide.month_table's data rule."""
-    cols = [row.get(k) or [] for k in ("scores", "temps", "rain_mm", "rain_days")]
-    return all(len(x) == 12 and None not in x for x in cols) and len(set(cols[0])) >= 2
+    """render_guide.month_table's data rule (rain days may be absent: a
+    station's rain without comparable days)."""
+    cols = [row.get(k) or [] for k in ("scores", "temps", "rain_mm")]
+    days = row.get("rain_days")
+    return (all(len(x) == 12 and None not in x for x in cols) and len(set(cols[0])) >= 2
+            and (days is None or (len(days) == 12 and None not in days)))
 
 
 ELIGIBLE = sorted(iso for iso, r in CLIM.items() if table_eligible(r))
@@ -108,19 +114,24 @@ results.append(ok(bc.point_warnings({"elev": 801, "scores": [59] * 12}) == [
     "point at 801 m (over 800 m)", "best month scores 59 (under 60)"]
     and bc.point_warnings({"elev": 800, "scores": [60] + [0] * 11}) == [],
     "point_warnings: over 800 m and under 60 warn, 800 m and 60 don't"))
-# Rain far over the place's own records (review of batch B, 2026-11-24: Paro 2,897 mm
-# against about 700, Quito 2,483 against about 1,000) warns, and REVIEWED says so.
-rain_warned = sorted(i for i in ELIGIBLE if any(w.startswith("rain ") for w in bc.point_warnings(CLIM[i], i)))
-results.append(ok(rain_warned == ["BT", "EC"] and set(bc.RAIN_REF) == {"BT", "EC"}
-                  and all(bc.RAIN_REF[i][1] and "RAIN_REF" in bc.REVIEWED[i] and "month table" in bc.REVIEWED[i]
-                          for i in rain_warned)
-                  and bc.point_warnings({"rain_mm": [116] * 12}, "BT") == []
-                  and bc.point_warnings({"rain_mm": [117] * 12}, "BT") == [
-                      "rain 1404 mm a year (over 2 times the 700 mm on record)"]
-                  and bc.point_warnings({"rain_mm": [400] * 12}, "FR") == []
-                  and bc.point_warnings({"rain_mm": [400] * 12}) == [],
-                  "rain over %g times the place's own total warns (Paro %d mm, Quito %d mm; 1,404 mm against "
-                  "700 does, 1,392 doesn't), with REVIEWED's why; no reference, no rain warning" % (bc.RAIN_REF_MAX, sum(CLIM["BT"]["rain_mm"]), sum(CLIM["EC"]["rain_mm"]))))
+# Rain against the places' own records (2026-11-24): no row warns about it, a row
+# that stops matching its station would, and REVIEWED never excuses rain.
+rain_warned = sorted(i for i in ELIGIBLE if any(w.startswith("rain") for w in bc.point_warnings(CLIM[i], i)))
+fake_bt = dict(CLIM["BT"]); fake_bt.pop("rain_src")
+fr2 = dict(CLIM["FR"], rain_mm=[round(bc.RAIN_REF["FR"][0] * 1.6 / 12)] * 12)
+fr1 = dict(CLIM["FR"], rain_mm=[round(bc.RAIN_REF["FR"][0] * 1.45 / 12)] * 12)
+gone = dict(CLIM["FR"], rain_src="Paris station normals 1991–2020")
+results.append(ok(not rain_warned
+                  and any("STATION_RAIN" in w for w in bc.point_warnings(fake_bt, "BT"))
+                  and any(w.startswith("rain %d mm a year, 1.6" % sum(fr2["rain_mm"])) for w in bc.point_warnings(fr2, "FR"))
+                  and not bc.point_warnings(fr1, "FR")
+                  and any("no longer lists" in w for w in bc.point_warnings(gone, "FR"))
+                  and bc.point_warnings({"rain_mm": [400] * 12}) == []
+                  and not [i for i, w in bc.REVIEWED.items() if "rain" in w.lower()]
+                  and not hasattr(bc, "rain_doubtful"),
+                  "no month-table row's rain is over %g times from its station's (%s); Paro without its station rain "
+                  "warns, Paris at 1.6 times its record warns and at 1.45 doesn't, a station source STATION_RAIN "
+                  "dropped warns; no REVIEWED reason excuses rain" % (bc.RAIN_RATIO, rain_warned or "none")))
 
 # The readings the review called out (2026-11-23), now from the named places.
 c = CLIM
@@ -131,9 +142,11 @@ results.append(ok(c["CH"]["temps"][6] >= 17, "Switzerland: July %d°C at %s (was
                   % (c["CH"]["temps"][6], c["CH"]["at"])))
 results.append(ok(min(c["TL"]["temps"]) >= 24, "Timor-Leste: coolest month %d°C at %s (was 18°C)"
                   % (min(c["TL"]["temps"]), c["TL"]["at"])))
-results.append(ok(max(c["BT"]["scores"]) >= 55 and c["BT"]["best"] == [9, 10, 11] and "BT" in bc.REVIEWED,
-                  "Bhutan: best month scores %d at %s (was 35), Sep-Nov best, its warning reviewed"
-                  % (max(c["BT"]["scores"]), c["BT"]["at"])))
+results.append(ok(max(c["BT"]["scores"]) >= 80 and c["BT"]["rain_src"].startswith("Paro station")
+                  and "BT" in bc.REVIEWED and not any(w.startswith("best") for w in bc.point_warnings(c["BT"], "BT")),
+                  "Bhutan: best month scores %d at %s with Paro's own rain (was 35 at the old point, 59 with the "
+                  "reanalysis rain), best %s; only its height warns" % (max(c["BT"]["scores"]), c["BT"]["at"],
+                                                                       c["BT"]["best"])))
 results.append(ok(max(c["TW"]["temps"]) >= 28 and c["SE"]["temps"][0] > -5,
                   "Taipei summers reach %d°C; Stockholm's January is %d°C (was −7°C)"
                   % (max(c["TW"]["temps"]), c["SE"]["temps"][0])))

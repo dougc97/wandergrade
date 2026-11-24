@@ -12,7 +12,8 @@ Every number on it is read from the code that grades, never typed here:
   * the price words:       guide_facts.band, probed at every whole percent
   * Safety:                picks.SAFE_GRADE / SAFE_SCORE
   * Weather:               build_climate.COMFORT_* / *_PTS_* and comfort()
-                           (the example is its output), WINDOW_YEARS, CURATED
+                           (the example is its output), WINDOW_YEARS, CURATED,
+                           and the count of STATION_RAIN places in Sources
   * Flights:               picks.FLY_TYPICAL / FLY_SLOPE
   * refresh intervals:     passed in by server.py (its CACHE_TTL, ADV_TTL,
                            FLIGHTS_TTL, PPP_TTL), so a changed TTL changes the page
@@ -255,9 +256,11 @@ def page(ttls=None):
              "Taiwan's from the IMF), checked %s.</li>"
              "<li>Advisories: US State Department, Global Affairs Canada, German Foreign Office, "
              "checked %s.</li>"
-             "<li>Weather: Open-Meteo's historical archive, rebuilt by hand, not live.</li>"
+             "<li>Weather: Open-Meteo's historical archive, rebuilt by hand, not live. For %d places where "
+             "its rain is far off, the nearest weather station's long-run averages.</li>"
              "<li>Fares: Aviasales through Travelpayouts, refreshed %s.</li>"
-             "</ul>" % (_every(ttl["rates"]), _every(ttl["ppp"]), _every(ttl["adv"]), _every(ttl["flights"]))),
+             "</ul>" % (_every(ttl["rates"]), _every(ttl["ppp"]), _every(ttl["adv"]), len(b.STATION_RAIN),
+                        _every(ttl["flights"]))),
 
         _sec("limits", "Known limits",
              "<ul>"
