@@ -3296,9 +3296,9 @@ function visitorFee(iso) {
 // cheap lists do (render_lists, render_cheapest), while their grades stand
 // (the guide, the map, the Data tab, with the fee in pppNotes' ⚠️): US$100 a
 // night on top of a 23% price level is no bargain to rank on, and
-// /how-grades-work says such a country "isn't ranked". Known before visa.json loads (the homepage never
-// fetches it); picks.fee_isos reads the file, and scripts/test_home_picks.py
-// holds the two equal.
+// /how-grades-work says such a country "isn't ranked". Known before visa.json
+// loads (the homepage never fetches it); picks.fee_isos reads the file, and
+// scripts/test_home_picks.py holds the two equal.
 const FEE_ISOS = new Set(["BT"]);
 function feeShort(f) {
   return "+ $" + Number(f.usd).toLocaleString("en-US") + "/" + (f.per || "day") + " fee";
@@ -8715,8 +8715,9 @@ function seasonStrip(iso, month) {
   const scarce = good > 0 && good <= 4;
   // Names the months the guide sentence and the "🗓️ Best in" tag name
   // (climate.best: hand-curated for build_climate.CURATED's countries, top
-  // weather months for the rest). The bright cells are weather alone; a "Best: May–Aug" beside a
-  // curated "Best in Apr, May, Sep, Oct" read as the site contradicting itself.
+  // weather months for the rest). The bright cells are weather alone; a
+  // "Best: May–Aug" beside a curated "Best in Apr, May, Sep, Oct" read as the
+  // site contradicting itself.
   const bestM = (cl.best || []).filter((m) => m >= 1 && m <= 12);
   const best = bestM.map((m) => MON_ABBR[m - 1]);
   // The scarcity count is the bright (peak) cells. When those aren't the best

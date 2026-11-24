@@ -633,10 +633,10 @@ STATION_RAIN = {
     # Western Sahara sits on the line: the 1.5x test used the climate box's
     # yearly total, 30.8 mm (1.53x); its rounded months add up to 32 mm,
     # 1.47x, which is what rain_reference() checks against now. Isle of Man
-    # (1.51x) is close too, and its station (Ronaldsway) is drier than
-    # Douglas. Both kept on station rain, which moves little: Western
-    # Sahara's best score stays 100 (best months Jan-Mar -> Feb-Apr), the
-    # Isle of Man's best goes 71 -> 77.
+    # (1.51x) is close too, and its station (Ronaldsway) is likely a little
+    # drier than Douglas. Both kept on station rain, which moves little:
+    # Western Sahara's best score stays 100 (best months Jan-Mar -> Feb-Apr),
+    # the Isle of Man's best goes 71 -> 77.
     "EH": dict(
         station="Dakhla", period="1991–2020",
         where="Dakhla",
