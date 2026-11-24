@@ -347,6 +347,27 @@ def _plural(n, one, many):
     return one if n == 1 else many
 
 
+def fee_mark(iso):
+    """A mandatory daily visitor fee beside a row's price (render_guide
+    visitor_fee: Bhutan's), the fee in full in its tooltip, or ''."""
+    fee = rg.visitor_fee(iso)
+    if not fee:
+        return ""
+    return ' <span class="fee" title="%s">%s</span>' % (html.escape(rg.fee_tip(fee), quote=True),
+                                                       html.escape(rg.fee_short(fee)))
+
+
+def fee_left_out(isos, pct_of, when=""):
+    """The line naming the countries the "no mandatory daily visitor fee"
+    rule keeps off a list they otherwise make, each with its price and fee
+    (`pct_of`: ISO -> the whole percent the page prints), or ''."""
+    if not isos:
+        return ""
+    return ('<p class="sub feeout">Left out for a mandatory daily visitor fee%s: %s.</p>'
+            % (when, ", ".join("%s (%d%%%s)" % (_country(iso, _name(iso)), pct_of(iso), fee_mark(iso))
+                               for iso in isos)))
+
+
 def _fx_cell(real, iso=None, ppp=None):
     """The Dollar vs 1-yr avg cell: app.js signedPct's figure (a true minus,
     "0.0%" unsigned), ‡-marked when the country has no inflation figure."""
@@ -361,10 +382,13 @@ def _fx_cell(real, iso=None, ppp=None):
     return txt
 
 
-def safe_rows(us, facts):
-    """[(pct, iso)] for the rule: the US's own Level 1 and pct <= SAFE_PCT, by
-    price. Only guides (the facts document's entries), never a subdivision
-    (England, Scotland and Wales carry the UK's figures and aren't countries)."""
+def safe_rows(us, facts, fee=False):
+    """[(pct, iso)] for the rule: the US's own Level 1, pct <= SAFE_PCT and no
+    mandatory daily visitor fee (render_guide.visitor_fee: Bhutan's US$100 a
+    night is no part of its 21%), by price. Only guides (the facts
+    document's entries), never a subdivision (England, Scotland and Wales
+    carry the UK's figures and aren't countries). fee=True: instead the
+    countries the fee alone keeps off."""
     rows = []
     for iso, f in (facts or {}).items():
         if iso.startswith("_") or "-" in iso or not isinstance(f, dict):
@@ -373,20 +397,23 @@ def safe_rows(us, facts):
         it = us.get(iso)
         if pct is None or not it or it["level"] != SAFE_US_LEVEL or pct > SAFE_PCT:
             continue
+        if bool(rg.visitor_fee(iso)) != fee:
+            continue
         rows.append((pct, iso))
     return sorted(rows, key=lambda r: (r[0], _name(r[1])))
 
 
 def near_rows(us, facts):
-    """[(pct, iso)]: US Level 2 and prices under NEAR_PCT — the cheap places
-    one government's "increased caution" keeps off the list above."""
+    """[(pct, iso)]: US Level 2 and prices under NEAR_PCT, no mandatory daily
+    visitor fee — the cheap places one government's "increased caution"
+    keeps off the list above."""
     rows = []
     for iso, f in (facts or {}).items():
         if iso.startswith("_") or "-" in iso or not isinstance(f, dict):
             continue
         pct = f.get("pct")
         it = us.get(iso)
-        if pct is None or not it or it["level"] != 2 or pct >= NEAR_PCT:
+        if pct is None or not it or it["level"] != 2 or pct >= NEAR_PCT or rg.visitor_fee(iso):
             continue
         rows.append((pct, iso))
     return sorted(rows, key=lambda r: (r[0], _name(r[1])))
@@ -424,6 +451,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
     hc = (health or {}).get("c") or {}
 
     rows = safe_rows(us_own, facts)
+    fee_out = [iso for _p, iso in safe_rows(us_own, facts, fee=True)]
     agree = [iso for _p, iso in rows
              if (ca_own.get(iso) or {}).get("level") == LOWEST["ca"]
              and (de_own.get(iso) or {}).get("level") == LOWEST["de"]]
@@ -449,6 +477,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
             # The space is for the text alone ("21% very cheap" copied or
             # crawled); the CSS draws a dot on phones and a new line from 900px.
             pct_txt += ' <span class="band">%s</span>' % html.escape(band)
+        pct_txt += fee_mark(iso)
         # The rank rides in the name on a phone, where the # column is hidden (as /cheapest's).
         cells = ['<td class="name" data-l="Country"><span class="rk">%d.</span> %s%s</td>'
                  % (n, _country(iso, _name(iso)), mark), _cell("Prices vs US", pct_txt)]
@@ -500,11 +529,12 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
     else:
         also = ("<strong>%d</strong> of them %s also at the lowest level for Canada and Germany"
                 % (len(agree), _plural(len(agree), "is", "are")))
-    lede = ("The rule: <strong>US State Department Level %d</strong> (“exercise normal precautions”) "
-            "and <strong>local prices at or under %d%% of the US</strong>. <strong>%d</strong> %s "
-            "today, cheapest first; %s." % (SAFE_US_LEVEL, SAFE_PCT, len(rows),
-                                            _plural(len(rows), "country qualifies", "countries qualify"), also))
-    body = table
+    lede = ("The rule: <strong>US State Department Level %d</strong> (“exercise normal precautions”), "
+            "<strong>local prices at or under %d%% of the US</strong> and <strong>no mandatory daily visitor "
+            "fee</strong>. <strong>%d</strong> %s today, cheapest first; %s."
+            % (SAFE_US_LEVEL, SAFE_PCT, len(rows), _plural(len(rows), "country qualifies", "countries qualify"),
+               also))
+    body = table + fee_left_out(fee_out, lambda iso: facts[iso]["pct"])
     body += ('<h2>Nearly made it: cheap, but US Level 2</h2>'
              '<p class="sub"><strong>%d</strong> %s under %d%% of US prices where the State Department '
              "says “exercise increased caution”, with its reasons.</p>%s"
@@ -547,7 +577,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
         # crawler keeps its last good copy (server.py, review #4).
         "available": own["us"] is not None,
         "counts": {"safe": len(rows), "agree": len(agree), "near": len(near)},
-        "isos": {"safe": [i for _p, i in rows], "agree": agree, "near": [i for _p, i in near]},
+        "isos": {"safe": [i for _p, i in rows], "agree": agree, "near": [i for _p, i in near], "fee": fee_out},
     }
 
 

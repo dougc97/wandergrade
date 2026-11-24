@@ -24,6 +24,8 @@ The rule, stated once here and printed on every page from these constants:
   * local prices at or under MAX_PCT % of the US, the whole-percent figure
     the page prints;
   * a weather score of MIN_WX or more that month (public/climate.json);
+  * no mandatory daily visitor fee (render_guide.visitor_fee: Bhutan's
+    US$100 a night, which no price level carries);
   * a country with a guide, never a subdivision; unrated is out (_score).
 
 A page whose inputs are incomplete still renders, says what is missing and
@@ -211,14 +213,25 @@ def why_out(iso, s, ctx):
 
 
 def _rest_out(iso, s, ctx):
-    """The rule past the US level: anyone's do not travel, price, weather."""
+    """The rule past the US level: anyone's do not travel, price, weather,
+    then a mandatory daily visitor fee."""
     if advisories.dnt_for(iso, ctx["own"], ADV_PARENT):
         return "do not travel"
     if pct_of(s) > MAX_PCT:
         return "price"
     if s.get("wx") is None or s["wx"] < MIN_WX:
         return "weather"
+    if rg.visitor_fee(iso):
+        return "fee"
     return None
+
+
+def fee_out(ctx, month, scored=None):
+    """Guide countries that meet the month's rule but for a mandatory daily
+    visitor fee, named on the page beside their fee. ISO codes, by name."""
+    scored = score_all(ctx, month) if scored is None else scored
+    out = [iso for iso, s in scored.items() if why_out(iso, s, ctx) == "fee"]
+    return sorted(out, key=RL._name)
 
 
 def feed_gaps(ctx, month, scored=None):
@@ -302,8 +315,8 @@ def fare_of(ctx, iso, month, today):
 
 def _rule_html(month_name=None):
     return ("<strong>US State Department Level %d or %d</strong>, no “do not travel” from the US, Canada "
-            "or Germany, <strong>local prices at or under %d%% of the US</strong> and a <strong>weather "
-            "score of %d+</strong>%s"
+            "or Germany, <strong>local prices at or under %d%% of the US</strong>, a <strong>weather "
+            "score of %d+</strong>%s and <strong>no mandatory daily visitor fee</strong>"
             % (US_LEVELS[0], US_LEVELS[1], MAX_PCT, MIN_WX, (" in %s" % month_name) if month_name else " that month"))
 
 
@@ -325,7 +338,8 @@ def _excluded(gaps=(), when="this month"):
     missing from the State Department's feed that would otherwise qualify
     (feed_gaps), named so the reason given is theirs."""
     line = ("Left out: US Level 3 and 4, any country the US, Canada or Germany says not to travel to, "
-            "and countries missing from the State Department's feed")
+            "countries with a mandatory daily visitor fee, and countries missing from the State Department's "
+            "feed")
     if gaps:
         one = len(gaps) == 1
         tip = ("Not in the State Department's feed, so there is no US level to go by. Canada or Germany "
@@ -447,6 +461,7 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
     scored = {m: score_all(ctx, m, score) for m in range(1, 13)}
     ranked = {m: rank_month(ctx, m, scored=scored[m]) for m in range(1, 13)}
     gaps = {m: (feed_gaps(ctx, m, scored[m]) if have else []) for m in range(1, 13)}
+    fees = {m: (fee_out(ctx, m, scored[m]) if have else []) for m in range(1, 13)}
     alt = RL.alt_marked(pl_alt)
     us_items = ctx["items"].get("us") or {}
     fare_note = ("* Fares are cached searches, not live prices, and many months have none. Where a month "
@@ -473,6 +488,7 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
             if iso in alt:
                 alt_used = True
                 pct += '<sup class="fn">†</sup>'
+            pct += RL.fee_mark(iso)
             cells = [
                 '<td class="num" data-l="#">%d</td>' % (i + 1),
                 '<td class="name" data-l="Country"><span class="rk">%d.</span> %s</td>'
@@ -503,6 +519,8 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
         else:
             lede = "The rule: %s. %s" % (_rule_html(name), unavailable)
         body = nav + table
+        if fees[m]:
+            body += RL.fee_left_out(fees[m], lambda iso, m=m: pct_of(scored[m][iso]))
         body += ('<p class="xlink">See also: <a href="/safe-and-cheap">the safest cheap countries, any '
                  'month</a> · <a href="/?vmn=%d&amp;vo=US">%s in Top Picks</a> · '
                  '<a href="/do-not-travel">the Do Not Travel list</a>.</p>' % (m, name))
@@ -534,7 +552,7 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
             "title": title, "desc": desc, "h1": h1,
             "html": _wrap(html.escape(h1), lede, body, page_notes, sources),
             "lastmod": lastmod, "degraded": degraded,
-            "counts": {"rows": len(rows)}, "isos": [s["iso"] for s in rows], "gaps": gaps[m],
+            "counts": {"rows": len(rows)}, "isos": [s["iso"] for s in rows], "gaps": gaps[m], "fee": fees[m],
             "available": have,
         }
 

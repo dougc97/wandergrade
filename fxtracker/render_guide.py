@@ -460,6 +460,37 @@ def _cost_line(iso, f, asof):
     return "Local prices ≈ %d%% of the US (%s)" % (f["pct"], tag)
 
 
+def visitor_fee(iso):
+    """The mandatory daily fee every visitor pays (visa.json's "fee": Bhutan's
+    Sustainable Development Fee) as {usd, per, name, until, note}, or None.
+    Not in the price level, which prices what residents pay: said beside it
+    on the guide and the list rows, and it keeps a country off the lists'
+    rules (render_lists.SAFE rule, render_cheapest)."""
+    v = _load()["visa"].get(iso) or {}
+    f = v.get("fee") if isinstance(v, dict) else None
+    return f if isinstance(f, dict) and isinstance(f.get("usd"), (int, float)) and f["usd"] > 0 else None
+
+
+def fee_short(fee):
+    """'+ $100/night fee': the fee beside a price, in as few words as fit."""
+    return "+ $%s/%s fee" % (format(int(fee["usd"]), ","), fee.get("per") or "day")
+
+
+def fee_tip(fee):
+    """The fee in full, for a tooltip: who charges it, how much, until when."""
+    tip = "%s: US$%s per person per %s, on top of what you pay to stay" % (
+        fee.get("name") or "Mandatory visitor fee", format(int(fee["usd"]), ","), fee.get("per") or "day")
+    try:
+        u = datetime.date.fromisoformat(str(fee.get("until"))[:10])
+        tip += " (set until %d %s %d)" % (u.day, MON[u.month - 1], u.year)
+    except (TypeError, ValueError):
+        pass
+    tip += ". Not in the price level."
+    if fee.get("note"):
+        tip += " " + fee["note"].rstrip(".") + "."
+    return tip
+
+
 def _safety_line(iso, f, asof):
     """'Level 3 · Reconsider travel — Safety · per US State Dept (Sep 2026)' —
     the hydrated 🛡️ badge, attributed to whoever set it."""
@@ -685,7 +716,10 @@ def render(iso, fv=None, fares_at=None, no_bookings=False, notes=None):
     # snapshot — and what the description claims, said on the page.
     cost = _cost_line(iso, f, asof)
     if cost:
-        p.append("<p>💰 %s</p>" % html.escape(cost))
+        # A mandatory daily visitor fee (Bhutan's) beside the figure, as the
+        # hydrated line has it (app.js renderGuideCost, review #10).
+        fee = visitor_fee(iso)
+        p.append("<p>💰 %s%s</p>" % (html.escape(cost), (" %s" % html.escape(fee_short(fee))) if fee else ""))
     safety = _safety_line(iso, f, asof)
     if safety:
         p.append("<p>🛡️ %s</p>" % html.escape(safety))

@@ -172,6 +172,8 @@ def expected(month):
             continue
         if pricelevel.js_round(100 * s["pl"]) > 50 or s["wx"] is None or s["wx"] < 70:
             continue
+        if rg.visitor_fee(iso):            # a mandatory daily visitor fee (review #10)
+            continue
         keep.append(s)
     keep.sort(key=lambda s: (-s["value"], -s["raw"], s["name"]))
     return keep
@@ -239,6 +241,33 @@ f["adv_us"]["items"] = [it for it in f["adv_us"]["items"] if it.get("iso") != to
 f["adv_ca"]["items"] = [it for it in f["adv_ca"]["items"] if it.get("iso") != top]
 f["adv_de"]["items"] = [it for it in f["adv_de"]["items"] if it.get("iso") != top]
 without_top(f, "rated by nobody")
+
+# A mandatory daily visitor fee (review #10): a stand-in scorer puts Bhutan
+# (visa.json's US$100 a night) inside every other rule in November; it stays
+# off, is named under the table with its price and fee, and the rule says so.
+def _bt_score(iso, month, *a, **k):
+    s = picks._score(iso, month, *a, **k)
+    if iso == "BT" and s:
+        s = dict(s, wx=max(s["wx"] or 0, 90), pl=0.25)
+    return s
+
+
+BTP = render(score=_bt_score)
+bnov = BTP["/cheapest/november"]
+_bl = re.search(r'<p class="sub feeout">(.*?)</p>', bnov["html"])
+results.append(ok(RC.why_out("BT", _bt_score("BT", 11, FIX["ppp"], CLIM, rate_by, strength, adv_by, fit, fares, anchor,
+                                             home_iso="US", home_cur="USD"), RC.context(
+                      FIX["adv_us"], FIX["adv_ca"], FIX["adv_de"], FIX["rates"], FIX["ppp"], CLIM, FACTS)) == "fee"
+                  and "BT" not in bnov["isos"] and bnov["fee"] == ["BT"] and _bl
+                  and '<a href="/guide/bhutan">Bhutan</a> (25% <span class="fee"' in _bl.group(1)
+                  and "+ $100/night fee</span>)" in _bl.group(1),
+                  "Bhutan meeting every other rule is left out for its fee, named under the table with its price "
+                  "and fee"))
+results.append(ok(all("no mandatory daily visitor fee" in p["html"] and "countries with a mandatory daily visitor fee"
+                      in p["html"] for p in P.values())
+                  and all(not p.get("fee") for p in P.values()) and "feeout" not in P["/cheapest/november"]["html"],
+                  "every page states the fee rule and the Left-out clause; on production data no month names a fee "
+                  "country (Bhutan's weather keeps it off anyway)"))
 
 # Fares: month_fare's price and band; a dash and the footnote otherwise.
 fare_rows, dash_rows, fare_good = 0, 0, True

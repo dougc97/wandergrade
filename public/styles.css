@@ -1123,6 +1123,9 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .guidecost { display: block; margin: 12px 0 0; font-size: 12.5px; color: var(--gray); }
 .guidecost b { color: var(--ink); }
 .guidecost .fxinfo { margin-left: 5px; cursor: help; }
+/* A mandatory daily visitor fee beside the price level (Bhutan's, app.js
+   visitorFee): ink, kept whole so it wraps as one piece. */
+.guidecost .guidefee { color: var(--ink); font-weight: 700; white-space: nowrap; }
 
 /* Guide top half in two columns from 900px (index.html .guidegrid): visa |
    trip + AI, safety | stays + insurance, weather chart | fares + prices + FX.
@@ -3284,6 +3287,9 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .listpage .risk, .listpage .hnote { background: var(--soft); color: var(--ink); border-radius: 999px;
   padding: 1px 8px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .listpage .fn { font-size: 10px; margin-left: 1px; }
+/* A mandatory daily visitor fee beside a price (render_lists.fee_mark):
+   ink and whole, its full terms in the tooltip. */
+.listpage .fee { color: var(--ink); font-size: 11.5px; font-weight: 700; white-space: nowrap; cursor: help; }
 .listpage .changes { list-style: none; padding: 0; margin: 0 0 8px; }
 .listpage .changes li { padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; line-height: 1.5; }
 .listpage .changes li:first-child { border-top: none; }

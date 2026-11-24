@@ -3111,14 +3111,37 @@ function localPricesText(iso) {
     + (A.home ? "" : " (no figure for " + countryName(originIso()) + ")")
     + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "");
 }
+// A mandatory daily fee every visitor pays (visa.json "fee": Bhutan's
+// Sustainable Development Fee), beside the price level it isn't part of, and
+// in full in its ⓘ — render_guide visitor_fee / fee_short / fee_tip, the
+// served line's words (review #10). Any passport: the fee isn't a visa rule.
+function visitorFee(iso) {
+  const f = visa && visa[iso] && visa[iso].fee;
+  return f && f.usd > 0 ? f : null;
+}
+function feeShort(f) {
+  return "+ $" + Number(f.usd).toLocaleString("en-US") + "/" + (f.per || "day") + " fee";
+}
+function feeTip(f) {
+  let t = (f.name || "Mandatory visitor fee") + ": US$" + Number(f.usd).toLocaleString("en-US")
+    + " per person per " + (f.per || "day") + ", on top of what you pay to stay";
+  const u = /^(\d{4})-(\d{2})-(\d{2})/.exec(f.until || "");
+  if (u) t += " (set until " + (+u[3]) + " " + MON_ABBR[+u[2] - 1] + " " + u[1] + ")";
+  t += ". Not in the price level.";
+  if (f.note) t += " " + String(f.note).replace(/\.$/, "") + ".";
+  return t;
+}
 async function renderGuideCost(iso) {
   const host = $("guideCost");
   if (!host) return;
   host.hidden = true;
-  await ensurePPP().catch(() => {});
+  await Promise.all([ensurePPP().catch(() => {}), ensureVisa().catch(() => {})]);
   if (ccGuideIso !== iso) return;
   // The reader's own country: "≈ 100% of the US" tells them nothing.
   if ((GUIDE_PARENT[iso] || iso) === originIso()) return;
+  const fee = visitorFee(iso);
+  const feeHtml = fee ? ' <span class="guidefee">' + esc(feeShort(fee)) + "</span>" : "";
+  const feeTipTxt = fee ? " " + feeTip(fee) : "";
   const line = localPricesText(iso);
   if (!line) {
     // Live rates or ppp.json didn't load: the dated snapshot the title and
@@ -3130,17 +3153,17 @@ async function renderGuideCost(iso) {
     if (ccGuideIso !== iso || !f || f.pct == null || !guideFactsFresh()) return;
     const when = guideFactsMonth();
     host.innerHTML = `💰 <b>Local prices ≈ ${f.pct}% of the US (${esc(
-      f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b><span class="fxinfo" data-tip="${esc(
+      f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
       "World Bank price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
-      + " averages: tourist areas and foreigner rent run well above this.")}" title="">ⓘ</span>`;
+      + " averages: tourist areas and foreigner rent run well above this." + feeTipTxt)}" title="">ⓘ</span>`;
     host.hidden = false;
     return;
   }
-  host.innerHTML = `💰 <b>Local prices ${esc(line)}</b><span class="fxinfo" data-tip="${esc(
+  host.innerHTML = `💰 <b>Local prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
     "World Bank price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
-    + " foreigner rent run well above this.")}" title="">ⓘ</span>`;
+    + " foreigner rent run well above this." + feeTipTxt)}" title="">ⓘ</span>`;
   host.hidden = false;
 }
 
