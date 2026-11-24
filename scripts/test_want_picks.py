@@ -10,8 +10,11 @@ What it holds the code to:
   * no popular/hidden-gems split: the gems fold is hidden;
   * the safety floor still applies, and every ★ country that isn't ranked is
     counted in the note, its reason in the tip (Level 4, a filter, no data);
-  * an empty ★ list says so; the address bar carries vb=want, a link's vb=want
-    opens it without saving it, and the served rows give way to it;
+  * an empty ★ list says so; a link's vb=want opens it without saving it,
+    and the served rows give way to it;
+  * the ★ list isn't in a link, so a share link leaves vb out (the recipient
+    would rank their own, mostly empty, list), and the address bar keeps it
+    only for a visit a link opened it on (the saved choice needs none);
   * "Somewhere new" and "Include visited" rank as before.
 """
 import json, os, re, subprocess, sys, tempfile
@@ -61,7 +64,11 @@ function rankedOrder() {
 }
 $("safeFloor").value = "b";
 $("beenFilter").value = "want"; renderValue();
-out.want = { rows: rows(), note: note.innerHTML, gemsHidden: $("gemsBox").hidden, url: buildShareURL(false) };
+out.want = { rows: rows(), note: note.innerHTML, gemsHidden: $("gemsBox").hidden, url: buildShareURL(false),
+             share: buildShareURL(true) };
+localStorage.setItem("wg_showvisited", "want");
+out.wantSavedUrl = buildShareURL(false);
+localStorage.removeItem("wg_showvisited");
 $("safeFloor").value = "any"; renderValue();
 out.wantAny = { rows: rows(), note: note.innerHTML };
 $("safeFloor").value = "b";
@@ -116,7 +123,11 @@ else:
                       and "not ranked" in o["wantAny"]["note"],
                       "the safety floor still applies to the ★ list, and what it drops is counted (Colombia, "
                       "Level 3; ranked at 'Any level')"))
-    results.append(ok("vb=want" in w["url"] and "vb=" not in o["hide"]["url"], "the address bar carries vb=want"))
+    results.append(ok("vb=want" in w["url"] and "vb=" not in o["hide"]["url"],
+                      "the address bar carries vb=want for a visit a link (not the saved choice) opened it on"))
+    results.append(ok("vb=" not in w["share"] and "vb=" not in o["wantSavedUrl"],
+                      "a share link leaves vb out, and so does the bar when want-to-go is the saved choice: %s / %s"
+                      % (w["share"], o["wantSavedUrl"])))
     results.append(ok("hint" in o["empty"] and "Wander List" in o["empty"] and 'id=\'wantGo\'' in o["empty"],
                       "an empty ★ list says where the stars come from"))
     results.append(ok("TH" not in o["hide"]["rows"] and "you've been to hidden" in o["hide"]["note"]

@@ -11908,7 +11908,15 @@ function buildShareURL(forShare) {
     if (own && originIso() !== "US") q.set("vo", originIso());
     if (own && homeManual && homeBase !== homeCurAuto()) q.set("hc", homeBase);
     if (valueMapMode === "weather") q.set("vmm", "weather");
-    if (beenMode() === "want") q.set("vb", "want");
+    // The ★ list isn't in the link, so a recipient's vb=want ranked THEIR
+    // list, for most an empty one. Shares show the default ranking; the
+    // address bar keeps vb=want only for a visit a link opened it on (the
+    // saved choice comes back on a reload anyway), so a copied bar is safe.
+    if (!forShare && beenMode() === "want") {
+      let saved = false;
+      try { saved = localStorage.getItem("wg_showvisited") === "want"; } catch (e) {}
+      if (!saved) q.set("vb", "want");
+    }
     const p = loadPriorities();
     const compact = WEIGHT_DEFS.map((w) => p[w.key][0]).join(".");   // e.g. h.m.m.m.m
     if (compact !== WEIGHT_DEFS.map((w) => w.def[0]).join(".")) q.set("pri", compact);
