@@ -67,6 +67,11 @@ CURATED = {
     "ZA": [9, 10, 4, 5], "EG": [10, 11, 3, 4], "MA": [3, 4, 5, 10],
     "KE": [1, 2, 6, 7, 8, 9, 10], "TZ": [6, 7, 8, 9], "AU": [3, 4, 9, 10, 11],
     "NZ": [11, 12, 1, 2, 3], "FJ": [5, 6, 7, 8, 9, 10],
+    # Bhutan (2026-11-24): spring and autumn, the seasons every guide gives.
+    # On Paro's station rain the three best-scoring months are May, June and
+    # September, and June sat beside the guide's own "Jun–Aug: Monsoon"
+    # warning, starred and warned in the same month table.
+    "BT": [3, 4, 5, 9, 10, 11],
 }
 
 
@@ -625,6 +630,13 @@ STATION_RAIN = {
         days=[14.2, 15.6, 18.4, 20.3, 17.5, 8.2, 5.4, 5.9, 11.2, 16.8, 16.1, 15.2],
         days_rule="≥1.0 mm",
         why="Open-Meteo 2,483 mm a year on 189 rain days; the station 1,100 mm on 165 (2.26x)"),
+    # Western Sahara sits on the line: the 1.5x test used the climate box's
+    # yearly total, 30.8 mm (1.53x); its rounded months add up to 32 mm,
+    # 1.47x, which is what rain_reference() checks against now. Isle of Man
+    # (1.51x) is close too, and its station (Ronaldsway) is drier than
+    # Douglas. Both kept on station rain, which moves little: Western
+    # Sahara's best score stays 100 (best months Jan-Mar -> Feb-Apr), the
+    # Isle of Man's best goes 71 -> 77.
     "EH": dict(
         station="Dakhla", period="1991–2020",
         where="Dakhla",
@@ -1208,7 +1220,8 @@ def with_station_rain(iso, row):
     """The committed row with STATION_RAIN's rain in place of the rain it
     has, its scores recomputed by comfort() from that rain and the month's
     temperature (recovered from the row: _temp_for), its best months by
-    best_months, and "rain_src" naming the station. Nothing else changes.
+    best_months (and "curated" with them), and "rain_src" naming the
+    station. Nothing else changes.
     Running it on a row that already carries the station's rain gives the
     same row back."""
     st = STATION_RAIN[iso]
@@ -1217,7 +1230,7 @@ def with_station_rain(iso, row):
     temps = [_temp_for(s, t, r, exact) for s, t, r in zip(row["scores"], row["temps"], row["rain_mm"])]
     scores = [comfort(t, r) for t, r in zip(temps, mm)]
     return dict(row, scores=scores, rain_mm=mm, rain_days=days, rain_src=station_label(st),
-                best=best_months(scores, iso))
+                best=best_months(scores, iso), curated=iso in CURATED)
 
 
 def main_station(only=None):
