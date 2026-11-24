@@ -1124,6 +1124,10 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
    (guide_lines.cost); .pend keeps its room, unseen, for a reader from
    elsewhere until renderGuideCost draws theirs (server.py _COST_HOLD). */
 .guidecost { display: block; margin: 4px 0 0; font-size: 12.5px; color: var(--gray); }
+/* [hidden] has to say so here: the display above outranks the browser's own
+   [hidden] rule, and a German reader's served line on Germany's guide (hidden
+   before first paint) stayed on screen until app.js emptied it. */
+.guidecost[hidden] { display: none; }
 .guidecost.pend { visibility: hidden; }
 .guidecost b { color: var(--ink); }
 .guidecost .fxinfo { margin-left: 5px; cursor: help; }
