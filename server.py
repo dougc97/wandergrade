@@ -16,6 +16,7 @@ import _thread
 import base64
 import collections
 import contextlib
+import difflib
 import gzip
 import hmac
 import html
@@ -1375,14 +1376,81 @@ def _cheap_page(path):
 _NOINDEX = '<meta name="robots" content="noindex">'
 
 
-def _render_404_page(message):
-    """Human-facing 404: a way back in plus the guide index, not bare JSON."""
+# The shell pages a 404 may point to, by the footer's own names. Any other
+# lowercase page (_LOWER_PATHS, the months included) is named from its path.
+_PAGE_LABELS = {"/safe-and-cheap": "Safest cheap countries", "/do-not-travel": "Do Not Travel list",
+                "/cheapest": "Cheapest by month", "/dollar-strength": "Dollar strength",
+                "/data": "The price-level dataset", "/privacy": "Privacy"}
+# Past this many characters a 404 path is nobody's typo: no suggestion, so a
+# long junk URL can't buy difflib time.
+_SUGGEST_MAX = 80
+_guide_candidates = None
+
+
+def _guide_suggest_map():
+    """{spelling: slug} for every guide: its slug, its name slugified and the
+    aliases _guide_redirect already 301s — what a typo is measured against.
+    Built once: the slug list only changes on deploy."""
+    global _guide_candidates
+    if _guide_candidates is None:
+        iso_to_slug = {iso: sl for sl, iso in render_guide.all_slugs()}
+        out = {}
+        for slug, iso in render_guide.all_slugs():
+            out[slug] = slug
+            out.setdefault(_slugish(render_guide.name_for_iso(iso) or slug), slug)
+        for alias, iso in GUIDE_ALIASES.items():
+            if iso in iso_to_slug:
+                out.setdefault(alias, iso_to_slug[iso])
+        _guide_candidates = out
+    return _guide_candidates
+
+
+def _did_you_mean(path):
+    """(href, label) for a 404 path one typo away from a page, else None:
+    /guide/columbia -> Colombia, /cheapest/febuary -> February,
+    /safe-and-cheep -> Safest cheap countries. difflib's ratio, so a
+    near-miss of a few letters, never a guess from a word or two."""
+    if not path or len(path) > _SUGGEST_MAX:
+        return None
+    low = path.lower().rstrip("/")
+    if low.startswith("/guide/"):
+        word = _slugish(low[len("/guide/"):])
+        cands = _guide_suggest_map()
+        hit = difflib.get_close_matches(word, list(cands), n=1, cutoff=0.75) if word else []
+        if not hit:
+            return None
+        slug = cands[hit[0]]
+        iso = render_guide.iso_for_slug(slug)
+        return "/guide/" + slug, render_guide.name_for_iso(iso) or slug
+    if low.startswith(render_cheapest.HUB + "/"):
+        word = low[len(render_cheapest.HUB) + 1:]
+        hit = difflib.get_close_matches(word, list(render_cheapest.SLUGS), n=1, cutoff=0.7)
+        if not hit:
+            return None
+        m = render_cheapest.SLUGS.index(hit[0]) + 1
+        return render_cheapest.path_for(m), "Cheapest countries in " + render_guide.MON_FULL[m - 1]
+    pages = sorted(_LOWER_PATHS)
+    hit = difflib.get_close_matches(low, pages, n=1, cutoff=0.8)
+    if not hit:
+        return None
+    m = render_cheapest.month_of(hit[0])
+    label = _PAGE_LABELS.get(hit[0]) or ("Cheapest countries in " + render_guide.MON_FULL[m - 1] if m
+                                         else hit[0].strip("/").replace("-", " ").capitalize())
+    return hit[0], label
+
+
+def _render_404_page(message, suggest=None):
+    """Human-facing 404: a way back in plus the guide index, open (it is
+    what the reader came for), not bare JSON. `suggest`: _did_you_mean's
+    (href, label), said first."""
+    dym = ('<p class="didyoumean">Did you mean <a href="%s"><strong>%s</strong></a>?</p>'
+           % (html.escape(suggest[0], quote=True), html.escape(suggest[1]))) if suggest else ""
     body = (
-        '<div class="ssrguide"><h1>%s</h1>'
+        '<div class="ssrguide"><h1>%s</h1>%s'
         '<p><a href="/"><strong>Back to WanderGrade →</strong></a></p></div>'
-        '<details class="guideindex"><summary>Browse all %d country guides</summary>'
+        '<details class="guideindex" open><summary>Browse all %d country guides</summary>'
         '<nav class="guideindex-links">%s</nav></details>'
-        % (html.escape(message), _guide_count(), _guide_links()))
+        % (html.escape(message), dym, _guide_count(), _guide_links()))
     # No data on this page, so no data credits in its footer.
     return _shell_page("Not found | WanderGrade", body, _NOINDEX, credits=False)
 
@@ -2907,7 +2975,12 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/") or path.endswith(".json"):
             self._send_json({"error": "not found"}, 404)
             return
-        self._send_body(_render_404_page(message), "text/html; charset=utf-8", 404,
+        try:
+            suggest = _did_you_mean(path)
+        except Exception as e:   # a suggestion is a nicety: never a 500 instead of the 404
+            print("[404] no suggestion for %r: %s" % (path[:80], e), flush=True)
+            suggest = None
+        self._send_body(_render_404_page(message, suggest), "text/html; charset=utf-8", 404,
                         cache="no-store", extra=[("X-Robots-Tag", "noindex")])
 
     def _send_file(self, path, versioned=False):
@@ -3391,6 +3464,7 @@ class Handler(BaseHTTPRequestHandler):
             # The hub and the twelve months; the slash variant 301s to its
             # canonical URL, query and all, and anything else under /cheapest/
             # (another spelling, a deeper path) is the site's 404.
+            seg = path[len(render_cheapest.HUB) + 1:].rstrip("/")
             if path in render_cheapest.PATHS:
                 page = _cheap_page(path)
                 self._send_body(page["bytes"], "text/html; charset=utf-8",
@@ -3398,6 +3472,12 @@ class Handler(BaseHTTPRequestHandler):
             elif path.endswith("/") and path.rstrip("/") in render_cheapest.PATHS:
                 query = self.path.split("?", 1)[1] if "?" in self.path else ""
                 self._redirect(path.rstrip("/") + ("?" + query if query else ""))
+            elif "/" not in seg and render_cheapest.month_alias(seg):
+                # /cheapest/feb, /cheapest/Sept, /cheapest/2: the month's
+                # page, in one 301, query and all (no slot: not a slot path).
+                query = self.path.split("?", 1)[1] if "?" in self.path else ""
+                self._redirect(render_cheapest.path_for(render_cheapest.month_alias(seg))
+                               + ("?" + query if query else ""))
             else:
                 self._send_not_found()
             return

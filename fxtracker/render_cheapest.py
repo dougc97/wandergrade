@@ -71,6 +71,23 @@ def month_of(path):
     return None
 
 
+def month_alias(seg):
+    """1-12 for a short spelling of a month as the one path segment after
+    /cheapest/ — "feb", "Sept", "2", "02" — else None. Only the spellings
+    people type for a month, so the server can 301 them to the page; the
+    full name in any case is the lowercase redirect's, not this."""
+    s = (seg or "").strip().lower()
+    if s.isdigit() and len(s) <= 2 and 1 <= int(s) <= 12:
+        return int(s)
+    if s == "sept":
+        return 9
+    if len(s) == 3:
+        for i, slug in enumerate(SLUGS):
+            if slug.startswith(s):
+                return i + 1
+    return None
+
+
 def _date(today):
     if isinstance(today, datetime.date):
         return today

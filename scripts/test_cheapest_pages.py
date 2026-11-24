@@ -591,8 +591,37 @@ st2, hd2, _b = get("/cheapest/november/?utm_source=x")
 results.append(ok(st == 301 and hd.get("Location") == "/cheapest" and st2 == 301
                   and hd2.get("Location") == "/cheapest/november?utm_source=x",
                   "a trailing slash 301s to the canonical URL, query kept"))
-nf = [get(p)[0] for p in ("/cheapest/nov", "/cheapest/november/x", "/cheapest/13", "/cheapest//")]
-results.append(ok(nf[:3] == [404] * 3 and nf[3] == 301, "anything else under /cheapest/ is a 404: %s" % nf))
+nf = [get(p)[0] for p in ("/cheapest/novv", "/cheapest/november/x", "/cheapest/13", "/cheapest//",
+                          "/cheapest/0", "/cheapest/nov/x")]
+results.append(ok(nf[:3] == [404] * 3 and nf[3] == 301 and nf[4:] == [404, 404],
+                  "anything else under /cheapest/ is a 404: %s" % nf))
+# A short spelling of a month (three letters, Sept, 1-12, zero-padded) 301s
+# to the month's page in one hop, query kept (review #38).
+short = [get(p)[:2] for p in ("/cheapest/feb", "/cheapest/Sept?utm_source=ig", "/cheapest/2", "/cheapest/09/",
+                              "/cheapest/DEC")]
+results.append(ok([(st, hd.get("Location")) for st, hd in short]
+                  == [(301, "/cheapest/february"), (301, "/cheapest/september?utm_source=ig"),
+                      (301, "/cheapest/february"), (301, "/cheapest/september"), (301, "/cheapest/december")],
+                  "/cheapest/feb, /Sept, /2, /09/ and /DEC 301 to the month's page, query kept: %s"
+                  % [(st, hd.get("Location")) for st, hd in short]))
+results.append(ok([RC.month_alias(s) for s in ("jan", "Sept", "sep", "1", "01", "12", "13", "0", "ju", "june", "001")]
+                  == [1, 9, 9, 1, 1, 12, None, None, None, None, None],
+                  "month_alias: three letters, Sept, 1-12 (zero-padded too), nothing else"))
+# The 404 page suggests the page a typo was one or two letters from, and
+# opens the guide index (review #38).
+dym = {p: get(p) for p in ("/guide/columbia", "/cheapest/febuary", "/safe-and-cheep", "/guide/xyzzy", "/app.jsx")}
+_dym = lambda p: re.search(r'<p class="didyoumean">Did you mean <a href="([^"]+)"><strong>([^<]+)</strong></a>\?</p>',
+                           dym[p][2])
+results.append(ok(all(v[0] == 404 and v[1].get("Cache-Control") == "no-store" for v in dym.values())
+                  and _dym("/guide/columbia") and _dym("/guide/columbia").groups() == ("/guide/colombia", "Colombia")
+                  and _dym("/cheapest/febuary").groups() == ("/cheapest/february", "Cheapest countries in February")
+                  and _dym("/safe-and-cheep").groups() == ("/safe-and-cheap", "Safest cheap countries")
+                  and not _dym("/guide/xyzzy") and not _dym("/app.jsx")
+                  and all('<details class="guideindex" open>' in v[2] for v in dym.values()),
+                  "404: \"Did you mean Colombia?\" for /guide/columbia, February for /cheapest/febuary, the list "
+                  "for /safe-and-cheep, nothing for a non-word; the guide index open on every one"))
+results.append(ok(server._did_you_mean("/guide/" + "x" * 90) is None and server._did_you_mean("") is None,
+                  "no suggestion past %d characters or for an empty path" % server._SUGGEST_MAX))
 # Another case 301s to the lowercase URL in one hop, query kept, as /guide/Japan does.
 cs = [get(p)[:2] for p in ("/cheapest/November", "/Cheapest/January/?utm_source=x", "/Cheapest", "/Safe-and-cheap")]
 results.append(ok([(st, hd.get("Location")) for st, hd in cs]
