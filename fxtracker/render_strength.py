@@ -492,7 +492,7 @@ HEAD = (("#", ""),
 # The Prices column's ‡: a figure that isn't a current World Bank household-
 # spending one (pricelevel.basis_note says which, in the cell's title).
 BASIS_NOTE = ("‡ Where the World Bank has no usable recent household-spending figure: its last one, carried "
-              "forward along the GDP-wide figure (Taiwan's is the IMF's GDP-wide figure).")
+              "forward along the GDP-wide figure (Taiwan's is estimated from IMF and Penn World Table figures).")
 
 
 def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None, adv=None):
@@ -580,7 +580,7 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None, ad
     if have_fx:
         parts.append("Exchange rates: fxratesapi.com, as of %s, each vs its own %d-day average"
                      % (html.escape(RL._day(asof)), (rates_payload or {}).get("baseline_days") or 364))
-        parts.append("Inflation and PPP: World Bank" + (" (Taiwan: IMF)" if any(
+        parts.append("Inflation and PPP: World Bank" + (" (Taiwan: IMF, Penn World Table)" if any(
             pricelevel.source_name(r["iso"], ppp) == "IMF" for r in ranked) else ""))
     if ix:
         parts.append("Dollar index: ECB euro reference rates, to %s" % html.escape(RL._day(idx["all"]["as_of"])))

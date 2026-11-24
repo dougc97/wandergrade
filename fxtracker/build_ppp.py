@@ -16,13 +16,19 @@ has no household figure within HOUSEHOLD_MAX_LAG years of its GDP-wide one
 (25 stop at the 2021-2023 benchmarks: Argentina, Aruba, Puerto Rico...), its
 last household figure is carried forward along the GDP-wide one, flagged
 "basis": "gdp" with "hh_year" (review 2026-11-23 item 15). Taiwan, which the
-World Bank doesn't cover, comes from MANUAL (item 23).
+World Bank doesn't cover, comes from MANUAL (item 23): the IMF's GDP-wide
+figure put on the household footing with Taiwan's own household/GDP price
+ratio from the Penn World Table, so it counts as household spending too.
 
 Run: python3 -m fxtracker.build_ppp
+     python3 -m fxtracker.build_ppp --manual-only   # offline: re-join MANUAL
+       rows (e.g. a new IMF release) to the committed file, every World Bank
+       row left exactly as it is
 """
 
 import json
 import os
+import sys
 import time
 import urllib.request
 
@@ -75,20 +81,55 @@ HOUSEHOLD_UNTIL = {
 # source ("src", "src_note") and the date the next release is out
 # ("refresh_by"). They join every build (the committed file and the server's
 # monthly live refresh alike) unless the World Bank ever publishes the
-# country itself.
+# country itself, shaped by manual_row().
 # Taiwan (review 2026-11-23 item 23): the IMF's World Economic Outlook,
 # October 2026 (published 2026-10-13), from the IMF's SDMX API
 # (api.imf.org, dataset IMF.RES:WEO, series TWN.PPPEX.A, TWN.PCPIPCH.A,
 # TWN.NGDPDPC.A; 2025 is the latest actual year): PPPEX 13.655061 NT$ per
-# international $ — GDP-wide, as the IMF publishes no household factor —
-# consumer-price inflation 1.657958%, GDP per head US$39,511.56. Refresh
-# after each April and October WEO; `refresh_by` is when the next one is out
-# and scripts/test_ppp_basis.py fails after it.
+# international $ ("ppp_gdp") — GDP-wide, as the IMF publishes no household
+# factor — consumer-price inflation 1.657958%, GDP per head US$39,511.56.
+# Refresh after each April and October WEO; `refresh_by` is when the next one
+# is out and scripts/test_ppp_basis.py fails after it.
+# The GDP-wide figure read Taiwan a little cheap next to every other country
+# (household spending since item 15), so manual_row() scales it by Taiwan's
+# own household / GDP price-level ratio ("hh_ratio"): the Penn World Table
+# (Groningen Growth and Development Centre), release 11.0, through FRED's
+# copies of its series (PLCCPPTWA670NRUG = pl_c, household consumption;
+# PLGDPOTWA670NRUG = pl_gdpo, output-side GDP; and the same two for the US,
+# fetched 2026-11-24). PWT states both against the US GDP price level, so
+# Taiwan's pl_c / pl_gdpo is divided by the US's own (the World Bank's
+# factors are each against the same US aggregate) and averaged over the last
+# three years it has, for stability:
+#   2021  TW 0.5430 / 0.5575, US 0.9651 / 1.0000 -> 1.0092
+#   2022  TW 0.5242 / 0.5291, US 1.0264 / 1.0714 -> 1.0340
+#   2023  TW 0.5130 / 0.5213, US 1.0672 / 1.1097 -> 1.0233   mean 1.0221
+# Sanity check, World Bank household / GDP-wide factor (PA.NUS.PRVT.PP /
+# PA.NUS.PPP), 2021-2023 mean: Hong Kong 1.079, Japan 1.084, Korea 1.121,
+# Singapore 1.269 (median 1.10). Taiwan's 1.022 sits just under its peers,
+# so the scaling, if anything, under-corrects. Refresh hh_ratio with a new
+# PWT release (hh_version) — not on the IMF's timetable.
 MANUAL = {
-    "TW": {"ppp": 13.655061, "year": 2025, "name": "Taiwan", "basis": "gdp", "src": "imf",
+    "TW": {"ppp_gdp": 13.655061, "year": 2025, "name": "Taiwan", "src": "imf",
+           "src_note": "World Economic Outlook, October 2026",
+           "hh_ratio": 1.0221, "hh_src": "Penn World Table", "hh_version": "11.0",
+           "hh_years": [2021, 2022, 2023],
            "gdppc": 39511.56, "gdppc_year": 2025, "infl": 1.66, "infl_year": 2025,
-           "src_note": "IMF World Economic Outlook, October 2026", "refresh_by": "2027-05-15"},
+           "refresh_by": "2027-05-15"},
 }
+
+
+def manual_row(iso):
+    """MANUAL[iso] as it joins the table: refresh_by stays in the code, and a
+    GDP-wide figure with a household / GDP ratio ("ppp_gdp" x "hh_ratio")
+    becomes the household-equivalent "ppp", with no "basis" flag: every
+    reader treats it as household spending, and pricelevel.basis_note says
+    how it was estimated. A row entered as a plain "ppp" joins as entered."""
+    row = {k: v for k, v in MANUAL[iso].items() if k != "refresh_by"}
+    if row.get("ppp_gdp") and row.get("hh_ratio"):
+        row["ppp"] = round(row["ppp_gdp"] * row["hh_ratio"], 6)
+    return row
+
+
 # GDP per capita in current US$. Not used for the grade — only to sanity-check the
 # price level. Price level tracks income log-linearly (the Penn effect), so a
 # country whose price level is wildly out of line with its income is almost always
@@ -254,9 +295,9 @@ def build(previous=None):
     # forward (factor 1), which is what the site did before this existed.
     _secondary(CPI_URL, "inflation", out, valid, previous, ("infl", "infl_year"), 2,
                "Price levels will not be carried forward for inflation.")
-    for iso, row in MANUAL.items():
+    for iso in MANUAL:
         if iso in valid and iso not in out:
-            out[iso] = {k: v for k, v in row.items() if k != "refresh_by"}
+            out[iso] = manual_row(iso)
     return out
 
 
@@ -301,17 +342,36 @@ def committed():
         return json.load(f)
 
 
-def main():
+def apply_manual(table, valid=None):
+    """`table` (ppp.json's shape) with the MANUAL rows joined again, as build()
+    joins them: a hand-entered row ("src") is replaced and a missing one added
+    (where `valid`, the map's countries, allows), and a World Bank row is never
+    overridden. Offline, so a change to MANUAL can ship without the World
+    Bank's latest revisions to every other country (main --manual-only)."""
+    out = dict(table)
+    for iso in MANUAL:
+        if (out.get(iso) or {}).get("src") or (iso not in out and (valid is None or iso in valid)):
+            out[iso] = manual_row(iso)
+    return out
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
     try:
         prev = committed()
     except Exception:
         prev = None
-    out = build(previous=prev)
-    _warn_usd_units(out)
+    if "--manual-only" in argv:
+        with open(GEOJSON, encoding="utf-8") as f:
+            valid = {feat["properties"]["iso"] for feat in json.load(f)["features"]}
+        out = apply_manual(prev or {}, valid)
+    else:
+        out = build(previous=prev)
+        _warn_usd_units(out)
     for iso in manual_overdue():
         print("WARNING: {0}'s hand-entered figures ({1}) are past refresh_by {2}: enter the newest "
               "IMF World Economic Outlook figures in build_ppp.MANUAL.".format(
-                  iso, MANUAL[iso]["src_note"], MANUAL[iso]["refresh_by"]))
+                  iso, "IMF " + MANUAL[iso]["src_note"], MANUAL[iso]["refresh_by"]))
     print("basis: {0} household, {1} carried forward along the GDP-wide figure ({2}), {3} hand-entered ({4})".format(
         sum(1 for r in out.values() if not r.get("basis")),
         sum(1 for r in out.values() if r.get("basis") == "gdp" and not r.get("src")),

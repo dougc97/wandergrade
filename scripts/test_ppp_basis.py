@@ -12,13 +12,18 @@ What it holds the code and data to (review 2026-11-23 items 15 and 23):
     there is no GDP-wide figure at all; HOUSEHOLD_UNTIL's years (Palestine
     after 2023) left out;
   * build() asks for both factors, flags the fallback, and adds MANUAL rows
-    without ever overriding a World Bank row; manual_overdue names a row
-    past its refresh_by (the dated reminder);
+    without ever overriding a World Bank row; manual_row turns a GDP-wide
+    figure with a household/GDP ratio into the household-equivalent factor
+    (no basis flag); apply_manual (--manual-only) re-joins MANUAL rows and
+    leaves every World Bank row alone; manual_overdue names a row past its
+    refresh_by (the dated reminder);
   * the committed ppp.json: household for the rich, high-investment places
     the GDP basis read cheap (Singapore, Qatar, Brunei, Macau), the
     carried-forward fallback flagged for the countries stuck on the 2021
-    benchmark (Argentina, Aruba, Puerto Rico...) and Palestine; Taiwan's IMF
-    row as entered;
+    benchmark (Argentina, Aruba, Puerto Rico...) and Palestine; Taiwan's row
+    as MANUAL makes it: the IMF's GDP-wide figure times its Penn World Table
+    household/GDP ratio (review of batch B, 2026-11-24), the ratio's source,
+    release and years recorded, and the ratio a plausible one;
   * Taiwan's hand-entered figures are not past refresh_by — this fails once
     a newer IMF World Economic Outlook is out (the dated reminder);
   * pl_history.json: each country's series on its map figure's basis —
@@ -27,12 +32,14 @@ What it holds the code and data to (review 2026-11-23 items 15 and 23):
     household figure among them, the flagged years listed in "gdp"; the
     map's carried-forward figure is the history's latest year;
   * the words: pricelevel.basis_note and app.js plBasisNote say the same
-    thing; the guide's price ⓘ and the history chart's ⓘ carry them;
+    thing, naming the IMF once for Taiwan; the guide's price ⓘ and the
+    history chart's ⓘ carry them;
     /dollar-strength marks a flagged price ‡ with its note; the dataset says
     ppp_basis and ppp_source per row;
-  * the IMF is credited wherever WanderGrade's prices are sourced while a
-    MANUAL row is the IMF's: /safe-and-cheap's and /cheapest's sources lines
-    and notes, the list and strength pages' footers, and the site footer.
+  * the IMF and the Penn World Table are credited wherever WanderGrade's
+    prices are sourced while a MANUAL row is the IMF's: /safe-and-cheap's and
+    /cheapest's sources lines and notes, the list and strength pages'
+    footers, the site footer, /data, llms.txt and /how-grades-work.
 """
 import copy, datetime, html, json, os, re, sys
 
@@ -123,8 +130,30 @@ finally:
     build_ppp.MANUAL.clear()
     build_ppp.MANUAL.update(real_manual)
 results.append(ok(t["TW"] == {k: v for k, v in FAKE_ROW.items() if k != "refresh_by"},
-                  "a MANUAL row joins the build as entered (refresh_by stays in the code)"))
+                  "a MANUAL row entered as a plain ppp joins the build as entered (refresh_by stays in the code)"))
 results.append(ok(late == (["TW"], []), "manual_overdue fires the day after refresh_by and not before"))
+FAKE_HH = {"ppp_gdp": 10.0, "hh_ratio": 1.05, "year": 2025, "name": "Taiwan", "src": "imf", "src_note": "test",
+           "hh_src": "Penn World Table", "hh_version": "9.9", "hh_years": [2020, 2021, 2022], "refresh_by": "2027-05-15"}
+build_ppp.MANUAL.clear()
+build_ppp.MANUAL["TW"] = FAKE_HH
+try:
+    hrow = build_ppp.manual_row("TW")
+    kept = {"SG": {"ppp": 0.9, "year": 2025}, "TW": {"ppp": 1.0, "src": "imf", "basis": "gdp"}}
+    applied = build_ppp.apply_manual(kept)
+    added = build_ppp.apply_manual({"SG": {"ppp": 0.9}}, valid={"SG", "TW"})
+    off_map = build_ppp.apply_manual({"SG": {"ppp": 0.9}}, valid={"SG"})
+    wb_tw = build_ppp.apply_manual({"TW": {"ppp": 14.0, "year": 2025}})
+finally:
+    build_ppp.MANUAL.clear()
+    build_ppp.MANUAL.update(real_manual)
+results.append(ok(hrow["ppp"] == 10.5 and hrow["ppp_gdp"] == 10.0 and hrow["hh_ratio"] == 1.05
+                  and "basis" not in hrow and "refresh_by" not in hrow,
+                  "manual_row: a GDP-wide figure with a household/GDP ratio joins as ppp_gdp x hh_ratio, with no "
+                  "basis flag (household spending), the inputs kept beside it"))
+results.append(ok(applied["TW"] == hrow and applied["SG"] is kept["SG"] and added["TW"] == hrow
+                  and "TW" not in off_map and wb_tw["TW"] == {"ppp": 14.0, "year": 2025},
+                  "apply_manual (build_ppp --manual-only): replaces the hand-entered row, adds a missing one on the "
+                  "map, leaves World Bank rows (and a World Bank Taiwan) untouched"))
 
 # ---- the committed tables --------------------------------------------------------
 results.append(ok(all(r.get("basis") in (None, "gdp") for r in PPP.values()),
@@ -149,12 +178,29 @@ results.append(ok(n_hh >= 170 and sum(1 for r in PPP.values() if r.get("basis"))
                   "%d countries on household spending, %d on a fallback" % (n_hh, len(PPP) - n_hh)))
 tw = PPP.get("TW") or {}
 m = build_ppp.MANUAL["TW"]
-results.append(ok(tw.get("ppp") == 13.655061 and tw.get("year") == 2025 and tw.get("src") == "imf"
-                  and tw.get("basis") == "gdp" and tw.get("infl") == 1.66 and tw.get("gdppc") == 39511.56
-                  and tw.get("src_note") == "IMF World Economic Outlook, October 2026" and "refresh_by" not in tw
-                  and tw == {k: v for k, v in m.items() if k != "refresh_by"},
-                  "Taiwan: the IMF's October 2026 WEO figures as entered in MANUAL (PPPEX 13.655061, CPI 1.66%, "
-                  "GDP/head $39,512), flagged imf and GDP-wide"))
+results.append(ok(tw.get("ppp_gdp") == 13.655061 and tw.get("year") == 2025 and tw.get("src") == "imf"
+                  and "basis" not in tw and tw.get("infl") == 1.66 and tw.get("gdppc") == 39511.56
+                  and tw.get("src_note") == "World Economic Outlook, October 2026" and "refresh_by" not in tw
+                  and tw.get("ppp") == round(13.655061 * m["hh_ratio"], 6) == 13.956838
+                  and tw == build_ppp.manual_row("TW"),
+                  "Taiwan: the IMF's October 2026 WEO figures as entered in MANUAL (PPPEX 13.655061 GDP-wide, CPI "
+                  "1.66%%, GDP/head $39,512), its factor %s = PPPEX x the household/GDP ratio, flagged imf and on "
+                  "household spending (no basis flag)" % tw.get("ppp")))
+results.append(ok(m.get("hh_ratio") == 1.0221 and m.get("hh_src") == "Penn World Table" and m.get("hh_version") == "11.0"
+                  and m.get("hh_years") == [2021, 2022, 2023]
+                  and tw.get("hh_ratio") == m["hh_ratio"] and tw.get("hh_years") == m["hh_years"],
+                  "Taiwan's household/GDP ratio is recorded with its source, release and years (Penn World Table "
+                  "11.0, 2021-2023 average, 1.0221), in MANUAL and on the row"))
+yrs = m.get("hh_years") or []
+results.append(ok(isinstance(m.get("hh_ratio"), float) and 0.95 <= m["hh_ratio"] <= 1.3
+                  and len(yrs) == 3 and yrs == list(range(yrs[0], yrs[0] + 3))
+                  and datetime.date(yrs[-1], 1, 1) > datetime.date(2020, 1, 1)
+                  and isinstance(m.get("hh_version"), str) and bool(m["hh_version"]),
+                  "the ratio is plausible (0.95-1.3: Hong Kong, Japan, Korea and Singapore's World Bank ratios run "
+                  "1.08-1.27), the average of 3 consecutive years ending after 2020, with a release named"))
+results.append(ok(bool(re.match(r"^\d{4}-\d{2}-\d{2}$", m.get("refresh_by") or ""))
+                  and datetime.date.fromisoformat(m["refresh_by"]) > datetime.date(2026, 11, 24),
+                  "Taiwan keeps a refresh_by date (%s), the dated reminder below" % m.get("refresh_by")))
 overdue = build_ppp.manual_overdue()
 results.append(ok(not overdue, "Taiwan's IMF figures are current (refresh_by %s)%s" % (
     m["refresh_by"], "" if not overdue else ": PAST DUE — enter the newest IMF World Economic Outlook figures "
@@ -203,18 +249,27 @@ results.append(ok("PA.NUS.PRVT.PP" in PLH.get("source", ""), "pl_history.json na
 gdp_txt = pricelevel.basis_note("AR", PPP)
 raw_txt = pricelevel.basis_note("ZZ", {"ZZ": {"basis": "gdp"}})
 imf_txt = pricelevel.basis_note("TW", PPP)
+imf_gdp_txt = pricelevel.basis_note("ZZ", {"ZZ": {"src": "imf", "basis": "gdp", "src_note": "World Economic Outlook, X"}})
 results.append(ok(gdp_txt == "Household-spending figure of 2021, carried forward along the GDP-wide one: the World "
                              "Bank has no usable newer household figure for it."
                   and raw_txt == "GDP-wide figure: the World Bank has no household-spending one for it."
-                  and imf_txt == "IMF figure (IMF World Economic Outlook, October 2026), GDP-wide: the World Bank "
-                                 "doesn't cover it." and pricelevel.basis_note("SG", PPP) == "",
-                  "basis_note: carried forward (Argentina, 2021), GDP-wide (no shared year), IMF (Taiwan), nothing "
-                  "for household (Singapore)"))
+                  and imf_txt == "Estimated from the IMF's GDP-wide figure (World Economic Outlook, October 2026), "
+                                 "adjusted to household spending with the Penn World Table: the World Bank doesn't "
+                                 "cover it."
+                  and imf_gdp_txt == "The IMF's GDP-wide figure (World Economic Outlook, X): the World Bank doesn't "
+                                     "cover it."
+                  and pricelevel.basis_note("SG", PPP) == "",
+                  "basis_note: carried forward (Argentina, 2021), GDP-wide (no shared year), IMF + Penn World Table "
+                  "(Taiwan), IMF GDP-wide (a row with no ratio), nothing for household (Singapore)"))
+results.append(ok(imf_txt.count("IMF") == 1 and imf_gdp_txt.count("IMF") == 1 and "IMF figure (IMF" not in APP,
+                  "Taiwan's note names the IMF once (it read \"IMF figure (IMF World Economic Outlook, ...)\")"))
 results.append(ok('if (e.basis === "gdp" && e.hh_year) return `%s`;'
                   % gdp_txt.replace("2021", "${e.hh_year}") in APP
                   and 'if (e.basis === "gdp") return "%s";' % raw_txt in APP
-                  and "return `IMF figure (${e.src_note || \"World Economic Outlook\"}), GDP-wide: the World Bank "
-                      "doesn't cover it.`;" in APP,
+                  and 'const wo = e.src_note || "World Economic Outlook";' in APP
+                  and "if (e.hh_ratio) return `%s`;" % imf_txt.replace("World Economic Outlook, October 2026", "${wo}")
+                      in APP
+                  and "return `%s`;" % imf_gdp_txt.replace("World Economic Outlook, X", "${wo}") in APP,
                   "app.js plBasisNote says exactly what pricelevel.basis_note says"))
 gc = APP[APP.index("async function renderGuideCost"):APP.index("// ---- Travel Guide: \"Where to stay\"")]
 results.append(ok(gc.count("plBasisNote(iso)") == 4, "both guide price ⓘ tips (live and snapshot) carry plBasisNote"))
@@ -239,16 +294,17 @@ plain = RS.dollar_strength(rates_p, json.load(open(os.path.join(SF, "ppp_2026-10
                            today="2026-10-23")["html"]
 results.append(ok("‡" not in plain, "/dollar-strength: no ‡ and no note when no priced country is flagged"))
 tppp = json.load(open(os.path.join(SF, "ppp_2026-10-23.json"), encoding="utf-8"))
-tppp["TW"] = {k: v for k, v in build_ppp.MANUAL["TW"].items() if k != "refresh_by"}
+tppp["TW"] = build_ppp.manual_row("TW")
 tpage = RS.dollar_strength(rates_p, tppp, None, today="2026-10-23")["html"]
 twd = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">TWD</span>.*?</tr>', tpage, re.S)
 results.append(ok(bool(twd) and re.search(r"\d+%</span><sup class=\"fn\">‡</sup>", twd.group(0)) is not None
-                  and html.escape(imf_txt, quote=True) in twd.group(0) and "Taiwan's is the IMF's" in tpage
+                  and html.escape(imf_txt, quote=True) in twd.group(0)
+                  and "Taiwan's is estimated from IMF and Penn World Table figures" in tpage
                   and "vs the US ~3%/yr (IMF)." in twd.group(0) and "(World Bank)" not in twd.group(0)
-                  and "Inflation and PPP: World Bank (Taiwan: IMF)." in tpage
+                  and "Inflation and PPP: World Bank (Taiwan: IMF, Penn World Table)." in tpage
                   and "Inflation and PPP: World Bank." in plain,
-                  "/dollar-strength: Taiwan's row gets a price (it had none), marked ‡ with the IMF source, and "
-                  "its inflation is credited to the IMF"))
+                  "/dollar-strength: Taiwan's row gets a price (it had none), marked ‡ with how it was estimated "
+                  "(IMF + Penn World Table), and its inflation is credited to the IMF"))
 results.append(ok("(${gap}, ${srcName(fxIso)})" in APP and '" (" + srcName(iso) + ")."' in APP
                   and gc.count("srcName(GUIDE_PARENT[iso] || iso) + \" price level for residents") == 2
                   and 'src === "imf" ? "IMF" : "World Bank"' in APP and pricelevel.source_name("TW", PPP) == "IMF"
@@ -267,29 +323,44 @@ by = {r["iso"]: r for r in ds["countries"]}
 results.append(ok(build_dataset.FIELDS[-2:] == ["ppp_basis", "ppp_source"]
                   and by.get("VN", {}).get("ppp_basis") == "household" and by["VN"]["ppp_source"] == "World Bank"
                   and (by.get("AR") is None or by["AR"]["ppp_basis"] == "gdp")
-                  and by.get("TW", {}).get("ppp_source") == "IMF" and by["TW"]["ppp_basis"] == "gdp"
+                  and by.get("TW", {}).get("ppp_source") == "IMF + Penn World Table"
+                  and by["TW"]["ppp_basis"] == "household" and by["TW"]["ppp_factor"] == PPP["TW"]["ppp"]
                   and "PA.NUS.PRVT.PP" in ds["meta"]["ppp_source"] and "PA.NUS.PPP" in ds["meta"]["ppp_source"]
-                  and "IMF" in ds["meta"]["ppp_source"] and "IMF" in ds["meta"]["licence"],
-                  "dataset: ppp_basis and ppp_source on the end of every row (Taiwan: IMF, gdp); the meta names "
-                  "PRVT.PP, PPP and the IMF"))
+                  and "IMF" in ds["meta"]["ppp_source"] and "IMF" in ds["meta"]["licence"]
+                  and "Penn World Table 11.0" in ds["meta"]["ppp_source"] and "2021-2023" in ds["meta"]["ppp_source"]
+                  and "1.0221" in ds["meta"]["ppp_source"] and "Penn World Table" in ds["meta"]["licence"]
+                  and "Penn World Table" in ds["meta"]["notes"] and "Taiwan: IMF" in ds["meta"]["inflation_source"],
+                  "dataset: ppp_basis and ppp_source on the end of every row (Taiwan: household, IMF + Penn World "
+                  "Table); the meta names PRVT.PP, PPP, the IMF and the Penn World Table release, years and ratio"))
 
-# The IMF credit, wherever prices are sourced (Taiwan's figure is the IMF's).
-from fxtracker import render_cheapest as RC, render_lists as RL  # noqa: E402
-SRV = open(os.path.join(ROOT, "server.py"), encoding="utf-8").read()
+# The IMF and Penn World Table credit, wherever prices are sourced (Taiwan's
+# figure is the IMF's, adjusted with the Penn World Table's ratio).
+from fxtracker import llms_txt, render_cheapest as RC, render_lists as RL  # noqa: E402
+joined = lambda t: re.sub(r'"\s*\n\s*(?:\+\s*)?"', "", t)     # adjacent string literals as one
+SRV = joined(open(os.path.join(ROOT, "server.py"), encoding="utf-8").read())
 IDX = open(os.path.join(ROOT, "public", "index.html"), encoding="utf-8").read()
-RLS = open(os.path.join(ROOT, "fxtracker", "render_lists.py"), encoding="utf-8").read()
-imf_rows = any(r.get("src") == "imf" for r in build_ppp.MANUAL.values())
+RLS = joined(open(os.path.join(ROOT, "fxtracker", "render_lists.py"), encoding="utf-8").read())
+RMS = joined(open(os.path.join(ROOT, "fxtracker", "render_methodology.py"), encoding="utf-8").read())
+imf_rows = any(r.get("src") == "imf" and r.get("hh_ratio") for r in build_ppp.MANUAL.values())
 credits = {
-    "/safe-and-cheap sources line": "World Bank PPP, the IMF's for Taiwan" in RL._sources_line({}, {}, "2026-09-28"),
-    "/cheapest sources line": "World Bank PPP, the IMF's for Taiwan" in RC._sources(
+    "/safe-and-cheap sources line": "World Bank PPP; Taiwan: IMF, Penn World Table;" in RL._sources_line(
+        {}, {}, "2026-09-28"),
+    "/cheapest sources line": "World Bank PPP; Taiwan: IMF, Penn World Table;" in RC._sources(
         {"items": {}, "missing": []}, {}, {}, "2026-09-28"),
-    "/safe-and-cheap notes": "from World Bank PPP (Taiwan: IMF) at the" in RLS,
-    "list footers": SRV.count("(PPP; Taiwan: IMF)") == 2,
-    "/dollar-strength footer": "(PPP, inflation; Taiwan: IMF)" in SRV,
-    "site footer": "PPP: World Bank (Taiwan: IMF) ·" in IDX,
+    "/safe-and-cheap notes": "from World Bank PPP (Taiwan: IMF, Penn World Table) at the" in RLS,
+    "list footers": SRV.count("(PPP; Taiwan: IMF, Penn World Table)") == 2,
+    "/dollar-strength footer": "(PPP, inflation; Taiwan: IMF, Penn World Table)" in SRV,
+    "site footer": "PPP: World Bank (Taiwan: IMF, Penn World Table) ·" in IDX,
+    "/data ppp_source": "(Taiwan's, entered by hand: the IMF's GDP-wide figure, adjusted to household spending "
+                        "with the Penn World Table)" in SRV,
+    "/data sources": "from the IMF's World Economic Outlook, adjusted to household spending with the " in SRV
+                     and 'Penn World Table</a> (CC BY 4.0)' in SRV.replace('World "Table', "World Table"),
+    "llms.txt": "Taiwan's estimated from IMF and Penn World Table figures" in llms_txt._HEAD,
+    "/how-grades-work": "Taiwan's from the IMF, adjusted to household spending with the Penn World Table" in RMS,
 }
 results.append(ok(imf_rows and all(credits.values()),
-                  "the IMF is credited for Taiwan's figure on %s%s" % (", ".join(credits), "" if all(credits.values())
+                  "the IMF and the Penn World Table are credited for Taiwan's figure on %s%s" % (
+                      ", ".join(credits), "" if all(credits.values())
                   else ": MISSING on " + ", ".join(k for k, v in credits.items() if not v))))
 
 print("\n%d/%d passed" % (sum(results), len(results)))
