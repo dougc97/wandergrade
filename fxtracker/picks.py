@@ -166,6 +166,16 @@ FX_PTS_PER_PCT = 6.25
 FLY_TYPICAL = 70
 FLY_SLOPE = 100
 
+
+def afford_parts(pl, real):
+    """(price part, currency part, Affordability) for a price level `pl`
+    against the home (1.0 = the same prices) and the home currency's real
+    move in % (None: no figure, the neutral FX_NEUTRAL). _score grades with
+    it and /how-grades-work prints its examples from it."""
+    aff = clamp100(((AFF_PL_ZERO - pl) / AFF_PL_SPAN) * 100)
+    fx = clamp100(FX_NEUTRAL + real * FX_PTS_PER_PCT) if real is not None else FX_NEUTRAL
+    return aff, fx, clamp100(aff * AFF_PRICE_W + fx * AFF_FX_W)
+
 # The site's default priorities (app.js WEIGHT_DEFS/PRI_W: high 3, med 2):
 # every factor Med since 2026-10-14 (affordability was High, a leftover of
 # the FX-tracker days; flights are a cost too, so cost is still half).
@@ -602,14 +612,12 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
     cur = CUR_BY_ISO.get(iso)
     cl = climate.get(iso)
 
-    aff = clamp100(((AFF_PL_ZERO - pl) / AFF_PL_SPAN) * 100)
     # The dollar's move vs its 1-yr average, net of the inflation gap: a steadily
     # depreciating high-inflation currency always sits above its own average.
     nominal = strength_by_code.get(cur) if cur and cur != home_cur else None
     real = pricelevel.real_fx_pct(nominal, iso, home_iso, ppp)
-    fx = clamp100(FX_NEUTRAL + real * FX_PTS_PER_PCT) if real is not None else FX_NEUTRAL
     comps = {
-        "afford": clamp100(aff * AFF_PRICE_W + fx * AFF_FX_W),
+        "afford": afford_parts(pl, real)[2],
         "safe": SAFE_SCORE.get(adv, 70),
     }
     # No climate entry = no weather measure, averaged over the rest (app.js

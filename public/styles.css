@@ -3299,6 +3299,13 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 .privacy code { font-size: .9em; overflow-wrap: anywhere; }
 .privacy .hosts { color: var(--gray); font-size: 12.5px; }
 .privacy .asof { margin: 0 0 4px; }
+/* /how-grades-work (fxtracker/render_methodology.py): /privacy's layout, plus
+   the letter bands as a row of pills and the worked examples in grey. */
+.method .bands { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13.5px; }
+.method .lband { white-space: nowrap; }
+.method .lband .gr { margin-right: 3px; }
+.method .ex { color: var(--gray); font-size: 13.5px; }
+.method .ex .gr { margin-left: 2px; }
 .listbox { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; margin: 10px 0 0; }
 .listtable { width: 100%; border-collapse: collapse; font-size: 13.5px; }
 .listtable thead { display: none; }

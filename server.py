@@ -36,7 +36,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
     flightvalue, guide_facts, guide_lines, guide_sizers, health, home_picks, llms_txt, mailer, map_picks, picks, popularity, rates,
-    render_cheapest, render_guide, render_lists, render_privacy, store, watchouts
+    render_cheapest, render_guide, render_lists, render_methodology, render_privacy, store, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -713,7 +713,11 @@ def _sitemap():
            '  <url><loc>%s/dollar-strength</loc><lastmod>%s</lastmod></url>' % (_SITE, strength_lm),
            # Dated by its own "Last updated", the day its words last changed:
            # a content-stamp bump for the guides' data doesn't touch it.
-           '  <url><loc>%s/privacy</loc><lastmod>%s</lastmod></url>' % (_SITE, render_privacy.UPDATED)]
+           '  <url><loc>%s/privacy</loc><lastmod>%s</lastmod></url>' % (_SITE, render_privacy.UPDATED),
+           # The same for the methodology page: its own date, moved with its
+           # words (scripts/test_how_grades_work.py holds the two together).
+           '  <url><loc>%s%s</loc><lastmod>%s</lastmod></url>'
+           % (_SITE, render_methodology.PATH, render_methodology.UPDATED)]
     # /cheapest and its 12 months, by the exchange rates' own date (every
     # row's price and grade moves with them), else the snapshot's; floored
     # at the stamp like the lists above, never today.
@@ -874,6 +878,7 @@ def _shell_page(title, body, head="", analytics=True, credits=True):
         '<a href="/do-not-travel">Do Not Travel list</a> &middot; '
         '<a href="/cheapest">Cheapest by month</a> &middot; '
         '<a href="/dollar-strength">Dollar strength</a> &middot; '
+        '<a href="/how-grades-work">How grades work</a> &middot; '
         '<a href="/privacy">Privacy</a> &middot; '
         '<a href="/">Back to WanderGrade</a></footer></body></html>'
         % (html.escape(title), _SHELL_ICON, head, _asset_version("styles.css"),
@@ -1194,7 +1199,7 @@ from fxtracker import render_strength  # noqa: E402
 # a capital and a slash at once) 301 to their lowercase URL. Never /guide/:
 # that has its own redirects (_guide_redirect).
 _LOWER_PATHS = frozenset(_LIST_PATHS + render_cheapest.PATHS
-                         + (render_strength.PATH, "/privacy", "/data"))
+                         + (render_strength.PATH, "/privacy", render_methodology.PATH, "/data"))
 
 _STRENGTH_CREDITS = ('Data: <a href="https://fxratesapi.com" rel="noopener" target="_blank">fxratesapi.com</a> '
                      '(rates) &middot; <a href="https://www.ecb.europa.eu/stats/policy_and_exchange_rates/'
@@ -1285,6 +1290,20 @@ def _strength_lastmod(stamp):
 
 
 _privacy_memo = [None]
+_methodology_memo = [None]
+
+
+def _render_methodology_page():
+    """/how-grades-work in the list pages' shell (fxtracker/render_methodology.py),
+    its numbers read from the scoring code and the refresh intervals from this
+    file's TTLs. Fixed per deploy, so built once per process."""
+    if _methodology_memo[0] is None:
+        p = render_methodology.page({"rates": CACHE_TTL, "ppp": PPP_TTL, "adv": ADV_TTL,
+                                     "flights": FLIGHTS_TTL})
+        _methodology_memo[0] = _shell_page(p["title"], p["html"],
+                                           _list_head(render_methodology.PATH, p["title"], p["desc"]),
+                                           credits=False)
+    return _methodology_memo[0]
 
 
 def _render_privacy_page():
@@ -2458,7 +2477,8 @@ def _busy_arm():
         with _busy_lock:
             _busy["timer"] = None
 _slot_held = threading.local()   # .slots: the semaphore this request thread holds a slot of
-_SLOT_PATHS = frozenset(("/", "/data", "/privacy", render_strength.PATH) + _LIST_PATHS + render_cheapest.PATHS)
+_SLOT_PATHS = frozenset(("/", "/data", "/privacy", render_methodology.PATH, render_strength.PATH)
+                        + _LIST_PATHS + render_cheapest.PATHS)
 
 
 def _slot_route(path):
@@ -3386,6 +3406,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/privacy/":
             query = self.path.split("?", 1)[1] if "?" in self.path else ""
             self._redirect("/privacy" + ("?" + query if query else ""))
+            return
+        if path == render_methodology.PATH:
+            # Like /privacy: fixed words, cached at the edge, no cookie.
+            self._send_body(_render_methodology_page(), "text/html; charset=utf-8",
+                            cache="public, max-age=300")
+            return
+        if path == render_methodology.PATH + "/":
+            query = self.path.split("?", 1)[1] if "?" in self.path else ""
+            self._redirect(render_methodology.PATH + ("?" + query if query else ""))
             return
         if path == render_cheapest.HUB or path.startswith(render_cheapest.HUB + "/"):
             # The hub and the twelve months; the slash variant 301s to its
