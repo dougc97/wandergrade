@@ -52,7 +52,8 @@ results.append(ok('["a", "b", "any"].includes(sharedQ.get("sf"))' in APP, "sf ta
 # The cross-country pages, each linked once: the month lists by their hub
 # (the twelve months named by their URL pattern, not twelve more links) and
 # the dollar page.
-for path in ("/safe-and-cheap", "/do-not-travel", "/cheapest", "/dollar-strength", "/privacy"):
+for path in ("/safe-and-cheap", "/do-not-travel", "/cheapest", "/dollar-strength", "/privacy", "/data",
+             "/how-grades-work"):
     results.append(ok(txt.count("](https://wandergrade.com%s)" % path) == 1, "links %s once" % path))
 results.append(ok("https://wandergrade.com/cheapest/january to https://wandergrade.com/cheapest/december" in txt
                   and "50% of US prices" in txt and "weather score of 70" in txt,

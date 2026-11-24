@@ -30,6 +30,7 @@ WanderGrade answers "where should I go, and when?" for a traveller from a given 
 - Weather: a monthly comfort score from five years of daily weather history (Open-Meteo archive).
 - Flights: round-trip fares Aviasales has seen recently (via Travelpayouts), judged against each route's own usual range for the month. Cached fares, not live quotes.
 - Also on the guides: visa notes per passport with the official link, health notices (Government of Canada; West Nile from ECDC and CDC), best months and seasonal hazards, things to do and what is in season.
+- [How grades work]({site}/how-grades-work): each grade's formula with the numbers in use, the letter bands, the data sources and how often each refreshes, and the known limits. Cite it for how a grade is made.
 
 ## Pages that work without JavaScript
 
@@ -38,6 +39,7 @@ WanderGrade answers "where should I go, and when?" for a traveller from a given 
 - [Safest cheap countries]({site}/safe-and-cheap): countries at U.S. Level 1 with local prices at or under 60% of the US, with Canada's and Germany's levels, best months and health notes.
 - [Do Not Travel list]({site}/do-not-travel): every country rated "do not travel" by the US, Canada or Germany, in each government's own words, with dates and reasons.
 - [Cheapest countries by month, from the US]({site}/cheapest): one ranked list per month ({site}/cheapest/january to {site}/cheapest/december) of the countries at U.S. Level 1 or 2, rated "do not travel" by none of the US, Canada or Germany, at or under 50% of US prices and with a weather score of 70 or more that month, graded as Top Picks grades them for a traveller from the US, with the month's US round-trip fare where one is cached.
+- [Cost of living by country, free dataset]({site}/data): local price levels versus the US for every country with a figure, as CSV and JSON downloads with the method and sources ({site}/data/price-levels.csv, {site}/data/price-levels.json).
 - [Where the US dollar is strongest]({site}/dollar-strength): every currency ranked by the US dollar's move against its one-year average after inflation, with the move before inflation, where each currency is used and local prices versus the US, plus the site's overall dollar index (January 1999 = 100, before inflation).
 - [Sitemap]({site}/sitemap.xml)
 
