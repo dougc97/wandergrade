@@ -224,7 +224,8 @@ GRAB = ["const EUROZONE", "const USD_USING", "const CUR_BY_ISO", "const PPP_UNIT
         "function inflUS", "function highInflUnknown", "function pplCarry", "function fxHomeIso", "function fxInflBasis",
         "function realFxPct", "function currencyCountries", "function currencyCountry", "function priceLevelRaw",
         "function _computePlFit", "function plFit", "function plImplausible", "function priceLevel",
-        "function tablePriceLevel", "function currencySpread", "function plAnchor", "function signedPct"]
+        "function tablePriceLevel", "function currencySpread", "const NAME_THE", "function countryNameInText",
+        "const PL_SHORT", "function plAnchorName", "function plAnchor", "function signedPct"]
 asof = datetime.date.fromisoformat(RATES["as_of"])
 prelude = """
 "use strict";
