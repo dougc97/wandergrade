@@ -306,9 +306,9 @@ OFF_MAP = {
     "ZM": "the simplified map draws the Zambezi south of Livingstone, inside Zimbabwe's outline",
 }
 OFF_MAP_KM = 250
-# The build warns for a point above HIGH_M (Open-Meteo's elevation for it) or
-# a year whose best month scores under LOW_BEST: either can mean a point
-# visitors don't experience. Every one is checked by hand; REVIEWED says why
+# The build warns for a point above HIGH_M (Open-Meteo's elevation for it), a
+# year whose best month scores under LOW_BEST, or rain far over the place's
+# own records (RAIN_REF): any can mean a point visitors don't experience. Every one is checked by hand; REVIEWED says why
 # it stands (scripts/test_climate_points.py holds the list complete).
 HIGH_M = 800
 LOW_BEST = 60
@@ -320,11 +320,14 @@ REVIEWED = {
     "BI": "Bujumbura is on Lake Tanganyika, Burundi's lowest ground (about 780 m)",
     "BO": "La Paz is at 3,650 m, and Uyuni, Titicaca and Sucre are high too (2026-07 point)",
     "BT": ("every visitor flies into Paro, and western Bhutan's sights are all at 2,000-2,500 m. The "
-           "reanalysis reads Paro's spring far wetter than the valley's own records, which holds the "
-           "scores near 60; its best months (Sep-Nov) are the main season"),
+           "reanalysis reads Paro about four times wetter than the valley's own records, all year (RAIN_REF), "
+           "so the guide's month table leaves the rain out; the scores keep it, which holds spring under 50, "
+           "and its best months (Sep-Nov) are the main season"),
     "BW": "Maun is at 945 m; Botswana is Kalahari plateau throughout",
     "CR": "left alone (review 2026-11-23): the geometric point is in the Central Valley, where trips start",
-    "EC": "Quito, where nearly every trip starts, is at 2,800 m",
+    "EC": ("Quito, where nearly every trip starts, is at 2,800 m. Its reanalysis rain is about 2.5 times "
+           "the city's (RAIN_REF), so the guide's month table leaves it out; the seasons come out right (dry "
+           "June-September, its best months; wet February-April)"),
     "ER": "Asmara, where visitors stay, is at 2,300 m",
     "ET": "Addis Ababa, where every trip starts, is at 2,400 m; the historic north is highland too",
     "GT": "Antigua is at 1,500 m, as are Lake Atitlán and the capital",
@@ -354,18 +357,42 @@ REVIEWED = {
     "IS": "subarctic: Reykjavík's July is about 11°C, the island's mildest corner",
     "TF": "Kerguelen is cold and wet all year; Port-aux-Français is the only base",
 }
-ELEVATION = "https://api.open-meteo.com/v1/elevation"
+# A point's yearly rain checked against the place's own long-run total (mm,
+# and whose), where one is known to differ: the reanalysis drifts wet in some
+# mountain valleys. The review of batch B (2026-11-24) measured Paro at
+# 2,897 mm on 270 days and Quito at 2,483 mm; Tehran, Amman, Windhoek,
+# Arusha, Kampala, Livingstone and Maun read 0.8-1.2 times theirs. Over
+# RAIN_REF_MAX times its reference a point warns (point_warnings, so REVIEWED
+# says why it stands), and the guide's month table leaves its rain out
+# (render_guide.month_table) rather than print it in a crawlable table.
+RAIN_REF = {
+    "BT": (700, "Paro's records: about 700 mm on about 100 days"),
+    "EC": (1000, "Quito's records: about 1,000 mm"),
+}
+RAIN_REF_MAX = 2.0
 
 
-def point_warnings(row):
+def rain_doubtful(iso, row):
+    """True when the row's yearly rain is over RAIN_REF_MAX times the
+    place's own total (RAIN_REF); False without a reference or rain."""
+    ref = RAIN_REF.get(iso)
+    rain = [x for x in row.get("rain_mm") or [] if x is not None]
+    return bool(ref and len(rain) == 12 and sum(rain) > RAIN_REF_MAX * ref[0])
+
+
+def point_warnings(row, iso=None):
     """Why a climate.json row needs a look by hand: its point sits above
-    HIGH_M, or its best month scores under LOW_BEST. [] when neither."""
+    HIGH_M, its best month scores under LOW_BEST, or (given its iso) its
+    yearly rain is over RAIN_REF_MAX times the place's own. [] when none."""
     out = []
     if (row.get("elev") or 0) > HIGH_M:
         out.append("point at %d m (over %d m)" % (row["elev"], HIGH_M))
     scores = [x for x in row.get("scores") or [] if x is not None]
     if scores and max(scores) < LOW_BEST:
         out.append("best month scores %d (under %d)" % (max(scores), LOW_BEST))
+    if iso and rain_doubtful(iso, row):
+        out.append("rain %d mm a year (over %g times the %d mm on record)"
+                   % (sum(row["rain_mm"]), RAIN_REF_MAX, RAIN_REF[iso][0]))
     return out
 
 
@@ -681,7 +708,7 @@ def report_warnings(table, isos):
     verdict or as needing one."""
     new = 0
     for iso in sorted(isos):
-        w = point_warnings(table.get(iso) or {})
+        w = point_warnings(table.get(iso) or {}, iso)
         if not w:
             continue
         seen = REVIEWED.get(iso)
