@@ -16,6 +16,10 @@ What it holds the code to:
     would rank their own, mostly empty, list), and the address bar keeps it
     only for a visit a link opened it on (the saved choice needs none);
   * "Show top 10" only when there is more: a list of exactly five has none;
+  * index.html's stand-in, before first paint: as many skeleton rows as ★
+    countries (England/Scotland/Wales as one UK, at most the Top N, at least
+    one), renderValue's own hint for an empty list, data-vb (no gems fold),
+    which renderValue drops once rows are drawn;
   * "Somewhere new" and "Include visited" rank as before.
 """
 import json, os, re, subprocess, sys, tempfile
@@ -64,9 +68,9 @@ function rankedOrder() {
   return sc.sort(rankValue).map((s) => s.iso);
 }
 $("safeFloor").value = "b";
-$("beenFilter").value = "want"; renderValue();
+$("beenFilter").value = "want"; document.documentElement.setAttribute("data-vb", "want"); renderValue();
 out.want = { rows: rows(), note: note.innerHTML, gemsHidden: $("gemsBox").hidden, url: buildShareURL(false),
-             share: buildShareURL(true) };
+             share: buildShareURL(true), vbAttr: document.documentElement.getAttribute("data-vb") };
 localStorage.setItem("wg_showvisited", "want");
 out.wantSavedUrl = buildShareURL(false);
 localStorage.removeItem("wg_showvisited");
@@ -138,6 +142,7 @@ else:
     results.append(ok("vb=" not in w["share"] and "vb=" not in o["wantSavedUrl"],
                       "a share link leaves vb out, and so does the bar when want-to-go is the saved choice: %s / %s"
                       % (w["share"], o["wantSavedUrl"])))
+    results.append(ok(w["vbAttr"] is None, "renderValue drops the stand-in's data-vb once rows are drawn"))
     results.append(ok(o["five"] == {"rows": 5, "more": True}
                       and o["six"] == {"rows": 5, "more": False, "text": "Show top 10 ↓"},
                       "Show top 10 only when there is more: none for exactly five ★ countries, there for six "
@@ -156,6 +161,75 @@ INDEX = open(P("public", "index.html"), encoding="utf-8").read()
 results.append(ok('sharedQ.get("vb") === "want"' in post and "localStorage" not in post.split('sharedQ.get("vb")', 1)[1].split("\n", 1)[0]
                   and '<option value="want">★ My want-to-go</option>' in INDEX,
                   "a link's vb=want opens the ★ list without saving it; the Been-to select offers it"))
+
+# index.html's stand-in (the script after the skeleton rows) under jsc: a
+# tbody of five rows, the head script's data-pc, location and localStorage.
+STAND = [x for x in re.findall(r"<script>(\(function\(\)\{var n=\+document.*?)</script>", INDEX, re.S)
+         if "#picksNote > .skeltext" in x]
+SPAGE = r"""
+function run(c) {
+  var attrs = c.pc ? { "data-pc": c.pc } : {}, rows = [], ins = [];
+  function Row(n) { var cell = { textContent: "#" + n }; return { cell: cell, querySelector: function () { return cell; },
+    cloneNode: function () { var r = Row(0); r.cell.textContent = cell.textContent; return r; } }; }
+  for (var i = 1; i <= 5; i++) rows.push(Row(i));
+  var table = { insertAdjacentHTML: function (w, h) { ins.push(w + ":" + h); } };
+  var tbody = { parentNode: table, children: rows, appendChild: function (r) { rows.push(r); },
+    removeChild: function (r) { rows.splice(rows.indexOf(r), 1); } };
+  Object.defineProperty(tbody, "lastElementChild", { get: function () { return rows[rows.length - 1]; } });
+  var document = { documentElement: { getAttribute: function (k) { return k in attrs ? attrs[k] : null; },
+      setAttribute: function (k, v) { attrs[k] = String(v); } },
+    createTextNode: function (t) { return { text: t }; },
+    querySelector: function (q) { return q === "#topCards tbody" ? tbody : null; } };
+  var location = { search: c.search }, store = c.store, localStorage = { getItem: function (x) { return x in store ? store[x] : null; } };
+  (function (document, location, localStorage, URLSearchParams) { eval(SRC); })(document, location, localStorage, USP);
+  return { rows: rows.map(function (r) { return r.cell.textContent; }).join(" "), vb: attrs["data-vb"] || null, ins: ins };
+}
+function USP(s) { var o = {}; (s || "").replace(/^\?/, "").split("&").forEach(function (kv) { if (!kv) return;
+  var i = kv.indexOf("="); o[i < 0 ? kv : kv.slice(0, i)] = i < 0 ? "" : kv.slice(i + 1); });
+  this.get = function (x) { return x in o ? o[x] : null; }; }
+var CASES = JSON.parse(CASES_JSON), out = [];
+for (var i = 0; i < CASES.length; i++) out.push(run(CASES[i]));
+print(JSON.stringify(out));
+"""
+W = lambda *a: json.dumps(list(a))
+R = lambda n: " ".join("#%d" % i for i in range(1, n + 1))
+STAND_CASES = [  # search, pc, store, rows, data-vb
+    ("", None, {}, R(5), None),
+    ("", None, {"wg_showvisited": "want", "fx_wishlist": W("JP", "GB-SCT", "GB-ENG", "SY", "FO", "TH", "PT", "MX")}, R(5), "want"),
+    ("", None, {"wg_showvisited": "want", "fx_wishlist": W("JP", "PT", "SY")}, R(3), "want"),
+    ("?vb=want", None, {"fx_wishlist": W("GB-ENG", "GB-SCT")}, R(1), "want"),
+    ("", None, {"wg_showvisited": "want", "fx_wishlist": "[]"}, R(1), "empty"),
+    ("?vb=want", None, {}, R(1), "empty"),
+    ("", "10", {"wg_showvisited": "want", "fx_wishlist": W(*"JP PT TH MX IS GR VN PE CL AR BR CO".split())}, R(10), "want"),
+    ("", "10", {"wg_showvisited": "want", "fx_wishlist": W(*"JP PT TH MX IS GR VN".split())}, R(7), "want"),
+    ("", "10", {"wg_showvisited": "1", "fx_wishlist": W("JP")}, R(10), None),
+]
+got = None
+if len(STAND) == 1:
+    cases = [{"search": q, "pc": pc, "store": st} for q, pc, st, _r, _v in STAND_CASES]
+    with tempfile.TemporaryDirectory() as d:
+        sp = os.path.join(d, "stand.js")
+        open(sp, "w", encoding="utf-8").write(SPAGE.replace("SRC", json.dumps(STAND[0]))
+                                              .replace("CASES_JSON", json.dumps(json.dumps(cases))))
+        r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=60)
+    try:
+        got = json.loads(r.stdout.strip().splitlines()[-1])
+    except Exception:
+        print(r.stdout[-300:], r.stderr[-600:])
+        got = None
+bad = [(c[0], c[1], c[2].get("fx_wishlist"), g) for c, g in zip(STAND_CASES, got or [])
+       if g["rows"] != c[3] or g["vb"] != c[4]]
+results.append(ok(got is not None and len(got) == len(STAND_CASES) and not bad,
+                  "the stand-in gives the ★ list as many skeleton rows as ★ countries (the UK once, at most the "
+                  "Top N, at least one) and sets data-vb %s" % (bad or "")))
+HINT = re.search(r"\"(<p class='hint'>Your ★ want-to-go list is empty\..*?</p>)\"", APP)
+results.append(ok(got is not None and HINT is not None
+                  and [g["ins"] for g in got] == [[] if v != "empty" else ["afterend:" + HINT.group(1)]
+                                                  for _q, _p, _s, _r, v in STAND_CASES],
+                  "an empty ★ list gets renderValue's own hint, word for word, after the skeleton"))
+CSS = open(P("public", "styles.css"), encoding="utf-8").read()
+results.append(ok('html[data-vb] #gemsBox, html[data-vb="empty"] #topCards > table.skeleton { display: none; }' in CSS,
+                  "data-vb hides the gems fold, and for an empty list the skeleton (styled out: _TOP_HOLD un-hides it)"))
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)

@@ -401,7 +401,8 @@ function run(c) {
     replaceChild: function (n, o) { kids[kids.indexOf(o)] = n; }, removeChild: function (o) { kids.splice(kids.indexOf(o), 1); } };
   Object.defineProperty(k, "firstChild", { get: function () { return kids[0]; } });
   Object.defineProperty(k, "lastChild", { get: function () { return kids[kids.length - 1]; } });
-  var document = { documentElement: { getAttribute: function () { return null; } }, createTextNode: function (t) { return { text: t }; },
+  var document = { documentElement: { getAttribute: function () { return null; }, setAttribute: function () {} },
+    createTextNode: function (t) { return { text: t }; },
     querySelector: function (q) { return q === "#picksNote > .skeltext" ? k : null; } };
   var location = { search: c.search }, store = c.store, localStorage = { getItem: function (x) { return x in store ? store[x] : null; } };
   var RealDate = Date, FakeDate = function (y, m, d) { return arguments.length ? new RealDate(y, m, d) : new RealDate(c.y, c.m - 1, c.d); };

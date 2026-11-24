@@ -304,14 +304,26 @@
              it wrapped to two when it came), and the ★ want-to-go list
              (vb=want, or saved) has its own words and no "more finds". On a
              phone, where "more finds" is hidden, the Any time line is two
-             lines where "ranked by value" is one. -->
+             lines where "ranked by value" is one.
+             The ★ list gets as many rows as it has countries (England,
+             Scotland and Wales as one UK; at most the Top N, at least one)
+             and, empty, renderValue's own hint in their place; data-vb
+             hides the gems fold it never has (styles.css). Its 5 rows used
+             to fold into 2 or into the hint, and the fold vanished under
+             the held skeleton (CLS 0.04-0.08). -->
         <script>(function(){var n=+document.documentElement.getAttribute("data-pc")||5,
-          b=document.querySelector("#topCards tbody"),r=b&&b.lastElementChild;
+          b=document.querySelector("#topCards tbody"),r=b&&b.lastElementChild,
+          q=new URLSearchParams(location.search),w=q.get("vb")==="want",u={},nw=0;
+          try{w=w||localStorage.getItem("wg_showvisited")==="want";
+            if(w)JSON.parse(localStorage.getItem("fx_wishlist")||"[]").forEach(function(x){
+              x=String(x).replace(/^GB-(ENG|SCT|WLS)$/,"GB");if(!u[x]){u[x]=1;nw++;}});}catch(e){}
+          if(w){n=Math.max(1,Math.min(n,nw));document.documentElement.setAttribute("data-vb",nw?"want":"empty");
+            if(!nw&&b)b.parentNode.insertAdjacentHTML("afterend","<p class='hint'>Your ★ want-to-go list is empty. Star countries on your <button type='button' class='linkbtn' id='wantGo'>🗺️ Wander List</button>.</p>");}
           for(var i=6;i<=n&&r;i++){var c=r.cloneNode(true);c.querySelector(".rank").textContent="#"+i;b.appendChild(c);}
-          var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),k=document.querySelector("#picksNote > .skeltext");
+          while(b&&b.children.length>n)b.removeChild(b.lastElementChild);
+          var m=parseInt(q.get("vmn"),10),k=document.querySelector("#picksNote > .skeltext");
           if(!k)return;
-          var wx=q.get("vmm")==="weather",flex=q.get("vmf")==="1"||!(m>=1&&m<=12),w=q.get("vb")==="want",by;
-          try{w=w||localStorage.getItem("wg_showvisited")==="want";}catch(e){}
+          var wx=q.get("vmm")==="weather",flex=q.get("vmf")==="1"||!(m>=1&&m<=12),by;
           if(flex){var A=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],d=new Date(),o=d.getMonth(),
             s=new Date(d.getFullYear(),o+1,0).getDate()-d.getDate()+1<10?o+1:o;
             by="each one's best "+(wx?"weather":"month")+" in "+A[s%12]+"–"+A[(s+5)%12];}

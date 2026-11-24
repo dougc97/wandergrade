@@ -9127,6 +9127,9 @@ function renderValue() {
     gemsBox.hidden = !gems.length;
     if (gems.length) renderGradeTable($("gemRows"), gems, month, true, true, gemSort);
   }
+  // index.html's ★-list stand-in (data-vb: no gems fold, an empty list's
+  // hint) has done its job once rows are drawn; [hidden] decides from here.
+  if (!held) document.documentElement.removeAttribute("data-vb");
   // "Show more" reveals 10 then 20. When the popular list runs out before the
   // Show count (a region with most of its famous names marked ✓ been: two
   // rows under "Top 20"), the same button points at the gems instead — the

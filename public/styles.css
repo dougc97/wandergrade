@@ -1596,6 +1596,12 @@ html[data-tab="guide"] #tab-guide .cardwide { min-height: 100vh; }
    index.html ships it [hidden] and nearly every render shows it, so removing
    its box would push the gems fold and the map down on each first render. */
 #showMore[hidden] { visibility: hidden; }
+/* The ★ want-to-go ranking before renderValue first draws it (index.html's
+   stand-in sets data-vb, renderValue drops it): no gems fold, which that
+   list never has (it vanished under the held skeleton: everything below
+   moved up 64px), and an empty list shows renderValue's hint in place of
+   the skeleton (styled out, not [hidden]: _TOP_HOLD un-hides it). */
+html[data-vb] #gemsBox, html[data-vb="empty"] #topCards > table.skeleton { display: none; }
 /* The picks note's "show" (the ✓ been countries it hides): the site's green,
    not the system LinkText, which is a dark blue on the dark theme. */
 .picksnote .linkbtn { color: var(--green); font-weight: 600; text-decoration: none; }
