@@ -16,7 +16,8 @@ What it holds the code to:
     none: fewer than three months), so the browser's copy replaces them
     without anything moving;
   * redraws: drawn again unchanged (each /api/flight-value poll's answer),
-    neither writes anything nor hides the strip;
+    neither writes anything nor hides the strip; a line waiting for the
+    month curves draws its grey boxes after 2.5 s however the guide opened;
   * the page: a guide serves both when the caches hold their inputs and
     neither when they don't; the homepage serves neither; the pre-paint
     script empties them for a reader they aren't for and keeps them for a
@@ -184,13 +185,18 @@ results.append(ok(G.search_url("NYC", "BKK", "2026-12", d0) == "https://www.avia
 # while the server fills, for up to 15 minutes after a deploy). Drawn again unchanged, they
 # must write nothing: rewritten, the reader's keyboard focus inside fell to <body> and an
 # open tip lost its element; the strip, hidden while its curve was fetched, did too.
+# And a line waiting for the first month curves draws its grey boxes after 2.5 s however
+# the guide was opened (from Top Picks no timer was set: blank until they came), and never
+# leaves another country's line standing meanwhile.
 REDRAW_DRIVER = r"""
 const FIX = JSON.parse(read(FIX_PATH));
 lastRates = FIX.rates; ppp = FIX.ppp; climate = FIX.climate; activities = FIX.activities; worldGeo = FIX.world;
 advisories = FIX.advisories; flightsData = FIX.flights; flightValue = FIX.fv; valueFlightsSettled = true;
 SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
 ensureAdvisories = async () => advisories; ensurePPP = async () => ppp;
-for (const iso of ["TH"]) _fareMonthsCache["US:" + iso] = Promise.resolve(FIX.curves[iso]);
+for (const iso of ["TH", "VN"]) _fareMonthsCache["US:" + iso] = Promise.resolve(FIX.curves[iso]);
+let timers = [];
+setTimeout = function (f, ms) { timers.push({ f: f, ms: ms }); return timers.length; };
 // The host as a browser has it: each write puts new nodes under it.
 function watch(el) {
   let html = el.innerHTML, hidden = el.hidden;
@@ -216,12 +222,26 @@ const gg = $("guideGrades"), gf = $("guideFares"), o = {};
   gg.innerHTML = "";
   await renderGuideGrades("TH");
   o.emptied = [wg.writes, gg.innerHTML.indexOf('data-gg="ov"') >= 0];
+  // VN opened (from Top Picks: the fares are in) while the first month curves are out.
+  flightValue = null; _fvAsk = { origin: "US", done: false }; _guideFareLate = false; timers = [];
+  ccGuideIso = "VN";
+  await renderGuideGrades("VN");
+  const late = timers.filter((t) => t.ms === 2500);
+  o.wait = [gg.innerHTML, late.length];
+  await renderGuideGrades("VN");
+  o.once = timers.filter((t) => t.ms === 2500).length;
+  late[0].f();
+  await renderGuideGrades("VN");
+  o.boxes = [_guideFareLate, (gg.innerHTML.match(/ggpend/g) || []).length];
+  flightValue = FIX.fv; _fvAsk.done = true;
+  await renderGuideGrades("VN");
+  o.landed = [(gg.innerHTML.match(/ggpend/g) || []).length, gg.innerHTML.indexOf('data-gg="ov"') >= 0];
   print(JSON.stringify(o));
 })().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
 """
 with tempfile.TemporaryDirectory() as d:
     fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
-    json.dump(dict(FIX, curves={k: CURVES.get(k) for k in ("TH",)}), open(fp, "w"))
+    json.dump(dict(FIX, curves={k: CURVES.get(k) for k in ("TH", "VN")}), open(fp, "w"))
     open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + REDRAW_DRIVER.replace("FIX_PATH", json.dumps(fp)))
     r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
 try:
@@ -232,6 +252,11 @@ results.append(ok(rd.get("same") == [0, 0, 0, False, True, True] and rd.get("mov
                   and rd.get("emptied") == [2, True],
                   "a redraw that changes nothing writes nothing and never hides the strip (a poll's answer); "
                   "a moved range redraws the strip, an emptied line is drawn again %s" % rd))
+results.append(ok(rd.get("wait") == ["", 1] and rd.get("once") == 1 and rd.get("boxes") == [True, 3]
+                  and rd.get("landed") == [0, True],
+                  "a guide opened from Top Picks while the month curves are out: another country's line goes, "
+                  "one 2.5 s timer, then the grey boxes, then the grades once they land %s"
+                  % {k: rd.get(k) for k in ("wait", "once", "boxes", "landed", "error") if k in rd}))
 
 # --- the page -----------------------------------------------------------------------------
 import server  # noqa: E402

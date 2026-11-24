@@ -2611,7 +2611,7 @@ async function renderGuideGrades(iso) {
       if (ccGuideIso) renderGuideGrades(ccGuideIso);
     });
     // Fares still out after 2.5s: the line is drawn without them (below).
-    setTimeout(() => { if (_guideFarePend || guideFvPending()) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); } }, 2500);
+    armGuideLate();
   }
   if (holdServedGuide(iso)) return;   // the served line stays (above)
   const month = travelMonth();
@@ -2635,14 +2635,22 @@ async function renderGuideGrades(iso) {
   // ✈️ grade of a route with no cached fare is a distance estimate, from its
   // centroids ("—" without them, "~B" with). init draws this line again
   // when it lands (or fails).
-  const worldPend = !worldGeo && !!_worldReq && !!(flightsData && flightsData.configured);
   // And the month curves (/api/flight-value), asked once the fares are in:
   // the ✈️ grade prefers the month's fare against the route's range. Drawn
   // on the fares alone, a guide-first reader the served line isn't for (a
   // ?vmn= newsletter link, a saved From) kept the distance grade for good —
   // Thailand read "A+ 93, Flights B+" where its December is "B+ 81, F".
-  if (s && (_guideFarePend || worldPend || guideFvPending()) && !_guideFareLate) return;
-  const pending = !!(s && (_guideFarePend || worldPend || guideFvPending()));
+  // (guideGradesWait, below.) The 2.5 s rule holds however the guide was
+  // opened: a waiting line arms it here too (armGuideLate). Another
+  // country's line (the served one, or one drawn before) is emptied
+  // meanwhile, so it never stands under this guide's title.
+  const pending = !!s && guideGradesWait();
+  if (pending && !_guideFareLate) {
+    if ((host._wgIso || window.__WGGC__) !== iso) { setBlockHTML(host, ""); host._wgIso = iso; }
+    armGuideLate();
+    return;
+  }
+  host._wgIso = iso;
   const act = activities && activities[iso];
   const days = act && act.days ? '<span class="ggdays" data-tip="' + esc("Worth " + act.days[0] + "–" + act.days[1]
     + " days on a first visit") + '" title="">🧳 ' + act.days[0] + "–" + act.days[1] + " days</span>" : "";
@@ -2699,6 +2707,24 @@ function guideGradedTip(month) {
 function guideFvPending() {
   return !!(flightsData && flightsData.configured && _fvAsk && !_fvAsk.done && _fvAsk.origin === originIso()
     && !(flightValue && flightValue.origin === originIso()));
+}
+// What a graded line waits for before it draws (renderGuideGrades): the
+// fares, the map file a distance-estimated ✈️ grade reads its centroids
+// from, and the first month curves.
+function guideGradesWait() {
+  return !!(_guideFarePend || (!worldGeo && _worldReq && flightsData && flightsData.configured) || guideFvPending());
+}
+// It waits 2.5 s at most, then draws with the grey pending boxes. The timer
+// used to start only with a guide-first landing's own fares fetch: a guide
+// opened from Top Picks while the month curves were still out stayed blank
+// until they came (9 s with them 12 s slow). One timer for every wait.
+let _guideLateT = null;
+function armGuideLate() {
+  if (_guideLateT || _guideFareLate) return;
+  _guideLateT = setTimeout(() => {
+    _guideLateT = null;
+    if (guideGradesWait()) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); }
+  }, 2500);
 }
 function fillGuideInsurance(host, iso) {
   // Named, and styled like the stay buttons it sits beside. It used to read
