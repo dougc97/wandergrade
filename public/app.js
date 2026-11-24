@@ -7678,12 +7678,46 @@ function renderGuideAI(iso) {
     + '<div id="guideAIPanel" class="aipanel" hidden></div>';
   $("guideAIBtn").onclick = () => openGuideAI(iso);
   $("guideTripBtn").onclick = () => {
+    const had = document.activeElement === $("guideTripBtn");
     tripToggle(iso);
     renderGuideAI(iso);                       // relabel in place
+    if (had) $("guideTripBtn").focus();       // the relabelled button, not <body>
     if (loaded.value) renderValue();          // keep the Top Picks trip bar in step
-    status(tripHas(iso) ? "Added to your trip 🧳 — open the Trip tab to plan it."
-                        : "Removed from your trip.", "ok");
+    if (!tripHas(iso)) { status("Removed from your trip.", "ok"); return; }
+    status("Added to your trip 🧳", "ok");
+    tripToastLink();
   };
+}
+// "Added to your trip" said to open the Trip tab and gave no way there: the
+// tab bar isn't sticky, ~800px up a phone's page, and the Trip tab is the one
+// place with a dated flight link. The toast carries the way now, added the
+// way Clear all's Undo is, with its focus handling: a keyboard user is put on
+// it (the toast is ~30 Tabs away), and when it goes, focus goes back to the
+// trip button rather than dropping to <body>.
+const TRIP_TOAST_MS = 8000;
+function tripToastLink() {
+  const go = document.createElement("button");
+  go.type = "button"; go.className = "linkbtn"; go.textContent = "Open my trip →";
+  go.onclick = async () => {
+    clearTimeout(_statusTimer);
+    await activateTab("trip", true);          // hides the toast (clearTransientStatus)
+    // Focus to the trip's heading, as the skip link does for <main>: the
+    // button it was on is gone with the toast.
+    const h = document.querySelector("#tab-trip h2");
+    if (h) {
+      h.setAttribute("tabindex", "-1");
+      h.addEventListener("blur", () => h.removeAttribute("tabindex"), { once: true });
+      h.focus({ preventScroll: true });
+    }
+    $("tab-trip").scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+  };
+  $("status").append(" ", go);
+  if (_kbdNav) go.focus();
+  clearTimeout(_statusTimer);   // the link stays as long as Undo does
+  _statusTimer = setTimeout(() => {
+    $("status").hidden = true;
+    if (document.activeElement === go && $("guideTripBtn")) $("guideTripBtn").focus();
+  }, TRIP_TOAST_MS);
 }
 
 // The guide's AI panel. What its prompt quotes loads on its own schedule —
