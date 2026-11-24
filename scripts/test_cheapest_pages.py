@@ -708,6 +708,27 @@ results.append(ok(st1 == st2 == 200 and hd1.get("Cache-Control") == "no-store"
                   and hd2.get("Cache-Control") == "public, max-age=300" and "<strong>3 countries</strong>" in b2,
                   "/data: no-store while the dataset is down, cached once it is back (%s / %s)"
                   % (hd1.get("Cache-Control"), hd2.get("Cache-Control"))))
+# /data's Dataset markup and shorter title (review #32): the two downloads,
+# the sources, the rates' date as dateModified, and no licence claimed.
+_ld = re.findall(r'<script type="application/ld\+json">(.*?)</script>', b2, re.S)
+_ds = [d for d in (json.loads(x) for x in _ld) if d.get("@type") == "Dataset"]
+_d = _ds[0] if _ds else {}
+_title = re.search(r"<title>(.*?)</title>", b2).group(1)
+results.append(ok(len(_ds) == 1 and _d.get("@context") == "https://schema.org"
+                  and _d.get("url") == "https://wandergrade.com/data"
+                  and sorted((x["encodingFormat"], x["contentUrl"]) for x in _d.get("distribution", []))
+                  == [("application/json", "https://wandergrade.com/data/price-levels.json"),
+                      ("text/csv", "https://wandergrade.com/data/price-levels.csv")]
+                  and _d.get("dateModified") == "2026-10-23" and "license" not in _d
+                  and "https://data.worldbank.org" in _d.get("isBasedOn", [])
+                  and 50 <= len(_d.get("description", "")) <= 5000 and _d.get("isAccessibleForFree") is True,
+                  "/data carries one schema.org Dataset: both downloads, World Bank among its sources, "
+                  "dateModified the rates' date, no license property"))
+results.append(ok(_title == "Cost of Living by Country: Free CSV &amp; JSON Dataset" and len(html.unescape(_title)) <= 50,
+                  "/data's title is the 50-character one: %r" % _title))
+_ld_down = re.findall(r'<script type="application/ld\+json">(.*?)</script>', _b, re.S)
+results.append(ok(_ld_down and "dateModified" not in json.loads(_ld_down[0]),
+                  "the dataset down: the markup without a dateModified (no date to claim)"))
 st, hd, body = get("/cheapest", "HEAD")
 results.append(ok(st == 200 and body == "", "HEAD answers 200 with no body"))
 st, hd, sm = get("/sitemap.xml")

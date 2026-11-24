@@ -730,7 +730,8 @@ def _sitemap():
     return ("\n".join(out) + "\n").encode("utf-8")   # _send_body takes bytes
 
 
-_DATA_TITLE = "Cost of Living by Country — Free CSV & JSON Dataset | WanderGrade"
+# 50 characters: the 65 with " | WanderGrade" were cut in results (review #32).
+_DATA_TITLE = "Cost of Living by Country: Free CSV & JSON Dataset"
 def _dataset_count():
     """Rows in the live dataset — the count the /data copy quotes. It was
     hardcoded, and went stale the day Aruba, Curacao and Sierra Leone joined."""
@@ -883,6 +884,42 @@ def _shell_page(title, body, head="", analytics=True, credits=True):
     ).encode("utf-8")
 
 
+def _data_jsonld():
+    """schema.org Dataset markup for /data (Google's dataset search reads
+    it): the two downloads, the sources it is built on, and the rates' date
+    as dateModified (left out while the dataset is down). No license
+    property: the page offers reuse with attribution, which is no named
+    licence, so none is claimed (Doug's call, review #32)."""
+    try:
+        asof = _dataset()["payload"]["meta"]["rates_as_of"]
+    except Exception:
+        asof = None
+    doc = {
+        "@context": "https://schema.org",
+        "@type": "Dataset",
+        "name": "Cost of living by country: price levels vs the US",
+        "description": _data_desc(),
+        "url": _SITE + "/data",
+        "keywords": ["cost of living", "price level", "purchasing power parity", "PPP",
+                     "exchange rates", "travel costs"],
+        "isAccessibleForFree": True,
+        "creator": {"@type": "Organization", "name": "WanderGrade", "url": _SITE + "/"},
+        "isBasedOn": ["https://data.worldbank.org", "https://fxratesapi.com"],
+        "variableMeasured": ["price_level", "usd100_buys"],
+        "distribution": [
+            {"@type": "DataDownload", "encodingFormat": "text/csv",
+             "contentUrl": _SITE + "/data/price-levels.csv"},
+            {"@type": "DataDownload", "encodingFormat": "application/json",
+             "contentUrl": _SITE + "/data/price-levels.json"},
+        ],
+    }
+    if asof and re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(asof)):
+        doc["dateModified"] = asof
+    # "</" can't close the script early: the JSON's own escape for "/".
+    return ('<script type="application/ld+json">%s</script>'
+            % json.dumps(doc, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/"))
+
+
 def _render_data_page():
     """A whole, self-contained HTML document for /data — no app.js.
     Carries the same og:image/twitter card as every other page: this is the
@@ -898,7 +935,7 @@ def _render_data_page():
         '<meta property="og:site_name" content="WanderGrade">'
         '<meta property="og:image" content="%s/og.png">'
         '<meta name="twitter:card" content="summary_large_image">'
-        % (desc, _SITE, desc, _SITE, _SITE))
+        % (desc, _SITE, desc, _SITE, _SITE)) + _data_jsonld()
     return _shell_page(_DATA_TITLE, _data_page_body(), head)
 
 
