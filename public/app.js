@@ -9012,7 +9012,7 @@ function renderValue() {
   const beenNote = hiddenVisited
     ? ` <span class="beennote">${hiddenVisited} you've been to hidden · <button type="button" class="linkbtn" id="showBeen">show</button></span>` : "";
   if (picksNote && !held) picksNote.innerHTML = (popular.length
-    ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""} — more finds under 💎 Hidden gems.`
+    ? `${weatherMode ? "🌤️" : "🌍"} Popular destinations, ranked by ${rankedBy}${popularDataBacked ? ' <span class="muted" data-tip="popularity = international tourism spend (UN Tourism / World Bank)">ⓘ</span>' : ""}<span class="morefinds"> — more finds under 💎 Hidden gems.</span>`
     : `Ranked by ${weatherMode || flex ? rankedBy : "overall value"} — no mainstream destinations match these filters, so showing everything.`) + beenNote + budNote;
   // lastPicksMonth stays a real month (the Trip tab and the stays plan for
   // one); lastPicksFlex tells the exports to word "the next 6 months".

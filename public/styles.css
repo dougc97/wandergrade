@@ -2365,6 +2365,28 @@ button.chip2 { border: 0; }
   .charthead.compact h2 { flex: 1 1 0; min-width: 0; }
   #tab-value .herobtns { width: 100%; justify-content: flex-start; }
   #tab-value .herobtns > button { flex: 1 1 0; min-width: 0; text-align: center; }
+  /* A phone landing from the Instagram story (390x664, what its browser
+     leaves the page) showed no graded row: row #1 started at 707px. Three
+     things give way, about 100px: the section heading and its sub-line
+     (clipped, not display:none, so screen readers keep the section's
+     name; the site title above already asks the question), Share ranking
+     down to its 📸 beside the note (its name in aria-label and title), and
+     the note's "more finds under 💎 Hidden gems", whose fold is right
+     below. All three copies of the note carry .morefinds (app.js
+     renderValue, index.html's stand-in, home_picks.note), so nothing
+     moves when one replaces another. */
+  #tab-value .charthead:not(.compact) > div:first-child {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .picksrow { flex-wrap: nowrap; }
+  .picksrow .picksnote { flex: 1 1 0; }
+  .picksrow .shareimg { position: relative; padding: 5px 8px; }
+  .picksrow .shareimg .btxt {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .morefinds { display: none; }
 }
 
 /* ---- tap targets (measured, not guessed) ----

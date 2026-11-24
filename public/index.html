@@ -265,8 +265,8 @@
              usual one), so it wraps where the real one will: empty, it took
              no room beside the button and then grew to two lines on a phone
              (41 -> 77px), dropping the table and everything under it. -->
-        <p class="picksnote" id="picksNote"><span class="skeltext" aria-hidden="true"{{NOTE_SKEL_HIDDEN}}>🌍 Popular destinations, ranked by value ⓘ — more finds under 💎 Hidden gems.</span>{{PICKS_NOTE}}</p>
-        <button id="rankShare" class="themebtn shareimg" type="button"
+        <p class="picksnote" id="picksNote"><span class="skeltext" aria-hidden="true"{{NOTE_SKEL_HIDDEN}}>🌍 Popular destinations, ranked by value ⓘ<span class="morefinds"> — more finds under 💎 Hidden gems.</span></span>{{PICKS_NOTE}}</p>
+        <button id="rankShare" class="themebtn shareimg" type="button" aria-label="Share ranking"
           title="Download the ranked list as an image — grades, fares and sourcing included">📸 <span class="btxt">Share ranking</span></button>
       </div>
       <!-- A skeleton of the real table, not a "Loading…" line: this swaps for a
@@ -304,7 +304,7 @@
           for(var i=6;i<=n&&r;i++){var c=r.cloneNode(true);c.querySelector(".rank").textContent="#"+i;b.appendChild(c);}
           var q=new URLSearchParams(location.search),m=parseInt(q.get("vmn"),10),k=document.querySelector("#picksNote > .skeltext");
           if(k&&q.get("vmm")==="weather"){if(!(m>=1&&m<=12))m=new Date().getMonth()+1;
-            k.textContent="🌤️ Popular destinations, ranked by weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]+" ⓘ — more finds under 💎 Hidden gems.";}})();</script>{{TOP_HOLD}}
+            k.replaceChild(document.createTextNode("🌤️ Popular destinations, ranked by weather comfort in "+["January","February","March","April","May","June","July","August","September","October","November","December"][m-1]+" ⓘ"),k.firstChild);}})();</script>{{TOP_HOLD}}
       </div>
       <button id="showMore" class="showmore" type="button" hidden>Show top 10 ↓</button>
 

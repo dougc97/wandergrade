@@ -373,5 +373,18 @@ results.append(ok(o is not None and o[0] == ["SERVED", "SERVED NOTE", True] and 
                   "its own once they are in, and at once for another view (a month picked) %s"
                   % ("" if o else r.stderr[-300:])))
 
+# Phones (<=600px) drop the note's "more finds under 💎 Hidden gems" (styles.css
+# .morefinds), so every copy of the note carries it in that span: app.js's,
+# index.html's stand-in and home_picks.note. One without it would be a line
+# longer on a phone than the one replacing it, and the table would move.
+MORE = '<span class="morefinds"> — more finds under 💎 Hidden gems.</span>'
+INDEX = open(P("public", "index.html"), encoding="utf-8").read()
+CSS = open(P("public", "styles.css"), encoding="utf-8").read()
+phone = CSS.split("@media (max-width: 600px) {\n  /* The 375-600 block above", 1)[-1].split("\n}\n", 1)[0]
+results.append(ok(MORE in APP and MORE in INDEX and H.note([11, 12, 1, 2, 3, 4], True, True).endswith(MORE)
+                  and "more finds" not in APP.replace(MORE, "").split("function renderValue", 1)[1].split("\nfunction ", 1)[0]
+                  and ".morefinds { display: none; }" in phone,
+                  "the note's 'more finds' phrase is in .morefinds in all three copies, hidden at 600px and under"))
+
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)
