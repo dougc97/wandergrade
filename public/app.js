@@ -8766,6 +8766,48 @@ if (servedPicks) {
   }, 250);
 }
 
+// The skeleton's own hold. A view the served rows aren't for (a story or
+// shared link, any query but tracking, a non-US or returning visitor: the
+// pre-paint script shows the skeleton) drew its rows as soon as the rates
+// were in, then again as popularity, the fares and the fare curves landed:
+// on the story link Thailand, Vietnam, Argentina became Egypt, Puerto Rico,
+// Vietnam within a second, Thailand's Flights went B+ to F, and a tap aimed
+// at #1 could open another country. The first draw over the skeleton now
+// waits for those — any answer from the curves, not a finished fill (only
+// the US is pre-warmed) — for at most FIRST_HOLD_MS from its first try,
+// re-checked every 250 ms. Only that first draw: the visitor's own click,
+// key or input ends the hold at once, and nothing after it is held.
+const FIRST_HOLD_MS = 2500;
+const _firstHold = { t0: 0, done: false, tick: 0 };
+function firstPicksReady() {
+  const o = originIso();
+  return !!activities && popularitySettled && valueFlightsSettled
+    && (!flightsData || !flightsData.configured
+        || !!(flightValue && flightValue.origin === o)
+        || !!(_fvAsk && _fvAsk.origin === o && _fvAsk.done));
+}
+function skeletonOnScreen() {
+  const h = $("topCards");
+  return !!(h && h.querySelector("table.skeleton:not([hidden])"));
+}
+function holdFirstPicks() {
+  const H = _firstHold;
+  if (H.done) return false;
+  if (servedPicks || !skeletonOnScreen()) { H.done = true; return false; }
+  if (!H.t0) H.t0 = Date.now();
+  if (firstPicksReady() || Date.now() - H.t0 >= FIRST_HOLD_MS) { H.done = true; return false; }
+  if (!H.tick) H.tick = setInterval(() => {
+    if (!H.done && !firstPicksReady() && Date.now() - H.t0 < FIRST_HOLD_MS) return;
+    clearInterval(H.tick);
+    if (loaded.value && skeletonOnScreen()) renderValue();
+  }, 250);
+  return true;
+}
+// What the visitor does is drawn at once (their change's own renderValue,
+// else the tick above).
+for (const ev of ["click", "input", "change", "keydown"])
+  document.addEventListener(ev, (e) => { if (e.isTrusted) _firstHold.done = true; }, true);
+
 function renderValue() {
   const region = regionSel;
   // "Any time" ranks each country on its best month of the window; month is
@@ -8773,8 +8815,9 @@ function renderValue() {
   // Trip tab's month, a row with no month of its own).
   const flex = picksFlex();
   const win = flex ? flexWindow() : null;
-  // The served rows and note stay while held (holdServedPicks).
-  const held = holdServedPicks(flex, win || []);
+  // The served rows and note stay while held (holdServedPicks), and so does
+  // the skeleton on a first paint whose data is still coming (holdFirstPicks).
+  const held = holdServedPicks(flex, win || []) || holdFirstPicks();
   // win[0], not travelMonth(): that is the month of a row the reader opened
   // (flexFocusMonth), and the ranking is of the window, whichever row it was.
   const month = flex ? win[0] : travelMonth();
