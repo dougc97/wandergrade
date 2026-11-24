@@ -15,6 +15,8 @@ What it holds the code to:
     ungraded country — and the served strip is the client's (or both are
     none: fewer than three months), so the browser's copy replaces them
     without anything moving;
+  * redraws: drawn again unchanged (each /api/flight-value poll's answer),
+    neither writes anything nor hides the strip;
   * the page: a guide serves both when the caches hold their inputs and
     neither when they don't; the homepage serves neither; the pre-paint
     script empties them for a reader they aren't for and keeps them for a
@@ -176,6 +178,60 @@ results.append(ok(G.search_url("NYC", "BKK", "2026-12", d0) == "https://www.avia
                   and G.search_url("NYC", "BKK", "2026-11", d0) == "https://www.aviasales.com/search/NYC2411BKK04121?marker=738472"
                   and G.search_url(None, "BKK", "2026-12", d0) is None and G.search_url("NYC", None, "2026-12", d0) is None,
                   "the search: out on the month's 15th (tomorrow once it has passed), back 10 days later"))
+
+# --- redraws (review #6 follow-up) ----------------------------------------------------------
+# Every /api/flight-value answer redraws the line and the strip (askValueFlightValue polls
+# while the server fills, for up to 15 minutes after a deploy). Drawn again unchanged, they
+# must write nothing: rewritten, the reader's keyboard focus inside fell to <body> and an
+# open tip lost its element; the strip, hidden while its curve was fetched, did too.
+REDRAW_DRIVER = r"""
+const FIX = JSON.parse(read(FIX_PATH));
+lastRates = FIX.rates; ppp = FIX.ppp; climate = FIX.climate; activities = FIX.activities; worldGeo = FIX.world;
+advisories = FIX.advisories; flightsData = FIX.flights; flightValue = FIX.fv; valueFlightsSettled = true;
+SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
+ensureAdvisories = async () => advisories; ensurePPP = async () => ppp;
+for (const iso of ["TH"]) _fareMonthsCache["US:" + iso] = Promise.resolve(FIX.curves[iso]);
+// The host as a browser has it: each write puts new nodes under it.
+function watch(el) {
+  let html = el.innerHTML, hidden = el.hidden;
+  const w = { writes: 0, hides: 0 };
+  el.childNodes.length = 0; el.childNodes.push({ n: 0 });
+  Object.defineProperty(el, "innerHTML", { configurable: true, get: () => html,
+    set: (v) => { html = v; w.writes++; el.childNodes.length = 0; if (v) el.childNodes.push({ n: w.writes }); } });
+  Object.defineProperty(el, "hidden", { configurable: true, get: () => hidden, set: (v) => { if (v) w.hides++; hidden = v; } });
+  return w;
+}
+const gg = $("guideGrades"), gf = $("guideFares"), o = {};
+(async () => {
+  ccGuideIso = "TH";
+  const wg = watch(gg), wf = watch(gf);
+  await renderGuideGrades("TH"); await renderGuideFares("TH");
+  const kid = gg.childNodes[0];
+  wg.writes = wf.writes = wf.hides = 0;
+  await renderGuideGrades("TH"); await renderGuideFares("TH");
+  o.same = [wg.writes, wf.writes, wf.hides, gf.hidden, gg.childNodes[0] === kid, gg.innerHTML.indexOf('data-gg="ov"') >= 0];
+  flightValue = JSON.parse(JSON.stringify(FIX.fv)); flightValue.countries.TH.lo *= 0.5; flightValue.countries.TH.hi *= 2;
+  await renderGuideFares("TH");
+  o.moved = [wf.writes, wf.hides];
+  gg.innerHTML = "";
+  await renderGuideGrades("TH");
+  o.emptied = [wg.writes, gg.innerHTML.indexOf('data-gg="ov"') >= 0];
+  print(JSON.stringify(o));
+})().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
+"""
+with tempfile.TemporaryDirectory() as d:
+    fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
+    json.dump(dict(FIX, curves={k: CURVES.get(k) for k in ("TH",)}), open(fp, "w"))
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + REDRAW_DRIVER.replace("FIX_PATH", json.dumps(fp)))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
+try:
+    rd = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    rd = {"error": (r.stderr or r.stdout)[-300:]}
+results.append(ok(rd.get("same") == [0, 0, 0, False, True, True] and rd.get("moved") == [1, 0]
+                  and rd.get("emptied") == [2, True],
+                  "a redraw that changes nothing writes nothing and never hides the strip (a poll's answer); "
+                  "a moved range redraws the strip, an emptied line is drawn again %s" % rd))
 
 # --- the page -----------------------------------------------------------------------------
 import server  # noqa: E402

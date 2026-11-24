@@ -2576,6 +2576,24 @@ if (servedGuide) {
   }, 250);
 }
 
+// Writes a block's markup unless it already shows exactly that markup,
+// written here. Each /api/flight-value answer redraws the guide's grades
+// line and fare strip (every poll while the server fills, for up to 15
+// minutes after a deploy), and rewriting the same markup replaced the nodes
+// under the reader: keyboard focus inside fell to <body>, and an open tap
+// tip lost the element it was showing for. A block anything else rewrote
+// (its nodes no longer the ones written here, or emptied) is written again.
+// true when it wrote.
+function setBlockHTML(host, html) {
+  const kids = host.childNodes, was = host._wgNodes;
+  if (host._wgHtml === html && was && host.innerHTML !== "" && kids.length === was.length
+      && was.every((n, i) => kids[i] === n)) return false;
+  host.innerHTML = html;
+  host._wgHtml = html;
+  host._wgNodes = Array.from(host.childNodes);
+  return true;
+}
+
 async function renderGuideGrades(iso) {
   const host = $("guideGrades");
   if (!host) return;
@@ -2633,7 +2651,7 @@ async function renderGuideGrades(iso) {
     const lvl = guideAdvLevel(iso);
     const why = lvl === 4 ? "Level 4, do not travel: not graded"
       : !lvl ? "No advisory from the governments we follow, so it isn't graded" : "Not enough data to grade it";
-    host.innerHTML = grey("—", why) + '<span class="vh"> ' + esc(why) + "</span>" + days;
+    setBlockHTML(host, grey("—", why) + '<span class="vh"> ' + esc(why) + "</span>" + days);
     return;
   }
   const wait = (k, cls, txt) => '<span class="' + cls + ' skel ggpend" data-gg="' + k + '" data-tip="Waiting for fares…" title="">'
@@ -2643,7 +2661,7 @@ async function renderGuideGrades(iso) {
     : s.fare == null ? grey("—", "No fare data")
     : (s.flyBasis !== "month" && s.fareEst) ? grey("~" + grade(s.fly), "Estimated — no cached fare yet, so flights count as a typical fare for the distance.")
     : gradePill(s.fly, s.flyBasis === "month" ? MONTHS[month - 1] + "'s fare vs this route's usual" : "Year-round fare vs the typical fare for this distance");
-  host.innerHTML = (pending ? wait("ov", "gr big", "A") + wait("num", "ggnum", s.value)
+  const drew = setBlockHTML(host, (pending ? wait("ov", "gr big", "A") + wait("num", "ggnum", s.value)
       : gradePill(s.value, "Overall " + grade(s.value) + " · " + s.value + "/100 for " + MONTHS[month - 1], "big")
         .replace('class="', 'data-gg="ov" class="') + '<span class="ggnum" data-gg="num">' + s.value + "</span>")
     + f("💰", "Affordability", gradePill(s.afford, affordTitle(s).replace(" · click for cost-of-living detail", "")
@@ -2656,7 +2674,10 @@ async function renderGuideGrades(iso) {
     // reason given (it was December's). Held at the widest month's width
     // (.ggmon), so a month's change moves nothing; guide_lines.grades writes
     // the same, tip and all.
-    + '<span class="muted ggmon" data-tip="' + esc(guideGradedTip(month)) + '" title="">' + MON_ABBR[month - 1] + " ⓘ</span>";
+    + '<span class="muted ggmon" data-tip="' + esc(guideGradedTip(month)) + '" title="">' + MON_ABBR[month - 1] + " ⓘ</span>");
+  // The same line again (a poll's answer that changed nothing): its boxes'
+  // widths and holds stand as they were.
+  if (!drew) return;
   // The pending boxes' widths, kept for this guide: every later draw of it
   // (the fares' own redraw, and their settling's) gives each grade at least
   // its box's width.
@@ -2942,10 +2963,14 @@ async function renderGuideFares(iso) {
   const host = $("guideFares");
   if (!host) return;
   if (holdServedGuide(iso)) return;   // the served strip stays (renderGuideGrades)
-  // Over the served strip, it stays on screen while the curve is fetched.
-  const served = servedFaresOnScreen && iso === window.__WGGC__;
+  // Over the served strip, it stays on screen while the curve is fetched; so
+  // does this guide's own strip for the same curve (a /api/flight-value
+  // poll's redraw): hidden and shown again, the reader's focus inside fell
+  // to <body>. Another guide's or origin's strip hides meanwhile.
+  const curveKey = originIso() + ":" + iso;
+  const keep = (servedFaresOnScreen && iso === window.__WGGC__) || (!host.hidden && host._wgCurve === curveKey);
   servedFaresOnScreen = false;
-  if (!served) host.hidden = true;
+  if (!keep) host.hidden = true;
   const fm = await ensureFareMonths(iso);
   if (ccGuideIso !== iso) return;
   if (!fm || !fm.months) { host.hidden = true; return; }
@@ -3023,19 +3048,28 @@ async function renderGuideFares(iso) {
     + "Colour = the month against the route's typical fare: green low, pale typical, red high"
     + (typ ? " (the Flights tab's range)." : ".")
     + " The ✈️ search link is an affiliate link: we may earn a commission, at no extra cost to you.";
-  host.innerHTML = '<span class="fareshead">✈️ Fares by month'
+  const strip = (link) => '<span class="fareshead">✈️ Fares by month'
     + '<span class="legendinfo" data-tip="' + esc(tip) + '" title="">ⓘ</span>'
     + ' <span class="muted">' + esc(originName + " → " + countryName(iso) + " · round-trip, " + approx + cur)
     + "</span></span>"
     + '<div class="bars farebars" role="img" aria-label="' + esc(ariaFares) + '">' + cols + "</div>"
-    + '<div class="faresearch">' + guideFareLink(iso, fm, selM, prices) + "</div>";
+    + '<div class="faresearch">' + link + "</div>";
+  // The same strip again (a poll's answer that changed nothing for this
+  // route) writes nothing: setBlockHTML.
+  const html = strip(guideFareLink(iso, fm, selM, prices));
+  setBlockHTML(host, html);
+  host._wgCurve = curveKey;
   // Not known yet whether any government says not to go (guideNoBookings
   // null: the lists still loading): the row holds its line, empty, and the
-  // link fills it once that is known, or never does.
+  // link fills it once that is known, or never does. The strip then counts
+  // as written with it, so the next redraw finds it unchanged.
   if (guideNoBookings(iso) == null) {
     ensureBookingsKnown().then(() => {
       const slot = host.querySelector(".faresearch");
-      if (ccGuideIso === iso && slot && slot.isConnected && !slot.firstChild) slot.innerHTML = guideFareLink(iso, fm, selM, prices);
+      if (ccGuideIso !== iso || !slot || !slot.isConnected || slot.firstChild) return;
+      const link = guideFareLink(iso, fm, selM, prices);
+      slot.innerHTML = link;
+      if (host._wgHtml === html) host._wgHtml = strip(link);
     }, () => {});
   }
 }
