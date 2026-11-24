@@ -3832,6 +3832,8 @@ async function wikiIconic(subject, minW, minH) {
     const orig = page.original && page.original.source;
     // file = the File: page name, for the author/licence credit.
     const p = { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb, file: page.pageimage || "" };
+    // Its shape, so a box can ask for the width it really fills (photoAt).
+    if (t.width > 0 && t.height > 0) p.ar = t.width / t.height;
     // A file no wider than the 1600px asked comes back as itself, no /NNNpx-
     // to resize: w, its width, lets wmThumbAt ask for a real thumb instead.
     if (!/\/thumb\//.test(thumb)) p.w = (page.original && page.original.width) || t.width || 0;
@@ -3881,6 +3883,7 @@ async function commonsPhoto(name, minW, minH) {
     // asks nothing more.
     _photoCredit[file] = credit;
     const p = { thumb, full: (ii.url && !PHOTO_BAD.test(ii.url)) ? ii.url : thumb, file };
+    if (ii.width > 0 && ii.height > 0) p.ar = ii.width / ii.height;
     if (!/\/thumb\//.test(thumb)) p.w = ii.width || 0;   // unscaled: as wikiIconic's
     return p;
   } catch (e) { return null; }
@@ -3957,12 +3960,28 @@ function photoCreditHTML(p) {
   return '📷 <a href="' + esc(page) + '" target="_blank" rel="noopener">'
     + esc(c.artist || "Wikimedia Commons") + "</a>" + lic;
 }
+// The place a gallery subject names, for a screen reader: a Wikipedia title
+// without its disambiguation ("Golden Circle (Iceland)" -> "Golden Circle"),
+// or a pinned Commons file's label. "" when there is nothing better than the
+// country's name.
+function photoPlace(s) {
+  if (s && typeof s === "object") return String(s.label || "").trim();
+  return String(s || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+// "Wat Arun, Thailand", or just the place when it already names the country
+// ("Ella, Sri Lanka"), or the country alone.
+function photoWhere(p, iso) {
+  const cn = countryName(iso), place = (p && p.place) || "";
+  return !place ? cn : place.includes(cn) ? place : place + ", " + cn;
+}
 const _heroCache = {};
 async function iconicPhotos(iso) {
   if (iso in _heroCache) return _heroCache[iso];
   // Arrow, not .map(wikiIconic): map's (index, array) args landed in minW/minH
-  // and switched the size gate off.
-  const settled = await Promise.all(photoSubjects(iso).map((s) => wikiIconic(s)));
+  // and switched the size gate off. Each photo keeps the place it shows, the
+  // hero's accessible name (it used to read only "Thailand" on every slide).
+  const settled = await Promise.all(photoSubjects(iso).map((s) =>
+    wikiIconic(s).then((p) => (p ? { ...p, place: photoPlace(s) } : p))));
   const out = [], seen = new Set();
   // An unscaled original shows as a thumb (heroThumb); the viewer still opens
   // the original.
@@ -4012,10 +4031,12 @@ function loadHeroPhotos(iso) {
     host.classList.remove("loading");
     if (!heroUrls.length) { host.classList.add("empty"); return; }
     host.classList.add("loaded");
-    heroUrls.forEach((p) => { const im = new Image(); im.src = p.thumb; });  // warm cache
+    // No warming every slide up front: five 1920px files (2.3 MB of a 2.9 MB
+    // phone page) for a 360px box. showHero loads the one on show, at the
+    // box's width, and the next one only.
     const multi = heroUrls.length > 1;
     host.innerHTML =
-      `<img class="heroimg" alt="${esc(countryName(iso))}" title="click to enlarge">` +
+      `<img class="heroimg" fetchpriority="high" alt="${esc(photoWhere(heroUrls[0], iso))} — open the photo viewer" title="click to enlarge">` +
       (multi ? '<button class="heronav prev" type="button" aria-label="previous photo">‹</button>' +
                '<button class="heronav next" type="button" aria-label="next photo">›</button>' +
                '<div class="herocount"></div>' : "") +
@@ -4043,11 +4064,27 @@ function heroStep(d) {
   showHero();
   syncLightbox();
 }
+// Slide i at the width the hero box needs: object-fit: cover fills its
+// width, or its height times the photo's shape where that is wider (a 3:2
+// photo in a 400x300 box is drawn 450px wide). A 358px phone box used to get
+// the API's 1920px thumb.
+function heroSrc(i) {
+  const host = $("guideHero"), img = host && host.querySelector(".heroimg"), p = heroUrls[i];
+  const w = (host && host.clientWidth) || window.innerWidth;
+  return photoAt(p, Math.max(w, ((img && img.clientHeight) || 300) * (p.ar || 0)));
+}
 function showHero() {
   const host = $("guideHero");
   const img = host && host.querySelector(".heroimg");
   if (!img) return;
-  img.src = heroUrls[heroIdx].thumb;
+  const p = heroUrls[heroIdx];
+  // A size Wikimedia won't serve falls back to the API's own thumb, once.
+  img.onerror = () => { img.onerror = null; img.src = p.thumb; };
+  img.src = heroSrc(heroIdx);
+  // The next slide only, the likeliest tap: every one used to load at once.
+  if (heroUrls.length > 1) { const im = new Image(); im.src = heroSrc((heroIdx + 1) % heroUrls.length); }
+  // Named for the place on this slide, as the activity photos are.
+  img.alt = photoWhere(heroUrls[heroIdx], ccGuideIso) + " — open the photo viewer";
   const c = host.querySelector(".herocount");
   if (c) c.textContent = (heroIdx + 1) + " / " + heroUrls.length;
   const cr = host.querySelector(".herocredit");
@@ -4093,10 +4130,14 @@ function lbTakeFocus(lb) {
   lb.querySelector(".lbclose").focus();   // dialog gets focus; Escape/✕ leave it
 }
 // The credit for whatever the viewer shows (a single photo or the carousel's).
+// The original file is a link now, not what the viewer loads: originals ran
+// 5-10 MB each (Koh Phi Phi's 9.2 MB against 267 KB at 960px).
 function syncLightboxCredit() {
   const lb = $("lightbox");
   const cr = lb && !lb.hidden && lb.querySelector(".lbcredit");
-  if (cr) cr.innerHTML = photoCreditHTML(lbSingle || heroUrls[heroIdx]);
+  const p = lbSingle || heroUrls[heroIdx];
+  if (cr) cr.innerHTML = photoCreditHTML(p) + (p && p.full && /^https:\/\//.test(p.full)
+    ? ' · <a href="' + esc(p.full) + '" target="_blank" rel="noopener">full size ↗</a>' : "");
 }
 function openLightbox() {
   if (!heroUrls.length) return;
@@ -4106,9 +4147,6 @@ function openLightbox() {
   document.addEventListener("keydown", lbKey);
   lbTakeFocus(lb);
   syncLightbox();
-  // Preload every full-res image now (intent signalled), so clicking through
-  // the carousel is instant instead of waiting on each load.
-  heroUrls.forEach((p) => { if (p.full && p.full !== p.thumb) { const im = new Image(); im.src = p.full; } });
 }
 // One-off viewer for a single photo (activity thumbnails) — same lightbox,
 // no carousel nav; lbSingle guards the arrow keys from stepping the hero.
@@ -4120,11 +4158,15 @@ function openLightboxSingle(photo) {
   document.body.style.overflow = "hidden";
   document.addEventListener("keydown", lbKey);
   const img = lb.querySelector(".lbimg");
-  img.src = photo.thumb;
-  if (photo.full && photo.full !== photo.thumb) {
+  // The row's own small thumb at once (already loaded), then the screen's
+  // size: never the original.
+  const small = wmThumbAt(photo.thumb, 330, photo.w), want = viewerSrc(photo);
+  img.alt = photo.place ? photoWhere(photo, ccGuideIso) : "";
+  img.src = small;
+  if (want !== small) {
     const hi = new Image();
-    hi.onload = () => { if (!lb.hidden && lbSingle === photo) img.src = photo.full; };
-    hi.src = photo.full;
+    hi.onload = () => { if (!lb.hidden && lbSingle === photo) img.src = want; };
+    hi.src = want;
   }
   lb.querySelector(".lbcount").textContent = "";
   lb.querySelectorAll(".lbnav").forEach((b) => { b.style.display = "none"; });
@@ -4149,11 +4191,19 @@ function syncLightbox() {
   if (!lb || lb.hidden) return;
   const img = lb.querySelector(".lbimg");
   const idx = heroIdx, ph = heroUrls[idx];
-  img.src = ph.thumb;                              // instant (already cached)
-  if (ph.full && ph.full !== ph.thumb) {          // then upgrade to full-res
+  // The carousel's copy first (loaded, or loading), then the screen's size —
+  // the original went with it, and so did preloading all six originals.
+  const have = heroSrc(idx), want = viewerSrc(ph);
+  img.alt = photoWhere(ph, ccGuideIso);
+  img.src = have;
+  if (want !== have) {
     const hi = new Image();
-    hi.onload = () => { if (!lb.hidden && heroIdx === idx) img.src = ph.full; };
-    hi.src = ph.full;
+    hi.onload = () => { if (!lb.hidden && heroIdx === idx) img.src = want; };
+    hi.src = want;
+  }
+  // Its two neighbours, the photos one arrow away.
+  if (heroUrls.length > 1) for (const d of [1, -1]) {
+    const im = new Image(); im.src = viewerSrc(heroUrls[(idx + d + heroUrls.length) % heroUrls.length]);
   }
   lb.querySelector(".lbcount").textContent = (idx + 1) + " / " + heroUrls.length;
   const multi = heroUrls.length > 1;
@@ -4192,6 +4242,20 @@ function wmThumbAt(url, w, origW) {
   if (!o || !(w > 0 && origW > w)) return url;
   try { if (new TextEncoder().encode(decodeURIComponent(o[3])).length > 160) return url; } catch (e) { return url; }
   return o[1] + "thumb/" + o[2] + o[3] + "/" + w + "px-" + o[3] + (o[4] || "");
+}
+// A photo ({thumb, w?, ar?}) at the width a box draws it, cssW CSS pixels, at
+// up to 2 device pixels per CSS pixel, rounded up to a thumbnail step
+// (wmThumbAt keeps the thumb it has when that is narrower already). 2x, not a
+// 3x phone's 3: 1920px for a 358px box is what this replaced.
+const PHOTO_STEPS = [500, 960, 1280, 1920];
+function photoAt(p, cssW) {
+  const need = (cssW || 0) * Math.min(window.devicePixelRatio || 1, 2);
+  return wmThumbAt(p.thumb, PHOTO_STEPS.find((s) => s >= need) || 1920, p.w);
+}
+// The viewer's size for a photo: .lbimg is contained in 94vw x 90vh.
+function viewerSrc(p) {
+  const W = window.innerWidth * 0.94, H = window.innerHeight * 0.9;
+  return photoAt(p, p.ar ? Math.min(W, H * p.ar) : W);
 }
 // The hero's size for an original under the 1600px asked: the widest step
 // below it, down to 960 (smaller ones stay as they are, at most 960px).
@@ -10277,14 +10341,16 @@ function loadActivityThumbs(iso) {
     // An interactive control, so it is neither alt="" (invisible to SRs) nor
     // mouse-only: named, focusable, Enter/Space opens the same viewer.
     img.className = "actthumb"; img.loading = "lazy";
-    img.alt = "Photo — open viewer";
+    // Named for its place: every one of them read "Photo — open viewer".
+    img.alt = slot.dataset.subj + " — open the photo viewer";
     img.title = "view photo";
     img.tabIndex = 0; img.setAttribute("role", "button");
     img.onerror = () => { img.onerror = null; img.src = p.thumb; };
     img.src = small;
-    img.addEventListener("click", () => openLightboxSingle(p));
+    const open = () => openLightboxSingle({ ...p, place: slot.dataset.subj });
+    img.addEventListener("click", open);
     img.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openLightboxSingle(p); }
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
     });
     slot.appendChild(img);
     shown.push([img, p]);
