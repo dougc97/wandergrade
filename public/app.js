@@ -3747,7 +3747,8 @@ function renderGuideSafety(iso) {
     const dated = [it.updated ? "Advisory dated " + fmtDay(String(it.updated).slice(0, 10)) : "",
       advisories.fetched ? (it.updated ? "fetched " : "Fetched ") + fmtDay(String(advisories.fetched).slice(0, 10)) : ""]
       .filter(Boolean).join(" · ");
-    const badgeTip = dated ? ` data-tip="${esc(dated)}" title=""` : "";
+    // A Tab stop, so a keyboard reader gets the tip too (it shows on focus).
+    const badgeTip = dated ? ` data-tip="${esc(dated)}" title="" tabindex="0"` : "";
     host.hidden = false;
     host.innerHTML = `<span class="advbadge ${badgeCls}"${badgeTip}>🛡️ ${esc(badge.replace(/ · $/, ""))}</span>${moved}
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
