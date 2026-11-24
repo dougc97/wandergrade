@@ -12563,6 +12563,7 @@ function buildRankShareSVG() {
   const month = MONTHS[(lastPicksMonth || curMonth()) - 1];
   // "Any time": each pick was graded on its own best month, said on its line.
   const flexWin = lastPicksFlex ? flexWindow() : null;
+  const wantImg = beenMode() === "want";
   // A month the budget moved (s.budgetMoved) is the best one the budget
   // reaches: under USD 700 Thailand came in on October (85), and the image
   // called that its best month, where January scores 90. Said in place of
@@ -12619,12 +12620,14 @@ function buildRankShareSVG() {
     + '<text x="24" y="44" font-family="' + F + '" font-size="26" font-weight="800" fill="' + FG
     + '">' + esc2("Where to travel in " + (flexWin ? "the next 6 months" : month)) + "</text>"
     + '<text x="24" y="70" font-family="' + F + '" font-size="12.5" fill="' + MUTE
+    // The ★ want-to-go ranking (Been-to) says whose list it is, in the room
+    // its tail gives up (the line is near the image's width already).
     + '">' + esc2(flexWin
-      ? "Top " + picks.length + " by " + (lastPicksWx ? "weather" : "value") + " from " + originName
+      ? (wantImg ? "My ★ list: top " : "Top ") + picks.length + " by " + (lastPicksWx ? "weather" : "value") + " from " + originName
         + ", each on its " + (lastPicksWx ? "best-weather month" : "best month") + " of "
-        + flexSpan(flexWin) + (inBudget ? " within budget" : " — graded A+ to F")
-      : "Top " + picks.length + " by value from " + originName
-      + " — affordability, safety, weather and flights, graded A+ to F") + "</text>"
+        + flexSpan(flexWin) + (inBudget ? " within budget" : wantImg ? "" : " — graded A+ to F")
+      : (wantImg ? "My ★ list: top " : "Top ") + picks.length + " by value from " + originName
+      + (wantImg ? " — graded A+ to F" : " — affordability, safety, weather and flights, graded A+ to F")) + "</text>"
     + '<line x1="24" x2="' + (W - 24) + '" y1="' + (HEAD - 10) + '" y2="' + (HEAD - 10)
     + '" stroke="' + LINE + '" stroke-width="1"/>'
     + body
