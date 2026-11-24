@@ -6,8 +6,9 @@ Every number on it is read from the code that grades, never typed here:
 
   * the letter bands:      picks.GRADE_BANDS (picks.grade)
   * the Overall weights:   picks.WEIGHTS
-  * Affordability:         picks.AFF_* / FX_* and picks.afford_parts, which
-                           picks._score grades with (the examples are its output)
+  * Affordability:         picks.AFF_PL_ZERO / AFF_PL_SPAN and picks.afford_score,
+                           which picks._score grades with (the examples and the
+                           A+ and F points are its output)
   * the price words:       guide_facts.band, probed at every whole percent
   * Safety:                picks.SAFE_GRADE / SAFE_SCORE
   * Weather:               build_climate.COMFORT_* / *_PTS_* and comfort()
@@ -29,7 +30,7 @@ from . import build_climate, guide_facts, picks
 from .home_picks import grade_cls
 
 PATH = "/how-grades-work"
-UPDATED = "2026-11-23"
+UPDATED = "2026-11-24"
 CONTACT = "hello@wandergrade.com"
 TITLE = "How Grades Work | WanderGrade"
 DESC = ("How WanderGrade grades every country A+ to F: the formulas, weights, data sources and "
@@ -124,23 +125,30 @@ def _price_words_text():
     return ", ".join(parts)
 
 
+def _pl_at(score):
+    """The price level where afford_score's unrounded line reaches `score`."""
+    return picks.AFF_PL_ZERO - picks.AFF_PL_SPAN * score / 100
+
+
 def afford_numbers():
-    """The figures the Affordability section quotes, from picks' constants."""
-    full = picks.AFF_PL_ZERO - picks.AFF_PL_SPAN       # price part 100 at or under this level
-    swing = (100 - picks.FX_NEUTRAL) / picks.FX_PTS_PER_PCT   # % move that reaches 100 (or 0)
-    return {"price_w": picks.AFF_PRICE_W, "fx_w": picks.AFF_FX_W, "full": full,
-            "zero": picks.AFF_PL_ZERO, "neutral": picks.FX_NEUTRAL, "per_pct": picks.FX_PTS_PER_PCT,
-            "swing": swing}
+    """The figures the Affordability section quotes, from picks' constants:
+    100 at or under `full`, 0 at or over `zero`, and roughly where the line
+    leaves A+ and enters F (`a_plus`, `f`, whole percent of home prices). A
+    score rounds half up (clamp100), so A+ (picks.GRADE_BANDS) starts half a
+    point under its lowest score, and F half a point under D's. The guide's
+    price ⓘ (app.js COST_GRADE_TIP) and llms.txt quote the same two points."""
+    lo = dict((g, s) for s, g in picks.GRADE_BANDS)
+    return {"full": _pl_at(100), "zero": picks.AFF_PL_ZERO,
+            "a_plus": round(100 * _pl_at(lo["A+"] - 0.5)), "f": round(100 * _pl_at(lo["D"] - 0.5))}
 
 
-AFFORD_EXAMPLES = (0.3, 0.5, 0.7, 1.0)   # price levels the examples line scores, currency flat
+AFFORD_EXAMPLES = (0.2, 0.5, 0.7, 1.0)   # price levels the examples line scores
 
 
 def afford_examples():
-    """[(price level, Affordability, letter)] with the currency flat, by
-    picks.afford_parts: what a country at that level grades."""
-    return [(pl, picks.afford_parts(pl, 0)[2], picks.grade(picks.afford_parts(pl, 0)[2]))
-            for pl in AFFORD_EXAMPLES]
+    """[(price level, Affordability, letter)] by picks.afford_score: what a
+    country at that level grades."""
+    return [(pl, picks.afford_score(pl), picks.grade(picks.afford_score(pl))) for pl in AFFORD_EXAMPLES]
 
 
 WX_EXAMPLE = (30, 150)   # °C, mm: the worked example's month
@@ -193,16 +201,12 @@ def page(ttls=None):
              '<p class="bands">%s</p>' % bands),
 
         _sec("afford", FACTOR["afford"],
-             "<p>%s local prices, %s how strong your currency is.</p>" % (_pct(a["price_w"]), _pct(a["fx_w"])),
-             "<ul>"
-             "<li><strong>Prices</strong> against your home country: %s of home prices or less scores "
-             "100, %s or more scores 0, a straight line between.</li>"
-             "<li><strong>Currency</strong>: %s when your money is worth its average over the past year, "
-             "after inflation. Each 1%% stronger adds %s points (100 at +%s%%), each 1%% weaker takes "
-             "%s off (0 at −%s%%).</li>"
-             "</ul>" % (_pct(a["full"]), _pct(a["zero"]), _n(a["neutral"]), _n(a["per_pct"]),
-                        _n(a["swing"]), _n(a["per_pct"]), _n(a["swing"])),
-             '<p class="ex">Currency flat: %s</p>' % examples,
+             "<p>Local prices against your home country, and nothing else: %s of home prices or less "
+             "scores 100, %s or more scores 0, a straight line between. That puts A+ up to about %d%% "
+             "of home prices and F above about %d%%.</p>" % (_pct(a["full"]), _pct(a["zero"]), a["a_plus"], a["f"]),
+             '<p class="ex">%s</p>' % examples,
+             "<p>How strong your currency is against its average over the past year, after inflation, "
+             "is shown beside the grades, on Top Picks and the guides, but it doesn't change them.</p>",
              '<p>Price words on guides and lists: %s. The price levels are a <a href="/data">free '
              "download</a>.</p>" % html.escape(_price_words_text())),
 
@@ -247,7 +251,8 @@ def page(ttls=None):
         _sec("sources", "Sources",
              "<ul>"
              "<li>Exchange rates, today and over the past year: fxratesapi.com, checked %s.</li>"
-             "<li>Price levels and inflation: World Bank, yearly figures, checked %s.</li>"
+             "<li>Price levels and inflation: World Bank, yearly figures (prices for household spending; "
+             "Taiwan's from the IMF), checked %s.</li>"
              "<li>Advisories: US State Department, Global Affairs Canada, German Foreign Office, "
              "checked %s.</li>"
              "<li>Weather: Open-Meteo's historical archive, rebuilt by hand, not live.</li>"
@@ -260,6 +265,8 @@ def page(ttls=None):
              "<li>Weather is one point per country. Big countries vary by region.</li>"
              "<li>Fares are past searches, not quotes.</li>"
              "<li>Advisories can change without notice. Read the government's own page before you go.</li>"
+             "<li>Where the World Bank has no recent household-spending figure, the price is its last one "
+             "carried forward along the GDP-wide figure, or the GDP-wide figure itself.</li>"
              "<li>A country with no price figure (no World Bank data, or an exchange rate too far out of "
              "line to trust) isn't ranked.</li>"
              "</ul>"),

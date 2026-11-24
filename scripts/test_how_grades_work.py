@@ -15,8 +15,9 @@ What it holds the code to:
     never depend on affiliate links" and "Built by one person";
   * every number on it is the one the grading code uses, checked against the
     code's behaviour, not against literals typed here: the letter bands
-    against picks.grade, the Affordability end points and currency swing
-    against picks.afford_parts, the Safety scores and the Flights slope against
+    against picks.grade, the Affordability end points and its A+ and F
+    points against picks.afford_score (and the guide's price ⓘ and llms.txt
+    quote the same A+ and F points), the Safety scores and the Flights slope against
     picks._score itself (its price, fare and level inputs stubbed), the
     weather rule against build_climate.comfort, the price words against
     guide_facts.band, and the refresh intervals against server.py's TTLs;
@@ -47,7 +48,7 @@ import server  # noqa: E402
 # sha1 of render_methodology.page(server's TTLs)["html"]. A change to the
 # page's words (a scoring constant, a TTL, the copy) changes it: then set
 # render_methodology.UPDATED to the day it ships and this to the new digest.
-PIN = "d1a116dbb861fec3e4341e909d50abe3e3f4e4bf"
+PIN = "2a79d6f9b17dee1de2e3b9805aa43099226ba321"
 
 ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or c
 results = []
@@ -169,27 +170,39 @@ if len(set(w.values())) == 1:
 else:
     results.append(ok(False, "picks.WEIGHTS aren't equal: check the page's weights line"))
 
-# Affordability: the end points the page quotes are where afford_parts' price
-# part reaches 100 and 0; the swing is where the currency part does.
+# Affordability (review #21: the price level alone): the end points the page
+# quotes are where afford_score reaches 100 and 0, and its A+ and F points are
+# where the letter changes; the guide's price ⓘ and llms.txt say the same.
 a = RM.afford_numbers()
-ap = picks.afford_parts
-results.append(ok(ap(a["full"], None)[0] == 100 and ap(a["full"] + 0.011, None)[0] < 100
-                  and ap(a["zero"], None)[0] == 0 and ap(a["zero"] - 0.011, None)[0] > 0,
-                  "price part: 100 at %.2f and below, 0 at %.2f and above (afford_parts)" % (a["full"], a["zero"])))
-results.append(ok(ap(1, a["swing"])[1] == 100 and ap(1, -a["swing"])[1] == 0 and ap(1, 0)[1] == a["neutral"]
-                  and ap(1, 1)[1] - ap(1, 0)[1] == round(a["per_pct"]),
-                  "currency part: %s flat, 100 at +%s%%, 0 at -%s%% (afford_parts)" % (a["neutral"], a["swing"], a["swing"])))
-results.append(ok(ap(0.2, 0)[2] == round(100 * a["price_w"] + a["neutral"] * a["fx_w"]),
-                  "the 70/30 split is afford_parts' (full price marks, flat currency: %d)" % ap(0.2, 0)[2]))
-results.append(ok(all(s in text for s in ["35% of home prices or less scores 100", "130% or more scores 0",
-                                          "70% local prices, 30%", "adds 6.25 points (100 at +8%)",
-                                          "0 at −8%"]),
-                  "the Affordability numbers are printed as computed"))
-ex_ok = all("%d%% → %d %s" % (round(pl * 100), sc, g) in text and sc == ap(pl, 0)[2] for pl, sc, g in RM.afford_examples())
-results.append(ok(ex_ok, "each example is afford_parts' grade (%s)" % RM.afford_examples()))
+af = picks.afford_score
+results.append(ok(af(a["full"]) == 100 and af(a["full"] + 0.011) < 100
+                  and af(a["zero"]) == 0 and af(a["zero"] - 0.011) > 0,
+                  "Affordability: 100 at %.2f and below, 0 at %.2f and above (afford_score)" % (a["full"], a["zero"])))
+results.append(ok(picks.grade(af((a["a_plus"] - 1) / 100)) == "A+" and picks.grade(af((a["a_plus"] + 1) / 100)) != "A+"
+                  and picks.grade(af((a["f"] + 1) / 100)) == "F" and picks.grade(af((a["f"] - 1) / 100)) != "F",
+                  "A+ runs to about %d%% of home prices and F starts about %d%% (afford_score, picks.grade)"
+                  % (a["a_plus"], a["f"])))
+results.append(ok(all(s in text for s in ["15% of home prices or less scores 100", "130% or more scores 0",
+                                          "A+ up to about %d%% of home prices and F above about %d%%"
+                                          % (a["a_plus"], a["f"]),
+                                          "is shown beside the grades, on Top Picks and the guides, but it "
+                                          "doesn't change them"])
+                  and "70% local prices" not in text and "Currency flat" not in text,
+                  "the Affordability numbers are printed as computed, and no currency part is described"))
+ex_ok = all("%d%% → %d %s" % (round(pl * 100), sc, g) in text and sc == af(pl) for pl, sc, g in RM.afford_examples())
+results.append(ok(ex_ok, "each example is afford_score's grade (%s)" % RM.afford_examples()))
 src = open(os.path.join(ROOT, "fxtracker", "picks.py"), encoding="utf-8").read()
 score_src = re.search(r"^def _score\(.*?^def ", src, re.M | re.S).group(0)
-results.append(ok('"afford": afford_parts(pl, real)[2]' in score_src, "_score grades Affordability with afford_parts"))
+results.append(ok('"afford": afford_score(pl),' in score_src, "_score grades Affordability with afford_score"))
+app_src = open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8").read()
+results.append(ok("afford: clamp100(((%s - pl) / %s) * 100)," % (RM._n(picks.AFF_PL_ZERO), RM._n(picks.AFF_PL_SPAN)) in app_src,
+                  "app.js valueScores grades Affordability on the same line"))
+tip = re.search(r'const COST_GRADE_TIP = ([^;]+);', app_src)
+tip = re.sub(r'"\s*\+\s*"', "", tip.group(1)) if tip else ""
+claim = "A+ up to about %d%% of home prices, F above about %d%%" % (a["a_plus"], a["f"])
+results.append(ok("A+ up to about %d%%" % a["a_plus"] in tip and "F above about %d%%" % a["f"] in tip
+                  and claim in llms_txt.build(rg.all_slugs(), rg.name_for_iso),
+                  "the guide's price ⓘ (COST_GRADE_TIP) and llms.txt quote the same A+ and F points (%s)" % claim))
 
 # Safety and Flights through _score itself, its inputs stubbed: the scores
 # the page prints are the ones a country gets.
@@ -211,8 +224,8 @@ try:
                       and "A typical fare scores %d" % picks.FLY_TYPICAL in text
                       and "Each 1% cheaper adds a point (100 at 30% under)" in text,
                       "Flights: _score gives %s at 30%% under / 1%% under / typical / 1%% over, as printed" % fly))
-    results.append(ok(run(1)["afford"] == ap(0.5, None)[2] and run(1)["wx"] == 80,
-                      "_score's Affordability and Weather are afford_parts' and the month's climate score"))
+    results.append(ok(run(1)["afford"] == af(0.5) and run(1)["wx"] == 80,
+                      "_score's Affordability and Weather are afford_score's and the month's climate score"))
 finally:
     picks._price_level, picks.month_fare = real_pl, real_mf
 
@@ -234,7 +247,8 @@ results.append(ok("hand-picked list for %d popular destinations" % len(build_cli
 # Price words: each boundary printed is where guide_facts.band changes.
 words = RM.price_words()
 bad = [x for x in words[1:] if guide_facts.band(x[1] / 100) == guide_facts.band((x[1] - 1) / 100)]
-results.append(ok(len(words) >= 3 and not bad and "under 55% very cheap, 55–90% cheap" in text,
+results.append(ok(len(words) >= 3 and not bad
+                  and "under 55% very cheap, 55–74% cheap, 75–90% a bit cheaper, 91–110% about the same" in text,
                   "the price words follow guide_facts.band (%s)" % RM._price_words_text()))
 
 # Refresh intervals: server.py's.
@@ -244,16 +258,16 @@ results.append(ok(all(s in text for s in ["checked every 10 minutes", "checked e
                   "the refresh intervals are server.py's TTLs (%s)" % TTLS))
 
 # --- the page follows the code ----------------------------------------------------------
-saved = (picks.FX_PTS_PER_PCT, picks.GRADE_BANDS, build_climate.HOT_PTS_PER_C, guide_facts.band)
+saved = (picks.AFF_PL_SPAN, picks.GRADE_BANDS, build_climate.HOT_PTS_PER_C, guide_facts.band)
 try:
-    picks.FX_PTS_PER_PCT = 5
+    picks.AFF_PL_SPAN = 1.1
     picks.GRADE_BANDS = ((90, "A+"),) + saved[1][1:]
     build_climate.HOT_PTS_PER_C = 5
     guide_facts.band = lambda pl: "cheap" if pl < 0.75 else "a bit cheaper" if pl <= 0.9 else "pricey"
     moved = norm(re.sub(r"<[^>]+>", " ", RM.page(TTLS)["html"]))
 finally:
-    picks.FX_PTS_PER_PCT, picks.GRADE_BANDS, build_climate.HOT_PTS_PER_C, guide_facts.band = saved
-results.append(ok(all(s in moved for s in ["adds 5 points (100 at +10%)", "A+ 90–100", "takes off 5,",
+    picks.AFF_PL_SPAN, picks.GRADE_BANDS, build_climate.HOT_PTS_PER_C, guide_facts.band = saved
+results.append(ok(all(s in moved for s in ["20% of home prices or less scores 100", "A+ 90–100", "takes off 5,",
                                            "75–90% a bit cheaper", "over 90% pricey"]),
                   "with a scoring constant, a band or a word rule changed, the page says the new numbers"))
 results.append(ok(RM.page(TTLS)["html"] == body, "and back once they're put back"))
