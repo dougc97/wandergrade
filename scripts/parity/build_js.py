@@ -37,7 +37,10 @@ GRAB = [
     "function loadFactors", "function loadPriorities", "function loadWeights",
     "function countryCentroids", "function distKm", "function buildFareContext",
     "function flightMonthKey", "function fareValue",
-    "function valueScores", "function plAnchor",
+    # plAnchor names the anchor as a sentence says it (countryNameInText over
+    # the prelude's countryName stub); labels only, no number reads them.
+    "function valueScores", "const NAME_THE", "function countryNameInText", "const PL_SHORT",
+    "function plAnchorName", "function plAnchor",
 ]
 
 
