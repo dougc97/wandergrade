@@ -788,12 +788,45 @@ finally:
     server._ppp_cache.update(saved_ppp)
     if saved_ca:
         server._adv_cache["ca"] = saved_ca
-results.append(ok(not fetches and all(st == 200 and hd.get("Cache-Control") == "no-store" for st, hd, _b in cold_codes)
+results.append(ok(not fetches and all(st == 503 and hd.get("Cache-Control") == "no-store"
+                                      and hd.get("Retry-After") == str(server.LIST_UNAVAILABLE_RETRY) == "300"
+                                      and hd.get("X-Robots-Tag") is None for st, hd, _b in cold_codes)
                   and all("isn't available right now" in b and "No country meets" not in b and "0</strong> countr" not in b
-                          and "Global Affairs Canada list is not available" in b for _s, _h, b in cold_codes),
-                  "rates, PPP and Canada's list not cached: 200, no-store, \"isn't available right now\", and no "
-                  "upstream call on the request path (urlopen, get_advisories, fetch_json, get_flights: %s)"
-                  % (fetches or "none")))
+                          and "Global Affairs Canada list is not available" in b and "<h1>" in b
+                          for _s, _h, b in cold_codes),
+                  "rates, PPP and Canada's list not cached: the page itself as a 503 with Retry-After 300 and "
+                  "no-store (review #4), \"isn't available right now\", and no upstream call on the request "
+                  "path (urlopen, get_advisories, fetch_json, get_flights: %s)" % (fetches or "none")))
+# The US list alone missing: every month still has the snapshot's US levels
+# (available), so 200 no-store, not a 503.
+saved_us = server._adv_cache.pop("us", None)
+try:
+    us_cold = get("/cheapest/november")
+finally:
+    if saved_us:
+        server._adv_cache["us"] = saved_us
+results.append(ok(us_cold[0] == 200 and us_cold[1].get("Cache-Control") == "no-store"
+                  and "daily snapshot" in us_cold[2],
+                  "the US list alone missing: the snapshot's levels stand in, 200 no-store (%s)" % us_cold[0]))
+
+# /safe-and-cheap without the US feed (none cached, the fetch failing): the
+# page, snapshot levels and all, as a 503 with Retry-After 300 (review #4);
+# with the feed back, 200 again.
+saved_us, saved_get = server._adv_cache.pop("us", None), server.advisories.get_advisories
+server.advisories.get_advisories = no_fetch("advisories.get_advisories (us)")
+try:
+    sc_cold = get("/safe-and-cheap")
+finally:
+    server.advisories.get_advisories = saved_get
+    if saved_us:
+        server._adv_cache["us"] = saved_us
+sc_warm = get("/safe-and-cheap")
+results.append(ok(sc_cold[0] == 503 and sc_cold[1].get("Retry-After") == "300"
+                  and sc_cold[1].get("Cache-Control") == "no-store"
+                  and "US State Department feed is not available" in sc_cold[2] and "<h1>" in sc_cold[2]
+                  and sc_warm[0] == 200,
+                  "/safe-and-cheap without the US feed: the page as a 503, Retry-After 300, no-store; 200 once it "
+                  "is back (%s, %s)" % (sc_cold[0], sc_warm[0])))
 
 # --- the footer: both links once on every page, guides included -------------------------------
 # index.html's footer (the homepage and every guide, since the Search Console check of

@@ -267,6 +267,8 @@ S4 = RL.safe_and_cheap(None, CA, DE, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, 
 results.append(ok(S4["degraded"] and S4["isos"]["safe"] == ["BT", "VN", "TM", "PT"]
                   and "daily snapshot of 28 Sep 2026" in S4["html"],
                   "US down: the snapshot's US levels stand in, dated, and the page is degraded"))
+results.append(ok(S4["available"] is False and S3["available"] is True and S["available"] is True,
+                  "available only with the US feed in hand: the server sends the US-down page as a 503 (review #4)"))
 S5 = RL.safe_and_cheap(US, None, None, FACTS, CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)
 results.append(ok("Global Affairs Canada and German Federal Foreign Office (Auswärtiges Amt) feeds are not available right now, "
                   "so their columns read “not loaded”: this page is served uncached until they are back." in S5["html"]

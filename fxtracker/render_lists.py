@@ -542,6 +542,10 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
         # The day the page's data last changed: the snapshot's own date.
         "lastmod": lastmod_of(facts.get("_asof")),
         "degraded": bool(missing or stale),
+        # Without the US feed the rule has no live list to apply: the page
+        # (the snapshot's levels, or no rows at all) goes out as a 503, so a
+        # crawler keeps its last good copy (server.py, review #4).
+        "available": own["us"] is not None,
         "counts": {"safe": len(rows), "agree": len(agree), "near": len(near)},
         "isos": {"safe": [i for _p, i in rows], "agree": agree, "near": [i for _p, i in near]},
     }

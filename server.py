@@ -1177,7 +1177,7 @@ def _list_page(path):
     page = render()
     out = {"bytes": _shell_page(page["title"], page["html"], _list_head(path, page["title"], page["desc"]),
                                 credits=_LIST_CREDITS[path]),
-           "degraded": page["degraded"]}
+           "degraded": page["degraded"], "available": page.get("available", True)}
     _list_memo[path] = (key, docs, out)
     return out
 
@@ -1348,7 +1348,7 @@ def _cheap_fares():
 
 
 def _cheap_page(path):
-    """{bytes, degraded} for one of render_cheapest.PATHS, memoized on the
+    """{bytes, degraded, available} for one of render_cheapest.PATHS, memoized on the
     identity of the inputs (a refreshed list, rates entry, PPP table,
     snapshot or fares payload is a new object), the UTC day (the months'
     years, the curves' window), the fares' state, a failing list's age to
@@ -1368,7 +1368,7 @@ def _cheap_page(path):
                                   stale=stale, today=today, pl_alt=(docs[8] or {}).get("alt"))
     out = {p: {"bytes": _shell_page(pg["title"], pg["html"], _list_head(p, pg["title"], pg["desc"]),
                                     credits=_CHEAP_CREDITS),
-               "degraded": pg["degraded"]} for p, pg in pages.items()}
+               "degraded": pg["degraded"], "available": pg["available"]} for p, pg in pages.items()}
     _cheap_memo[0] = (key, docs, fv, out)
     return out[path]
 
@@ -2427,6 +2427,11 @@ PAGE_SLOTS = 2
 PAGE_SLOT_WAIT = 15
 PAGE_QUEUE_MAX = 8      # slot-route requests waiting at once before new ones get 503 at once
 SHED_RETRY_AFTER = 30   # seconds, the 503's Retry-After
+# A list page whose inputs aren't in hand yet (after a restart, prices, climate
+# or the US list still loading: render_cheapest.available, or /safe-and-cheap
+# without the US feed) is the same page sent as a 503 with this Retry-After,
+# so a crawler never stores its "isn't available right now" copy.
+LIST_UNAVAILABLE_RETRY = 300
 # The way out if the slot holders themselves hang (no known path does: a
 # stalled write gives up after Handler.CLIENT_IO_TIMEOUT, inline network
 # waits give their slot back and time out): when every slot has been held
@@ -3176,12 +3181,15 @@ class Handler(BaseHTTPRequestHandler):
                   'right now. Please try again in a minute.</p><p><a href="/">WanderGrade</a></p>'
                   '</body></html>').encode("utf-8")
 
-    def _send_busy(self):
+    def _send_busy(self, body=None, retry_after=None):
         # No X-Robots-Tag: Google ignores a 5xx's body anyway, and a crawler
         # that applied noindex whatever the status could drop the URL itself;
-        # 503 + Retry-After says "come back later" on its own.
-        self._send_body(self._BUSY_PAGE, "text/html; charset=utf-8", 503, cache="no-store",
-                        extra=[("Retry-After", str(SHED_RETRY_AFTER))])
+        # 503 + Retry-After says "come back later" on its own. `body`: a page
+        # rendered without its data (a list page before its inputs load,
+        # LIST_UNAVAILABLE_RETRY) goes out as itself, the reader sees what it
+        # says, and Google keeps its last good copy instead of the empty one.
+        self._send_body(self._BUSY_PAGE if body is None else body, "text/html; charset=utf-8", 503,
+                        cache="no-store", extra=[("Retry-After", str(retry_after or SHED_RETRY_AFTER))])
 
     def do_GET(self):
         slots = _page_slots
@@ -3424,6 +3432,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path in _LIST_PATHS:
             page = _list_page(path)
+            if not page.get("available", True):
+                # /safe-and-cheap without the US feed: a 503 with the page.
+                self._send_busy(page["bytes"], LIST_UNAVAILABLE_RETRY)
+                return
             # no-store while a feed is down: Cloudflare must never hold a copy
             # whose column reads "not loaded" for its five minutes.
             self._send_body(page["bytes"], "text/html; charset=utf-8",
@@ -3467,8 +3479,13 @@ class Handler(BaseHTTPRequestHandler):
             seg = path[len(render_cheapest.HUB) + 1:].rstrip("/")
             if path in render_cheapest.PATHS:
                 page = _cheap_page(path)
-                self._send_body(page["bytes"], "text/html; charset=utf-8",
-                                cache="no-store" if page["degraded"] else "public, max-age=300")
+                if not page["available"]:
+                    # No list can be drawn yet (render_cheapest.available):
+                    # the page says so, as a 503, never a 200 to be indexed.
+                    self._send_busy(page["bytes"], LIST_UNAVAILABLE_RETRY)
+                else:
+                    self._send_body(page["bytes"], "text/html; charset=utf-8",
+                                    cache="no-store" if page["degraded"] else "public, max-age=300")
             elif path.endswith("/") and path.rstrip("/") in render_cheapest.PATHS:
                 query = self.path.split("?", 1)[1] if "?" in self.path else ""
                 self._redirect(path.rstrip("/") + ("?" + query if query else ""))
