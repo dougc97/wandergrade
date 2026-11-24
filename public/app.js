@@ -6253,6 +6253,9 @@ function isoAliases(v) {
 // fill: a select whose options come when it is first used (the guide's
 // country box holds only the country on show): enhanced whatever its size,
 // and fill() runs once, on the first focus, before the list draws.
+// The longest list a touch screen opens as tap-only (enhanceSelect's setTap):
+// the 13 of Top Picks' month picker, the Flights tab's 12.
+const COMBO_TAP_MAX = 14;
 function enhanceSelect(sel, fill) {
   if (!sel || sel.dataset.combo || (sel.options.length < 10 && !fill)) return;
   sel.dataset.combo = "1";
@@ -6291,7 +6294,20 @@ function enhanceSelect(sel, fill) {
   sel.style.display = "none";
   let active = -1;
   const labelFor = () => { const o = sel.selectedOptions[0]; return o && o.value !== "" ? o.textContent.trim() : ""; };
-  const sync = () => { if (document.activeElement !== input) input.value = labelFor(); };
+  // Touch screens, short lists (the months: 13 with Any time): a tap opens
+  // the list and does nothing else. Searching 13 names isn't needed, and the
+  // focused text box popped the phone's keyboard over half the list, emptied
+  // itself to "Type to search…" and showed the group's tip over Help me
+  // choose. Read-only with no keyboard (inputmode=none), the box keeps its
+  // value; the list still answers the arrow keys, and "pick" fires as before.
+  const setTap = () => {
+    const on = sel.options.length <= COMBO_TAP_MAX && !!window.matchMedia && matchMedia("(pointer: coarse)").matches;
+    input.readOnly = on;
+    if (on) input.setAttribute("inputmode", "none"); else input.removeAttribute("inputmode");
+    wrap.classList.toggle("combo-tap", on);
+  };
+  setTap();
+  const sync = () => { setTap(); if (document.activeElement !== input) input.value = labelFor(); };
   sel._sync = sync;
   const render = (q) => {
     q = searchFold((q || "").trim());
@@ -6311,9 +6327,42 @@ function enhanceSelect(sel, fill) {
     sel.dispatchEvent(new Event("pick"));
     input.value = labelFor(); setOpen(false);
   };
+  // Tap mode opens on the chosen option, or on the select's own anchor (the
+  // month picker's: this month, under Any time), scrolled into the middle of
+  // the list: December, next month, sat below the fold of an 8-row list.
+  let tapOpened = 0;
+  const openTap = () => {
+    render(""); setOpen(true); tapOpened = Date.now();
+    // Kept inside the screen: from the month box at 390x664 the 280px list
+    // ran 80px past the bottom, December (next month) with it. Shorter
+    // instead (not under 150px), so the page doesn't have to move.
+    list.style.maxHeight = "";
+    const room = (document.documentElement.clientHeight || window.innerHeight) - list.getBoundingClientRect().top - 8;
+    if (room > 0 && list.scrollHeight > room) list.style.maxHeight = Math.max(room, 150) + "px";
+    const items = [...list.querySelectorAll(".combo-opt[data-val]")];
+    const at = items.findIndex((li) => li.dataset.val === sel.value);
+    if (at >= 0) {
+      active = at;
+      items[at].classList.add("active");
+      input.setAttribute("aria-activedescendant", items[at].id);
+    }
+    const want = sel._tapAnchor ? sel._tapAnchor() : sel.value;
+    const li = items.find((x) => x.dataset.val === String(want)) || items[at];
+    // The list's own scroll, not scrollIntoView: that scrolls the page too.
+    if (li) list.scrollTop = Math.max(0, li.offsetTop - (list.clientHeight - li.offsetHeight) / 2);
+  };
   input.addEventListener("focus", () => {
     if (fill) { fill(); fill = null; }
+    if (input.readOnly) { openTap(); return; }
     input.value = ""; render(""); setOpen(true);
+  });
+  // Focus stays in the box after a pick, so a second tap fires no focus:
+  // it reopens the list here, and a tap on the open box closes it, as a
+  // native picker does (not the tap that just opened it).
+  input.addEventListener("click", () => {
+    if (!input.readOnly) return;
+    if (list.hidden) openTap();
+    else if (Date.now() - tapOpened > 400) setOpen(false);
   });
   input.addEventListener("input", () => { render(input.value); setOpen(true); });
   input.addEventListener("blur", () => setTimeout(() => { setOpen(false); input.value = labelFor(); }, 150));
@@ -6334,7 +6383,7 @@ function enhanceSelect(sel, fill) {
     const li = e.target.closest(".combo-opt[data-val]");
     if (li) { e.preventDefault(); choose(li.dataset.val); }
   });
-  new MutationObserver(sync).observe(sel, { childList: true });  // options rebuilt -> resync label
+  new MutationObserver(sync).observe(sel, { childList: true });  // options rebuilt -> resync label (and tap mode)
   // Programmatic picks that announce themselves (the guided picker's month)
   // left the box showing the old value while the page ranked for the new one.
   sel.addEventListener("change", sync);
@@ -6348,6 +6397,9 @@ function buildValueTab() {
   const reg = $("valueRegion"), mon = ensureMonthOptions();
   fillRegionSelect(reg);
   mon.onchange = renderValue;
+  // A phone opens the list on this month under Any time (its own row is at
+  // the top, out of the way), else on the month chosen.
+  mon._tapAnchor = () => (mon.value === "0" ? String(curMonth()) : mon.value);
   enhanceSelect(mon);
   // Fares auto-load for the home country (defaults to United States) and
   // reload whenever the user picks a different one — no button needed.
@@ -13484,11 +13536,20 @@ function _placeTip(t) {
   _tipEl.style.top = top + "px";
 }
 
+// A tap into a tap-only combobox (a phone's month picker, enhanceSelect)
+// opens its list; the group's tip ("when you're going") popped up as well,
+// over Help me choose. The keyboard still gets it.
+const _tipTapCombo = (e) => !_kbdNav && !!(e.target.closest && e.target.closest(".combo-tap"));
 // A pointer or tap on the tip itself leaves it as it is.
-const _tipShowFor = (e) => { if (!_tipEl.contains(e.target)) _showTipFor(e.target.closest && e.target.closest("[data-tip]")); };
+const _tipShowFor = (e) => {
+  if (_tipEl.contains(e.target)) return;
+  if (_tipTapCombo(e)) { _hideTip(); return; }
+  _showTipFor(e.target.closest && e.target.closest("[data-tip]"));
+};
 document.addEventListener("mouseover", (e) => {
   _tipHovered = _tipEl.contains(e.target);
   if (_tipHovered) { clearTimeout(_tipHideT); return; }
+  if (_tipTapCombo(e)) return;
   const t = e.target.closest && e.target.closest("[data-tip]");
   if (!_tipEl.hidden && _tipFor && _tipFor.isConnected && t !== _tipFor && (!t || t.contains(_tipFor))) {
     clearTimeout(_tipHideT);
