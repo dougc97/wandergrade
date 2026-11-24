@@ -6300,8 +6300,11 @@ function enhanceSelect(sel, fill) {
   // itself to "Type to search…" and showed the group's tip over Help me
   // choose. Read-only with no keyboard (inputmode=none), the box keeps its
   // value; the list still answers the arrow keys, and "pick" fires as before.
+  // Not a list filled on first focus (the guide's country picker: one
+  // option until then, 190 after): it would open read-only, unsearchable.
+  const lazy = !!fill;
   const setTap = () => {
-    const on = sel.options.length <= COMBO_TAP_MAX && !!window.matchMedia && matchMedia("(pointer: coarse)").matches;
+    const on = !lazy && sel.options.length <= COMBO_TAP_MAX && !!window.matchMedia && matchMedia("(pointer: coarse)").matches;
     input.readOnly = on;
     if (on) input.setAttribute("inputmode", "none"); else input.removeAttribute("inputmode");
     wrap.classList.toggle("combo-tap", on);
