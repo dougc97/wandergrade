@@ -1957,7 +1957,13 @@ def _guide_cost(iso, snapshot, snapshot_l4):
     if home == "US":
         return {"COST_ATTRS": ' hidden data-iso="%s" data-pl="US"' % iso,
                 "GUIDE_COST": "", "COST_HOLD": "\n          " + _COST_HOLD}
-    rp, ppp = _fx_inputs()
+    # The PPP table as /ppp.json serves it right now: the committed file until
+    # the World Bank refresh has run (_ppp_data), not None as _fx_inputs has
+    # it until then (up to ~40 s after boot). Waiting served the dated
+    # snapshot line in that window, which app.js swapped for the live one
+    # (another figure, and a line shorter on many guides on a phone).
+    rp = _fx_inputs()[0]
+    ppp = _ppp_data() if rp else None
     hit = _adv_cache.get("us")
     line = guide_lines.cost(iso, rp if ppp else None, ppp if rp else None,
                             hit[1] if hit else None, snapshot, snapshot_l4)

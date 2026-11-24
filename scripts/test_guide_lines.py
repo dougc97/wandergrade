@@ -457,6 +457,15 @@ try:
     cold = server._render_index("TH").decode("utf-8")
     cold_us = server._render_index("US").decode("utf-8")
     now = time.time()
+    # Just after boot: rates in, the World Bank refresh still running (busy,
+    # "at" 0), the committed table in hand. The 💰 line is the live one, not
+    # the dated snapshot app.js then swapped for it.
+    server._rates_cache[rkey] = (now, FIX["rates"])
+    server._ppp_cache.update(at=0, data=FIX["ppp"], busy=True)
+    try:
+        booting = server._render_index("TH").decode("utf-8")
+    finally:
+        server._ppp_cache["busy"] = False
     server._adv_cache["us"] = (now, FIX["advisories"])
     server._rates_cache[rkey] = (now, FIX["rates"])
     server._ppp_cache.update(at=now, data=FIX["ppp"])
@@ -491,6 +500,10 @@ results.append(ok((cdiv("TH", snap_th) in cold if snap_th else '<div id="guideCo
                   "the 💰 line is served under the grades: the snapshot's words with the caches cold (%r), live once "
                   "they are warm, with its pre-paint script; on the US's guide empty and hidden, with the script "
                   "(a reader from elsewhere gets its room); none on the homepage" % snap_th[:60]))
+boot_th = G.cost("TH", FIX["rates"], FIX["ppp"], None)
+results.append(ok(boot_th and cdiv("TH", boot_th) in booting and "(Sep 20" not in boot_th and boot_th != snap_th,
+                  "just after boot (rates in, the PPP refresh still running) the 💰 line is the live one from the "
+                  "committed table, not the dated snapshot: %r" % (boot_th or "")[:70]))
 CSS = open(P("public", "styles.css"), encoding="utf-8").read()
 results.append(ok(re.search(r"\.guidecost \{[^}]*line-height: 18px; min-height: 18px;", CSS)
                   and "@media (max-width: 560px) { .guidecost { min-height: 36px; align-content: center; } }" in CSS
