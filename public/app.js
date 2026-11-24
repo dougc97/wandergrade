@@ -1070,12 +1070,19 @@ if (homeBase === "BGN") {
 const USDLINK = "#bcd0e6"; // pale blue: uses the US dollar (flat for your dollar)
 
 let worldGeo = null;
+let _worldReq = null;   // the fetch in flight, shared by everyone asking during it
 
 async function ensureWorld() {
   if (worldGeo) return worldGeo;
+  // One request however many ask at once: a guide landing starts it without
+  // waiting (init), and whatever asks next joins it rather than fetching a
+  // second copy. A failed fetch clears the slot, so the next caller retries.
   // ?v= busts the day-long HTTP cache when the geometry changes (bump manually)
-  worldGeo = await (await fetch("/world.geojson?v=8")).json();
-  return worldGeo;
+  if (!_worldReq) {
+    _worldReq = fetch("/world.geojson?v=8").then((r) => r.json()).then((g) => (worldGeo = g))
+      .catch((e) => { _worldReq = null; throw e; });
+  }
+  return _worldReq;
 }
 
 function hexToRgb(h) { return [1,3,5].map((i) => parseInt(h.slice(i, i + 2), 16)); }
@@ -1775,9 +1782,16 @@ function renderLegend(base) {
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
 }
 
+// A guide landing never shows the Data tab's currency map, and drew it
+// anyway, before the guide (init waited for world.geojson to do it): it is
+// left undrawn until that tab shows (setDataMode), then draws as before.
+let mapHeld = !!window.__WGGC__;
 function renderMapSafe() {
   const d = dataRates || lastRates;
-  if (worldGeo && d) renderMap(d.rows, d.base || "USD");
+  if (!worldGeo || !d) return;
+  if (mapHeld && $("tab-data").hidden) return;
+  mapHeld = false;
+  renderMap(d.rows, d.base || "USD");
 }
 
 // ---- PPP / affordability ---------------------------------------------------
@@ -2529,10 +2543,13 @@ let servedGuide = (() => {
   return w ? { iso: window.__WGGC__, month: +w.split(",")[0] } : null;
 })();
 let servedFaresOnScreen = !!servedGuide && !!$("guideFares") && !$("guideFares").hidden;
+// The map file too, with fares: a guide landing no longer waits for it
+// (init), and the distance-estimated fares behind the ✈️ grade read its
+// centroids (buildFareContext). One that failed to load ends the wait.
 function servedGuideReady() {
   return !!(lastRates && ppp && advisories) && valueFlightsSettled
     && (!flightsData || !flightsData.configured
-        || !!(flightValue && flightValue.origin === "US" && !flightValue.filling));
+        || !!(flightValue && flightValue.origin === "US" && !flightValue.filling && (worldGeo || !_worldReq)));
 }
 function holdServedGuide(iso) {
   if (!servedGuide) return false;
@@ -2596,8 +2613,13 @@ async function renderGuideGrades(iso) {
   // ("B+ 84" for Thailand against "A 85" with them), the line was 7px
   // wider than its fares make it, and on an 810px iPad that wrapped the
   // country picker under the title (CLS 0.32).
-  if (s && _guideFarePend && !_guideFareLate) return;
-  const pending = !!(s && _guideFarePend);
+  // The map file is waited for as the fares are, for the same reason: the
+  // ✈️ grade of a route with no cached fare is a distance estimate, from its
+  // centroids ("—" without them, "~B" with). init draws this line again
+  // when it lands (or fails).
+  const worldPend = !worldGeo && !!_worldReq && !!(flightsData && flightsData.configured);
+  if (s && (_guideFarePend || worldPend) && !_guideFareLate) return;
+  const pending = !!(s && (_guideFarePend || worldPend));
   const act = activities && activities[iso];
   const days = act && act.days ? '<span class="ggdays" data-tip="' + esc("Worth " + act.days[0] + "–" + act.days[1]
     + " days on a first visit") + '" title="">🧳 ' + act.days[0] + "–" + act.days[1] + " days</span>" : "";
@@ -11350,6 +11372,7 @@ async function setDataMode(mode) {
       loaded.risk = true;
     }
     if (mode === "currency") {
+      if (mapHeld) renderMapSafe();                 // a guide landing's (renderMapSafe)
       if (!lastIndexData) loadIndex(activeRange);   // deferred from init
       else refitIndex();
       // Re-render the (already-populated) rates table so rows carry their level.
@@ -13819,9 +13842,16 @@ document.addEventListener("scroll", () => {
   // World Bank ones ("Iran, Islamic Rep.", "Lao PDR"). Every landing used to
   // load it with Top Picks; a Data landing no longer builds Top Picks (init
   // below), so it comes here, before the first list is drawn.
-  await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates(),
+  // A guide landing doesn't wait for world.geojson (58 KB): nothing it draws
+  // first needs the map, and the Data tab's map it used to draw here is
+  // hidden (renderMapSafe holds it). What the guide reads from it — the
+  // centroids behind distance-estimated fares, so the ✈️ grade — is drawn
+  // again when it lands, inside the same holds (renderGuideGrades).
+  const worldP = ensureWorld().catch(() => {});
+  await Promise.all([ensurePPP().catch(() => {}), window.__WGGC__ ? null : worldP, loadRates(),
                      ensureClimate().catch(() => {})]);
-  renderMapSafe();
+  if (window.__WGGC__) worldP.then(() => { renderMapSafe(); if (ccGuideIso) renderGuideGrades(ccGuideIso); });
+  else renderMapSafe();
   // The 1-year index chart lives in the Explore-the-Data tab; it loads there
   // on first open (setDataMode) instead of costing every landing visit.
   // A /guide/<slug> page (server injects window.__WGGC__) opens that country
