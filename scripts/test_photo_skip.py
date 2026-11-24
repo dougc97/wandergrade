@@ -27,6 +27,8 @@
     uploader linked by username credits the name, not "c:User:<name>"), and
     a title still going through pageimages; PHOTO_LICENCE_OK and
     gallery_entry.LICENCE_OK agree on a table of licence names;
+  * an activity photo is named for its row's label, as is the viewer it
+    opens, never its subject (a Commons file name, a disambiguation);
   * photo_sweep.py, offline: a kept pinned file Commons has since deleted,
     relicensed or shrunk is flagged, and the hero strip it saves for raters
     is the desktop hero's 1158x300 centre crop.
@@ -258,9 +260,12 @@ results.append(ok(o.get("subjects") == GALLERY, "photoSubjects hands the gallery
 results.append(ok((o.get("title") or {}).get("file") == "Bintumani_lead.jpg" and "titles=Mount%20Bintumani" in o.get("titleUrl", ""),
                   "a title still resolves through pageimages"))
 UTM = "?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content="
+# ar: the file's shape (4000x2248), so a box asks for the width it fills (photoAt).
 want = {"thumb": UP + "thumb/a/ab/Beach_in_Freetown.jpg/1920px-Beach_in_Freetown.jpg" + UTM + "thumbnail",
-        "full": UP + "a/ab/Beach_in_Freetown.jpg" + UTM + "original", "file": "Beach_in_Freetown.jpg"}
-results.append(ok(o.get("ok") == want, "a file entry gives {thumb, full original, file canonical} (%s)" % o.get("ok")))
+        "full": UP + "a/ab/Beach_in_Freetown.jpg" + UTM + "original", "file": "Beach_in_Freetown.jpg",
+        "ar": 4000 / 2248}
+results.append(ok(o.get("ok") == want, "a file entry gives {thumb, full original, file canonical, ar its shape} (%s)"
+                  % o.get("ok")))
 results.append(ok(o.get("keys") == ["Beach_in_Freetown.jpg", "Beach_in_Freetown.jpg", "Bintumani_lead.jpg", "Beach_in_Freetown.jpg"],
                   "fileKey names the file from a thumb or an original, whatever utm tail (the hero/activity de-dupe) (%s)" % o.get("keys")))
 u = o.get("okUrl", "")
@@ -318,5 +323,89 @@ with open(os.path.join(ROOT, "scripts", "photo_verdicts.json"), encoding="utf-8"
     verdicts = json.load(f)
 results.append(ok(sorted(verdicts.get("skip") or []) == sorted(files) and not (set(verdicts.get("keep") or []) & set(files)),
                   "photo_verdicts.json mirrors the skip list and keeps nothing it rejects (%d keep)" % len(verdicts.get("keep") or [])))
+
+# --- the sizes the guide's photos are asked at (review #12) and their names (#39) ---
+size_parts = [js_block("function wmThumbAt("), js_line("const PHOTO_STEPS = "), js_block("function photoAt("),
+              js_block("function viewerSrc("), js_block("function photoPlace("), js_block("function photoWhere(")]
+T = UP + "thumb/a/ab/Beach.jpg/1920px-Beach.jpg?utm_source=x"
+O = UP + "a/ab/Small.jpg"
+size_prog = r"""
+const window = { devicePixelRatio: DPR, innerWidth: 390, innerHeight: 844 };
+const countryName = (iso) => ({ TH: "Thailand", LK: "Sri Lanka" })[iso];
+// jsc has no TextEncoder: wmThumbAt only reads the byte length.
+class TextEncoder { encode(s) { return unescape(encodeURIComponent(s)); } }
+%s
+const p = { thumb: T, ar: 1.5 }, o = { thumb: O, w: 1100, ar: 1.5 };
+print(JSON.stringify({ phone: photoAt(p, 360), desk: photoAt(p, 1158), big: photoAt(p, 2000), none: photoAt(p, 0),
+  orig: photoAt(o, 1158), origSmall: photoAt(o, 400), viewer: viewerSrc(p),
+  places: [photoPlace("Golden Circle (Iceland)"), photoPlace({ file: "x.jpg", label: "Lumley Beach" }), photoPlace("Wat Arun")],
+  where: [photoWhere({ place: "Wat Arun" }, "TH"), photoWhere({ place: "Ella, Sri Lanka" }, "LK"), photoWhere({}, "TH")] }));
+"""
+def run_sizes(dpr):
+    src = (size_prog % "\n".join(size_parts)).replace("DPR", str(dpr)).replace("const p = { thumb: T", "const p = { thumb: " + json.dumps(T)) \
+        .replace("o = { thumb: O", "o = { thumb: " + json.dumps(O))
+    try:
+        return json.loads(subprocess.run([JSC, "-e", src], capture_output=True, text=True, timeout=30).stdout)
+    except Exception as e:
+        return {"error": str(e)[:200]}
+s3, s1 = (run_sizes(3), run_sizes(1)) if all(size_parts) else ({}, {})
+px = lambda u: (re.search(r"/(\d+)px-", u or "") or [None, "orig"])[1]
+results.append(ok(px(s3.get("phone")) == "960" and px(s3.get("desk")) == "1920" and px(s3.get("big")) == "1920"
+                  and px(s3.get("none")) == "500" and px(s1.get("phone")) == "500" and px(s1.get("desk")) == "1280"
+                  and px(s1.get("orig")) == "orig" and px(s1.get("origSmall")) == "500" and px(s3.get("viewer")) == "960",
+                  "a photo is asked at its box's width x at most 2 device pixels, rounded up to 500/960/1280/1920 "
+                  "(a 360px phone hero: 960, not the 1920 thumb; an original never upscaled) %s"
+                  % ({k: px(v) for k, v in s3.items() if isinstance(v, str)} if s3 else size_parts.count("") or "")))
+results.append(ok(s1.get("places") == ["Golden Circle", "Lumley Beach", "Wat Arun"]
+                  and s1.get("where") == ["Wat Arun, Thailand", "Ella, Sri Lanka", "Thailand"],
+                  "the hero's name is its slide's place, with the country unless it says it (%s)" % s1.get("where")))
+
+# --- the activity thumbnails' names (#39) ---
+# Each is named for its row's label, and so is the viewer it opens ("Northern lights,
+# Iceland"): named for its photo subject, 20 rows read a Commons file name
+# ("File:Aurora Borealis over … (16283783717).jpg — open the photo viewer") and 9 a
+# Wikipedia disambiguation ("Blue Lagoon (geothermal spa)").
+THUMB_DRIVER = r"""
+activities = JSON.parse(read(ACTS_PATH));
+ccGuideIso = "IS";
+renderActivity("IS");
+const html = $("actDetail").innerHTML, slots = [], made = [], opened = [];
+html.replace(/<span class="actthumbslot" data-subj="([^"]*)" data-place="([^"]*)"><\/span>/g, (m, subj, place) => {
+  const kids = [];
+  slots.push({ dataset: { subj: unesc(subj), place: unesc(place) }, childElementCount: 0, isConnected: true,
+               appendChild(c) { kids.push(c); this.childElementCount = kids.length; return c; } });
+});
+function unesc(s) { return s.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&"); }
+document.querySelectorAll = (q) => (q.indexOf("actthumbslot") >= 0 ? slots : []);
+document.createElement = () => { const on = {}, el = __mkEl(); el.addEventListener = (k, f) => { on[k] = f; }; el._on = on; made.push(el); return el; };
+let n = 0;
+actPhoto = async (subj) => { n++; const f = "P" + n + ".jpg";
+  return { thumb: "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/" + f + "/1920px-" + f, full: "https://upload.wikimedia.org/wikipedia/commons/a/ab/" + f, file: f }; };
+loadPhotoCredits = async () => {};
+openLightboxSingle = (p) => { opened.push(photoWhere(p, "IS")); };
+loadActivityThumbs("IS").then(() => {
+  made.forEach((img) => img._on.click && img._on.click());
+  print(JSON.stringify({ subj: slots.map((x) => x.dataset.subj), alts: made.map((i) => i.alt), opened: opened }));
+}).catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
+"""
+import tempfile  # noqa: E402
+HARNESS = open(os.path.join(ROOT, "scripts", "appjs_harness.js"), encoding="utf-8").read()
+with tempfile.TemporaryDirectory() as d:
+    sp = os.path.join(d, "thumbs.js")
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + app + "\n"
+                                          + THUMB_DRIVER.replace("ACTS_PATH", json.dumps(os.path.join(PUBLIC, "activities.json"))))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=60)
+try:
+    th = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    th = {"error": (r.stderr or r.stdout)[-300:]}
+results.append(ok(any(x.startswith("File:") for x in th.get("subj", [])) and "Blue Lagoon (geothermal spa)" in th.get("subj", [])
+                  and th.get("alts") == ["Waterfalls & glaciers (Golden Circle) — open the photo viewer",
+                                         "Northern lights — open the photo viewer",
+                                         "Blue Lagoon spa — open the photo viewer", "Ring Road drive — open the photo viewer"]
+                  and th.get("opened") == ["Waterfalls & glaciers (Golden Circle), Iceland", "Northern lights, Iceland",
+                                           "Blue Lagoon spa, Iceland", "Ring Road drive, Iceland"],
+                  "each activity photo is named for its row, never its subject's file name or disambiguation, "
+                  "and so is the viewer it opens %s" % ({k: th[k] for k in ("alts", "opened", "error") if k in th})))
 print("\n%d/%d passed" % (sum(results), len(results)))
 sys.exit(0 if all(results) else 1)

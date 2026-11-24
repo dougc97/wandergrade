@@ -368,8 +368,10 @@ ca_us = [i for i in guides if facts[i].get("src") == "ca" and "US State" in R[i]
 results.append(ok(not ca_us, "Canada-rated guides (PR, US, GU, FK…) are never called a US advisory %s" % (ca_us or "")))
 co = R["CO"]
 results.append(ok("💰 Local prices ≈ %d%% of the US (%s %d)" % (facts["CO"]["pct"], rg.MON[asof.month - 1], asof.year)
-                  in co["body"] and "Safety · per US State Dept" in co["body"],
-                  "Colombia: dated cost line, attributed safety line"))
+                  in co["body"] and "Safety · per US State Dept (checked %s %d)" % (rg.MON[asof.month - 1], asof.year)
+                  in co["body"],
+                  "Colombia: dated cost line, attributed safety line, its month when the list was checked "
+                  "(not the advisory's own date)"))
 
 # --- the client h1, run under jsc against the same snapshot --------------------------
 def js_fn(name):

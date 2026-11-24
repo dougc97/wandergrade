@@ -461,14 +461,16 @@ def _cost_line(iso, f, asof):
 
 
 def _safety_line(iso, f, asof):
-    """'Level 3 · Reconsider travel — Safety · per US State Dept (Sep 2026)' —
-    the hydrated 🛡️ badge, attributed to whoever set it."""
+    """'Level 3 · Reconsider travel — Safety · per US State Dept (checked Sep
+    2026)' — the hydrated 🛡️ badge, attributed to whoever set it. "checked":
+    the month is when the site last read the list, not when the government
+    issued the advisory (Thailand's is dated 7 Jul 2026)."""
     lvl, src = f.get("adv"), f.get("src")
     if not lvl:
         return ""
     badge = lvl_words(src, lvl) if src == "de" else "Level %d · %s" % (lvl, lvl_words(src, lvl))
     who = ADV_SRC_SHORT.get(src, ADV_SRC_SHORT["us"])
-    tag = _mon_year(asof)
+    tag = "checked " + _mon_year(asof)
     if f.get("advof"):
         tag = "%s advisory, %s" % (_load()["names"].get(f["advof"], f["advof"]), tag)
     return "%s — Safety · per %s (%s)" % (badge, who, tag)

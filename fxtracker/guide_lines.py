@@ -7,7 +7,10 @@ used to get an empty grades line and no fares at all.
 They are what app.js renderGuideGrades and renderGuideFares write for that
 reader once its data is in, in the same markup, so when the browser draws
 its own nothing moves; only the tooltips are left out (data-tip, title,
-aria-label: the browser's copy brings them). index.html's pre-paint script
+aria-label: the browser's copy brings them), all but two ⓘ's a reader
+without the script needs too: the one after the month the grades are for
+("Graded for December from the US…") and the fares strip's, which names
+the search link's commission. index.html's pre-paint script
 (server.py _GUIDE_HOLD) empties them again for a reader they aren't for —
 whose saved home country, currency, priorities, advisory source or fare
 currency, or whose link or six-month window, differ — who then gets the
@@ -22,6 +25,7 @@ together.
 """
 
 import datetime
+import urllib.parse
 
 from . import geo, guide_sizers, picks, pricelevel
 from .home_picks import MON_ABBR, MON_FULL, advisory_by_iso, esc, flex_window, grade_cls, pill
@@ -47,8 +51,16 @@ def adv_level(iso, payload):
 
 
 def score(iso, inputs, month):
-    """valueScores(iso, month, advisoryByIso(), buildFareContext(), anchor)
-    for a US reader, or None (no price level, unrated, or Level 4)."""
+    """app.js guideScores(iso, month) for a US reader — valueScores(iso,
+    month, advisoryByIso(), buildFareContext(), anchor) for a country — or
+    None (no price level, unrated, or Level 4).
+
+    A place scoring leaves out on purpose (ADV_PARENT: England, Scotland,
+    Wales, the Faroes, the Isle of Man, Guernsey) is graded on its parent's
+    advisory, and on its parent's price level and currency where it has none
+    of its own (the Faroes keep theirs), with its own weather and no fare:
+    the parent's affordability and safety and its weather, averaged as
+    picks._score averages, which itself never sees these places."""
     ppp = inputs["ppp"]
     rows = inputs["rates"].get("rows") or []
     rate_by_code = {r["code"]: r["rate_now"] for r in rows if "code" in r and "rate_now" in r}
@@ -58,8 +70,27 @@ def score(iso, inputs, month):
     fares = picks.fare_context(inputs.get("flights"), geo.site_centroids()) if inputs.get("flights") else None
     if fares:
         fares["fv"] = inputs.get("fv")
-    return picks._score(iso, month, ppp, inputs["climate"], rate_by_code, strength,
-                        advisory_by_iso(inputs["advisories"]), fit, fares, anchor)
+    adv = advisory_by_iso(inputs["advisories"])
+    clim = inputs["climate"]
+    parent = guide_sizers.ADV_PARENT.get(iso)
+    lvl = parent and (adv.get(iso) or adv.get(parent))
+    if lvl:
+        adv = dict(adv, **{iso: lvl})
+        if picks._price_level(iso, ppp, rate_by_code, fit) is None:
+            p = picks._score(parent, month, ppp, clim, rate_by_code, strength, adv, fit, fares, anchor)
+            if not p:
+                return None
+            sc = (clim.get(iso) or {}).get("scores") or []
+            wx = sc[month - 1] if len(sc) >= month else None
+            comps = {"afford": p["afford"], "safe": p["safe"]}
+            if wx is not None:
+                comps["wx"] = wx
+            num = sum(picks.WEIGHTS[k] * v for k, v in comps.items())
+            den = sum(picks.WEIGHTS[k] for k in comps)
+            return dict(p, iso=iso, name=(clim.get(iso) or {}).get("name") or iso, wx=wx, fly=None, fare=None,
+                        fareEst=False, fly_basis=None, raw=num / den if den else 0,
+                        value=picks.clamp100(num / den) if den else 0, pl_of=parent)
+    return picks._score(iso, month, ppp, clim, rate_by_code, strength, adv, fit, fares, anchor)
 
 
 def _ggf(emo, word, pill_html):
@@ -95,7 +126,15 @@ def grades(iso, inputs, today):
             + _ggf("🛡️", "Safety", safe)
             + _ggf("🌤️", "Weather", grey("—") if s.get("wx") is None else pill(s["wx"]))
             + _ggf("✈️", "Flights", fly.replace('class="', 'data-gg="fly" class="', 1)) + days
-            + '<span class="muted">ⓘ</span>')
+            + '<span class="muted ggmon" data-tip="%s" title="">%s ⓘ</span>' % (esc(graded_tip(month)), MON_ABBR[month - 1]))
+
+
+def graded_tip(month):
+    """app.js guideGradedTip for a first visit (from the US, the default
+    priorities): the one tooltip the served line carries, since it says
+    which month the grades are for."""
+    return ("Graded for %s from the US, weighted by your Top Picks priorities — the grades the Top Picks "
+            "table and this page's 📸 share card show." % MON_FULL[month - 1])
 
 
 # ---- the fares strip ---------------------------------------------------------------
@@ -138,12 +177,57 @@ def fare_short(n):
     return _locale(pricelevel.js_round(n / 1e5) / 10 if n < 1e7 else pricelevel.js_round(n / 1e6)) + "M"
 
 
-def fares(iso, curve, fv, today, names):
+# The Aviasales affiliate marker (app.js TP_MARKER): public by design, it
+# ships in every flight link.
+TP_MARKER = "738472"
+
+
+def search_url(hub, dest, key, today):
+    """app.js flightSearchURLFrom: an Aviasales search from `hub` to `dest`
+    for the departure month `key` ("2026-12"): out on its 15th, or tomorrow
+    once that has passed, back 10 days later, one traveller. None without a
+    hub or a destination."""
+    if not hub or not dest:
+        return None
+    dep = datetime.date(int(key[:4]), int(key[5:7]), 15)
+    dep = max(dep, today + datetime.timedelta(days=1))
+    ret = dep + datetime.timedelta(days=10)
+    seg = lambda d: "%02d%02d" % (d.day, d.month)
+    return ("https://www.aviasales.com/search/" + urllib.parse.quote(hub + seg(dep) + dest + seg(ret) + "1", safe="")
+            + "?marker=" + TP_MARKER)
+
+
+def _fare_link(curve, months, prices, sel, today, book):
+    """app.js guideFareLink: the travel month's search from the route's hub,
+    or the cheapest month's when it has no fare; "" where bookings aren't
+    shown (`book` false: a government says not to go, or a list isn't in)."""
+    if not book:
+        return ""
+    m = sel
+    if prices[m - 1] is None:
+        m = 0
+        for i, p in enumerate(prices):
+            if p is not None and (not m or p < prices[m - 1]):
+                m = i + 1
+    if not m:
+        return ""
+    key = "%d-%02d" % (today.year if m > today.month - 1 else today.year + 1, m)
+    rec = months.get(key)
+    hub = (curve or {}).get("hub")
+    url = search_url(hub, (rec.get("dest") if isinstance(rec, dict) else None) or (curve or {}).get("dest"), key, today)
+    if not url:
+        return ""
+    return ('<a href="%s" target="_blank" rel="sponsored nofollow noopener">✈️ Search %s flights from %s '
+            '<span class="ext">↗</span></a>' % (esc(url), MON_ABBR[m - 1], esc(hub)))
+
+
+def fares(iso, curve, fv, today, names, book=True):
     """renderGuideFares' strip for a USD reader, or "" (fewer than three
     months: the strip stays hidden). `curve` is flights.get_country_monthly
-    for the US ({"origin", "months": {"YYYY-MM": {"price"…}}}); `fv` the
-    flight-value build (the Flights tab's typical range); `names` ISO -> the
-    site's name (app.js countryName for a guide)."""
+    for the US ({"origin", "hub", "months": {"YYYY-MM": {"price", "dest"…}}});
+    `fv` the flight-value build (the Flights tab's typical range); `names`
+    ISO -> the site's name (app.js countryName for a guide); `book` whether
+    the strip's search link shows (app.js guideNoBookings(iso) === false)."""
     months = (curve or {}).get("months") or {}
     prices = []
     for m in range(1, 13):
@@ -177,6 +261,19 @@ def fares(iso, curve, fv, today, names):
                     % (cls, _locale(n), fare_short(n), " typ" if band == "typical" else "", _js_num(h), fill,
                        MON_ABBR[i]))
     origin = names((curve or {}).get("origin") or "US") or "US"
-    return ('<span class="fareshead">✈️ Fares by month<span class="legendinfo">ⓘ</span> <span class="muted">%s</span>'
-            '</span><div class="bars farebars" role="img">%s</div>'
-            % (esc("%s → %s · round-trip, USD" % (origin, names(iso) or iso)), "".join(cols)))
+    return ('<span class="fareshead">✈️ Fares by month<span class="legendinfo" data-tip="%s" title="">ⓘ</span> '
+            '<span class="muted">%s</span></span><div class="bars farebars" role="img">%s</div>'
+            '<div class="faresearch">%s</div>'
+            % (esc(fares_tip(typ is not None)), esc("%s → %s · round-trip, USD" % (origin, names(iso) or iso)),
+               "".join(cols), _fare_link(curve, months, prices, sel, today, book)))
+
+
+def fares_tip(typ):
+    """renderGuideFares' ⓘ for a USD reader (nothing converted); `typ`
+    whether the Flights tab's range colours the bars. The strip's one
+    tooltip kept: it names the search link's commission, which a reader
+    without the script needs as much as one with it."""
+    return ("Cheapest cached round-trip Aviasales has seen for each departure month — indicative, not live. "
+            "Taller = cheaper. Colour = the month against the route's typical fare: green low, pale typical, red high"
+            + (" (the Flights tab's range)." if typ else ".")
+            + " The ✈️ search link is an affiliate link: we may earn a commission, at no extra cost to you.")

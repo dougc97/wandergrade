@@ -1408,7 +1408,7 @@ def _fare_strip_hint(iso):
     default origin, from the caches alone (never an upstream call): the
     country's row in the cached fares and its routes' cached curves, with the
     3 months of the next 12 renderGuideFares needs. The page holds the strip's
-    142px only then (data-fm, styles.css): held for every guide, it was given
+    167px only then (data-fm, styles.css): held for every guide, it was given
     back on the half of graded guides production has no curve for, and the
     prices and FX lines under it jumped up 154px (CLS 0.14 at 1280 on
     Slovakia for a reader scrolling during a slow load; 0.002 held only
@@ -1676,7 +1676,13 @@ def _guide_lines(iso):
     today = datetime(*time.gmtime()[:3]).date()
     inputs = {"rates": rp, "ppp": ppp, "climate": d["clim"], "activities": d["acts"],
               "advisories": adv, "flights": fares, "fv": fv}
-    strip = guide_lines.fares(iso, curve, fv, today, render_guide.name_for_iso) if curve else ""
+    # The strip's search link where app.js guideNoBookings is false: no
+    # government's own list says Level 4 (nor the US list's gap-filled
+    # level), and every list is in (one still out is "not known": no link,
+    # as the browser draws it until it is).
+    dnt = _adv_dnt()
+    book = not dnt["unknown"] and not _guide_flagged(iso, dnt) and guide_lines.adv_level(iso, adv) != 4
+    strip = guide_lines.fares(iso, curve, fv, today, render_guide.name_for_iso, book) if curve else ""
     return {"_ATTRS": ' data-gssr="%d,%d"' % (guide_lines.guide_month(today), today.month),
             "GUIDE_GRADES": guide_lines.grades(iso, inputs, today),
             "FARES_HIDDEN": "" if strip else " hidden", "GUIDE_FARES": strip,
@@ -2136,8 +2142,17 @@ def _advisories_fresh(source):
     # whose level it saw change. Only here, where the list is computed — never
     # per request — and it can't fail the list: a storage error just leaves
     # the items unstamped.
-    return _timed_refresh("advisories " + source, lambda: advhistory.record_and_annotate(
-        source, advisories.get_advisories(source)))
+    return _timed_refresh("advisories " + source, lambda: _stamp_fetched(advhistory.record_and_annotate(
+        source, advisories.get_advisories(source))))
+
+
+def _stamp_fetched(payload):
+    """The list with `fetched`, the UTC day it was read, for the guide
+    badge's tip ("Advisory dated 7 Jul 2026 · fetched 23 Nov 2026"). A stale
+    copy served on a failed refresh keeps the day it was really read."""
+    if not isinstance(payload, dict):
+        return payload
+    return dict(payload, fetched=time.strftime("%Y-%m-%d", time.gmtime()))
 
 
 def _rates_payload(cfg, base="USD"):

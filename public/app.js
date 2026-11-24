@@ -1070,12 +1070,19 @@ if (homeBase === "BGN") {
 const USDLINK = "#bcd0e6"; // pale blue: uses the US dollar (flat for your dollar)
 
 let worldGeo = null;
+let _worldReq = null;   // the fetch in flight, shared by everyone asking during it
 
 async function ensureWorld() {
   if (worldGeo) return worldGeo;
+  // One request however many ask at once: a guide landing starts it without
+  // waiting (init), and whatever asks next joins it rather than fetching a
+  // second copy. A failed fetch clears the slot, so the next caller retries.
   // ?v= busts the day-long HTTP cache when the geometry changes (bump manually)
-  worldGeo = await (await fetch("/world.geojson?v=8")).json();
-  return worldGeo;
+  if (!_worldReq) {
+    _worldReq = fetch("/world.geojson?v=8").then((r) => r.json()).then((g) => (worldGeo = g))
+      .catch((e) => { _worldReq = null; throw e; });
+  }
+  return _worldReq;
 }
 
 function hexToRgb(h) { return [1,3,5].map((i) => parseInt(h.slice(i, i + 2), 16)); }
@@ -1775,9 +1782,16 @@ function renderLegend(base) {
     '<span style="margin-left:6px"><span class="swatch"></span>No data</span>';
 }
 
+// A guide landing never shows the Data tab's currency map, and drew it
+// anyway, before the guide (init waited for world.geojson to do it): it is
+// left undrawn until that tab shows (setDataMode), then draws as before.
+let mapHeld = !!window.__WGGC__;
 function renderMapSafe() {
   const d = dataRates || lastRates;
-  if (worldGeo && d) renderMap(d.rows, d.base || "USD");
+  if (!worldGeo || !d) return;
+  if (mapHeld && $("tab-data").hidden) return;
+  mapHeld = false;
+  renderMap(d.rows, d.base || "USD");
 }
 
 // ---- PPP / affordability ---------------------------------------------------
@@ -2529,10 +2543,13 @@ let servedGuide = (() => {
   return w ? { iso: window.__WGGC__, month: +w.split(",")[0] } : null;
 })();
 let servedFaresOnScreen = !!servedGuide && !!$("guideFares") && !$("guideFares").hidden;
+// The map file too, with fares: a guide landing no longer waits for it
+// (init), and the distance-estimated fares behind the ✈️ grade read its
+// centroids (buildFareContext). One that failed to load ends the wait.
 function servedGuideReady() {
   return !!(lastRates && ppp && advisories) && valueFlightsSettled
     && (!flightsData || !flightsData.configured
-        || !!(flightValue && flightValue.origin === "US" && !flightValue.filling));
+        || !!(flightValue && flightValue.origin === "US" && !flightValue.filling && (worldGeo || !_worldReq)));
 }
 function holdServedGuide(iso) {
   if (!servedGuide) return false;
@@ -2559,6 +2576,24 @@ if (servedGuide) {
   }, 250);
 }
 
+// Writes a block's markup unless it already shows exactly that markup,
+// written here. Each /api/flight-value answer redraws the guide's grades
+// line and fare strip (every poll while the server fills, for up to 15
+// minutes after a deploy), and rewriting the same markup replaced the nodes
+// under the reader: keyboard focus inside fell to <body>, and an open tap
+// tip lost the element it was showing for. A block anything else rewrote
+// (its nodes no longer the ones written here, or emptied) is written again.
+// true when it wrote.
+function setBlockHTML(host, html) {
+  const kids = host.childNodes, was = host._wgNodes;
+  if (host._wgHtml === html && was && host.innerHTML !== "" && kids.length === was.length
+      && was.every((n, i) => kids[i] === n)) return false;
+  host.innerHTML = html;
+  host._wgHtml = html;
+  host._wgNodes = Array.from(host.childNodes);
+  return true;
+}
+
 async function renderGuideGrades(iso) {
   const host = $("guideGrades");
   if (!host) return;
@@ -2576,12 +2611,12 @@ async function renderGuideGrades(iso) {
       if (ccGuideIso) renderGuideGrades(ccGuideIso);
     });
     // Fares still out after 2.5s: the line is drawn without them (below).
-    setTimeout(() => { if (_guideFarePend) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); } }, 2500);
+    armGuideLate();
   }
   if (holdServedGuide(iso)) return;   // the served line stays (above)
   const month = travelMonth();
   let s = null;
-  try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), plAnchor(originIso()).pl); } catch (e) {}
+  try { s = guideScores(iso, month); } catch (e) {}
   // A graded line is drawn once, with its fares: drawn before them too, its
   // "—" for flights made it 445px against 438 after, and on an 810px iPad
   // the country picker beside the title wrapped under it and came back
@@ -2596,8 +2631,26 @@ async function renderGuideGrades(iso) {
   // ("B+ 84" for Thailand against "A 85" with them), the line was 7px
   // wider than its fares make it, and on an 810px iPad that wrapped the
   // country picker under the title (CLS 0.32).
-  if (s && _guideFarePend && !_guideFareLate) return;
-  const pending = !!(s && _guideFarePend);
+  // The map file is waited for as the fares are, for the same reason: the
+  // ✈️ grade of a route with no cached fare is a distance estimate, from its
+  // centroids ("—" without them, "~B" with). init draws this line again
+  // when it lands (or fails).
+  // And the month curves (/api/flight-value), asked once the fares are in:
+  // the ✈️ grade prefers the month's fare against the route's range. Drawn
+  // on the fares alone, a guide-first reader the served line isn't for (a
+  // ?vmn= newsletter link, a saved From) kept the distance grade for good —
+  // Thailand read "A+ 93, Flights B+" where its December is "B+ 81, F".
+  // (guideGradesWait, below.) The 2.5 s rule holds however the guide was
+  // opened: a waiting line arms it here too (armGuideLate). Another
+  // country's line (the served one, or one drawn before) is emptied
+  // meanwhile, so it never stands under this guide's title.
+  const pending = !!s && guideGradesWait();
+  if (pending && !_guideFareLate) {
+    if ((host._wgIso || window.__WGGC__) !== iso) { setBlockHTML(host, ""); host._wgIso = iso; }
+    armGuideLate();
+    return;
+  }
+  host._wgIso = iso;
   const act = activities && activities[iso];
   const days = act && act.days ? '<span class="ggdays" data-tip="' + esc("Worth " + act.days[0] + "–" + act.days[1]
     + " days on a first visit") + '" title="">🧳 ' + act.days[0] + "–" + act.days[1] + " days</span>" : "";
@@ -2606,7 +2659,7 @@ async function renderGuideGrades(iso) {
     const lvl = guideAdvLevel(iso);
     const why = lvl === 4 ? "Level 4, do not travel: not graded"
       : !lvl ? "No advisory from the governments we follow, so it isn't graded" : "Not enough data to grade it";
-    host.innerHTML = grey("—", why) + '<span class="vh"> ' + esc(why) + "</span>" + days;
+    setBlockHTML(host, grey("—", why) + '<span class="vh"> ' + esc(why) + "</span>" + days);
     return;
   }
   const wait = (k, cls, txt) => '<span class="' + cls + ' skel ggpend" data-gg="' + k + '" data-tip="Waiting for fares…" title="">'
@@ -2616,15 +2669,23 @@ async function renderGuideGrades(iso) {
     : s.fare == null ? grey("—", "No fare data")
     : (s.flyBasis !== "month" && s.fareEst) ? grey("~" + grade(s.fly), "Estimated — no cached fare yet, so flights count as a typical fare for the distance.")
     : gradePill(s.fly, s.flyBasis === "month" ? MONTHS[month - 1] + "'s fare vs this route's usual" : "Year-round fare vs the typical fare for this distance");
-  host.innerHTML = (pending ? wait("ov", "gr big", "A") + wait("num", "ggnum", s.value)
+  const drew = setBlockHTML(host, (pending ? wait("ov", "gr big", "A") + wait("num", "ggnum", s.value)
       : gradePill(s.value, "Overall " + grade(s.value) + " · " + s.value + "/100 for " + MONTHS[month - 1], "big")
         .replace('class="', 'data-gg="ov" class="') + '<span class="ggnum" data-gg="num">' + s.value + "</span>")
-    + f("💰", "Affordability", gradePill(s.afford, affordTitle(s).replace(" · click for cost-of-living detail", "")))
-    + f("🛡️", "Safety", safetyPill(s.advLvl, iso))
+    + f("💰", "Affordability", gradePill(s.afford, affordTitle(s).replace(" · click for cost-of-living detail", "")
+      + (s.plOf ? " · " + parentWide(s.plOf) + " figure" : "")))
+    + f("🛡️", "Safety", guideSafetyPill(s.advLvl, iso))
     + f("🌤️", "Weather", s.wx == null ? grey("—", "No weather data") : gradePill(s.wx, s.wx + "/100 weather comfort in " + MONTHS[month - 1]))
     + f("✈️", "Flights", pending ? fly : fly.replace('class="', 'data-gg="fly" class="')) + days
-    + '<span class="muted" data-tip="' + esc("Graded for " + MONTHS[month - 1] + " from " + originLabel()
-      + ", weighted by your Top Picks priorities — the grades the Top Picks table and this page's 📸 share card show.") + '" title="">ⓘ</span>';
+    // The month the grades are for, on the line: a reader from
+    // /cheapest/february saw Vietnam's A+ 93 there turn B+ 82 here with no
+    // reason given (it was December's). Held at the widest month's width
+    // (.ggmon), so a month's change moves nothing; guide_lines.grades writes
+    // the same, tip and all.
+    + '<span class="muted ggmon" data-tip="' + esc(guideGradedTip(month)) + '" title="">' + MON_ABBR[month - 1] + " ⓘ</span>");
+  // The same line again (a poll's answer that changed nothing): its boxes'
+  // widths and holds stand as they were.
+  if (!drew) return;
   // The pending boxes' widths, kept for this guide: every later draw of it
   // (the fares' own redraw, and their settling's) gives each grade at least
   // its box's width.
@@ -2637,6 +2698,34 @@ async function renderGuideGrades(iso) {
   }
 }
 let _ggHold = null;
+function guideGradedTip(month) {
+  return "Graded for " + MONTHS[month - 1] + " from " + originLabel()
+    + ", weighted by your Top Picks priorities — the grades the Top Picks table and this page's 📸 share card show.";
+}
+// The first /api/flight-value answer for the reader's origin still out
+// (askValueFlightValue); a re-ask while the server fills is not waited for.
+function guideFvPending() {
+  return !!(flightsData && flightsData.configured && _fvAsk && !_fvAsk.done && _fvAsk.origin === originIso()
+    && !(flightValue && flightValue.origin === originIso()));
+}
+// What a graded line waits for before it draws (renderGuideGrades): the
+// fares, the map file a distance-estimated ✈️ grade reads its centroids
+// from, and the first month curves.
+function guideGradesWait() {
+  return !!(_guideFarePend || (!worldGeo && _worldReq && flightsData && flightsData.configured) || guideFvPending());
+}
+// It waits 2.5 s at most, then draws with the grey pending boxes. The timer
+// used to start only with a guide-first landing's own fares fetch: a guide
+// opened from Top Picks while the month curves were still out stayed blank
+// until they came (9 s with them 12 s slow). One timer for every wait.
+let _guideLateT = null;
+function armGuideLate() {
+  if (_guideLateT || _guideFareLate) return;
+  _guideLateT = setTimeout(() => {
+    _guideLateT = null;
+    if (guideGradesWait()) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); }
+  }, 2500);
+}
 function fillGuideInsurance(host, iso) {
   // Named, and styled like the stay buttons it sits beside. It used to read
   // "Compare travel insurance" as a bare text link, which was wrong twice: it
@@ -2900,10 +2989,14 @@ async function renderGuideFares(iso) {
   const host = $("guideFares");
   if (!host) return;
   if (holdServedGuide(iso)) return;   // the served strip stays (renderGuideGrades)
-  // Over the served strip, it stays on screen while the curve is fetched.
-  const served = servedFaresOnScreen && iso === window.__WGGC__;
+  // Over the served strip, it stays on screen while the curve is fetched; so
+  // does this guide's own strip for the same curve (a /api/flight-value
+  // poll's redraw): hidden and shown again, the reader's focus inside fell
+  // to <body>. Another guide's or origin's strip hides meanwhile.
+  const curveKey = originIso() + ":" + iso;
+  const keep = (servedFaresOnScreen && iso === window.__WGGC__) || (!host.hidden && host._wgCurve === curveKey);
   servedFaresOnScreen = false;
-  if (!served) host.hidden = true;
+  if (!keep) host.hidden = true;
   const fm = await ensureFareMonths(iso);
   if (ccGuideIso !== iso) return;
   if (!fm || !fm.months) { host.hidden = true; return; }
@@ -2979,12 +3072,57 @@ async function renderGuideFares(iso) {
   const tip = "Cheapest cached round-trip Aviasales has seen for each departure month"
     + (approx ? ", converted at today's rate" : "") + " — indicative, not live. Taller = cheaper. "
     + "Colour = the month against the route's typical fare: green low, pale typical, red high"
-    + (typ ? " (the Flights tab's range)." : ".");
-  host.innerHTML = '<span class="fareshead">✈️ Fares by month'
+    + (typ ? " (the Flights tab's range)." : ".")
+    + " The ✈️ search link is an affiliate link: we may earn a commission, at no extra cost to you.";
+  const strip = (link) => '<span class="fareshead">✈️ Fares by month'
     + '<span class="legendinfo" data-tip="' + esc(tip) + '" title="">ⓘ</span>'
     + ' <span class="muted">' + esc(originName + " → " + countryName(iso) + " · round-trip, " + approx + cur)
     + "</span></span>"
-    + '<div class="bars farebars" role="img" aria-label="' + esc(ariaFares) + '">' + cols + "</div>";
+    + '<div class="bars farebars" role="img" aria-label="' + esc(ariaFares) + '">' + cols + "</div>"
+    + '<div class="faresearch">' + link + "</div>";
+  // The same strip again (a poll's answer that changed nothing for this
+  // route) writes nothing: setBlockHTML.
+  const html = strip(guideFareLink(iso, fm, selM, prices));
+  setBlockHTML(host, html);
+  host._wgCurve = curveKey;
+  const draw = host._wgDraw = {};
+  // Not known yet whether any government says not to go (guideNoBookings
+  // null: the lists still loading): the row holds its line, empty, and the
+  // link fills it once that is known, or never does. The latest draw fills
+  // it, with its own month's link, and the strip then counts as written
+  // with it, so the next redraw finds it unchanged. An earlier draw's wait
+  // (the strip drawn again meanwhile: the month curves landing) steps back:
+  // it filled the link in first, the strip was still counted without it,
+  // and the next poll's redraw rewrote it from under the reader's focus.
+  if (guideNoBookings(iso) == null) {
+    ensureBookingsKnown().then(() => {
+      const slot = host.querySelector(".faresearch");
+      if (host._wgDraw !== draw || ccGuideIso !== iso || !slot || !slot.isConnected || slot.firstChild) return;
+      const link = guideFareLink(iso, fm, selM, prices);
+      slot.innerHTML = link;
+      if (host._wgHtml === html) host._wgHtml = strip(link);
+    }, () => {});
+  }
+}
+// The fare chart's one booking link: the travel month's flights from the
+// route's hub ("✈️ Search Dec flights from NYC ↗"), or the cheapest month's
+// when the travel month has no fare, to the city that month's fare is for.
+// Never where a government says not to go, as the Trip tab and the stays
+// (guideNoBookings): "" there, and while that isn't known. The month bars
+// stay plain: on a phone they are the tap targets for their tips.
+function guideFareLink(iso, fm, selM, prices) {
+  if (guideNoBookings(iso) !== false) return "";
+  let m = selM;
+  if (prices[m - 1] == null) {
+    m = 0;
+    prices.forEach((p, i) => { if (p != null && (!m || p < prices[m - 1])) m = i + 1; });
+  }
+  if (!m) return "";
+  const key = nextMonthKey(m), rec = fm.months[key];
+  const url = flightSearchURLFrom(fm.hub, (rec && rec.dest) || fm.dest, key);
+  if (!url) return "";
+  return '<a href="' + esc(url) + '" target="_blank" rel="sponsored nofollow noopener">✈️ Search '
+    + MON_ABBR[m - 1] + " flights from " + esc(fm.hub) + ' <span class="ext">↗</span></a>';
 }
 
 // ---- FX trailing trend ------------------------------------------------------
@@ -3447,6 +3585,47 @@ const advChangedOn = (it) => (it && (it.changed || it.updated)) || "";
 // Faroes under Denmark). The guide shows the parent's level and says so;
 // scoring never sees these ISOs, so nothing is ranked on it.
 const ADV_PARENT = { ...GUIDE_PARENT, GG: "GB", IM: "GB", JE: "GB", FO: "DK" };
+// A guide's grades for a place scoring leaves out on purpose — England,
+// Scotland, Wales, the Faroes, the Isle of Man and Guernsey: no advisory of
+// their own, and the home nations, Man and Guernsey no price level either.
+// Each showed a grey "—" ("Not enough data to grade it") right above the
+// UK-wide price line and the UK's advisory. Graded here, on the guide only
+// (its line, its share card): the parent's advisory, and the parent's price
+// level and currency where the place has none of its own (the Faroes keep
+// theirs); its own weather; no fare of its own there (none has a route), so
+// the Overall is over the rest, as valueScores does for any country missing
+// a measure. valueScores itself, so Top Picks and the newsletter, never
+// sees these places. guide_lines.score mirrors it for the served line.
+function guideScoreInputs(iso, advMap) {
+  const parent = ADV_PARENT[iso], lvl = parent && (advMap[iso] || advMap[parent]);
+  if (!lvl) return null;
+  return { parent, adv: { ...advMap, [iso]: lvl }, own: priceLevel(iso) != null };
+}
+function guideScores(iso, month) {
+  const advMap = advisoryByIso(), fares = buildFareContext(), anchorPl = plAnchor(originIso()).pl;
+  const b = guideScoreInputs(iso, advMap);
+  if (!b) return valueScores(iso, month, advMap, fares, anchorPl);
+  if (b.own) return valueScores(iso, month, b.adv, fares, anchorPl);
+  const p = valueScores(b.parent, month, b.adv, fares, anchorPl);
+  if (!p) return null;
+  const cl = climate && climate[iso];
+  const wx = cl && cl.scores && cl.scores[month - 1] != null ? cl.scores[month - 1] : null;
+  // valueScores' weighted mean, over the parent's affordability and safety
+  // and this place's weather.
+  const w = loadWeights(), comps = { afford: p.afford, safe: p.safe };
+  if (wx != null) comps.wx = wx;
+  let num = 0, den = 0;
+  for (const k in comps) { num += (w[k] || 0) * comps[k]; den += (w[k] || 0); }
+  return { ...p, iso, name: (cl && cl.name) || iso, raw: den ? num / den : 0, value: den ? clamp100(num / den) : 0,
+           wx, wxMissing: wx == null, fly: undefined, fare: null, fareEst: false, fareMin: null, fareBase: null,
+           dealRatio: null, flyBasis: null, flyMissing: !!fares, plOf: b.parent };
+}
+// The guide's 🛡️ pill: a place reading its parent's advisory says whose.
+function guideSafetyPill(lvl, iso) {
+  const parent = ADV_PARENT[iso] && !advisoryMetaByIso()[iso] ? ADV_PARENT[iso] : null;
+  if (!parent || !lvl) return safetyPill(lvl, iso);
+  return safetyPill(lvl, parent).replace(/ title="([^"]*)"/, (m, t) => ' title="' + t + esc(" (" + countryName(parent) + " advisory)") + '"');
+}
 // The level the reader's chosen source gives a guide's country (a territory
 // reads its parent's, as the badge does); 0 unrated, null while loading.
 function guideAdvLevel(iso) {
@@ -3567,8 +3746,16 @@ function renderGuideSafety(iso) {
     const deCall = advSrcOf(it) === "de";
     const badge = (deCall ? "" : "Level " + lvl + " · ") + (advLvlWords(it) || "");
     const badgeCls = deCall && lvl === 1 ? "nowarn" : "advlvl" + lvl;
+    // When the government issued it and when this site last read the list,
+    // in the badge's tip, not a visible line (the list pages show the date:
+    // Thailand's is 7 Jul 2026). Canada's feed carries no date of its own.
+    const dated = [it.updated ? "Advisory dated " + fmtDay(String(it.updated).slice(0, 10)) : "",
+      advisories.fetched ? (it.updated ? "fetched " : "Fetched ") + fmtDay(String(advisories.fetched).slice(0, 10)) : ""]
+      .filter(Boolean).join(" · ");
+    // A Tab stop, so a keyboard reader gets the tip too (it shows on focus).
+    const badgeTip = dated ? ` data-tip="${esc(dated)}" title="" tabindex="0"` : "";
     host.hidden = false;
-    host.innerHTML = `<span class="advbadge ${badgeCls}">🛡️ ${esc(badge.replace(/ · $/, ""))}</span>${moved}
+    host.innerHTML = `<span class="advbadge ${badgeCls}"${badgeTip}>🛡️ ${esc(badge.replace(/ · $/, ""))}</span>${moved}
       <span class="guidevisa-txt"><b>Safety · per ${esc(src)}:</b>${why}
       <span class="advlinks"><a href="${esc(url)}" target="_blank" rel="noopener">full advisory ↗</a> · <button type="button" class="linkbtn advsrcjump">switch source (US · CA · DE) → Safety tab</button></span>
       <span id="guideWatchouts"></span></span>`;
@@ -3599,7 +3786,7 @@ function renderGuideSafetySnapshot(iso) {
     const de = f.src === "de";
     const words = de ? DE_LVL_LABEL[f.adv] || "" : (ADV_LVL_WORDS[f.src] || ADV_LVL_WORDS.us)[f.adv - 1] || "";
     const badge = de ? words : "Level " + f.adv + " · " + words;
-    const when = guideFactsMonth();
+    const when = "checked " + guideFactsMonth();   // render_guide._safety_line's words
     host.innerHTML = `<span class="advbadge ${de && f.adv === 1 ? "nowarn" : "advlvl" + f.adv}">🛡️ ${esc(badge)}</span>
       <span class="guidevisa-txt"><b>Safety · per ${esc(ADV_SRC_SHORT[f.src] || ADV_SRC_SHORT.us)} (${esc(
         f.advof ? countryName(f.advof) + " advisory, " + when : when)})</b></span>`;
@@ -3832,6 +4019,8 @@ async function wikiIconic(subject, minW, minH) {
     const orig = page.original && page.original.source;
     // file = the File: page name, for the author/licence credit.
     const p = { thumb, full: (orig && !PHOTO_BAD.test(orig)) ? orig : thumb, file: page.pageimage || "" };
+    // Its shape, so a box can ask for the width it really fills (photoAt).
+    if (t.width > 0 && t.height > 0) p.ar = t.width / t.height;
     // A file no wider than the 1600px asked comes back as itself, no /NNNpx-
     // to resize: w, its width, lets wmThumbAt ask for a real thumb instead.
     if (!/\/thumb\//.test(thumb)) p.w = (page.original && page.original.width) || t.width || 0;
@@ -3881,6 +4070,7 @@ async function commonsPhoto(name, minW, minH) {
     // asks nothing more.
     _photoCredit[file] = credit;
     const p = { thumb, full: (ii.url && !PHOTO_BAD.test(ii.url)) ? ii.url : thumb, file };
+    if (ii.width > 0 && ii.height > 0) p.ar = ii.width / ii.height;
     if (!/\/thumb\//.test(thumb)) p.w = ii.width || 0;   // unscaled: as wikiIconic's
     return p;
   } catch (e) { return null; }
@@ -3957,15 +4147,31 @@ function photoCreditHTML(p) {
   return '📷 <a href="' + esc(page) + '" target="_blank" rel="noopener">'
     + esc(c.artist || "Wikimedia Commons") + "</a>" + lic;
 }
+// The place a gallery subject names, for a screen reader: a Wikipedia title
+// without its disambiguation ("Golden Circle (Iceland)" -> "Golden Circle"),
+// or a pinned Commons file's label. "" when there is nothing better than the
+// country's name.
+function photoPlace(s) {
+  if (s && typeof s === "object") return String(s.label || "").trim();
+  return String(s || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+// "Wat Arun, Thailand", or just the place when it already names the country
+// ("Ella, Sri Lanka"), or the country alone.
+function photoWhere(p, iso) {
+  const cn = countryName(iso), place = (p && p.place) || "";
+  return !place ? cn : place.includes(cn) ? place : place + ", " + cn;
+}
 const _heroCache = {};
 async function iconicPhotos(iso) {
   if (iso in _heroCache) return _heroCache[iso];
   // Arrow, not .map(wikiIconic): map's (index, array) args landed in minW/minH
-  // and switched the size gate off.
-  const settled = await Promise.all(photoSubjects(iso).map((s) => wikiIconic(s)));
+  // and switched the size gate off. Each photo keeps the place it shows, the
+  // hero's accessible name (it used to read only "Thailand" on every slide).
+  const settled = await Promise.all(photoSubjects(iso).map((s) =>
+    wikiIconic(s).then((p) => (p ? { ...p, place: photoPlace(s) } : p))));
   const out = [], seen = new Set();
-  // An unscaled original shows as a thumb (heroThumb); the viewer still opens
-  // the original.
+  // An unscaled original shows as a thumb (heroThumb); the viewer links the
+  // original ("full size").
   for (const p of settled) if (p && !seen.has(fileKey(p.full))) { seen.add(fileKey(p.full)); out.push(p.w ? { ...p, thumb: heroThumb(p.thumb, p.w) } : p); }
   if (out.length) _heroCache[iso] = out;
   return out;
@@ -4012,10 +4218,12 @@ function loadHeroPhotos(iso) {
     host.classList.remove("loading");
     if (!heroUrls.length) { host.classList.add("empty"); return; }
     host.classList.add("loaded");
-    heroUrls.forEach((p) => { const im = new Image(); im.src = p.thumb; });  // warm cache
+    // No warming every slide up front: five 1920px files (2.3 MB of a 2.9 MB
+    // phone page) for a 360px box. showHero loads the one on show, at the
+    // box's width, and the next one only.
     const multi = heroUrls.length > 1;
     host.innerHTML =
-      `<img class="heroimg" alt="${esc(countryName(iso))}" title="click to enlarge">` +
+      `<img class="heroimg" fetchpriority="high" alt="${esc(photoWhere(heroUrls[0], iso))} — open the photo viewer" title="click to enlarge">` +
       (multi ? '<button class="heronav prev" type="button" aria-label="previous photo">‹</button>' +
                '<button class="heronav next" type="button" aria-label="next photo">›</button>' +
                '<div class="herocount"></div>' : "") +
@@ -4043,11 +4251,27 @@ function heroStep(d) {
   showHero();
   syncLightbox();
 }
+// Slide i at the width the hero box needs: object-fit: cover fills its
+// width, or its height times the photo's shape where that is wider (a 3:2
+// photo in a 400x300 box is drawn 450px wide). A 358px phone box used to get
+// the API's 1920px thumb.
+function heroSrc(i) {
+  const host = $("guideHero"), img = host && host.querySelector(".heroimg"), p = heroUrls[i];
+  const w = (host && host.clientWidth) || window.innerWidth;
+  return photoAt(p, Math.max(w, ((img && img.clientHeight) || 300) * (p.ar || 0)));
+}
 function showHero() {
   const host = $("guideHero");
   const img = host && host.querySelector(".heroimg");
   if (!img) return;
-  img.src = heroUrls[heroIdx].thumb;
+  const p = heroUrls[heroIdx];
+  // A size Wikimedia won't serve falls back to the API's own thumb, once.
+  img.onerror = () => { img.onerror = null; img.src = p.thumb; };
+  img.src = heroSrc(heroIdx);
+  // The next slide only, the likeliest tap: every one used to load at once.
+  if (heroUrls.length > 1) { const im = new Image(); im.src = heroSrc((heroIdx + 1) % heroUrls.length); }
+  // Named for the place on this slide, as the activity photos are.
+  img.alt = photoWhere(heroUrls[heroIdx], ccGuideIso) + " — open the photo viewer";
   const c = host.querySelector(".herocount");
   if (c) c.textContent = (heroIdx + 1) + " / " + heroUrls.length;
   const cr = host.querySelector(".herocredit");
@@ -4093,10 +4317,14 @@ function lbTakeFocus(lb) {
   lb.querySelector(".lbclose").focus();   // dialog gets focus; Escape/✕ leave it
 }
 // The credit for whatever the viewer shows (a single photo or the carousel's).
+// The original file is a link now, not what the viewer loads: originals ran
+// 5-10 MB each (Koh Phi Phi's 9.2 MB against 267 KB at 960px).
 function syncLightboxCredit() {
   const lb = $("lightbox");
   const cr = lb && !lb.hidden && lb.querySelector(".lbcredit");
-  if (cr) cr.innerHTML = photoCreditHTML(lbSingle || heroUrls[heroIdx]);
+  const p = lbSingle || heroUrls[heroIdx];
+  if (cr) cr.innerHTML = photoCreditHTML(p) + (p && p.full && /^https:\/\//.test(p.full)
+    ? ' · <a href="' + esc(p.full) + '" target="_blank" rel="noopener">full size ↗</a>' : "");
 }
 function openLightbox() {
   if (!heroUrls.length) return;
@@ -4106,9 +4334,6 @@ function openLightbox() {
   document.addEventListener("keydown", lbKey);
   lbTakeFocus(lb);
   syncLightbox();
-  // Preload every full-res image now (intent signalled), so clicking through
-  // the carousel is instant instead of waiting on each load.
-  heroUrls.forEach((p) => { if (p.full && p.full !== p.thumb) { const im = new Image(); im.src = p.full; } });
 }
 // One-off viewer for a single photo (activity thumbnails) — same lightbox,
 // no carousel nav; lbSingle guards the arrow keys from stepping the hero.
@@ -4120,11 +4345,15 @@ function openLightboxSingle(photo) {
   document.body.style.overflow = "hidden";
   document.addEventListener("keydown", lbKey);
   const img = lb.querySelector(".lbimg");
-  img.src = photo.thumb;
-  if (photo.full && photo.full !== photo.thumb) {
+  // The row's own small thumb at once (already loaded), then the screen's
+  // size: never the original.
+  const small = wmThumbAt(photo.thumb, 330, photo.w), want = viewerSrc(photo);
+  img.alt = photo.place ? photoWhere(photo, ccGuideIso) : "";
+  img.src = small;
+  if (want !== small) {
     const hi = new Image();
-    hi.onload = () => { if (!lb.hidden && lbSingle === photo) img.src = photo.full; };
-    hi.src = photo.full;
+    hi.onload = () => { if (!lb.hidden && lbSingle === photo) img.src = want; };
+    hi.src = want;
   }
   lb.querySelector(".lbcount").textContent = "";
   lb.querySelectorAll(".lbnav").forEach((b) => { b.style.display = "none"; });
@@ -4149,11 +4378,19 @@ function syncLightbox() {
   if (!lb || lb.hidden) return;
   const img = lb.querySelector(".lbimg");
   const idx = heroIdx, ph = heroUrls[idx];
-  img.src = ph.thumb;                              // instant (already cached)
-  if (ph.full && ph.full !== ph.thumb) {          // then upgrade to full-res
+  // The carousel's copy first (loaded, or loading), then the screen's size —
+  // the original went with it, and so did preloading all six originals.
+  const have = heroSrc(idx), want = viewerSrc(ph);
+  img.alt = photoWhere(ph, ccGuideIso);
+  img.src = have;
+  if (want !== have) {
     const hi = new Image();
-    hi.onload = () => { if (!lb.hidden && heroIdx === idx) img.src = ph.full; };
-    hi.src = ph.full;
+    hi.onload = () => { if (!lb.hidden && heroIdx === idx) img.src = want; };
+    hi.src = want;
+  }
+  // Its two neighbours, the photos one arrow away.
+  if (heroUrls.length > 1) for (const d of [1, -1]) {
+    const im = new Image(); im.src = viewerSrc(heroUrls[(idx + d + heroUrls.length) % heroUrls.length]);
   }
   lb.querySelector(".lbcount").textContent = (idx + 1) + " / " + heroUrls.length;
   const multi = heroUrls.length > 1;
@@ -4192,6 +4429,20 @@ function wmThumbAt(url, w, origW) {
   if (!o || !(w > 0 && origW > w)) return url;
   try { if (new TextEncoder().encode(decodeURIComponent(o[3])).length > 160) return url; } catch (e) { return url; }
   return o[1] + "thumb/" + o[2] + o[3] + "/" + w + "px-" + o[3] + (o[4] || "");
+}
+// A photo ({thumb, w?, ar?}) at the width a box draws it, cssW CSS pixels, at
+// up to 2 device pixels per CSS pixel, rounded up to a thumbnail step
+// (wmThumbAt keeps the thumb it has when that is narrower already). 2x, not a
+// 3x phone's 3: 1920px for a 358px box is what this replaced.
+const PHOTO_STEPS = [500, 960, 1280, 1920];
+function photoAt(p, cssW) {
+  const need = (cssW || 0) * Math.min(window.devicePixelRatio || 1, 2);
+  return wmThumbAt(p.thumb, PHOTO_STEPS.find((s) => s >= need) || 1920, p.w);
+}
+// The viewer's size for a photo: .lbimg is contained in 94vw x 90vh.
+function viewerSrc(p) {
+  const W = window.innerWidth * 0.94, H = window.innerHeight * 0.9;
+  return photoAt(p, p.ar ? Math.min(W, H * p.ar) : W);
 }
 // The hero's size for an original under the 1600px asked: the widest step
 // below it, down to 960 (smaller ones stay as they are, at most 960px).
@@ -6175,7 +6426,13 @@ function askValueFlightValue(origin, seq, attempt) {
     flightValue = fv;
     if (loaded.value && (fv.ready || 0) !== had) renderValue();
     if (fv.filling) again();
-  }).catch(again).then(() => { ask.done = true; refreshGuidePrompt(); });
+  }).catch(again).then(() => {
+    ask.done = true;
+    refreshGuidePrompt();
+    // A guide on screen grades and colours its fares by these ranges: it
+    // waited for them (renderGuideGrades) and is drawn with them now.
+    if (seq === _vfSeq && ccGuideIso) { renderGuideGrades(ccGuideIso); renderGuideFares(ccGuideIso); }
+  });
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || !flightsData || !flightsData.configured) return;
@@ -7672,12 +7929,46 @@ function renderGuideAI(iso) {
     + '<div id="guideAIPanel" class="aipanel" hidden></div>';
   $("guideAIBtn").onclick = () => openGuideAI(iso);
   $("guideTripBtn").onclick = () => {
+    const had = document.activeElement === $("guideTripBtn");
     tripToggle(iso);
     renderGuideAI(iso);                       // relabel in place
+    if (had) $("guideTripBtn").focus();       // the relabelled button, not <body>
     if (loaded.value) renderValue();          // keep the Top Picks trip bar in step
-    status(tripHas(iso) ? "Added to your trip 🧳 — open the Trip tab to plan it."
-                        : "Removed from your trip.", "ok");
+    if (!tripHas(iso)) { status("Removed from your trip.", "ok"); return; }
+    status("Added to your trip 🧳", "ok");
+    tripToastLink();
   };
+}
+// "Added to your trip" said to open the Trip tab and gave no way there: the
+// tab bar isn't sticky, ~800px up a phone's page, and the Trip tab is the one
+// place with a dated flight link. The toast carries the way now, added the
+// way Clear all's Undo is, with its focus handling: a keyboard user is put on
+// it (the toast is ~30 Tabs away), and when it goes, focus goes back to the
+// trip button rather than dropping to <body>.
+const TRIP_TOAST_MS = 8000;
+function tripToastLink() {
+  const go = document.createElement("button");
+  go.type = "button"; go.className = "linkbtn"; go.textContent = "Open my trip →";
+  go.onclick = async () => {
+    clearTimeout(_statusTimer);
+    await activateTab("trip", true);          // hides the toast (clearTransientStatus)
+    // Focus to the trip's heading, as the skip link does for <main>: the
+    // button it was on is gone with the toast.
+    const h = document.querySelector("#tab-trip h2");
+    if (h) {
+      h.setAttribute("tabindex", "-1");
+      h.addEventListener("blur", () => h.removeAttribute("tabindex"), { once: true });
+      h.focus({ preventScroll: true });
+    }
+    $("tab-trip").scrollIntoView({ behavior: reducedMotion() ? "auto" : "smooth", block: "start" });
+  };
+  $("status").append(" ", go);
+  if (_kbdNav) go.focus();
+  clearTimeout(_statusTimer);   // the link stays as long as Undo does
+  _statusTimer = setTimeout(() => {
+    $("status").hidden = true;
+    if (document.activeElement === go && $("guideTripBtn")) $("guideTripBtn").focus();
+  }, TRIP_TOAST_MS);
 }
 
 // The guide's AI panel. What its prompt quotes loads on its own schedule —
@@ -9226,7 +9517,13 @@ const TP_MARKER = "738472";
 // 15th has passed), so a month's fare links to that month. Returns null if we
 // lack the hub or a destination city (older cached fares have no `dest`).
 function flightSearchURL(dest, monthKey) {
-  if (!dest || !flightsData || !flightsData.hub) return null;
+  return flightsData ? flightSearchURLFrom(flightsData.hub, dest, monthKey) : null;
+}
+// The same search from a hub the caller names: the guide's fare chart has
+// its route's own (/api/flight-months' hub), with no fares payload loaded.
+// guide_lines.search_url mirrors it for the served strip.
+function flightSearchURLFrom(hub, dest, monthKey) {
+  if (!dest || !hub) return null;
   let dep = new Date(); dep.setDate(dep.getDate() + 60);
   if (/^\d{4}-\d{2}$/.test(monthKey || "")) {
     dep = new Date(+monthKey.slice(0, 4), +monthKey.slice(5) - 1, 15);
@@ -9236,7 +9533,7 @@ function flightSearchURL(dest, monthKey) {
   const ret = new Date(dep); ret.setDate(ret.getDate() + 10);
   const p = (n) => String(n).padStart(2, "0");
   const seg = (d) => p(d.getDate()) + p(d.getMonth() + 1);
-  const path = flightsData.hub + seg(dep) + dest + seg(ret) + "1";
+  const path = hub + seg(dep) + dest + seg(ret) + "1";
   return "https://www.aviasales.com/search/" + encodeURIComponent(path) +
          "?marker=" + TP_MARKER;
 }
@@ -10392,7 +10689,7 @@ function renderActivity(iso) {
     return `<li><span class="actemoji">${activityEmoji(label)}</span><span class="actmain">`
       + `<span class="actlabel">${esc(label)}${zoneMarkHTML(iso, "activity", label, zw)}</span>`
       + (desc ? `<span class="actdesc">${esc(desc)}</span>` : "")
-      + `</span><span class="actthumbslot" data-subj="${esc(subj)}"></span></li>`;
+      + `</span><span class="actthumbslot" data-subj="${esc(subj)}" data-place="${esc(label)}"></span></li>`;
   }).join("");
   const seas = (a.seasonal || []).map((s) => {
     const on = s.months.includes(m);
@@ -10487,14 +10784,20 @@ function loadActivityThumbs(iso) {
     // An interactive control, so it is neither alt="" (invisible to SRs) nor
     // mouse-only: named, focusable, Enter/Space opens the same viewer.
     img.className = "actthumb"; img.loading = "lazy";
-    img.alt = "Photo — open viewer";
+    // Named for its row ("Northern lights — open the photo viewer"): every
+    // one of them read "Photo — open viewer". Not for its subject, which can
+    // be a Commons file name ("File:Aurora Borealis over … (16283783717).jpg")
+    // or carry a Wikipedia disambiguation ("Blue Lagoon (geothermal spa)").
+    const place = slot.dataset.place || "";
+    img.alt = (place || "Photo") + " — open the photo viewer";
     img.title = "view photo";
     img.tabIndex = 0; img.setAttribute("role", "button");
     img.onerror = () => { img.onerror = null; img.src = p.thumb; };
     img.src = small;
-    img.addEventListener("click", () => openLightboxSingle(p));
+    const open = () => openLightboxSingle({ ...p, place });
+    img.addEventListener("click", open);
     img.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openLightboxSingle(p); }
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); }
     });
     slot.appendChild(img);
     shown.push([img, p]);
@@ -11462,6 +11765,7 @@ async function setDataMode(mode) {
       loaded.risk = true;
     }
     if (mode === "currency") {
+      if (mapHeld) renderMapSafe();                 // a guide landing's (renderMapSafe)
       if (!lastIndexData) loadIndex(activeRange);   // deferred from init
       else refitIndex();
       // Re-render the (already-populated) rates table so rows carry their level.
@@ -12725,10 +13029,10 @@ function buildGuideCardSVG(iso) {
   const F = "Helvetica Neue, Helvetica, Arial, sans-serif";
   const esc2 = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const month = travelMonth();
-  const A = plAnchor(originIso()), anchorPl = A.pl;   // US fallback when home has no price level
-
+  // guideScores anchors on the home's price level (the US's when the home
+  // has none), as the guide's line does; a home nation is graded as there.
   let s = null;
-  try { s = valueScores(iso, month, advisoryByIso(), buildFareContext(), anchorPl); } catch (e) {}
+  try { s = guideScores(iso, month); } catch (e) {}
   const g = s ? grade(s.value) : null;
 
   const facts = [];
@@ -13969,9 +14273,16 @@ document.addEventListener("scroll", () => {
   // World Bank ones ("Iran, Islamic Rep.", "Lao PDR"). Every landing used to
   // load it with Top Picks; a Data landing no longer builds Top Picks (init
   // below), so it comes here, before the first list is drawn.
-  await Promise.all([ensurePPP().catch(() => {}), ensureWorld().catch(() => {}), loadRates(),
+  // A guide landing doesn't wait for world.geojson (58 KB): nothing it draws
+  // first needs the map, and the Data tab's map it used to draw here is
+  // hidden (renderMapSafe holds it). What the guide reads from it — the
+  // centroids behind distance-estimated fares, so the ✈️ grade — is drawn
+  // again when it lands, inside the same holds (renderGuideGrades).
+  const worldP = ensureWorld().catch(() => {});
+  await Promise.all([ensurePPP().catch(() => {}), window.__WGGC__ ? null : worldP, loadRates(),
                      ensureClimate().catch(() => {})]);
-  renderMapSafe();
+  if (window.__WGGC__) worldP.then(() => { renderMapSafe(); if (ccGuideIso) renderGuideGrades(ccGuideIso); });
+  else renderMapSafe();
   // The 1-year index chart lives in the Explore-the-Data tab; it loads there
   // on first open (setDataMode) instead of costing every landing visit.
   // A /guide/<slug> page (server injects window.__WGGC__) opens that country
