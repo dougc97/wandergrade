@@ -211,7 +211,7 @@ results.append(ok('<sup class="fn">†</sup>' in tmt and "No inflation figure fo
 # Taiwan was that example until it got the IMF's figures (build_ppp.MANUAL, review 2026-11-23 item 23):
 # the fixture predates them, so add its row as the committed table has it.
 from fxtracker import build_ppp  # noqa: E402
-tw_ppp = dict(PPP, TW={k: v for k, v in build_ppp.MANUAL["TW"].items() if k != "refresh_by"})
+tw_ppp = dict(PPP, TW=build_ppp.manual_row("TW"))
 twd = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">TWD</span>.*?</tr>',
                 RS.dollar_strength(RATES, tw_ppp, None, today="2026-10-23")["html"], re.S).group(0)
 results.append(ok('<sup class="fn">†</sup>' not in twd and "(IMF)." in twd and "No inflation figure" not in twd,

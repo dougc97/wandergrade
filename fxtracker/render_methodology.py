@@ -252,7 +252,7 @@ def page(ttls=None):
              "<ul>"
              "<li>Exchange rates, today and over the past year: fxratesapi.com, checked %s.</li>"
              "<li>Price levels and inflation: World Bank, yearly figures (prices for household spending; "
-             "Taiwan's from the IMF), checked %s.</li>"
+             "Taiwan's from the IMF, adjusted to household spending with the Penn World Table), checked %s.</li>"
              "<li>Advisories: US State Department, Global Affairs Canada, German Foreign Office, "
              "checked %s.</li>"
              "<li>Weather: Open-Meteo's historical archive, rebuilt by hand, not live.</li>"

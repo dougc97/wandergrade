@@ -54,14 +54,19 @@ MAX_CARRY_YEARS = 3
 
 def basis_note(iso, ppp):
     """Why a country's price figure isn't a current World Bank household-
-    spending one (build_ppp.py), or "": Taiwan's hand-entered IMF figure, an
-    older household figure carried forward along the GDP-wide one (hh_year),
-    or, where the two never overlap, the GDP-wide figure itself. Mirrors
+    spending one (build_ppp.py), or "": Taiwan's hand-entered IMF figure
+    (put on the household footing with the Penn World Table's ratio,
+    "hh_ratio"; GDP-wide as entered without one), an older household figure
+    carried forward along the GDP-wide one (hh_year), or, where the two never
+    overlap, the GDP-wide figure itself. The IMF is named once. Mirrors
     app.js plBasisNote, word for word."""
     e = (ppp or {}).get(iso) or {}
     if e.get("src") == "imf":
-        return ("IMF figure (%s), GDP-wide: the World Bank doesn't cover it."
-                % (e.get("src_note") or "World Economic Outlook"))
+        wo = e.get("src_note") or "World Economic Outlook"
+        if e.get("hh_ratio"):
+            return ("Estimated from the IMF's GDP-wide figure (%s), adjusted to household spending with the "
+                    "Penn World Table: the World Bank doesn't cover it." % wo)
+        return "The IMF's GDP-wide figure (%s): the World Bank doesn't cover it." % wo
     if e.get("basis") == "gdp" and e.get("hh_year"):
         return ("Household-spending figure of %d, carried forward along the GDP-wide one: the World Bank "
                 "has no usable newer household figure for it." % e["hh_year"])
@@ -72,7 +77,8 @@ def basis_note(iso, ppp):
 
 def source_name(iso, ppp):
     """Whose price and inflation figures a country's are: the IMF's for a
-    hand-entered row (Taiwan), else the World Bank's. app.js srcName."""
+    hand-entered row (Taiwan, whose price figure the Penn World Table's ratio
+    adjusts: basis_note), else the World Bank's. app.js srcName."""
     return "IMF" if ((ppp or {}).get(iso) or {}).get("src") == "imf" else "World Bank"
 
 

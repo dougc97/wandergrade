@@ -30,9 +30,10 @@ FIELDS = [
 NOTES = (
     "price_level is the PPP conversion factor for household consumption "
     "(ppp_basis household; ppp_basis gdp where the World Bank has no usable recent "
-    "household figure: its last one carried forward along the GDP-wide factor, or "
-    "for Taiwan the IMF's GDP-wide factor; ppp_source names whose figure it is: "
-    "the World Bank, or the IMF for Taiwan), carried forward from "
+    "household figure: its last one carried forward along the GDP-wide factor; "
+    "ppp_source names whose figure it is: the World Bank, or for Taiwan, which it "
+    "doesn't cover, the IMF's GDP-wide factor adjusted to household spending with "
+    "Taiwan's household/GDP price ratio from the Penn World Table), carried forward from "
     "mid-ppp_year to rates_as_of by the gap between local and US inflation "
     "(inflation_factor, from World Bank consumer-price inflation; 1 when no "
     "current figure exists), divided by the market exchange rate at rates_as_of: "
@@ -45,6 +46,21 @@ NOTES = (
     "exchange rate is a managed peg, or otherwise so far out of line with income "
     "that the result would be fictional, are omitted rather than guessed."
 )
+
+
+def _taiwan_src(ppp):
+    """How Taiwan's hand-entered factor was made (build_ppp.MANUAL), with the
+    Penn World Table release and years its row carries."""
+    e = (ppp or {}).get("TW") or {}
+    imf = "IMF %s (PPPEX, GDP-wide)" % (e.get("src_note") or "World Economic Outlook")
+    if not e.get("hh_ratio"):
+        return imf + ", entered by hand"
+    yrs = e.get("hh_years") or []
+    return ("%s times Taiwan's household/GDP price ratio, %s, from the %s%s (pl_c / pl_gdpo against the "
+            "US's own%s), entered by hand" % (
+                imf, e["hh_ratio"], e.get("hh_src") or "Penn World Table",
+                " " + e["hh_version"] if e.get("hh_version") else "",
+                ", %d-%d average" % (min(yrs), max(yrs)) if yrs else ""))
 
 
 def build(ppp):
@@ -74,7 +90,8 @@ def build(ppp):
             "inflation_year": p.get("infl_year"),
             "inflation_factor": round(pricelevel.carry_factor(iso, ppp), 4),
             "ppp_basis": p.get("basis") or "household",
-            "ppp_source": "IMF" if p.get("src") == "imf" else "World Bank",
+            "ppp_source": ("IMF + Penn World Table" if p.get("hh_ratio") else "IMF") if p.get("src") == "imf"
+                          else "World Bank",
         })
     rows.sort(key=lambda r: r["price_level"])
     return {
@@ -86,11 +103,13 @@ def build(ppp):
             "countries": len(rows),
             "ppp_source": ("World Bank PA.NUS.PRVT.PP (PPP conversion factor, private consumption); "
                            "carried forward along PA.NUS.PPP (GDP) where ppp_basis is gdp; "
-                           "Taiwan: IMF World Economic Outlook (PPPEX), entered by hand"),
+                           "Taiwan: " + _taiwan_src(ppp)),
             "income_source": "World Bank NY.GDP.PCAP.CD (GDP per capita, current US$)",
-            "inflation_source": "World Bank FP.CPI.TOTL.ZG (inflation, consumer prices, annual %)",
+            "inflation_source": ("World Bank FP.CPI.TOTL.ZG (inflation, consumer prices, annual %); "
+                                 "Taiwan: IMF World Economic Outlook (PCPIPCH)"),
             "licence": ("World Bank data under CC BY 4.0; Taiwan's figures from the IMF World Economic Outlook "
-                        "(imf.org/external/terms.htm); derived figures free to reuse with attribution."),
+                        "(imf.org/external/terms.htm) and the Penn World Table (CC BY 4.0); derived figures free "
+                        "to reuse with attribution."),
             "notes": NOTES,
         },
         "countries": rows,

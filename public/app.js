@@ -3254,18 +3254,25 @@ async function renderGuideFx(iso) {
 // aiPriceWords.) Against the traveller's home; the US only as a fallback,
 // and then the line says so.
 // Why a price figure isn't a current World Bank household-spending one
-// (build_ppp.py), or "": Taiwan's hand-entered IMF figure, an older household
-// figure carried forward along the GDP-wide one (hh_year), or, where the two
-// never overlap, the GDP-wide figure itself. pricelevel.basis_note, word for word.
+// (build_ppp.py), or "": Taiwan's hand-entered IMF figure (put on the
+// household footing with the Penn World Table's ratio, hh_ratio; GDP-wide as
+// entered without one), an older household figure carried forward along the
+// GDP-wide one (hh_year), or, where the two never overlap, the GDP-wide figure
+// itself. The IMF is named once. pricelevel.basis_note, word for word.
 function plBasisNote(iso) {
   const e = (ppp || {})[GUIDE_PARENT[iso] || iso] || {};
-  if (e.src === "imf") return `IMF figure (${e.src_note || "World Economic Outlook"}), GDP-wide: the World Bank doesn't cover it.`;
+  if (e.src === "imf") {
+    const wo = e.src_note || "World Economic Outlook";
+    if (e.hh_ratio) return `Estimated from the IMF's GDP-wide figure (${wo}), adjusted to household spending with the Penn World Table: the World Bank doesn't cover it.`;
+    return `The IMF's GDP-wide figure (${wo}): the World Bank doesn't cover it.`;
+  }
   if (e.basis === "gdp" && e.hh_year) return `Household-spending figure of ${e.hh_year}, carried forward along the GDP-wide one: the World Bank has no usable newer household figure for it.`;
   if (e.basis === "gdp") return "GDP-wide figure: the World Bank has no household-spending one for it.";
   return "";
 }
 // Whose price and inflation figures a country's are: the IMF's for a
-// hand-entered row (Taiwan), else the World Bank's. pricelevel.source_name.
+// hand-entered row (Taiwan, whose price figure the Penn World Table's ratio
+// adjusts: plBasisNote), else the World Bank's. pricelevel.source_name.
 function srcName(iso) { return ((ppp || {})[iso] || {}).src === "imf" ? "IMF" : "World Bank"; }
 function localPricesText(iso) {
   const A = plAnchor(originIso());
