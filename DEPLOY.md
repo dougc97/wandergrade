@@ -229,6 +229,28 @@ curl -s https://wandergrade.com/ | grep -c 'shellText'                          
 curl -s "https://wandergrade.com$(curl -s https://wandergrade.com/guide/japan | grep -o '/app.js?v=[0-9]*')" | grep -c 'function restoreShellText'   # 1
 ```
 
+## app.js: shipped minified, rebuilt after every edit
+
+`/app.js` serves `public/app.min.js` (301 KB gzipped -> 143 KB), written by
+`scripts/build_min_js.py` with a pinned esbuild (run through npx, so Node is
+needed on the machine that builds, never on Render) beside
+`public/app.min.js.sha256`, the hash of the app.js it was built from. The
+server serves the copy only while that hash is app.js's own.
+
+- **After editing app.js:** `/usr/bin/python3 scripts/build_min_js.py`, then
+  commit `public/app.js`, `public/app.min.js` and `public/app.min.js.sha256`
+  together. `scripts/test_min_js.py` fails until the copy is rebuilt.
+- **Forgotten:** app.js goes out as written, never a stale copy, and the log
+  says so once: `[min-js] serving app.js as written: app.min.js was built
+  from app.js …`. A good boot logs `[min-js] serving app.min.js for /app.js`.
+- **Merge conflict in app.min.js:** take either side, then rebuild.
+- **Undo:** `FX_MIN_JS=0` in Render → Environment (the server restarts) serves
+  app.js as written, under a new `?v=` stamp, so no browser keeps the copy.
+
+```bash
+/usr/bin/python3 scripts/build_min_js.py --check   # "app.min.js is current"
+```
+
 ## Avoid-zone markers: Canada's words beside a place in its zone
 
 A guide place inside one of Global Affairs Canada's regional "Avoid all
