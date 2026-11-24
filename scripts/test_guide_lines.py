@@ -383,6 +383,67 @@ results.append(ok("error" not in sj and all(snap[i] == bare(sj.get(i)) for i in 
                   "draws them %s" % ({i: (snap[i], sj.get(i)) for i in SNAP_ISOS if snap[i] != bare(sj.get(i))}
                                      if "error" not in sj else sj)))
 
+# Advisories out (a failed, slow or blocked /api/advisories): still no band word
+# on a Level 4 guide — the page's own mark (#tab-guide data-level) for its own
+# guide, else the snapshot's adv, as guide_lines.cost reads snapshot_l4 — and
+# the band word everywhere else. It drew "Very cheap" under "Level 4, do not
+# travel" on Russia's guide.
+L4_DRIVER = r"""
+const FIX = JSON.parse(read(FIX_PATH));
+lastRates = FIX.rates; ppp = FIX.ppp; advisories = null; activities = FIX.activities;
+SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
+ensureAdvisories = async () => null; ensurePPP = async () => ppp; _guideFacts = FIX.doc;
+visa = FIX.visa; ensureVisa = async () => visa;
+const out = {};
+(async () => {
+  for (const c of FIX.cases) {
+    window.__WGGC__ = c.page; const gt = $("tab-guide");
+    if (c.level) gt.setAttribute("data-level", c.level); else gt.removeAttribute("data-level");
+    ccGuideIso = c.iso; const gc = $("guideCost"); gc.innerHTML = ""; gc.hidden = true; gc.dataset = {};
+    await renderGuideCost(c.iso);
+    out[c.name] = gc.hidden ? "" : gc.innerHTML;
+  }
+  print(JSON.stringify(out));
+})().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
+"""
+L4_DOC = json.loads(json.dumps(DOC))
+L4_DOC["PS"].pop("adv", None)            # only the page's own mark says Level 4
+L4_CASES = [
+    {"name": "Russia's own guide (marked 4, snapshot 4)", "iso": "RU", "page": "RU", "level": "4", "want": "Local"},
+    {"name": "Lebanon opened in-app (snapshot 4)", "iso": "LB", "page": "TH", "level": "2", "want": "Local"},
+    {"name": "Palestine's own guide (marked 4, no snapshot level)", "iso": "PS", "page": "PS", "level": "4",
+     "want": "Local"},
+    {"name": "Thailand's own guide (marked 2)", "iso": "TH", "page": "TH", "level": "2", "want": "Very cheap: local"},
+    # Nothing says Level 4 (no list, no snapshot level, not the page's guide): the band word.
+    {"name": "Palestine opened in-app, no level known", "iso": "PS", "page": "TH", "level": "", "want": "band"},
+]
+with tempfile.TemporaryDirectory() as d:
+    fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
+    json.dump(dict(FIX, doc=L4_DOC, cases=L4_CASES), open(fp, "w"))
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + L4_DRIVER.replace("FIX_PATH", json.dumps(fp)))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
+try:
+    l4j = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    l4j = {"error": (r.stderr or r.stdout)[-300:]}
+
+
+def l4_ok(c, h):
+    if not h or not h.startswith("💰 <b>"):
+        return False
+    lead = h[len("💰 <b>"):]
+    if c["want"] == "Local":
+        return lead.startswith("Local prices ≈") and "Affordability grade" not in h
+    if c["want"] == "band":
+        return not lead.startswith("Local prices") and ": local prices ≈" in lead
+    return lead.startswith(c["want"] + " prices ≈")
+
+
+bad_l4 = [(c["name"], l4j.get(c["name"])) for c in L4_CASES if not l4_ok(c, l4j.get(c["name"]))]
+results.append(ok("error" not in l4j and not bad_l4,
+                  "advisories out: no band word on a Level 4 guide (the page's own data-level, else the snapshot's "
+                  "level), the band word elsewhere %s" % (bad_l4 or "" if "error" not in l4j else l4j)))
+
 # --- the page -----------------------------------------------------------------------------
 import server  # noqa: E402
 

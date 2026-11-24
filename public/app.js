@@ -3334,7 +3334,19 @@ async function renderGuideCost(iso) {
     if (!host.hidden && host.innerHTML) { host.classList.add("pend"); return; }
     return show("");
   }
-  const l4 = guideAdvLevel(iso) === 4;
+  // Level 4 drops the band word. guideAdvLevel is null while the advisories
+  // are out (a failed, slow or blocked fetch), which drew "Very cheap" under
+  // "Level 4, do not travel": then the server's mark for its own guide
+  // (#tab-guide data-level, the reader's source's level as the pre-paint
+  // script leaves it), else the snapshot's (guide-facts adv), as
+  // guide_lines.cost falls back to snapshot_l4.
+  let l4 = guideAdvLevel(iso) === 4;
+  if (!advisories) {
+    const gtab = $("tab-guide");
+    l4 = (iso === window.__WGGC__ && !!gtab && gtab.getAttribute("data-level") === "4")
+      || await ensureGuideFacts().then((d) => !!(d && d[iso] && d[iso].adv === 4)).catch(() => false);
+    if (ccGuideIso !== iso) return;
+  }
   const fee = visitorFee(iso);
   const feeHtml = fee ? ' <span class="guidefee">' + esc(feeShort(fee)) + "</span>" : "";
   const feeTipTxt = fee ? " " + feeTip(fee) : "";
@@ -3348,13 +3360,13 @@ async function renderGuideCost(iso) {
     const f = await ensureGuideFacts().then((d) => d[iso]).catch(() => null);
     if (ccGuideIso !== iso) return;
     if (!f || f.pct == null || !guideFactsFresh()) return show("");
-    const when = guideFactsMonth(), fl4 = l4 || (!advisories && f.adv === 4);
-    return show(`💰 <b>${esc(costLead(fl4 ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
+    const when = guideFactsMonth();
+    return show(`💰 <b>${esc(costLead(l4 ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
       srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
       + " averages: tourist areas and foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
-      + feeTipTxt + (fl4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
+      + feeTipTxt + (l4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
   }
   const band = l4 ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
   show(`💰 <b>${esc(costLead(band))} prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
