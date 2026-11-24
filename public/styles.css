@@ -1119,8 +1119,20 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
   cursor: help; font-weight: 400; }
 .guidefx .fxspark { display: block; width: 240px; max-width: 100%; height: 46px; }
 .guidefx .fxavg { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 3; }
-/* The local price level, one line above the FX trend, same voice. */
-.guidecost { display: block; margin: 12px 0 0; font-size: 12.5px; color: var(--gray); }
+/* The local price level, under the grades line (review #11): its band word
+   answers the "Is X cheap?" most guide titles ask. Served filled on a guide
+   (guide_lines.cost); .pend keeps its room, unseen, for a reader from
+   elsewhere until renderGuideCost draws theirs (server.py _COST_HOLD). */
+.guidecost { display: block; margin: 4px 0 0; font-size: 12.5px; color: var(--gray); }
+/* [hidden] has to say so here: the display above outranks the browser's own
+   [hidden] rule, and a German reader's served line on Germany's guide (hidden
+   before first paint) stayed on screen until app.js emptied it. */
+.guidecost[hidden] { display: none; }
+.guidecost.pend { visibility: hidden; }
+/* The US's own guide serves it empty (a US reader gets none): the room of
+   one line for a reader from elsewhere until theirs is drawn (CLS 0.028 at
+   390 drawn into none). */
+.guidecost.pend:empty { min-height: 18px; }
 .guidecost b { color: var(--ink); }
 .guidecost .fxinfo { margin-left: 5px; cursor: help; }
 /* A mandatory daily visitor fee beside the price level (Bhutan's, app.js
@@ -1128,7 +1140,7 @@ th[data-sortdir="desc"]::after { content: " ▼"; font-size: 9px; vertical-align
 .guidecost .guidefee { color: var(--ink); font-weight: 700; white-space: nowrap; }
 
 /* Guide top half in two columns from 900px (index.html .guidegrid): visa |
-   trip + AI, safety | stays + insurance, weather chart | fares + prices + FX.
+   trip + AI, safety | stays + insurance, weather chart | fares + FX.
    Each block used to take a full 1158px row with two thirds of it empty, and
    the two 12-bar charts sat one above the other. Phones keep the DOM order;
    the rule inside the grid is a phone-only fold. Three rows, no spans: a
@@ -3112,15 +3124,15 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
   #guideStay:empty { min-height: 154px; }
   #guideInsurance:empty { min-height: 84px; }
 }
-/* The fare column's three blocks (fares by month, local prices, FX) fill
-   from three fetches in any order, and the fares strip, arriving last, sat
-   on top and pushed the other two down 154px. Until all three have settled
-   (.farecol.loading, renderGuide) each one not yet drawn keeps its own place,
-   invisibly, at its usual height — 275px for the column at 768 (313 on a
-   phone): the strip 167 (186) with its search link's line, the prices line
-   18, the FX chart 68, 86 where
-   its heading wraps (a phone, and the half-width column below ~1150px).
-   Those that never come go with the class. The strip only where the page
+/* The fare column's blocks (fares by month, FX) fill from two fetches in
+   either order, and the fares strip, arriving last, sat on top and pushed
+   what was under it down 154px. Until both have settled (.farecol.loading,
+   renderGuide) each one not yet drawn keeps its own place, invisibly, at
+   its usual height: the strip 167 (186 on a phone) with its search link's
+   line, the FX chart 68, 86 where its heading wraps (a phone, and the
+   half-width column below ~1150px). (The local-prices line was a third,
+   18px, until review #11 took it up under the grades.) Those that never
+   come go with the class. The strip only where the page
    knows it will come (data-fm: the server's cached curves for the default
    origin, or renderGuide's flight-value data): production draws it for
    about half the graded guides, and held on the rest it was given back
@@ -3128,14 +3140,11 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    up 154px (CLS 0.14 at 1280 on Slovakia; 0.002 held only where it comes). */
 .farecol.loading > [hidden] { display: block; visibility: hidden; }
 #tab-guide:not([data-fm]) .farecol.loading > #guideFares[hidden] { display: none; }
-/* The same for the other two where the server knows they won't come
-   (data-fx, data-cost: no FX for a dollar country or one the feed doesn't
-   chart, no local prices on your own country's guide or without a figure):
-   held, Puerto Rico's column fell from 250px to 18 at 768 (CLS 0.12). */
-#tab-guide[data-fx] .farecol.loading > #guideFx[hidden],
-#tab-guide[data-cost] .farecol.loading > #guideCost[hidden] { display: none; }
+/* The same for the FX line where the server knows it won't come (data-fx:
+   no FX for a dollar country or one the feed doesn't chart): held, Puerto
+   Rico's column fell from 250px to 18 at 768 (CLS 0.12). */
+#tab-guide[data-fx] .farecol.loading > #guideFx[hidden] { display: none; }
 .farecol.loading > #guideFares[hidden] { min-height: 167px; }
-.farecol.loading > #guideCost[hidden] { min-height: 18px; }
 .farecol.loading > #guideFx[hidden] { min-height: 68px; }
 @media (max-width: 560px) {
   .farecol.loading > #guideFares[hidden] { min-height: 186px; }

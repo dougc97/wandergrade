@@ -21,12 +21,14 @@ What it holds the code to:
     offered (Level 4), "—" for a month with no cached fare, the January row
     on the next January's fare, each band flightvalue.band's;
   * no table where scores are flat (Antarctica) or a month's temperature or
-    rain is missing; only the allowlisted guides (MONTH_TABLE), every
-    eligible one with MONTH_TABLE_ALL;
-  * the page: the block right after #bestDetail on an allowlisted guide, once,
-    with the committed climate.json for all 23; the homepage and every other
-    guide without it; app.js hides it when another country is opened in-app;
+    rain is missing; every eligible guide since review #19 (MONTH_TABLE_ALL,
+    Nov 2026), only the first 23 (MONTH_TABLE) with it off;
+  * the page: the block right after #bestDetail on a guide, once, with the
+    committed climate.json for all 186 that have the data; the homepage
+    without it; app.js hides it when another country is opened in-app;
     /guide/<slug>/<anything> is still a 404, the guide itself a 200.
+    (That each table's place is a named one is review #1's test, with the
+    named points.)
 """
 import copy, datetime, json, os, re, sys, threading, urllib.error, urllib.request
 
@@ -144,27 +146,32 @@ CLIM["AU"] = dict(FIX, scores=[0] * 12)
 results.append(ok(rg.month_table("AU", FV, DAY) == "", "flat scores (Antarctica's all-zero year): no table"))
 CLIM["AU"] = FIX
 CLIM["AQ"] = dict(FIX, scores=REAL_CLIM["AQ"]["scores"])
+results.append(ok(rg.MONTH_TABLE_ALL and rg.month_table_on("JP") and rg.month_table("AQ", FV, DAY) == ""
+                  and "rain_mm" not in CLIM["GB-ENG"] and rg.month_table("GB-ENG", FV, DAY) == "",
+                  "MONTH_TABLE_ALL (review #19): every guide is on; Antarctica (flat) and England (no rain data) "
+                  "still get none"))
+results.append(ok(rg.month_table("JP", FV, DAY).startswith('<div id="when-to-go"'),
+                  "a guide off the first 23 with the data (Japan) gets it"))
 try:
-    rg.MONTH_TABLE_ALL = True
-    results.append(ok(rg.month_table("AQ", FV, DAY) == "" and "rain_mm" not in CLIM["GB-ENG"]
-                      and rg.month_table("GB-ENG", FV, DAY) == "" and rg.month_table_on("JP"),
-                      "MONTH_TABLE_ALL: every guide is on; Antarctica (flat) and England (no rain data) still get none"))
-    results.append(ok(rg.month_table("JP", FV, DAY).startswith('<div id="when-to-go"'),
-                      "MONTH_TABLE_ALL: a guide off the list with the data (Japan) gets it"))
-finally:
     rg.MONTH_TABLE_ALL = False
+    results.append(ok(rg.month_table("JP", FV, DAY) == "" and not rg.month_table_on("JP")
+                      and rg.month_table("AU", FV, DAY) and len(rg.MONTH_TABLE) == 23,
+                      "with MONTH_TABLE_ALL off, only the first 23 (MONTH_TABLE) have it"))
+finally:
+    rg.MONTH_TABLE_ALL = True
     CLIM["AQ"], CLIM["JP"] = REAL_CLIM["AQ"], REAL_CLIM["JP"]
-results.append(ok(rg.month_table("JP", FV, DAY) == "" and not rg.month_table_on("JP")
-                  and len(rg.MONTH_TABLE) == 23 and not rg.MONTH_TABLE_ALL,
-                  "off by default for a guide off the 23-guide allowlist"))
 
-# --- the real climate.json: all 23 allowlisted guides ---------------------------------
+# --- the real climate.json: every guide with the data ---------------------------------
 for k in list(CLIM):
     CLIM[k] = REAL_CLIM[k]
+GUIDES = [iso for _s, iso in rg.all_slugs()]
 miss = [i for i in sorted(rg.MONTH_TABLE) if not rg.month_table(i, FV, DAY)]
-results.append(ok(not miss, "every allowlisted guide has its table from the committed climate.json %s" % (miss or "")))
+none = sorted(i for i in GUIDES if not rg.month_table(i, FV, DAY))
+results.append(ok(not miss and none == ["AQ", "GB-ENG", "GB-SCT", "GB-WLS"] and len(GUIDES) - len(none) >= 186,
+                  "%d of %d guides have their table from the committed climate.json, the first 23 among them; none "
+                  "for %s (flat, or no rain data) %s" % (len(GUIDES) - len(none), len(GUIDES), " ".join(none), miss or "")))
 at = {i: re.search(r"<caption>Measured at (.*?), Open-Meteo", rg.month_table(i)).group(1)
-      for i in rg.MONTH_TABLE if rg.month_table(i)}
+      for i in GUIDES if rg.month_table(i)}
 results.append(ok(at.get("AU") == "Sydney" and at.get("CL") == "Santiago" and at.get("GL") == "Nuuk"
                   and all(v == REAL_CLIM[i].get("at", "one representative point in the country") for i, v in at.items()),
                   "each caption names climate.json's place or none: AU %s, CL %s, GL %s, PT %s"
@@ -184,9 +191,10 @@ results.append(ok(au.count('id="when-to-go"') == 1
                   and re.search(r'<div id="bestDetail"[^>]*>.*?</div></div></div>\n        <div id="when-to-go"', au, re.S)
                   and au.index('id="when-to-go"') < au.index('class="farecol')
                   and "Fare from the US" in au and "Fare from the US" in pt,
-                  "an allowlisted guide: the block once, right after #bestDetail, fares from the default origin"))
-results.append(ok("when-to-go" not in jp and "when-to-go" not in home and "{{GUIDE_MONTHS}}" not in jp + home,
-                  "the homepage and a guide off the list: no block, no bare token"))
+                  "a guide: the block once, right after #bestDetail, fares from the default origin"))
+results.append(ok(jp.count('id="when-to-go"') == 1 and "when-to-go" not in home
+                  and "{{GUIDE_MONTHS}}" not in jp + home,
+                  "a guide off the first 23 (Japan): the block once; the homepage: none, no bare token"))
 tpl = server._index_template()
 results.append(ok(tpl.count("{{GUIDE_MONTHS}}") == 1 and "{{GUIDE_CHART}}</div>{{GUIDE_MONTHS}}\n" in tpl,
                   "index.html's token has no bytes of its own (the other guides stay byte-identical)"))

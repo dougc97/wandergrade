@@ -3,8 +3,9 @@
 Generates the monthly newsletter's graded destination picks using the same
 data and formulas the website uses, so the email matches what users see:
 
-  Affordability = cheapness (PPP price level, carried forward for inflation)
-                  nudged by the REAL FX move vs the 1-yr average
+  Affordability = cheapness alone (PPP price level, carried forward for
+                  inflation); the REAL FX move vs the 1-yr average is reported
+                  beside it ("fx"), not graded (review #21, Nov 2026)
   Safety        = advisory level (1-3); unrated countries are not graded
   Weather       = Open-Meteo climate comfort score for the chosen month
                   (left out of the mean where a country has no climate data)
@@ -146,20 +147,18 @@ SAFE_GRADE = {1: "A", 2: "B", 3: "D"}
 # averages. Level 4 is never scored: _score drops the country.
 SAFE_SCORE = {1: 100, 2: 70, 3: 35}
 
-# Affordability (app.js valueScores; scripts/parity holds the two equal):
-#   price part = (AFF_PL_ZERO - pl) / AFF_PL_SPAN x 100, clamped 0-100, so
-#                full marks at a price level of AFF_PL_ZERO - AFF_PL_SPAN
-#                (0.35: 35% of home prices) and none at AFF_PL_ZERO (130%);
-#   currency   = FX_NEUTRAL + the real move in % x FX_PTS_PER_PCT, clamped;
-#   afford     = price part x AFF_PRICE_W + currency x AFF_FX_W.
-# Two weights, not 1 - 0.7: that is 0.30000000000000004 in floating point,
-# and a score that lands on .5 would round the other way.
+# Affordability (app.js valueScores; scripts/parity holds the two equal) is
+# the price level alone since review #21 (Doug, Nov 2026):
+#   afford = (AFF_PL_ZERO - pl) / AFF_PL_SPAN x 100, clamped 0-100, so full
+#            marks at a price level of AFF_PL_ZERO - AFF_PL_SPAN (0.15: 15% of
+#            home prices) and none at AFF_PL_ZERO (130%).
+# It was 0.7 x a price part that maxed at 35% + 0.3 x the home currency's
+# real move against its 1-year average, so under 35% the move alone ordered
+# countries, and it was partly counted twice. The move is still reported
+# (the payload's "fx", the email's 💵 line, the site's currency chip), not
+# graded.
 AFF_PL_ZERO = 1.3
-AFF_PL_SPAN = 0.95
-AFF_PRICE_W = 0.7
-AFF_FX_W = 0.3
-FX_NEUTRAL = 50
-FX_PTS_PER_PCT = 6.25
+AFF_PL_SPAN = 1.15
 # Flights: a fare at the route's (or the distance's) typical scores FLY_TYPICAL;
 # each 1% under or over moves it FLY_SLOPE / 100 points. An estimated fare
 # (no cached fare for the route) counts as typical.
@@ -167,14 +166,12 @@ FLY_TYPICAL = 70
 FLY_SLOPE = 100
 
 
-def afford_parts(pl, real):
-    """(price part, currency part, Affordability) for a price level `pl`
-    against the home (1.0 = the same prices) and the home currency's real
-    move in % (None: no figure, the neutral FX_NEUTRAL). _score grades with
-    it and /how-grades-work prints its examples from it."""
-    aff = clamp100(((AFF_PL_ZERO - pl) / AFF_PL_SPAN) * 100)
-    fx = clamp100(FX_NEUTRAL + real * FX_PTS_PER_PCT) if real is not None else FX_NEUTRAL
-    return aff, fx, clamp100(aff * AFF_PRICE_W + fx * AFF_FX_W)
+def afford_score(pl):
+    """Affordability for a price level `pl` against the home (1.0 = the same
+    prices): app.js valueScores' afford. _score grades with it and
+    /how-grades-work prints its examples from it."""
+    return clamp100(((AFF_PL_ZERO - pl) / AFF_PL_SPAN) * 100)
+
 
 # The site's default priorities (app.js WEIGHT_DEFS/PRI_W: high 3, med 2):
 # every factor Med since 2026-10-14 (affordability was High, a leftover of
@@ -614,10 +611,13 @@ def _score(iso, month, ppp, climate, rate_by_code, strength_by_code, adv_by_iso,
 
     # The dollar's move vs its 1-yr average, net of the inflation gap: a steadily
     # depreciating high-inflation currency always sits above its own average.
+    # Not in any grade since review #21 (Nov 2026): it is the payload's "fx",
+    # the email's 💵 line and the site's currency chip.
     nominal = strength_by_code.get(cur) if cur and cur != home_cur else None
     real = pricelevel.real_fx_pct(nominal, iso, home_iso, ppp)
     comps = {
-        "afford": afford_parts(pl, real)[2],
+        # Affordability is the price level alone (afford_score; review #21).
+        "afford": afford_score(pl),
         "safe": SAFE_SCORE.get(adv, 70),
     }
     # No climate entry = no weather measure, averaged over the rest (app.js

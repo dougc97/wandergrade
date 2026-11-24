@@ -101,13 +101,16 @@ results.append(ok(not any("Cheap" in R[i]["title"] for i in guides if (facts[i].
 # ladder that drops "vs US" fails.
 unsafe = [i for i in guides if facts[i].get("adv") in (3, 4) and not rg.best_time_title_on(i, facts[i])
           and not R[i]["title"].startswith("Is %s Safe" % rg.name_in_text(i))]
-l3_cheap = [i for i in guides if facts[i].get("adv") == 3 and facts[i].get("band") in ("cheap", "very cheap")
+l3_cheap = [i for i in guides if facts[i].get("adv") == 3 and facts[i].get("band") in ("cheap", "very cheap", "a bit cheaper")
             and not rg.best_time_title_on(i, facts[i]) and "Safe & Cheap to Visit?" not in R[i]["title"]]
 results.append(ok(not unsafe and not l3_cheap and sum(1 for i in guides if facts[i].get("adv") in (3, 4)) >= 40,
                   "every Level 3/4 question title asks \"Is X Safe…\"; Level 3 cheap ones \"Safe & Cheap\" %s"
                   % ((unsafe + l3_cheap) or "")))
+# The band in a description is "(very cheap)"; the 💰 fact line opens with it
+# ("💰 Very cheap: local prices…", review #11).
 l4_band = [i for i in guides if facts[i].get("adv") == 4
-           and re.search(r"\((very cheap|cheap|about the same|pricey)", R[i]["desc"] + R[i]["body"])]
+           and re.search(r"(\(|💰 )(very cheap|cheap|a bit cheaper|about the same|pricey)",
+                         R[i]["desc"] + R[i]["body"], re.I)]
 results.append(ok(not l4_band, "no Level 4 description or fact line gives a bargain band %s" % (l4_band or "")))
 def cost_vs_us_fits(i):
     nt = rg.name_in_text(i)
@@ -367,11 +370,15 @@ results.append(ok(not claim, "weather-only countries never say \"best months to 
 ca_us = [i for i in guides if facts[i].get("src") == "ca" and "US State" in R[i]["desc"] + R[i]["body"]]
 results.append(ok(not ca_us, "Canada-rated guides (PR, US, GU, FK…) are never called a US advisory %s" % (ca_us or "")))
 co = R["CO"]
-results.append(ok("💰 Local prices ≈ %d%% of the US (%s %d)" % (facts["CO"]["pct"], rg.MON[asof.month - 1], asof.year)
+results.append(ok("💰 %s: local prices ≈ %d%% of the US (%s %d)" % (facts["CO"]["band"].capitalize(), facts["CO"]["pct"],
+                                                                    rg.MON[asof.month - 1], asof.year)
                   in co["body"] and "Safety · per US State Dept (checked %s %d)" % (rg.MON[asof.month - 1], asof.year)
                   in co["body"],
-                  "Colombia: dated cost line, attributed safety line, its month when the list was checked "
-                  "(not the advisory's own date)"))
+                  "Colombia: dated cost line opening with its band word (review #11), attributed safety line, its "
+                  "month when the list was checked (not the advisory's own date)"))
+af = R["AF"]["body"]
+results.append(ok(facts["AF"].get("adv") == 4 and "💰 Local prices ≈ %d%% of the US" % facts["AF"]["pct"] in af,
+                  "Afghanistan (Level 4): its cost line gives no band word"))
 
 # --- the client h1, run under jsc against the same snapshot --------------------------
 def js_fn(name):

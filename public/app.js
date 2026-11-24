@@ -692,13 +692,15 @@ function renderRates(data) {
   const rch = $("rateColHead");
   (rch.querySelector(".sortbtn") || rch).textContent = `1 ${base} =`;
   // Says "fixed at a year" on purpose: the chart's window toggle sits directly
-  // above this column and looks like it drives it. It must not — this figure is
-  // 30% of every Affordability grade, so a zoom control cannot be allowed to
-  // re-grade the site, and a one-month average is noise anyway.
+  // above this column and looks like it drives it. It must not — this figure
+  // is every currency chip on Top Picks and the guides (and the newsletter's
+  // 💵 lines), so a zoom control cannot be allowed to change them, and a
+  // one-month average is noise anyway. (It was 30% of every Affordability
+  // grade until review #21, Nov 2026.)
   $("vsAvgHead").title =
     `vs its own 1-year average — positive = ${w} is stronger than usual. `
     + `Nominal exchange rate: in high-inflation countries local prices can rise faster `
-    + `than the currency falls, so the Affordability grade uses this net of inflation. `
+    + `than the currency falls, so Top Picks' currency marks use this net of inflation. `
     + `Fixed at a year (the chart's window above doesn't change it): a shorter `
     + `average is mostly noise.`;
   $("asof").textContent = "As of " + fmtDay(data.as_of);
@@ -2116,9 +2118,13 @@ function currencyFlag(code, iso) {
 const PL_SAME = 0.1;
 const plShown = (rel) => +rel.toFixed(2);
 function plBand(rel) { const r = plShown(rel); return r <= 1 - PL_SAME ? -1 : r <= 1 + PL_SAME ? 0 : 1; }
+// "a bit cheaper" from 75% to 90% (review #20, Nov 2026): "cheap" ran from 55%
+// to 90%, so Germany at 80% and the Bahamas at 90% read "cheap". plBand, the
+// three-way split the scoring and colours use, is unchanged. guide_facts.band
+// is the server's copy.
 function plWord(pl) {
-  const b = plBand(pl);
-  return b < 0 ? (plShown(pl) < 0.55 ? "very cheap" : "cheap") : b > 0 ? "pricey" : "about the same";
+  const b = plBand(pl), r = plShown(pl);
+  return b < 0 ? (r < 0.55 ? "very cheap" : r < 0.75 ? "cheap" : "a bit cheaper") : b > 0 ? "pricey" : "about the same";
 }
 // The price level in words, one way everywhere it is read (pill tip, row tip,
 // map card, AI prompts, share images). 1 − pl is how much cheaper prices are;
@@ -2796,15 +2802,14 @@ function renderGuide(iso) {
       : iso === window.__WGGC__ ? null : false;
     if (fm) gtab.setAttribute("data-fm", "1");
     else if (fm === false) gtab.removeAttribute("data-fm");
-    // The FX and local-prices lines likewise (data-fx, data-cost): none for
-    // a currency the reader holds or a country without one, none on the
-    // reader's own country; the server's marks stand for its own guide
-    // otherwise (it also knows which have no price figure or FX chart).
+    // The FX line likewise (data-fx): none for a currency the reader holds
+    // or a country without one; the server's mark stands for its own guide
+    // otherwise (it also knows which have no FX chart). The local-prices
+    // line left this column for a place under the grades (review #11) and
+    // holds its own room (renderGuideCost).
     const fxIso = GUIDE_PARENT[iso] || iso, cur = CUR_BY_ISO[fxIso];
     if (!cur || cur === (homeBase || "USD")) gtab.setAttribute("data-fx", cur ? "home" : "0");
     else if (iso !== window.__WGGC__ || gtab.getAttribute("data-fx") === "home") gtab.removeAttribute("data-fx");
-    if (fxIso === originIso()) gtab.setAttribute("data-cost", "home");
-    else if (iso !== window.__WGGC__ || gtab.getAttribute("data-cost") === "home") gtab.removeAttribute("data-cost");
   }
   // The page's one h1. On /guide/<slug> the server already sent this exact
   // markup (render_guide.h1_html), so hydration writes nothing and nothing
@@ -2857,15 +2862,16 @@ function renderGuide(iso) {
       .then(() => requestAnimationFrame(() => requestAnimationFrame(release)));
   }
   renderGuideStay(iso);
-  // The fare column (fares by month, local prices, FX) fills in three
-  // fetches, 0 -> 19 -> 96px at 768 and 250 with the fares: each block keeps
-  // its place (.farecol.loading, styles.css) until all three have settled,
-  // then the ones that didn't come go at once — released as each landed, the
-  // column moved what is under it at every step.
+  // The fare column (fares by month, FX) fills in two fetches: each block
+  // keeps its place (.farecol.loading, styles.css) until both have settled,
+  // then one that didn't come goes — released as each landed, the column
+  // moved what is under it at every step. (The local-prices line was its
+  // third block until review #11 moved it under the grades.)
+  renderGuideCost(iso);
   const fc = document.querySelector("#tab-guide .farecol");
   const fcSeq = ++_fareColSeq;
   if (fc) fc.classList.add("loading");
-  Promise.allSettled([renderGuideFares(iso), renderGuideCost(iso), renderGuideFx(iso)])
+  Promise.allSettled([renderGuideFares(iso), renderGuideFx(iso)])
     .then(() => { if (fc && fcSeq === _fareColSeq) fc.classList.remove("loading"); });
   syncURL();
 }
@@ -3131,8 +3137,8 @@ function guideFareLink(iso, fm, selM, prices) {
 // A LINE, deliberately not bars: bars on this page mean "pick a month" (fares,
 // temperature). FX has no forecastable seasonality, so this chart answers only
 // "is your money going further than usual right now" — backward-looking
-// monthly averages, the same 1-yr-average anchor the affordability score's FX
-// component already uses. Never a month-picker. Plotted in today's prices
+// monthly averages, the same 1-yr-average anchor Top Picks' currency chips
+// (fxMark) use. Never a month-picker. Plotted in today's prices
 // (inflation gap removed, see realFxPct), so the headline matches the table's
 // FX mark and a steady depreciation no longer reads as a bargain.
 const _fxTrendCache = {};
@@ -3285,14 +3291,45 @@ function feeTip(f) {
   if (f.note) t += " " + String(f.note).replace(/\.$/, "") + ".";
   return t;
 }
+// The line opens with its band word ("Very cheap: local prices ≈ 27% of the
+// US", review #11): most guide titles ask "Is Japan Cheap to Visit?", and the
+// page answered only in numbers. plWord on the same anchor as the number.
+// Never on a Level 4 guide: no bargain talk where a government says not to
+// go (its title and description give none either). render_guide.cost_lead is
+// the server's copy.
+const costLead = (band) => band ? band[0].toUpperCase() + band.slice(1) + ": local" : "Local";
+// The ⓘ's last sentence: the line can say "cheap" beside an Affordability C,
+// so it says why (the grade's scale, valueScores: 100 at 15%, 0 at 130%).
+const COST_GRADE_TIP = " The 💰 Affordability grade puts every country on one scale, A+ up to about 24%"
+  + " of home prices and F above about 82%, so a cheap place can still grade C or D.";
 async function renderGuideCost(iso) {
   const host = $("guideCost");
   if (!host) return;
-  host.hidden = true;
-  await Promise.all([ensurePPP().catch(() => {}), ensureVisa().catch(() => {})]);
+  // Under the grades line since review #11 (it was two to three screens down
+  // on a phone, in the fare column). On /guide/<slug> the server sends it
+  // filled for a reader from the US (guide_lines.cost, this markup less the
+  // tip, data-iso its country), and index.html's pre-paint script makes it
+  // invisible for a reader from elsewhere (.pend): it keeps its room until
+  // this draw, so nothing under it moves. On the US's own guide it is served
+  // empty, and the script gives a reader from elsewhere a line's room
+  // (.guidecost.pend:empty). Another guide's line goes at once.
+  if (host.dataset.iso !== iso) { host.hidden = true; host.dataset.iso = iso; }
+  const show = (h) => { host.innerHTML = h || ""; host.hidden = !h; host.classList.remove("pend"); };
+  await Promise.all([ensurePPP(), ensureAdvisories(), ensureVisa()].map((p) => p.catch(() => {})));
   if (ccGuideIso !== iso) return;
-  // The reader's own country: "≈ 100% of the US" tells them nothing.
-  if ((GUIDE_PARENT[iso] || iso) === originIso()) return;
+  const plIso = GUIDE_PARENT[iso] || iso;
+  // The reader's own country: "≈ 100% of the US" tells them nothing. A line
+  // still on screen here keeps its room, unseen, as the pre-paint script's
+  // .pend does: on a first visit the served line stands for the US until
+  // /api/geo seeds this reader's home, after paint (seedGeoDefaults), and
+  // collapsed it moved the hero, the grid and the jump nav up 22px (CLS 0.030
+  // at 390 on the UK's guide, 0.014 before). The next visit, the home saved,
+  // hides it before paint (server.py _COST_HOLD).
+  if (plIso === originIso()) {
+    if (!host.hidden && host.innerHTML) { host.classList.add("pend"); return; }
+    return show("");
+  }
+  const l4 = guideAdvLevel(iso) === 4;
   const fee = visitorFee(iso);
   const feeHtml = fee ? ' <span class="guidefee">' + esc(feeShort(fee)) + "</span>" : "";
   const feeTipTxt = fee ? " " + feeTip(fee) : "";
@@ -3302,24 +3339,24 @@ async function renderGuideCost(iso) {
     // snippet were written from (render_guide's SSR line, word for word), so
     // the page still shows what its description claims. Never when live data
     // loaded and found no honest figure.
-    if (ppp && lastRates) return;
+    if (ppp && lastRates) return show("");
     const f = await ensureGuideFacts().then((d) => d[iso]).catch(() => null);
-    if (ccGuideIso !== iso || !f || f.pct == null || !guideFactsFresh()) return;
-    const when = guideFactsMonth();
-    host.innerHTML = `💰 <b>Local prices ≈ ${f.pct}% of the US (${esc(
+    if (ccGuideIso !== iso) return;
+    if (!f || f.pct == null || !guideFactsFresh()) return show("");
+    const when = guideFactsMonth(), fl4 = l4 || (!advisories && f.adv === 4);
+    return show(`💰 <b>${esc(costLead(fl4 ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
       srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
       + " averages: tourist areas and foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
-      + feeTipTxt)}" title="">ⓘ</span>`;
-    host.hidden = false;
-    return;
+      + feeTipTxt + (fl4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
   }
-  host.innerHTML = `💰 <b>Local prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
+  const band = l4 ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
+  show(`💰 <b>${esc(costLead(band))} prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
     srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
-    + " foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "") + feeTipTxt)}" title="">ⓘ</span>`;
-  host.hidden = false;
+    + " foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
+    + feeTipTxt + (l4 ? "" : COST_GRADE_TIP))}" title="">ⓘ</span>`);
 }
 
 // ---- Travel Guide: "Where to stay" Stay22 map -------------------------------
@@ -5827,14 +5864,15 @@ async function renderCol() {
 }
 
 // ===========================================================================
-//  Best value now (blend affordability + currency timing + safety + weather)
+//  Best value now (blend affordability + safety + weather + flights)
 // ===========================================================================
 const clamp100 = (x) => Math.max(0, Math.min(100, Math.round(x)));
 
 // User-adjustable priorities: High / Medium / Low per factor (simpler than
 // numeric sliders). "fly" only participates for countries with a fare loaded.
-// "afford" blends cost-of-living (PPP price level) with current FX strength into
-// one Affordability factor — users found "Dollar" vs "Prices" hard to tell apart.
+// "afford" is the cost of living (PPP price level) alone since review #21 (Nov
+// 2026); it used to blend in the currency's move, which the rows now show as a
+// chip beside the grade (fxMark) instead.
 // Every factor starts at Med (Doug, 2026-10-14). Affordability started on
 // High, a leftover of the site's FX-tracker beginnings ("Cheap" was High
 // before there was a ranking to speak of), and flights are a cost too: at
@@ -6198,13 +6236,16 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   const wxKnown = !!(cl && cl.scores && cl.scores[month - 1] != null);
 
   const w = loadWeights();
-  // Sub-scores (kept for tooltips/detail): cheapness maxes once prices are ~1/3
-  // of home prices; FX maxes at +8% vs the 1-year average.
-  const aff = clamp100(((1.3 - pl) / 0.95) * 100);
-  const fx = fxReal != null ? clamp100(50 + fxReal * 6.25) : 50;
   const comps = {
-    // Affordability = mostly structural cost of living, nudged by FX timing.
-    afford: clamp100(aff * 0.7 + fx * 0.3),
+    // Affordability is the price level alone (review #21, Nov 2026): 100 at
+    // 15% of home prices, 0 at 130%. It was 70% a price part that maxed at
+    // 35% and 30% the currency's move vs its 1-yr average (+8% = full), so
+    // every country under 35% scored the same on price and the move alone
+    // ordered them (Vietnam at 27% B+, Poland at 49% A), and the move was
+    // partly counted twice: the price level is at today's rate already. The
+    // move stays on screen as the row's currency chip (fxMark), not in the
+    // grade. picks.py _score mirrors this.
+    afford: clamp100(((1.3 - pl) / 1.15) * 100),
     safe: advLvl ? { 1: 100, 2: 70, 3: 35 }[advLvl] : 70,
   };
   // No climate entry = no weather measure. It used to be a made-up 50 (a D pill)
@@ -8899,7 +8940,7 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   const flexRows = list.some((s) => s.month);
   host.innerHTML = `<table class="gradetable">
     <thead><tr><th><span class="vh">Rank</span></th><th class="dest${sc}"${sa("dest")}>Destination</th>
-      <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home, plus how strong your currency is right now"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></th>
+      <th class="${sc.trim()}"${sa("afford")} title="how far your money goes — daily prices vs home"><span aria-hidden="true">💰</span> <span class="thword">Affordability</span></th>
       <th class="${sc.trim()}"${sa("safety")} title="${esc(advSafetyTitle())}"><span aria-hidden="true">🛡️</span> <span class="thword">Safety</span></th>
       <th class="${sc.trim()}"${sa("weather")} title="weather comfort for ${flexRows ? "each row's month" : "your chosen month"}"><span aria-hidden="true">🌤️</span> <span class="thword">Weather</span></th>
       <th class="${sc.trim()}"${sa("flights")} title="${flexRows ? "the fare in each row's month" : "this month's fare"} vs the route's usual where we have cached months; otherwise the year-round fare vs a typical fare for the distance (the strip shows each month)"><span aria-hidden="true">✈️</span> <span class="thword">Flights</span></th>
@@ -8909,8 +8950,10 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
   if (!reducedMotion() && !served) host.querySelectorAll(".grnum").forEach(countUp);
   fillRowFareStrips("#" + host.id, month);
 }
-// Tooltip for the merged Affordability cell: explains both the price level and
-// the FX timing, both measured against the traveler's home country/currency.
+// Tooltip for the Affordability cell: the price level against the traveller's
+// home, the one thing the grade measures since review #21 (Nov 2026). The
+// currency's move vs its 1-yr average had a clause here while it was 30% of
+// the grade; it is the row's own chip now (fxMark), with its own tip.
 function affordTitle(s) {
   const parts = [];
   const home = plHomeWord();
@@ -8919,11 +8962,6 @@ function affordTitle(s) {
   // the US (0.904) read "about the same" here but "0.90 cheap" in the table
   // and "~10% cheaper" in its guide (Vanuatu vs Germany, 1.1048, the reverse).
   if (s.pl != null) parts.push("daily prices " + plPhrase(s.pl, home));
-  // "after inflation" only when a destination figure was actually netted out.
-  // Whole percentages: two decimals on a cached 1-yr average claimed a
-  // precision the figure doesn't have.
-  if (s.fx != null && Math.abs(s.fx) >= 1)
-    parts.push(`your ${homeBase} is ${signedPct(Math.round(s.fx))} vs its 1-yr average${s.fxAdj ? ", after inflation" : ""}`);
   // Repeatedly the sharpest critique this gets: PPP is a national consumption
   // basket, so it under-weights the one cost a visitor most feels — rent in the
   // few neighbourhoods foreigners actually stay in. Say so where the number is

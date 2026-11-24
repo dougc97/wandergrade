@@ -25,7 +25,7 @@ WanderGrade answers "where should I go, and when?" for a traveller from a given 
 
 ## How the grades are made
 
-- Affordability: everyday local prices versus the traveller's home country (World Bank purchasing-power parities), nudged by how strong the home currency is against its one-year average after inflation (exchange rates from fxratesapi.com; history from Frankfurter/ECB).
+- Affordability: everyday local prices versus the traveller's home country (World Bank purchasing-power parities at today's exchange rates from fxratesapi.com): A+ up to about 24% of home prices, F above about 82%. How strong the home currency is against its one-year average after inflation (history from Frankfurter/ECB) is shown beside it, not graded.
 - Safety: the government travel advisory level (U.S. State Department, Global Affairs Canada or the German Federal Foreign Office, the reader's own country first, gaps filled from the others). Level 4 "Do Not Travel" countries are left out of rankings.
 - Weather: a monthly comfort score from five years of daily weather history (Open-Meteo archive).
 - Flights: round-trip fares Aviasales has seen recently (via Travelpayouts), judged against each route's own usual range for the month. Cached fares, not live quotes.

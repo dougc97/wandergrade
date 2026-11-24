@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """send_digest.py against a FAKE Buttondown: who gets which home-currency
 edition, what a re-run does, and that this tree sends exactly as the code the
-Dec 2026 redesign started from sends (digest_snapshot.BASE). Nothing leaves
+Dec 2026 redesign started from sends (digest_snapshot.BASE, with
+digest_snapshot.GRAFTS: the scoring changes made on purpose since). Nothing leaves
 this machine: the digest's inputs are digest_snapshot.py's frozen fixtures
 (urlopen raises), and newsletter._call — the one function every Buttondown
 request goes through — is replaced by FakeButtondown, which records each call
