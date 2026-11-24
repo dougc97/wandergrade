@@ -3001,12 +3001,43 @@ async function renderGuideFares(iso) {
   const tip = "Cheapest cached round-trip Aviasales has seen for each departure month"
     + (approx ? ", converted at today's rate" : "") + " — indicative, not live. Taller = cheaper. "
     + "Colour = the month against the route's typical fare: green low, pale typical, red high"
-    + (typ ? " (the Flights tab's range)." : ".");
+    + (typ ? " (the Flights tab's range)." : ".")
+    + " The ✈️ search link is an affiliate link: we may earn a commission, at no extra cost to you.";
   host.innerHTML = '<span class="fareshead">✈️ Fares by month'
     + '<span class="legendinfo" data-tip="' + esc(tip) + '" title="">ⓘ</span>'
     + ' <span class="muted">' + esc(originName + " → " + countryName(iso) + " · round-trip, " + approx + cur)
     + "</span></span>"
-    + '<div class="bars farebars" role="img" aria-label="' + esc(ariaFares) + '">' + cols + "</div>";
+    + '<div class="bars farebars" role="img" aria-label="' + esc(ariaFares) + '">' + cols + "</div>"
+    + '<div class="faresearch">' + guideFareLink(iso, fm, selM, prices) + "</div>";
+  // Not known yet whether any government says not to go (guideNoBookings
+  // null: the lists still loading): the row holds its line, empty, and the
+  // link fills it once that is known, or never does.
+  if (guideNoBookings(iso) == null) {
+    ensureBookingsKnown().then(() => {
+      const slot = host.querySelector(".faresearch");
+      if (ccGuideIso === iso && slot && slot.isConnected && !slot.firstChild) slot.innerHTML = guideFareLink(iso, fm, selM, prices);
+    }, () => {});
+  }
+}
+// The fare chart's one booking link: the travel month's flights from the
+// route's hub ("✈️ Search Dec flights from NYC ↗"), or the cheapest month's
+// when the travel month has no fare, to the city that month's fare is for.
+// Never where a government says not to go, as the Trip tab and the stays
+// (guideNoBookings): "" there, and while that isn't known. The month bars
+// stay plain: on a phone they are the tap targets for their tips.
+function guideFareLink(iso, fm, selM, prices) {
+  if (guideNoBookings(iso) !== false) return "";
+  let m = selM;
+  if (prices[m - 1] == null) {
+    m = 0;
+    prices.forEach((p, i) => { if (p != null && (!m || p < prices[m - 1])) m = i + 1; });
+  }
+  if (!m) return "";
+  const key = nextMonthKey(m), rec = fm.months[key];
+  const url = flightSearchURLFrom(fm.hub, (rec && rec.dest) || fm.dest, key);
+  if (!url) return "";
+  return '<a href="' + esc(url) + '" target="_blank" rel="sponsored nofollow noopener">✈️ Search '
+    + MON_ABBR[m - 1] + " flights from " + esc(fm.hub) + ' <span class="ext">↗</span></a>';
 }
 
 // ---- FX trailing trend ------------------------------------------------------
@@ -9143,7 +9174,13 @@ const TP_MARKER = "738472";
 // 15th has passed), so a month's fare links to that month. Returns null if we
 // lack the hub or a destination city (older cached fares have no `dest`).
 function flightSearchURL(dest, monthKey) {
-  if (!dest || !flightsData || !flightsData.hub) return null;
+  return flightsData ? flightSearchURLFrom(flightsData.hub, dest, monthKey) : null;
+}
+// The same search from a hub the caller names: the guide's fare chart has
+// its route's own (/api/flight-months' hub), with no fares payload loaded.
+// guide_lines.search_url mirrors it for the served strip.
+function flightSearchURLFrom(hub, dest, monthKey) {
+  if (!dest || !hub) return null;
   let dep = new Date(); dep.setDate(dep.getDate() + 60);
   if (/^\d{4}-\d{2}$/.test(monthKey || "")) {
     dep = new Date(+monthKey.slice(0, 4), +monthKey.slice(5) - 1, 15);
@@ -9153,7 +9190,7 @@ function flightSearchURL(dest, monthKey) {
   const ret = new Date(dep); ret.setDate(ret.getDate() + 10);
   const p = (n) => String(n).padStart(2, "0");
   const seg = (d) => p(d.getDate()) + p(d.getMonth() + 1);
-  const path = flightsData.hub + seg(dep) + dest + seg(ret) + "1";
+  const path = hub + seg(dep) + dest + seg(ret) + "1";
   return "https://www.aviasales.com/search/" + encodeURIComponent(path) +
          "?marker=" + TP_MARKER;
 }

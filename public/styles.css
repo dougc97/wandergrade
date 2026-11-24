@@ -2293,6 +2293,13 @@ button.chip2 { border: 0; }
    strip: cells across a year, colour carries the answer, tips carry numbers. */
 .guidefares { display: block; margin: 14px 0 4px; }
 .fareshead { display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 6px; }
+/* Under the bars, the chart's one booking link (renderGuideFares'
+   guideFareLink, guide_lines.fares): one line, held empty where there is no
+   link (a country a government says not to visit, or not known yet), so the
+   strip is one height and the hold below (.farecol.loading) fits it. */
+.faresearch { height: 19px; margin-top: 6px; font-size: 13px; line-height: 19px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.faresearch .ext { font-size: 11px; opacity: .6; }
 .farestrip { display: inline-flex; gap: 2px; }
 .farestrip .fcell { width: 13px; height: 15px; border-radius: 2px; cursor: help; }
 .farestrip.big .fcell { width: 22px; height: 18px; border-radius: 3px; }
@@ -3059,8 +3066,9 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    from three fetches in any order, and the fares strip, arriving last, sat
    on top and pushed the other two down 154px. Until all three have settled
    (.farecol.loading, renderGuide) each one not yet drawn keeps its own place,
-   invisibly, at its usual height — 250px for the column at 768 (288 on a
-   phone): the strip 142 (161), the prices line 18, the FX chart 68, 86 where
+   invisibly, at its usual height — 275px for the column at 768 (313 on a
+   phone): the strip 167 (186) with its search link's line, the prices line
+   18, the FX chart 68, 86 where
    its heading wraps (a phone, and the half-width column below ~1150px).
    Those that never come go with the class. The strip only where the page
    knows it will come (data-fm: the server's cached curves for the default
@@ -3076,11 +3084,11 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    held, Puerto Rico's column fell from 250px to 18 at 768 (CLS 0.12). */
 #tab-guide[data-fx] .farecol.loading > #guideFx[hidden],
 #tab-guide[data-cost] .farecol.loading > #guideCost[hidden] { display: none; }
-.farecol.loading > #guideFares[hidden] { min-height: 142px; }
+.farecol.loading > #guideFares[hidden] { min-height: 167px; }
 .farecol.loading > #guideCost[hidden] { min-height: 18px; }
 .farecol.loading > #guideFx[hidden] { min-height: 68px; }
 @media (max-width: 560px) {
-  .farecol.loading > #guideFares[hidden] { min-height: 161px; }
+  .farecol.loading > #guideFares[hidden] { min-height: 186px; }
   .farecol.loading > #guideFx[hidden] { min-height: 86px; }
 }
 @media (min-width: 900px) and (max-width: 1149px) {

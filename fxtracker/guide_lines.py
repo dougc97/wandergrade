@@ -22,6 +22,7 @@ together.
 """
 
 import datetime
+import urllib.parse
 
 from . import geo, guide_sizers, picks, pricelevel
 from .home_picks import MON_ABBR, MON_FULL, advisory_by_iso, esc, flex_window, grade_cls, pill
@@ -138,12 +139,57 @@ def fare_short(n):
     return _locale(pricelevel.js_round(n / 1e5) / 10 if n < 1e7 else pricelevel.js_round(n / 1e6)) + "M"
 
 
-def fares(iso, curve, fv, today, names):
+# The Aviasales affiliate marker (app.js TP_MARKER): public by design, it
+# ships in every flight link.
+TP_MARKER = "738472"
+
+
+def search_url(hub, dest, key, today):
+    """app.js flightSearchURLFrom: an Aviasales search from `hub` to `dest`
+    for the departure month `key` ("2026-12"): out on its 15th, or tomorrow
+    once that has passed, back 10 days later, one traveller. None without a
+    hub or a destination."""
+    if not hub or not dest:
+        return None
+    dep = datetime.date(int(key[:4]), int(key[5:7]), 15)
+    dep = max(dep, today + datetime.timedelta(days=1))
+    ret = dep + datetime.timedelta(days=10)
+    seg = lambda d: "%02d%02d" % (d.day, d.month)
+    return ("https://www.aviasales.com/search/" + urllib.parse.quote(hub + seg(dep) + dest + seg(ret) + "1", safe="")
+            + "?marker=" + TP_MARKER)
+
+
+def _fare_link(curve, months, prices, sel, today, book):
+    """app.js guideFareLink: the travel month's search from the route's hub,
+    or the cheapest month's when it has no fare; "" where bookings aren't
+    shown (`book` false: a government says not to go, or a list isn't in)."""
+    if not book:
+        return ""
+    m = sel
+    if prices[m - 1] is None:
+        m = 0
+        for i, p in enumerate(prices):
+            if p is not None and (not m or p < prices[m - 1]):
+                m = i + 1
+    if not m:
+        return ""
+    key = "%d-%02d" % (today.year if m > today.month - 1 else today.year + 1, m)
+    rec = months.get(key)
+    hub = (curve or {}).get("hub")
+    url = search_url(hub, (rec.get("dest") if isinstance(rec, dict) else None) or (curve or {}).get("dest"), key, today)
+    if not url:
+        return ""
+    return ('<a href="%s" target="_blank" rel="sponsored nofollow noopener">✈️ Search %s flights from %s '
+            '<span class="ext">↗</span></a>' % (esc(url), MON_ABBR[m - 1], esc(hub)))
+
+
+def fares(iso, curve, fv, today, names, book=True):
     """renderGuideFares' strip for a USD reader, or "" (fewer than three
     months: the strip stays hidden). `curve` is flights.get_country_monthly
-    for the US ({"origin", "months": {"YYYY-MM": {"price"…}}}); `fv` the
-    flight-value build (the Flights tab's typical range); `names` ISO -> the
-    site's name (app.js countryName for a guide)."""
+    for the US ({"origin", "hub", "months": {"YYYY-MM": {"price", "dest"…}}});
+    `fv` the flight-value build (the Flights tab's typical range); `names`
+    ISO -> the site's name (app.js countryName for a guide); `book` whether
+    the strip's search link shows (app.js guideNoBookings(iso) === false)."""
     months = (curve or {}).get("months") or {}
     prices = []
     for m in range(1, 13):
@@ -178,5 +224,6 @@ def fares(iso, curve, fv, today, names):
                        MON_ABBR[i]))
     origin = names((curve or {}).get("origin") or "US") or "US"
     return ('<span class="fareshead">✈️ Fares by month<span class="legendinfo">ⓘ</span> <span class="muted">%s</span>'
-            '</span><div class="bars farebars" role="img">%s</div>'
-            % (esc("%s → %s · round-trip, USD" % (origin, names(iso) or iso)), "".join(cols)))
+            '</span><div class="bars farebars" role="img">%s</div><div class="faresearch">%s</div>'
+            % (esc("%s → %s · round-trip, USD" % (origin, names(iso) or iso)), "".join(cols),
+               _fare_link(curve, months, prices, sel, today, book)))

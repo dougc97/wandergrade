@@ -41,8 +41,10 @@ FIX = {"rates": load("scripts", "parity", "fixture_rates.json"),
        "activities": load("public", "activities.json"), "world": load("public", "world.geojson"),
        "slugs": load("public", "slugs.json")}
 GUIDES = [iso for _s, iso in render_guide.all_slugs()]
-# The country's one curve (/api/flight-months), as the flight-value build holds it.
-CURVES = {iso: {"origin": "US", "months": {k: {"price": v[0], "dest": v[1]} for k, v in c["curve"].items()}}
+# The country's one curve (/api/flight-months), as the flight-value build holds it,
+# with the origin's hub the search link starts from.
+CURVES = {iso: {"origin": "US", "hub": FIX["flights"]["hub"],
+                "months": {k: {"price": v[0], "dest": v[1]} for k, v in c["curve"].items()}}
           for iso, c in FIX["fv"]["countries"].items() if isinstance(c, dict) and c.get("curve")}
 TODAY = datetime.date.today()
 
@@ -92,7 +94,10 @@ for iso in GUIDES:
     g = G.grades(iso, inputs, TODAY)
     if g != bare(js[iso]["grades"]):
         bad_g.append((iso, g, bare(js[iso]["grades"])))
-    f = G.fares(iso, CURVES.get(iso), FIX["fv"], TODAY, render_guide.name_for_iso)
+    # The search link where app.js guideNoBookings is false: with this
+    # fixture (no do-not-travel marks, every list in) anywhere but Level 4.
+    f = G.fares(iso, CURVES.get(iso), FIX["fv"], TODAY, render_guide.name_for_iso,
+                G.adv_level(iso, FIX["advisories"]) != 4)
     if f != bare(js[iso]["fares"]):
         bad_f.append((iso, f, bare(js[iso]["fares"])))
 for iso, a, b in (bad_g + bad_f)[:2]:
@@ -119,6 +124,27 @@ for iso in GUIDES:
                                ("typical month", "fill typ")) if pat in f}
 results.append(ok({"no fare", "days", "Level 4", "low month", "no-fare month", "typical month"} <= kinds,
                   "the guides between them show: %s" % ", ".join(sorted(kinds))))
+# The search link: under every strip but a Level 4 country's, which keeps its
+# line empty (one height for every strip), sponsored, for the travel month or
+# else the cheapest, from the hub to that month's city.
+links = {iso: re.search(r'<div class="faresearch">(.*?)</div>', js[iso]["fares"]) for iso in GUIDES if js[iso]["fares"]}
+lvl4 = {iso for iso in links if G.adv_level(iso, FIX["advisories"]) == 4}
+bad_l = [iso for iso, m in links.items() if not m or (iso in lvl4) != (m.group(1) == "")]
+m_th = links.get("TH") and links["TH"].group(1)
+sel = G.guide_month(TODAY)
+th_month = sel if CURVES["TH"]["months"].get("%d-%02d" % (TODAY.year if sel > TODAY.month - 1 else TODAY.year + 1, sel)) \
+    else None
+results.append(ok(not bad_l and len(links) >= 50 and m_th
+                  and 'rel="sponsored nofollow noopener"' in m_th and 'target="_blank"' in m_th
+                  and "https://www.aviasales.com/search/NYC" in m_th and "marker=738472" in m_th
+                  and (th_month is None or ("Search %s flights from NYC" % G.MON_ABBR[th_month - 1]) in m_th),
+                  "every strip ends in its search link line, empty only for Level 4 (%d strips, %d Level 4) %s %s"
+                  % (len(links), len(lvl4), bad_l[:6] or "", (m_th or "")[:120])))
+d0 = datetime.date(2026, 11, 23)
+results.append(ok(G.search_url("NYC", "BKK", "2026-12", d0) == "https://www.aviasales.com/search/NYC1512BKK25121?marker=738472"
+                  and G.search_url("NYC", "BKK", "2026-11", d0) == "https://www.aviasales.com/search/NYC2411BKK04121?marker=738472"
+                  and G.search_url(None, "BKK", "2026-12", d0) is None and G.search_url("NYC", None, "2026-12", d0) is None,
+                  "the search: out on the month's 15th (tomorrow once it has passed), back 10 days later"))
 
 # --- the page -----------------------------------------------------------------------------
 import server  # noqa: E402
