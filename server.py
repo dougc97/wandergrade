@@ -777,7 +777,8 @@ def _data_page_body_tpl():
         "multiplier it produced (<code>inflation_factor</code>, 1 when there is no "
         "current figure).</li>"
         "<li><strong>ppp_basis</strong> — <code>household</code>, or <code>gdp</code> where the World "
-        "Bank has no recent household figure and its GDP-wide factor stands in; "
+        "Bank has no usable recent household figure: its last one, carried forward along the GDP-wide "
+        "factor; "
         "<code>ppp_source</code> says whose figure it is (Taiwan's is the IMF's, entered by hand).</li>"
         "</ul>"
         # The table is US-based because World Bank PPP is quoted against the US;

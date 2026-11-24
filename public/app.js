@@ -3102,13 +3102,15 @@ async function renderGuideFx(iso) {
 // prompts state the same level in plPhrase's framing, Top Picks' own:
 // aiPriceWords.) Against the traveller's home; the US only as a fallback,
 // and then the line says so.
-// Why a price figure isn't the usual World Bank household-spending one
-// (build_ppp.py), or "": Taiwan's hand-entered IMF figure, or the World
-// Bank's GDP-wide figure standing in. pricelevel.basis_note, word for word.
+// Why a price figure isn't a current World Bank household-spending one
+// (build_ppp.py), or "": Taiwan's hand-entered IMF figure, an older household
+// figure carried forward along the GDP-wide one (hh_year), or, where the two
+// never overlap, the GDP-wide figure itself. pricelevel.basis_note, word for word.
 function plBasisNote(iso) {
   const e = (ppp || {})[GUIDE_PARENT[iso] || iso] || {};
   if (e.src === "imf") return `IMF figure (${e.src_note || "World Economic Outlook"}), GDP-wide: the World Bank doesn't cover it.`;
-  if (e.basis === "gdp") return "GDP-wide figure: the World Bank has no recent household-spending one for it.";
+  if (e.basis === "gdp" && e.hh_year) return `Household-spending figure of ${e.hh_year}, carried forward along the GDP-wide one: the World Bank has no usable newer household figure for it.`;
+  if (e.basis === "gdp") return "GDP-wide figure: the World Bank has no household-spending one for it.";
   return "";
 }
 // Whose price and inflation figures a country's are: the IMF's for a
@@ -5425,14 +5427,16 @@ function colSeries(iso, anchor) {
 }
 
 // The years a country's line follows the World Bank's GDP-wide figure
-// (build_pl_history "gdp"): all of them on the fallback (the map's figure is
-// GDP-wide too), else the years with no household one, linked to it.
+// (build_pl_history "gdp"): the years with no usable household one, linked
+// to it; all of them only where the two never overlap (no hh_year: the map's
+// figure is GDP-wide too).
 function colBasisNote(iso) {
   const r = iso !== "world" && plHist && plHist.gdp && plHist.gdp[iso];
   if (!r) return "";
-  if (((ppp || {})[iso] || {}).basis === "gdp") return " " + countryName(iso) + "'s are GDP-wide figures: the World Bank has no recent household-spending one for it.";
+  const e = (ppp || {})[iso] || {};
+  if (e.basis === "gdp" && !e.hh_year) return " " + countryName(iso) + "'s are GDP-wide figures: the World Bank has no household-spending one for it.";
   return " " + r.map(([a, b]) => (a === b ? String(a) : a + "–" + b)).join(", ")
-    + " follow the GDP-wide figure's moves (no household-spending one), linked at the nearest year with both.";
+    + " follow the GDP-wide figure's moves (no usable household-spending one), linked at the nearest year with both.";
 }
 
 // Whether today's map figure can follow a country's yearly ones. Not where the

@@ -463,10 +463,10 @@ HEAD = (("#", ""),
                          "same day's exchange rates. A shared currency shows the range across its places."))
 
 
-# The Prices column's ‡: a figure that isn't the World Bank's household-
+# The Prices column's ‡: a figure that isn't a current World Bank household-
 # spending one (pricelevel.basis_note says which, in the cell's title).
-BASIS_NOTE = ("‡ GDP-wide price comparison, where the World Bank has no recent household-spending figure "
-              "(Taiwan's is the IMF's).")
+BASIS_NOTE = ("‡ Where the World Bank has no usable recent household-spending figure: its last one, carried "
+              "forward along the GDP-wide figure (Taiwan's is the IMF's GDP-wide figure).")
 
 
 def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):

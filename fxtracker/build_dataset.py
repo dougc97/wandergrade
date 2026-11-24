@@ -29,9 +29,10 @@ FIELDS = [
 
 NOTES = (
     "price_level is the PPP conversion factor for household consumption "
-    "(ppp_basis household; ppp_basis gdp where the World Bank has no recent "
-    "household figure and its GDP-wide factor stands in; ppp_source names "
-    "whose figure it is: the World Bank, or the IMF for Taiwan), carried forward from "
+    "(ppp_basis household; ppp_basis gdp where the World Bank has no usable recent "
+    "household figure: its last one carried forward along the GDP-wide factor, or "
+    "for Taiwan the IMF's GDP-wide factor; ppp_source names whose figure it is: "
+    "the World Bank, or the IMF for Taiwan), carried forward from "
     "mid-ppp_year to rates_as_of by the gap between local and US inflation "
     "(inflation_factor, from World Bank consumer-price inflation; 1 when no "
     "current figure exists), divided by the market exchange rate at rates_as_of: "
@@ -84,8 +85,8 @@ def build(ppp):
                             .replace(microsecond=0).isoformat(),
             "countries": len(rows),
             "ppp_source": ("World Bank PA.NUS.PRVT.PP (PPP conversion factor, private consumption); "
-                           "PA.NUS.PPP (GDP) where ppp_basis is gdp; Taiwan: IMF World Economic Outlook "
-                           "(PPPEX), entered by hand"),
+                           "carried forward along PA.NUS.PPP (GDP) where ppp_basis is gdp; "
+                           "Taiwan: IMF World Economic Outlook (PPPEX), entered by hand"),
             "income_source": "World Bank NY.GDP.PCAP.CD (GDP per capita, current US$)",
             "inflation_source": "World Bank FP.CPI.TOTL.ZG (inflation, consumer prices, annual %)",
             "licence": ("World Bank data under CC BY 4.0; Taiwan's figures from the IMF World Economic Outlook "

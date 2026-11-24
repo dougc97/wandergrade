@@ -5,22 +5,27 @@ build_pl_history.py), offline: no network.
 
 What it holds the code and data to (review 2026-11-23 items 15 and 23):
   * pick_basis: the household-consumption factor (PA.NUS.PRVT.PP) where its
-    newest year is at most HOUSEHOLD_MAX_LAG behind the GDP-wide one, the
-    GDP-wide factor (PA.NUS.PPP) flagged "basis": "gdp" otherwise, and the
-    household one where there is no GDP-wide figure at all;
+    newest year is at most HOUSEHOLD_MAX_LAG behind the GDP-wide one; else
+    the last household figure carried forward along the GDP-wide factor
+    (PA.NUS.PPP), flagged "basis": "gdp" with "hh_year" (the raw GDP-wide
+    figure only where the two never share a year); the household one where
+    there is no GDP-wide figure at all; HOUSEHOLD_UNTIL's years (Palestine
+    after 2023) left out;
   * build() asks for both factors, flags the fallback, and adds MANUAL rows
     without ever overriding a World Bank row; manual_overdue names a row
     past its refresh_by (the dated reminder);
   * the committed ppp.json: household for the rich, high-investment places
-    the GDP basis read cheap (Singapore, Qatar, Brunei, Macau), the GDP-wide
-    fallback flagged for the countries stuck on the 2021 benchmark
-    (Argentina, Aruba, Puerto Rico...); Taiwan's IMF row as entered;
+    the GDP basis read cheap (Singapore, Qatar, Brunei, Macau), the
+    carried-forward fallback flagged for the countries stuck on the 2021
+    benchmark (Argentina, Aruba, Puerto Rico...) and Palestine; Taiwan's IMF
+    row as entered;
   * Taiwan's hand-entered figures are not past refresh_by — this fails once
     a newer IMF World Economic Outlook is out (the dated reminder);
-  * pl_history.json: each country's series on its map figure's basis — the
-    fallback countries GDP-wide throughout, a household country's years
-    without a household figure linked to the GDP-wide moves (no splice jump),
-    the flagged years listed in "gdp";
+  * pl_history.json: each country's series on its map figure's basis —
+    every year without a (kept) household figure linked to the GDP-wide
+    moves (no splice jump), the fallback countries' years since their last
+    household figure among them, the flagged years listed in "gdp"; the
+    map's carried-forward figure is the history's latest year;
   * the words: pricelevel.basis_note and app.js plBasisNote say the same
     thing; the guide's price ⓘ and the history chart's ⓘ carry them;
     /dollar-strength marks a flagged price ‡ with its note; the dataset says
@@ -41,17 +46,30 @@ PLH = J("public", "pl_history.json")
 APP = open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8").read()
 
 # ---- pick_basis ----------------------------------------------------------------
-hh = {"SG": (2025, 0.9, "Singapore"), "QA": (2024, 2.7, "Qatar"), "XK": (2022, 0.4, "Kosovo"),
-      "AR": (2021, 300.0, "Argentina"), "GU": (2021, 1.1, "Guam")}
-gdp = {"SG": (2025, 0.8, "Singapore"), "QA": (2025, 2.0, "Qatar"), "XK": (2025, 0.36, "Kosovo"),
-       "AR": (2025, 567.0, "Argentina"), "BR": (2025, 2.5, "Brazil")}
+hh = {"SG": {2024: 0.85, 2025: 0.9}, "QA": {2024: 2.7}, "XK": {2021: 0.38, 2022: 0.4},
+      "AR": {2020: 200.0, 2021: 300.0}, "GU": {2021: 1.1}, "NN": {2010: 5.0},
+      "PS": {2022: 0.57, 2023: 0.5, 2024: 0.8, 2025: 0.9}}
+gdp = {"SG": {2025: 0.8}, "QA": {2025: 2.0}, "XK": {2022: 0.32, 2025: 0.36},
+       "AR": {2021: 270.0, 2025: 567.0}, "BR": {2025: 2.5}, "NN": {2020: 4.0, 2025: 4.4},
+       "PS": {2022: 0.6, 2023: 0.6, 2024: 0.63, 2025: 0.63}}
 pb = build_ppp.pick_basis(hh, gdp)
-results.append(ok(pb["SG"] == (2025, 0.9, "Singapore", None) and pb["QA"] == (2024, 2.7, "Qatar", None),
+results.append(ok(pb["SG"] == (2025, 0.9, None, None) and pb["QA"] == (2024, 2.7, None, None),
                   "household where it is current or %d year behind the GDP-wide figure (Singapore, Qatar)"
                   % build_ppp.HOUSEHOLD_MAX_LAG))
-results.append(ok(pb["XK"][3] == "gdp" and pb["AR"] == (2025, 567.0, "Argentina", "gdp") and pb["BR"][3] == "gdp",
-                  "GDP-wide, flagged, where household is older (Kosovo 2022, Argentina 2021) or missing (Brazil here)"))
-results.append(ok(pb["GU"] == (2021, 1.1, "Guam", None), "household where there is no GDP-wide figure at all (Guam)"))
+results.append(ok(pb["AR"][:3] == (2025, 567.0 * 300.0 / 270.0, "gdp") and pb["AR"][3] == 2021
+                  and pb["XK"][2:] == ("gdp", 2022) and abs(pb["XK"][1] - 0.36 * 0.4 / 0.32) < 1e-12,
+                  "household older than that: its last figure carried forward along the GDP-wide one, flagged "
+                  "gdp with hh_year (Argentina 300 x 567/270 for 2025, hh_year 2021; Kosovo from 2022)"))
+results.append(ok(pb["BR"] == (2025, 2.5, "gdp", None) and pb["NN"] == (2025, 4.4, "gdp", None),
+                  "the GDP-wide figure itself, hh_year None, only where the two never share a year (no household "
+                  "figure, or none in a GDP-wide year)"))
+results.append(ok(pb["GU"] == (2021, 1.1, None, None), "household where there is no GDP-wide figure at all (Guam)"))
+results.append(ok(build_ppp.HOUSEHOLD_UNTIL.get("PS") == 2023
+                  and pb["PS"][2:] == ("gdp", 2023) and abs(pb["PS"][1] - 0.63 * 0.5 / 0.6) < 1e-12
+                  and build_ppp.household_kept("PS", hh["PS"]) == {2022: 0.57, 2023: 0.5}
+                  and build_ppp.household_kept("SG", hh["SG"]) == hh["SG"],
+                  "HOUSEHOLD_UNTIL: Palestine's household years after 2023 (wartime Gaza prices) are left out, so "
+                  "it takes the carried-forward figure from 2023"))
 
 # ---- build(): both indicators, the flag, MANUAL -----------------------------------
 asked = []
@@ -72,16 +90,19 @@ def row(iso, year, v, name=None):
 real_fetch = build_ppp._fetch
 build_ppp._fetch = fake({
     "PA.NUS.PRVT.PP": [row("SG", 2025, 0.9), row("AR", 2021, 300.0), row("AR", 2020, 200.0)],
-    "PA.NUS.PPP": [row("SG", 2025, 0.8), row("AR", 2025, 567.0), row("TW", 2025, 14.0, "Taiwan (WB)")],
+    "PA.NUS.PPP": [row("SG", 2025, 0.8), row("AR", 2025, 567.0), row("AR", 2021, 270.0),
+                   row("TW", 2025, 14.0, "Taiwan (WB)")],
     "NY.GDP.PCAP.CD": [row("SG", 2025, 90000.0)], "FP.CPI.TOTL.ZG": [row("SG", 2025, 1.0)]})
 try:
     t = build_ppp.build()
 finally:
     build_ppp._fetch = real_fetch
 results.append(ok({"PA.NUS.PRVT.PP", "PA.NUS.PPP"} <= set(asked), "build() asks the World Bank for both factors"))
-results.append(ok(t["SG"]["ppp"] == 0.9 and "basis" not in t["SG"] and t["AR"]["ppp"] == 567.0
-                  and t["AR"]["basis"] == "gdp" and t["AR"]["year"] == 2025,
-                  "the table: Singapore household (no flag), Argentina GDP-wide 2025 with basis gdp"))
+results.append(ok(t["SG"]["ppp"] == 0.9 and "basis" not in t["SG"] and "hh_year" not in t["SG"]
+                  and t["AR"]["ppp"] == 630.0 and t["AR"]["basis"] == "gdp" and t["AR"]["year"] == 2025
+                  and t["AR"]["hh_year"] == 2021 and t["AR"]["name"] == "AR",
+                  "the table: Singapore household (no flag), Argentina's 2021 household figure carried to 2025 "
+                  "(630 = 300 x 567/270) with basis gdp and hh_year 2021"))
 results.append(ok(t["TW"]["ppp"] == 14.0 and "src" not in t["TW"],
                   "a MANUAL row never overrides the World Bank's own (were it ever to publish Taiwan)"))
 FAKE_ROW = {"ppp": 13.0, "year": 2025, "name": "Taiwan", "basis": "gdp", "src": "imf",
@@ -106,9 +127,18 @@ results.append(ok(late == (["TW"], []), "manual_overdue fires the day after refr
 results.append(ok(all(r.get("basis") in (None, "gdp") for r in PPP.values()),
                   "ppp.json rows are household (no basis) or basis gdp, nothing else"))
 fallback = {"AR", "AW", "PR", "BB", "CW", "FO", "GL", "MM", "SZ", "ZW", "XK", "SD", "KN", "FM"}
-results.append(ok(all(PPP[i].get("basis") == "gdp" for i in fallback),
-                  "the GDP-wide fallback is flagged where the household figure stops at 2021-2023 "
-                  "(Argentina, Aruba, Puerto Rico, Kosovo...)"))
+results.append(ok(all(PPP[i].get("basis") == "gdp" and PPP[i].get("hh_year") in (2021, 2022, 2023)
+                      for i in fallback),
+                  "the fallback is flagged, with the household year it carries forward, where the household "
+                  "figure stops at 2021-2023 (Argentina, Aruba, Puerto Rico, Kosovo...)"))
+results.append(ok(all(r.get("hh_year") for r in PPP.values() if r.get("basis") == "gdp" and not r.get("src"))
+                  and all("hh_year" not in r for r in PPP.values() if not r.get("basis")),
+                  "every World Bank fallback row carries hh_year (none falls back to the raw GDP-wide figure); "
+                  "no household row has one"))
+ps = PPP.get("PS") or {}
+results.append(ok(ps.get("basis") == "gdp" and ps.get("hh_year") == 2023 and 0.5 < ps.get("ppp", 0) < 0.65,
+                  "Palestine: its 2023 household figure carried forward (ppp %s), not 2025's 0.907 from wartime "
+                  "Gaza prices" % ps.get("ppp")))
 results.append(ok(all(not PPP[i].get("basis") for i in ("SG", "QA", "BN", "MO", "US", "VN", "TH", "FR")),
                   "Singapore, Qatar, Brunei, Macau and the rest are on household spending"))
 n_hh = sum(1 for r in PPP.values() if not r.get("basis"))
@@ -137,8 +167,12 @@ def years_of(iso):
 
 
 ar_years = {Y[i] for i, v in enumerate(PLH["pl"]["AR"]) if v is not None}
-results.append(ok(ar_years and years_of("AR") == ar_years,
-                  "a fallback country's history is GDP-wide throughout, every shown year flagged (Argentina)"))
+results.append(ok(ar_years and set(range(2022, 2026)) <= years_of("AR") and 2021 not in years_of("AR")
+                  and set(range(2011, 2022)) <= ar_years - years_of("AR"),
+                  "a fallback country's history is household where it has one (Argentina 2011-2021), its years "
+                  "since linked to the GDP-wide moves and flagged (2022-2025)"))
+results.append(ok({2024, 2025} <= years_of("PS") and 2023 not in years_of("PS"),
+                  "Palestine's history follows the GDP-wide moves after 2023 (HOUSEHOLD_UNTIL), flagged"))
 results.append(ok("SG" not in G and "VN" in G and years_of("VN") == set(range(1990, 1995)),
                   "a household country flags only its years with no household figure (Vietnam 1990-1994; "
                   "Singapore none)"))
@@ -149,37 +183,55 @@ results.append(ok(f["ZZ"] == {1998: 8.0, 1999: 10.0, 2000: 10.0, 2001: 11.0} and
                   "factors(): years before the household series follow the GDP-wide moves, linked at 2000 "
                   "(no splice jump), flagged 1998-1999"))
 f, flagged = build_pl_history.factors({"ZZ": {2021: 3.0}}, {"ZZ": {2021: 2.0, 2025: 2.4}})
+results.append(ok(f["ZZ"] == {2021: 3.0, 2025: 3.0 * 2.4 / 2.0} and flagged["ZZ"] == [[2025, 2025]]
+                  and build_ppp.pick_basis({"ZZ": {2021: 3.0}}, {"ZZ": {2021: 2.0, 2025: 2.4}})["ZZ"][1]
+                  == f["ZZ"][2025],
+                  "factors(): a fallback country (household stops 4 years early) keeps its household year and "
+                  "links the rest, and its latest year is the map's carried-forward figure"))
+f, flagged = build_pl_history.factors({"ZZ": {2015: 3.0}}, {"ZZ": {2021: 2.0, 2025: 2.4}})
 results.append(ok(f["ZZ"] == {2021: 2.0, 2025: 2.4} and flagged["ZZ"] == [[2021, 2021], [2025, 2025]],
-                  "factors(): a fallback country (household stops 4 years early) is GDP-wide in every year"))
+                  "factors(): two figures that never share a year: the GDP-wide one alone, every year flagged"))
+f, flagged = build_pl_history.factors({"PS": {2023: 0.5, 2024: 0.8}}, {"PS": {2023: 0.6, 2024: 0.63}})
+results.append(ok(f["PS"] == {2023: 0.5, 2024: 0.5 * 0.63 / 0.6} and flagged["PS"] == [[2024, 2024]],
+                  "factors(): HOUSEHOLD_UNTIL's years follow the GDP-wide moves too (Palestine 2024)"))
 results.append(ok("PA.NUS.PRVT.PP" in PLH.get("source", ""), "pl_history.json names the household factor as its source"))
 
 # ---- the words, in both languages ------------------------------------------------
 gdp_txt = pricelevel.basis_note("AR", PPP)
+raw_txt = pricelevel.basis_note("ZZ", {"ZZ": {"basis": "gdp"}})
 imf_txt = pricelevel.basis_note("TW", PPP)
-results.append(ok(gdp_txt == "GDP-wide figure: the World Bank has no recent household-spending one for it."
+results.append(ok(gdp_txt == "Household-spending figure of 2021, carried forward along the GDP-wide one: the World "
+                             "Bank has no usable newer household figure for it."
+                  and raw_txt == "GDP-wide figure: the World Bank has no household-spending one for it."
                   and imf_txt == "IMF figure (IMF World Economic Outlook, October 2026), GDP-wide: the World Bank "
                                  "doesn't cover it." and pricelevel.basis_note("SG", PPP) == "",
-                  "basis_note: GDP-wide (Argentina), IMF (Taiwan), nothing for household (Singapore)"))
-results.append(ok('if (e.basis === "gdp") return "%s";' % gdp_txt in APP
+                  "basis_note: carried forward (Argentina, 2021), GDP-wide (no shared year), IMF (Taiwan), nothing "
+                  "for household (Singapore)"))
+results.append(ok('if (e.basis === "gdp" && e.hh_year) return `%s`;'
+                  % gdp_txt.replace("2021", "${e.hh_year}") in APP
+                  and 'if (e.basis === "gdp") return "%s";' % raw_txt in APP
                   and "return `IMF figure (${e.src_note || \"World Economic Outlook\"}), GDP-wide: the World Bank "
                       "doesn't cover it.`;" in APP,
                   "app.js plBasisNote says exactly what pricelevel.basis_note says"))
 gc = APP[APP.index("async function renderGuideCost"):APP.index("// ---- Travel Guide: \"Where to stay\"")]
 results.append(ok(gc.count("plBasisNote(iso)") == 4, "both guide price ⓘ tips (live and snapshot) carry plBasisNote"))
-results.append(ok("colBasisNote(colIso)" in APP and "plHist.gdp" in APP,
-                  "the Cost over time ⓘ names the GDP-wide years (colBasisNote)"))
+cb = APP[APP.index("function colBasisNote"):APP.index("function colBasisNote") + 900]
+results.append(ok("colBasisNote(colIso)" in APP and "plHist.gdp" in APP
+                  and 'if (e.basis === "gdp" && !e.hh_year) return' in cb and "(no usable household-spending one)" in cb,
+                  "the Cost over time ⓘ names the linked years (colBasisNote); 'GDP-wide figures' throughout only "
+                  "where the two never share a year (no hh_year)"))
 
 # /dollar-strength: a flagged single-country price is marked ‡ and footnoted.
 SF = os.path.join(ROOT, "scripts", "fixtures", "strength")
 rates_p = json.load(open(os.path.join(SF, "rates_2026-10-23.json"), encoding="utf-8"))
 sppp = copy.deepcopy(json.load(open(os.path.join(SF, "ppp_2026-10-23.json"), encoding="utf-8")))
-sppp["BO"]["basis"] = "gdp"
+sppp["BO"].update(basis="gdp", hh_year=2021)
 page = RS.dollar_strength(rates_p, sppp, None, today="2026-10-23")["html"]
 bob = re.search(r'<tr>(?:(?!</tr>).)*<span class="dscode">BOB</span>.*?</tr>', page, re.S)
 results.append(ok(bool(bob) and '<sup class="fn">‡</sup>' in bob.group(0) and gdp_txt in bob.group(0)
                   and RS.BASIS_NOTE in page,
-                  "/dollar-strength: a GDP-wide price (Bolivia, flagged here) is marked ‡, its title says why, "
-                  "the note explains"))
+                  "/dollar-strength: a carried-forward price (Bolivia, flagged here) is marked ‡, its title says "
+                  "why, the note explains"))
 plain = RS.dollar_strength(rates_p, json.load(open(os.path.join(SF, "ppp_2026-10-23.json"), encoding="utf-8")), None,
                            today="2026-10-23")["html"]
 results.append(ok("‡" not in plain, "/dollar-strength: no ‡ and no note when no priced country is flagged"))

@@ -3,19 +3,21 @@
 (World Bank, free, no key). Feeds the Cost of living tab's "over time" chart.
 
 A year's price level is the PPP factor (the one ppp.json and the map use:
-household consumption, PA.NUS.PRVT.PP, or the GDP-wide PA.NUS.PPP where
-build_ppp.pick_basis falls back to it) over the exchange rate the World
+household consumption, PA.NUS.PRVT.PP) over the exchange rate the World
 Bank's own US$ GDP implies (NY.GDP.MKTP.CN / NY.GDP.MKTP.CD).
 
 Each country's series is on ONE basis, its map figure's, so the chart never
-joins two kinds of figure. A country on the GDP-wide fallback is GDP-wide
-throughout. A household-basis country's years without a household figure
-(the UAE before 2007, the 1990s for most post-Soviet states, the last year
-for Qatar) follow the GDP-wide figure's year-to-year move, linked at the
-nearest year with both: spliced raw, the two differ by up to 2.5x (Gambia,
-1990) and would draw jumps nobody measured — the fault of the GDP-in-US$ /
-GDP-at-PPP route below. "gdp" lists, per country, the year ranges that
-follow the GDP-wide figure (review 2026-11-23 item 15).
+joins two kinds of figure. Its years without a household figure (the UAE
+before 2007, the 1990s for most post-Soviet states, the last year for Qatar,
+every year since 2021 for the countries stuck on that benchmark, and the
+years build_ppp.HOUSEHOLD_UNTIL leaves out) follow the GDP-wide figure's
+(PA.NUS.PPP) year-to-year move, linked at the nearest year with both — the
+same carried-forward figure build_ppp.pick_basis gives the map. Spliced raw,
+the two differ by up to 2.5x (Gambia, 1990) and would draw jumps nobody
+measured — the fault of the GDP-in-US$ / GDP-at-PPP route below. Only a
+country whose two figures never share a year keeps the GDP-wide one alone.
+"gdp" lists, per country, the year ranges that follow the GDP-wide figure
+(review 2026-11-23 item 15).
 
 Two routes that look equivalent are not:
  * PPP factor / official rate (PA.NUS.FCRF) mixes units — the factor is in
@@ -40,7 +42,7 @@ import json
 import os
 import time
 
-from .build_ppp import _fetch, GEOJSON, ROOT, pick_basis
+from .build_ppp import _fetch, GEOJSON, ROOT, household_kept, pick_basis
 
 OUT = os.path.join(ROOT, "public", "pl_history.json")
 FIRST_YEAR = 1990
@@ -91,27 +93,23 @@ def _despike(vals):
     return out
 
 
-def _newest(series):
-    """{iso: (year, value, None)} — the newest figure per country, in the
-    shape build_ppp.pick_basis takes."""
-    return {iso: (max(s), s[max(s)], None) for iso, s in series.items() if s}
-
-
 def factors(hh, gdp):
     """({iso: {year: factor}}, {iso: [[from, to], ...]}): each country's PPP
-    factor per year on its map figure's basis, and the year ranges that
-    follow the GDP-wide figure (the whole series on the fallback; linked
-    years for a household-basis country)."""
+    factor per year — the household one (less build_ppp.HOUSEHOLD_UNTIL's
+    years), its missing years following the GDP-wide figure linked at the
+    nearest year with both — and the year ranges that follow the GDP-wide
+    figure. Where the two never share a year, the map's choice
+    (build_ppp.pick_basis) alone, the GDP-wide one flagged throughout."""
     out, flagged = {}, {}
-    for iso, (_y, _v, _n, basis) in pick_basis(_newest(hh), _newest(gdp)).items():
-        h, g = hh.get(iso, {}), gdp.get(iso, {})
-        if basis == "gdp":
-            out[iso], linked = dict(g), sorted(g)
+    for iso, (_y, _v, basis, _hy) in pick_basis(hh, gdp).items():
+        h, g = household_kept(iso, hh.get(iso)), gdp.get(iso, {})
+        both = sorted(y for y in h if g.get(y))
+        if not both:
+            out[iso], linked = (dict(g), sorted(g)) if basis == "gdp" else (dict(h), [])
         else:
-            both = sorted(y for y in h if y in g)
             f, linked = dict(h), []
             for y in sorted(g):
-                if y in h or not both:
+                if y in h:
                     continue
                 at = min(both, key=lambda b: (abs(b - y), b))
                 f[y] = g[y] * h[at] / g[at]
@@ -189,7 +187,7 @@ def build():
         if r:
             gdp[iso] = r
     return {"years": years, "pl": out, "alt": sorted(a for a in alt if a in out), "gdp": gdp,
-            "source": "World Bank: PA.NUS.PRVT.PP (PA.NUS.PPP in the years \"gdp\" lists) "
+            "source": "World Bank: PA.NUS.PRVT.PP (moved along PA.NUS.PPP in the years \"gdp\" lists) "
                       "x NY.GDP.MKTP.CD / NY.GDP.MKTP.CN"}
 
 

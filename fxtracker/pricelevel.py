@@ -53,16 +53,20 @@ MAX_CARRY_YEARS = 3
 
 
 def basis_note(iso, ppp):
-    """Why a country's price figure isn't the usual World Bank household-
-    spending one (build_ppp.py), or "": Taiwan's hand-entered IMF figure, or
-    the World Bank's GDP-wide figure standing in. Mirrors app.js
-    plBasisNote, word for word."""
+    """Why a country's price figure isn't a current World Bank household-
+    spending one (build_ppp.py), or "": Taiwan's hand-entered IMF figure, an
+    older household figure carried forward along the GDP-wide one (hh_year),
+    or, where the two never overlap, the GDP-wide figure itself. Mirrors
+    app.js plBasisNote, word for word."""
     e = (ppp or {}).get(iso) or {}
     if e.get("src") == "imf":
         return ("IMF figure (%s), GDP-wide: the World Bank doesn't cover it."
                 % (e.get("src_note") or "World Economic Outlook"))
+    if e.get("basis") == "gdp" and e.get("hh_year"):
+        return ("Household-spending figure of %d, carried forward along the GDP-wide one: the World Bank "
+                "has no usable newer household figure for it." % e["hh_year"])
     if e.get("basis") == "gdp":
-        return "GDP-wide figure: the World Bank has no recent household-spending one for it."
+        return "GDP-wide figure: the World Bank has no household-spending one for it."
     return ""
 
 
