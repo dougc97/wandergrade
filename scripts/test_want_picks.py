@@ -15,6 +15,7 @@ What it holds the code to:
   * the ★ list isn't in a link, so a share link leaves vb out (the recipient
     would rank their own, mostly empty, list), and the address bar keeps it
     only for a visit a link opened it on (the saved choice needs none);
+  * "Show top 10" only when there is more: a list of exactly five has none;
   * "Somewhere new" and "Include visited" rank as before.
 """
 import json, os, re, subprocess, sys, tempfile
@@ -76,6 +77,15 @@ $("beenFilter").value = "hide"; renderValue();
 out.hide = { rows: rows(), note: note.innerHTML, url: buildShareURL(false) };
 $("beenFilter").value = "show"; renderValue();
 out.show = { rows: rows() };
+// Show more only when there is more: exactly Top 5 ★ countries, then six.
+$("pickCount").value = "5";
+localStorage.setItem("fx_wishlist", JSON.stringify(["JP", "PT", "MX", "IS", "TH"])); wishlist = null;
+$("beenFilter").value = "want"; renderValue();
+out.five = { rows: rows().length, more: $("showMore").hidden };
+localStorage.setItem("fx_wishlist", JSON.stringify(["JP", "PT", "MX", "IS", "TH", "GB-SCT"])); wishlist = null;
+renderValue();
+out.six = { rows: rows().length, more: $("showMore").hidden, text: $("showMore").textContent };
+$("pickCount").value = "20";
 localStorage.setItem("fx_wishlist", "[]"); wishlist = null;
 $("beenFilter").value = "want"; renderValue();
 out.empty = top.innerHTML;
@@ -128,6 +138,10 @@ else:
     results.append(ok("vb=" not in w["share"] and "vb=" not in o["wantSavedUrl"],
                       "a share link leaves vb out, and so does the bar when want-to-go is the saved choice: %s / %s"
                       % (w["share"], o["wantSavedUrl"])))
+    results.append(ok(o["five"] == {"rows": 5, "more": True}
+                      and o["six"] == {"rows": 5, "more": False, "text": "Show top 10 ↓"},
+                      "Show top 10 only when there is more: none for exactly five ★ countries, there for six "
+                      "%s %s" % (o["five"], o["six"])))
     results.append(ok("hint" in o["empty"] and "Wander List" in o["empty"] and 'id=\'wantGo\'' in o["empty"],
                       "an empty ★ list says where the stars come from"))
     results.append(ok("TH" not in o["hide"]["rows"] and "you've been to hidden" in o["hide"]["note"]

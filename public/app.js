@@ -9135,8 +9135,11 @@ function renderValue() {
   const sm = $("showMore");
   if (sm) {
     const cap = pickCount();
-    const more = cap < 20 && picks.length >= cap;
-    const toGems = !more && popular.length > 0 && picks.length < cap && gems.length > 0;
+    // Only when there IS more: a ★ list of exactly five offered "Show top
+    // 10", which showed the same five and saved Top 10 for every view.
+    const pool = popular.length ? popular : eligible;
+    const more = cap < 20 && pool.length > picks.length;
+    const toGems = popular.length > 0 && pool.length <= picks.length && gems.length > 0;
     sm.hidden = !more && !toGems;
     sm.dataset.go = toGems ? "gems" : "";
     // The gems fold lists as many as the Show count, so "5 more" at Top 5
