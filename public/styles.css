@@ -1840,17 +1840,16 @@ button.chip2 { border: 0; }
    Order among the blocks themselves is unchanged.
    =========================================================================== */
 
-/* gentle motion — all of it disabled for prefers-reduced-motion users */
+/* gentle motion — all of it disabled for prefers-reduced-motion users.
+   Nothing here runs forever: the background layers used to drift 2–6 px a
+   second (basedrift, seasondrift), where nobody could see it, repainting two
+   full-screen layers for as long as the tab stayed open; the top picks'
+   pulse ran without end. It pulses 4 times now (the legend's key too). */
 @media (prefers-reduced-motion: no-preference) {
-  .bgdoodle { animation: basedrift 360s linear infinite; }
-  .bgseason { animation: seasondrift 180s linear infinite; }
-  @keyframes basedrift  { to { background-position: -760px 760px; } }
-  @keyframes seasondrift { to { background-position: 520px 1040px; } }
-
   .gradetable tbody tr { animation: rowin .38s ease both; animation-delay: calc(var(--i, 0) * 55ms); }
   @keyframes rowin { from { opacity: 0; transform: translateY(7px); } }
 
-  .map path.toppick { animation: mappulse 2.6s ease-in-out infinite; }
+  .map path.toppick { animation: mappulse 2.6s ease-in-out 4; }
   @keyframes mappulse { 50% { opacity: .5; } }
 }
 
@@ -2655,7 +2654,7 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
    key and the thing it describes are visibly the same effect. */
 .legend .swatch.pulsekey { background: #0a7d28; }
 @media (prefers-reduced-motion: no-preference) {
-  .legend .swatch.pulsekey { animation: mappulse 2.6s ease-in-out infinite; }
+  .legend .swatch.pulsekey { animation: mappulse 2.6s ease-in-out 4; }
 }
 
 /* Ranked picks on the live value map — the same panel the exported PNG carries,
