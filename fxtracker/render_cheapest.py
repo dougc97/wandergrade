@@ -32,6 +32,8 @@ reports `degraded`, so the server sends it with no-store.
 
 import datetime
 import html
+import re
+import urllib.parse
 
 from . import advisories, flightvalue, geo, picks, pricelevel
 from . import render_guide as rg
@@ -57,6 +59,9 @@ HUB_TOP = 3
 TITLE_MAX = RL.TITLE_MAX
 DESC_MAX = RL.DESC_MAX
 FV_WORD = {"low": "Low", "typical": "Typical", "high": "High"}   # app.js FV_WORD
+# The Travelpayouts marker on every Aviasales link (app.js TP_MARKER): the
+# affiliate id, public by design (render_guide's EKTA link carries it too).
+TP_MARKER = "738472"
 
 
 def path_for(month):
@@ -165,6 +170,10 @@ def context(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, cent=Non
         fares["fv"] = fv
     ctx["fares"] = fares
     ctx["fv"] = fv
+    # The fare link's ends (search_url): the origin's hub, and each country's
+    # cheapest-fare city for a month whose curve record names none.
+    ctx["hub"] = (flights or {}).get("hub")
+    ctx["dests"] = {r["iso"]: r.get("dest") for r in (flights or {}).get("countries") or [] if r.get("iso")}
     return ctx
 
 
@@ -240,17 +249,53 @@ def rank_month(ctx, month, score=None, scored=None):
     return keep
 
 
+def month_key(fv, month, today):
+    """The flight-value month key ("2027-02") picks.month_fare reads for
+    `month`: the payload's own window, else the month's next occurrence."""
+    t = _date(today)
+    mm = "%02d" % month
+    key = next((k for k in (fv or {}).get("months") or [] if k[5:] == mm), None)
+    return key or "%04d-%s" % (t.year if month > t.month else t.year + 1, mm)
+
+
+def search_url(hub, dest, key, today):
+    """app.js flightSearchURL with the hub handed in: an Aviasales search
+    from `hub` to `dest` leaving the 15th of month `key` (tomorrow if that
+    has passed) for 10 days, with the affiliate marker; None without a hub
+    or a destination."""
+    if not hub or not dest:
+        return None
+    t = _date(today)
+    dep = t + datetime.timedelta(days=60)
+    if re.fullmatch(r"\d{4}-\d{2}", key or ""):
+        dep = max(datetime.date(int(key[:4]), int(key[5:]), 15), t + datetime.timedelta(days=1))
+    ret = dep + datetime.timedelta(days=10)
+    seg = lambda d: "%02d%02d" % (d.day, d.month)
+    path = hub + seg(dep) + dest + seg(ret) + "1"
+    return "https://www.aviasales.com/search/" + urllib.parse.quote(path, safe="") + "?marker=" + TP_MARKER
+
+
 def fare_of(ctx, iso, month, today):
-    """(price, band) for the month's US fare where the route has a range and a
-    fare that month (picks.month_fare, banded as the Flights tab bands it:
-    flightvalue.band against the route's own year), else None."""
+    """(price, band, stats, search URL or None) for the month's US fare where
+    the route has a range and a fare that month (picks.month_fare, banded as
+    the Flights tab bands it: flightvalue.band against the route's own year),
+    else None. The URL searches the city that month's fare is to (the Flights
+    tab's link), only with all three lists in hand: a list not in hand can't
+    say the country isn't Level 4, and no booking link goes there (the
+    guides' rule)."""
     fv = ctx.get("fv")
     mf = picks.month_fare(fv, iso, month, _date(today)) if fv else None
     if not mf:
         return None
     c = (fv.get("countries") or {}).get(iso) or {}
     band = flightvalue.band(mf[0], c)
-    return (mf[0], band, c) if band else None
+    if not band:
+        return None
+    key = month_key(fv, month, today)
+    rec = (c.get("curve") or {}).get(key) or []
+    dest = rec[1] if len(rec) > 1 and rec[1] else (ctx.get("dests") or {}).get(iso)
+    url = search_url(ctx.get("hub"), dest, key, today) if not ctx["missing"] else None
+    return (mf[0], band, c, url)
 
 
 # ---- the pages -------------------------------------------------------------------
@@ -323,12 +368,18 @@ def _weather(s, c, month):
 
 
 def _fare_cell(f):
+    """The month's fare, linked to a live search of that route (the Flights
+    tab's affiliate link: sponsored, nofollow, a new tab), with its band."""
     if not f:
         return "—<sup class=\"fn\">*</sup>"
-    price, band, c = f
+    price, band, c, url = f
     tip = "Typical for this route: %s–%s (the middle half of its monthly fares)" % (_money(c["lo"]), _money(c["hi"]))
+    fare = _money(price)
+    if url:
+        fare = ('<a class="farelink" href="%s" target="_blank" rel="sponsored nofollow noopener" '
+                'title="Cached fare: check it live on Aviasales">%s&nbsp;↗</a>' % (html.escape(url, quote=True), fare))
     return ('%s <span class="fvband %s" title="%s">%s</span>'
-            % (_money(price), band, html.escape(tip, quote=True), FV_WORD[band]))
+            % (fare, band, html.escape(tip, quote=True), FV_WORD[band]))
 
 
 def _wrap(h1, lede, body, notes, sources):
@@ -401,6 +452,9 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
     fare_note = ("* Fares are cached searches, not live prices, and many months have none. Where a month "
                  "has one: the cheapest round trip from the US, marked Low, Typical or High against the "
                  "route's own year.")
+    # Said on a page whose fares carry the link (review #6), the Flights tab's words.
+    aff_note = (" Fares ↗ open a live search on Aviasales: affiliate links, so booking through them may "
+                "earn us a commission, at no extra cost to you.")
     unavailable = ("The list isn't available right now: %s not loaded (see the note below)."
                    % ("prices or climate are" if not ctx["ok"] else "the US levels are"))
     out = {}
@@ -409,11 +463,12 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
         name, year = rg.MON_FULL[m - 1], year_for(m, today_d)
         rows = ranked[m]
         n = len(rows)
-        trs, alt_used = [], False
+        trs, alt_used, linked = [], False, False
         for i, s in enumerate(rows):
             iso = s["iso"]
             lvl = ctx["own"]["us"][iso]
             f = fare_of(ctx, iso, m, today_d)
+            linked = linked or bool(f and f[3])
             pct = "%d%%" % pct_of(s)
             if iso in alt:
                 alt_used = True
@@ -454,7 +509,7 @@ def pages(us, ca, de, rates, ppp, clim, facts, flights=None, fv=None, fares_stat
         page_notes = [_excluded(gaps[m]),
                       "Grade: WanderGrade's overall value from the US in %s (prices, safety, weather and "
                       "flights), as Top Picks shows it. Prices: national averages vs the US (100%%)." % name,
-                      fare_note] + ([RL.ALT_NOTE] if alt_used else []) + notes
+                      fare_note + (aff_note if linked else "")] + ([RL.ALT_NOTE] if alt_used else []) + notes
         h1 = "Cheapest countries to visit in %s %d, from the US" % (name, year)
         title = RL._fit(["Cheapest Countries to Visit in %s %d (From the US)" % (name, year),
                          "Cheapest Countries to Visit in %s %d (US)" % (name, year),

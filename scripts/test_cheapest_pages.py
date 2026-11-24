@@ -260,6 +260,56 @@ results.append(ok(fare_good and fare_rows > 5 and dash_rows > 5,
                   "footnote mark otherwise (%d rows)" % (fare_rows, dash_rows)))
 results.append(ok(nov["html"].count("Fares are cached searches, not live prices, and many months have none") == 1,
                   "one footnote on the fares"))
+# The fare links (review #6): with the production shape — the fares' hub
+# and each month's [price, city] — each shown fare links to a live search of
+# that route, the city that month's fare is to, leaving the 15th (tomorrow
+# once past) for 10 days, with the marker; the * note then names the
+# commission. The trimmed fixture has neither, so its fares stay plain text.
+results.append(ok("farelink" not in nov["html"] and "commission" not in nov["html"],
+                  "no hub in the fares: no fare links and no affiliate wording"))
+fl = fx()
+fl["flights"]["hub"] = "NYC"
+_dest_of = {r["iso"]: r.get("dest") for r in fl["flights"]["countries"]}
+for _iso, _c in fl["fv"]["countries"].items():
+    for _k, _rec in (_c.get("curve") or {}).items():
+        if _iso == "TH" and _k == "2026-11":
+            _rec.append("HKT")                       # this month's fare is to another city than the row's
+        elif _dest_of.get(_iso):
+            _rec.append(_dest_of[_iso])
+FL = render(fl)
+fnov = FL["/cheapest/november"]
+links = re.findall(r'<a class="farelink" href="([^"]+)" target="_blank" rel="sponsored nofollow noopener" '
+                   r'title="Cached fare: check it live on Aviasales">\$([\d,]+)&nbsp;↗</a> <span class="fvband', fnov["html"])
+_want = []
+for s in expected(11):
+    mf = picks.month_fare(fl["fv"], s["iso"], 11)
+    if mf and flightvalue.band(mf[0], fl["fv"]["countries"][s["iso"]]):
+        rec = fl["fv"]["countries"][s["iso"]]["curve"]["2026-11"]
+        _want.append(("https://www.aviasales.com/search/NYC1511%s25111?marker=738472" % rec[1], format(mf[0], ",")))
+results.append(ok(links == [(html.unescape(u), p) for u, p in _want] and len(links) == fare_rows,
+                  "November: every shown fare links to NYC -> that month's city, 15 Nov to 25 Nov, marker 738472 "
+                  "(%d links): %s" % (len(links), links[:1])))
+results.append(ok("TH" not in fnov["isos"] or "NYC1511HKT25111" in fnov["html"],
+                  "a month whose fare is to another city searches that city (Thailand: HKT)"))
+results.append(ok(fnov["html"].count("Fares ↗ open a live search on Aviasales: affiliate links, so booking through "
+                                     "them may earn us a commission, at no extra cost to you.") == 1
+                  and all(("commission" in p["html"]) == ("farelink" in p["html"]) for p in FL.values()),
+                  "the * note names the commission exactly where a page has fare links"))
+results.append(ok(RC.search_url("NYC", "BKK", "2026-10", "2026-10-23") ==
+                  "https://www.aviasales.com/search/NYC2410BKK03111?marker=738472"
+                  and RC.search_url("NYC", "BKK", "2027-02", "2026-10-23").startswith(
+                      "https://www.aviasales.com/search/NYC1502BKK25021")
+                  and RC.search_url("NYC", "BKK", None, "2026-10-23") ==
+                  "https://www.aviasales.com/search/NYC2212BKK01011?marker=738472"
+                  and RC.search_url(None, "BKK", "2027-02", "2026-10-23") is None
+                  and RC.search_url("NYC", None, "2027-02", "2026-10-23") is None,
+                  "search_url is app.js flightSearchURL: the 15th, tomorrow once that has passed, 60 days out "
+                  "without a month, 10 nights; none without a hub or a city"))
+_nolist = RC.pages(fl["adv_us"], None, fl["adv_de"], fl["rates"], fl["ppp"], CLIM, FACTS, flights=fl["flights"],
+                   fv=fl["fv"], fares_state="warm", fetched=FETCHED, today=TODAY, cent=CENT)
+results.append(ok("farelink" not in _nolist["/cheapest/november"]["html"]
+                  and "commission" not in _nolist["/cheapest/november"]["html"],
+                  "a list not in hand (Canada's): no fare links, as a guide offers no booking then"))
 off = render(flights=None, fv=None, fares_state="off")["/cheapest/november"]
 results.append(ok(not off["degraded"] and "fvband" not in off["html"] and off["counts"]["rows"] > 0,
                   "no fare source configured: every fare a dash, the page not degraded for that"))
