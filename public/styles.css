@@ -2764,6 +2764,10 @@ html[data-trip] .trippeek[hidden] { display: block; visibility: hidden; min-heig
 @media (pointer: coarse) {
   :root :is(input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit], [readonly]),
     select, textarea:not([readonly])) { font-size: 16px; }
+  /* Except the tap-only short combobox (app.js enhanceSelect: read-only on a
+     touch screen so no keyboard opens): it keeps the 16px of the field it
+     is. At 14px it stood 32px tall where the select it replaces is 34. */
+  .combo-tap .combo-input { font-size: 16px; }
   /* The When/From pair was measured at 14px (97px and 120px boxes at 375);
      at 16px "September" needs the 8px this padding gives back. */
   .pickersmain .combo-input { padding-left: 6px; padding-right: 6px; }
