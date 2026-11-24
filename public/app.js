@@ -8785,7 +8785,9 @@ if (servedPicks) {
   const t0 = Date.now(), tick = setInterval(() => {
     if (!servedPicks) { clearInterval(tick); return; }
     if (loaded.value && (servedPicksReady() || Date.now() - t0 > SERVED_HOLD_MS)) {
-      if (!servedPicksReady()) releaseServedPicks();
+      // Timed out: drawn now with what there is (the first paint's own hold
+      // below would otherwise keep the served rows FIRST_HOLD_MS more).
+      if (!servedPicksReady()) { releaseServedPicks(); _firstHold.done = true; }
       renderValue();
     }
   }, 250);
@@ -8800,13 +8802,20 @@ if (servedPicks) {
 // at #1 could open another country. The first draw over the skeleton now
 // waits for those — any answer from the curves, not a finished fill (only
 // the US is pre-warmed) — for at most FIRST_HOLD_MS from its first try,
-// re-checked every 250 ms. Only that first draw: the visitor's own click,
-// key or input ends the hold at once, and nothing after it is held.
+// re-checked every 250 ms. Only that first draw: what the visitor does to
+// the ranking ends the hold at once (endsFirstHold), and nothing after it is
+// held.
+// The same goes for the served rows when a change the visitor didn't make
+// takes them off (the geo seed's From on a first visit from DE): they stay
+// until that view's data is in, where they gave way at once and the rows
+// were redrawn as each piece landed (four orders in a second).
 const FIRST_HOLD_MS = 2500;
 const _firstHold = { t0: 0, done: false, tick: 0 };
+// The home currency's rates too: Affordability's FX part is neutral until
+// they land (a first visit from DE moved #5 when the EUR set came in).
 function firstPicksReady() {
   const o = originIso();
-  return !!activities && popularitySettled && valueFlightsSettled
+  return !!activities && popularitySettled && valueFlightsSettled && !!homeRatesNow()
     && (!flightsData || !flightsData.configured
         || !!(flightValue && flightValue.origin === o)
         || !!(_fvAsk && _fvAsk.origin === o && _fvAsk.done));
@@ -8815,23 +8824,44 @@ function skeletonOnScreen() {
   const h = $("topCards");
   return !!(h && h.querySelector("table.skeleton:not([hidden])"));
 }
+// The skeleton, or served rows a change the visitor didn't make released.
+const firstPaintOnScreen = () => skeletonOnScreen() || servedOnScreen;
 function holdFirstPicks() {
   const H = _firstHold;
   if (H.done) return false;
-  if (servedPicks || !skeletonOnScreen()) { H.done = true; return false; }
+  // A redraw run from inside the visitor's own click, key or input (the Help
+  // me choose dialog, the map's country card) is theirs, wherever it is.
+  if (endsFirstHold(window.event, true)) { H.done = true; return false; }
+  if (servedPicks || !firstPaintOnScreen()) { H.done = true; return false; }
   if (!H.t0) H.t0 = Date.now();
   if (firstPicksReady() || Date.now() - H.t0 >= FIRST_HOLD_MS) { H.done = true; return false; }
   if (!H.tick) H.tick = setInterval(() => {
     if (!H.done && !firstPicksReady() && Date.now() - H.t0 < FIRST_HOLD_MS) return;
     clearInterval(H.tick);
-    if (loaded.value && skeletonOnScreen()) renderValue();
+    if (loaded.value && firstPaintOnScreen()) renderValue();
   }, 250);
   return true;
 }
-// What the visitor does is drawn at once (their change's own renderValue,
-// else the tick above).
+// What the visitor does to the ranking is drawn at once (their change's own
+// renderValue, else the tick above): a value they changed (input, change),
+// or a click, Enter or Space on a control in Top Picks. A tap on the
+// skeleton, a scroll key or a swipe re-ranks nothing and no longer ends it:
+// one tap aimed at the skeleton's #1 brought the three orders back.
+// inHandler: renderValue asking about the event it runs inside, where any
+// trusted input counts (a dialog's button lives outside Top Picks).
+const HOLD_CONTROL = "button, a[href], select, input, textarea, th.sortable, [role=button], [role=option], "
+  + "[role=tab], [role=checkbox], [role=radio], [role=switch], [role=slider]";
+const HOLD_INPUT = /^(click|dblclick|keydown|keyup|input|change|submit|pointerup|mouseup|touchend|popstate)$/;
+function endsFirstHold(e, inHandler) {
+  if (!e || !e.isTrusted || !HOLD_INPUT.test(e.type)) return false;
+  if (inHandler || e.type === "input" || e.type === "change") return true;
+  if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return false;
+  if (e.type !== "click" && e.type !== "keydown") return false;
+  const t = e.target && e.target.closest ? e.target.closest(HOLD_CONTROL) : null;
+  return !!(t && t.closest("#tab-value"));
+}
 for (const ev of ["click", "input", "change", "keydown"])
-  document.addEventListener(ev, (e) => { if (e.isTrusted) _firstHold.done = true; }, true);
+  document.addEventListener(ev, (e) => { if (endsFirstHold(e)) _firstHold.done = true; }, true);
 
 function renderValue() {
   const region = regionSel;

@@ -10,15 +10,21 @@ drawn as soon as the rates were in and then redrawn as popularity, the fares
 and the fare curves landed: the top 5 reshuffled under the reader. What it
 holds the code to:
   * while the skeleton is on screen, renderValue leaves #topCards and the
-    note alone until activities, popularity, the fares and a first answer
-    from the fare curves are all in;
+    note alone until activities, popularity, the fares, a first answer from
+    the fare curves and the home currency's rates are all in;
   * any answer from the curves counts (a request that failed or is still
     filling), not only a finished fill;
   * no fares on the server: nothing to wait for past the fares request;
   * the wait is capped (FIRST_HOLD_MS from the first try);
-  * the visitor's own doing ends it at once (the capture listeners set done);
+  * the visitor's own doing ends it at once (the capture listeners set done),
+    and only what can re-rank: a value changed, or a click, Enter or Space on
+    a control in Top Picks; a tap on the skeleton or a scroll key does not
+    (endsFirstHold), while a redraw run inside any trusted input is theirs;
   * only the first paint: once rows are drawn nothing is held again;
-  * served rows on screen: their own hold (holdServedPicks) applies, not this.
+  * served rows on screen: their own hold (holdServedPicks) applies, not this;
+  * served rows a change the visitor didn't make took off (the geo seed's
+    From on a first visit from DE) stay until that view's data is in, under
+    the same cap; the served hold timing out draws at once.
 """
 import json, os, subprocess, sys, tempfile
 
@@ -67,6 +73,14 @@ popularitySettled = true; renderValue(); steps.push(snap());
 valueFlightsSettled = true; flightsData = FIX.flights; renderValue(); steps.push(snap());   // curves not answered
 flightValue = FIX.fv; renderValue(); steps.push(snap());               // curves in: drawn
 out.steps = steps;
+// 1b. A home currency other than the dollar: held until its rates are in
+// (Affordability's FX part is neutral without them).
+fresh(); activities = FIX.activities; popularitySettled = true; valueFlightsSettled = true;
+homeBase = "EUR"; homeRates = null; dataRates = null;
+renderValue(); out.homeHeld = drawn();
+homeRates = FIX.rates; renderValue(); out.homeIn = drawn();
+homeBase = "USD"; homeRates = null;
+
 // 2. Once drawn, never held again, even with the data flags back off.
 popularitySettled = false; flightValue = null;
 top.innerHTML = "SKELETON";   // (a skeleton back on screen would not re-arm it)
@@ -98,6 +112,47 @@ $("valueMonth").value = "0";
 renderValue(); out.served = [top.innerHTML, _firstHold.done];
 activities = FIX.activities; popularitySettled = true; valueFlightsSettled = true;
 renderValue(); out.servedDone = [top.innerHTML.slice(0, 6), _firstHold.done];
+
+// 8. Served rows the geo seed's From took off: they stay (rows and note)
+// until the new origin's data is in, then one draw.
+fresh(); top.innerHTML = "SERVED"; servedPicks = flexWindow().join(","); servedOnScreen = true;
+$("valueOrigin").value = "DE";
+renderValue(); out.geo = [top.innerHTML, note.innerHTML, servedPicks, _firstHold.done];
+activities = FIX.activities; popularitySettled = true; valueFlightsSettled = true; flightsData = FIX.flights;
+flightValue = FIX.fv;   // the US curves: no answer for DE
+renderValue(); out.geoUS = top.innerHTML;
+_fvAsk = { origin: "DE", done: true }; renderValue(); out.geoDone = [top.innerHTML.slice(0, 6), _firstHold.done];
+// ...capped like the skeleton's.
+fresh(); top.innerHTML = "SERVED"; servedPicks = flexWindow().join(","); servedOnScreen = true;
+renderValue(); out.geoCapHeld = top.innerHTML;
+_firstHold.t0 = Date.now() - FIRST_HOLD_MS - 1; renderValue(); out.geoCapped = top.innerHTML.slice(0, 6);
+// ...and the visitor's own change of From is drawn at once.
+fresh(); top.innerHTML = "SERVED"; servedPicks = flexWindow().join(","); servedOnScreen = true;
+_firstHold.done = true; renderValue(); out.geoVisitor = top.innerHTML.slice(0, 6);
+$("valueOrigin").value = "";
+
+// 9. What ends it (endsFirstHold): a fake event per case.
+const inTab = { closest: (q) => (q === "#tab-value" ? {} : null) };
+const ctl = (inside) => ({ closest: (q) => (q === HOLD_CONTROL ? (inside ? inTab : { closest: () => null }) : null) });
+const bare = { closest: () => null };
+const ev = (type, target, extra) => Object.assign({ isTrusted: true, type, target }, extra || {});
+out.ends = {
+  skeletonTap: endsFirstHold(ev("click", bare)),
+  scrollKey: endsFirstHold(ev("keydown", bare, { key: "ArrowDown" })),
+  arrowOnControl: endsFirstHold(ev("keydown", ctl(true), { key: "ArrowDown" })),
+  enterOnBody: endsFirstHold(ev("keydown", bare, { key: "Enter" })),
+  controlTap: endsFirstHold(ev("click", ctl(true))),
+  enterOnControl: endsFirstHold(ev("keydown", ctl(true), { key: "Enter" })),
+  spaceOnControl: endsFirstHold(ev("keydown", ctl(true), { key: " " })),
+  outsideControl: endsFirstHold(ev("click", ctl(false))),
+  input: endsFirstHold(ev("input", bare)),
+  change: endsFirstHold(ev("change", bare)),
+  synthetic: endsFirstHold({ isTrusted: false, type: "change", target: bare }),
+  inHandlerClick: endsFirstHold(ev("click", bare), true),
+  inHandlerSynthetic: endsFirstHold({ isTrusted: false, type: "change", target: bare }, true),
+  inHandlerLoad: endsFirstHold(ev("DOMContentLoaded", bare), true),
+  none: endsFirstHold(undefined, true),
+};
 print(JSON.stringify(out));
 """
 
@@ -121,6 +176,8 @@ else:
                       "the skeleton and the note stay while activities, popularity, the fares or the fare curves "
                       "are out %s" % o["steps"]))
     results.append(ok(o["steps"][4] == [True, False], "drawn (rows and note) once all four are in %s" % o["steps"][4]))
+    results.append(ok(o["homeHeld"] is False and o["homeIn"] is True,
+                      "a home currency other than the dollar waits for its rates"))
     results.append(ok(o["again"] is True, "only the first paint: nothing is held after rows are drawn"))
     results.append(ok(o["askOpen"] is False and o["askDone"] is True,
                       "any answer from the curves counts: the request done, whatever it brought"))
@@ -132,6 +189,30 @@ else:
     results.append(ok(o["served"] == ["SERVED", False] and o["servedDone"] == ["<table", True],
                       "served rows on screen keep their own hold, and this one stands down when it ends %s %s"
                       % (o["served"], o["servedDone"])))
+
+    results.append(ok(o["geo"] == ["SERVED", "NOTE", None, False] and o["geoUS"] == "SERVED"
+                      and o["geoDone"] == ["<table", True],
+                      "served rows the geo seed's From took off stay, note too, until that origin's data is in "
+                      "%s %s %s" % ([x[:8] if isinstance(x, str) else x for x in o["geo"]], o["geoUS"][:8], o["geoDone"])))
+    results.append(ok(o["geoCapHeld"] == "SERVED" and o["geoCapped"] == "<table",
+                      "...for at most FIRST_HOLD_MS"))
+    results.append(ok(o["geoVisitor"] == "<table", "...and the visitor's own change of From is drawn at once"))
+    e = o["ends"]
+    results.append(ok(not any(e[k] for k in ("skeletonTap", "scrollKey", "arrowOnControl", "enterOnBody",
+                                             "outsideControl", "synthetic")),
+                      "a tap on the skeleton, a scroll key, an arrow on a control, a control outside Top Picks or "
+                      "a synthetic event does not end it %s" % e))
+    results.append(ok(all(e[k] for k in ("controlTap", "enterOnControl", "spaceOnControl", "input", "change")),
+                      "a click, Enter or Space on a Top Picks control, or any changed value, ends it %s" % e))
+    results.append(ok(e["inHandlerClick"] and not e["inHandlerSynthetic"] and not e["inHandlerLoad"]
+                      and not e["none"],
+                      "a redraw run inside a trusted input is the visitor's; inside a synthetic event, a page "
+                      "event or none it is not %s" % e))
+
+# The served hold timing out draws at once (no second wait on top of its 15 s).
+srv = APP.split("const SERVED_HOLD_MS", 1)[1].split("const FIRST_HOLD_MS", 1)[0]
+results.append(ok("releaseServedPicks(); _firstHold.done = true;" in srv,
+                  "the served hold timing out ends the first paint's hold too"))
 
 # The capture listeners that end it on the visitor's doing, trusted events only.
 results.append(ok(all(('"%s"' % ev) in APP.split("const FIRST_HOLD_MS", 1)[1].split("function renderValue", 1)[0]
