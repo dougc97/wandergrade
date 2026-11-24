@@ -1,0 +1,2 @@
+# Written by scripts/build_min_js.py from public/app.js: no line diffs for it.
+public/app.min.js -diff linguist-generated=true
