@@ -2651,8 +2651,12 @@ async function renderGuideGrades(iso) {
     + f("🛡️", "Safety", guideSafetyPill(s.advLvl, iso))
     + f("🌤️", "Weather", s.wx == null ? grey("—", "No weather data") : gradePill(s.wx, s.wx + "/100 weather comfort in " + MONTHS[month - 1]))
     + f("✈️", "Flights", pending ? fly : fly.replace('class="', 'data-gg="fly" class="')) + days
-    + '<span class="muted" data-tip="' + esc("Graded for " + MONTHS[month - 1] + " from " + originLabel()
-      + ", weighted by your Top Picks priorities — the grades the Top Picks table and this page's 📸 share card show.") + '" title="">ⓘ</span>';
+    // The month the grades are for, on the line: a reader from
+    // /cheapest/february saw Vietnam's A+ 93 there turn B+ 82 here with no
+    // reason given (it was December's). Held at the widest month's width
+    // (.ggmon), so a month's change moves nothing; guide_lines.grades writes
+    // the same, tip and all.
+    + '<span class="muted ggmon" data-tip="' + esc(guideGradedTip(month)) + '" title="">' + MON_ABBR[month - 1] + " ⓘ</span>";
   // The pending boxes' widths, kept for this guide: every later draw of it
   // (the fares' own redraw, and their settling's) gives each grade at least
   // its box's width.
@@ -2665,6 +2669,10 @@ async function renderGuideGrades(iso) {
   }
 }
 let _ggHold = null;
+function guideGradedTip(month) {
+  return "Graded for " + MONTHS[month - 1] + " from " + originLabel()
+    + ", weighted by your Top Picks priorities — the grades the Top Picks table and this page's 📸 share card show.";
+}
 // The first /api/flight-value answer for the reader's origin still out
 // (askValueFlightValue); a re-ask while the server fills is not waited for.
 function guideFvPending() {

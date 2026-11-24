@@ -2971,6 +2971,9 @@ a.destlink:focus-visible { outline: 2px solid var(--green); outline-offset: 2px;
 .guidegrades .ggnum { font-weight: 800; font-size: 14px; margin-left: -6px; }
 .guidegrades .ggf { display: inline-flex; align-items: center; gap: 4px; font-size: 15px; }
 .guidegrades .ggdays { font-size: 13px; color: var(--gray); }
+/* "Dec ⓘ", the month the grades are for: the widest month's width (44px at
+   14px) for every month, so changing it moves nothing beside it. */
+.guidegrades .ggmon { display: inline-block; min-width: 46px; white-space: nowrap; }
 /* Fares late (renderGuideGrades): the Overall, its number and ✈️ wait as
    grey boxes, sized by an invisible one-letter grade and number inside. */
 .guidegrades .ggph { visibility: hidden; }

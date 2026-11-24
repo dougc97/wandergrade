@@ -90,10 +90,15 @@ if "error" in js:
 
 inputs = {k: FIX[k] for k in ("rates", "advisories", "flights", "fv", "ppp", "climate", "activities")}
 bad_g, bad_f = [], []
+tip_bad = []
+TIP = re.compile(r'<span class="muted ggmon" data-tip="([^"]*)" title="">(\w+) ⓘ</span>')
 for iso in GUIDES:
     g = G.grades(iso, inputs, TODAY)
-    if g != bare(js[iso]["grades"]):
-        bad_g.append((iso, g, bare(js[iso]["grades"])))
+    if bare(g) != bare(js[iso]["grades"]):
+        bad_g.append((iso, bare(g), bare(js[iso]["grades"])))
+    # The one tooltip the served line keeps: the ⓘ's, after the month.
+    if TIP.findall(g) != TIP.findall(js[iso]["grades"]):
+        tip_bad.append((iso, TIP.findall(g), TIP.findall(js[iso]["grades"])))
     # The search link where app.js guideNoBookings is false: with this
     # fixture (no do-not-travel marks, every list in) anywhere but Level 4.
     f = G.fares(iso, CURVES.get(iso), FIX["fv"], TODAY, render_guide.name_for_iso,
@@ -110,6 +115,13 @@ results.append(ok(not bad_g and graded > 120,
                   "every guide's grades line is the client's, tooltips aside (%d graded, %d with a reason: %s) %s"
                   % (graded, len(ungraded), " ".join(ungraded[:8]) + (" …" if len(ungraded) > 8 else ""),
                      [x[0] for x in bad_g][:10] or "")))
+gm0 = G.guide_month(TODAY)
+th_tip = TIP.findall(G.grades("TH", inputs, TODAY))
+results.append(ok(not tip_bad and th_tip == [("Graded for %s from the US, weighted by your Top Picks priorities — the grades "
+                                              "the Top Picks table and this page&#39;s 📸 share card show."
+                                              % G.MON_FULL[gm0 - 1], G.MON_ABBR[gm0 - 1])],
+                  "every graded line ends in the month it is for (\"%s ⓘ\"), and the served one keeps that ⓘ's tip, "
+                  "word for word the client's %s" % (G.MON_ABBR[gm0 - 1], tip_bad[:2] or "")))
 results.append(ok(not bad_f and strips >= 50,
                   "every guide's fares strip is the client's, or none in both (%d strips) %s"
                   % (strips, [x[0] for x in bad_f][:10] or "")))

@@ -7,7 +7,9 @@ used to get an empty grades line and no fares at all.
 They are what app.js renderGuideGrades and renderGuideFares write for that
 reader once its data is in, in the same markup, so when the browser draws
 its own nothing moves; only the tooltips are left out (data-tip, title,
-aria-label: the browser's copy brings them). index.html's pre-paint script
+aria-label: the browser's copy brings them), all but the ⓘ's after the
+month the grades are for ("Graded for December from the US…"), which a
+reader without the script needs too. index.html's pre-paint script
 (server.py _GUIDE_HOLD) empties them again for a reader they aren't for —
 whose saved home country, currency, priorities, advisory source or fare
 currency, or whose link or six-month window, differ — who then gets the
@@ -123,7 +125,15 @@ def grades(iso, inputs, today):
             + _ggf("🛡️", "Safety", safe)
             + _ggf("🌤️", "Weather", grey("—") if s.get("wx") is None else pill(s["wx"]))
             + _ggf("✈️", "Flights", fly.replace('class="', 'data-gg="fly" class="', 1)) + days
-            + '<span class="muted">ⓘ</span>')
+            + '<span class="muted ggmon" data-tip="%s" title="">%s ⓘ</span>' % (esc(graded_tip(month)), MON_ABBR[month - 1]))
+
+
+def graded_tip(month):
+    """app.js guideGradedTip for a first visit (from the US, the default
+    priorities): the one tooltip the served line carries, since it says
+    which month the grades are for."""
+    return ("Graded for %s from the US, weighted by your Top Picks priorities — the grades the Top Picks "
+            "table and this page's 📸 share card show." % MON_FULL[month - 1])
 
 
 # ---- the fares strip ---------------------------------------------------------------
