@@ -1357,6 +1357,10 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 
 /* "Plan with AI" export bar */
 .aibar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 4px; }
+/* An empty trip has nothing to plan: its green "Plan this trip with AI" only
+   answered with an error. Hidden while the bar shows the empty state (the
+   markup's own, from first paint, and renderTripBar's). */
+#tripBar:has(> .triphint) ~ .aibar { display: none; }
 .aibtn { background: var(--green-fill); color: #fff; border: none; border-radius: 10px;
   padding: 10px 16px; font-size: 14px; font-weight: 700; cursor: pointer; }
 .aibtn:hover { filter: brightness(1.06); }
