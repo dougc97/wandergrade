@@ -708,6 +708,9 @@ results.append(ok(all(v[0] == 404 and v[1].get("Cache-Control") == "no-store" fo
                   and all('<details class="guideindex" open>' in v[2] for v in dym.values()),
                   "404: \"Did you mean Colombia?\" for /guide/columbia, February for /cheapest/febuary, the list "
                   "for /safe-and-cheep, nothing for a non-word; the guide index open on every one"))
+# The methodology page (fxtracker/render_methodology.py) by the footer's name for it.
+results.append(ok(server._did_you_mean("/how-grades-wrok") == ("/how-grades-work", "How grades work"),
+                  "404: /how-grades-wrok suggests \"How grades work\""))
 results.append(ok(server._did_you_mean("/guide/" + "x" * 90) is None and server._did_you_mean("") is None,
                   "no suggestion past %d characters or for an empty path" % server._SUGGEST_MAX))
 # Another case 301s to the lowercase URL in one hop, query kept, as /guide/Japan does.

@@ -1452,7 +1452,8 @@ _NOINDEX = '<meta name="robots" content="noindex">'
 # lowercase page (_LOWER_PATHS, the months included) is named from its path.
 _PAGE_LABELS = {"/safe-and-cheap": "Safest cheap countries", "/do-not-travel": "Do Not Travel list",
                 "/cheapest": "Cheapest by month", "/dollar-strength": "Dollar strength",
-                "/data": "The price-level dataset", "/privacy": "Privacy"}
+                "/data": "The price-level dataset", "/privacy": "Privacy",
+                render_methodology.PATH: "How grades work"}
 # Past this many characters a 404 path is nobody's typo: no suggestion, so a
 # long junk URL can't buy difflib time.
 _SUGGEST_MAX = 80
