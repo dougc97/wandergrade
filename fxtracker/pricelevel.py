@@ -52,6 +52,20 @@ US_INFL_FALLBACK = 0.03
 MAX_CARRY_YEARS = 3
 
 
+def basis_note(iso, ppp):
+    """Why a country's price figure isn't the usual World Bank household-
+    spending one (build_ppp.py), or "": Taiwan's hand-entered IMF figure, or
+    the World Bank's GDP-wide figure standing in. Mirrors app.js
+    plBasisNote, word for word."""
+    e = (ppp or {}).get(iso) or {}
+    if e.get("src") == "imf":
+        return ("IMF figure (%s), GDP-wide: the World Bank doesn't cover it."
+                % (e.get("src_note") or "World Economic Outlook"))
+    if e.get("basis") == "gdp":
+        return "GDP-wide figure: the World Bank has no recent household-spending one for it."
+    return ""
+
+
 def js_round(x):
     """JavaScript Math.round: the nearest integer, halves toward +infinity.
     Python's round() sends halves to even, and floor(x + 0.5) rounds

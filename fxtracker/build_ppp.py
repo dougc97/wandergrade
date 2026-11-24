@@ -1,10 +1,20 @@
 #!/usr/bin/env python3
 """Precompute PPP conversion factors per country -> public/ppp.json (World Bank,
-free, no key). One call covers all countries.
+free, no key). One call per indicator covers all countries.
 
 The website combines this annual figure with the live exchange rate to derive a
 "price level vs the US" (affordability): price_level = ppp_factor / market_rate.
 Below ~1 means the country is cheaper than the US for a dollar holder.
+
+The factor is the household-consumption one (PA.NUS.PRVT.PP): what the site's
+tips describe, a local basket of what residents buy against the same basket
+in the US. The GDP-wide factor (PA.NUS.PPP), which the site used until
+2026-11, prices investment and government spending too, and so made rich,
+high-investment places read cheap: Singapore 60% of US prices (78% on
+household spending), Qatar 55% (73%), Macau 53% "very cheap" (59%). Where a country
+has no household figure within HOUSEHOLD_MAX_LAG years of its GDP-wide one
+(26 stop at the 2021 benchmark: Argentina, Aruba, Puerto Rico...), the GDP
+figure stands in, flagged "basis": "gdp" (review 2026-11-23 item 15).
 
 Run: python3 -m fxtracker.build_ppp
 """
@@ -19,13 +29,30 @@ from . import rates  # reuse the verifying SSL context
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "public", "ppp.json")
 GEOJSON = os.path.join(ROOT, "public", "world.geojson")
-# PA.NUS.PPP = PPP conversion factor, GDP (local currency units per international $)
-# The end year was hardcoded to 2025, which would have silently ignored 2026
-# data the moment the World Bank published it. Ask for next year too — absent
-# years simply come back null and are skipped.
+# PA.NUS.PRVT.PP = PPP conversion factor, private consumption (local currency
+# units per international $); PA.NUS.PPP = the same over all of GDP, the
+# fallback. The end year was hardcoded to 2025, which would have silently
+# ignored 2026 data the moment the World Bank published it. Ask for next year
+# too — absent years simply come back null and are skipped.
 _THIS_YEAR = time.gmtime().tm_year
-URL = ("https://api.worldbank.org/v2/country/all/indicator/PA.NUS.PPP"
+URL = ("https://api.worldbank.org/v2/country/all/indicator/PA.NUS.PRVT.PP"
        "?format=json&date=2017:%d&per_page=20000" % (_THIS_YEAR + 1))
+GDP_PPP_URL = ("https://api.worldbank.org/v2/country/all/indicator/PA.NUS.PPP"
+               "?format=json&date=2017:%d&per_page=20000" % (_THIS_YEAR + 1))
+# A household figure counts when it is at most this many years older than the
+# country's GDP-wide one. Older, and the GDP figure stands in (flagged): the
+# carry-forward for inflation stops at MAX_CARRY_YEARS (pricelevel.py), so a
+# 2021 household factor would under-state four years of local inflation, and
+# a figure the World Bank stopped extrapolating is a stale one. Qatar, Gambia
+# and Equatorial Guinea (household 2024, GDP 2025) pass; Kosovo, Sudan,
+# Micronesia (2022) and St Kitts (2023) don't.
+HOUSEHOLD_MAX_LAG = 1
+# Hand-entered rows for places the World Bank doesn't cover, each with its
+# source ("src", "src_note") and the date the next release is out
+# ("refresh_by"). They join every build (the committed file and the server's
+# monthly live refresh alike) unless the World Bank ever publishes the
+# country itself.
+MANUAL = {}
 # GDP per capita in current US$. Not used for the grade — only to sanity-check the
 # price level. Price level tracks income log-linearly (the Penn effect), so a
 # country whose price level is wildly out of line with its income is almost always
@@ -106,9 +133,25 @@ def _secondary(url, what, out, valid, previous, fields, digits, fallback_msg):
             else fallback_msg))
 
 
+def pick_basis(household, gdp):
+    """{iso: (year, value, name, basis)} from the two factors' newest figures
+    per country: the household one where it is no more than HOUSEHOLD_MAX_LAG
+    years older than the GDP-wide one (basis None), else the GDP-wide one
+    (basis "gdp")."""
+    out = {}
+    for iso in set(household) | set(gdp):
+        h, g = household.get(iso), gdp.get(iso)
+        if h and (not g or h[0] >= g[0] - HOUSEHOLD_MAX_LAG):
+            out[iso] = (h[0], h[1], h[2], None)
+        else:
+            out[iso] = (g[0], g[1], g[2], "gdp")
+    return out
+
+
 def build(previous=None):
-    """Fetch and shape the PPP table: {iso: {ppp, year, name, gdppc, gdppc_year,
-    infl, infl_year}} (the last four only when the World Bank has them).
+    """Fetch and shape the PPP table: {iso: {ppp, year, name, basis, gdppc,
+    gdppc_year, infl, infl_year}} (basis only on a GDP-wide fallback; the
+    last four only when the World Bank has them). MANUAL rows join last.
 
     Shared by main() (writes the committed file) and the server's live refresh,
     so both paths can never disagree about how the data is derived. Keeps the
@@ -123,9 +166,9 @@ def build(previous=None):
         valid = {feat["properties"]["iso"] for feat in json.load(f)["features"]
                  if feat["properties"].get("iso") and feat["properties"]["iso"] != "-99"}
 
-    latest = _latest_by_iso(_fetch(URL), valid)
-    out = {iso: {"ppp": round(v, 6), "year": y, "name": nm}
-           for iso, (y, v, nm) in latest.items()}
+    latest = pick_basis(_latest_by_iso(_fetch(URL), valid), _latest_by_iso(_fetch(GDP_PPP_URL), valid))
+    out = {iso: dict({"ppp": round(v, 6), "year": y, "name": nm}, **({"basis": b} if b else {}))
+           for iso, (y, v, nm, b) in latest.items()}
 
     # Income is a cross-check, not an input to the grade. With neither a fetch
     # nor a previous figure, entries carry no gdppc and the client falls back
@@ -136,7 +179,17 @@ def build(previous=None):
     # forward (factor 1), which is what the site did before this existed.
     _secondary(CPI_URL, "inflation", out, valid, previous, ("infl", "infl_year"), 2,
                "Price levels will not be carried forward for inflation.")
+    for iso, row in MANUAL.items():
+        if iso in valid and iso not in out:
+            out[iso] = {k: v for k, v in row.items() if k != "refresh_by"}
     return out
+
+
+def manual_overdue(today=None):
+    """MANUAL rows past their refresh_by date (a newer IMF release is out)."""
+    import datetime
+    d = (today or datetime.date.today()).isoformat()
+    return sorted(iso for iso, r in MANUAL.items() if r.get("refresh_by", "9999") < d)
 
 
 def _warn_usd_units(out):
@@ -180,6 +233,15 @@ def main():
         prev = None
     out = build(previous=prev)
     _warn_usd_units(out)
+    for iso in manual_overdue():
+        print("WARNING: {0}'s hand-entered figures ({1}) are past refresh_by {2}: enter the newest "
+              "IMF World Economic Outlook figures in build_ppp.MANUAL.".format(
+                  iso, MANUAL[iso]["src_note"], MANUAL[iso]["refresh_by"]))
+    print("basis: {0} household, {1} GDP-wide fallback ({2}), {3} hand-entered ({4})".format(
+        sum(1 for r in out.values() if not r.get("basis")),
+        sum(1 for r in out.values() if r.get("basis") == "gdp" and not r.get("src")),
+        " ".join(sorted(i for i, r in out.items() if r.get("basis") == "gdp" and not r.get("src"))),
+        sum(1 for r in out.values() if r.get("src")), " ".join(sorted(i for i, r in out.items() if r.get("src")))))
     with open(OUT, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"), sort_keys=True)
     print("wrote {0} countries -> {1}".format(len(out), OUT))

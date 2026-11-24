@@ -24,10 +24,14 @@ FIELDS = [
     "iso", "country", "currency", "price_level", "usd100_buys",
     "ppp_factor", "ppp_year", "gdp_per_capita_usd", "gdp_per_capita_year",
     "ppp_unit", "inflation_pct", "inflation_year", "inflation_factor",
+    "ppp_basis", "ppp_source",
 ]
 
 NOTES = (
-    "price_level is the World Bank PPP conversion factor, carried forward from "
+    "price_level is the PPP conversion factor for household consumption "
+    "(ppp_basis household; ppp_basis gdp where the World Bank has no recent "
+    "household figure and its GDP-wide factor stands in; ppp_source names "
+    "whose figure it is), carried forward from "
     "mid-ppp_year to rates_as_of by the gap between local and US inflation "
     "(inflation_factor, from World Bank consumer-price inflation; 1 when no "
     "current figure exists), divided by the market exchange rate at rates_as_of: "
@@ -68,6 +72,8 @@ def build(ppp):
             "inflation_pct": p.get("infl"),
             "inflation_year": p.get("infl_year"),
             "inflation_factor": round(pricelevel.carry_factor(iso, ppp), 4),
+            "ppp_basis": p.get("basis") or "household",
+            "ppp_source": "IMF" if p.get("src") == "imf" else "World Bank",
         })
     rows.sort(key=lambda r: r["price_level"])
     return {
@@ -77,7 +83,8 @@ def build(ppp):
             "generated_at": datetime.datetime.now(datetime.timezone.utc)
                             .replace(microsecond=0).isoformat(),
             "countries": len(rows),
-            "ppp_source": "World Bank PA.NUS.PPP (PPP conversion factor, GDP)",
+            "ppp_source": ("World Bank PA.NUS.PRVT.PP (PPP conversion factor, private consumption); "
+                           "PA.NUS.PPP (GDP) where ppp_basis is gdp"),
             "income_source": "World Bank NY.GDP.PCAP.CD (GDP per capita, current US$)",
             "inflation_source": "World Bank FP.CPI.TOTL.ZG (inflation, consumer prices, annual %)",
             "licence": "World Bank data under CC BY 4.0; derived figures free to reuse with attribution.",

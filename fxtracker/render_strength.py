@@ -407,8 +407,10 @@ def _prices(row, ppp):
         return '<span title="%s">—</span>' % html.escape(tip, quote=True)
     if len(pr) == 1:
         rel, iso = pr[0]
-        return '<span title="%s">%d%%</span> <span class="band">%s</span>' % (
-            html.escape("%s: local prices vs the US" % place_name(iso, ppp), quote=True), _pct(rel),
+        why = pricelevel.basis_note(iso, ppp)
+        return '<span title="%s">%d%%</span>%s <span class="band">%s</span>' % (
+            html.escape("%s: local prices vs the US%s" % (place_name(iso, ppp), (". " + why) if why else ""),
+                        quote=True), _pct(rel), '<sup class="fn">‡</sup>' if why else "",
             html.escape(guide_facts.band(rel)))
     (lo, lo_iso), (hi, hi_iso) = pr[0], pr[-1]
     n = len(pr)
@@ -461,6 +463,11 @@ HEAD = (("#", ""),
                          "same day's exchange rates. A shared currency shows the range across its places."))
 
 
+# The Prices column's ‡: a figure that isn't the World Bank's household-
+# spending one (pricelevel.basis_note says which, in the cell's title).
+BASIS_NOTE = "‡ GDP-wide price comparison, where the World Bank has no recent household-spending figure."
+
+
 def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
     """The /dollar-strength page. `rates_payload` is the cached USD /api/rates
     payload, `ppp` the PPP table, `idx` {"1y", "all"} index payloads
@@ -509,6 +516,8 @@ def dollar_strength(rates_payload, ppp, idx=None, today=None, price_day=None):
             body += ('<h2>No inflation-adjusted figure (%d)</h2><ul class="dsnone">%s</ul>' % (len(apart), items))
         if any(not r["adj"] for r in ranked):
             notes.append("† No inflation figure for that country: the exchange-rate move alone.")
+        if any(len(r["priced"]) == 1 and pricelevel.basis_note(r["priced"][0][1], ppp) for r in ranked):
+            notes.append(BASIS_NOTE)
         notes.append("Before inflation: the dollar's exchange rate on %s vs its average over the past year. "
                      "After inflation: that move net of the gap between local and US inflation, for the "
                      "currency's main country (Germany for the euro). Prices are national averages vs the US. "

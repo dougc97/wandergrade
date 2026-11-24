@@ -764,7 +764,8 @@ def _data_page_body_tpl():
         '<a href="/data/price-levels.json"><strong>Download JSON</strong></a></p>'
         "<h2>What's in it</h2>"
         "<ul>"
-        "<li><strong>price_level</strong> — World Bank PPP conversion factor, carried "
+        "<li><strong>price_level</strong> — World Bank PPP conversion factor for household "
+        "consumption, carried "
         "forward from its year by the gap between local and US inflation, divided by "
         "the market exchange rate. 1.00 means prices match the US, 0.50 means half.</li>"
         "<li><strong>usd100_buys</strong> — the local purchasing power of US$100, in US "
@@ -775,6 +776,9 @@ def _data_page_body_tpl():
         "(<code>inflation_pct</code>, <code>inflation_year</code>), and the carry-forward "
         "multiplier it produced (<code>inflation_factor</code>, 1 when there is no "
         "current figure).</li>"
+        "<li><strong>ppp_basis</strong> — <code>household</code>, or <code>gdp</code> where the World "
+        "Bank has no recent household figure and its GDP-wide factor stands in; "
+        "<code>ppp_source</code> says whose figure it is.</li>"
         "</ul>"
         # The table is US-based because World Bank PPP is quoted against the US;
         # a reader from anywhere else needs one line on how to compare from home.

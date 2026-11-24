@@ -3102,6 +3102,15 @@ async function renderGuideFx(iso) {
 // prompts state the same level in plPhrase's framing, Top Picks' own:
 // aiPriceWords.) Against the traveller's home; the US only as a fallback,
 // and then the line says so.
+// Why a price figure isn't the usual World Bank household-spending one
+// (build_ppp.py), or "": Taiwan's hand-entered IMF figure, or the World
+// Bank's GDP-wide figure standing in. pricelevel.basis_note, word for word.
+function plBasisNote(iso) {
+  const e = (ppp || {})[GUIDE_PARENT[iso] || iso] || {};
+  if (e.src === "imf") return `IMF figure (${e.src_note || "World Economic Outlook"}), GDP-wide: the World Bank doesn't cover it.`;
+  if (e.basis === "gdp") return "GDP-wide figure: the World Bank has no recent household-spending one for it.";
+  return "";
+}
 function localPricesText(iso) {
   const A = plAnchor(originIso());
   const plIso = GUIDE_PARENT[iso] || iso;       // England etc: the UK's figure
@@ -3133,14 +3142,14 @@ async function renderGuideCost(iso) {
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b><span class="fxinfo" data-tip="${esc(
       "World Bank price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
-      + " averages: tourist areas and foreigner rent run well above this.")}" title="">ⓘ</span>`;
+      + " averages: tourist areas and foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : ""))}" title="">ⓘ</span>`;
     host.hidden = false;
     return;
   }
   host.innerHTML = `💰 <b>Local prices ${esc(line)}</b><span class="fxinfo" data-tip="${esc(
     "World Bank price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
-    + " foreigner rent run well above this.")}" title="">ⓘ</span>`;
+    + " foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : ""))}" title="">ⓘ</span>`;
   host.hidden = false;
 }
 
@@ -5412,6 +5421,17 @@ function colSeries(iso, anchor) {
   return out;
 }
 
+// The years a country's line follows the World Bank's GDP-wide figure
+// (build_pl_history "gdp"): all of them on the fallback (the map's figure is
+// GDP-wide too), else the years with no household one, linked to it.
+function colBasisNote(iso) {
+  const r = iso !== "world" && plHist && plHist.gdp && plHist.gdp[iso];
+  if (!r) return "";
+  if (((ppp || {})[iso] || {}).basis === "gdp") return " " + countryName(iso) + "'s are GDP-wide figures: the World Bank has no recent household-spending one for it.";
+  return " " + r.map(([a, b]) => (a === b ? String(a) : a + "–" + b)).join(", ")
+    + " follow the GDP-wide figure's moves (no household-spending one), linked at the nearest year with both.";
+}
+
 // Whether today's map figure can follow a country's yearly ones. Not where the
 // World Bank converts that economy at another rate than the official one the
 // map uses (plHist.alt: Burundi's yearly 0.19 beside today's 0.46), nor across
@@ -5506,7 +5526,8 @@ async function renderCol() {
     + (lastP.year == null ? "" : " (no figures since)");
   $("colNote").innerHTML = esc("Lower = your money buys more there. Yearly averages from the World Bank"
     + (lastP.year == null ? ", then today's figure from the map." : "."))
-    + ` <span class="muted" data-tip="${esc("A year's price level is the World Bank's purchasing-power-parity factor over that year's exchange rate — the same measure as the map, which brings the latest year up to date with inflation and today's rate. National averages: the places visitors go run above them."
+    + ` <span class="muted" data-tip="${esc("A year's price level is the World Bank's household-spending purchasing-power-parity factor over that year's exchange rate — the same measure as the map, which brings the latest year up to date with inflation and today's rate. National averages: the places visitors go run above them."
+      + colBasisNote(colIso)
       + (colIso === "world" ? " A typical country is the geometric mean across every country with figures, chained year to year so countries joining the data don't move it." : ""))}" title="">ⓘ</span>`;
   const cheaper = lastP.value < first.value;
   stockChart(host, pts, {

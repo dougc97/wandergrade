@@ -2,9 +2,22 @@
 """Price level vs the US, per country per year since 1990 -> public/pl_history.json
 (World Bank, free, no key). Feeds the Cost of living tab's "over time" chart.
 
-A year's price level is the PPP factor (PA.NUS.PPP, the one ppp.json and the
-map use) over the exchange rate the World Bank's own US$ GDP implies
-(NY.GDP.MKTP.CN / NY.GDP.MKTP.CD). Two routes that look equivalent are not:
+A year's price level is the PPP factor (the one ppp.json and the map use:
+household consumption, PA.NUS.PRVT.PP, or the GDP-wide PA.NUS.PPP where
+build_ppp.pick_basis falls back to it) over the exchange rate the World
+Bank's own US$ GDP implies (NY.GDP.MKTP.CN / NY.GDP.MKTP.CD).
+
+Each country's series is on ONE basis, its map figure's, so the chart never
+joins two kinds of figure. A country on the GDP-wide fallback is GDP-wide
+throughout. A household-basis country's years without a household figure
+(the UAE before 2007, the 1990s for most post-Soviet states, the last year
+for Qatar) follow the GDP-wide figure's year-to-year move, linked at the
+nearest year with both: spliced raw, the two differ by up to 2.5x (Gambia,
+1990) and would draw jumps nobody measured — the fault of the GDP-in-US$ /
+GDP-at-PPP route below. "gdp" lists, per country, the year ranges that
+follow the GDP-wide figure (review 2026-11-23 item 15).
+
+Two routes that look equivalent are not:
  * PPP factor / official rate (PA.NUS.FCRF) mixes units — the factor is in
    euros for every year while the rate is in francs or marks before a country
    joined (France read 0.20 in 1995), and redenominations did the same to
@@ -27,14 +40,15 @@ import json
 import os
 import time
 
-from .build_ppp import _fetch, GEOJSON, ROOT
+from .build_ppp import _fetch, GEOJSON, ROOT, pick_basis
 
 OUT = os.path.join(ROOT, "public", "pl_history.json")
 FIRST_YEAR = 1990
 _THIS_YEAR = time.gmtime().tm_year
 _URL = ("https://api.worldbank.org/v2/country/all/indicator/{0}"
         "?format=json&date=%d:%d&per_page=20000" % (FIRST_YEAR, _THIS_YEAR + 1))
-PPP_URL = _URL.format("PA.NUS.PPP")          # LCU per international $
+HH_URL = _URL.format("PA.NUS.PRVT.PP")      # LCU per international $, household consumption
+PPP_URL = _URL.format("PA.NUS.PPP")          # LCU per international $, all of GDP
 USD_URL = _URL.format("NY.GDP.MKTP.CD")       # GDP, current US$
 LCU_URL = _URL.format("NY.GDP.MKTP.CN")       # GDP, current local currency
 FX_URL = _URL.format("PA.NUS.FCRF")           # official rate, LCU per US$
@@ -77,13 +91,51 @@ def _despike(vals):
     return out
 
 
+def _newest(series):
+    """{iso: (year, value, None)} — the newest figure per country, in the
+    shape build_ppp.pick_basis takes."""
+    return {iso: (max(s), s[max(s)], None) for iso, s in series.items() if s}
+
+
+def factors(hh, gdp):
+    """({iso: {year: factor}}, {iso: [[from, to], ...]}): each country's PPP
+    factor per year on its map figure's basis, and the year ranges that
+    follow the GDP-wide figure (the whole series on the fallback; linked
+    years for a household-basis country)."""
+    out, flagged = {}, {}
+    for iso, (_y, _v, _n, basis) in pick_basis(_newest(hh), _newest(gdp)).items():
+        h, g = hh.get(iso, {}), gdp.get(iso, {})
+        if basis == "gdp":
+            out[iso], linked = dict(g), sorted(g)
+        else:
+            both = sorted(y for y in h if y in g)
+            f, linked = dict(h), []
+            for y in sorted(g):
+                if y in h or not both:
+                    continue
+                at = min(both, key=lambda b: (abs(b - y), b))
+                f[y] = g[y] * h[at] / g[at]
+                linked.append(y)
+            out[iso] = f
+        ranges = []
+        for y in linked:
+            if ranges and ranges[-1][1] == y - 1:
+                ranges[-1][1] = y
+            else:
+                ranges.append([y, y])
+        if ranges:
+            flagged[iso] = ranges
+    return out, flagged
+
+
 def build():
-    """{"years", "pl": {iso: [level or None per year]}, "alt": [iso], "source"};
-    raises on a failed fetch (the caller keeps what it has)."""
+    """{"years", "pl": {iso: [level or None per year]}, "alt": [iso], "gdp":
+    {iso: [[from, to], ...]}, "source"}; raises on a failed fetch (the
+    caller keeps what it has)."""
     with open(GEOJSON, encoding="utf-8") as f:
         valid = {feat["properties"]["iso"] for feat in json.load(f)["features"]
                  if feat["properties"].get("iso")}
-    ppp = _by_iso(_fetch(PPP_URL), valid)
+    ppp, gdp_years = factors(_by_iso(_fetch(HH_URL), valid), _by_iso(_fetch(PPP_URL), valid))
     usd = _by_iso(_fetch(USD_URL), valid)
     lcu = _by_iso(_fetch(LCU_URL), valid)
     try:
@@ -120,8 +172,25 @@ def build():
         for iso in out:
             out[iso].pop()
     out = {iso: v for iso, v in out.items() if sum(x is not None for x in v) >= 2}
-    return {"years": years, "pl": out, "alt": sorted(a for a in alt if a in out),
-            "source": "World Bank: PA.NUS.PPP x NY.GDP.MKTP.CD / NY.GDP.MKTP.CN"}
+    # Only the flagged years the series still shows (inside the published
+    # window, with a figure).
+    gdp = {}
+    for iso, ranges in gdp_years.items():
+        if iso not in out:
+            continue
+        shown = [y for a, b in ranges for y in range(a, b + 1)
+                 if y in years and out[iso][years.index(y)] is not None]
+        r = []
+        for y in shown:
+            if r and r[-1][1] == y - 1:
+                r[-1][1] = y
+            else:
+                r.append([y, y])
+        if r:
+            gdp[iso] = r
+    return {"years": years, "pl": out, "alt": sorted(a for a in alt if a in out), "gdp": gdp,
+            "source": "World Bank: PA.NUS.PRVT.PP (PA.NUS.PPP in the years \"gdp\" lists) "
+                      "x NY.GDP.MKTP.CD / NY.GDP.MKTP.CN"}
 
 
 def committed():
