@@ -430,10 +430,13 @@ def gaps_expected(month):
 
 
 gap_same = all(P[RC.path_for(m)]["gaps"] == gaps_expected(m) for m in range(1, 13))
+# Brazzaville's December (60) misses the weather rule since the Republic of
+# Congo is measured there (review 2026-11-23 item 1); it qualifies Jun-Sep.
 results.append(ok(gap_same and "CI" in nov["gaps"] and "CI" not in nov["isos"]
-                  and set(P["/cheapest/december"]["gaps"]) >= {"CI", "CG"},
+                  and "CI" in P["/cheapest/december"]["gaps"] and "CG" in P["/cheapest/july"]["gaps"],
                   "the feed gaps are the guide countries with no own US level, a Level 1-2 gap-fill and the rest "
-                  "of the rule met (November %s, December %s)" % (nov["gaps"], P["/cheapest/december"]["gaps"])))
+                  "of the rule met (November %s, December %s, July %s)" % (
+                      nov["gaps"], P["/cheapest/december"]["gaps"], P["/cheapest/july"]["gaps"])))
 ci = rg.name_for_iso("CI")
 left = re.search(r'<p class="note">(Left out:.*?)</p>', nov["html"]).group(1)
 results.append(ok("missing from the State Department's feed" in left and "no government rates" not in left
