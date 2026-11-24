@@ -9194,8 +9194,9 @@ if (servedPicks) {
 // were redrawn as each piece landed (four orders in a second).
 const FIRST_HOLD_MS = 2500;
 const _firstHold = { t0: 0, done: false, tick: 0 };
-// The home currency's rates too: Affordability's FX part is neutral until
-// they land (a first visit from DE moved #5 when the EUR set came in).
+// The home currency's rates too: the rows' currency chips (fxMark) read
+// them (and until review #21 Affordability's FX part did: a first visit
+// from DE moved #5 when the EUR set came in).
 function firstPicksReady() {
   const o = originIso();
   return !!activities && popularitySettled && valueFlightsSettled && !!homeRatesNow()
