@@ -2593,7 +2593,7 @@ async function renderGuideGrades(iso) {
       if (ccGuideIso) renderGuideGrades(ccGuideIso);
     });
     // Fares still out after 2.5s: the line is drawn without them (below).
-    setTimeout(() => { if (_guideFarePend) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); } }, 2500);
+    setTimeout(() => { if (_guideFarePend || guideFvPending()) { _guideFareLate = true; if (ccGuideIso) renderGuideGrades(ccGuideIso); } }, 2500);
   }
   if (holdServedGuide(iso)) return;   // the served line stays (above)
   const month = travelMonth();
@@ -2618,8 +2618,13 @@ async function renderGuideGrades(iso) {
   // centroids ("—" without them, "~B" with). init draws this line again
   // when it lands (or fails).
   const worldPend = !worldGeo && !!_worldReq && !!(flightsData && flightsData.configured);
-  if (s && (_guideFarePend || worldPend) && !_guideFareLate) return;
-  const pending = !!(s && (_guideFarePend || worldPend));
+  // And the month curves (/api/flight-value), asked once the fares are in:
+  // the ✈️ grade prefers the month's fare against the route's range. Drawn
+  // on the fares alone, a guide-first reader the served line isn't for (a
+  // ?vmn= newsletter link, a saved From) kept the distance grade for good —
+  // Thailand read "A+ 93, Flights B+" where its December is "B+ 81, F".
+  if (s && (_guideFarePend || worldPend || guideFvPending()) && !_guideFareLate) return;
+  const pending = !!(s && (_guideFarePend || worldPend || guideFvPending()));
   const act = activities && activities[iso];
   const days = act && act.days ? '<span class="ggdays" data-tip="' + esc("Worth " + act.days[0] + "–" + act.days[1]
     + " days on a first visit") + '" title="">🧳 ' + act.days[0] + "–" + act.days[1] + " days</span>" : "";
@@ -2660,6 +2665,12 @@ async function renderGuideGrades(iso) {
   }
 }
 let _ggHold = null;
+// The first /api/flight-value answer for the reader's origin still out
+// (askValueFlightValue); a re-ask while the server fills is not waited for.
+function guideFvPending() {
+  return !!(flightsData && flightsData.configured && _fvAsk && !_fvAsk.done && _fvAsk.origin === originIso()
+    && !(flightValue && flightValue.origin === originIso()));
+}
 function fillGuideInsurance(host, iso) {
   // Named, and styled like the stay buttons it sits beside. It used to read
   // "Compare travel insurance" as a bare text link, which was wrong twice: it
@@ -6341,7 +6352,13 @@ function askValueFlightValue(origin, seq, attempt) {
     flightValue = fv;
     if (loaded.value && (fv.ready || 0) !== had) renderValue();
     if (fv.filling) again();
-  }).catch(again).then(() => { ask.done = true; refreshGuidePrompt(); });
+  }).catch(again).then(() => {
+    ask.done = true;
+    refreshGuidePrompt();
+    // A guide on screen grades and colours its fares by these ranges: it
+    // waited for them (renderGuideGrades) and is drawn with them now.
+    if (seq === _vfSeq && ccGuideIso) { renderGuideGrades(ccGuideIso); renderGuideFares(ccGuideIso); }
+  });
 }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "visible" || !flightsData || !flightsData.configured) return;
