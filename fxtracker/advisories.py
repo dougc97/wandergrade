@@ -534,6 +534,144 @@ def _names(sentence, iso, name_iso):
     return any(i == iso for _, i in hits), any(i != iso for _, i in hits)
 
 
+def _sentences(desc):
+    """The advisory description as plain-text sentences, in order, before
+    _summary picks from them: markup gone, section titles dropped, and a
+    block (paragraph, list item, heading, line break, list, <div>) that ends
+    without punctuation ending its sentence. One ending in a colon runs on
+    into the list it opens ("Do not travel to: …"). The tests read every
+    recorded advisory through it, so no title is glued onto a sentence."""
+    if not desc:
+        return []
+    text = re.sub(r"<!\[CDATA\[|\]\]>", "", desc)
+    # Markup boundaries that are sentence breaks (\x01), handled before tags go:
+    #  * the bold-italic change note ("...Advisory summary was updated</i>") has
+    #    no full stop, so it ran into the next sentence and the bookkeeping
+    #    filter dropped both. Its text stays (Vietnam's lead is inside it);
+    #  * headings, as their own bold paragraph ("<p><b>Crime</b></p>", possibly
+    #    in a <span>) or run into the text ("<b>Crime<br></b>Violent crime..."),
+    #    read as "Crime Violent crime..." once tags were stripped. Dropped.
+    text = re.sub(r"<p>\s*<b>\s*<i>(.*?)</i>\s*</b>\s*</p>", " \\1 \x01 ", text, flags=re.I | re.S)
+    # What a bold line, a styled heading or a heading tag holds:
+    #  * "lead": a level lead (a bold "Do not travel to Belarus due to:" is
+    #    the lead, not a heading), kept as it is;
+    #  * "intro": an instruction that opens a list ("Americans should
+    #    reconsider travel to:" over Egypt's places), kept as it is, so it
+    #    runs on into its list as the leads do. Cut off at its colon it read
+    #    "Americans should reconsider travel to.";
+    #  * "sentence": an instruction ("U.S. citizens in Russia should leave
+    #    immediately", the item's most actionable line) or a whole statement
+    #    (Afghanistan's "There is a high risk of wrongful detention of U.S.
+    #    nationals in Afghanistan."), kept as a sentence of its own;
+    #  * "title": a section title, dropped. Titles are noun phrases, short
+    #    ("Crime", "U.S. embassy operations") or long ("Dual nationals and
+    #    U.S. citizens of Chinese heritage", China; "Missile and drone attacks
+    #    from Iran and threats from Houthis in Yemen", Saudi Arabia: a length
+    #    test kept those as sentences), with or without a full stop ("Crime
+    #    and kidnapping.", Ecuador) or a colon. An aside in brackets says
+    #    nothing about which: Mexico's "U.S. government employee travel
+    #    restrictions (U.S. citizens are strongly advised to follow):" is a
+    #    title.
+    SAYS = r"\b(should|must|leave|depart|avoid|do not|don't|are|is|will|cannot)\b"
+    STATES = r"\b(has|have|had|was|were|been|may|can|could|might|remains?|continues?)\b"
+    def kind(t):
+        t = re.sub(r"(?:\s|&nbsp;)+$", "", t.strip())
+        if re.match(r"(exercise|reconsider|do not travel)\b", t, re.I):
+            return "lead"
+        bare = re.sub(r"\([^)]*\)", " ", t)
+        says = re.search(SAYS, bare, re.I)
+        if t.endswith(":"):
+            return "intro" if says else "title"
+        if says or (len(t.split()) > 6 and (re.search(r"[.!?]$", t) or re.search(STATES, bare, re.I))):
+            return "sentence"
+        return "title"
+    def heading(m):
+        t = m.group(1).strip()
+        k = kind(t)
+        if k == "title":
+            return " \x01 "
+        if k != "sentence" or re.search(r"[.!?]\s*$", t):
+            return m.group(0)
+        return " " + t.rstrip(":;, ") + ". "
+    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>(?:\s|&nbsp;)*(?:</span>\s*)?</p>",
+                  heading, text, flags=re.I)
+    text = re.sub(r"<b>\s*([^<]{1,60}?)<br\s*/?>\s*</b>", heading, text, flags=re.I)
+    # …or closed before the break: "<p><b>U.S. government employee travel
+    # restrictions</b><br> U.S. government employees…" (UAE, Guinea), and the
+    # styled headings ("<span class='header-paragraph'>Crime<br></span>",
+    # Mauritius; "…>Unrest</span></p>", Gabon) that read "Crime Most crimes…",
+    # bold inside too ("…'header-paragraph'><b>Aviation safety</b></span>",
+    # Somalia, quoted as a sentence "Aviation safety."), with a line break
+    # styled on its own after the title (Belarus: "…><b>Ordered
+    # departure</b><span class='header-callout'><br /></span></span>On
+    # February 28, 2022…").
+    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>\s*<br\s*/?>", heading, text, flags=re.I)
+    text = re.sub(r"<span class=['\"]header-paragraph['\"]>\s*(?:<(?:b|strong)\b[^>]*>\s*)?([^<]{1,80}?)\s*"
+                  r"(?:</(?:b|strong)>\s*)?(?:<br\s*/?>\s*)?"
+                  r"(?:<span class=['\"]header-callout['\"]>(?:\s|&nbsp;|<br\s*/?>)*</span>\s*)?</span>",
+                  heading, text, flags=re.I)
+    # Section titles in heading tags (the feed's template since 2026:
+    # "<h5>Crime</h5>", "<h5><b>Terrorism</b></h5>") ran into the sentence
+    # after them once tags went: Belgium's tip quoted "…due to crime,
+    # terrorism, and unrest. Crime Petty crime is common…", Ukraine's
+    # "…war. U.S. embassy operations The Embassy is open…". A heading tag is
+    # its own block: it ends whatever came before it, and the title in it is
+    # dropped. Whatever else it holds stays, as a paragraph of its own: a
+    # lead, an intro, a sentence (see kind), and the body that follows a
+    # title already cut above (Belarus, Mauritius: a header-paragraph span,
+    # then the text, all inside one <h4>).
+    def heading_tag(m):
+        inner = m.group(2)
+        t = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", inner)).split())
+        if "\x01" in inner or kind(t) != "title":
+            return " \x01 <p>%s</p> " % inner
+        return " \x01 "
+    text = re.sub(r"<(h[1-6])\b[^>]*>(.*?)</\1\s*>", heading_tag, text, flags=re.I | re.S)
+    # An inline tag INSIDE a word is no word break ("a<b>rbitrary",
+    # "citizen</span>s", "W<u>eather"): the feed's markup split words, and
+    # quoted back they read "a rbitrary". Only where one side is a single
+    # letter — "caution</b>in Mexico" stays two words.
+    # A block that ends without punctuation ends its sentence: "Exercise normal
+    # precaution<p>in Aruba</p> <p>Aruba is…" and Afghanistan's "…for any
+    # reason</span></p>" were quoted as one run-on sentence.
+    # So does a list or a <div> (Greece's text is one).
+    text = re.sub(r"(?<=[A-Za-z0-9)])((?:\s|&nbsp;|</(?:span|b|i|em|strong|u|a|font)>)*)"
+                  r"(</p>|</li>|<br\s*/?>|</div>|</ul>|</ol>)", r".\1\2", text, flags=re.I)
+    INL = r"</?(?:span|b|i|em|strong|u|a|font)\b[^>]*>"
+    prev = None
+    while prev != text:
+        prev = text
+        text = re.sub(r"(?<![A-Za-z])([A-Za-z])" + INL + r"(?=[a-z])", r"\1", text, flags=re.I)
+        text = re.sub(r"(?<=[a-z])" + INL + r"([a-z])(?![A-Za-z])", r"\1", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html.unescape(re.sub(r"\s+", " ", text)).strip()
+    # "Read the entire Travel Advisory." is boilerplate in most items;
+    # "Advisory summary:" is a section heading that survives tag-stripping (its
+    # colon used to survive too: "...due to terrorism. : Terrorist groups...");
+    # "Summary not available" is the feed's placeholder, glued onto the lead
+    # ("Exercise normal precautionSummary not available").
+    # A bare "Read the entire" also turns up before a link to another level's
+    # area (Rwanda, Oct 2026: "Read the entire <a>Do not travel</a> to within
+    # 10 kilometers..."), and was quoted as the row's summary.
+    # Belize's "Please read the entire Travel Advisory." left a "Please".
+    text = re.sub(r"\s*(?:Please\s+)?Read the entire(?:\s+Travel Advisory\.?)?", "", text, flags=re.I)
+    text = re.sub(r"\bAdvisory summary\b\s*:?", "", text, flags=re.I)
+    # Two more headings that survive as text: the old template's "Country
+    # Summary:" (Morocco's tip read "…due to terrorism. Country Summary:
+    # Terrorist groups…"), and a list's lead-in on its own ("If you decide to
+    # travel to Tonga:" over a list of tips), which says nothing without the
+    # list. Each ends the sentence before it and is dropped.
+    text = re.sub(r"\s*\bCountry Summary\s*:", " \x01 ", text, flags=re.I)
+    text = re.sub(r"\s*\bIf you decide to travel(?:\s+to\b[^.:!?]{0,80})?:", " \x01 ", text, flags=re.I)
+    text = re.sub(r"\s*Summary not available\.?", " \x01 ", text, flags=re.I)
+    # Shield abbreviations the sentence splitter would break on ("...travel to
+    # Japan, U.S. government employees...").
+    text = text.replace("U.S.", "U\x00S\x00")
+    parts = [re.sub(r"^[\s:;,.]+", "", p.replace("U\x00S\x00", "U.S."))
+             for p in re.split(r"(?<=[.!?])\s+|\s*\x01\s*", text)]
+    return [p for p in parts if p.strip()]
+
+
 def _summary(desc, level=None, iso=None, name_iso=None, full=False, any_level=False):
     """First two meaningful sentences of the advisory description, plain text.
     The description opens by restating the level ("Exercise increased caution
@@ -552,71 +690,7 @@ def _summary(desc, level=None, iso=None, name_iso=None, full=False, any_level=Fa
     unrest", quoted as the reason beside a "Reconsider travel" pill."""
     if not desc:
         return ""
-    text = re.sub(r"<!\[CDATA\[|\]\]>", "", desc)
-    # Markup boundaries that are sentence breaks (\x01), handled before tags go:
-    #  * the bold-italic change note ("...Advisory summary was updated</i>") has
-    #    no full stop, so it ran into the next sentence and the bookkeeping
-    #    filter dropped both. Its text stays (Vietnam's lead is inside it);
-    #  * headings, as their own bold paragraph ("<p><b>Crime</b></p>", possibly
-    #    in a <span>) or run into the text ("<b>Crime<br></b>Violent crime..."),
-    #    read as "Crime Violent crime..." once tags were stripped. Dropped.
-    text = re.sub(r"<p>\s*<b>\s*<i>(.*?)</i>\s*</b>\s*</p>", " \\1 \x01 ", text, flags=re.I | re.S)
-    # (A bold "Do not travel to Belarus due to:" is the lead, not a heading.)
-    def heading(m):
-        t = m.group(1).strip()
-        if re.search(r"[.!?]\s*$", t) or re.match(r"(exercise|reconsider|do not travel)\b", t, re.I):
-            return m.group(0)
-        # A bold line that reads as an instruction ("U.S. citizens in Russia
-        # should leave immediately") is the item's most actionable sentence,
-        # not a section title: keep it, as its own sentence. Titles are short
-        # noun phrases ("Crime", "U.S. embassy operations").
-        if len(t.split()) > 6 or re.search(
-                r"\b(should|must|leave|depart|avoid|do not|don't|are|is|will|cannot)\b", t, re.I):
-            return " " + t.rstrip(":;, ") + ". "
-        return " \x01 "
-    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>(?:\s|&nbsp;)*(?:</span>\s*)?</p>",
-                  heading, text, flags=re.I)
-    text = re.sub(r"<b>\s*([^<]{1,60}?)<br\s*/?>\s*</b>", heading, text, flags=re.I)
-    # …or closed before the break: "<p><b>U.S. government employee travel
-    # restrictions</b><br> U.S. government employees…" (UAE, Guinea), and the
-    # styled headings ("<span class='header-paragraph'>Crime<br></span>",
-    # Mauritius; "…>Unrest</span></p>", Gabon) that read "Crime Most crimes…".
-    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>\s*<br\s*/?>", heading, text, flags=re.I)
-    text = re.sub(r"<span class=['\"]header-paragraph['\"]>([^<]{1,80}?)(?:<br\s*/?>\s*)?</span>",
-                  heading, text, flags=re.I)
-    # An inline tag INSIDE a word is no word break ("a<b>rbitrary",
-    # "citizen</span>s", "W<u>eather"): the feed's markup split words, and
-    # quoted back they read "a rbitrary". Only where one side is a single
-    # letter — "caution</b>in Mexico" stays two words.
-    # A block that ends without punctuation ends its sentence: "Exercise normal
-    # precaution<p>in Aruba</p> <p>Aruba is…" and Afghanistan's "…for any
-    # reason</span></p>" were quoted as one run-on sentence.
-    text = re.sub(r"(?<=[A-Za-z0-9)])((?:\s|&nbsp;|</(?:span|b|i|em|strong|u|a|font)>)*)"
-                  r"(</p>|</li>|<br\s*/?>)", r".\1\2", text, flags=re.I)
-    INL = r"</?(?:span|b|i|em|strong|u|a|font)\b[^>]*>"
-    prev = None
-    while prev != text:
-        prev = text
-        text = re.sub(r"(?<![A-Za-z])([A-Za-z])" + INL + r"(?=[a-z])", r"\1", text, flags=re.I)
-        text = re.sub(r"(?<=[a-z])" + INL + r"([a-z])(?![A-Za-z])", r"\1", text, flags=re.I)
-    text = re.sub(r"<[^>]+>", " ", text)
-    text = html.unescape(re.sub(r"\s+", " ", text)).strip()
-    # "Read the entire Travel Advisory." is boilerplate in most items;
-    # "Advisory summary:" is a section heading that survives tag-stripping (its
-    # colon used to survive too: "...due to terrorism. : Terrorist groups...");
-    # "Summary not available" is the feed's placeholder, glued onto the lead
-    # ("Exercise normal precautionSummary not available").
-    # A bare "Read the entire" also turns up before a link to another level's
-    # area (Rwanda, Oct 2026: "Read the entire <a>Do not travel</a> to within
-    # 10 kilometers..."), and was quoted as the row's summary.
-    text = re.sub(r"\s*Read the entire(?:\s+Travel Advisory\.?)?", "", text, flags=re.I)
-    text = re.sub(r"\bAdvisory summary\b\s*:?", "", text, flags=re.I)
-    text = re.sub(r"\s*Summary not available\.?", " \x01 ", text, flags=re.I)
-    # Shield abbreviations the sentence splitter would break on ("...travel to
-    # Japan, U.S. government employees...").
-    text = text.replace("U.S.", "U\x00S\x00")
-    parts = [re.sub(r"^[\s:;,.]+", "", p.replace("U\x00S\x00", "U.S."))
-             for p in re.split(r"(?<=[.!?])\s+|\s*\x01\s*", text)]
+    parts = _sentences(desc)
     # Drop the bookkeeping sentences ("Reissued after periodic review...",
     # "An area of increased risk was added.") — they describe the document,
     # not the country — and the read-more boilerplate.
