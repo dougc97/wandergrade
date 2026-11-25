@@ -386,8 +386,10 @@ results.append(ok(feeline and '<a href="/guide/bhutan">Bhutan</a> (22% <span cla
                   "the rule names the fee; the left-out line gives Bhutan's price and fee (tooltip in full), only "
                   "where a fee country would otherwise qualify"))
 results.append(ok(RL.fee_mark("BT").startswith(' <span class="fee" title="') and RL.fee_mark("VN") == ""
-                  and "Not in the price level." in RL.fee_mark("BT") and "(set until 31 Aug 2027)" in RL.fee_mark("BT"),
-                  "fee_mark: the fee beside a price, the tooltip with its end date; nothing for a country without one"))
+                  and "Not in the price level." in RL.fee_mark("BT") and "(set until 31 Dec 2029)" in RL.fee_mark("BT")
+                  and "Indian nationals pay ₹1,200 a night." in RL.fee_mark("BT"),
+                  "fee_mark: the fee beside a price, the tooltip with its end date (31 Dec 2029) and the Indian "
+                  "nationals' rate; nothing for a country without one"))
 SBn = RL.safe_and_cheap(payload("us", US["items"] + [item("BT", 2, "us", risks=["Crime"])]), CA, DE,
                         dict(FACTS, BT={"pct": 22, "band": "very cheap", "adv": 2, "src": "us"}),
                         CLIM, HEALTH, PLH, fetched=FETCHED, today=TODAY)

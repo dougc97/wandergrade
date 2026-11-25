@@ -3283,32 +3283,66 @@ function localPricesText(iso) {
     + (A.home ? "" : " (no figure for " + plAnchorName(originIso()) + ")")
     + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "");
 }
-// A mandatory daily fee every visitor pays (visa.json "fee": Bhutan's
+// A mandatory daily fee a visitor pays (visa.json "fee": Bhutan's
 // Sustainable Development Fee), beside the price level it isn't part of, and
 // in full in its ⓘ — render_guide visitor_fee / fee_short / fee_tip, the
-// served line's words (review #10). Any passport: the fee isn't a visa rule.
+// served line's words (review #10). The reader's home is taken as their
+// passport, as elsewhere: a home whose nationals pay a rate of their own
+// (FEE_LOCAL: India's) gets that rate, everyone else the US-dollar one.
 function visitorFee(iso) {
+  const lf = localFee(iso);
+  if (lf) return lf;
   const f = visa && visa[iso] && visa[iso].fee;
   return f && f.usd > 0 ? f : null;
 }
 // The countries with such a fee, for the rankings: Top Picks, Hidden gems,
-// the ★ list and the Full ranking table leave them out (renderValue), as the
-// cheap lists do (render_lists, render_cheapest), while their grades stand
-// (the guide, the map, the Data tab, with the fee in pppNotes' ⚠️): US$100 a
-// night on top of a 23% price level is no bargain to rank on, and
-// /how-grades-work says such a country "isn't ranked". Known before visa.json
-// loads (the homepage never fetches it); picks.fee_isos reads the file, and
-// scripts/test_home_picks.py holds the two equal.
+// the ★ list and the Full ranking table leave them out (renderValue,
+// feeUnranked), as the cheap lists do (render_lists, render_cheapest), while
+// their grades stand (the guide, the map, the Data tab, with the fee in
+// pppNotes' ⚠️): US$100 a night on top of a 23% price level is no bargain to
+// rank on, and /how-grades-work says such a country "isn't ranked". Known
+// before visa.json loads (the homepage never fetches it); picks.fee_isos
+// reads the file, and scripts/test_home_picks.py holds the two equal.
 const FEE_ISOS = new Set(["BT"]);
+// The rates some nationals pay in their own currency instead, by country and
+// then home (visa.json fee "local", resolved as picks.visitor_fee returns it
+// for that origin; scripts/test_home_picks.py holds the two equal): Indian
+// nationals' ₹1,200 a night in Bhutan. A tourist tax's size, so for such a
+// reader the country is ranked like any other and its price line keeps its
+// band word. Known without visa.json, like FEE_ISOS (the Data tab's note).
+// Bangladesh's lower rate is for its first 15,000 guests only and the
+// Maldives' wasn't found on an official page: both stay on the US$100.
+const FEE_LOCAL = { BT: { IN: { amount: 1200, cur: "INR", symbol: "₹", who: "Indian nationals",
+                                per: "night", name: "Sustainable Development Fee" } } };
+function localFee(iso) { const m = FEE_LOCAL[iso]; return (m && m[guidePassport()]) || null; }
+// Out of every ranking: a fee country whose US-dollar rate this reader pays.
+function feeUnranked(iso) { return FEE_ISOS.has(iso) && !localFee(iso); }
+// 1200 -> "1,200"; rupees grouped the Indian way (150000 -> "1,50,000").
+// picks.fee_amount.
+function feeAmount(n, cur) {
+  const s = String(Math.round(n));
+  if (cur !== "INR" || s.length <= 3) return Number(Math.round(n)).toLocaleString("en-US");
+  return s.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + s.slice(-3);
+}
 function feeShort(f) {
+  if (f.cur) return "+ " + f.symbol + feeAmount(f.amount, f.cur) + "/" + (f.per || "day") + " fee";
   return "+ $" + Number(f.usd).toLocaleString("en-US") + "/" + (f.per || "day") + " fee";
 }
 function feeTip(f) {
-  let t = (f.name || "Mandatory visitor fee") + ": US$" + Number(f.usd).toLocaleString("en-US")
-    + " per person per " + (f.per || "day") + ", on top of what you pay to stay";
+  const per = f.per || "day";
+  let t = (f.name || "Mandatory visitor fee") + (f.cur
+    ? (f.who ? " for " + f.who : "") + ": " + f.symbol + feeAmount(f.amount, f.cur)
+    : ": US$" + Number(f.usd).toLocaleString("en-US"))
+    + " per person per " + per + ", on top of what you pay to stay";
   const u = /^(\d{4})-(\d{2})-(\d{2})/.exec(f.until || "");
   if (u) t += " (set until " + (+u[3]) + " " + MON_ABBR[+u[2] - 1] + " " + u[1] + ")";
   t += ". Not in the price level.";
+  if (!f.cur) {
+    for (const l of Object.values(f.local || {})) {
+      if (l && l.who && l.amount) t += " " + l.who + " pay " + (l.symbol || (l.cur || "") + " ")
+        + feeAmount(l.amount, l.cur) + " a " + per + ".";
+    }
+  }
   if (f.note) t += " " + String(f.note).replace(/\.$/, "") + ".";
   return t;
 }
@@ -3317,14 +3351,16 @@ function feeTip(f) {
 // page answered only in numbers. plWord on the same anchor as the number.
 // Never on a Level 4 guide: no bargain talk where a government says not to
 // go (its title and description give none either), nor beside a mandatory
-// daily visitor fee: "Very cheap" next to Bhutan's US$100 a night misled.
+// daily visitor fee in US dollars: "Very cheap" next to Bhutan's US$100 a
+// night misled (an Indian reader's ₹1,200 keeps it: FEE_LOCAL).
 // render_guide.cost_lead is the server's copy.
 const costLead = (band) => band ? band[0].toUpperCase() + band.slice(1) + ": local" : "Local";
 // The ⓘ's last sentence: the line can say "cheap" beside an Affordability C,
 // so it says why (the grade's scale, valueScores: 100 at 15%, 0 at 130%).
 const COST_GRADE_TIP = " The 💰 Affordability grade puts every country on one scale, A+ up to about 24%"
   + " of home prices and F above about 82%, so a cheap place can still grade C or D.";
-// A fee country's instead: its grade can be A+ on prices the fee isn't in.
+// A US-dollar fee country's instead: its grade can be A+ on prices the fee
+// isn't in.
 const COST_FEE_TIP = " The 💰 Affordability grade counts local prices only: the fee comes on top.";
 // The reader's own country's line, in place of "≈ 100% of the US", which
 // tells them nothing: what every other guide's figure is measured against.
@@ -3376,9 +3412,13 @@ async function renderGuideCost(iso) {
     if (ccGuideIso !== iso) return;
   }
   const fee = visitorFee(iso);
+  // A nationals' own rate (FEE_LOCAL: an Indian reader's ₹1,200 a night in
+  // Bhutan) keeps the band word and the usual grade note; the US-dollar rate
+  // drops them.
+  const usdFee = !!fee && !fee.cur;
   const feeHtml = fee ? ' <span class="guidefee">' + esc(feeShort(fee)) + "</span>" : "";
   const feeTipTxt = fee ? " " + feeTip(fee) : "";
-  const gradeTip = l4 ? "" : fee ? COST_FEE_TIP : COST_GRADE_TIP;
+  const gradeTip = l4 ? "" : usdFee ? COST_FEE_TIP : COST_GRADE_TIP;
   const line = localPricesText(iso);
   if (!line) {
     // Live rates or ppp.json didn't load: the dated snapshot the title and
@@ -3390,14 +3430,14 @@ async function renderGuideCost(iso) {
     if (ccGuideIso !== iso) return;
     if (!f || f.pct == null || !guideFactsFresh()) return show("");
     const when = guideFactsMonth();
-    return show(`💰 <b>${esc(costLead(l4 || fee ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
+    return show(`💰 <b>${esc(costLead(l4 || usdFee ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
       srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
       + " averages: tourist areas and foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
       + feeTipTxt + gradeTip)}" title="">ⓘ</span>`);
   }
-  const band = l4 || fee ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
+  const band = l4 || usdFee ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
   show(`💰 <b>${esc(costLead(band))} prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
     srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to today's exchange rate — what a local basket"
     + " costs here against the same basket at home. National averages: tourist areas and"
@@ -5585,7 +5625,9 @@ function pppAgeNote(iso) {
 }
 // A mandatory daily visitor fee, which the price level leaves out: in full
 // once visa.json is in (feeTip), else in general words (the Data tab never
-// fetches it; FEE_ISOS is known without it). "" for every other country.
+// fetches it; FEE_ISOS is known without it). A reader whose nationals pay a
+// rate of their own gets it in full either way (FEE_LOCAL). "" for every
+// other country.
 function feeNote(iso) {
   const f = visitorFee(iso);
   if (f) return "⚠️ " + feeTip(f);
@@ -9454,9 +9496,10 @@ function renderValue() {
   const bm = beenMode(), wantMode = bm === "want";
   const wantSet = wantMode ? wantRankable() : null;
   const showVisited = bm !== "hide";
-  // A country with a mandatory daily visitor fee (FEE_ISOS) is in no list,
-  // the Full ranking below included.
-  const preBudget = rankedAll.filter((s) => !FEE_ISOS.has(s.iso) &&
+  // A country with a mandatory daily visitor fee in US dollars for this
+  // reader (feeUnranked: FEE_ISOS less their home's FEE_LOCAL rate) is in no
+  // list, the Full ranking below included.
+  const preBudget = rankedAll.filter((s) => !feeUnranked(s.iso) &&
     (wantMode ? wantSet.has(s.iso) : (showVisited || !been.has(s.iso))) && passesFloor(s, floor) && matchesInterests(s.iso));
   const eligible = preBudget.filter(passesBudget);
   // Counted so the note can say the filter did something. At a roomy budget it
@@ -9498,7 +9541,7 @@ function renderValue() {
     for (const iso of wantSet) {
       if (shown.has(iso)) continue;
       const s = scored[iso];
-      const why = s ? (FEE_ISOS.has(iso) ? "a daily visitor fee comes on top of its prices"
+      const why = s ? (feeUnranked(iso) ? "a daily visitor fee comes on top of its prices"
                        : !passesFloor(s, floor) ? "below your safety filter"
                        : !matchesInterests(iso) ? "doesn't match your interests"
                        : "its flight alone is over your budget")
@@ -9596,7 +9639,7 @@ function renderValue() {
          : gems.length === 1 ? `💎 1 ${gemWord} ↓` : `💎 All ${gems.length} ${gemWord} ↓`)
       : cap === 5 ? "Show top 10 ↓" : "Show top 20 ↓";
   }
-  const ranked = sortRows(rankedAll.filter((s) => !FEE_ISOS.has(s.iso)), fullSort, FULL_GET).slice(0, 40);
+  const ranked = sortRows(rankedAll.filter((s) => !feeUnranked(s.iso)), fullSort, FULL_GET).slice(0, 40);
   markSort("#valueTable", fullSort);
   // Same vocabulary as the popular table (rank, flag, the four factor emoji,
   // Overall last on its band), but the raw 0–100 numbers stay: this is "the

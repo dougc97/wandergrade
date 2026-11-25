@@ -48,7 +48,7 @@ import server  # noqa: E402
 # sha1 of render_methodology.page(server's TTLs)["html"]. A change to the
 # page's words (a scoring constant, a TTL, the copy) changes it: then set
 # render_methodology.UPDATED to the day it ships and this to the new digest.
-PIN = "cea70c3560a6335e41c8fc7e419de4915186ac7b"
+PIN = "15642d932eaf4278e84f81a4c0bb04b2959094a7"
 
 ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or c
 results = []
@@ -271,6 +271,15 @@ results.append(ok(all(s in moved for s in ["20% of home prices or less scores 10
                                            "75–90% a bit cheaper", "over 90% pricey"]),
                   "with a scoring constant, a band or a word rule changed, the page says the new numbers"))
 results.append(ok(RM.page(TTLS)["html"] == body, "and back once they're put back"))
+# The visitor-fee limit follows visa.json: the US-dollar rate keeps Bhutan
+# unranked, and a home whose nationals pay their own rate (India's ₹1,200 a
+# night, picks.fee_isos by origin) sees it ranked, which the line says.
+fee_li = norm(re.sub(r"<[^>]+>", " ", RM.fee_item()))
+results.append(ok("Bhutan: US$100 a night" in fee_li and "isn't ranked" in fee_li
+                  and "(India: ₹1,200 a night in Bhutan), it is ranked as usual" in fee_li
+                  and picks.fee_isos() == {"BT"} and picks.fee_isos(origin="IN") == set()
+                  and fee_li in norm(re.sub(r"<[^>]+>", " ", body)),
+                  "the visitor-fee limit: Bhutan's US$100 a night unranked, India's own rate ranked (%r)" % fee_li[-70:]))
 
 # --- the date can't go stale -----------------------------------------------------------
 digest = hashlib.sha1(body.encode("utf-8")).hexdigest()

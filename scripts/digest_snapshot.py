@@ -112,16 +112,23 @@ GRAFTS = (
     # gem in the CNY and JPY editions' October and November and the KRW
     # edition's November, and never in USD. With Paro's station rain it would
     # be a USD gem in 9 months (Mar-Jun, Aug-Dec; staged runs 2026-11-24),
-    # and the rule takes it out of each.
+    # and the rule takes it out of each. Made origin-aware the same day
+    # (Doug): a home whose nationals pay a rate of their own (visa.json fee
+    # "local": Indian nationals' ₹1,200 a night) isn't held to it, so the INR
+    # edition ranks Bhutan like any other country.
     ("fxtracker/picks.py", "def _load(name):\n",
-     'def fee_isos():\n    v = _load("visa.json")\n'
+     'def fee_isos(origin=None):\n    v = _load("visa.json")\n'
+     '    own = lambda f: isinstance(f.get("local"), dict) and isinstance(f["local"].get(origin), dict) \\\n'
+     '        and isinstance(f["local"][origin].get("amount"), (int, float)) and f["local"][origin]["amount"] > 0 \\\n'
+     '        and bool(f["local"][origin].get("cur"))\n'
      '    return {i for i, x in v.items() if isinstance(x, dict) and isinstance(x.get("fee"), dict)\n'
-     '            and isinstance(x["fee"].get("usd"), (int, float)) and x["fee"]["usd"] > 0}\n\n\n'
-     "def _load(name):\n", "item D: the visitor-fee countries (picks.fee_isos)"),
+     '            and isinstance(x["fee"].get("usd"), (int, float)) and x["fee"]["usd"] > 0\n'
+     '            and not (origin and own(x["fee"]))}\n\n\n'
+     "def _load(name):\n", "item D: the visitor-fee countries (picks.fee_isos), by the edition's home"),
     ("fxtracker/picks.py",
      "    scored = []\n    for iso in CUR_BY_ISO:\n        if v.exclude_home and iso == v.home_iso:\n",
-     "    scored = []\n    fee = fee_isos()\n    for iso in CUR_BY_ISO:\n        if v.exclude_home and iso == v.home_iso:\n",
-     "item D: read them once per edition"),
+     "    scored = []\n    fee = fee_isos(v.home_iso)\n    for iso in CUR_BY_ISO:\n        if v.exclude_home and iso == v.home_iso:\n",
+     "item D: read them once per edition, for its home"),
     ("fxtracker/picks.py",
      '        if s and s["advLvl"] != 3:   # default "safe" floor: drop Level 3 (4 already gone)\n',
      '        if s and s["advLvl"] != 3 and iso not in fee:\n',
