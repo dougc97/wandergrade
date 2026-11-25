@@ -3352,8 +3352,9 @@ function feeTip(f) {
 // Never on a Level 4 guide: no bargain talk where a government says not to
 // go (its title and description give none either), nor beside a mandatory
 // daily visitor fee in US dollars: "Very cheap" next to Bhutan's US$100 a
-// night misled (an Indian reader's ₹1,200 keeps it: FEE_LOCAL).
-// render_guide.cost_lead is the server's copy.
+// night misled (an Indian reader's ₹1,200 keeps it on the live line, measured
+// against India: FEE_LOCAL; the snapshot line, measured against the US, drops
+// it for any fee). render_guide.cost_lead is the server's copy.
 const costLead = (band) => band ? band[0].toUpperCase() + band.slice(1) + ": local" : "Local";
 // The ⓘ's last sentence: the line can say "cheap" beside an Affordability C,
 // so it says why (the grade's scale, valueScores: 100 at 15%, 0 at 130%).
@@ -3430,12 +3431,18 @@ async function renderGuideCost(iso) {
     if (ccGuideIso !== iso) return;
     if (!f || f.pct == null || !guideFactsFresh()) return show("");
     const when = guideFactsMonth();
-    return show(`💰 <b>${esc(costLead(l4 || usdFee ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
+    // Any fee drops the band word here, a nationals' own rate too: the
+    // snapshot's band is the US's ("Very cheap" at 23% of the US), which an
+    // Indian reader's live line contradicts ("About the same … of India").
+    // The fee note then stands in for the grade note, which only explains a
+    // band word beside a C.
+    const snapTip = l4 ? "" : fee ? COST_FEE_TIP : COST_GRADE_TIP;
+    return show(`💰 <b>${esc(costLead(l4 || fee ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
       srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
       + " averages: tourist areas and foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
-      + feeTipTxt + gradeTip)}" title="">ⓘ</span>`);
+      + feeTipTxt + snapTip)}" title="">ⓘ</span>`);
   }
   const band = l4 || usdFee ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
   show(`💰 <b>${esc(costLead(band))} prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
@@ -7948,11 +7955,13 @@ function aiGuideBudget(iso, month) {
   if (!s) {
     const fm = _aiFares[originIso() + ":" + iso], rec = fm && fm.months && fm.months[nextMonthKey(month)];
     const pl = priceLevel(GUIDE_PARENT[iso] || iso);
-    if (rec) s = { fare: rec.price, fareEst: false, fareMin: null, pl: pl ? pl / A.pl : null, flyBasis: "month" };
+    if (rec) s = { iso, fare: rec.price, fareEst: false, fareMin: null, pl: pl ? pl / A.pl : null, flyBasis: "month" };
   }
-  const bf = s && budgetFit(s);   // null until a rate for the budget's money is in
+  const bf = s && budgetFit(s);   // null until a rate for the budget's money (or a visitor fee's) is in
   if (!bf) return head + ".";
-  if (bf.impossible || bf.estOut) return head + "; the " + fmtBC(bf.fare) + " flight alone uses it up.";
+  if (bf.impossible || bf.estOut) return head + "; " + (!bf.feeInfo ? "the " + fmtBC(bf.fare) + " flight alone uses it up"
+    : bf.fee >= bf.total ? budgetFeeWords(bf) + " alone uses it up"
+    : "the " + fmtBC(bf.fare) + " flight and " + budgetFeeWords(bf) + " use it up") + ".";
   const avg = s.flyBasis !== "month" && !bf.fareEst && !bf.fareIsMin;
   return head + "; " + budgetWords(s, bf) + (avg ? " (planned on the route's average cached fare)" : "") + ".";
 }
@@ -8479,18 +8488,39 @@ function budgetOf() {
 // when that alone eats the budget but a cheaper fare has been seen, plans on
 // the cheapest (fareIsMin). Only real fares make a country `impossible`; an
 // estimate over budget is `estOut` — dropped too, but counted and said apart.
+// A mandatory visitor fee this reader owes there (visitorFee: Bhutan's US$100
+// a night, an Indian reader's ₹1,200) comes off what's left first, one night
+// per day of the trip: a 10-day budget pays 10 nights, at most one more than
+// most such trips sleep there, so the per-day figure is never too rosy, and
+// it is simply what the fare leaves a day less the nightly fee. Over budget
+// on a real fare plus the fee is `impossible` like a fare alone (and on the
+// fee alone, whatever the fare); no price yet for the fee (visa.json or the
+// rupee's rate not in) is no opinion, never a budget that ignores it.
 function budgetFit(s) {
   const { total, days } = budgetOf();
   if (!total || s.fare == null) return null;
+  const feeInfo = s.iso ? visitorFee(s.iso) : null;
+  const feeNight = feeInfo ? feeUsd(feeInfo) : s.iso && FEE_ISOS.has(s.iso) ? null : 0;
+  if (feeNight == null) return null;
+  const fee = feeNight * days;
   const cheapest = !s.fareEst && s.fareMin > 0 ? Math.min(s.fareMin, s.fare) : s.fare;
-  const fare = s.fare < total ? s.fare : cheapest;
-  const left = total - fare;
+  const fare = s.fare + fee < total ? s.fare : cheapest;
+  const left = total - fare - fee;
   const perDay = left / days;
   // s.pl is already relative to the traveler's home country, so dividing by it
   // converts local spending power back into home money.
   const homeEquiv = s.pl > 0 ? perDay / s.pl : null;
+  const real = !s.fareEst || (fee > 0 && fee >= total);
   return { total, days, fare, fareEst: s.fareEst, fareIsMin: fare !== s.fare, left,
-           perDay, homeEquiv, impossible: !s.fareEst && left <= 0, estOut: !!s.fareEst && left <= 0 };
+           fee, feeNight, feeInfo: fee > 0 ? feeInfo : null,
+           perDay, homeEquiv, impossible: real && left <= 0, estOut: !real && left <= 0 };
+}
+// A visitor fee (visitorFee) in US dollars, the budget's working money: the
+// rupee rate by today's rate, null while that rate isn't in.
+function feeUsd(f) {
+  if (!f.cur) return f.usd;
+  const r = rateForCurrency(f.cur);
+  return r ? f.amount / r : null;
 }
 
 function passesBudget(s) {
@@ -8508,9 +8538,19 @@ function passesFloor(s, floor) {
 function budgetWords(s, bf) {
   const home = plHomeWord();
   const atHome = home === "home" ? "at home" : "in " + home;
-  return `${fmtBC(bf.fare)} ${bf.fareIsMin ? "cheapest " : ""}flight${bf.fareEst ? " (est.)" : ""} leaves `
+  return `${fmtBC(bf.fare)} ${bf.fareIsMin ? "cheapest " : ""}flight${bf.fareEst ? " (est.)" : ""}`
+    + (bf.feeInfo ? " and " + budgetFeeWords(bf) + " leave " : " leaves ")
     + `${fmtBC(bf.perDay)}/day`
     + (bf.homeEquiv && s.pl < 0.95 ? ` — like ${fmtBC(bf.homeEquiv)}/day ${atHome}` : "");
+}
+// "the INR 1,200/night visitor fee": in the budget's money like every amount
+// beside it, with the fee's own figure after it when that money is another
+// ("the USD 13/night (₹1,200) visitor fee" on a budget in dollars).
+function budgetFeeWords(bf) {
+  const f = bf.feeInfo;
+  const own = f.cur ? f.symbol + feeAmount(f.amount, f.cur) : "US$" + Number(f.usd).toLocaleString("en-US");
+  return "the " + fmtBC(bf.feeNight) + "/" + (f.per || "day")
+    + ((f.cur || "USD") !== budgetCur() ? " (" + own + ")" : "") + " visitor fee";
 }
 // With a budget set, the per-day figure under the destination's name, where
 // the answer is read. It used to live only in the row's title, which touch
@@ -9518,7 +9558,9 @@ function renderValue() {
   // drops nothing, and a control that silently changes nothing reads as broken.
   // Drops on a real cached fare and on a distance estimate are told apart, and
   // nothing is called "reachable" that had no fare to judge.
-  let outOfReach = 0, outOfReachEst = 0, judged = 0, unjudged = 0;
+  // outOfReachFee: of those, the ones a flight alone would have fitted, put
+  // out by a daily visitor fee (budgetFit's fee: Bhutan's for an Indian reader).
+  let outOfReach = 0, outOfReachEst = 0, outOfReachFee = 0, judged = 0, unjudged = 0;
   const fromIso = flightsData && flightsData.origin;   // home needs no flight
   for (const s of preBudget) {
     const f = budgetFit(s);
@@ -9526,6 +9568,7 @@ function renderValue() {
     judged++;
     if (f.impossible) outOfReach++;
     else if (f.estOut) outOfReachEst++;
+    if ((f.impossible || f.estOut) && f.fee > 0 && f.fare < f.total) outOfReachFee++;
   }
   // The "Somewhere new" filter is on by default and works, but it lives inside
   // a collapsed Filters fold — so a reader with 34 countries marked sees them
@@ -9556,6 +9599,7 @@ function renderValue() {
       const why = s ? (feeUnranked(iso) ? "a daily visitor fee comes on top of its prices"
                        : !passesFloor(s, floor) ? "below your safety filter"
                        : !matchesInterests(iso) ? "doesn't match your interests"
+                       : (budgetFit(s) || {}).feeInfo ? "its flight and daily visitor fee are over your budget"
                        : "its flight alone is over your budget")
         : region !== "all" && ISO_REGION[iso] !== region ? "outside " + (REGIONS[region] || "this region")
         : advMap[iso] === 4 ? "Level 4: Do Not Travel"
@@ -9571,12 +9615,13 @@ function renderValue() {
   const budNote = bud.total
     ? ` 💵 <b>${bud.cur} ${Math.round(bud.entered).toLocaleString()} for ${bud.days} ${bud.days === 1 ? "day" : "days"}</b>`
       + (!judged ? " — no fare data yet, so nothing was filtered."
-         : nOut ? ` — ${nOut} ${nOut === 1 ? "country is" : "countries are"} out of reach on the flight alone`
+         : nOut ? ` — ${nOut} ${nOut === 1 ? "country is" : "countries are"} out of reach on the flight`
+           + (!outOfReachFee ? " alone" : outOfReachFee === nOut ? " and visitor fee" : " alone or with a visitor fee")
            + (outOfReachEst ? ` (${outOfReachEst === nOut ? "all" : outOfReachEst} on estimated fares)` : "") + "."
          : unjudged ? " — every pick with a fare is reachable."
          : " — every pick below is reachable.")
       + (judged && unjudged ? ` ${unjudged} had no fare to judge.` : "")
-      + ` <span class="muted" data-tip="Flights are the cached fares Aviasales has seen (the cheapest one decides what's out of reach); where none is cached, a distance-based estimate, marked est. What's left is your budget minus the fare, spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
+      + ` <span class="muted" data-tip="Flights are the cached fares Aviasales has seen (the cheapest one decides what's out of reach); where none is cached, a distance-based estimate, marked est. What's left is your budget minus the fare and any daily visitor fee (one per day), spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
     : "";
   const rankedBy = flex ? `each one's best ${weatherMode ? "weather" : "month"} in ${flexSpan(win)}`
     : weatherMode ? `weather comfort in ${MONTHS[month - 1]}` : "value";
