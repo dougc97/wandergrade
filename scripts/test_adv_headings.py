@@ -112,6 +112,46 @@ SHAPES = [
     ("a <div> ends its sentence like a paragraph",
      "<div><span class='body-regular'>Greece is a generally safe destination</span></div><p>Petty crime is common.</p>",
      ["Greece is a generally safe destination.", "Petty crime is common."]),
+    ("a bold title with a style of its own (Oman; was quoted as \"Armed conflict.\")",
+     "<p><b style='white-space: initial;'>Armed conflict</b></p>\n<p>Iranian-supported Houthis have engaged in "
+     "hostilities against Saudi Arabia.</p>",
+     ["Iranian-supported Houthis have engaged in hostilities against Saudi Arabia."]),
+    ("a styled bold title before a line break",
+     "<p><b style='font-size: 18.24px;'>Crime</b><br>Petty crime is common.</p>\n"
+     "<b style='font-size: 18.24px;'>Unrest<br></b>Protests occur.",
+     ["Petty crime is common.", "Protests occur."]),
+    ("a title styled as a callout (Colombia; was quoted as \"Demonstrations.\")",
+     "<p><span class='body-regular'><span class='header-callout'>Demonstrations&nbsp;</span></span></p>\n<ul>\n"
+     "<li><span class='body-regular'>Political demonstrations are common throughout Colombia.</span></li></ul>",
+     ["Political demonstrations are common throughout Colombia."]),
+    ("an empty callout line break is no title (Belarus's, on its own)",
+     "<p>On February 28 the embassy closed.<span class='header-callout'> <br />\n </span>It has not reopened.</p>",
+     ["On February 28 the embassy closed.", "It has not reopened."]),
+    ("a short bold sentence with a verb stays",
+     "<p><b>Ebola cases have been reported.</b></p>\n<p><b>Terrorists may attack.</b></p>\n"
+     "<p><b>The airport has closed.</b></p>\n<p>Flights are suspended.</p>",
+     ["Ebola cases have been reported.", "Terrorists may attack.", "The airport has closed.",
+      "Flights are suspended."]),
+    ("a short bold line with no verb is a title, full stop or not",
+     "<p><b>Crime and kidnapping.</b></p>\n<p>Crime is a widespread problem.</p>",
+     ["Crime is a widespread problem."]),
+    ("a bold instruction with a curly apostrophe stays (the feed writes \"don’t\", Egypt)",
+     "<p><b>Don’t travel to the border areas after dark</b></p>\n<p><b>Don&rsquo;t drive at night</b></p>\n"
+     "<b>Don’t travel to the border areas after dark<br></b>The embassy can’t help there.",
+     ["Don’t travel to the border areas after dark.", "Don’t drive at night.",
+      "Don’t travel to the border areas after dark.", "The embassy can’t help there."]),
+    ("a list's lead-in that ends a paragraph (Yemen) or the text (Saint Vincent) is dropped",
+     "<p>Medical treatment is often not available. If you decide to travel to Yemen:</p>\n<ul>\n"
+     "<li>Read the Health section.</li>\n</ul>\n<p>If you decide to travel to Saint Vincent and the Grenadines:</p>",
+     ["Medical treatment is often not available.", "Read the Health section."]),
+    ("\"If you decide to travel …\" that goes on is an instruction, and stays",
+     "<p>If you decide to travel to Belgium, avoid the north: it is unsafe.</p>\n"
+     "<p>If you decide to travel to Tonga: pack for rain.</p>",
+     ["If you decide to travel to Belgium, avoid the north: it is unsafe.",
+      "If you decide to travel to Tonga: pack for rain."]),
+    ("\"Country Summary:\" inside a sentence stays",
+     "<p>Exercise increased caution in Belgium due to crime. See the Country Summary: it has more.</p>",
+     ["Exercise increased caution in Belgium due to crime.", "See the Country Summary: it has more."]),
 ]
 for what, desc, want in SHAPES:
     got = A._sentences(desc)
@@ -153,7 +193,8 @@ for iso, (summary, risks) in NINE.items():
     results.append(ok(it.get("summary") == summary and it.get("risks") == risks,
                       "%s quotes no title: %r %r" % (iso, it.get("summary"), it.get("risks"))))
 
-SAYS = r"\b(should|must|leave|depart|avoid|do not|don't|are|is|will|cannot)\b"
+SAYS = r"\b(should|must|leave|depart|avoid|do not|don['’]t|won['’]t|can['’]t|are|is|will|cannot)\b"
+STATES = r"\b(has|have|had|was|were|been|may|can|could|might|remains?|continues?)\b"
 
 
 def plain(s):
@@ -161,24 +202,35 @@ def plain(s):
 
 
 def titles(desc):
-    """The section titles in an item's markup: heading tags, styled
-    header-paragraph spans and bold-only paragraphs that hold a noun phrase,
-    not a lead, an instruction or a whole sentence."""
-    out = set()
+    """The section titles in an item's markup, found more broadly than the
+    code under test looks for them: any heading tag, any header-* styled
+    span, any paragraph whose text is all bold (whatever the tags carry or
+    sit in), and any bold run ended by a line break; of those, the ones that
+    hold a noun phrase, not a lead, an instruction or a whole sentence."""
+    found = []
     for pat in (r"<(h[1-6])\b[^>]*>(.*?)</\1\s*>",
-                r"<span class=['\"]header-paragraph['\"]>()(.*?)</span>",
-                r"<p>\s*(?:<span[^>]*>\s*)?<b>()([^<]{1,80})</b>(?:\s|&nbsp;)*(?:</span>\s*)?</p>"):
-        for m in re.finditer(pat, desc, re.I | re.S):
-            if "header-paragraph" in m.group(2):
-                continue        # a heading holding its title span and text: the span is read on its own
-            t = plain(m.group(2)).rstrip(" :")
-            if not t or re.match(r"(exercise|reconsider|do not travel)\b", t, re.I):
-                continue
-            if re.search(SAYS, re.sub(r"\([^)]*\)", " ", t), re.I):
-                continue
-            if t.endswith((".", "!", "?")) and len(t.split()) > 6:
-                continue
-            out.add(t.rstrip("."))
+                r"<span class=['\"]header-[a-z]+['\"]>()(.*?)</span>",
+                r"<(b|strong)\b[^>]*>((?:(?!</?(?:b|strong)\b).){1,80}?)(?:<br\s*/?>\s*</\1>|</\1>\s*<br\b)"):
+        found += [m.group(2) for m in re.finditer(pat, desc, re.I | re.S)]
+    for m in re.finditer(r"<p\b[^>]*>(.*?)</p>", desc, re.I | re.S):
+        if plain(m.group(1)) and not plain(re.sub(r"<(b|strong)\b[^>]*>.*?</\1>", " ", m.group(1), flags=re.I | re.S)):
+            found.append(m.group(1))
+    out = set()
+    for inner in found:
+        if "header-paragraph" in inner:
+            continue        # a heading holding its title span and text: the span is read on its own
+        t = plain(inner).rstrip(" :")
+        if not t or re.match(r"(exercise|reconsider|do not travel)\b", t, re.I):
+            continue
+        if re.search(r"reissued|periodic review|w(as|ere) (added|updated|removed|combined)", t, re.I):
+            continue        # the bold change note ("Reissued after periodic review…") is bookkeeping, not a title
+
+        bare = re.sub(r"\([^)]*\)", " ", t)
+        if re.search(SAYS, bare, re.I):
+            continue
+        if t.endswith((".", "!", "?")) and (len(t.split()) > 6 or re.search(STATES, bare, re.I)):
+            continue
+        out.add(t.rstrip("."))
     return out
 
 

@@ -572,30 +572,40 @@ def _sentences(desc):
     #    nothing about which: Mexico's "U.S. government employee travel
     #    restrictions (U.S. citizens are strongly advised to follow):" is a
     #    title.
-    SAYS = r"\b(should|must|leave|depart|avoid|do not|don't|are|is|will|cannot)\b"
+    #  A short line that ends in a full stop and has a verb ("Terrorists may
+    #  attack.", "The airport has closed.") is a sentence; a short one with
+    #  no verb ("Crime and kidnapping.") is a title. The feed's apostrophes
+    #  are curly as often as straight ("don’t", Egypt).
+    SAYS = r"\b(should|must|leave|depart|avoid|do not|don['’]t|won['’]t|can['’]t|are|is|will|cannot)\b"
     STATES = r"\b(has|have|had|was|were|been|may|can|could|might|remains?|continues?)\b"
     def kind(t):
-        t = re.sub(r"(?:\s|&nbsp;)+$", "", t.strip())
+        t = re.sub(r"\s+$", "", html.unescape(t).strip())
         if re.match(r"(exercise|reconsider|do not travel)\b", t, re.I):
             return "lead"
         bare = re.sub(r"\([^)]*\)", " ", t)
         says = re.search(SAYS, bare, re.I)
         if t.endswith(":"):
             return "intro" if says else "title"
-        if says or (len(t.split()) > 6 and (re.search(r"[.!?]$", t) or re.search(STATES, bare, re.I))):
+        stop, states = re.search(r"[.!?]$", t), re.search(STATES, bare, re.I)
+        if says or (stop and states) or (len(t.split()) > 6 and (stop or states)):
             return "sentence"
         return "title"
     def heading(m):
         t = m.group(1).strip()
+        if not html.unescape(t).strip():
+            return m.group(0)       # a styled span holding only a line break is no title
         k = kind(t)
         if k == "title":
             return " \x01 "
         if k != "sentence" or re.search(r"[.!?]\s*$", t):
             return m.group(0)
         return " " + t.rstrip(":;, ") + ". "
-    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>(?:\s|&nbsp;)*(?:</span>\s*)?</p>",
+    # The bold tag may carry a style of its own, here and below (Oman's
+    # "<p><b style='white-space: initial;'>Armed conflict</b></p>", Gaza's
+    # "Terrorism").
+    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b\b[^>]*>([^<]{1,80})</b>(?:\s|&nbsp;)*(?:</span>\s*)?</p>",
                   heading, text, flags=re.I)
-    text = re.sub(r"<b>\s*([^<]{1,60}?)<br\s*/?>\s*</b>", heading, text, flags=re.I)
+    text = re.sub(r"<b\b[^>]*>\s*([^<]{1,60}?)<br\s*/?>\s*</b>", heading, text, flags=re.I)
     # …or closed before the break: "<p><b>U.S. government employee travel
     # restrictions</b><br> U.S. government employees…" (UAE, Guinea), and the
     # styled headings ("<span class='header-paragraph'>Crime<br></span>",
@@ -604,9 +614,10 @@ def _sentences(desc):
     # Somalia, quoted as a sentence "Aviation safety."), with a line break
     # styled on its own after the title (Belarus: "…><b>Ordered
     # departure</b><span class='header-callout'><br /></span></span>On
-    # February 28, 2022…").
-    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b>([^<]{1,80})</b>\s*<br\s*/?>", heading, text, flags=re.I)
-    text = re.sub(r"<span class=['\"]header-paragraph['\"]>\s*(?:<(?:b|strong)\b[^>]*>\s*)?([^<]{1,80}?)\s*"
+    # February 28, 2022…"). Colombia styles its titles as a callout instead:
+    # "<span class='header-callout'>Demonstrations&nbsp;</span>".
+    text = re.sub(r"<p>\s*(?:<span[^>]*>\s*)?<b\b[^>]*>([^<]{1,80})</b>\s*<br\s*/?>", heading, text, flags=re.I)
+    text = re.sub(r"<span class=['\"]header-(?:paragraph|callout)['\"]>\s*(?:<(?:b|strong)\b[^>]*>\s*)?([^<]{1,80}?)\s*"
                   r"(?:</(?:b|strong)>\s*)?(?:<br\s*/?>\s*)?"
                   r"(?:<span class=['\"]header-callout['\"]>(?:\s|&nbsp;|<br\s*/?>)*</span>\s*)?</span>",
                   heading, text, flags=re.I)
@@ -627,6 +638,16 @@ def _sentences(desc):
             return " \x01 <p>%s</p> " % inner
         return " \x01 "
     text = re.sub(r"<(h[1-6])\b[^>]*>(.*?)</\1\s*>", heading_tag, text, flags=re.I | re.S)
+    INL = r"</?(?:span|b|i|em|strong|u|a|font)\b[^>]*>"
+    # A list's lead-in on its own ("If you decide to travel to Tonga:" over a
+    # list of tips; Yemen's ends a paragraph) says nothing without the list:
+    # it ends the sentence before it and is dropped. Only as a whole sentence
+    # that ends its block: "If you decide to travel to Belgium, avoid the
+    # north: it is unsafe." is an instruction, and stays.
+    text = re.sub(r"(?:^|(?<=>)|(?<=[.!?]))(?:\s|&nbsp;)*(?-i:If) you decide to travel"
+                  r"(?:\s+to\b(?:[^.:!?,<]|" + INL + r"){0,80})?:"
+                  r"(?=(?:\s|&nbsp;|" + INL + r")*(?:</?(?:p|li|ul|ol|div|h[1-6])\b|<br\b|$))",
+                  " \x01 ", text, flags=re.I)
     # An inline tag INSIDE a word is no word break ("a<b>rbitrary",
     # "citizen</span>s", "W<u>eather"): the feed's markup split words, and
     # quoted back they read "a rbitrary". Only where one side is a single
@@ -637,7 +658,6 @@ def _sentences(desc):
     # So does a list or a <div> (Greece's text is one).
     text = re.sub(r"(?<=[A-Za-z0-9)])((?:\s|&nbsp;|</(?:span|b|i|em|strong|u|a|font)>)*)"
                   r"(</p>|</li>|<br\s*/?>|</div>|</ul>|</ol>)", r".\1\2", text, flags=re.I)
-    INL = r"</?(?:span|b|i|em|strong|u|a|font)\b[^>]*>"
     prev = None
     while prev != text:
         prev = text
@@ -656,13 +676,11 @@ def _sentences(desc):
     # Belize's "Please read the entire Travel Advisory." left a "Please".
     text = re.sub(r"\s*(?:Please\s+)?Read the entire(?:\s+Travel Advisory\.?)?", "", text, flags=re.I)
     text = re.sub(r"\bAdvisory summary\b\s*:?", "", text, flags=re.I)
-    # Two more headings that survive as text: the old template's "Country
+    # One more heading that survives as text: the old template's "Country
     # Summary:" (Morocco's tip read "…due to terrorism. Country Summary:
-    # Terrorist groups…"), and a list's lead-in on its own ("If you decide to
-    # travel to Tonga:" over a list of tips), which says nothing without the
-    # list. Each ends the sentence before it and is dropped.
-    text = re.sub(r"\s*\bCountry Summary\s*:", " \x01 ", text, flags=re.I)
-    text = re.sub(r"\s*\bIf you decide to travel(?:\s+to\b[^.:!?]{0,80})?:", " \x01 ", text, flags=re.I)
+    # Terrorist groups…"). It ends the sentence before it and is dropped;
+    # only where it opens a sentence ("See the Country Summary: …" stays).
+    text = re.sub(r"(^|[.!?]\s*|\x01\s*)Country Summary\s*:", "\\1 \x01 ", text, flags=re.I)
     text = re.sub(r"\s*Summary not available\.?", " \x01 ", text, flags=re.I)
     # Shield abbreviations the sentence splitter would break on ("...travel to
     # Japan, U.S. government employees...").
