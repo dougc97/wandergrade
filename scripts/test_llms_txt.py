@@ -81,6 +81,30 @@ results.append(ok("_guide_lines(" in SERVER and hasattr(guide_lines, "grades") a
 results.append(ok("table is empty" not in txt and "for several minutes after the site restarts" in txt,
                   "no longer says the homepage table is empty; says when the served parts can be missing"))
 
+# The visitor-fee sentences come from visa.json, as /how-grades-work's do
+# (render_methodology.fee_item): a changed rate changes both, never one.
+import copy, json  # noqa: E402
+from fxtracker import picks  # noqa: E402
+VISA = json.load(open(os.path.join(ROOT, "public", "visa.json"), encoding="utf-8"))
+bt = VISA["BT"]["fee"]
+results.append(ok(llms_txt.fee_text() in txt and "(Bhutan's US$%d a %s)" % (bt["usd"], bt["per"]) in txt
+                  and "(₹%s a %s), see it ranked as usual" % (picks.fee_amount(bt["local"]["IN"]["amount"], "INR"),
+                                                              bt["per"]) in txt
+                  and "Readers from India, whose nationals" in txt,
+                  "the fee sentences give visa.json's rates: Bhutan's US$%d and India's ₹%s a %s"
+                  % (bt["usd"], picks.fee_amount(bt["local"]["IN"]["amount"], "INR"), bt["per"])))
+moved = copy.deepcopy(VISA)
+moved["BT"]["fee"]["usd"], moved["BT"]["fee"]["local"]["IN"]["amount"] = 250, 1500
+moved_txt = llms_txt.fee_text(moved)
+results.append(ok("(Bhutan's US$250 a night)" in moved_txt and "(₹1,500 a night)" in moved_txt
+                  and "US$100" not in moved_txt and "1,200" not in moved_txt,
+                  "a changed rate in visa.json changes the sentence (US$250, ₹1,500)"))
+del moved["BT"]["fee"]["local"]
+results.append(ok("US$250" in llms_txt.fee_text(moved) and "Readers from" not in llms_txt.fee_text(moved),
+                  "with no local rate, the India sentence goes"))
+del moved["BT"]["fee"]
+results.append(ok(llms_txt.fee_text(moved) == "", "with no fee country, no fee sentence"))
+
 results.append(ok('path == "/llms.txt"' in SERVER and "llms_txt.build(render_guide.all_slugs()" in SERVER,
                   "server.py serves it from the sitemap's slug list"))
 

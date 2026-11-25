@@ -12,8 +12,11 @@ without JavaScript, how a ranking link is built for a reader who has a
 browser, where each grade's data comes from, and how to cite it.
 
 Built from the same slug list as the sitemap, so the guide index can never
-drift from the real pages. Pure: server.py memoizes and serves it.
+drift from the real pages. server.py builds it per request; the files the fee
+sentence reads (visa.json, country-names.json) are read once and kept.
 """
+
+from . import picks
 
 SITE = "https://wandergrade.com"
 
@@ -25,7 +28,7 @@ WanderGrade answers "where should I go, and when?" for a traveller from a given 
 
 ## How the grades are made
 
-- Affordability: everyday local prices versus the traveller's home country, and nothing else (World Bank purchasing-power parities for household spending, Taiwan's estimated from IMF and Penn World Table figures, at today's exchange rates from fxratesapi.com): A+ up to about 24% of home prices, F above about 82%. How strong the home currency is against its one-year average after inflation (history from Frankfurter/ECB) is shown beside it, not graded. A country where visitors pay a mandatory daily fee (Bhutan's US$100 a night) keeps its grades but is left out of rankings: the fee isn't in its price level. Readers from India, whose nationals pay a small rate of their own (₹1,200 a night), see it ranked as usual.
+- Affordability: everyday local prices versus the traveller's home country, and nothing else (World Bank purchasing-power parities for household spending, Taiwan's estimated from IMF and Penn World Table figures, at today's exchange rates from fxratesapi.com): A+ up to about 24% of home prices, F above about 82%. How strong the home currency is against its one-year average after inflation (history from Frankfurter/ECB) is shown beside it, not graded.{fee}
 - Safety: the government travel advisory level (U.S. State Department, Global Affairs Canada or the German Federal Foreign Office, the reader's own country first, gaps filled from the others). Level 4 "Do Not Travel" countries are left out of rankings.
 - Weather: a monthly comfort score from five years of daily weather history (Open-Meteo archive; for the few places where its rain is far off, long-run local rain averages, mostly from weather stations).
 - Flights: round-trip fares Aviasales has seen recently (via Travelpayouts), judged against each route's own usual range for the month. Cached fares, not live quotes.
@@ -71,6 +74,44 @@ Example: {site}/?vmn=11&vo=GB&vr=EUR&pc=10 is the top ten in Europe for a travel
 """
 
 
+_FEE = None   # fee_text()'s default answer, once read
+
+
+def fee_text(visa=None, names=None):
+    """The Affordability line's visitor-fee sentences, from visa.json as
+    /how-grades-work's (render_methodology.fee_item) are, so a new rate can't
+    leave old figures here: " A country where visitors pay a mandatory daily
+    fee (Bhutan's US$100 a night) keeps its grades but is left out of
+    rankings: ... Readers from India, whose nationals pay a small rate of
+    their own (₹1,200 a night), see it ranked as usual." "" when no country
+    has a fee. `visa`/`names`: visa.json and country-names.json as loaded,
+    else read here (once: the default call is kept)."""
+    global _FEE
+    default = visa is None and names is None
+    if default and _FEE is not None:
+        return _FEE
+    visa = visa if visa is not None else picks._load("visa.json")
+    names = names if names is not None else picks._load("country-names.json")
+    isos = sorted(picks.fee_isos(visa), key=lambda i: names.get(i, i))
+    out = ""
+    fees = [(i, picks.visitor_fee(i, visa)) for i in isos]
+    each = "; ".join("%s's US$%s a %s" % (names.get(i, i), format(int(f["usd"]), ","), f.get("per") or "day")
+                     for i, f in fees)
+    if fees:
+        out = (" A country where visitors pay a mandatory daily fee (%s) keeps its grades but is left out of "
+               "rankings: the fee isn't in its price level." % each)
+    for i, f in fees:
+        for o in sorted(f.get("local") or {}):
+            loc = picks.visitor_fee(i, visa, o)
+            if loc.get("cur"):
+                out += (" Readers from %s, whose nationals pay a small rate of their own (%s%s a %s), see %s ranked "
+                        "as usual." % (names.get(o, o), loc["symbol"], picks.fee_amount(loc["amount"], loc["cur"]),
+                                       loc["per"], "it" if len(fees) == 1 else names.get(i, i)))
+    if default:
+        _FEE = out
+    return out
+
+
 def build(slugs, name_for_iso):
     """The /llms.txt text. slugs: [(slug, iso), ...] as render_guide.all_slugs()
     returns them; name_for_iso: iso -> display name (None falls back to the
@@ -80,4 +121,4 @@ def build(slugs, name_for_iso):
         name = name_for_iso(iso) or slug.replace("-", " ").title()
         rows.append((name, "- [%s](%s/guide/%s)" % (name, SITE, slug)))
     rows.sort(key=lambda r: r[0].lower())
-    return _HEAD.format(site=SITE, n=len(rows)) + "\n".join(r[1] for r in rows) + "\n"
+    return _HEAD.format(site=SITE, n=len(rows), fee=fee_text()) + "\n".join(r[1] for r in rows) + "\n"
