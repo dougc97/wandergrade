@@ -23,7 +23,13 @@ What it holds the code to:
     whatever the fare when the fee alone uses the budget up); a country with
     no fee is untouched; no rupee rate (or no visa.json for the US-dollar
     fee) is no opinion, never a budget that ignores the fee; the guide's AI
-    prompt says the fee too.
+    prompt says the fee too;
+  * the fee is named only where it is what put the budget over (feeTipped:
+    the fare alone fits, the fare and the fee don't): a fare over on its own
+    is "the flight alone", fee or not, in the budget note, the ★ list's
+    reason (renderValue on the INR edition's fixtures) and the AI prompt; the
+    "Any time" chip's tip says which months the fee ruled out and which the
+    flight alone did (flexWinScores, flexChips).
 """
 import datetime, json, os, re, subprocess, sys, tempfile
 
@@ -64,6 +70,7 @@ FIT_CASES = {
     "us-bt-feeout": ("US", "USD", 900, 10, "BT", 500, True, None, 0.22, True, True),
     "us-bt-novisa": ("US", "USD", 3000, 10, "BT", 1500, False, None, 0.22, True, False),
     "us-th":      ("US", "USD", 3000, 10, "TH", 1500, False, None, 0.30, True, True),
+    "in-bt-fareout": ("IN", "INR", 40000, 10, "BT", round(64211 / INR, 4), False, None, 1.08, True, True),
 }
 
 DRIVER = r"""
@@ -96,7 +103,7 @@ const setOrigin = (o) => { localStorage.removeItem("fx_origin"); if (o) localSto
     S = { iso, fare, fareEst: est, fareMin, pl, flyBasis: "month" };
     const bf = budgetFit(S);
     out.fit[k] = { bf: bf && Object.assign({}, bf, { feeInfo: !!bf.feeInfo }), words: bf ? budgetWords(S, bf) : null,
-                   line: budLine(S), passes: passesBudget(S), ai: aiGuideBudget(iso, 3) };
+                   line: budLine(S), passes: passesBudget(S), ai: aiGuideBudget(iso, 3), tipped: feeTipped(bf) };
   }
   print(JSON.stringify(out));
 })().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
@@ -236,6 +243,103 @@ results.append(ok(v["words"] == "USD 1,500 flight and the USD 100/night visitor 
                   "a US reader (where budgetFit still runs for Bhutan: the guide's AI prompt) pays the US$100 a "
                   "night: %r; the cheapest seen fare stands in when the average plus the fee is over; the fee alone "
                   "over budget is out whatever the estimated fare" % v["words"]))
+
+g = fit["in-bt-fareout"]
+results.append(ok(g["bf"]["impossible"] and g["bf"]["fare"] >= g["bf"]["total"] and g["tipped"] is False
+                  and fit["in-bt-edge"]["tipped"] is True and fit["us-bt-feeout"]["tipped"] is True
+                  and fit["in-th-edge"]["tipped"] is False
+                  and g["ai"].endswith("; the INR %s flight alone uses it up." % format(inr(g["bf"]["fare"]), ",")),
+                  "a fare over the budget on its own (₹40,000, Bhutan's INR 64,211): \"the flight alone\", fee or not; "
+                  "the fee is named only where it tipped the budget over: %r" % g["ai"]))
+
+# --- (c) the ★ list and the budget note: renderValue on the INR edition's fixtures ----------------
+from fxtracker import picks  # noqa: E402
+RV = dict(FIX, climate=load("public", "climate.json"), world=load("public", "world.geojson"),
+          popular=sorted(picks.FALLBACK_POPULAR), inrates=load("scripts", "parity", "fixtures", "INR", "rates.json"),
+          flights=load("scripts", "parity", "fixtures", "INR", "flights.json"),
+          fv=load("scripts", "parity", "fixtures", "INR", "flight_value.json"),
+          budgets=[40000, 65000, 150000], want=["BT", "NP", "TH"])
+# The "Any time" chip, on per-month rows for Bhutan from India (the INR
+# fixtures' route has no month fares yet): ₹72,000 for 10 days; May (80) is
+# best and its INR 62,164 flight fits, but not with 10 nights' ₹1,200 fee;
+# March and April's INR 70,000 neither; June's INR 75,000 flight alone is
+# over; February's INR 52,000 and the fee fit.
+FLEX = {"budget": 72000, "win": [2, 3, 4, 5, 6],
+        "rows": {"2": [52000, 70], "3": [70000, 72], "4": [70000, 71], "5": [62164, 80], "6": [75000, 60]}}
+RV_DRIVER = r"""
+const FIX = JSON.parse(read(FIX_PATH));
+ppp = FIX.ppp; climate = FIX.climate; activities = FIX.activities; worldGeo = FIX.world;
+advisories = FIX.advisories; lastRates = FIX.rates; visa = FIX.visa;
+SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
+loaded.value = true; drawMap = function () {};
+$("pickCount").value = "5"; $("safeFloor").value = "b";
+const out = { views: [], flex: null };
+try {
+  $("valueOrigin").value = "IN"; localStorage.setItem("fx_origin", "IN");
+  homeBase = "INR"; homeRates = FIX.inrates; flightsData = FIX.flights; flightValue = FIX.fv;
+  localStorage.setItem("wg_budgetcur", "INR");
+  $("valueMonth").value = "3"; $("beenFilter").value = "want";
+  wishlist = new Set(FIX.want); popularSet = new Set(FIX.popular); popularDataBacked = true;
+  for (const b of FIX.budgets) {
+    $("budgetTotal").value = String(b); $("budgetDays").value = "10";
+    renderValue();
+    out.views.push({ budget: b, note: $("picksNote").innerHTML });
+  }
+  // The "Any time" chip: real bestOfWindow, flexWinScores and flexChips.
+  localStorage.setItem("wg_budget", String(FIX.flex.budget)); localStorage.setItem("wg_budgetdays", "10");
+  $("budgetTotal").value = String(FIX.flex.budget);
+  const inr = rateForCurrency("INR"), win = FIX.flex.win, byMonth = {};
+  for (const m of win) {
+    const [fare, value] = FIX.flex.rows[m];
+    byMonth[m] = { iso: "BT", name: "Bhutan", fare: fare / inr, fareEst: false, fareMin: null, pl: 1.08,
+                   flyBasis: "month", value, wx: 80 };
+  }
+  const own = (s) => s.flyBasis === "month";
+  const b = bestOfWindow(byMonth, win, "value", passesBudget, own);
+  const s = b.s; s.month = b.month; s.winScores = flexWinScores(byMonth, win, b, passesBudget, own);
+  if (b.moved) s.budgetMoved = true;
+  out.flex = { month: b.month, moved: !!b.moved, over: s.winScores.map((x) => [x.m, x.over || null]),
+               tip: flexChips(s).match(/data-tip="([^"]*)"/)[1] };
+  print(JSON.stringify(out));
+} catch (e) { print(JSON.stringify({ error: String(e && e.stack || e) })); }
+"""
+with tempfile.TemporaryDirectory() as d:
+    fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
+    json.dump(dict(RV, flex=FLEX), open(fp, "w"))
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + RV_DRIVER.replace("FIX_PATH", json.dumps(fp)))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
+try:
+    rv = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    rv = {"error": (r.stderr or r.stdout)[-500:]}
+results.append(ok("error" not in rv, "renderValue and the \"Any time\" chip ran under jsc %s" % rv.get("error", "")))
+if "error" not in rv:
+    import html as H
+    V = {v["budget"]: v["note"] for v in rv["views"]}
+    miss = lambda n: H.unescape((re.search(r'class="muted wantmiss" data-tip="([^"]*)"', n) or [None, ""])[1])
+    plain = lambda n: re.sub(r"<[^>]+>", "", re.sub(r' data-tip="[^"]*"', "", n))
+    lo, mid, hi = V[40000], V[65000], V[150000]
+    results.append(ok("Bhutan: its flight alone is over your budget" in miss(lo) and "visitor fee" not in miss(lo)
+                      and re.search(r"\d+ (?:country is|countries are) out of reach on the flight alone\.", plain(lo))
+                      and "visitor fee" not in plain(lo),
+                      "₹40,000 for 10 days, Bhutan's fare alone over it: the ★ list says \"its flight alone\", as the "
+                      "budget note beside it does (%r; %r)" % (miss(lo), plain(lo).strip()[:140])))
+    results.append(ok("Bhutan: its flight and visitor fee are over your budget" in miss(mid)
+                      and "1 country is out of reach on the flight and visitor fee." in plain(mid),
+                      "₹65,000 for 10 days, the fee tips it over: the ★ list and the note both name the fee (%r; %r)"
+                      % (miss(mid), plain(mid).strip()[:140])))
+    tipq = H.unescape((re.findall(r'<span class="muted" data-tip="([^"]*)">ⓘ', hi) or [""])[-1])
+    results.append(ok("Bhutan" not in miss(hi) and "every pick below is reachable" in plain(hi)
+                      and "minus the fare and any visitor fee (a night for each day of the trip), spread over your days" in tipq
+                      and "daily visitor fee" not in tipq and "one per day" not in tipq,
+                      "₹150,000: Bhutan ranked, and the note's ⓘ says how the fee is counted, once: %r" % tipq[:200]))
+    fx = rv["flex"]
+    results.append(ok(fx["month"] == 2 and fx["moved"]
+                      and fx["over"] == [[2, None], [3, "fee"], [4, "fee"], [5, "fee"], [6, True]]
+                      and fx["tip"].endswith(" Jun: out of reach on the flight alone. Mar, Apr, May: out of reach on "
+                                             "the flight and visitor fee."),
+                      "\"Any time\", ₹72,000 for 10 days: Bhutan moves to February, and its chip says the fee ruled out "
+                      "Mar–May (each flight fits alone) and the flight alone June: %r" % fx["tip"]))
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)

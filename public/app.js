@@ -7959,7 +7959,7 @@ function aiGuideBudget(iso, month) {
   }
   const bf = s && budgetFit(s);   // null until a rate for the budget's money (or a visitor fee's) is in
   if (!bf) return head + ".";
-  if (bf.impossible || bf.estOut) return head + "; " + (!bf.feeInfo ? "the " + fmtBC(bf.fare) + " flight alone uses it up"
+  if (bf.impossible || bf.estOut) return head + "; " + (!feeTipped(bf) ? "the " + fmtBC(bf.fare) + " flight alone uses it up"
     : bf.fee >= bf.total ? budgetFeeWords(bf) + " alone uses it up"
     : "the " + fmtBC(bf.fare) + " flight and " + budgetFeeWords(bf) + " use it up") + ".";
   const avg = s.flyBasis !== "month" && !bf.fareEst && !bf.fareIsMin;
@@ -8523,6 +8523,14 @@ function feeUsd(f) {
   return r ? f.amount / r : null;
 }
 
+// Whether the visitor fee is what put a budget over: the fare alone fits it,
+// the fare and the fee don't. Only then do the budget note, the ★ list's
+// reason, the "Any time" chip and the guide's AI prompt name the fee; a
+// fare already over on its own is "the flight alone", fee or not.
+function feeTipped(bf) {
+  return !!bf && bf.fee > 0 && bf.fare < bf.total;
+}
+
 function passesBudget(s) {
   const f = budgetFit(s);
   return !f || !(f.impossible || f.estOut);
@@ -8845,7 +8853,10 @@ function flexChips(s) {
   // "Best value: Jan, 80/100 — the other months 70–90" read as a 90 passed over.
   const moved = !!s.budgetMoved;
   const others = ws.filter((x) => x.m !== s.month && x[key] != null && !x.over && !x.nofare);
-  const over = moved ? ws.filter((x) => x.over).map((x) => MON_ABBR[x.m - 1]) : [];
+  // over "fee": the month's fare fits the budget, its fare and the visitor
+  // fee don't (flexWinScores), said as the budget note says it.
+  const overOn = (fee) => moved ? ws.filter((x) => x.over && (x.over === "fee") === fee).map((x) => MON_ABBR[x.m - 1]) : [];
+  const over = overOn(false), overFee = overOn(true);
   const nofare = moved ? ws.filter((x) => x.nofare).map((x) => MON_ABBR[x.m - 1]) : [];
   const same = others.filter((x) => x[key] === s[key]).map((x) => MON_ABBR[x.m - 1]);
   const vals = others.map((x) => x[key]), lo = Math.min(...vals), hi = Math.max(...vals);
@@ -8858,6 +8869,7 @@ function flexChips(s) {
                                 : same.join(", ") + " the same" + (byValue ? ", " + tie : "") + ".")
       : " — the other months " + (lo === hi ? lo : lo + "–" + hi) + ".")
     + (over.length ? " " + over.join(", ") + ": out of reach on the flight alone." : "")
+    + (overFee.length ? " " + overFee.join(", ") + ": out of reach on the flight and visitor fee." : "")
     + (nofare.length ? " " + nofare.join(", ") + ": no fare cached for " + (nofare.length === 1 ? "that month." : "those months.") : "");
   const ch = s.cheapFly;
   let ftip = "";
@@ -9260,6 +9272,17 @@ function bestOfWindow(byMonth, win, key, ok, own) {
   const fit = pick(ok);
   return fit ? { s: fit.s, month: fit.month, moved: true } : best;
 }
+// Every month's two scores, for the "Any time" chip's "the other months" tip
+// (flexChips); b is bestOfWindow's pick. Where the budget moved the month,
+// the ones it rules out are marked over ("fee" where the month's fare fits
+// and its fare plus the visitor fee doesn't: Bhutan's May for an Indian
+// reader), and where a month with its own fare was preferred, the fare-less
+// ones passed over on the route's cheapest are marked too (nofare).
+function flexWinScores(byMonth, win, b, fits, own) {
+  return win.map((m) => (byMonth[m] ? Object.assign({ m, value: byMonth[m].value, wx: byMonth[m].wx },
+    b.moved && !fits(byMonth[m]) ? { over: feeTipped(budgetFit(byMonth[m])) ? "fee" : true }
+      : b.own && !own(byMonth[m]) ? { nofare: true } : null) : null)).filter(Boolean);
+}
 // The window's cheapest departure month on a route, for the "✈️ cheapest"
 // chip. Only on a banded route (flightvalue's min_months of fares, c.median):
 // a curve of two or three cached months has a cheapest month by accident of
@@ -9446,13 +9469,7 @@ function renderValue() {
     if (!b) continue;
     const s = b.s;
     s.month = b.month;
-    // Every month's two scores, for the chip's "the other months" tip; where
-    // the budget moved the month, the ones it rules out are marked (over),
-    // and where a month with its own fare was preferred, the fare-less ones
-    // passed over on the route's cheapest are marked too (nofare).
-    s.winScores = win.map((m) => (byMonth[m] ? Object.assign({ m, value: byMonth[m].value, wx: byMonth[m].wx },
-      b.moved && !fits(byMonth[m]) ? { over: true }
-        : b.own && !ownFare(byMonth[m]) ? { nofare: true } : null) : null)).filter(Boolean);
+    s.winScores = flexWinScores(byMonth, win, b, fits, ownFare);
     if (b.moved) s.budgetMoved = true;
     const ch = fvC ? cheapestFareMonth(fvC[iso], winKeys) : null;
     if (ch && ch.month !== s.month) s.cheapFly = ch;
@@ -9568,7 +9585,7 @@ function renderValue() {
     judged++;
     if (f.impossible) outOfReach++;
     else if (f.estOut) outOfReachEst++;
-    if ((f.impossible || f.estOut) && f.fee > 0 && f.fare < f.total) outOfReachFee++;
+    if ((f.impossible || f.estOut) && feeTipped(f)) outOfReachFee++;
   }
   // The "Somewhere new" filter is on by default and works, but it lives inside
   // a collapsed Filters fold — so a reader with 34 countries marked sees them
@@ -9599,7 +9616,7 @@ function renderValue() {
       const why = s ? (feeUnranked(iso) ? "a daily visitor fee comes on top of its prices"
                        : !passesFloor(s, floor) ? "below your safety filter"
                        : !matchesInterests(iso) ? "doesn't match your interests"
-                       : (budgetFit(s) || {}).feeInfo ? "its flight and daily visitor fee are over your budget"
+                       : feeTipped(budgetFit(s)) ? "its flight and visitor fee are over your budget"
                        : "its flight alone is over your budget")
         : region !== "all" && ISO_REGION[iso] !== region ? "outside " + (REGIONS[region] || "this region")
         : advMap[iso] === 4 ? "Level 4: Do Not Travel"
@@ -9621,7 +9638,7 @@ function renderValue() {
          : unjudged ? " — every pick with a fare is reachable."
          : " — every pick below is reachable.")
       + (judged && unjudged ? ` ${unjudged} had no fare to judge.` : "")
-      + ` <span class="muted" data-tip="Flights are the cached fares Aviasales has seen (the cheapest one decides what's out of reach); where none is cached, a distance-based estimate, marked est. What's left is your budget minus the fare and any daily visitor fee (one per day), spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
+      + ` <span class="muted" data-tip="Flights are the cached fares Aviasales has seen (the cheapest one decides what's out of reach); where none is cached, a distance-based estimate, marked est. What's left is your budget minus the fare and any visitor fee (a night for each day of the trip), spread over your days — and &quot;at home&quot; converts that by the local price level (World Bank PPP), so you can judge whether it's liveable. We don't guess a daily cost for you.">ⓘ</span>`
     : "";
   const rankedBy = flex ? `each one's best ${weatherMode ? "weather" : "month"} in ${flexSpan(win)}`
     : weatherMode ? `weather comfort in ${MONTHS[month - 1]}` : "value";
