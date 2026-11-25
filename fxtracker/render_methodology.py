@@ -33,7 +33,7 @@ from . import build_climate, guide_facts, picks
 from .home_picks import grade_cls
 
 PATH = "/how-grades-work"
-UPDATED = "2026-11-24"
+UPDATED = "2026-11-25"
 CONTACT = "hello@wandergrade.com"
 TITLE = "How Grades Work | WanderGrade"
 DESC = ("How WanderGrade grades every country A+ to F: the formulas, weights, data sources and "

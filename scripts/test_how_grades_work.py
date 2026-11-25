@@ -48,7 +48,7 @@ import server  # noqa: E402
 # sha1 of render_methodology.page(server's TTLs)["html"]. A change to the
 # page's words (a scoring constant, a TTL, the copy) changes it: then set
 # render_methodology.UPDATED to the day it ships and this to the new digest.
-PIN = "15642d932eaf4278e84f81a4c0bb04b2959094a7"
+PIN = "4780f4f2d6b1784e0871e5489dd82ddb25d93aeb"
 
 ok = lambda c, m: print(("  PASS  " if c else "  FAIL  ") + m) or c
 results = []
