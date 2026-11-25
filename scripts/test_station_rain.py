@@ -19,7 +19,11 @@ What it holds the data to:
     naming its station, period and source;
   * the corrected rows' yearly totals sit within RAIN_RATIO (1.5) of their
     station's, and so does every row that kept Open-Meteo's rain (the rule
-    that put a row in STATION_RAIN);
+    that put a row in STATION_RAIN); the line itself is inclusive (exactly
+    1.5x keeps Open-Meteo's rain), every station row but two was strictly
+    outside it, and those two, Western Sahara and the Isle of Man, sit on it
+    and stay on station rain by the owner's call (2026-11-24), their ratios
+    pinned;
   * the temperature behind each score is recovered faithfully: for known
     temperatures and rain, _temp_for gives back a temperature that rescores
     within a point of the true one with any other rain (within half a
@@ -111,6 +115,63 @@ results.append(ok(not out and all(abs(ratios[i] - 1) < 0.01 for i in ST),
                      sum(CLIM["NP"]["rain_mm"]), sum(CLIM["PE"]["rain_mm"]), (": " + " ".join(out)) if out else "")))
 results.append(ok(all(not [w for w in bc.point_warnings(CLIM[i], i) if "rain" in w] for i in ELIGIBLE),
                   "the build warns about no row's rain"))
+
+# --- where the 1.5x line falls, and the two rows sitting on it ---------------------------
+# The rule as the code applies it (point_warnings, and the check above): a row keeps
+# Open-Meteo's rain while 1/RAIN_RATIO <= its ratio <= RAIN_RATIO, ends included (exactly
+# 1.5x stays); only a ratio strictly outside that band calls for the station's rain.
+def rain_warns(iso, total):
+    row = {"rain_mm": [total // 12 + (1 if m < total % 12 else 0) for m in range(12)]}
+    return any("rain" in w for w in bc.point_warnings(row, iso))
+
+
+edge_iso = next(i for i, (mm, _) in sorted(REF.items()) if mm % 6 == 0)   # 1.5x and 1/1.5x land on whole mm
+edge_mm = REF[edge_iso][0]
+hi, lo = edge_mm * 3 // 2, edge_mm * 2 // 3
+results.append(ok(not rain_warns(edge_iso, hi) and rain_warns(edge_iso, hi + 1)
+                  and not rain_warns(edge_iso, lo) and rain_warns(edge_iso, lo - 1),
+                  "the line is inclusive: against %s's %d mm, exactly %d (1.5x) and %d (1/1.5x) keep Open-Meteo's "
+                  "rain, %d and %d don't" % (edge_iso, edge_mm, hi, lo, hi + 1, lo - 1)))
+
+
+def om_total(st):
+    """Open-Meteo's yearly rain before the station's replaced it, as the entry's why records it."""
+    return int(re.search(r"Open-Meteo ([\d,]+) mm", st["why"]).group(1).replace(",", ""))
+
+
+# Owner's decision, 2026-11-24: Western Sahara and the Isle of Man stay on station rain.
+# iso: (Open-Meteo mm a year, ratio to the climate box's yearly total, ratio to the rounded
+# months rain_reference() checks against now)
+ON_LINE = {"EH": (47, 1.53, 1.47), "IM": (1338, 1.51, 1.51)}
+pinned = []
+for iso, (om, r_box, r_ref) in sorted(ON_LINE.items()):
+    st = ST.get(iso) or {}
+    if not st:
+        pinned.append(iso + " not in STATION_RAIN")
+        continue
+    box, ref = om_total(st) / sum(st["mm"]), om_total(st) / bc.rain_reference(iso)[0]
+    if (CLIM[iso].get("rain_src") != bc.station_label(st) or om_total(st) != om or round(box, 2) != r_box
+            or round(ref, 2) != r_ref or "(%.2fx)" % r_box not in st["why"]):
+        pinned.append("%s %d mm, %.3fx / %.3fx" % (iso, om_total(st), box, ref))
+eh_box = om_total(ST["EH"]) / sum(ST["EH"]["mm"]) if "EH" in ST else 0
+eh_ref = om_total(ST["EH"]) / bc.rain_reference("EH")[0] if "EH" in ST else 9
+im_ref = om_total(ST["IM"]) / bc.rain_reference("IM")[0] if "IM" in ST else 0
+results.append(ok(not pinned and eh_box > bc.RAIN_RATIO > eh_ref and im_ref > bc.RAIN_RATIO,
+                  "Western Sahara (Open-Meteo 47 mm: 1.53x the box's 30.8 mm, 1.47x its rounded months' 32) and the "
+                  "Isle of Man (1,338 mm: 1.51x either way) are station-rain rows; the Isle of Man is just outside the "
+                  "line, Western Sahara outside it only on the box's total and kept by the owner's call%s"
+                  % ((": " + "; ".join(pinned)) if pinned else "")))
+inside = []
+for iso, st in sorted(ST.items()):
+    if iso in ON_LINE:
+        continue
+    for total in (sum(st["mm"]), bc.rain_reference(iso)[0]):
+        if 1 / bc.RAIN_RATIO <= om_total(st) / total <= bc.RAIN_RATIO:
+            inside.append(iso)
+            break
+results.append(ok(not inside and len(ST) - len(ON_LINE) >= 20,
+                  "every other station-rain row (%d) was strictly outside the line on both totals%s"
+                  % (len(ST) - len(ON_LINE), (": " + " ".join(inside)) if inside else "")))
 
 # --- recovering the temperature behind a score ------------------------------------------
 worst, worst_clamped = 0, 0
