@@ -25,6 +25,12 @@ What it holds the code to:
     forced to 100 it is in none of Top Picks, Hidden gems (Any time and a
     month) or the ★ list (which says why), served or drawn, where with the
     rule off it ranks first;
+  * a nationals' own rate (visa.json fee "local": Indian nationals' ₹1,200
+    a night in Bhutan): app.js FEE_LOCAL is picks.visitor_fee's for each,
+    an Indian reader's lists are the rule-off ones with Bhutan ranked
+    (its weather and fare from India forced), readers from the US, the UK
+    and Germany still find it nowhere, and the Data tab's note gives each
+    reader their own rate, with or without visa.json;
   * the page: index.html keeps its skeleton for the guides and for a reader
     the served view isn't for; the homepage serves the table and note when
     the caches hold their inputs and the skeleton when they don't; the
@@ -346,7 +352,7 @@ else:
                   flights=FIX["flights"], fv=FIX["fv"], popular=set(POP_BT))
     served_on = H.build(inputs, SLUGS, TODAY)
     real_fee = picks.fee_isos
-    picks.fee_isos = lambda visa=None: set()
+    picks.fee_isos = lambda visa=None, origin=None: set()
     try:
         served_off = H.build(inputs, SLUGS, TODAY)
     finally:
@@ -358,6 +364,141 @@ else:
                       "the served Top Picks leave Bhutan out as app.js does, row for row (%s), where with the rule off "
                       "both rank it first (%s)" % (" ".join(rows((served_on or {}).get("table"))),
                                                     " ".join(rows((served_off or {}).get("table"))))))
+
+# --- a nationals' own rate (Indian readers' ₹1,200 a night in Bhutan) --------------------
+# visa.json's fee "local" names the rate some nationals pay in their own
+# currency; the reader's home is taken as their passport. app.js FEE_LOCAL
+# holds each such rate as picks.visitor_fee returns it for that origin, so the
+# Data tab knows it without visa.json, as FEE_ISOS is known. For such a
+# reader the country is ranked like any other (feeUnranked; picks.fee_isos by
+# origin, which the newsletter's INR edition reads): renderValue for an Indian
+# reader draws exactly what it draws with the rule off, Bhutan in it, where
+# readers from the US, the UK and Germany (each on its own edition's fares and
+# rates) still find it nowhere. On the real fares an Indian reader's Bhutan
+# scores about 55 (its Delhi-Paro fare, 1.7 times the distance's, scores 0 on
+# Flights), so besides its weather its fare from India is forced to US$200
+# here: it then ranks first, as the US reader's does with its weather alone.
+VISA = load("public", "visa.json")
+m_loc = re.search(r"^const FEE_LOCAL = (\{.*?\});$", APP, re.M | re.S)
+try:
+    app_local = json.loads(re.sub(r"([{,]\s*)([A-Za-z_]\w*)\s*:", r'\1"\2":', m_loc.group(1))) if m_loc else None
+except ValueError:
+    app_local = None
+py_local = {iso: {o: picks.visitor_fee(iso, VISA, o) for o in (VISA[iso]["fee"].get("local") or {})}
+            for iso in sorted(picks.fee_isos(VISA))
+            if (VISA[iso]["fee"].get("local") or {})}
+results.append(ok(app_local == py_local and py_local == {"BT": {"IN": {
+                      "amount": 1200, "cur": "INR", "symbol": "₹", "who": "Indian nationals", "per": "night",
+                      "name": "Sustainable Development Fee"}}},
+                  "app.js FEE_LOCAL is visa.json's nationals' rates as picks.visitor_fee gives them (%s)" % app_local))
+results.append(ok(picks.fee_isos(VISA, "IN") == set() and all(picks.fee_isos(VISA, o) == {"BT"} for o in
+                                                               ("US", "GB", "DE", "BD", "MV", None)),
+                  "picks.fee_isos by origin: Bhutan out for US, GB, DE, Bangladesh, Maldives and no origin; in for India"))
+ORIGIN_DRIVER = r"""
+const FIX = JSON.parse(read(FIX_PATH));
+ppp = FIX.ppp; climate = FIX.climate; activities = FIX.activities; worldGeo = FIX.world;
+advisories = FIX.advisories; lastRates = FIX.rates;
+SLUG2ISO = FIX.slugs; ISO2SLUG = {}; for (const k in SLUG2ISO) ISO2SLUG[SLUG2ISO[k]] = k;
+loaded.value = true; drawMap = function () {};
+$("pickCount").value = "5"; $("safeFloor").value = "b";
+const isos = (h) => [...String(h).matchAll(/<tr data-iso="([A-Z]+)"/g)].map((m) => m[1]);
+// The Full ranking's rows carry no ISO code: their names, in order.
+const names = (h) => [...String(h).matchAll(/<td class="dest"[^>]*><span aria-hidden="true">[^<]*<\/span> ([^<]+)/g)]
+  .map((m) => m[1].trim());
+const out = [];
+try {
+  for (const o of FIX.origins) {
+    $("valueOrigin").value = o.iso; localStorage.setItem("fx_origin", o.iso);
+    homeBase = o.cur; homeRates = o.rates; flightsData = o.flights; flightValue = o.fv;
+    for (const rule of [true, false]) {
+      if (rule) FEE_ISOS.add("BT"); else FEE_ISOS.clear();
+      for (const v of FIX.feeViews) {
+        $("valueMonth").value = v.month; $("beenFilter").value = v.been;
+        wishlist = new Set(v.want || []);
+        popularSet = new Set(v.popular); popularDataBacked = true;
+        renderValue();
+        out.push({ origin: o.iso, rule, name: v.name, top: isos($("topCards").innerHTML),
+                   gems: $("gemsBox").hidden ? [] : isos($("gemRows").innerHTML),
+                   full: names($("valueRows").innerHTML), table: $("topCards").innerHTML,
+                   gemHtml: $("gemRows").innerHTML, note: $("picksNote").innerHTML });
+      }
+    }
+    FEE_ISOS.add("BT");
+    // The Data tab's note: with visa.json and without it (it never fetches it).
+    const keep = visa;
+    visa = FIX.visa; const withVisa = feeNote("BT"); visa = null; const noVisa = feeNote("BT"); visa = keep;
+    visa = FIX.visa; const f = visitorFee("BT"); visa = keep;
+    out.push({ origin: o.iso, notes: [withVisa, noVisa], short: f ? feeShort(f) : null, unranked: feeUnranked("BT") });
+  }
+  print(JSON.stringify(out));
+} catch (e) { print(JSON.stringify({ error: String(e && e.stack || e) })); }
+"""
+ORIGINS = []
+for iso, cur in (("US", "USD"), ("GB", "GBP"), ("DE", "EUR"), ("IN", "INR")):
+    pf = lambda k: (load("scripts", "parity", "fixture_%s.json" % k) if cur == "USD"
+                    else load("scripts", "parity", "fixtures", cur, "%s.json" % k))
+    fl = pf("flights")
+    if iso == "IN":
+        for c_ in fl["countries"]:
+            if c_["iso"] == "BT":
+                c_.update(avg=200, min=190)
+        fl["by_country"]["BT"] = 200
+    ORIGINS.append({"iso": iso, "cur": cur, "rates": None if cur == "USD" else pf("rates"),
+                    "flights": fl, "fv": pf("flight_value")})
+with tempfile.TemporaryDirectory() as d:
+    fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
+    json.dump(dict(FIX, climate=FEE_CLIM, feeViews=FEE_VIEWS, origins=ORIGINS, visa=VISA), open(fp, "w"))
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + ORIGIN_DRIVER.replace("FIX_PATH", json.dumps(fp)))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
+try:
+    oj = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    oj = {"error": (r.stderr or r.stdout)[-400:]}
+if isinstance(oj, dict):
+    results.append(ok(False, "app.js ran the visitor-fee views by origin under jsc: %s" % oj.get("error")))
+else:
+    views = [v for v in oj if "rule" in v]
+    notes = {v["origin"]: v for v in oj if "notes" in v}
+    bad_us, bad_in, where_in = [], [], []
+    for v in views:
+        on = v["rule"]
+        if v["origin"] != "IN" and on and ("BT" in v["top"] + v["gems"] or "Bhutan" in v["full"] or not v["top"]
+                                          or len(v["full"]) < 20):
+            bad_us.append((v["origin"], v["name"], v["top"], v["gems"]))
+    for c in FEE_VIEWS:
+        for o in ("US", "GB", "DE", "IN"):
+            on_ = next(v for v in views if v["origin"] == o and v["rule"] and v["name"] == c["name"])
+            off_ = next(v for v in views if v["origin"] == o and not v["rule"] and v["name"] == c["name"])
+            if o == "IN":
+                same = all(on_[k] == off_[k] for k in ("table", "gemHtml", "note", "full"))
+                if not same or "BT" not in on_[c["want_in"]] or "Bhutan" not in on_["full"]:
+                    bad_in.append(c["name"])
+                rk = lambda xs, k="BT": ("#%d" % (xs.index(k) + 1)) if k in xs else "-"
+                where_in.append("%s: top %s, gems %s, full %s" % (c["name"], rk(on_["top"]), rk(on_["gems"]),
+                                                                  rk(on_["full"], "Bhutan")))
+    star_in = next(v for v in views if v["origin"] == "IN" and v["rule"] and v["name"] == "the ★ list, Bhutan starred")
+    star_us = [v for v in views if v["origin"] != "IN" and v["rule"] and v["name"] == "the ★ list, Bhutan starred"]
+    results.append(ok(len(views) == 4 * 2 * len(FEE_VIEWS) and not bad_us
+                      and all("Bhutan: a daily visitor fee comes on top of its prices" in v["note"] for v in star_us),
+                      "readers from the US, the UK and Germany find Bhutan in no list (Top Picks, Hidden gems, Full "
+                      "ranking, ★ list, which says why), on their own fares and rates %s" % (bad_us or "")))
+    results.append(ok(not bad_in and "BT" in star_in["top"] and "not ranked" not in star_in["note"],
+                      "an Indian reader's lists are exactly the rule-off ones, Bhutan ranked like any other country "
+                      "(%s) %s" % ("; ".join(where_in), bad_in or "")))
+    nUS, nIN = notes.get("US", {}), notes.get("IN", {})
+    TIP_IN = ("⚠️ Sustainable Development Fee for Indian nationals: ₹1,200 per person per night, on top of what "
+              "you pay to stay. Not in the price level.")
+    results.append(ok(nIN.get("notes") == [TIP_IN, TIP_IN] and nIN.get("short") == "+ ₹1,200/night fee"
+                      and nIN.get("unranked") is False
+                      and all(notes.get(o, {}).get("short") == "+ $100/night fee" and notes[o]["unranked"] is True
+                              and notes[o]["notes"][0].startswith("⚠️ Sustainable Development Fee: US$100 per person "
+                                                                  "per night, on top of what you pay to stay (set "
+                                                                  "until 31 Dec 2029). Not in the price level. Indian "
+                                                                  "nationals pay ₹1,200 a night.")
+                              and notes[o]["notes"][1].startswith("⚠️ Every visitor pays a daily fee")
+                              for o in ("US", "GB", "DE")),
+                      "the Data tab's fee note: an Indian reader's own rate with or without visa.json (%r); the "
+                      "US$100 one for the rest (%r)" % (nIN.get("notes", [""])[1][:60], nUS.get("notes", [""])[0][:60])))
 
 # --- the page -----------------------------------------------------------------------------
 import time  # noqa: E402

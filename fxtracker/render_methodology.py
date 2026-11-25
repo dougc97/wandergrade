@@ -169,15 +169,23 @@ def weather_example():
 
 def fee_item():
     """The Known limits line on mandatory visitor fees, from visa.json
-    (picks.fee_isos), or "" when no country has one."""
+    (picks.fee_isos), or "" when no country has one. A home whose nationals
+    pay a rate of their own (visa.json "local": India's in Bhutan) sees the
+    country ranked (picks.fee_isos by origin), and the line says so."""
     visa, names = picks._load("visa.json"), picks._load("country-names.json")
     isos = sorted(picks.fee_isos(visa), key=lambda i: names.get(i, i))
     if not isos:
         return ""
     each = "; ".join("%s: US$%s a %s" % (names.get(i, i), format(int(f["usd"]), ","), f.get("per") or "day")
                      for i, f in ((i, picks.visitor_fee(i, visa)) for i in isos))
-    return ("<li>A country where every visitor pays a daily fee (%s) keeps its grades but isn't ranked: "
-            "the fee isn't in its price level.</li>" % html.escape(each))
+    own = "; ".join("%s: %s%s a %s in %s" % (names.get(o, o), f["symbol"], picks.fee_amount(f["amount"], f["cur"]),
+                                              f["per"], names.get(i, i))
+                    for i in isos for o in sorted(picks.visitor_fee(i, visa).get("local") or {})
+                    for f in [picks.visitor_fee(i, visa, o)] if f.get("cur"))
+    return ("<li>A country where visitors pay a daily fee (%s) keeps its grades but isn't ranked: "
+            "the fee isn't in its price level.%s</li>"
+            % (html.escape(each), " Where your home country's nationals pay a small rate of their own "
+               "(%s), it is ranked as usual." % html.escape(own) if own else ""))
 
 
 def _f(c):

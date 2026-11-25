@@ -14,8 +14,9 @@ What it holds the code to:
     the tooltips taken out (title, data-tip, aria-label) — the Overall pill
     and number, the four grades, the 🧳 days, "—" and the reason for an
     ungraded country — the served 💰 line is the client's (its band word
-    first, none on a Level 4 guide nor beside Bhutan's visitor fee, which
-    its ⓘ says the grade leaves out, "UK-wide" for England, the home line
+    first, none on a Level 4 guide nor beside Bhutan's US$100 visitor fee,
+    which its ⓘ says the grade leaves out (an Indian reader's ₹1,200 rate
+    keeps the band word, drawn only), "UK-wide" for England, the home line
     on the US's own guide, none without a figure), from live rates and
     from the dated snapshot alike, and the served strip is
     the client's, tooltips aside but its ⓘ's, which names the search link's
@@ -632,7 +633,13 @@ COST_RUN = [
     ("a Canadian reader on Canada's guide", "CA", "CA", True, True, "home"),
     ("a German reader on the US's guide", "US", "DE", True, True, "line"),
     ("a first visit on the US's guide that /api/geo makes German", "US", "DE", False, False, "line"),
-    ("a German reader on Bhutan's guide: no band word, the fee", "BT", "DE", True, True, "fee"),
+    ("a German reader on Bhutan's guide: no band word, the fee", "BT", "DE", True, True, "fee:Germany"),
+    ("a British reader on Bhutan's guide: no band word, the fee", "BT", "GB", True, True, "fee:the UK"),
+    ("a US reader on Bhutan's guide, drawn: no band word, the fee", "BT", "US", True, False, "fee:the US"),
+    # Indian nationals pay ₹1,200 a night (visa.json fee "local", app.js
+    # FEE_LOCAL), a tourist tax's size: the band word stays, their own rate
+    # beside it and in the ⓘ, with the usual grade note.
+    ("an Indian reader on Bhutan's guide: its band word and the rupee fee", "BT", "IN", True, True, "fee-in"),
 ]
 with tempfile.TemporaryDirectory() as d:
     fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
@@ -656,9 +663,18 @@ def cost_ok(want, got):
         return bare(h) == G.home_line() and tip == "Every other guide&#39;s percentage is measured against prices here."
     if want == "home-uk":
         return bare(h) == G.home_line() and "UK-wide prices, which apply here too" in tip
-    if want == "fee":
-        return (h.startswith("💰 <b>Local prices ≈ ") and "+ $100/night fee" in h and "of Germany" in h
+    if want.startswith("fee:"):
+        return (h.startswith("💰 <b>Local prices ≈ ") and "+ $100/night fee" in h and "%% of %s</b>" % want[4:] in h
+                and "Sustainable Development Fee: US$100 per person per night, on top of what you pay to stay "
+                    "(set until 31 Dec 2029). Not in the price level. Indian nationals pay ₹1,200 a night." in tip
                 and "counts local prices only: the fee comes on top." in tip)
+    if want == "fee-in":
+        return (bool(re.match(r'💰 <b>(Very cheap|Cheap|A bit cheaper|About the same|Pricey): local prices ≈ \d+% '
+                              r'of India</b> <span class="guidefee">\+ ₹1,200/night fee</span><span class="fxinfo"', h))
+                and "Sustainable Development Fee for Indian nationals: ₹1,200 per person per night, on top of what "
+                    "you pay to stay. Not in the price level." in tip
+                and "so a cheap place can still grade C or D." in tip and "US$" not in tip
+                and "the fee comes on top" not in tip)
     return h != "SERVED" and bare(h) != G.home_line() and " prices ≈ " in h
 
 
@@ -668,7 +684,12 @@ results.append(ok(isinstance(co, list) and len(co) == len(COST_RUN) and not bad,
                   "guide's markup, tooltip aside; a UK reader's England and Scotland say UK-wide), drawn into the "
                   "room held for it; a first visit from the UK gets its home line in the US line's room once "
                   "/api/geo seeds it; the US's guide for a German or British reader is their comparison; nothing "
-                  "is ever left hidden or unseen (%d cases) %s" % (len(COST_RUN), bad or ("" if isinstance(co, list) else co))))
+                  "is ever left hidden or unseen; Bhutan's for readers from Germany, the UK and the US has no band "
+                  "word and its US$100 fee, an Indian reader's its band word and ₹1,200 (%d cases) %s"
+                  % (len(COST_RUN), bad or ("" if isinstance(co, list) else co))))
+if isinstance(co, list) and len(co) == len(COST_RUN):
+    print("        an Indian reader's Bhutan line: %s" % re.sub(r"<[^>]+>", "", re.sub(r'<span class="fxinfo".*', "", co[-1][2])))
+    print("        its tip: %s" % (re.search(r'data-tip="([^"]*)"', co[-1][2]) or [None, ""])[1])
 
 HOLD = re.search(r"<script>(.*)</script>", server._GUIDE_HOLD, re.S).group(1)
 PAGE = r"""

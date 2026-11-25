@@ -59,11 +59,15 @@
      site's own list, hand-made top cards for every country it touches
      (none of them is featured in a frozen month), three faults the checks
      must report, and no code but the email's builds those highlights.
- 10. No country with a mandatory visitor fee (picks.fee_isos: Bhutan's
-     US$100 a night) is a pick or a gem in any edition or month; where the
-     frozen fixtures score Bhutan in (CNY, JPY, KRW gems; USD with its
-     weather forced to 100) it is there with the rule off and gone with it
-     on, the rest moving up in order.
+ 10. No country whose mandatory visitor fee is the US-dollar rate for the
+     edition's home (picks.fee_isos by origin: Bhutan's US$100 a night) is a
+     pick or a gem in any edition or month; where the frozen fixtures score
+     Bhutan in (CNY, JPY, KRW gems; USD with its weather forced to 100) it
+     is there with the rule off and gone with it on, the rest moving up in
+     order. The INR edition's readers pay the Indian nationals' own rate
+     (visa.json fee "local", ₹1,200 a night), so it isn't held to the rule:
+     with Bhutan's weather and fare from India forced it is ranked, the
+     edition the same as with the rule off.
 
     /usr/bin/python3 scripts/test_digest_variants.py [--against <rev>]
 
@@ -1454,7 +1458,7 @@ def main():
                       % (", ".join(sorted(callers)), len(probes),
                          "" if not (unseen or quiet) else " -> unseen %r, wrongly found %r" % (unseen, quiet))))
 
-    print("10. no country with a mandatory visitor fee is a pick or a gem")
+    print("10. no country whose visitor fee is the US-dollar rate for the edition's home is a pick or a gem")
     # picks.fee_isos (visa.json "fee": Bhutan's US$100 a night), as the site's
     # Top Picks and Hidden gems leave it out (Doug, item D, 2026-11-24). On the
     # frozen fixtures Bhutan scores into the CNY and JPY editions' October and
@@ -1463,36 +1467,60 @@ def main():
     # the rule switched off it is there, with it on it is gone and nothing
     # else moves (the next pick or gem moves up).
     picks, newsletter, dv = ds.install(ROOT)
-    fee = picks.fee_isos()
+    fee_by = {c_: picks.fee_isos(origin=dv.VARIANTS[c_].home_iso) for c_ in dv.VARIANTS}
     in_any = sorted({(c_, m_, s_["iso"]) for c_ in datas for m_, d_ in datas[c_].items()
-                     for s_ in d_["picks"] + d_["gems"] if s_["iso"] in fee})
-    results.append(ok(fee == {"BT"} and not in_any and len(datas) == len(dv.VARIANTS),
-                      "no visitor-fee country (%s) among any edition's picks or gems, any month %s"
-                      % (" ".join(sorted(fee)), in_any or "")))
-    real_fee, seen, bad_fee = picks.fee_isos, [], []
+                     for s_ in d_["picks"] + d_["gems"] if s_["iso"] in fee_by.get(c_, ())})
+    results.append(ok(all(f_ == (set() if c_ == "INR" else {"BT"}) for c_, f_ in fee_by.items())
+                      and picks.fee_isos() == {"BT"} and not in_any and len(datas) == len(dv.VARIANTS),
+                      "no US-dollar visitor-fee country (BT, for every edition but INR, whose readers pay the "
+                      "Indian nationals' rate) among any edition's picks or gems, any month %s" % (in_any or "")))
+    # Bhutan's fare from India forced to US$200 (it is 1.7 times what the
+    # distance predicts, which scores 0 on Flights): with its weather forced
+    # too it then scores into the INR edition.
+    real_fee, real_raw, seen, bad_fee = picks.fee_isos, picks._fares_raw, [], []
+
+    def forced_raw(origin=picks.HOME_ISO):
+        raw = copy.deepcopy(real_raw(origin))
+        if origin == "IN" and raw and raw.get("by_country"):
+            raw["by_country"]["BT"] = 200
+            for r_ in raw.get("countries") or []:
+                if r_.get("iso") == "BT":
+                    r_.update(avg=200, min=190)
+        return raw
     for c_, m_, forced in [("CNY", 10, False), ("CNY", 11, False), ("JPY", 10, False), ("JPY", 11, False),
-                           ("KRW", 11, False), ("USD", 2, True)]:
-        shared = picks.gather(m_)
-        if forced:
-            clim = copy.deepcopy(shared["climate"])
-            clim["BT"]["scores"] = [100] * 12
-            shared = dict(shared, climate=clim)
-        on = picks.build_variant(shared, dv.VARIANTS[c_])
-        picks.fee_isos = lambda visa=None: set()
+                           ("KRW", 11, False), ("USD", 2, True), ("INR", 2, True), ("INR", 10, True)]:
+        picks._fares_raw = forced_raw if c_ == "INR" else real_raw
         try:
-            off = picks.build_variant(shared, dv.VARIANTS[c_], n_picks=6, n_gems=4)
+            shared = picks.gather(m_)
+            if forced:
+                clim = copy.deepcopy(shared["climate"])
+                clim["BT"]["scores"] = [100] * 12
+                shared = dict(shared, climate=clim)
+            on = picks.build_variant(shared, dv.VARIANTS[c_])
+            picks.fee_isos = lambda visa=None, origin=None: set()
+            try:
+                off = picks.build_variant(shared, dv.VARIANTS[c_], n_picks=6, n_gems=4)
+            finally:
+                picks.fee_isos = real_fee
         finally:
-            picks.fee_isos = real_fee
+            picks._fares_raw = real_raw
         ids = lambda xs: [s_["iso"] for s_ in xs]
         where = "picks" if "BT" in ids(off["picks"]) else "gems" if "BT" in ids(off["gems"]) else None
-        seen.append("%s %s%s: %s" % (c_, picks.MONTHS[m_ - 1][:3], " (weather forced)" if forced else "", where))
-        if (not where or "BT" in ids(on["picks"] + on["gems"])
+        seen.append("%s %s%s: %s" % (c_, picks.MONTHS[m_ - 1][:3], " (weather forced)" if c_ != "INR" and forced
+                                     else " (weather and fare forced)" if forced else "", where))
+        if c_ == "INR":
+            # Not held to the rule: Bhutan ranked, the edition the rule-off one.
+            if (not where or "BT" not in ids(on["picks"] + on["gems"])
+                    or ids(on["picks"]) != ids(off["picks"])[:5] or ids(on["gems"]) != ids(off["gems"])[:3]):
+                bad_fee.append((c_, m_, ids(on["picks"] + on["gems"]), ids(off["picks"] + off["gems"])))
+        elif (not where or "BT" in ids(on["picks"] + on["gems"])
                 or ids(on["picks"]) != [i for i in ids(off["picks"]) if i != "BT"][:5]
                 or ids(on["gems"]) != [i for i in ids(off["gems"]) if i != "BT"][:3]):
             bad_fee.append((c_, m_, ids(on["picks"] + on["gems"]), ids(off["picks"] + off["gems"])))
-    results.append(ok(not bad_fee and picks.fee_isos is real_fee,
+    results.append(ok(not bad_fee and picks.fee_isos is real_fee and picks._fares_raw is real_raw,
                       "where Bhutan would score in with the rule off it is gone with it on, and the rest move up in "
-                      "order (%s)%s" % ("; ".join(seen), " -> %r" % bad_fee if bad_fee else "")))
+                      "order; in the INR edition it stays, ranked like any other country (%s)%s"
+                      % ("; ".join(seen), " -> %r" % bad_fee if bad_fee else "")))
 
     print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
     return 0 if all(results) else 1

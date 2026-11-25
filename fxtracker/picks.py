@@ -196,30 +196,73 @@ def _load(name):
         return json.load(f)
 
 
-def visitor_fee(iso, visa=None):
-    """The mandatory daily fee every visitor pays (visa.json's "fee": Bhutan's
-    Sustainable Development Fee) as {usd, per, name, until, note}, or None.
-    `visa`: visa.json as loaded, else it is read here. No part of the price
-    level, which prices what residents pay: the guide says it beside the
-    price (render_guide.visitor_fee) and fee_isos keeps the country out of
-    every ranking."""
+# Bhutan's fee in visa.json (checked 2026-11-24): US$100 a night until 31 Dec
+# 2029, the Department of Tourism's announcement of 1 Nov 2026 ("Royal
+# Government extends 50% SDF Waiver until December 2029", bhutan.travel/
+# announcements; the waiver halves the US$200 rate), as Wikipedia's "Visa
+# policy of Bhutan" and Daily Bhutan report it; it had been set to end on
+# 31 Aug 2027. Indian nationals pay Nu 1,200 (or the same in rupees) a night
+# (bhutan.travel/faqs): its "local" rate. Bangladesh's lower rate is for its
+# first 15,000 guests only and the Maldives' could not be found on an
+# official page, so both stay on the US-dollar rate here.
+def visitor_fee(iso, visa=None, origin=None):
+    """The mandatory daily fee a visitor pays (visa.json's "fee": Bhutan's
+    Sustainable Development Fee), or None. `visa`: visa.json as loaded, else
+    it is read here. `origin`: the reader's home country (the site takes it
+    as their passport too). Where the fee names a rate for that country's
+    own nationals ("local": Indian nationals' ₹1,200 a night) it is that
+    rate, {amount, cur, symbol, who, per, name}; else, and with no origin,
+    the US-dollar rate everyone else pays, visa.json's own {usd, per, name,
+    until, local}. No part of the price level, which prices what residents
+    pay: the guide says it beside the price (render_guide.visitor_fee) and
+    fee_isos keeps a country whose US-dollar rate applies out of every
+    ranking. app.js FEE_LOCAL holds each local rate as this returns it
+    (scripts/test_home_picks.py holds the two equal)."""
     v = (visa if visa is not None else _load("visa.json")).get(iso) or {}
     f = v.get("fee") if isinstance(v, dict) else None
-    return f if isinstance(f, dict) and isinstance(f.get("usd"), (int, float)) and f["usd"] > 0 else None
+    if not (isinstance(f, dict) and isinstance(f.get("usd"), (int, float)) and f["usd"] > 0):
+        return None
+    loc = (f.get("local") or {}).get(origin) if origin and isinstance(f.get("local"), dict) else None
+    if isinstance(loc, dict) and isinstance(loc.get("amount"), (int, float)) and loc["amount"] > 0 and loc.get("cur"):
+        out = {"amount": loc["amount"], "cur": loc["cur"], "symbol": loc.get("symbol") or loc["cur"] + " ",
+               "who": loc.get("who") or "", "per": f.get("per") or "day",
+               "name": f.get("name") or "Mandatory visitor fee"}
+        if loc.get("until"):
+            out["until"] = loc["until"]
+        return out
+    return f
 
 
-def fee_isos(visa=None):
-    """The countries with a visitor_fee (today only Bhutan). No best-value
-    ranking lists them: the newsletter's picks and gems (build_variant), the
-    homepage's served Top Picks (home_picks.rank) and app.js renderValue's
-    Top Picks, Hidden gems, ★ list and Full ranking table (its FEE_ISOS,
-    which scripts/test_home_picks.py holds equal to this set), as the cheap
-    lists don't (render_lists.safe_rows, render_cheapest). Their grades stand
-    everywhere else (the guide, the map, the Data tab): they grade local
-    prices, and US$100 a night on top of a 23% price level is no bargain to
-    rank on."""
+def fee_amount(n, cur):
+    """A fee's figure with its digits grouped: 1200 -> '1,200', and rupees the
+    Indian way (150000 -> '1,50,000'). app.js feeAmount."""
+    s = str(int(round(n)))
+    if cur != "INR" or len(s) <= 3:
+        return format(int(round(n)), ",")
+    head, tail = s[:-3], s[-3:]
+    pairs = []
+    while len(head) > 2:
+        pairs.insert(0, head[-2:])
+        head = head[:-2]
+    return ",".join(([head] if head else []) + pairs + [tail])
+
+
+def fee_isos(visa=None, origin=None):
+    """The countries whose visitor_fee for a reader from `origin` is the
+    US-dollar rate (today Bhutan, for everyone but Indian readers; with no
+    origin, every fee country). No best-value ranking lists them: the
+    newsletter's picks and gems (build_variant, by each edition's home), the
+    homepage's served Top Picks (home_picks.rank, the US reader's) and
+    app.js renderValue's Top Picks, Hidden gems, ★ list and Full ranking
+    table (its feeUnranked: FEE_ISOS less the FEE_LOCAL rates for the
+    reader's home, which scripts/test_home_picks.py holds equal to this), as
+    the cheap lists don't (render_lists.safe_rows, render_cheapest). Their
+    grades stand everywhere else (the guide, the map, the Data tab): they
+    grade local prices, and US$100 a night on top of a 23% price level is no
+    bargain to rank on. A local rate (₹1,200 a night, a tourist tax's size)
+    is ranked like any other country, its band word kept."""
     visa = visa if visa is not None else _load("visa.json")
-    return {iso for iso in visa if visitor_fee(iso, visa)}
+    return {iso for iso in visa if "usd" in (visitor_fee(iso, visa, origin) or {})}
 
 
 def flag(iso):
@@ -947,9 +990,11 @@ def build_variant(shared, v, n_picks=5, n_gems=3, cover_check=None):
     `picks` are the most-popular destinations (by tourism receipts) ranked by
     value; `gems` are off-the-beaten-path high-value ones. Both exclude Level 3
     (Reconsider Travel) and Level 4, matching the site's default "safe" floor,
-    and any country with a mandatory daily visitor fee (fee_isos: Bhutan), as
-    the site's Top Picks and Hidden gems do. Picks are enriched with a cover
-    photo + things-to-do; gems stay compact. A non-USD edition leaves its own home country out (v.exclude_home).
+    and any country with a mandatory daily visitor fee in US dollars for the
+    edition's home (fee_isos: Bhutan, but not for the INR edition, whose
+    readers pay the Indian nationals' rate), as the site's Top Picks and
+    Hidden gems do. Picks are enriched with a cover photo + things-to-do;
+    gems stay compact. A non-USD edition leaves its own home country out (v.exclude_home).
 
     `cover_check` (a cover_check.CoverCheck, one for the whole run) is what
     send_digest.py passes so no issue goes out with a photo that does not
@@ -967,7 +1012,7 @@ def build_variant(shared, v, n_picks=5, n_gems=3, cover_check=None):
     fares = fares_for(shared, v.home_iso)
 
     scored = []
-    fee = fee_isos()
+    fee = fee_isos(origin=v.home_iso)
     for iso in CUR_BY_ISO:
         if v.exclude_home and iso == v.home_iso:
             continue

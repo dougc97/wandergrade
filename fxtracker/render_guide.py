@@ -481,32 +481,51 @@ def _cost_line(iso, f, asof):
 
 
 def visitor_fee(iso):
-    """The mandatory daily fee every visitor pays (visa.json's "fee": Bhutan's
-    Sustainable Development Fee) as {usd, per, name, until, note}, or None.
-    Not in the price level, which prices what residents pay: said beside it
-    on the guide and the list rows, and it keeps a country off the lists'
-    rules (render_lists.SAFE rule, render_cheapest) and every best-value
-    ranking (picks.fee_isos), and the band word off its price line (no
-    "Very cheap" beside US$100 a night). picks.visitor_fee on this module's
-    copy of visa.json."""
+    """The mandatory daily fee a visitor from the US pays (visa.json's "fee":
+    Bhutan's Sustainable Development Fee) as {usd, per, name, until, local},
+    or None: the served pages are the US reader's (app.js visitorFee gives
+    an Indian reader their own rate). Not in the price level, which prices
+    what residents pay: said beside it on the guide and the list rows, and
+    it keeps a country off the lists' rules (render_lists.SAFE rule,
+    render_cheapest) and every best-value ranking (picks.fee_isos), and the
+    band word off its price line (no "Very cheap" beside US$100 a night).
+    picks.visitor_fee on this module's copy of visa.json."""
     return picks.visitor_fee(iso, _load()["visa"])
 
 
 def fee_short(fee):
-    """'+ $100/night fee': the fee beside a price, in as few words as fit."""
+    """'+ $100/night fee': the fee beside a price, in as few words as fit; a
+    nationals' own rate in its currency ('+ ₹1,200/night fee', picks.visitor_fee
+    with an origin). app.js feeShort."""
+    if fee.get("cur"):
+        return "+ %s%s/%s fee" % (fee["symbol"], picks.fee_amount(fee["amount"], fee["cur"]), fee.get("per") or "day")
     return "+ $%s/%s fee" % (format(int(fee["usd"]), ","), fee.get("per") or "day")
 
 
 def fee_tip(fee):
-    """The fee in full, for a tooltip: who charges it, how much, until when."""
-    tip = "%s: US$%s per person per %s, on top of what you pay to stay" % (
-        fee.get("name") or "Mandatory visitor fee", format(int(fee["usd"]), ","), fee.get("per") or "day")
+    """The fee in full, for a tooltip: who charges it, how much, until when,
+    and who pays a rate of their own instead (visa.json "local": "Indian
+    nationals pay ₹1,200 a night."). A nationals' own rate: its name, whose
+    and how much. app.js feeTip."""
+    per = fee.get("per") or "day"
+    if fee.get("cur"):
+        tip = "%s%s: %s%s per person per %s, on top of what you pay to stay" % (
+            fee.get("name") or "Mandatory visitor fee", " for " + fee["who"] if fee.get("who") else "",
+            fee["symbol"], picks.fee_amount(fee["amount"], fee["cur"]), per)
+    else:
+        tip = "%s: US$%s per person per %s, on top of what you pay to stay" % (
+            fee.get("name") or "Mandatory visitor fee", format(int(fee["usd"]), ","), per)
     try:
         u = datetime.date.fromisoformat(str(fee.get("until"))[:10])
         tip += " (set until %d %s %d)" % (u.day, MON[u.month - 1], u.year)
     except (TypeError, ValueError):
         pass
     tip += ". Not in the price level."
+    if not fee.get("cur"):
+        for loc in (fee.get("local") or {}).values():
+            if isinstance(loc, dict) and loc.get("who") and loc.get("amount"):
+                tip += " %s pay %s%s a %s." % (loc["who"], loc.get("symbol") or "%s " % loc.get("cur", ""),
+                                               picks.fee_amount(loc["amount"], loc.get("cur")), per)
     if fee.get("note"):
         tip += " " + fee["note"].rstrip(".") + "."
     return tip
