@@ -468,8 +468,10 @@ def cost_lead(band):
 
 def _cost_line(iso, f, asof):
     """'Very cheap: local prices ≈ 47% of the US (Sep 2026)' — the hydrated
-    💰 line's words when live rates didn't load (renderGuideCost). No band
-    word at Level 4 nor beside a mandatory visitor fee (Bhutan's)."""
+    💰 line's words when live rates didn't load (renderGuideCost), for a
+    reader from the US: the band is measured against the US, so app.js
+    drops it for any other reader. No band word at Level 4 nor beside a
+    mandatory visitor fee (Bhutan's)."""
     if f.get("pct") is None:
         return ""
     tag = _mon_year(asof)

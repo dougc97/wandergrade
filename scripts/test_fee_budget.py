@@ -11,8 +11,9 @@ What it holds the code to:
     US): an Indian reader's Bhutan line has no band word ("Very cheap" at 22%
     of the US contradicts their live line, "About the same … of India") but
     their ₹1,200/night fee, and its ⓘ gives their rate and says the grade
-    counts local prices only; a US reader's Bhutan line, and Thailand's for
-    both readers, are the served snapshot's words, unchanged;
+    counts local prices only; a US reader's Bhutan and Thailand lines are
+    the served snapshot's words, unchanged (an Indian reader's Thailand has
+    no band word either: the snapshot's is the US's, test_snapshot_band.py);
   * budgetFit takes the fee off what's left, one night per day of the trip,
     in US dollars (the rupee rate by today's rate): ₹150,000 for 10 days and
     a USD 300 fare leave an Indian reader ₹1,200 a day less in Bhutan than
@@ -156,10 +157,13 @@ results.append(ok(bare(snap["US:BT"]) == served["BT"] and served["BT"].startswit
                   and tip(snap["US:BT"]).endswith("counts local prices only: the fee comes on top."),
                   "a US reader's Bhutan fallback is unchanged: the served snapshot's words, no band word, the "
                   "US$100 fee: %r" % served["BT"]))
-results.append(ok(bare(snap["IN:TH"]) == bare(snap["US:TH"]) == served["TH"] and "Very cheap: local prices ≈" in served["TH"]
-                  and tip(snap["IN:TH"]) == tip(snap["US:TH"]) and "grade C or D" in tip(snap["IN:TH"]),
-                  "a country with no fee (Thailand) keeps its band word and grade note in the fallback, the same "
-                  "for an Indian and a US reader and the served snapshot's words: %r" % served["TH"]))
+results.append(ok(bare(snap["US:TH"]) == served["TH"] and "Very cheap: local prices ≈" in served["TH"]
+                  and "grade C or D" in tip(snap["US:TH"])
+                  and bare(snap["IN:TH"]) == served["TH"].replace("Very cheap: local prices", "Local prices")
+                  and "grade C or D" not in tip(snap["IN:TH"]),
+                  "a country with no fee (Thailand): a US reader's fallback keeps its band word and grade note, the "
+                  "served snapshot's words (%r); an Indian reader's has neither, the band being the US's"
+                  % served["TH"]))
 
 # --- (b) the budget -------------------------------------------------------------------
 fit = js["fit"]

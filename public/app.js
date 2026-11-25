@@ -3354,7 +3354,8 @@ function feeTip(f) {
 // daily visitor fee in US dollars: "Very cheap" next to Bhutan's US$100 a
 // night misled (an Indian reader's ₹1,200 keeps it on the live line, measured
 // against India: FEE_LOCAL; the snapshot line, measured against the US, drops
-// it for any fee). render_guide.cost_lead is the server's copy.
+// it for any fee, and for every reader whose home isn't the US).
+// render_guide.cost_lead is the server's copy.
 const costLead = (band) => band ? band[0].toUpperCase() + band.slice(1) + ": local" : "Local";
 // The ⓘ's last sentence: the line can say "cheap" beside an Affordability C,
 // so it says why (the grade's scale, valueScores: 100 at 15%, 0 at 130%).
@@ -3431,25 +3432,36 @@ async function renderGuideCost(iso) {
     if (ccGuideIso !== iso) return;
     if (!f || f.pct == null || !guideFactsFresh()) return show("");
     const when = guideFactsMonth();
-    // Any fee drops the band word here, a nationals' own rate too: the
-    // snapshot's band is the US's ("Very cheap" at 23% of the US), which an
-    // Indian reader's live line contradicts ("About the same … of India").
-    // The fee note then stands in for the grade note, which only explains a
-    // band word beside a C.
-    const snapTip = l4 ? "" : fee ? COST_FEE_TIP : COST_GRADE_TIP;
-    return show(`💰 <b>${esc(costLead(l4 || fee ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
+    // The snapshot's band is the US's ("Very cheap" at 30% of the US), so
+    // only a reader whose home is the US gets it: anyone else's live line is
+    // measured against their own home, which it can contradict (a German
+    // reader's Thailand, an Indian reader's "About the same … of India").
+    // Nor beside any fee, a nationals' own rate too (the same contradiction
+    // on Bhutan). The grade note explains a band word beside a C, so it goes
+    // with the band word; a fee country gets the fee note instead.
+    const usHome = originIso() === "US";
+    const snapTip = l4 ? "" : fee ? COST_FEE_TIP : usHome ? COST_GRADE_TIP : "";
+    return show(`💰 <b>${esc(costLead(l4 || fee || !usHome ? "" : f.band))} prices ≈ ${f.pct}% of the US (${esc(
       f.plof ? parentWide(f.plof) + " figure, " + when : when)})</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
       srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to the " + when + " exchange rate (live rates"
       + " didn't load) — what a local basket costs here against the same basket in the US. National"
       + " averages: tourist areas and foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
       + feeTipTxt + snapTip)}" title="">ⓘ</span>`);
   }
-  const band = l4 || usdFee ? "" : plWord(priceLevel(plIso) / plAnchor(originIso()).pl);
+  // Live rates out, a country priced in US dollars (Ecuador, Panama…) still
+  // has its figure while a home in another currency has none, so the US
+  // stands in (plAnchor: "≈ 43% of the US (no figure for Germany)") and the
+  // band word is the US's, as on the snapshot line: it goes the same way,
+  // with its grade note. With live data in and no figure for home at all,
+  // the US's word stands, as the line says. Either way the basket is the US's.
+  const A = plAnchor(originIso());
+  const usStandIn = !A.home && !(ppp && lastRates);
+  const band = l4 || usdFee || usStandIn ? "" : plWord(priceLevel(plIso) / A.pl);
   show(`💰 <b>${esc(costLead(band))} prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
     srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to today's exchange rate — what a local basket"
-    + " costs here against the same basket at home. National averages: tourist areas and"
+    + " costs here against the same basket " + (A.home ? "at home" : "in the US") + ". National averages: tourist areas and"
     + " foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
-    + feeTipTxt + gradeTip)}" title="">ⓘ</span>`);
+    + feeTipTxt + (usStandIn && !usdFee ? "" : gradeTip))}" title="">ⓘ</span>`);
 }
 
 // ---- Travel Guide: "Where to stay" Stay22 map -------------------------------
