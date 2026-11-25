@@ -3412,6 +3412,10 @@ async function renderGuideCost(iso) {
 // routes any booking to our Stay22 account. FTC disclosure shown below the map
 // and in the footer.
 const STAY22_AID = "wandergrade";
+// Hostelworld's affiliate ID on Partnerize (campaign 1101l94), public by
+// design like STAY22_AID and the Travelpayouts marker: hostelworldURL wraps
+// every Hostelworld link in Partnerize's click URL with it.
+const HW_CAMREF = "1101l5NoBM";
 let _stayCoords = null;
 function ensureStayCoords() {
   if (_stayCoords) return Promise.resolve(_stayCoords);
@@ -3487,9 +3491,16 @@ const HW_COUNTRY = (() => {
     "WS:samoa GU:guam");
   return m;
 })();
+// The page goes to Partnerize in its console's own link format: camref,
+// pubref, then the page URL-encoded, last. Hostelworld's terms credit app
+// bookings only through correctly formatted Partnerize links. pubref
+// "guide-<ISO>" (letters, digits, hyphens) names the guide in its reports.
 function hostelworldURL(iso) {
-  return HW_COUNTRY[iso] ? "https://www.hostelworld.com/hostels/" + HW_COUNTRY[iso] + "/"
-                         : "https://www.hostelworld.com/";
+  const page = HW_COUNTRY[iso] ? "https://www.hostelworld.com/hostels/" + HW_COUNTRY[iso] + "/"
+                               : "https://www.hostelworld.com/";
+  return "https://hostelworld.prf.hn/click/camref:" + HW_CAMREF
+    + "/pubref:guide-" + String(iso).toUpperCase().replace(/[^A-Z0-9-]/g, "")
+    + "/destination:" + encodeURIComponent(page);
 }
 // Vrbo (holiday homes) through Stay22's /allez/vrbo, on Booking's aid, point
 // and dates; it lands on the reader's own Vrbo brand (Abritel in France,
@@ -3570,14 +3581,15 @@ function renderGuideStay(iso) {
     const { checkin, checkout } = stayDates();
     // Allez deep links land users in Booking's (and Vrbo's, vrboOK) own UI at
     // the chosen spot with the traveler's month — earning through
-    // aid=wandergrade. Hostelworld is a plain link until the Partnerize camref
-    // arrives. Footer disclosure covers the affiliate relationship.
+    // aid=wandergrade. Hostelworld goes through Partnerize (hostelworldURL,
+    // HW_CAMREF) to its country page. All three are sponsored links; the
+    // section's affnote and the footer disclose them.
     const q = "aid=" + STAY22_AID + "&lat=" + sp.ll[0] + "&lng=" + sp.ll[1] +
               "&checkin=" + checkin + "&checkout=" + checkout;
     const hw = hostelworldURL(iso);
-    const btn = (href, label, sponsored) =>
-      '<a class="staybtn" target="_blank" rel="' + (sponsored ? "sponsored nofollow noopener" : "nofollow noopener") +
-      '" href="' + href + '">' + label + ' <span class="ext">↗</span></a>';
+    const btn = (href, label) =>
+      '<a class="staybtn" target="_blank" rel="sponsored nofollow noopener" href="' + href + '">' + label +
+      ' <span class="ext">↗</span></a>';
     const chips = spots.length > 1
       ? '<div class="staychips">' + spots.map((s, i) =>
           '<button type="button" class="staychip' + (i === _staySpotIdx ? " active" : "") +
@@ -3587,9 +3599,9 @@ function renderGuideStay(iso) {
       '<h3 class="staytitle">🏨 Where to stay <span class="staynear">near ' + esc(sp.n) + "</span></h3>" +
       chips +
       '<div class="staybtns">' +
-        btn("https://www.stay22.com/allez/booking?" + q, "🏨 Booking.com", true) +
-        (vrboOK(iso) ? btn("https://www.stay22.com/allez/vrbo?" + q, "🏡 Vrbo", true) : "") +
-        btn(hw, "🎒 Hostelworld", false) +
+        btn("https://www.stay22.com/allez/booking?" + q, "🏨 Booking.com") +
+        (vrboOK(iso) ? btn("https://www.stay22.com/allez/vrbo?" + q, "🏡 Vrbo") : "") +
+        btn(hw, "🎒 Hostelworld") +
       "</div>";
     host.querySelectorAll(".staychip").forEach((b) => b.addEventListener("click", () => {
       _staySpotIdx = parseInt(b.dataset.si, 10) || 0;
