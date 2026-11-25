@@ -140,8 +140,8 @@ SECTIONS = ["device", "analytics", "country", "account", "newsletter", "partners
             "sharing", "hosting", "never", "rights", "contact"]
 missing = [s for s in SECTIONS if '<section id="%s">' % s not in body]
 results.append(ok(not missing, "every section is there (missing: %s)" % missing))
-results.append(ok("Last updated 21 October 2026" in text and RP.UPDATED == "2026-10-21",
-                  "the last-updated date reads 21 October 2026"))
+results.append(ok("Last updated 24 November 2026" in text and RP.UPDATED == "2026-11-24",
+                  "the last-updated date reads 24 November 2026"))
 results.append(ok(body.count('href="mailto:hello@wandergrade.com"') >= 3, "hello@wandergrade.com, as a mailto link"))
 results.append(ok(body.count('<!--email_off--><a href="mailto:hello@wandergrade.com">hello@wandergrade.com</a><!--/email_off-->')
                   == body.count("mailto:") and "[email" not in body,
@@ -212,11 +212,13 @@ results.append(ok(not unnamed, "every third-party host the pages load is named o
                   % (len(hosts), unnamed)))
 
 # --- partners, AI sites, services, the cookie ---------------------------------------------
-# A link with a partner ID in app.js: marker=, aid, pid= or a tp.media redirect.
+# A link with a partner ID in app.js: marker=, aid, pid=, a tp.media redirect
+# or a Partnerize camref (hostelworld.prf.hn, to a www.hostelworld.com page).
 BRANDS = {"www.aviasales.com": ["Aviasales", "Travelpayouts"], "www.stay22.com": ["Stay22"],
-          "www.viator.com": ["Viator"], "tp.media": ["Travelpayouts", "EKTA"]}
+          "www.viator.com": ["Viator"], "tp.media": ["Travelpayouts", "EKTA"],
+          "hostelworld.prf.hn": ["Hostelworld", "Partnerize"], "www.hostelworld.com": ["Hostelworld"]}
 partner_hosts = set()
-for fn in ["flightSearchURL", "viatorURL", "insuranceHref", "renderGuideStay"]:
+for fn in ["flightSearchURL", "viatorURL", "insuranceHref", "renderGuideStay", "hostelworldURL"]:
     m = re.search(r"^function %s\(.*?^\}" % fn, APP, re.M | re.S)
     if m:
         partner_hosts |= set(re.findall(r"\"https://([a-z0-9.-]+)/", m.group(0)))
@@ -224,9 +226,13 @@ results.append(ok(partner_hosts and partner_hosts <= set(BRANDS),
                   "every partner-link host in app.js has a name to look for (%s)" % sorted(partner_hosts)))
 stays = set(re.findall(r"stay22\.com/allez/([a-z]+)\?", APP))
 names = sorted({n for h in partner_hosts for n in BRANDS.get(h, [h])}
-               | {{"booking": "Booking.com", "vrbo": "Vrbo"}.get(s, s) for s in stays} | {"Hostelworld"})
-results.append(ok(all(n in text for n in names), "names the partners: %s (missing: %s)"
+               | {{"booking": "Booking.com", "vrbo": "Vrbo"}.get(s, s) for s in stays})
+results.append(ok(all(n in text for n in names) and "hostelworld.prf.hn" in partner_hosts,
+                  "names the partners: %s (missing: %s)"
                   % (", ".join(names), [n for n in names if n not in text])))
+results.append(ok("Hostelworld (through Partnerize)" in text and "plain link" not in text.lower()
+                  and "official" not in text.lower(),
+                  "Hostelworld is listed with the partners, through Partnerize; no \"plain links\" left, no \"official\""))
 ai = re.findall(r'\{ name: "([^"]+)", q: "https://', APP)
 results.append(ok(len(ai) >= 4 and all(n in text for n in ai), "names every AI button's site: %s" % ", ".join(ai)))
 svc = {"api.resend.com": "Resend", "api.buttondown.email": "Buttondown"}

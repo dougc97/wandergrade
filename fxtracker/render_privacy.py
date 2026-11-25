@@ -28,9 +28,10 @@ says where:
     files resized by images.weserv.nl.
   * Partner links: app.js flightSearchURL (Aviasales, Travelpayouts marker;
     the path starts with the reader's departure hub), renderGuideStay
-    (Stay22 Allez to Booking.com and Vrbo, aid=wandergrade, lat/lng, dates),
-    viatorURL, insuranceHref and render_guide._EKTA (EKTA via tp.media);
-    hostelworldURL is a plain link with no partner ID.
+    (Stay22 Allez to Booking.com and Vrbo, aid=wandergrade, lat/lng, dates;
+    hostelworldURL, Partnerize's hostelworld.prf.hn with HW_CAMREF, a
+    pubref naming the guide and the Hostelworld country page), viatorURL,
+    insuranceHref and render_guide._EKTA (EKTA via tp.media).
   * Third-party content: app.js's Wikipedia and Commons API calls (fetch, no
     credentials) and the photos they return (upload. and thumb.wikimedia.org,
     loaded as plain images, whose responses set Wikimedia's WMF-Uniq cookie,
@@ -56,7 +57,7 @@ newsletter load (computed from the code) is named here.
 
 import html
 
-UPDATED = "2026-10-21"
+UPDATED = "2026-11-24"
 CONTACT = "hello@wandergrade.com"
 
 # Named on the page, host by host: the test computes the same list from the
@@ -149,14 +150,13 @@ def privacy():
 
         _sec("partners", "Booking links",
              "<p>Some links pay for the site: flights on Aviasales (through Travelpayouts), stays on "
-             "Booking.com and Vrbo (through Stay22), tours on Viator and travel insurance from EKTA "
-             "(through Travelpayouts). Each carries WanderGrade's partner ID and the trip: where you're "
-             "going, your dates and, for flights, the city you'd fly from. Nothing else about you. If "
-             "you book, WanderGrade may earn a commission, at no extra cost to you. The grades don't "
-             "depend on it.</p>"
+             "Booking.com and Vrbo (through Stay22) and Hostelworld (through Partnerize), tours on Viator "
+             "and travel insurance from EKTA (through Travelpayouts). Each carries WanderGrade's partner "
+             "ID and the trip: where you're going, your dates and, for flights, the city you'd fly from. "
+             "Nothing else about you. If you book, WanderGrade may earn a commission, at no extra cost to "
+             "you. The grades don't depend on it.</p>"
              "<p>Nothing goes to these partners until you click. After that, the partner and the network "
-             "in between set their own cookies to credit the booking, under their own privacy policies. "
-             "Hostelworld links are plain links for now, with no partner ID.</p>"),
+             "in between set their own cookies to credit the booking, under their own privacy policies.</p>"),
 
         _sec("content", "Photos and Wikipedia",
              "<p>Photos and their credits load straight from Wikipedia and Wikimedia Commons, so the "
