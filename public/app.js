@@ -2155,6 +2155,25 @@ function plAnchor(iso) {
 }
 // "home" in the copy, unless the comparison had to fall back to the US.
 function plHomeWord() { return plAnchor(guidePassport()).home ? "home" : "the US"; }
+// Why the US stands in for a home, when it does. Live rates out (lastRates
+// never came) with ppp.json in: a home priced in another currency has its
+// figure but no rate to bring it to today, so a German reader's Ecuador is
+// measured against the US. That is not "no figure for Germany", which is
+// said only where the home has none (no ppp.json row: Cuba, the Isle of
+// Man); the guide's ⓘ says live rates didn't load instead. Never a home
+// priced in US dollars, which needs no rate: Zimbabwe's broken factor is
+// "no figure" with rates out or in.
+function plRatesOut(iso) {
+  const e = ppp && ppp[iso], u = PPP_UNIT[iso], cur = u ? u[0] : CUR_BY_ISO[iso];
+  return !lastRates && !!e && e.ppp > 0 && !!cur && cur !== "USD" && !priceLevel(iso);
+}
+// A home priced in US dollars other than the US (Panama, Ecuador…) with live
+// rates out: guides priced in dollars still compare with it, the rest with
+// the US (the dated snapshot line).
+function plDollarHomeOut(iso) {
+  const u = PPP_UNIT[iso], cur = u ? u[0] : CUR_BY_ISO[iso];
+  return !lastRates && !!ppp && iso !== "US" && cur === "USD" && !!priceLevel(iso);
+}
 function plTag(pl) {
   const w = plWord(pl);
   const cls = plCls(pl);
@@ -3273,7 +3292,8 @@ async function renderGuideFx(iso) {
 // decision engine must not export a figure its own page never shows. (The AI
 // prompts state the same level in plPhrase's framing, Top Picks' own:
 // aiPriceWords.) Against the traveller's home; the US only as a fallback,
-// and then the line says so.
+// and then the line says so: "no figure for" a home that has none, the ⓘ
+// alone when live rates didn't load (plRatesOut).
 // Why a price figure isn't a current World Bank household-spending one
 // (build_ppp.py), or "": Taiwan's hand-entered IMF figure (put on the
 // household footing with the Penn World Table's ratio, hh_ratio; GDP-wide as
@@ -3301,7 +3321,7 @@ function localPricesText(iso) {
   const pl = priceLevel(plIso);
   if (!pl) return null;
   return "≈ " + Math.round(100 * pl / A.pl) + "% of " + A.name
-    + (A.home ? "" : " (no figure for " + plAnchorName(originIso()) + ")")
+    + (A.home || plRatesOut(originIso()) ? "" : " (no figure for " + plAnchorName(originIso()) + ")")
     + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "");
 }
 // A mandatory daily fee a visitor pays (visa.json "fee": Bhutan's
@@ -3389,11 +3409,21 @@ const COST_FEE_TIP = " The 💰 Affordability grade counts local prices only: th
 // tells them nothing: what every other guide's figure is measured against.
 // England, Scotland and Wales are a UK reader's own (the UK-wide figure is
 // home's). guide_lines.HOME_LINE / home_line are the server's copy: the
-// served US guide carries it, its reader being the US.
+// served US guide carries it, its reader being the US. With live rates out
+// (plRatesOut) the other guides compare with the US instead: the line is
+// just "Home prices" (same room) and its ⓘ says why. A dollar home
+// (plDollarHomeOut) keeps its words, dollar-priced guides still comparing
+// with it, and its ⓘ says the rest compare with the US.
 const COST_HOME = "Home prices: the 100% other guides compare to";
 function costHomeHtml(iso) {
   const plIso = GUIDE_PARENT[iso] || iso;
-  return `💰 <b>${esc(COST_HOME)}</b><span class="fxinfo" data-tip="${esc(plIso !== iso
+  const out = plRatesOut(plIso);
+  return `💰 <b>${esc(out ? "Home prices" : COST_HOME)}</b><span class="fxinfo" data-tip="${esc(out
+    ? "Other guides compare with the US for now, because live exchange rates didn't load."
+    : plDollarHomeOut(plIso)
+    ? "Guides priced in US dollars compare with prices here; the rest compare with the US for now, because live"
+      + " exchange rates didn't load."
+    : plIso !== iso
     ? "Every other guide's percentage is measured against " + parentWide(plIso) + " prices, which apply here too."
     : "Every other guide's percentage is measured against prices here.")}" title="">ⓘ</span>`;
 }
@@ -3470,17 +3500,24 @@ async function renderGuideCost(iso) {
       + feeTipTxt + snapTip)}" title="">ⓘ</span>`);
   }
   // Live rates out, a country priced in US dollars (Ecuador, Panama…) still
-  // has its figure while a home in another currency has none, so the US
-  // stands in (plAnchor: "≈ 43% of the US (no figure for Germany)") and the
-  // band word is the US's, as on the snapshot line: it goes the same way,
-  // with its grade note. With live data in and no figure for home at all,
-  // the US's word stands, as the line says. Either way the basket is the US's.
+  // has its figure while a home in another currency can't be priced today,
+  // so the US stands in ("≈ 43% of the US") and the band word is the US's,
+  // as on the snapshot line: it goes the same way, with its grade note, and
+  // the ⓘ says live rates didn't load (plRatesOut; "no figure for Cuba" on
+  // the line where the home has none). With live data in and no figure for
+  // home at all, the US's word stands, as the line says. Either way the
+  // basket is the US's.
+  // With live rates out for a home that has a figure (plRatesOut), the ⓘ
+  // leaves out "carried to today's exchange rate", which read against
+  // "live exchange rates didn't load" (a dollar price needs no rate).
   const A = plAnchor(originIso());
   const usStandIn = !A.home && !(ppp && lastRates);
+  const ratesOut = plRatesOut(originIso());
   const band = l4 || usdFee || usStandIn ? "" : plWord(priceLevel(plIso) / A.pl);
   show(`💰 <b>${esc(costLead(band))} prices ${esc(line)}</b>${feeHtml}<span class="fxinfo" data-tip="${esc(
-    srcName(GUIDE_PARENT[iso] || iso) + " price level for residents, carried to today's exchange rate — what a local basket"
-    + " costs here against the same basket " + (A.home ? "at home" : "in the US") + ". National averages: tourist areas and"
+    srcName(GUIDE_PARENT[iso] || iso) + " price level for residents" + (ratesOut ? "" : ", carried to today's exchange rate")
+    + " — what a local basket costs here against the same basket " + (A.home ? "at home" : "in the US")
+    + (ratesOut ? ", because live exchange rates didn't load" : "") + ". National averages: tourist areas and"
     + " foreigner rent run well above this." + (plBasisNote(iso) ? " " + plBasisNote(iso) : "")
     + feeTipTxt + (usStandIn && !usdFee ? "" : gradeTip))}" title="">ⓘ</span>`);
 }
@@ -7474,13 +7511,15 @@ function aiGather(isos, health) {
 const capWait = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
 
 // The price level in plPhrase's words, the one framing Top Picks and both
-// prompts use ("~39% cheaper than the US"). home names the yardstick.
+// prompts use ("~39% cheaper than the US"). home names the yardstick. With
+// live rates out (plRatesOut) a German reader's is plainly "than the US":
+// Germany has a figure, only today's rate is missing.
 function aiPriceWords(iso, home) {
   const A = plAnchor(originIso());
   const plIso = GUIDE_PARENT[iso] || iso;       // England etc: the UK's figure
   const pl = priceLevel(plIso);
   if (!pl || plIso === originIso()) return "";
-  return plPhrase(pl / A.pl, home) + (A.home ? "" : " (no figure for " + countryName(originIso()) + ")")
+  return plPhrase(pl / A.pl, home) + (A.home || plRatesOut(originIso()) ? "" : " (no figure for " + countryName(originIso()) + ")")
     + (plIso !== iso ? " (" + parentWide(plIso) + " figure)" : "");
 }
 // The exchange rate as the guide's own line (renderGuideFx) says it: within
