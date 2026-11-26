@@ -36,7 +36,7 @@ function parityAnswer(u) {
 async function intercept({ send, on, sleep }, opt = {}) {
   let wiki = null;
   await enableWikiCache((m, p) => (m === 'Fetch.enable' ? Promise.resolve() : send(m, p)), (fn) => { wiki = fn; });
-  const st = { fix: 0, refused: [], local: [], slowed: [] };
+  const st = { fix: 0, refused: [], local: [], slowed: [], wiki: [], all: [] };
   const json = (id, body, code = 200) => send('Fetch.fulfillRequest', { requestId: id, responseCode: code,
     responseHeaders: [{ name: 'Content-Type', value: 'application/json' }, { name: 'Cache-Control', value: 'no-store' }],
     body: Buffer.from(body).toString('base64') });
@@ -48,7 +48,8 @@ async function intercept({ send, on, sleep }, opt = {}) {
     if (/(^|\.)wandergrade\.com$|onrender\.com$|cloudflareinsights|prf\.hn$|hostelworld|stay22|booking\.com|travelpayouts|aviasales/.test(u.hostname)) {
       st.refused.push(u.href); return send('Fetch.failRequest', { requestId: id, errorReason: 'BlockedByClient' });
     }
-    if (/wikipedia\.org$|wikimedia\.org$/.test(u.hostname)) return wiki(d);
+    st.all.push(u.hostname + u.pathname);
+    if (/wikipedia\.org$|wikimedia\.org$/.test(u.hostname)) { st.wiki.push(u.href); return wiki(d); }
     if (u.hostname !== '127.0.0.1') return send('Fetch.continueRequest', { requestId: id });
     if (u.pathname === '/api/rates' && opt.rates === 'net') return send('Fetch.failRequest', { requestId: id, errorReason: 'Failed' });
     if (u.pathname === '/api/geo') return json(id, '{}');
@@ -79,7 +80,7 @@ export default async (ctx) => {
     ${seed ? `try { var s = ${seed}; for (var k in s) localStorage.setItem(k, s[k]); } catch (e) {}` : ''}` });
   const slow = [];
   if (CASE === 'visa') slow.push({ re: /\/visa-passport\.json/, ms: 2500 });
-  if (CASE === 'photo') slow.push({ re: /upload\.wikimedia\.org/, ms: 2000 });
+  if (CASE === 'photo') slow.push({ re: /(upload|thumb)\.wikimedia\.org|wikipedia\.org\/w\/api\.php/, ms: 2000 });
   const st = await intercept(ctx, { rates: CASE === 'ratesdown' ? 'net' : 'ok', slow });
   await setSize(W, H, PHONE);
 
@@ -151,6 +152,14 @@ export default async (ctx) => {
     return finish();
   }
 
+  if (CASE === 'net') {
+    // What a cold homepage load fetches (any tree, main too): Wikimedia, and every request, in order.
+    await nav(BASE + '/', 12000);
+    console.log('WIKI ' + st.wiki.length + ' ' + JSON.stringify(st.wiki.map((u) => u.slice(0, 150))));
+    console.log('ALL ' + st.all.length + ' ' + JSON.stringify([...new Set(st.all)]));
+    ok(true, `${tag}: ${st.wiki.length} Wikimedia requests, ${st.all.length} in all`);
+    return finish();
+  }
   if (CASE === 'cls') {
     // A cold homepage load, no postcard involved: the page's own layout shift (any tree, main too).
     await nav(BASE + '/', 12000);
@@ -374,7 +383,7 @@ export default async (ctx) => {
         visa: v ? v.textContent : null, pend: c ? c.querySelectorAll('.pcpend').length : null, img: i ? (i.complete && i.naturalWidth > 0) + ':' + i.className : 'none',
         photoBox: c ? (() => { const r = c.querySelector('.pcphoto').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })() : null }; })()`);
     const before = await m();
-    await sleep(3500);
+    await sleep(CASE === 'photo' ? 5500 : 3500);   // the lookup and then the image, each held 2 s
     const after = await m();
     const sh = await evaluate(`window.__shifts.filter((x) => x.t > ${t0} + 400)`);
     if (CASE === 'visa') ok(/…/.test(before.visa || '') && before.pend > 0 && after.visa && !/…/.test(after.visa) && after.pend === 0,
@@ -453,6 +462,7 @@ export default async (ctx) => {
     const real = errs.filter((e) => !/favicon|BlockedByClient|ERR_BLOCKED_BY_CLIENT|net::ERR_FAILED.*\/api\/rates|Failed to load resource/.test(e));
     ok(!real.length, `${tag}: no console errors (${real.slice(0, 3).join(' | ')})`);
     ok(!st.refused.length, `${tag}: no production requests (${st.refused.slice(0, 2).join(' ')})`);
+    if (st.slowed.length) console.log('SLOWED ' + st.slowed.length + ' ' + [...new Set(st.slowed)].slice(0, 4).join(' '));
     console.log(`RESULT ${results.filter(Boolean).length}/${results.length} ${tag}`);
   }
 };

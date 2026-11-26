@@ -948,7 +948,11 @@ function ratesSettled(retry) {
     const n = _ratesTry;
     _ratesRetryT = setTimeout(() => { _ratesRetryT = 0; _ratesTry = n + 1; loadRates("auto"); }, RATES_RETRY_MS[n]);
   }
-  if (_ratesTry >= RATES_QUIET && !ratesDown) { ratesDown = true; if (loaded.value) renderValue(); }
+  if (_ratesTry >= RATES_QUIET && !ratesDown) {
+    ratesDown = true;
+    if (loaded.value) renderValue();
+    if (ccCurrent) renderCountryCard();   // its 💰 stops waiting for them
+  }
   else if (retry === "manual" && loaded.value) renderValue();   // Try again failed: its button back
 }
 // The notice's Try again. aria-disabled, not disabled, while it runs: a
@@ -1848,71 +1852,100 @@ function postcardHTML(iso, o) {
 }
 
 // ---- tap-for-detail country card -------------------------------------------
-let ccCurrent = null;   // { iso, host } of the open card
+// Every map (Currency, Cost, Safety, Flights, Top Picks, and each in full
+// screen) opens the postcard under itself, with the one fact that map is
+// about (mapFactFor) and the Wander List's ✓ Been / ★ Want to go: the Wander
+// List is marked from the maps. The Top Picks rows open the same postcard.
+let ccCurrent = null;   // { iso, host, settledFor, drawn } of the open card
+// The card waits for what it says, up to CC_WAIT_MS (inside the half second a
+// click's own layout change is allowed), so it opens at its size instead of
+// growing as each answer lands; all of it is usually in already.
+const CC_WAIT_MS = 400;
+
+// A map's own fact, in the words its card always said: the Currency map's
+// 💱 move against the 1-yr average, the Safety map's advisory. The Cost map's
+// is the postcard's 💰; the Flights and Top Picks maps had none on the card.
+function mapFactFor(hostId, iso) {
+  if (hostId === "map") {
+    const cur = CUR_BY_ISO[iso];
+    if (!cur) return null;
+    // One number, not two — the after-inflation one when a destination figure
+    // was netted out (the one the table's mark uses), otherwise the exchange-
+    // rate move, said plainly for what it is instead of "(nominal)". One
+    // decimal, like the table: the raw figure printed "+10.34%" beside "+7.9%".
+    const fx = fxInfo(iso);
+    const sgn = (p) => (p >= 0 ? "+" : "−") + Math.abs(p).toFixed(1) + "%";
+    return `💱 ${esc(cur)}` + (cur === homeBase ? " (your home currency)"
+      : fx ? `: your ${esc(homeBase)} ${sgn(fx.adj ? fx.real : fx.nom)} vs 1-yr avg`
+        + (fx.adj ? " after inflation" : " (exchange rate only — local inflation not netted out)")
+      : "");
+  }
+  if (hostId === "advMap") {
+    // 🛡️ for Levels 1–2, ⚠️ only where the advice is to reconsider: a warning
+    // sign on "normal precautions" was alarmist. Whose advice it is, as the
+    // table's pill already says.
+    const lvl = advisoryByIso()[iso];
+    return lvl ? `${lvl >= 3 ? "⚠️" : "🛡️"} ${esc(advLevelText(iso, lvl) + advVia(iso))}` : null;
+  }
+  return null;
+}
 
 function showCountryCard(iso, host) {
-  ccCurrent = { iso, host };
-  renderCountryCard();
-  // Pull in whatever context isn't loaded yet, then refresh the open card.
-  Promise.all([ensureClimate().catch(() => {}), ensureAdvisories().catch(() => {}),
-               ensureActivities().catch(() => {})])
-    .then(() => { if (ccCurrent && ccCurrent.iso === iso) renderCountryCard(); });
+  const cc = ccCurrent = { iso, host, settledFor: null, drawn: false };
+  const all = ccLoad(cc);
+  Promise.race([all, new Promise((r) => setTimeout(r, CC_WAIT_MS))])
+    .then(() => { if (ccCurrent === cc && !cc.drawn) renderCountryCard(); });
+  postcardPhoto(iso).then((ph) => {
+    const c = ccCurrent === cc && ccCard();
+    if (ph && c) pcSetPhoto(c, ph);
+  });
+}
+// What the card's facts read (and its map's: the advisories), for the
+// reader's passport as it is now; settled, the card leaves out a fact with
+// nothing to say.
+function ccLoad(cc) {
+  const home = guidePassport();
+  cc.loading = home;
+  return Promise.all([pcNeeds(), ensureAdvisories().catch(() => {})]).then(() => {
+    if (ccCurrent !== cc) return;
+    cc.loading = null;
+    cc.settledFor = home;
+    renderCountryCard();
+  });
+}
+function ccCard() {
+  const c = ccCurrent && ccCurrent.host.nextElementSibling;
+  return c && c.classList.contains("countrycard") ? c : null;
 }
 
 function renderCountryCard() {
   if (!ccCurrent) return;
-  const { iso, host } = ccCurrent;
-  let card = host.nextElementSibling;
-  if (!card || !card.classList.contains("countrycard")) {
+  const cc = ccCurrent, { iso, host } = cc;
+  let card = ccCard();
+  if (!card) {
     document.querySelectorAll(".countrycard").forEach((c) => c.remove());
     card = document.createElement("div");
     card.className = "countrycard";
     host.insertAdjacentElement("afterend", card);
   }
-  const name = countryName(iso);
-  const cur = CUR_BY_ISO[iso];
-  // Same frame as the maps that open this card: FX in the home currency, price
-  // level vs the From country (it used to read USD / US to every visitor).
-  const fx = fxInfo(iso);
-  const pl = priceLevel(iso);
-  const anchor = plAnchor(guidePassport());
-  const advLvl = advisoryByIso()[iso];
-  const cl = climate && climate[iso];
-  const act = activities && activities[iso];
-
-  const facts = [];
-  // One number, not two — the after-inflation one when a destination figure
-  // was netted out (the one the table's mark uses), otherwise the exchange-
-  // rate move, said plainly for what it is instead of "(nominal)". One
-  // decimal, like the table: the raw figure printed "+10.34%" beside "+7.9%".
-  const sgn = (p) => (p >= 0 ? "+" : "−") + Math.abs(p).toFixed(1) + "%";
-  if (cur) facts.push(`💱 ${esc(cur)}` + (cur === homeBase ? " (your home currency)"
-    : fx ? `: your ${esc(homeBase)} ${sgn(fx.adj ? fx.real : fx.nom)} vs 1-yr avg`
-      + (fx.adj ? " after inflation" : " (exchange rate only — local inflation not netted out)")
-    : ""));
-  if (pl != null) facts.push(`💰 ${plPhrase(pl / anchor.pl, esc(anchor.name))}`);
-  // 🛡️ for Levels 1–2, ⚠️ only where the advice is to reconsider: a warning
-  // sign on "normal precautions" was alarmist. Whose advice it is, as the
-  // table's pill already says.
-  if (advLvl) facts.push(`${advLvl >= 3 ? "⚠️" : "🛡️"} ${esc(advLevelText(iso, advLvl) + advVia(iso))}`);
-  if (cl && cl.best && cl.best.length) facts.push(`📅 best months: ${cl.best.map((m) => MON_ABBR[m - 1]).join(", ")}`);
-  if (act && act.days) facts.push(`🧳 worth ${act.days[0]}–${act.days[1]} days`);
-
-  const vis = isVisited(iso);
-  card.innerHTML = `
-    <button class="ccclose" title="close" aria-label="close">✕</button>
-    <h3>${esc(name)} ${vis ? '<span class="visited-tag">✓ visited</span>' : ""}</h3>
-    <div class="ccfacts">${facts.map((f) => `<span>${f}</span>`).join("") || "<span>Loading details…</span>"}</div>
-    ${act ? `<p class="ccsummary">${esc(act.summary)}</p>` : ""}
-    <div class="ccbtns">
-      ${(act || cl) ? '<button data-cc="todo">Country guide →</button>' : ""}
-      <button data-cc="visit">${vis ? "✓ Been (remove)" : "✓ Been"}</button>
-      <button data-cc="wish">${loadWishlist().has(iso) ? "★ On wishlist (remove)" : "★ Want to go"}</button>
-      <button data-cc="trip">${tripHas(iso) ? "🧳 On this trip (remove)" : "🧳 Add to trip"}</button>
-    </div>`;
-  card.querySelector(".ccclose").onclick = () => { card.remove(); ccCurrent = null; };
-  const todo = card.querySelector('[data-cc="todo"]');
-  if (todo) todo.onclick = () => {
+  cc.drawn = true;
+  // The From country changed under an open card (its price and visa are the
+  // reader's): what the new passport needs comes in, the card meanwhile
+  // holding those facts' places.
+  const home = guidePassport();
+  if (cc.settledFor !== home && cc.loading !== home) ccLoad(cc);
+  const focusKey = pcFocusKey(card);
+  const shown = card.querySelector(".pcphoto img.pcimg.in") ? card.querySelector(".pcphoto") : null;
+  card.innerHTML = postcardHTML(iso, { rowHasMonth: false, mapFact: mapFactFor(host.id, iso), photo: postcardPhotoNow(iso) || null,
+                                       inTrip: tripHas(iso), secondary: true, settled: cc.settledFor === home });
+  if (shown) card.querySelector(".pcphoto").replaceWith(shown);
+  else pcWireImg(card);
+  card.querySelector(".pcclose").onclick = () => { card.remove(); ccCurrent = null; };
+  // Full guide →: a real link (a new tab on cmd/middle-click); the Top Picks
+  // map opens a country on its own best month under "Any time".
+  card.querySelector('[data-cc="todo"]').onclick = (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    e.preventDefault();
     if (host.id === "valueMap" && valueMapMonths) setFlexFocus(valueMapMonths[iso] || null, true);
     openGuideFor(iso, true);
   };
@@ -1927,8 +1960,13 @@ function renderCountryCard() {
   card.querySelector('[data-cc="trip"]').onclick = () => {
     tripToggle(iso);
     renderCountryCard();
-    if (loaded.value && !$("tab-value").hidden) renderValue();
+    // An open row postcard of the same country says the same.
+    if (_pcOpen && _pcOpen.iso === iso && _pcOpen.el.isConnected) pcRender(_pcOpen.el, pcFocusKey(_pcOpen.el));
   };
+  if (focusKey) {
+    const f = card.querySelector(focusKey === "close" ? ".pcclose" : '[data-cc="' + focusKey + '"]');
+    if (f) f.focus({ preventScroll: true });
+  }
 }
 
 function renderMap(rows, base) {
@@ -9538,7 +9576,7 @@ document.addEventListener("click", (e) => {
 // it is open (aria-expanded) and what it opens (aria-controls); the focus
 // stays on it, the postcard following it in the Tab order, and Esc or ✕ hand
 // it back.
-let _pcOpen = null;   // { hostId, iso, el: its tr.pcrow, settled }
+let _pcOpen = null;   // { hostId, iso, el: its tr.pcrow, settledFor, loading }
 const pcHost = (tr) => (tr && tr.closest ? tr.closest("#topCards, #gemRows") : null);
 // A row that already names a month: an "Any time" row (its "Best in" chip),
 // or a "🗓️ Best in" tag (seasonalTags, the nothing-in-season fallback).
@@ -9562,7 +9600,7 @@ function openPostcard(tr, host) {
   el.setAttribute("data-pc-iso", iso);
   el.innerHTML = `<td colspan="${tr.children.length}"></td>`;
   tr.after(el);
-  _pcOpen = { hostId: host.id, iso, el, settled: false };
+  _pcOpen = { hostId: host.id, iso, el, settledFor: null, loading: guidePassport() };   // pcLoad below
   pcRender(el);
   pcLink(tr, true);
   pcLoad(iso);
@@ -9594,8 +9632,11 @@ function pcRender(el, focusKey) {
   const m = +tr.dataset.m || 0;
   if (m) el.setAttribute("data-pcm", String(m)); else el.removeAttribute("data-pcm");
   const shown = td.querySelector(".pcphoto img.pcimg.in") ? td.querySelector(".pcphoto") : null;
+  const o = _pcOpen && _pcOpen.el === el ? _pcOpen : null, home = guidePassport();
+  // The From country changed under it (a redraw): the new passport's data.
+  if (o && o.settledFor !== home && o.loading !== home) pcLoad(iso);
   td.innerHTML = postcardHTML(iso, { rowHasMonth: pcRowHasMonth(tr), mapFact: null, photo: postcardPhotoNow(iso) || null,
-                                     inTrip: tripHas(iso), secondary: false, settled: !!(_pcOpen && _pcOpen.el === el && _pcOpen.settled) });
+                                     inTrip: tripHas(iso), secondary: false, settled: !!o && o.settledFor === home });
   if (shown) td.querySelector(".pcphoto").replaceWith(shown);
   else pcWireImg(td);
   if (focusKey) {
@@ -9624,16 +9665,24 @@ function pcSetPhoto(root, ph) {
   box.insertAdjacentHTML("beforeend", pcPhotoHTML(ph));
   pcWireImg(box);
 }
-// What an open postcard waits for: the photo, and the data its facts read
+// The data a postcard's facts read, for the reader's passport as it is now
 // (on Top Picks all of it is in already, except a non-US reader's visa
-// table, /visa-passport.json, asked for on the first open or hover). Once
-// they have all answered, a fact with nothing to say is left out (settled).
+// table, /visa-passport.json, asked for on the first open or hover). A
+// failed load answers too: the fact is then left out.
+function pcNeeds() {
+  return Promise.all([ensureActivities(), ensureClimate(), ensurePPP(), guidePassport() === "US" ? ensureVisa() : ensureVisaMatrix()]
+    .map((p) => Promise.resolve(p).catch(() => {})));
+}
+// What an open postcard waits for: the photo and its facts' data. Once that
+// has answered for the reader's passport (settledFor), a fact with nothing to
+// say is left out rather than held.
 function pcLoad(iso) {
-  const need = [ensureActivities(), ensureClimate(), ensurePPP(), guidePassport() === "US" ? ensureVisa() : ensureVisaMatrix()];
-  Promise.all(need.map((p) => Promise.resolve(p).catch(() => {}))).then(() => {
-    const o = _pcOpen;
-    if (!o || o.iso !== iso || !o.el.isConnected) return;
-    o.settled = true;
+  const o = _pcOpen, home = guidePassport();
+  if (o) o.loading = home;
+  pcNeeds().then(() => {
+    if (!o || _pcOpen !== o || !o.el.isConnected) return;
+    o.loading = null;
+    o.settledFor = home;
     pcRender(o.el, pcFocusKey(o.el));
   });
   postcardPhoto(iso).then((ph) => {
