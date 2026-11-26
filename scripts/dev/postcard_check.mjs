@@ -2,7 +2,8 @@
 //   PC_BASE=http://127.0.0.1:8861 PC_CASE=rows PC_W=1280 node cdp.mjs ./postcard_check.mjs
 // Env:
 //   PC_BASE   the local server (never production)
-//   PC_CASE   rows | keys | gems | served | filters | ratesdown | visa | photo | maps | layout | shots
+//   PC_CASE   rows | keys | gems | served | filters | ratesdown | ratesslow | advdown | visa | photo | maps | maps2 | layout
+//             | cut | shots | net | cls   (PC_DROP=1 with visa: the late table has no entry for the country)
 //   PC_W, PC_H the viewport (below 700 wide: a phone, touch + a phone UA)
 //   PC_SEED   localStorage to start from, JSON of strings ('{"fx_origin":"DE"}')
 //   PC_FIX    recorded /api answers, <dir>/<sha1(path + query)>.json ({status, ct, body base64})
@@ -82,6 +83,7 @@ export default async (ctx) => {
     ${seed ? `try { var s = ${seed}; for (var k in s) localStorage.setItem(k, s[k]); } catch (e) {}` : ''}` });
   const slow = [];
   if (CASE === 'visa') slow.push({ re: /\/visa-passport\.json/, ms: 2500 });
+  if (CASE === 'ratesslow') slow.push({ re: /\/api\/rates(\?|$)/, ms: 6000 });
   if (CASE === 'photo') slow.push({ re: /(upload|thumb)\.wikimedia\.org|wikipedia\.org\/w\/api\.php/, ms: 2000 });
   const st = await intercept(ctx, { rates: CASE === 'ratesdown' ? 'net' : 'ok', adv: CASE === 'advdown' ? 'net' : 'ok', slow });
   await setSize(W, H, PHONE);
@@ -190,6 +192,28 @@ export default async (ctx) => {
     ok(r && typeof r.cls === 'number', `${tag}: cls ${r && r.cls}`);
     return finish();
   }
+  if (CASE === 'ratesslow') {
+    // A map card opened while the first /api/rates is still on its way: its 💰 waits ("…") and fills
+    // in when the rates land, instead of waiting for good. Straight to the Data tab: Top Picks never
+    // loads, so its own start-up (setHomeCur) can't redraw the card by the way.
+    await nav(BASE + '/?tab=data&dm=advisory', 0);
+    const up = await waitFor(`typeof activateTab === 'function' && typeof setDataMode === 'function'`, 8000);
+    if (!ok(up === true, `${tag}: app.js running`)) return finish();
+    await evaluate(`(async () => { await activateTab('data', true); await setDataMode('advisory'); return 1; })()`);
+    const iso = process.env.PC_ISO || 'JP';
+    const drawn = await waitFor(`!!document.querySelector('#advMap svg path[data-iso="${iso}"]') && !lastRates`, 5000);
+    if (!ok(drawn === true, `${tag}: the Safety map drawn before the rates (${drawn})`)) return finish();
+    await evaluate(`document.querySelector('#advMap path[data-iso="${iso}"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    await sleep(1200);
+    const fact = () => evaluate(`(() => { const f = document.querySelector('.countrycard .pcfact[data-k="price"]'); return { t: f ? f.textContent : null, pend: f ? f.classList.contains('pcpend') : null, rates: !!lastRates }; })()`);
+    const before = await fact();
+    ok(before.t === '💰 …' && before.pend && !before.rates, `${tag}: before the rates, the price fact waits (${JSON.stringify(before)})`);
+    await waitFor(`!!lastRates`, 12000);
+    await sleep(600);
+    const after = await fact();
+    ok(after.rates && after.t && !after.pend && /cheaper|pricier|about the same/.test(after.t), `${tag}: once they land, it fills in (${JSON.stringify(after)})`);
+    return finish();
+  }
   if (CASE === 'ratesdown') {
     // Round 10's notice instead of the list (after the quiet retries): no postcard, no errors, and a
     // click where a row was opens nothing.
@@ -254,6 +278,17 @@ export default async (ctx) => {
     await click('tr.pcrow .pctrip');
     s = await state();
     ok(/🧳 Add to trip/.test(s.text) && +s.trip === +t0, `${tag}: and back (Trip count ${s.trip})`);
+    // The open animation plays once: on open, not again when Add to trip redraws the card.
+    const anim = await evaluate(`(() => { const r = document.querySelector('#topCards tr[data-iso="${c}"] td.rank'); r.click();
+      const c = document.querySelector('tr.pcrow .postcard'); return c ? c.getAnimations().map((a) => a.animationName + ':' + a.playState) : null; })()`);
+    await sleep(1000);
+    const anim2 = await evaluate(`(() => { document.querySelector('tr.pcrow .pctrip').click(); const c = document.querySelector('tr.pcrow .postcard');
+      const out = { anims: c.getAnimations().map((a) => a.animationName + ':' + a.playState), op: getComputedStyle(c).opacity, cls: document.querySelector('tr.pcrow').className };
+      document.querySelector('tr.pcrow .pctrip').click(); return out; })()`);
+    if (!process.env.PC_RM) ok(Array.isArray(anim) && anim.includes('pcin:running'), `${tag}: the open animation plays on open (${JSON.stringify(anim)})`);
+    ok(anim2 && !anim2.anims.some((a) => /running/.test(a)) && anim2.op === '1', `${tag}: and not again on 🧳 Add to trip (${JSON.stringify(anim2)})`);
+    await click(`#topCards tr[data-iso="${c}"] td.rank`);
+    await click(`#topCards tr[data-iso="${b}"] td.rank`);
     // Full guide → on an "Any time" row: the guide on that row's month.
     const m = await evaluate(`(document.querySelector('#topCards tr[data-iso="${b}"]') || {}).dataset.m || ''`);
     await click('tr.pcrow .pcguide');
@@ -289,6 +324,39 @@ export default async (ctx) => {
     await press('Enter');
     s = await state();
     ok(s.n === 0 && s.active === `destlink@${a}`, `${tag}: ✕ closes, focus on the name (${s.active})`);
+    // Esc where the reader is not with the postcard (another row's name, a sort button) leaves it open.
+    await press('Enter');
+    const far = list[3];
+    for (const sel of [`#topCards tr[data-iso="${far}"] a.destlink`, '#topCards th[data-sk="dest"] button']) {
+      await evaluate(`document.querySelector(${JSON.stringify(sel)}).focus({ preventScroll: true })`);
+      await press('Escape');
+      s = await state();
+      ok(s.n === 1 && s.iso === a, `${tag}: Esc with the focus on ${sel.replace('#topCards ', '')} leaves the postcard open (${JSON.stringify({ n: s.n, active: s.active })})`);
+    }
+    // A tip on screen takes the first Esc; the second closes the postcard.
+    await evaluate(`(() => { _tipMarks(); document.querySelector('tr.pcrow .pcinfo').focus(); })()`);
+    await sleep(200);
+    const tip = () => evaluate(`(() => { const t = document.getElementById('wgtip'); return t && !t.hidden; })()`);
+    const t1 = await tip();
+    await press('Escape');
+    s = await state();
+    const t2 = await tip();
+    ok(t1 === true && t2 === false && s.n === 1 && /pcinfo/.test(s.active || ''), `${tag}: Esc on the facts' ⓘ hides its tip, the postcard stays, focus stays (${JSON.stringify({ t1, t2, n: s.n, active: s.active })})`);
+    await press('Escape');
+    s = await state();
+    ok(s.n === 0 && s.active === `destlink@${a}`, `${tag}: a second Esc closes it, focus on the name (${s.active})`);
+    // A redraw of the table (a late flight-value answer: renderValue) keeps the focus on the ⓘs.
+    await press('Enter');
+    await waitFor(`!!document.querySelector('tr.pcrow img.pcimg.in')`, 8000);
+    for (const sel of ['.pccredit', '.pcinfo']) {
+      await evaluate(`(() => { _tipMarks(); const el = document.querySelector('tr.pcrow ${sel}'); el && el.focus(); })()`);
+      const was = (await state()).active;
+      await evaluate(`renderValue()`);
+      await sleep(300);
+      s = await state();
+      ok(new RegExp(sel.slice(1)).test(was || '') && new RegExp(sel.slice(1)).test(s.active || '') && s.n === 1,
+         `${tag}: a redraw with the focus on ${sel} keeps it there (${was} → ${s.active})`);
+    }
     return finish();
   }
 
@@ -368,6 +436,14 @@ export default async (ctx) => {
       ok(/Full guide →/.test(c.text) && /Add to trip/.test(c.text) && /✓ Been/.test(c.text) && /★ Want to go/.test(c.text),
          `${tag}: #${id}: Full guide →, Add to trip, ✓ Been, ★ Want to go`);
       ok(fs ? c.fs : c.after, `${tag}: #${id}: ${fs ? 'floats in the full-screen overlay' : 'right under its map'}`);
+      // Nothing runs out of the card, and a card too narrow for the photo beside the words (two maps
+      // abreast: a 320-490px column) stacks as on a phone.
+      const fit = await evaluate(`(() => { const c = document.querySelector('.countrycard'), r = c.getBoundingClientRect();
+        const out = [...c.querySelectorAll('*')].filter((e) => { const b = e.getBoundingClientRect(); return b.width && (b.right > r.right + 1 || b.left < r.left - 1); }).map((e) => e.className || e.tagName).slice(0, 4);
+        const p = c.querySelector('.pcphoto').getBoundingClientRect(), bd = c.querySelector('.pcbody').getBoundingClientRect();
+        return { w: Math.round(r.width), sw: c.scrollWidth, cw: c.clientWidth, out, stacked: p.bottom <= bd.top + 1, btnH: [...c.querySelectorAll('.pcbtn')].map((b) => Math.round(b.getBoundingClientRect().height)) }; })()`);
+      ok(fit.sw <= fit.cw + 1 && !fit.out.length && fit.btnH.every((h) => h <= 36), `${tag}: #${id}: everything inside the card, buttons on one line (${JSON.stringify(fit)})`);
+      if (!fs) ok(fit.w < 480 ? fit.stacked : !fit.stacked || W <= 600, `${tag}: #${id}: a ${fit.w}px card ${fit.w < 480 ? 'stacks' : 'keeps the photo beside the words'} (${fit.stacked ? 'stacked' : 'side by side'})`);
       ok(fact === 'currency' ? /^💱 /.test(c.map) : fact === 'safety' ? /^(🛡️|⚠️) /.test(c.map) : !c.map,
          `${tag}: #${id}: the map's own fact: ${c.map || '(none)'} [${c.ks}]`);
       if (id === 'valueMap' && !fs) {
@@ -404,24 +480,57 @@ export default async (ctx) => {
     // A late visa table (non-US reader) or a late photo: the card fills in place, its height and the
     // rows under it don't move, and no layout shift is recorded.
     const a = list[0], b = list[1];
+    // PC_DROP: the late table turns out to have nothing for this country (the Faroes, Greenland, Jersey):
+    // the fact shown waiting keeps its line, empty, instead of the card losing a line.
+    if (process.env.PC_DROP) await evaluate(`(() => { const orig = visaInfo; visaInfo = (i, p) => (i === '${a}' ? null : orig(i, p)); })()`);
     await click(`#topCards tr[data-iso="${a}"] td.rank`);
     const t0 = await evaluate('performance.now()');
     const m = (q) => evaluate(`(() => { const c = document.querySelector('tr.pcrow .postcard'); const nx = document.querySelector('#topCards tr[data-iso="${b}"]');
       const v = c && c.querySelector('.pcfact[data-k="visa"]'); const i = c && c.querySelector('img.pcimg');
       return { h: c ? Math.round(c.getBoundingClientRect().height * 100) / 100 : null, next: nx ? Math.round(nx.getBoundingClientRect().top * 100) / 100 : null,
-        visa: v ? v.textContent : null, pend: c ? c.querySelectorAll('.pcpend').length : null, img: i ? (i.complete && i.naturalWidth > 0) + ':' + i.className : 'none',
+        visa: v ? v.textContent : null, pend: c ? c.querySelectorAll('.pcpend').length : null, hold: c ? [...c.querySelectorAll('.pchold')].map((x) => x.dataset.hold).join() : null, img: i ? (i.complete && i.naturalWidth > 0) + ':' + i.className : 'none',
         photoBox: c ? (() => { const r = c.querySelector('.pcphoto').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; })() : null }; })()`);
     const before = await m();
     await sleep(CASE === 'photo' ? 5500 : 3500);   // the lookup and then the image, each held 2 s
     const after = await m();
     const sh = await evaluate(`window.__shifts.filter((x) => x.t > ${t0} + 400)`);
-    if (CASE === 'visa') ok(/…/.test(before.visa || '') && before.pend > 0 && after.visa && !/…/.test(after.visa) && after.pend === 0,
+    if (CASE === 'visa' && process.env.PC_DROP) ok(/…/.test(before.visa || '') && before.pend > 0 && after.visa === null && after.pend === 0 && after.hold === 'visa',
+                            `${tag}: the visa fact waited ("${before.visa}"), then had nothing to say: its line held empty (hold: ${after.hold})`);
+    else if (CASE === 'visa') ok(/…/.test(before.visa || '') && before.pend > 0 && after.visa && !/…/.test(after.visa) && after.pend === 0,
                             `${tag}: the visa fact waited ("${before.visa}") and filled in place ("${after.visa}")`);
     else ok(before.img === 'none' || /false/.test(before.img), `${tag}: the photo was still on its way at open (${before.img})`) &&
          ok(/^true:.*\bin\b/.test(after.img), `${tag}: and then shown (${after.img})`);
     ok(before.h === after.h && before.next === after.next && JSON.stringify(before.photoBox) === JSON.stringify(after.photoBox),
        `${tag}: the card's height ${before.h} → ${after.h}, the next row ${before.next} → ${after.next}, photo box ${before.photoBox} → ${after.photoBox}`);
     ok(!sh.length, `${tag}: no layout shift after the open (${JSON.stringify(sh)})`);
+    return finish();
+  }
+
+  if (CASE === 'cut') {
+    // A fact cut short by the end of its line ("…") shows in full in a tip when the pointer comes to it;
+    // one that fits gets none.
+    await click(`#topCards tr[data-iso="${list[0]}"] td.rank`);
+    await sleep(400);
+    const hover = async (txt) => {
+      const r = await evaluate(`(() => { const f = document.querySelector('tr.pcrow .pcfact'); f.textContent = ${JSON.stringify(txt)};
+        f.scrollIntoView({ block: 'center' }); const b = f.getBoundingClientRect(); return { x: b.left + Math.min(20, b.width / 2), y: b.top + b.height / 2 }; })()`);
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 2, y: 2, button: 'none' });
+      await sleep(350);
+      // A phone has no hover: a tap on the fact.
+      for (const type of PHONE ? ['mouseMoved', 'mousePressed', 'mouseReleased'] : ['mouseMoved'])
+        await send('Input.dispatchMouseEvent', { type, x: r.x, y: r.y, button: type === 'mouseMoved' ? 'none' : 'left', clickCount: 1 });
+      await sleep(250);
+      return evaluate(`(() => { const t = document.getElementById('wgtip'), f = document.querySelector('tr.pcrow .pcfact'), p = f.parentElement;
+        const at = document.elementFromPoint(${r.x}, ${r.y});
+        return { tip: t && !t.hidden ? t.textContent : null, on: f.hasAttribute('data-tip') ? 'fact' : p.hasAttribute('data-tip') ? 'line' : null,
+          at: at ? at.className || at.tagName : null, line: [p.scrollWidth, p.clientWidth] }; })()`);
+    };
+    const long = '💰 ~64% cheaper than the Netherlands, and a great deal more words than any line can hold at this width, '
+      + 'however wide the screen: the line on a desktop is over 900px long';
+    const r1 = await hover(long);
+    ok(r1.tip && r1.tip.includes('a great deal more words') && r1.on === (W <= 760 ? 'fact' : 'line'), `${tag}: a cut fact reads in full in a tip, on the ${r1.on} (${JSON.stringify(r1).slice(0, 160)})`);
+    const r2 = await hover('💰 ~64% cheaper');
+    ok(!r2.tip && !r2.on, `${tag}: a fact that fits gets no tip (${JSON.stringify(r2)})`);
     return finish();
   }
 

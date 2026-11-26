@@ -270,6 +270,9 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .pcphoto a.pccredit[data-tip] { position: absolute; right: 5px; bottom: 5px; width: 22px; height: 22px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1;
   background: rgba(0,0,0,.5); color: #fff; }
+/* Its focus ring inside the dot: the photo box's rounded, clipped corner cut
+   the browser's own ring off on two sides. */
+.pcphoto a.pccredit:focus-visible { outline: 2px solid #fff; outline-offset: -2px; box-shadow: inset 0 0 0 4px var(--green); }
 .pcbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
 .pcname { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -0.2px; }
 .pcname .visited-tag { font-size: 12px; font-weight: 600; }
@@ -277,6 +280,9 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .pcline { margin: 0; min-height: 1.35em; font-size: 15.5px; font-weight: 800; line-height: 1.35; letter-spacing: -0.15px; }
 .pcfacts { margin: 0; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pcsep, .pcpend { color: var(--gray); }
+/* The line of a fact this open showed waiting that then had nothing to say
+   (app.js postcardHTML's hold): kept, empty, so the card doesn't shrink. */
+.pchold { visibility: hidden; }
 .pcbtns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 1px; }
 .pcbtn { display: inline-flex; align-items: center; min-height: 34px; box-sizing: border-box; padding: 6px 13px;
   border-radius: 9px; font-size: 13.5px; font-weight: 700; line-height: 1.25; text-decoration: none; cursor: pointer; }
@@ -303,15 +309,29 @@ button.pcclose:hover { color: var(--ink); }
 .countrycard { position: relative; margin-top: 10px; }
 .countrycard .postcard { width: auto; min-width: 0; align-items: flex-start; }
 .pcmap .pcfacts { display: flex; flex-wrap: wrap; gap: 2px 14px; white-space: normal; overflow: visible; }
-.pcmap .pcfact { white-space: nowrap; }
-.pcmap .pcfact[data-k="map"] { flex-basis: 100%; white-space: normal; }
+/* A fact takes a line of its own before it breaks, and breaks rather than
+   run out of the card (a long price fact in a narrow column). */
+.pcmap .pcfact { white-space: normal; }
+.pcmap .pcfact[data-k="map"] { flex-basis: 100%; }
 .pcmap .pcsep { display: none; }
+/* Two maps abreast (above 760px) leave a map card a column 320-490px wide:
+   too narrow for the photo beside the words (the words went one to a line
+   and ran out of the card). By the card's own width (a container), it stacks
+   as on a phone. Not the full-screen card: that one is as wide as its
+   content, which a size container can't be (it is outside .toprow). */
+.toprow .countrycard { container: pccard / inline-size; }
+@container pccard (max-width: 479.98px) {
+  .countrycard .postcard { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px; }
+  .countrycard .pcphoto { width: 100%; height: 120px; }
+  .countrycard button.pcclose { top: 14px; right: 14px; background: rgba(0,0,0,.5); color: #fff; }
+  .countrycard button.pcclose:hover { color: #fff; }
+}
 /* Narrower screens: one fact a line, where one line of three no longer fits
    beside the photo (so a fact filling in never re-wraps the others) ... */
 @media (max-width: 760px) {
   .pcfacts { white-space: normal; overflow: visible; }
-  .pcfact { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pcmap .pcfact[data-k="map"] { white-space: normal; }
+  .pcfact, .pchold { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pcmap .pcfact { white-space: normal; }
   .pcsep { display: none; }
 }
 /* ... and phones: stacked, the photo a short wide strip on top. */

@@ -84,6 +84,16 @@ const MF = "💱 JPY: your USD +1.2% vs 1-yr avg after inflation";
 T("h", () => postcardFacts("JP", { rowHasMonth: false, mapFact: MF }));
 T("h_html", () => card("JP", { mapFact: MF, secondary: true }));
 T("noguide", () => [!!(activities.TO || climate.TO), card("TO", { secondary: true, settled: true })]);
+// The facts' ⓘ names the reader's passport ("your Indian passport", never "a Indian").
+const keepVM = visaMatrix; visaMatrix = FIX.matrix;
+T("tip_in", () => { setOrigin("IN"); return postcardTip("TH", postcardFacts("TH", { settled: true })); });
+T("tip_br", () => { setOrigin("IE"); return postcardTip("TH", postcardFacts("TH", { settled: true })); });
+// A fact this open showed waiting keeps its line once the loads leave it out:
+// a German reader on the Faroes (no visa entry for any passport).
+T("hold_fo", () => { setOrigin("DE"); return [postcardFacts("FO", { settled: true }).map((f) => f.k), card("FO", { settled: true, hold: ["visa"] })]; });
+T("hold_jp", () => { setOrigin("DE"); return card("JP", { settled: true, hold: ["visa"] }); });
+T("hold_none", () => { setOrigin("DE"); return card("FO", { settled: true }); });
+setOrigin("US"); visaMatrix = keepVM;
 // The grade tables' click delegate: what a click on a row does.
 T("click", () => [
   pcRowClick({ row: true, link: false, mods: false }), pcRowClick({ row: true, link: true, mods: false }),
@@ -224,6 +234,20 @@ hh = S("h_html")
 results.append(ok("✓ Been" in txt(hh) and "★ Want to go" in txt(hh) and "Full guide →" in txt(hh) and "Add to trip" in txt(hh),
                   "secondary: ✓ Been and ★ Want to go beside the two buttons"))
 results.append(ok("Japan" in txt(hh), "a map card names its country"))
+
+ti, tb = S("tip_in"), S("tip_br")
+results.append(ok("🛂 Entry with your Indian passport" in ti and "for a Indian" not in ti,
+                  "the facts' ⓘ: 'Entry with your Indian passport' (%r)" % ti[ti.find("🛂"):][:70]))
+results.append(ok("🛂 Entry with your Irish passport" in tb, "and 'your Irish passport' (%r)" % tb[tb.find("🛂"):][:70]))
+hf = js.get("hold_fo")
+results.append(ok(isinstance(hf, list) and "visa" not in hf[0] and 'class="pchold" data-hold="visa" aria-hidden="true">&nbsp;</span>' in hf[1],
+                  "a fact shown waiting, then left out, keeps an empty line (%s)" % (hf[0] if isinstance(hf, list) else hf)))
+results.append(ok("pchold" not in S("hold_jp") and 'data-k="visa"' in S("hold_jp"), "a held fact that filled in has no empty line beside it"))
+results.append(ok("pchold" not in S("hold_none"), "no hold, no empty line (a fact never shown waiting)"))
+# The grade badges' tips: a click opens the postcard, so none says "click for" a Data table or tab.
+gt = re.sub(r"^\s*//.*$", "", APP[APP.find("function renderGradeTable("):APP.find("function pcRowClick(")], flags=re.M)
+results.append(ok(gt and not re.search(r"[Cc]lick for", gt), "no grade badge tip says 'click for …' (%s)"
+                  % re.findall(r".{0,30}[Cc]lick for.{0,30}", gt)[:3]))
 
 ng = js.get("noguide")
 results.append(ok(isinstance(ng, list) and ng[0] is False and "Full guide" not in ng[1] and "Add to trip" in txt(ng[1]),

@@ -941,6 +941,8 @@ function ratesSettled(retry) {
   if (lastRates) {
     clearTimeout(_ratesRetryT); _ratesRetryT = 0;
     if (_ratesOwed) { _ratesOwed = false; ratesLanded(); }
+    // A map card drawn before the first rates came held its 💰 for them.
+    else if (ccCurrent && ccCurrent.drawn) renderCountryCard();
     return;
   }
   _ratesOwed = true;
@@ -1812,7 +1814,9 @@ function postcardTip(iso, facts) {
     + (plAnchor(home).home ? "at home" : "in the US") + ": a national average, and tourist areas run higher.");
   if (has("visa") && (GUIDE_PARENT[iso] || iso) !== home) {
     const when = visaVerified(home);
-    t.push("🛂 Entry for a " + passportLabel(home) + (when ? ", as checked in " + when : "") + ". Confirm before you book.");
+    // "your", not "a": "a Indian passport" read wrong for every demonym
+    // that starts with a vowel.
+    t.push("🛂 Entry with your " + passportLabel(home) + (when ? ", as checked in " + when : "") + ". Confirm before you book.");
   }
   if (has("months")) t.push(climate && climate[iso] && climate[iso].curated
     ? "📅 The best months to go, judged on weather and seasonality." : "📅 The months with the best weather.");
@@ -1827,7 +1831,10 @@ function pcPhotoHTML(ph) {
     + (ph.credit ? `<a class="pccredit tiplink" href="${esc(ph.credit.href)}" target="_blank" rel="noopener" aria-label="Photo credit" data-tip="${esc(ph.credit.text)}" title="">ⓘ</a>` : "");
 }
 // The postcard's markup. o: { rowHasMonth, mapFact, photo: {src, srcset, alt,
-// credit: {text, href}} | null, inTrip, secondary, settled }. secondary: a map
+// credit: {text, href}} | null, inTrip, secondary, settled, hold }. hold: the
+// facts this open already showed waiting ("🛂 …"); one the loads then leave
+// out keeps its line, empty (.pchold), so the card never loses a line after
+// it opened (a phone's facts are a line each). secondary: a map
 // card, which names its country (there is no row above it) and keeps the
 // Wander List's ✓ Been / ★ Want to go (a row's postcard has just the two
 // buttons). The photo box has its size before the photo comes (styles.css
@@ -1846,7 +1853,8 @@ function postcardHTML(iso, o) {
     <div class="pcbody">
       ${o.secondary ? `<h3 class="pcname"><span aria-hidden="true">${flagEmoji(iso)}</span> ${esc(name)}${vis ? ' <span class="visited-tag">✓ visited</span>' : ""}</h3>` : ""}
       <p class="pcline">${act && act.summary ? esc(act.summary) : ""}</p>
-      <p class="pcfacts">${facts.map((f) => `<span class="pcfact${f.pending ? " pcpend" : ""}" data-k="${f.k}">${f.html}</span>`).join('<span class="pcsep" aria-hidden="true"> · </span>')}</p>
+      <p class="pcfacts">${facts.map((f) => `<span class="pcfact${f.pending ? " pcpend" : ""}" data-k="${f.k}">${f.html}</span>`).join('<span class="pcsep" aria-hidden="true"> · </span>')}${
+        (o.hold || []).filter((k) => !facts.some((f) => f.k === k)).map((k) => `<span class="pchold" data-hold="${esc(k)}" aria-hidden="true">&nbsp;</span>`).join("")}</p>
       <div class="pcbtns">${guide ? `<a class="pcbtn pcguide" href="${esc(guidePath(iso))}" data-cc="todo" aria-label="${esc("Full guide to " + countryNameInText(iso))}">Full guide →</a>` : ""}<button type="button" class="pcbtn pctrip${o.inTrip ? " on" : ""}" data-cc="trip">${o.inTrip ? "✓ On your trip" : "🧳 Add to trip"}</button>${o.secondary
         ? `<button type="button" class="pcbtn2${vis ? " on" : ""}" data-cc="visit" aria-pressed="${vis}">✓ Been</button><button type="button" class="pcbtn2${wish ? " on" : ""}" data-cc="wish" aria-pressed="${wish}">★ Want to go</button>` : ""}${tip
         ? `<span class="muted pcinfo" data-tip="${esc(tip)}" title="">ⓘ</span>` : ""}</div>
@@ -1938,9 +1946,9 @@ function renderCountryCard() {
   const home = guidePassport();
   if (cc.settledFor !== home && cc.loading !== home) ccLoad(cc);
   const focusKey = pcFocusKey(card);
-  const shown = pcShownPhoto(card, iso);
+  const shown = pcShownPhoto(card, iso), hold = pcHeld(card, iso);
   card.innerHTML = postcardHTML(iso, { rowHasMonth: false, mapFact: mapFactFor(host.id, iso), photo: postcardPhotoNow(iso) || null,
-                                       inTrip: tripHas(iso), secondary: true, settled: cc.settledFor === home });
+                                       inTrip: tripHas(iso), secondary: true, settled: cc.settledFor === home, hold });
   if (shown) card.querySelector(".pcphoto").replaceWith(shown);
   else pcWireImg(card);
   card.querySelector(".pcclose").onclick = () => { card.remove(); ccCurrent = null; };
@@ -1967,10 +1975,7 @@ function renderCountryCard() {
     // An open row postcard of the same country says the same.
     if (_pcOpen && _pcOpen.iso === iso && _pcOpen.el.isConnected) pcRender(_pcOpen.el, pcFocusKey(_pcOpen.el));
   };
-  if (focusKey) {
-    const f = card.querySelector(focusKey === "close" ? ".pcclose" : '[data-cc="' + focusKey + '"]');
-    if (f) f.focus({ preventScroll: true });
-  }
+  pcRefocus(card, focusKey);
 }
 
 function renderMap(rows, base) {
@@ -2977,7 +2982,7 @@ async function renderGuideGrades(iso) {
   const drew = setBlockHTML(host, (pending ? wait("ov", "gr big", "A") + wait("num", "ggnum", s.value)
       : gradePill(s.value, "Overall " + grade(s.value) + " · " + s.value + "/100 for " + MONTHS[month - 1], "big")
         .replace('class="', 'data-gg="ov" class="') + '<span class="ggnum" data-gg="num">' + s.value + "</span>")
-    + f("💰", "Affordability", gradePill(s.afford, affordTitle(s).replace(" · click for cost-of-living detail", "")
+    + f("💰", "Affordability", gradePill(s.afford, affordTitle(s)
       + (s.plOf ? " · " + parentWide(s.plOf) + " figure" : "")))
     + f("🛡️", "Safety", guideSafetyPill(s.advLvl, iso))
     + f("🌤️", "Weather", s.wx == null ? grey("—", "No weather data") : gradePill(s.wx, s.wx + "/100 weather comfort in " + MONTHS[month - 1]))
@@ -9472,15 +9477,15 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
       <td class="dest"><a class="destlink" href="${esc(guidePath(s.iso))}" aria-expanded="false"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}</a>${seen ? ' <span class="visited-tag">✓<span class="vtword"> visited</span></span>' : ""}${s.month ? flexChips(s) + seasonalTags(s.iso, rm, 1, true) : seasonalTags(s.iso, month)}${budLine(s)}</td>
       <td class="scell" data-go="afford" data-iso="${iso}"><span class="pillwrap">${gradePill(s.afford, affordTitle(s))}${priceNotes ? `<span class="hzmark" data-tip="${esc(priceNotes)}" title="">⚠️</span>` : ""}${fxMark(s.iso)}</span></td>
       <td class="scell" data-go="advisory" data-iso="${iso}"><span class="pillwrap">${safetyPill(s.advLvl, iso)}${advMovedMark(s.iso)}</span></td>
-      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="gr grx" data-tip="${esc(wxTitle)}" title="">—</span>` : gradePill(s.wx, wxTitle + " · click for the month-by-month guide")}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, rm)}</td>
+      <td class="scell" data-go="weather" data-iso="${iso}"><span class="pillwrap">${s.wx == null ? `<span class="gr grx" data-tip="${esc(wxTitle)}" title="">—</span>` : gradePill(s.wx, wxTitle)}${hz.length ? `<span class="hzmark" data-tip="${esc(hz.map((h) => "⚠️ " + monthSpan(h.months) + ": " + h.note).join("\n"))}" title="">⚠️</span>` : ""}</span>${seasonStrip(s.iso, rm)}</td>
       <td class="scell" data-go="flights" data-iso="${iso}"><span class="pillwrap">${s.fare == null ? '<span class="gr grx" data-tip="No fare data" title="">—</span>'
             // An estimate is a grey pill with its letter (it always scores
             // 70, a B): the same test and the same grey as the Full ranking's
             // "~70", where a bare "~" and a title touch never shows used to be.
-            : (s.flyBasis !== "month" && s.fareEst) ? `<span class="gr grx" role="img" aria-label="estimated ${grade(s.fly)}" data-tip="Estimated — no cached fare yet, so flights count as a typical fare for the distance, averaged in with the rest. Click for the Flights tab." title="">~${grade(s.fly)}</span>`
+            : (s.flyBasis !== "month" && s.fareEst) ? `<span class="gr grx" role="img" aria-label="estimated ${grade(s.fly)}" data-tip="Estimated — no cached fare yet, so flights count as a typical fare for the distance, averaged in with the rest." title="">~${grade(s.fly)}</span>`
             : gradePill(s.fly, (s.flyBasis === "month"
-                ? MONTHS[rm - 1] + "'s fare vs this route's usual · click for exact prices"
-                : "Year-round fare vs the typical fare for this distance (too few cached months for a month grade) · click for exact prices"))}</span><span class="rowfares" data-iso="${iso}"${s.month ? ` data-m="${s.month}"` : ""}></span></td>
+                ? MONTHS[rm - 1] + "'s fare vs this route's usual"
+                : "Year-round fare vs the typical fare for this distance (too few cached months for a month grade)"))}</span><span class="rowfares" data-iso="${iso}"${s.month ? ` data-m="${s.month}"` : ""}></span></td>
       <td class="overall">${gradePill(s.value, `Overall value score ${s.value}/100`, "big")}<span class="ovnums"><span class="grnum" title="value score out of 100">${s.value}</span>${coverageMark(s)}</span></td>
     </tr>`;
   }).join("");
@@ -9502,7 +9507,9 @@ function renderGradeTable(host, list, month, gem, sortable, state = pickSort) {
 // Tooltip for the Affordability cell: the price level against the traveller's
 // home, the one thing the grade measures since review #21 (Nov 2026). The
 // currency's move vs its 1-yr average had a clause here while it was 30% of
-// the grade; it is the row's own chip now (fxMark), with its own tip.
+// the grade; it is the row's own chip now (fxMark), with its own tip. No
+// "click for …" in it or the other badges' tips: a click opens the row's
+// postcard now, not the factor's Data table.
 function affordTitle(s) {
   const parts = [];
   const home = plHomeWord();
@@ -9516,8 +9523,7 @@ function affordTitle(s) {
   // few neighbourhoods foreigners actually stay in. Say so where the number is
   // read rather than burying it in a methodology note.
   return (parts.join(" · ") || "affordability")
-    + " · national average — tourist areas and foreigner rents run higher"
-    + " · click for cost-of-living detail";
+    + " · national average — tourist areas and foreigner rents run higher";
 }
 
 // One delegated click for the grade tables (Top Picks, Hidden gems): a click
@@ -9604,6 +9610,12 @@ function openPostcard(tr, host) {
   el.setAttribute("data-pc-iso", iso);
   el.innerHTML = `<td colspan="${tr.children.length}"></td>`;
   tr.after(el);
+  // The open animation (styles.css .pcnew) plays once: a redraw of the card
+  // (Add to trip, a late visa table) must not fade it in again. Without
+  // motion there is no animationend, hence the timer.
+  const settle = () => el.classList.remove("pcnew");
+  el.addEventListener("animationend", settle, { once: true });
+  setTimeout(settle, 400);
   _pcOpen = { hostId: host.id, iso, el, settledFor: null, loading: guidePassport() };   // pcLoad below
   pcRender(el);
   pcLink(tr, true);
@@ -9635,18 +9647,15 @@ function pcRender(el, focusKey) {
   if (!tr || !td) return;
   const m = +tr.dataset.m || 0;
   if (m) el.setAttribute("data-pcm", String(m)); else el.removeAttribute("data-pcm");
-  const shown = pcShownPhoto(td, iso);
+  const shown = pcShownPhoto(td, iso), hold = pcHeld(td, iso);
   const o = _pcOpen && _pcOpen.el === el ? _pcOpen : null, home = guidePassport();
   // The From country changed under it (a redraw): the new passport's data.
   if (o && o.settledFor !== home && o.loading !== home) pcLoad(iso);
   td.innerHTML = postcardHTML(iso, { rowHasMonth: pcRowHasMonth(tr), mapFact: null, photo: postcardPhotoNow(iso) || null,
-                                     inTrip: tripHas(iso), secondary: false, settled: !!o && o.settledFor === home });
+                                     inTrip: tripHas(iso), secondary: false, settled: !!o && o.settledFor === home, hold });
   if (shown) td.querySelector(".pcphoto").replaceWith(shown);
   else pcWireImg(td);
-  if (focusKey) {
-    const f = td.querySelector(focusKey === "close" ? ".pcclose" : '[data-cc="' + focusKey + '"]');
-    if (f) f.focus({ preventScroll: true });
-  }
+  pcRefocus(td, focusKey);
 }
 // The photo box already showing this country's photo, to keep through a
 // redraw; never another country's (a map card is reused for the next one).
@@ -9654,10 +9663,34 @@ function pcShownPhoto(root, iso) {
   const pc = root.querySelector(".postcard");
   return pc && pc.getAttribute("data-iso") === iso && root.querySelector(".pcphoto img.pcimg.in") ? root.querySelector(".pcphoto") : null;
 }
+// The facts this open showed waiting, or holds the empty line of
+// (postcardHTML's hold), to keep through a redraw; none from another country
+// (a map card is reused for the next one).
+function pcHeld(root, iso) {
+  const pc = root.querySelector(".postcard");
+  if (!pc || pc.getAttribute("data-iso") !== iso) return [];
+  return [...pc.querySelectorAll(".pcfact.pcpend[data-k], .pchold[data-hold]")]
+    .map((f) => f.getAttribute("data-k") || f.getAttribute("data-hold"));
+}
+// The control inside a postcard the focus is on, by what it is (the markup
+// is redrawn under it): the ✕, the photo's ⓘ, the facts' ⓘ, or a button.
 function pcFocusKey(el) {
   const a = document.activeElement;
   if (!a || !el.contains(a)) return "";
-  return a.classList.contains("pcclose") ? "close" : (a.dataset && a.dataset.cc) || "";
+  if (a.classList.contains("pcclose")) return "close";
+  if (a.classList.contains("pccredit")) return "credit";
+  if (a.classList.contains("pcinfo")) return "info";
+  return (a.dataset && a.dataset.cc) || "";
+}
+// After a redraw, the focus back on that control (the ✕ if it is gone),
+// never on <body>. A freshly drawn ⓘ is a Tab stop only once _tipMarks has
+// seen it, which its observer does 120 ms later: now, so focus() takes.
+function pcRefocus(root, key) {
+  if (!key) return;
+  if (key === "info") _tipMarks();
+  const f = root.querySelector({ close: ".pcclose", credit: ".pccredit", info: ".pcinfo" }[key] || '[data-cc="' + key + '"]')
+    || root.querySelector(".pcclose");
+  if (f) f.focus({ preventScroll: true });
 }
 // The photo fades in over the flag once it has loaded; one that fails leaves
 // the flag (and takes its credit with it). The box never changes size.
@@ -9728,16 +9761,19 @@ function pcReattach(host, o, focus) {
   pcRender(o.el, focus === "name" ? "" : focus);
   if (focus === "name") { const a = tr.querySelector("a.destlink"); if (a) a.focus({ preventScroll: true }); }
 }
-// Esc closes it where the reader is: in the postcard, its table, or nowhere
-// in particular, with Top Picks on screen; never under a dialog, the photo
-// viewer or a full-screen map, nor from a field elsewhere (a combobox's own
-// Esc).
+// Esc closes it where the reader is with it: in the postcard, on its own
+// row, or nowhere in particular, with Top Picks on screen; never under a
+// dialog, the photo viewer or a full-screen map, nor from anywhere else (a
+// ⚠️ on another row, a sort button, a combobox's own Esc). A tip on screen
+// takes the Esc first (WCAG 1.4.13: its own listener hides it); the next
+// one closes the postcard.
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !_pcOpen || e.defaultPrevented) return;
   if (!_pcOpen.el.isConnected) { _pcOpen = null; return; }
+  if (!_tipEl.hidden) return;
   if (mapFs || document.querySelector(".submodal") || ($("lightbox") && !$("lightbox").hidden) || $("tab-value").hidden) return;
-  const a = document.activeElement;
-  if (a && a !== document.body && !a.closest("#topCards, #gemRows")) return;
+  const a = document.activeElement, el = _pcOpen.el, row = el.previousElementSibling;
+  if (a && a !== document.body && !el.contains(a) && !(row && row.contains(a))) return;
   closePostcard(true);
 });
 // About to open: a row the pointer rests on (PC_WARM_MS) or the keyboard
@@ -9758,6 +9794,21 @@ function pcWarmSoon(e) {
 }
 document.addEventListener("pointerover", pcWarmSoon);
 document.addEventListener("focusin", pcWarmSoon);
+// A fact cut short at the end of its line ("…": a long home name, a run of
+// single months) reads in full in a tip, set as the pointer comes to it
+// (whether it is cut depends on the width then): the fact itself where each
+// has its own line (a phone), else the whole line. Capture phase, so it is
+// set before the tips' own mouseover and click handlers look for data-tip.
+function pcCutTip(e) {
+  const p = e.target && e.target.closest ? e.target.closest(".postcard .pcfacts") : null;
+  if (!p) return;
+  const cut = (x) => x.scrollWidth > x.clientWidth + 1, f = e.target.closest(".pcfact");
+  [p, ...p.querySelectorAll(".pcfact")].forEach((x) => x.removeAttribute("data-tip"));
+  const t = f && cut(f) ? f : cut(p) ? p : null;
+  if (t) t.setAttribute("data-tip", t.textContent.replace(/\s+/g, " ").trim());
+}
+document.addEventListener("mouseover", pcCutTip, true);
+document.addEventListener("pointerdown", pcCutTip, true);
 
 // Data-tab tables (currency, cost of living, safety, flights): a row click opens
 // that country's Travel Guide, so a traveler can go straight from "this looks
@@ -10375,7 +10426,7 @@ function renderValue() {
     return `<tr${seen ? ' class="visited"' : ""}>
       <td class="rank">#${i + 1}</td>
       <td class="dest" title="${esc(s.month ? s.name + " — scored on " + MONTHS[s.month - 1] + (valueMapMode === "weather" ? ", its best month for weather" : ", its best month") + (s.budgetMoved ? " within your budget" : "") : s.name)}"><span aria-hidden="true">${flagEmoji(s.iso)}</span> ${esc(s.name)}${mon}${vis}</td>
-      ${td("afford", chip(s.afford, grade(s.afford), affordTitle(s).replace(" · click for cost-of-living detail", "")))}
+      ${td("afford", chip(s.afford, grade(s.afford), affordTitle(s)))}
       ${td("safety", safe)}${td("weather", wx)}${td("flight", fly)}
       <td class="num ovcell${hot === "value" ? " sorted" : ""}"><span class="gr ${gradeCls(grade(s.value))}" title="${esc(`Overall ${grade(s.value)} · ${s.value}/100`)}">${s.value}</span></td></tr>`;
   }).join("") || '<tr><td colspan="7">No data for this region.</td></tr>';
