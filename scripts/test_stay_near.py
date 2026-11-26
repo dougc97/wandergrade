@@ -487,19 +487,24 @@ results.append(ok(ae_al == {"ll": [25.08135, 55.14408]} and g._curated("AE", [25
                   "Dubai Marina has its own point (Wikipedia's), is no longer said to be Dubai, and takes Burj Khalifa's slot"))
 
 # Gyeongju (C): a label only. The search point stays the palace's Wikipedia
-# point, and app.js searches Booking.com by that point and Hostelworld by the
-# country, so the label never reaches a search; the stand-in shows it.
+# point, and app.js searches Booking.com by that point, so the label never
+# reaches its search; the stand-in shows it. Hostelworld opens the city page
+# of the chip's name (public/hw-cities.json), Gyeongju's: the palace is in it.
 kr_al = g.ALIASES["KR"]["Donggung Palace and Wolji Pond"]
 kr_html = guide_sizers.stay("KR")
 with open(os.path.join(ROOT, "public", "app.js"), encoding="utf-8") as f:
     appjs = f.read()
+with open(os.path.join(ROOT, "public", "hw-cities.json"), encoding="utf-8") as f:
+    hw_cities = json.load(f)
 stay_fn = appjs[appjs.index("function renderGuideStay("):]
 stay_fn = stay_fn[:stay_fn.index("\n}\n")]
 results.append(ok(kr_al == {"label": "Gyeongju"} and stays["KR"][4] == {"n": "Gyeongju", "ll": REST["wiki"]["KR"]["Donggung Palace and Wolji Pond"]}
                   and "📍 Gyeongju" in kr_html and "Donggung" not in kr_html
-                  and '"&lat=" + sp.ll[0] + "&lng=" + sp.ll[1]' in stay_fn and "hostelworldURL(iso)" in stay_fn
-                  and "sp.n" not in stay_fn.split("const q =")[1].split(";")[0],
-                  "Korea's Donggung chip reads Gyeongju, searched on the palace's point (Booking by lat/lng, Hostelworld by country)"))
+                  and '"&lat=" + sp.ll[0] + "&lng=" + sp.ll[1]' in stay_fn and "hostelworldURL(iso, hwCity)" in stay_fn
+                  and "sp.n" not in stay_fn.split("const q =")[1].split(";")[0]
+                  and hw_cities.get("KR", {}).get("Gyeongju") == "asia/south-korea/gyeong-ju",
+                  "Korea's Donggung chip reads Gyeongju, searched on the palace's point (Booking by lat/lng, Hostelworld"
+                  " on Gyeongju's city page)"))
 
 # Port of Spain: the gallery's Cathedral of the Immaculate Conception stands
 # for the city on the city's own point (Wikipedia and Wikidata Q39178; OSM:

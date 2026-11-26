@@ -1584,6 +1584,21 @@ html[data-theme="dark"] .fvband.high { background: #3a151c; }
 .staybtn.stayto { display: inline-flex; justify-content: center; align-items: baseline; white-space: nowrap;
   flex: 1 1 19em; min-width: 19em; min-width: min(19em, 100%); max-width: max-content; }
 .staybtn.stayvr { flex-basis: 13em; min-width: 13em; min-width: min(13em, 100%); }
+/* Hostelworld names the spot where it has a Hostelworld city page
+   ("🎒 Hostelworld · Kyoto ↗"). In a country where any spot has one its
+   button starts from a fixed width, named or not, so a chip tap can't move
+   a row either (guide_sizers.stay draws the same class): 12em, just over
+   "🎒 Hostelworld · ↗" itself, so it keeps main's rows almost everywhere
+   (one more only at 900-922px, beside Booking.com in a country without
+   Vrbo) and grows into the row's room for the name. On a phone it takes a
+   row of its own instead (17em is more than a 430px screen has left beside
+   Vrbo): beside Vrbo, at 390, a 12em button had room for a letter or two
+   of the name (197 of 290 named spots cut), which is the whole point of
+   naming it. */
+.staybtn.stayhw { flex-basis: 12em; min-width: 12em; min-width: min(12em, 100%); }
+@media (max-width: 560px) {
+  .staybtn.stayhw { flex-basis: 17em; min-width: 17em; min-width: min(17em, 100%); }
+}
 .stayto > * { flex: none; }
 /* position: the screen-reader words inside the place (" (opens in a new tab)")
    are an absolute 1px box at the end of the whole name, which a cut name put

@@ -53,6 +53,8 @@ galleries change:
                                                         # a rebuild) + Canada's and the US's live words,
                                                         # and the guide's avoid-zone marks (stay-skip.json "marks")
   /usr/bin/python3 scripts/gen_stay_spots.py --check --dir <feed copy> --us <rss copy>   # from local copies
+A run that writes the file (not --check) then rebuilds public/hw-cities.json
+from it, offline (scripts/build_hw_cities.py: each spot's Hostelworld city page).
 """
 
 import contextlib
@@ -864,6 +866,18 @@ def save(path, data):
         json.dump(data, f, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
 
 
+def rebuild_hw_cities():
+    """public/hw-cities.json (each spot's Hostelworld city page) is keyed by
+    the spots' names: rebuild it from the file just written, offline
+    (scripts/build_hw_cities.py), so a new or renamed spot gets its page and
+    a gone one loses it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("build_hw_cities", os.path.join(ROOT, "scripts", "build_hw_cities.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    mod.main([])
+
+
 _BLOCKS = {}    # (iso, mirror) -> Canada's regional blocks, or the line saying why there are none
 
 
@@ -1011,6 +1025,7 @@ def main(only=None):
     # hold a place skip-listed since.
     out = prune(out)
     save(path, out)
+    rebuild_hw_cities()
     counts = [len(v) for v in out.values()]
     print("\n%d/%d countries; avg %.1f spots; thin(<2): %s"
           % (len(out), len(acts), sum(counts) / len(counts),
@@ -1040,6 +1055,7 @@ if __name__ == "__main__":
         data = json.load(open(path, encoding="utf-8"))
         gone = skipped_present(data)
         save(path, prune(data))
+        rebuild_hw_cities()
         for row in gone:
             print("dropped %s %s (stay-skip.json: %s)" % row)
         print("%d anchor(s) dropped" % len(gone))

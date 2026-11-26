@@ -3652,6 +3652,14 @@ function ensureStayCoords() {
   if (_stayCoords) return Promise.resolve(_stayCoords);
   return getJSON("/stay-coords.json").then((c) => (_stayCoords = c));
 }
+// Each stay spot's Hostelworld city page where it has one, from Hostelworld's
+// sitemap (scripts/build_hw_cities.py): {ISO: {spot name: "asia/japan/kyoto"}}.
+// Unreadable, no spot has one: the button opens the country page, as before.
+let _hwCities = null;
+function ensureHwCities() {
+  if (_hwCities) return Promise.resolve(_hwCities);
+  return getJSON("/hw-cities.json").then((c) => (_hwCities = c && typeof c === "object" ? c : {}), () => ({}));
+}
 // Concrete check-in window from the selected travel month: the 15th of that
 // month (this year if still ahead, else next year) for a 3-night stay.
 function stayDates() {
@@ -3671,8 +3679,9 @@ function stayDates() {
   return { checkin: f(ci), checkout: f(co) };
 }
 // Hostelworld country listings, /hostels/<continent>/<slug>/. Their search route
-// (/search?search_keywords=) 404s for every query, and the stay spots are
-// landmarks ("Mount Fuji"), not Hostelworld cities, so link the country. Slugs
+// (/search?search_keywords=) 404s for every query, and many stay spots are
+// landmarks or regions ("Hokkaido"), not Hostelworld cities, so a spot opens
+// its city page only where hw-cities.json gives it one, else the country. Slugs
 // from Hostelworld's sitemap, sample-checked 200 in 2026-09 (England stands in
 // for the UK; DR Congo, Congo, Falklands and South Sudan have no page). The
 // newer guides' slugs were each checked 200 with a desktop UA: England,
@@ -3726,9 +3735,12 @@ const HW_COUNTRY = (() => {
 // pubref, then the page URL-encoded, last. Hostelworld's terms credit app
 // bookings only through correctly formatted Partnerize links. pubref
 // "guide-<ISO>" (letters, digits, hyphens) names the guide in its reports.
-function hostelworldURL(iso) {
-  const page = HW_COUNTRY[iso] ? "https://www.hostelworld.com/hostels/" + HW_COUNTRY[iso] + "/"
-                               : "https://www.hostelworld.com/";
+// city: the chosen spot's Hostelworld city page (hw-cities.json,
+// "<continent>/<country>/<city>"), in place of the country's.
+function hostelworldURL(iso, city) {
+  const page = city && /^[a-z0-9-]+(?:\/[a-z0-9-]+){2}$/.test(city) ? "https://www.hostelworld.com/hostels/" + city + "/"
+    : HW_COUNTRY[iso] ? "https://www.hostelworld.com/hostels/" + HW_COUNTRY[iso] + "/"
+    : "https://www.hostelworld.com/";
   return "https://hostelworld.prf.hn/click/camref:" + HW_CAMREF
     + "/pubref:guide-" + String(iso).toUpperCase().replace(/[^A-Z0-9-]/g, "")
     + "/destination:" + encodeURIComponent(page);
@@ -3797,7 +3809,7 @@ function renderGuideStay(iso, refocus) {
     else gtab.removeAttribute("data-nostay");
   }
   const none = () => { if (ccGuideIso === iso) { host.hidden = true; host.style.minHeight = ""; } };
-  Promise.all([ensureStayCoords(), ensureBookingsKnown()]).then(([cc]) => {
+  Promise.all([ensureStayCoords(), ensureBookingsKnown(), ensureHwCities()]).then(([cc, , hc]) => {
     if (ccGuideIso !== iso) return;                    // user switched country
     // No bookings where any government says "do not travel", and none while
     // that can't be known (guideNoBookings).
@@ -3814,19 +3826,23 @@ function renderGuideStay(iso, refocus) {
     // Allez deep links land users in Booking's (and Vrbo's, vrboOK) own UI at
     // the chosen spot with the traveler's month — earning through
     // aid=wandergrade. Hostelworld goes through Partnerize (hostelworldURL,
-    // HW_CAMREF) to its country page. All three are sponsored links; the
-    // section's affnote and the footer disclose them.
+    // HW_CAMREF) to the spot's city page where it has one (hw-cities.json),
+    // else to the country's. All three are sponsored links; the section's
+    // affnote and the footer disclose them.
     const q = "aid=" + STAY22_AID + "&lat=" + sp.ll[0] + "&lng=" + sp.ll[1] +
               "&checkin=" + checkin + "&checkout=" + checkout;
-    const hw = hostelworldURL(iso);
+    const hwIn = (hc && hc[iso]) || {};
+    const hwCity = Object.prototype.hasOwnProperty.call(hwIn, sp.n) ? hwIn[sp.n] : null;
+    const hw = hostelworldURL(iso, hwCity);
     const btn = (href, label) =>
       '<a class="staybtn" target="_blank" rel="sponsored nofollow noopener" href="' + href + '">' + label +
       ' <span class="ext">↗</span></a>';
     // Booking.com and Vrbo search around the chosen spot, so their buttons
     // name it ("🏨 Booking.com · Osaka ↗") and change with the chips: the
     // heading's grey "near Osaka" was the only sign a chip did anything.
-    // Hostelworld searches the whole country and stays unnamed. The place
-    // is its own span, cut with an ellipsis where the row is too narrow
+    // Hostelworld names it too where the spot has a Hostelworld city page
+    // ("🎒 Hostelworld · Kyoto ↗"); elsewhere it opens the country page,
+    // unnamed. The place is its own span, cut with an ellipsis where the row is too narrow
     // (styles.css .stayto); the link's name for screen readers carries it in
     // full ("Booking.com hotels near Osaka (opens in a new tab)"), its title
     // shows it on hover, and the active chip above reads it whole.
@@ -3834,11 +3850,22 @@ function renderGuideStay(iso, refocus) {
     // (The hidden words sit inside the visible spans: each span is a flex
     // item, and Chrome puts a space around flex items and absolute boxes in a
     // link's name, so the last words go in brackets, not after a comma.)
-    const at = (href, cls, emoji, name, what) =>
+    const at = (href, cls, emoji, name, words) =>
       '<a class="staybtn ' + cls + '" target="_blank" rel="sponsored nofollow noopener" href="' + href + '">' +
-      '<span><span aria-hidden="true">' + emoji + " </span>" + name + '<span class="vh"> ' + what + " near </span></span>" +
+      '<span><span aria-hidden="true">' + emoji + " </span>" + name + '<span class="vh"> ' + words + " </span></span>" +
       '<span class="staysep" aria-hidden="true">·</span><span class="stayat" title="' + esc(sp.n) + '">' + esc(sp.n) +
       '<span class="vh"> (opens in a new tab)</span></span><span class="ext" aria-hidden="true">↗</span></a>';
+    // A country where any spot has a city page gives Hostelworld's button a
+    // fixed width to start from (styles.css .stayhw), named or not, so the
+    // rows break on fixed widths and a chip tap never moves one; it is
+    // .stayto's spans, less the place, for a spot without one. A country
+    // where none has one draws the plain button it always had.
+    const hwAny = spots.some((s) => Object.prototype.hasOwnProperty.call(hwIn, s.n));
+    const hwBtn = hwCity ? at(hw, "stayto stayhw", "🎒", "Hostelworld", "hostels in")
+      : !hwAny ? btn(hw, "🎒 Hostelworld")
+      : '<a class="staybtn stayto stayhw" target="_blank" rel="sponsored nofollow noopener" href="' + hw + '">' +
+        '<span><span aria-hidden="true">🎒 </span>Hostelworld<span class="vh"> (opens in a new tab)</span></span>' +
+        '<span class="ext" aria-hidden="true">↗</span></a>';
     const chips = spots.length > 1
       ? '<div class="staychips">' + spots.map((s, i) =>
           '<button type="button" class="staychip' + (i === _staySpotIdx ? " active" : "") +
@@ -3848,9 +3875,9 @@ function renderGuideStay(iso, refocus) {
       '<h3 class="staytitle">🏨 Where to stay</h3>' +
       chips +
       '<div class="staybtns">' +
-        at("https://www.stay22.com/allez/booking?" + q, "stayto", "🏨", "Booking.com", "hotels") +
-        (vrboOK(iso) ? at("https://www.stay22.com/allez/vrbo?" + q, "stayto stayvr", "🏡", "Vrbo", "homes") : "") +
-        btn(hw, "🎒 Hostelworld") +
+        at("https://www.stay22.com/allez/booking?" + q, "stayto", "🏨", "Booking.com", "hotels near") +
+        (vrboOK(iso) ? at("https://www.stay22.com/allez/vrbo?" + q, "stayto stayvr", "🏡", "Vrbo", "homes near") : "") +
+        hwBtn +
       "</div>";
     host.querySelectorAll(".staychip").forEach((b) => b.addEventListener("click", () => {
       _staySpotIdx = parseInt(b.dataset.si, 10) || 0;
