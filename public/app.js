@@ -2327,8 +2327,9 @@ const fullStop = (s) => String(s || "").trim().replace(/([^.!?])$/, "$1.");
 // the UAE's at "U.S. government". A sentence that really ends on one ("…in
 // the U.S. The Embassy…") reads like "the U.S. Embassy", so it isn't cut
 // there either: a quote a sentence longer beats one cut in the wrong place.
-// (The server's own cuts skip abbreviations too: advisories.py _summary's at
-// 280 characters, watchouts.py _sentences.)
+// (The server's own cuts differ: advisories.py _summary's 280-character cut
+// skips only initials (U.S., D.C.), not St. or a.m.; watchouts.py
+// _sentences skips initials and its own _ABBR list.)
 const SENT_ABBR = /(?:^|[^\p{L}\p{N}.°])(?:(?:\p{L}\.){2,}|\p{Lu}\.|(?:St|Ste|Mt|Mts|Ft|Pt|No|Nos|Dr|Mr|Mrs|Ms|Jr|Sr|Gen|Gov|Lt|Col|Capt|Sgt|Rev|Prof|vs|approx|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.)$/u;
 function sentenceEnds(s) {
   const t = String(s || ""), out = [];

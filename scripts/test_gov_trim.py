@@ -33,7 +33,10 @@ parser, as the card gets them from /api/advisories. What it holds the code to:
     lines do. Each topic's paragraph below is Global Affairs Canada's own
     (data.international.gc.ca, recorded 2026-11-26), with what main 1a1d75b
     quoted and what it must quote. The regional lines don't change (the
-    avoid-zone tests hold them).
+    avoid-zone tests hold them). A first sentence longer than 220
+    characters ends at a word with "…" (Japan's Fukushima tip was cut
+    "…risk of exposu"), and watchouts._sentences doesn't end one at "a.m.",
+    "p.m.", "e.g." or "i.e." either, bracketed or not.
 """
 import json, os, re, subprocess, sys, tempfile
 
@@ -271,6 +274,15 @@ CHIPS = [
     # as written, not two of them dropped.
     ("TM", "security", "Demonstrations", "<p>Demonstrations occur. regularly.</p>",
      "Demonstrations occur.", "Demonstrations occur. regularly."),
+    # Longer than 220 characters: cut at a word, with "…", not mid-word.
+    ("JP", "security", "Fukushima nuclear power plant and surrounding area",
+     "<p>Following the 2011 incident at the Fukushima Daiichi nuclear power plant, Japanese authorities have placed "
+     "restrictions, including travel and overnight stay bans, on the plant's surrounding area due to the risk of "
+     "exposure to radiation. Restricted areas are clearly identified.</p>",
+     "Following the 2011 incident at the Fukushima Daiichi nuclear power plant, Japanese authorities have placed "
+     "restrictions, including travel and overnight stay bans, on the plant's surrounding area due to the risk of exposu",
+     "Following the 2011 incident at the Fukushima Daiichi nuclear power plant, Japanese authorities have placed "
+     "restrictions, including travel and overnight stay bans, on the plant's surrounding area due to the risk of…"),
     # Unchanged: a plain first sentence, and a temperature's "°C." ends one.
     ("KW", "disasters-climate", "Heat waves",
      "<p>Kuwait experiences extreme heat, especially in the summer between June and August, with temperatures well "
@@ -284,6 +296,38 @@ for iso, field, head, para, was, want in CHIPS:
     results.append(ok(d == want, "%s chip %r: tip reads %r%s%s" % (
         iso, re.sub(r"<[^>]+>", "", head).strip(), want[-50:], " (was %r)" % was[-40:] if was else " (as before)",
         "" if d == want else " — got %r" % d)))
+
+# Any first sentence over 220 characters: at most 220, ends at a word with "…".
+base = "Landmines and unexploded ordnance could still pose hazards in the border area between Katwitwi (a village) "
+for n in (120, 214, 216, 230, 400):
+    sent = (base + "and Kongola, " * 30)[:n].rsplit(" ", 1)[0].rstrip(",") + " end."
+    got = W._first_sentence("<p>%s Second sentence.</p>" % sent)
+    want_whole = len(sent) <= 220
+    good = (got == sent) if want_whole else (
+        len(got) <= 220 and got.endswith("…") and sent.startswith(got[:-1]) and sent[len(got) - 1] == " "
+        and not got[:-1].endswith((",", " ")))
+    results.append(ok(good, "a %d-character first sentence: %s%s" % (
+        len(sent), "whole" if want_whole else "cut at a word, \"…\", ≤ 220", "" if good else " — got %r" % got[-60:])))
+results.append(ok(len(W._first_sentence("<p>%s.</p>" % ("y" * 219))) == 220
+                  and not W._first_sentence("<p>%s.</p>" % ("y" * 219)).endswith("…"),
+                  "a first sentence of exactly 220 characters is quoted whole"))
+
+# watchouts._sentences around the stops it knows, bracketed or not; a sentence
+# that really ends on "a.m." runs on (Ghana's curfew), as in the card's rule.
+for t, want in [
+    ("Buses run from 6 a.m. Daily service is limited.", ["Buses run from 6 a.m. Daily service is limited."]),
+    ("Use a licensed taxi (e.g. Uber) at night. Avoid others.", ["Use a licensed taxi (e.g. Uber) at night.", "Avoid others."]),
+    ("Pay in cash, i.e. US dollars printed after 2006. Cards fail.", ["Pay in cash, i.e. US dollars printed after 2006.", "Cards fail."]),
+    ("A curfew runs between 6 p.m. and 6 a.m. Vehicles may be seized.", ["A curfew runs between 6 p.m. and 6 a.m. Vehicles may be seized."]),
+    ("Avoid St. Catherine Road. The U.S. Embassy warns of crime. Stay alert.",
+     ["Avoid St. Catherine Road.", "The U.S. Embassy warns of crime.", "Stay alert."]),
+    ("It is hot. Carry water.", ["It is hot.", "Carry water."]),
+]:
+    got = W._sentences(t)
+    results.append(ok(got == want, "watchouts._sentences: %r%s" % (t[:50], "" if got == want else " — got %r" % got)))
+results.append(ok(W._unstop("between 6 p.m. and 6 a.m.") == "between 6 p.m. and 6 a.m."
+                  and W._unstop("the Sélibali line.") == "the Sélibali line",
+                  "watchouts._unstop keeps \"a.m.\"'s stop and drops a plain one"))
 
 # The trim reads sentenceEnds, not a bare ". ".
 src = re.search(r"async function renderGov\(focus\) \{.*?\n\}\n", APP, re.S).group(0)

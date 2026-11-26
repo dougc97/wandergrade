@@ -45,12 +45,15 @@ def _first_sentence(html_block):
     one: a stop after "U.S.", "St." or "a.m." doesn't end it. Split at every
     stop, a chip's tip quoted "The U.S." (the U.S. Virgin Islands' seismic
     zone), "…located on the island of St." (St. Vincent's volcano) and
-    "Buses operate between 6 a.m." (Brunei)."""
+    "Buses operate between 6 a.m." (Brunei). One longer than 220 characters
+    ends at a word with "…": a plain cut ended Japan's Fukushima tip "…due to
+    the risk of exposu"."""
     p = re.search(r"<p[^>]*>(.*?)</p>", html_block or "", re.S)
     if not p:
         return ""
     lead = _txt(p.group(1))
-    return (_sentences(lead) or [""])[0][:220] if lead else ""
+    s = (_sentences(lead) or [""])[0] if lead else ""
+    return s if len(s) <= 220 else s[:219].rsplit(" ", 1)[0].rstrip(" ,;:–—") + "…"
 
 
 def _sections(html_str):
@@ -280,18 +283,29 @@ def _rank(call):
     return _CALLS.index(c) if c in _CALLS else -1
 
 
-_ABBR = {"st", "ste", "mt", "mts", "ft", "pt", "rd", "no", "nos", "hwy", "ave", "approx", "etc", "vs", "dr", "gen"}
+# Words whose full stop is an abbreviation's, not a sentence's end ("St.",
+# "a.m.", "e.g."), lowercase and without the stop. A sentence that really
+# ends on one ("…between 6 p.m. and 6 a.m. Vehicles…", Ghana) runs on into
+# the next: a quote a sentence longer beats one cut inside "a.m.".
+_ABBR = {"st", "ste", "mt", "mts", "ft", "pt", "rd", "no", "nos", "hwy", "ave", "approx", "etc", "vs", "dr", "gen",
+         "a.m", "p.m", "e.g", "i.e"}
+
+
+def _abbr(w):
+    """Is w (the word before a full stop, stop left off) an abbreviation or
+    an initial ("St", "(e.g", "U.S")? Then that stop ends nothing."""
+    return w.lstrip("([\"“‘'").lower() in _ABBR or bool(re.fullmatch(r"(?:.*\.)?[A-Z]", w))
 
 
 def _sentences(t):
     """Sentences of one paragraph. Canada writes "north of St. Catherine –
     Nuweiba – El Tor Road" (the old cut ended Egypt's sentence there): a stop
-    after a known abbreviation or an initial ("U.S.") doesn't end one."""
+    after a known abbreviation or an initial ("U.S.", "a.m.": _abbr)
+    doesn't end one."""
     out, start = [], 0
     for m in re.finditer(r"[.!?](?=\s+[\"“(A-Z0-9])", t):
         w = re.search(r"(\S+)$", t[start:m.start()])
-        w = w.group(1) if w else ""
-        if w.lower() in _ABBR or re.fullmatch(r"(?:.*\.)?[A-Z]", w):
+        if _abbr(w.group(1) if w else ""):
             continue
         out.append(t[start:m.end()].strip())
         start = m.end()
@@ -446,7 +460,7 @@ def _unstop(s):
     joined by "; " stopped it mid-list (Mauritania's "…-Sélibali line.");
     an abbreviation's or an initial's stays ("St.", "U.S.")."""
     m = re.search(r"(\S+)\.$", s or "")
-    if m and m.group(1).lower() not in _ABBR and not re.fullmatch(r"(?:.*\.)?[A-Z]", m.group(1)):
+    if m and not _abbr(m.group(1)):
         return s[:-1]
     return s
 
