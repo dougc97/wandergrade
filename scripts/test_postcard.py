@@ -83,6 +83,7 @@ activities = FIX.activities;
 const MF = "💱 JPY: your USD +1.2% vs 1-yr avg after inflation";
 T("h", () => postcardFacts("JP", { rowHasMonth: false, mapFact: MF }));
 T("h_html", () => card("JP", { mapFact: MF, secondary: true }));
+T("noguide", () => [!!(activities.TO || climate.TO), card("TO", { secondary: true, settled: true })]);
 // The grade tables' click delegate: what a click on a row does.
 T("click", () => [
   pcRowClick({ row: true, link: false, mods: false }), pcRowClick({ row: true, link: true, mods: false }),
@@ -223,6 +224,10 @@ hh = S("h_html")
 results.append(ok("✓ Been" in txt(hh) and "★ Want to go" in txt(hh) and "Full guide →" in txt(hh) and "Add to trip" in txt(hh),
                   "secondary: ✓ Been and ★ Want to go beside the two buttons"))
 results.append(ok("Japan" in txt(hh), "a map card names its country"))
+
+ng = js.get("noguide")
+results.append(ok(isinstance(ng, list) and ng[0] is False and "Full guide" not in ng[1] and "Add to trip" in txt(ng[1]),
+                  "a place with no guide (Tonga) gets no Full guide →, as the old map card"))
 
 # The delegate's decision
 results.append(ok(js.get("click") == ["toggle", "toggle", "browser", "toggle", ""],

@@ -1839,12 +1839,15 @@ function postcardHTML(iso, o) {
   const photo = `<div class="pcphoto"><span class="pcflag" aria-hidden="true">${flagEmoji(iso)}</span>${pcPhotoHTML(ph)}</div>`;
   const vis = o.secondary && isVisited(iso), wish = o.secondary && loadWishlist().has(iso);
   const tip = postcardTip(iso, facts);
+  // A place with no guide (Tonga, on the Currency map) gets no Full guide →,
+  // as the old card's "Country guide →", once the data is in to say so.
+  const guide = !(activities && climate) || !!act || !!climate[iso];
   return `<div class="postcard${o.secondary ? " pcmap" : ""}" data-iso="${esc(iso)}" role="group" aria-label="${esc(name)}: quick look">${photo}
     <div class="pcbody">
       ${o.secondary ? `<h3 class="pcname"><span aria-hidden="true">${flagEmoji(iso)}</span> ${esc(name)}${vis ? ' <span class="visited-tag">✓ visited</span>' : ""}</h3>` : ""}
       <p class="pcline">${act && act.summary ? esc(act.summary) : ""}</p>
       <p class="pcfacts">${facts.map((f) => `<span class="pcfact${f.pending ? " pcpend" : ""}" data-k="${f.k}">${f.html}</span>`).join('<span class="pcsep" aria-hidden="true"> · </span>')}</p>
-      <div class="pcbtns"><a class="pcbtn pcguide" href="${esc(guidePath(iso))}" data-cc="todo" aria-label="${esc("Full guide to " + countryNameInText(iso))}">Full guide →</a><button type="button" class="pcbtn pctrip${o.inTrip ? " on" : ""}" data-cc="trip">${o.inTrip ? "✓ On your trip" : "🧳 Add to trip"}</button>${o.secondary
+      <div class="pcbtns">${guide ? `<a class="pcbtn pcguide" href="${esc(guidePath(iso))}" data-cc="todo" aria-label="${esc("Full guide to " + countryNameInText(iso))}">Full guide →</a>` : ""}<button type="button" class="pcbtn pctrip${o.inTrip ? " on" : ""}" data-cc="trip">${o.inTrip ? "✓ On your trip" : "🧳 Add to trip"}</button>${o.secondary
         ? `<button type="button" class="pcbtn2${vis ? " on" : ""}" data-cc="visit" aria-pressed="${vis}">✓ Been</button><button type="button" class="pcbtn2${wish ? " on" : ""}" data-cc="wish" aria-pressed="${wish}">★ Want to go</button>` : ""}${tip
         ? `<span class="muted pcinfo" data-tip="${esc(tip)}" title="">ⓘ</span>` : ""}</div>
     </div>
@@ -1935,7 +1938,7 @@ function renderCountryCard() {
   const home = guidePassport();
   if (cc.settledFor !== home && cc.loading !== home) ccLoad(cc);
   const focusKey = pcFocusKey(card);
-  const shown = card.querySelector(".pcphoto img.pcimg.in") ? card.querySelector(".pcphoto") : null;
+  const shown = pcShownPhoto(card, iso);
   card.innerHTML = postcardHTML(iso, { rowHasMonth: false, mapFact: mapFactFor(host.id, iso), photo: postcardPhotoNow(iso) || null,
                                        inTrip: tripHas(iso), secondary: true, settled: cc.settledFor === home });
   if (shown) card.querySelector(".pcphoto").replaceWith(shown);
@@ -1943,7 +1946,8 @@ function renderCountryCard() {
   card.querySelector(".pcclose").onclick = () => { card.remove(); ccCurrent = null; };
   // Full guide →: a real link (a new tab on cmd/middle-click); the Top Picks
   // map opens a country on its own best month under "Any time".
-  card.querySelector('[data-cc="todo"]').onclick = (e) => {
+  const todo = card.querySelector('[data-cc="todo"]');
+  if (todo) todo.onclick = (e) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
     e.preventDefault();
     if (host.id === "valueMap" && valueMapMonths) setFlexFocus(valueMapMonths[iso] || null, true);
@@ -9631,7 +9635,7 @@ function pcRender(el, focusKey) {
   if (!tr || !td) return;
   const m = +tr.dataset.m || 0;
   if (m) el.setAttribute("data-pcm", String(m)); else el.removeAttribute("data-pcm");
-  const shown = td.querySelector(".pcphoto img.pcimg.in") ? td.querySelector(".pcphoto") : null;
+  const shown = pcShownPhoto(td, iso);
   const o = _pcOpen && _pcOpen.el === el ? _pcOpen : null, home = guidePassport();
   // The From country changed under it (a redraw): the new passport's data.
   if (o && o.settledFor !== home && o.loading !== home) pcLoad(iso);
@@ -9643,6 +9647,12 @@ function pcRender(el, focusKey) {
     const f = td.querySelector(focusKey === "close" ? ".pcclose" : '[data-cc="' + focusKey + '"]');
     if (f) f.focus({ preventScroll: true });
   }
+}
+// The photo box already showing this country's photo, to keep through a
+// redraw; never another country's (a map card is reused for the next one).
+function pcShownPhoto(root, iso) {
+  const pc = root.querySelector(".postcard");
+  return pc && pc.getAttribute("data-iso") === iso && root.querySelector(".pcphoto img.pcimg.in") ? root.querySelector(".pcphoto") : null;
 }
 function pcFocusKey(el) {
   const a = document.activeElement;
@@ -9719,12 +9729,13 @@ function pcReattach(host, o, focus) {
   if (focus === "name") { const a = tr.querySelector("a.destlink"); if (a) a.focus({ preventScroll: true }); }
 }
 // Esc closes it where the reader is: in the postcard, its table, or nowhere
-// in particular; never under a dialog, the photo viewer or a full-screen map,
-// nor from a field elsewhere (a combobox's own Esc).
+// in particular, with Top Picks on screen; never under a dialog, the photo
+// viewer or a full-screen map, nor from a field elsewhere (a combobox's own
+// Esc).
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape" || !_pcOpen || e.defaultPrevented) return;
   if (!_pcOpen.el.isConnected) { _pcOpen = null; return; }
-  if (mapFs || document.querySelector(".submodal") || ($("lightbox") && !$("lightbox").hidden)) return;
+  if (mapFs || document.querySelector(".submodal") || ($("lightbox") && !$("lightbox").hidden) || $("tab-value").hidden) return;
   const a = document.activeElement;
   if (a && a !== document.body && !a.closest("#topCards, #gemRows")) return;
   closePostcard(true);
