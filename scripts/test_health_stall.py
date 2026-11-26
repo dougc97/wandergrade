@@ -41,9 +41,11 @@ What it holds the code to:
     slot has been held PAGE_STUCK_AFTER (then it runs without one); a
     redirect on a slot route (/?tab=guide&gc=JP, /guide/Japan, /guide/usa,
     the onrender.com host) never waits for a slot nor is shed, and answers
-    with the very bytes it does with slots off, while /?gc=SC&tab=guide (no
-    guide: the homepage), a guide miss's 404 page and a URL past
-    REDIRECT_CHECK_MAX are pages; main() loads the guide data that check
+    with the very bytes it does with slots off, and so does a guide miss's
+    404 page (_guide_miss; its "Did you mean" left out while every slot is
+    taken, its bytes made once), while /?gc=SC&tab=guide (no guide: the
+    homepage) and a URL past REDIRECT_CHECK_MAX are pages; main() loads the
+    guide data that check
     reads before it serves (cold, a burst parsed it once per request); and a
     slotted page waiting on the network (another thread's computation, /data's
     dataset rebuild, a cold advisory list) gives its slot back meanwhile and,
@@ -707,6 +709,9 @@ def fake_do_get(self):
 server.Handler._do_get = fake_do_get
 server.Handler.log_message = lambda self, *a: None
 TEST_SLOTS = 3     # the slot tests below run on 3 slots, whatever production uses
+# Their guide pages are real slugs (/guide/japan?x=1): do_GET still decides
+# with the real guide data, and a path that names no guide is a 404 that
+# takes no slot (_guide_miss).
 server._page_slots = threading.BoundedSemaphore(TEST_SLOTS)
 httpd = server._Server(("127.0.0.1", 0), server.Handler)   # main()'s backlog: 5 resets a burst on macOS
 threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -723,7 +728,7 @@ def get_page(path):
         codes.append(c)
 
 
-ths = [threading.Thread(target=get_page, args=("/guide/x?%d" % i,)) for i in range(8)]
+ths = [threading.Thread(target=get_page, args=("/guide/japan?x=%d" % i,)) for i in range(8)]
 for t in ths:
     t.start()
 time.sleep(0.4)
@@ -765,15 +770,15 @@ pg.update(peak=0, gate=threading.Event())
 del codes[:]
 saved_wait = server.PAGE_SLOT_WAIT
 server.PAGE_SLOT_WAIT = 0.3
-ths = [threading.Thread(target=get_page, args=("/guide/y?%d" % i,)) for i in range(3)]
+ths = [threading.Thread(target=get_page, args=("/guide/peru?y=%d" % i,)) for i in range(3)]
 for t in ths:
     t.start()
 for _ in range(150):
     if pg["running"] >= 3:
         break
     time.sleep(0.01)
-shed_get = fetch_full("/guide/y?3")
-shed_head = fetch_full("/guide/y?4", "HEAD")
+shed_get = fetch_full("/guide/peru?y=3")
+shed_head = fetch_full("/guide/peru?y=4", "HEAD")
 over = pg["running"]
 pg["gate"].set()
 for t in ths:
@@ -791,7 +796,7 @@ pg.update(peak=0, gate=threading.Event())
 del codes[:]
 saved_q, saved_wait = server.PAGE_QUEUE_MAX, server.PAGE_SLOT_WAIT
 server.PAGE_QUEUE_MAX, server.PAGE_SLOT_WAIT = 2, 5
-ths = [threading.Thread(target=get_page, args=("/guide/q?%d" % i,)) for i in range(5)]
+ths = [threading.Thread(target=get_page, args=("/guide/chile?q=%d" % i,)) for i in range(5)]
 for t in ths:
     t.start()
 for _ in range(200):
@@ -799,7 +804,7 @@ for _ in range(200):
         break
     time.sleep(0.01)
 waiting_then = server._slot_waiting[0]
-fast = fetch_full("/guide/q?5")
+fast = fetch_full("/guide/chile?q=5")
 fast_head = fetch_full("/cheapest", "HEAD")
 pg["gate"].set()
 for t in ths:
@@ -853,7 +858,7 @@ def running_reaches(n, secs=1.5):
 
 pg.update(peak=0, gate=threading.Event())
 del codes[:]
-ths = [threading.Thread(target=get_page, args=("/guide/s?%d" % i,)) for i in range(3)]
+ths = [threading.Thread(target=get_page, args=("/guide/kenya?s=%d" % i,)) for i in range(3)]
 for t in ths:
     t.start()
 running_reaches(3)
@@ -921,7 +926,7 @@ for _ in range(100):
         break
     time.sleep(0.01)
 t0 = time.time()
-get_page("/guide/z")
+get_page("/guide/nepal")
 took = time.time() - t0
 idle["ev"].set()
 for t in ths:
@@ -953,7 +958,7 @@ for _ in range(100):
     if idle["waiting"] == 1:
         break
     time.sleep(0.01)
-holders = [threading.Thread(target=get_page, args=("/guide/h?%d" % i,)) for i in range(3)]
+holders = [threading.Thread(target=get_page, args=("/guide/oman?h=%d" % i,)) for i in range(3)]
 for t in holders:
     t.start()
 running_reaches(3)
@@ -1572,9 +1577,10 @@ results.append(ok(m1[0] is m2[0] and m1[1] is m2[1] and m1[1] is not None and m3
 # old query-form guide URL /?tab=guide&gc=XX, answered 301 -> /guide/<slug>,
 # and each took a page slot like a render: past PAGE_QUEUE_MAX it got the 503
 # page where the crawler needed the 301. With every slot held and the queue
-# full, a redirect (GET or HEAD) answers exactly as with slots off; the
-# homepage under a guide-ish query (no Seychelles guide; ai=1 keeps the
-# homepage), a guide and a guide miss's 404 page are pages, and shed.
+# full, a redirect (GET or HEAD) answers exactly as with slots off, and so
+# does a guide miss's 404 page (_guide_miss); the homepage under a guide-ish
+# query (no Seychelles guide; ai=1 keeps the homepage) and a guide are pages,
+# and shed.
 RD_REDIRECTS = [("/?tab=guide&gc=JP", "wandergrade.com", "/guide/japan"),
                 ("/?gc=JP&utm_source=ig&tab=guide", "wandergrade.com", "/guide/japan?utm_source=ig"),
                 ("/guide/Japan", "wandergrade.com", "/guide/japan"),
@@ -1583,7 +1589,12 @@ RD_REDIRECTS = [("/?tab=guide&gc=JP", "wandergrade.com", "/guide/japan"),
                 ("/guide/japan", "svc-x.onrender.com", "https://wandergrade.com/guide/japan"),
                 ("/?tab=guide&gc=SC", "svc-x.onrender.com:443", "https://wandergrade.com/?tab=guide&gc=SC")]
 RD_PAGES = [("/?gc=SC&tab=guide", "wandergrade.com"), ("/?tab=guide&gc=JP&ai=1", "wandergrade.com"),
-            ("/guide/japan", "wandergrade.com"), ("/guide/nowhere", "wandergrade.com"), ("/", "WanderGrade.com")]
+            ("/guide/japan", "wandergrade.com"), ("/", "WanderGrade.com")]
+# A guide miss: the 404 page, no slot. /guide/columbia carries a suggestion
+# (Colombia), /guide/x.json is the JSON 404.
+RD_MISSES = [("/guide/nowhere", "wandergrade.com"), ("/guide/nowhere?utm_source=x", "wandergrade.com"),
+             ("/guide/", "wandergrade.com"), ("/guide/japan/x", "wandergrade.com"),
+             ("/guide/columbia", "wandergrade.com"), ("/guide/x.json", "wandergrade.com")]
 
 
 def no_date(head):
@@ -1592,11 +1603,15 @@ def no_date(head):
 
 saved_rd = (server._page_slots, server.PAGE_QUEUE_MAX, server.Handler._send_page, server.Handler._send_not_found)
 rd_ref, rd_held, rd_shed, rd_pages = {}, {}, {}, []
+miss_ref, miss_held, miss_rendered = {}, {}, []
 try:
     server._page_slots = None
     for pth, hst, _loc in RD_REDIRECTS:
         for m in ("GET", "HEAD"):
             rd_ref[pth, hst, m] = handler_get(pth, host=hst, method=m)
+    for pth, hst in RD_MISSES:
+        for m in ("GET", "HEAD"):
+            miss_ref[pth, hst, m] = handler_get(pth, host=hst, method=m)
     server.Handler._send_page = lambda self, *a, **k: (rd_pages.append(self.path), saved_rd[2](self, *a, **k))[1]
     server.Handler._send_not_found = lambda self, *a, **k: (rd_pages.append(self.path),
                                                             saved_rd[3](self, *a, **k))[1]
@@ -1611,6 +1626,13 @@ try:
         for m in ("GET", "HEAD"):
             rd_shed[pth, hst, m] = handler_get(pth, host=hst, method=m)
     rd_left, rd_waiting = server._page_slots._value, server._slot_waiting[0]
+    n_shed_rendered = len(rd_pages)
+    for pth, hst in RD_MISSES:
+        for m in ("GET", "HEAD"):
+            miss_held[pth, hst, m] = handler_get(pth, host=hst, method=m)
+    miss_rendered = rd_pages[n_shed_rendered:]
+    del rd_pages[n_shed_rendered:]
+    miss_left, miss_waiting = server._page_slots._value, server._slot_waiting[0]
 finally:
     server._page_slots, server.PAGE_QUEUE_MAX = saved_rd[:2]
     server.Handler._send_page, server.Handler._send_not_found = saved_rd[2:]
@@ -1628,9 +1650,63 @@ shed_wrong = [(pth, hst, m) for (pth, hst, m), (h, body) in rd_shed.items()
               if not (h.startswith("HTTP/1.0 503") and "\r\nRetry-After: %d\r\n" % server.SHED_RETRY_AFTER in h
                       and body == (b"" if m == "HEAD" else server.Handler._BUSY_PAGE))]
 results.append(ok(not shed_wrong and rd_pages == [],
-                  "...while /?gc=SC&tab=guide (no guide: the homepage), /?tab=guide&gc=JP&ai=1, a guide, a guide "
-                  "miss's 404 page and / are pages, shed with the 503 page, none rendered (wrong: %s, rendered: %s)"
+                  "...while /?gc=SC&tab=guide (no guide: the homepage), /?tab=guide&gc=JP&ai=1, a guide and / are "
+                  "pages, shed with the 503 page, none rendered (wrong: %s, rendered: %s)"
                   % (shed_wrong, rd_pages)))
+
+# Every slot taken, a 404 leaves out its "Did you mean" (difflib, most of a
+# miss's cost): /guide/columbia's page (Colombia) and /guide/japan/x's (Japan)
+# are then /guide/nowhere's.
+def miss_want(pth, hst, m):
+    suggests = b"didyoumean" in miss_ref[pth, hst, "GET"][1]
+    return miss_ref[("/guide/nowhere" if suggests else pth), hst, m]
+
+
+miss_wrong = [(pth, hst, m) for pth, hst in RD_MISSES for m in ("GET", "HEAD")
+              if not (miss_ref[pth, hst, m][0].startswith("HTTP/1.0 404")
+                      and no_date(miss_held[pth, hst, m][0]) == no_date(miss_want(pth, hst, m)[0])
+                      and miss_held[pth, hst, m][1] == miss_want(pth, hst, m)[1]
+                      and (miss_ref[pth, hst, m][1] == b"") == (m == "HEAD"))]
+miss_html = miss_ref["/guide/columbia", "wandergrade.com", "GET"]
+results.append(ok(not miss_wrong and miss_left == 0 and miss_waiting == 0
+                  and len(miss_rendered) == 2 * len(RD_MISSES)
+                  and "noindex" in miss_html[0] and b'href="/guide/colombia"' in miss_html[1]
+                  and b"didyoumean" not in miss_held["/guide/columbia", "wandergrade.com", "GET"][1]
+                  and miss_ref["/guide/x.json", "wandergrade.com", "GET"][1] == b'{"error": "not found"}',
+                  "...and a guide miss (/guide/nowhere, its query kept, /guide/, /guide/japan/x, /guide/columbia, "
+                  "/guide/x.json) answers its 404 (GET and HEAD) with the status, headers and page it has with slots "
+                  "off, but for a \"Did you mean\" (Colombia, Japan), left out while every slot is taken; nothing "
+                  "queued (wrong: %s)" % miss_wrong))
+
+# _pages_busy: every slot taken and none held by this request (slots off:
+# never). _not_found_bytes: each page and its gzip made once.
+saved_nf = (server._page_slots, server._render_404_page)
+nf_calls = []
+try:
+    server._page_slots = None
+    busy_off = server._pages_busy()
+    server._page_slots = threading.BoundedSemaphore(2)
+    busy_free = server._pages_busy()
+    server._page_slots.acquire()
+    server._page_slots.acquire()
+    busy_full = server._pages_busy()
+    server._slot_held.slots = server._page_slots
+    busy_mine = server._pages_busy()
+    server._slot_held.slots = None
+    server._nf_memo.clear()
+    server._render_404_page = lambda *a: (nf_calls.append(a), saved_nf[1](*a))[1]
+    nf = [server._not_found_bytes("No guide for that country", s, gz)
+          for s, gz in ((None, False), (None, True), (None, True), (("/guide/peru", "Peru"), False))]
+finally:
+    server._page_slots, server._render_404_page = saved_nf
+    server._slot_held.slots = None
+results.append(ok((busy_off, busy_free, busy_full, busy_mine) == (False, False, True, False)
+                  and len(nf_calls) == 2 and nf[0][0] is nf[1][0] is nf[2][0] and nf[0][1] is None
+                  and nf[1][1] is nf[2][1] and _gz.decompress(nf[1][1]) == nf[0][0]
+                  and b"didyoumean" in nf[3][0] and b"didyoumean" not in nf[0][0],
+                  "a 404 leaves out its suggestion only while every slot is taken and it holds none (%s), and its "
+                  "page and gzip are made once per message and suggestion (%d renders for 4 asks)"
+                  % ((busy_off, busy_free, busy_full, busy_mine), len(nf_calls))))
 RO_CASES = [("/", "/?tab=guide&gc=JP", "wandergrade.com", True), ("/guide/Japan", "/guide/Japan", "", True),
             ("/data", "/data", "svc-x.onrender.com", True), ("/", "/", "wandergrade.com", False),
             ("/", "/?gc=SC&tab=guide", "wandergrade.com", False), ("/", "/?tab=guide&gc=TV", "", False),
@@ -1660,6 +1736,27 @@ results.append(ok(not ro_wrong and ro_err is False
                   "_redirect_only, asked before _take_slot, is True only where _do_get redirects (from the same "
                   "helpers), and False when it errors or the URL is past REDIRECT_CHECK_MAX (%d), so the request "
                   "queues as before (wrong: %s)" % (server.REDIRECT_CHECK_MAX, [c[:1] + c[2:] for c in ro_wrong])))
+# _guide_miss: True exactly where _do_get answers a /guide/ request with the
+# 404 page (not the exact slug, not another spelling that 301s); a long URL or
+# an error queues for a slot as before.
+GM_CASES = [("/guide/nowhere", "/guide/nowhere", True), ("/guide/nowhere", "/guide/nowhere?x=1", True),
+            ("/guide/", "/guide/", True), ("/guide/japan/x", "/guide/japan/x", True),
+            ("/guide/columbia", "/guide/columbia", True), ("/guide/x.json", "/guide/x.json", True),
+            ("/guide/japan", "/guide/japan", False), ("/guide/Japan", "/guide/Japan", False),
+            ("/guide/usa", "/guide/usa?utm_source=x", False), ("/guide/jp/", "/guide/jp/", False),
+            ("/guide/gb-eng", "/guide/gb-eng", False), ("/", "/?tab=guide&gc=SC", False), ("/data", "/data", False),
+            ("/guide/nowhere", "/guide/nowhere?u=" + "x" * server.REDIRECT_CHECK_MAX, False),
+            ("/guide/" + "x" * 3000, "/guide/" + "x" * 3000, False)]
+gm_wrong = [c[:1] + (len(c[1]),) + c[2:] for c in GM_CASES if server._guide_miss(*c[:2]) is not c[2]]
+server.render_guide.iso_for_slug = lambda s: 1 / 0
+try:
+    gm_err = server._guide_miss("/guide/nowhere", "/guide/nowhere")
+finally:
+    server.render_guide.iso_for_slug = saved_ifs
+results.append(ok(not gm_wrong and gm_err is False
+                  and "_guide_miss(path, self.path)" in inspect.getsource(server.Handler.do_GET).split("_take_slot(")[0],
+                  "_guide_miss, asked before _take_slot, is True only where _do_get answers the 404 page, and False "
+                  "for a guide, a redirect, a long URL or an error (wrong: %s)" % gm_wrong))
 
 # main() loads the guide data before the first request. _redirect_only reads it
 # for every /guide/ request outside the slots, and render_guide._load has no

@@ -1710,6 +1710,41 @@ def _render_404_page(message, suggest=None):
     return _shell_page("Not found | WanderGrade", body, _NOINDEX, credits=False)
 
 
+# The 404 page's bytes and gzip, by message and suggestion: a handful of
+# pages (one per suggestion at most) that never change while the process
+# runs, made once each. A guide miss is answered without a page slot
+# (_guide_miss), so its cost is outside the slots' bound.
+_nf_memo = {}
+_NF_MEMO_MAX = 256
+_nf_lock = threading.Lock()
+
+
+def _not_found_bytes(message, suggest, gz):
+    """(raw, gzip or None) of _render_404_page(message, suggest); gzip only
+    when `gz` (the client takes it)."""
+    key = (message, suggest)
+    with _nf_lock:
+        hit = _nf_memo.get(key)
+    if hit is None:
+        hit = [_render_404_page(message, suggest), None]
+        with _nf_lock:
+            if len(_nf_memo) >= _NF_MEMO_MAX:
+                _nf_memo.clear()
+            hit = _nf_memo.setdefault(key, hit)
+    if gz and hit[1] is None:
+        hit[1] = gzip.compress(hit[0], GZIP_LEVEL)
+    return hit[0], (hit[1] if gz else None)
+
+
+def _pages_busy():
+    """True while every page slot is taken and this request holds none: a
+    404 then goes out without its "Did you mean" (difflib, ~0.2 ms, most of
+    a miss's cost), so a burst of misses answered outside the slots costs
+    about what shedding them did. Slots off (tests, tools): False."""
+    slots = _page_slots
+    return slots is not None and getattr(_slot_held, "slots", None) is None and slots._value == 0
+
+
 def _render_verify_page(token):
     """The page the emailed link opens. It spends nothing: mail scanners and
     link previewers (Safe Links, Proofpoint, chat unfurlers) GET every link
@@ -2709,8 +2744,7 @@ def _guide_query_redirect(raw_path):
 #
 # A slot bounds CPU, so only the routes that render from what the server
 # already holds take one (_SLOT_PATHS, _slot_route), GET and HEAD alike:
-#   (i)   slot: / (the app shell), /guide/<slug> (and the 404 page of a
-#         /guide/ path that names no guide), /data, /safe-and-cheap,
+#   (i)   slot: / (the app shell), /guide/<slug>, /data, /safe-and-cheap,
 #         /do-not-travel, /cheapest and its 12 months, /dollar-strength and
 #         /privacy. Each reads caches and refreshes them
 #         on background threads, with two exceptions that wait on the network
@@ -2738,7 +2772,17 @@ def _guide_query_redirect(raw_path):
 #         /?tab=guide&gc=XX: each waited behind guide renders like a page,
 #         and past PAGE_QUEUE_MAX got the 503 page where the crawler needed
 #         the 301 to reach the guide. Answering one is a few dict lookups.
+#         So is a /guide/ path that names no guide, answered with the 404
+#         page (_guide_miss: the shell's, made once, its "Did you mean"
+#         left out while every slot is taken): queued with the crawler's
+#         guides, a miss could get the 503 page instead of its 404.
 #         /?tab=guide&gc=SC (no Seychelles guide) is the homepage: a slot.
+#         Not a 301 to /: it is the address app.js gives the guide of each
+#         of the 29 countries with data but no guide page (guidePath, for
+#         links, shares and the guide's own canonical, setGuideMeta), and
+#         the app opens that guide there. A 301 would land those readers
+#         on Top Picks, and browsers would keep it if a guide page came
+#         later. The homepage's served canonical is / anyway.
 #   (iii) no slot, may wait on an upstream inline: every /api/* route
 #         (rates, flights and fare months via Travelpayouts, Canada's notes,
 #         fx-trend, the advisories fallback, Upstash for /api/auth/me),
@@ -2810,6 +2854,7 @@ _slot_since = {}        # thread ident -> time.monotonic() it took the slot it h
 # last window's counts once things go quiet. Redirects take no slot
 # (_redirect_only), so they are in none of the counts: a crawl like Nov 18's
 # reads lower here than it did on 0c811b5, where its 301s queued and were shed.
+# Nor do a guide miss's 404s (_guide_miss).
 BUSY_LOG_EVERY = 30
 BUSY_QUEUE_DEEP = 4
 _busy = {"at": 0.0, "queue": 0, "wait": 0, "slotless": 0, "deep": 0, "peak": 0, "stuck": 0, "bot": 0,
@@ -2947,6 +2992,28 @@ def _redirect_only(path, raw_path, host):
     except Exception:
         pass
     return False
+
+
+def _guide_miss(path, raw_path):
+    """True when Handler._do_get answers this /guide/ request with the 404
+    page: neither a guide's exact slug nor another spelling of one
+    (_guide_path_redirect), so do_GET runs it without a slot, as a redirect
+    (class (ii) above). Its page is the shell's 404 with the guide index,
+    made once (_not_found_bytes), with a "Did you mean" (difflib,
+    _did_you_mean) only while a slot is free (_pages_busy): a whole request
+    ~0.35 ms of CPU on a Mac with it, ~0.08 ms without, where the 503 a
+    shed miss got was ~0.05 ms. A slot let a miss wait behind the crawler's
+    guides and be shed 503 like them. Anything else, a URL longer than
+    REDIRECT_CHECK_MAX, or an error here, is False: the request queues for a
+    slot as before. Asked after _redirect_only, which has answered the
+    onrender.com host."""
+    try:
+        if not path.startswith("/guide/") or len(raw_path) > REDIRECT_CHECK_MAX:
+            return False
+        raw = path[len("/guide/"):]
+        return not render_guide.iso_for_slug(raw) and _guide_path_redirect(raw, raw_path) is None
+    except Exception:
+        return False
 
 
 def _slot_taken():
@@ -3395,13 +3462,15 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/") or path.endswith(".json"):
             self._send_json({"error": "not found"}, 404)
             return
-        try:
-            suggest = _did_you_mean(path)
-        except Exception as e:   # a suggestion is a nicety: never a 500 instead of the 404
-            print("[404] no suggestion for %r: %s" % (path[:80], e), flush=True)
-            suggest = None
-        self._send_body(_render_404_page(message, suggest), "text/html; charset=utf-8", 404,
-                        cache="no-store", extra=[("X-Robots-Tag", "noindex")])
+        suggest = None
+        if not _pages_busy():
+            try:
+                suggest = _did_you_mean(path)
+            except Exception as e:   # a suggestion is a nicety: never a 500 instead of the 404
+                print("[404] no suggestion for %r: %s" % (path[:80], e), flush=True)
+        raw, gz = _not_found_bytes(message, suggest, self._gzip_ok())
+        self._send_body(raw, "text/html; charset=utf-8", 404, cache="no-store",
+                        extra=[("X-Robots-Tag", "noindex")], gzipped=gz)
 
     def _send_file(self, path, versioned=False):
         # Directories (/fonts) and anything else that isn't a plain file get
@@ -3613,8 +3682,10 @@ class Handler(BaseHTTPRequestHandler):
         slots = _page_slots
         path = self.path.split("?", 1)[0]
         # A redirect on a slot route (/?tab=guide&gc=JP, /guide/Japan, the
-        # onrender.com host) renders nothing: never queued, never shed.
-        if slots is None or not _slot_route(path) or _redirect_only(path, self.path, _request_host(self.headers)):
+        # onrender.com host) renders nothing, and a guide miss's 404 page next
+        # to nothing: never queued, never shed.
+        if (slots is None or not _slot_route(path)
+                or _redirect_only(path, self.path, _request_host(self.headers)) or _guide_miss(path, self.path)):
             return self._do_get()
         why = _take_slot(slots, bool(_BOT_UA.search(self.headers.get("User-Agent") or "")))
         if why == "stuck":
@@ -3822,8 +3893,8 @@ class Handler(BaseHTTPRequestHandler):
             # name (turkiye, usa), an ISO code (tr, gb-eng) — 301s to it,
             # query and all (UTM tags are how Reddit traffic is attributed).
             # /guide/Japan used to answer 200: a duplicate page per spelling.
-            # A true miss gets a real 404 page. (A redirect takes no page
-            # slot: do_GET asks _redirect_only, from the same helper.)
+            # A true miss gets a real 404 page. (Neither takes a page slot:
+            # do_GET asks _redirect_only and _guide_miss, from the same helper.)
             target = _guide_path_redirect(raw, self.path)
             if target:
                 self._redirect(target)
