@@ -209,6 +209,9 @@ _HTML_DEFAULTS = {
     "GUIDE_HIDDEN": " hidden",
     "GUIDE_DATA": "",
     "GUIDE_VISA": "",
+    # The visa line's stand-ins for the other passports and the script that
+    # picks the reader's (guide_sizers.visa_passports), right after #guideVisa.
+    "GUIDE_VISA_ALT": "",
     "GUIDE_CHART": "Loading…",
     # The guide's month-by-month table (render_guide.month_table, #when-to-go),
     # its own block right after #bestDetail. In index.html with no bytes of its
@@ -1815,6 +1818,12 @@ def _guide_sizers(iso, level, no_bookings=False):
             if p:
                 others[src] = (p, {it.get("iso"): it for it in p.get("items") or [] if it.get("iso")})
                 attrs += ' data-lv%s="%d"' % (src, guide_sizers.level_of(iso, others[src][1]))
+        # The visa line as every other From reads it: a German passport's is a
+        # line longer than the US one above (its government's link, from that
+        # government's list as cached), and it dropped the advisory 19px when
+        # the matrix landed. Without a list, no German or Canadian stand-in.
+        out["GUIDE_VISA_ALT"] = guide_sizers.visa_passports(
+            iso, flights.ORIGIN_HUBS, {src.upper(): p.get("items") or [] for src, (p, _its) in others.items()})
         if notes is not None:
             out["GUIDE_SAFETY"] = guide_sizers.safety(
                 iso, items, (adv or {}).get("source_name"), notes, health.get_doc())

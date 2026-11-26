@@ -3877,13 +3877,18 @@ function renderGuideVisa(iso) {
     // Empty, not hidden, while it loads: empty it keeps the height styles.css
     // holds for it (or the served stand-in's, holdSizer), where hiding it
     // collapsed the line and the guide under it jumped twice. Hidden only if
-    // the matrix never comes.
+    // the matrix never comes. The stand-in held is this passport's own where
+    // the server sent one (visaStandIn): the US line it is served with is a
+    // line shorter than a German passport's at 390.
+    const alt = visaStandIn(iso, passport);
+    if (alt) { host.innerHTML = ""; host.appendChild(alt); }
     holdSizer(host, iso);
     host.innerHTML = ""; host.hidden = false;
     ensureVisaMatrix().then(() => { if (ccGuideIso === iso) renderGuideVisa(iso); })
       .catch(() => { if (ccGuideIso === iso && !host.firstChild) { host.hidden = true; host.style.minHeight = ""; } });
     return;
   }
+  const held = host.dataset.for === iso ? host.style.minHeight : "";
   host.style.minHeight = "";
   const info = visaInfo(iso, passport);
   if (info && info.home) {
@@ -3896,6 +3901,7 @@ function renderGuideVisa(iso) {
   host.hidden = false;
   const detail = info.meta.long + (info.note ? " · " + info.note : "");
   let href = /^https:\/\/travel\.state\.gov\//.test(info.link) ? info.link : "";
+  let linkWait = false;
   if (!href && (passport === "DE" || passport === "CA")) {
     const src = passport.toLowerCase();
     const viso = GUIDE_PARENT[iso] || ADV_PARENT[iso] || iso;
@@ -3903,9 +3909,12 @@ function renderGuideVisa(iso) {
     if (it && /^https:\/\/(www\.)?(auswaertiges-amt\.de|travel\.gc\.ca)\//.test(it.link || "")) href = it.link;
     // Not loaded yet (the safety row fetches the CHOSEN source, which need not
     // be this passport's): fetch it once and redraw, like the matrix above.
-    else if (!_advBySource[src]) fetchAdv(src).then(() => {
-      if (ccGuideIso === iso) renderGuideVisa(iso);
-    }).catch(() => {});
+    else if (!_advBySource[src]) {
+      linkWait = true;
+      fetchAdv(src).then(() => {
+        if (ccGuideIso === iso) renderGuideVisa(iso);
+      }).catch(() => { if (ccGuideIso === iso) host.style.minHeight = ""; });
+    }
   }
   const link = href ? ` <a href="${esc(href)}" target="_blank" rel="noopener">official details ↗</a>` : "";
   const checked = visaVerified(passport);
@@ -3917,6 +3926,20 @@ function renderGuideVisa(iso) {
   host.innerHTML = `<span class="visa ${info.meta.cls}">🛂 ${esc(info.meta.label)}</span>
     <span class="guidevisa-txt"><b>Visa · ${esc(passportLabel(passport))}:</b> ${esc(detail)}.${link}
     ${asOf}</span>`;
+  // The link's list still loading: the room held for the line (its stand-in
+  // has the link) stays until the redraw, or the line, a line shorter without
+  // the link for a moment, took the advisory and all under it up and back.
+  if (linkWait && held) host.style.minHeight = held;
+}
+// This guide's visa line as another passport reads it, unseen: the server's
+// stand-in (guide_sizers.visa_passports, a <template> after #guideVisa, one
+// per From the picker offers), or null for any other guide or passport. The
+// index.html script puts a saved From's in place before the first paint; this
+// is for a From set after it (the geo seed, a pick) before the matrix is in.
+function visaStandIn(iso, passport) {
+  const t = $("guideVisaAlt");
+  const n = t && t.content && /^[A-Z]{2}$/.test(passport || "") && t.content.querySelector(`[data-pp="${passport}"]`);
+  return n && n.dataset.for === iso ? n.cloneNode(true) : null;
 }
 
 // Safety advisory for this country, from the traveler's home-country source

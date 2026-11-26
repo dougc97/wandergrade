@@ -77,8 +77,10 @@ t.feed(HTML)
 hit = find(t.root, lambda e: e[0] == "div" and (e[1].get("class") or "").split(" ")[0] == "guidegrid")
 grid, card = hit if hit else (None, None)
 order = [label(c) for c in grid[2]] if grid else []
-results.append(ok(order == ["#guideVisa", "#guideSafety", "#guideAI", "#bestDetail", "{{GUIDE_MONTHS}}",
-                            "div.farecol", "hr.softrule", "div.staycol"],
+# {{GUIDE_VISA_ALT}}: the visa line's stand-ins for other passports, a <template>
+# and a script (guide_sizers.visa_passports) — nothing that lays out.
+results.append(ok(order == ["#guideVisa", "{{GUIDE_VISA_ALT}}", "#guideSafety", "#guideAI", "#bestDetail",
+                            "{{GUIDE_MONTHS}}", "div.farecol", "hr.softrule", "div.staycol"],
                   "the grid's blocks are in the phone's reading order: %s" % order))
 after = []
 if card:
