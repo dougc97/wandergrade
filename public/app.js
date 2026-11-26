@@ -854,10 +854,16 @@ const ratesRiskKnown = () => showRisky || !!advisories || _ratesRiskDone;
 // table its Loading row. Then Top Picks says the rates are out (ratesDown,
 // renderRatesDown) instead of ranking the few places priced in US dollars as
 // if they were the list, and a success after that draws everything that
-// waited on the rates (ratesLanded). retry: one of these tries, or the
-// notice's Try again (_ratesManual), which is tried once.
+// waited on the rates (ratesLanded), whichever request brought them.
+// retry: "auto" (one of these tries) or "manual" (the notice's Try again).
+// Try again runs the pending try now; failing, it puts that try back, so a
+// press while the server still repeats its failure can't cancel the one try
+// that would get past it.
 const RATES_RETRY_MS = [2000, 6000, 30000], RATES_QUIET = 2;
-let _ratesTry = 0, _ratesRetryT = 0, _ratesManual = false, ratesDown = false;
+// _ratesTry: the quiet tries fired; _ratesOwed: drawn without the rates (a
+// USD fetch failed), so their landing draws again; _ratesSaid: the failure
+// said (once, with the Data table's Loading row let go).
+let _ratesTry = 0, _ratesRetryT = 0, _ratesOwed = false, _ratesSaid = false, ratesDown = false;
 async function loadRates(retry) {
   // Quiet: a polite live region would otherwise read this out on every load.
   if (!retry) status("Fetching rates…", "", false, true);
@@ -871,43 +877,57 @@ async function loadRates(retry) {
     if (seq !== _ratesSeq) return;
     // The currency moved without a newer request (setHomeCur skips its refetch
     // until the first rates land): fetch again for the current one.
-    if (base !== homeBase) return loadRates();
+    if (base !== homeBase) return loadRates(retry);
     renderRates(data);
     if (!retry || /^Could not load rates/.test($("status").textContent)) status("");
   } catch (e) {
-    // The USD rates' failure is said once, when the quiet retries have failed.
-    if (seq === _ratesSeq && (had || lastRates || (_ratesTry === RATES_QUIET && !_ratesManual))) {
+    // The USD rates' failure is said once the quiet retries have failed, or
+    // at a Try again (each one: a sign it ran).
+    if (seq === _ratesSeq && (had || lastRates || retry === "manual" || (!_ratesSaid && _ratesTry >= RATES_QUIET))) {
+      _ratesSaid = true;
       status("Could not load rates: " + e.message, "err"); dropLoadingRow("rows");
     }
   } finally {
-    if (!had && seq === _ratesSeq) ratesSettled(retry);
+    // The newest request settles (_ratesSeq): one re-sent above, or sent by a
+    // currency switch, draws the landing this one brought (_ratesOwed).
+    if (seq === _ratesSeq && (!had || _ratesOwed)) ratesSettled(retry);
   }
 }
 function ratesSettled(retry) {
-  clearTimeout(_ratesRetryT);
-  const manual = _ratesManual;
-  _ratesManual = false;
-  if (lastRates) { if (retry) ratesLanded(); return; }
-  if (!manual && _ratesTry < RATES_RETRY_MS.length) {
+  if (lastRates) {
+    clearTimeout(_ratesRetryT); _ratesRetryT = 0;
+    if (_ratesOwed) { _ratesOwed = false; ratesLanded(); }
+    return;
+  }
+  _ratesOwed = true;
+  if (!_ratesRetryT && _ratesTry < RATES_RETRY_MS.length) {
     const n = _ratesTry;
-    _ratesRetryT = setTimeout(() => { _ratesTry = n + 1; loadRates(true); }, RATES_RETRY_MS[n]);
+    _ratesRetryT = setTimeout(() => { _ratesRetryT = 0; _ratesTry = n + 1; loadRates("auto"); }, RATES_RETRY_MS[n]);
   }
   if (_ratesTry >= RATES_QUIET && !ratesDown) { ratesDown = true; if (loaded.value) renderValue(); }
-  else if (manual && loaded.value) renderValue();   // Try again failed: its button back
+  else if (retry === "manual" && loaded.value) renderValue();   // Try again failed: its button back
 }
+// The notice's Try again. aria-disabled, not disabled, while it runs: a
+// disabled button drops the keyboard focus to <body>.
 function retryRates() {
   const b = $("ratesRetry");
-  if (b) b.disabled = true;
-  clearTimeout(_ratesRetryT);
-  _ratesManual = true;
-  loadRates(true);
+  if (b) { if (b.getAttribute("aria-disabled") === "true") return; b.setAttribute("aria-disabled", "true"); }
+  clearTimeout(_ratesRetryT); _ratesRetryT = 0;
+  loadRates("manual");
 }
-// The rates in after a failure: whatever was drawn without them, again.
+// The rates in after a failure: whatever was drawn without them, again. The
+// keyboard focus on Try again (gone with the notice) goes to the list's first
+// country, as Help me choose's does (_returnTo), not to <body>: once the
+// redraws this sets off are done (setHomeCur's runs a microtask later).
 function ratesLanded() {
   ratesDown = false;
-  const tv = $("tab-value");
+  const tv = $("tab-value"), b = $("ratesRetry"), focused = !!b && document.activeElement === b;
   if (tv) tv.removeAttribute("data-ratesdown");
   if (loaded.value) { initHomeCur(); renderValue(); }
+  if (focused) setTimeout(() => {
+    const a = document.querySelector("#topCards a.destlink"), f = document.activeElement;
+    if (a && (!f || f === document.body)) a.focus({ preventScroll: true });
+  }, 0);
   if (loaded.afford) renderAfford();
   if (loaded.flights && flightsData) renderFlights();
   if (loaded.trip) { renderTripBar(); refreshTripPrompt(); }
@@ -9571,6 +9591,11 @@ function renderValue() {
   // The weather map needs no rates: drawn as ever, its ranked countries' own
   // months aside (there are none), each country on its comfiest month.
   const mapOut = down && !(valueMapMode === "weather" && climate);
+  // Nor is there a map image to share then: its 📸 keeps its room unseen
+  // (styles.css #tab-value[data-mapout]), back the moment a map is drawn.
+  const tvEl = $("tab-value");
+  if (tvEl && mapOut) tvEl.setAttribute("data-mapout", "");
+  else if (tvEl) tvEl.removeAttribute("data-mapout");
   if (vLeg && !mapOut) { vLeg.classList.remove("skel"); vLeg.removeAttribute("aria-hidden"); }
   if (vLeg && !mapOut) vLeg.innerHTML = valueMapMode === "weather"
     ? '<span>Harsh</span><span class="scale"></span><span>Comfortable</span>'
@@ -9860,19 +9885,28 @@ const RATES_DOWN_TIP = "Every grade prices a country at today's exchange rate. W
 function renderRatesDown() {
   const top = $("topCards"), tv = $("tab-value");
   // A hidden tab has no height to hold: what is there stays until it shows
-  // (activateTab draws it then).
-  if (top && tv && tv.hidden && !top.querySelector(".ratesdown")) return;
+  // (activateTab draws it then). The served rows' hold ends all the same:
+  // its 250 ms tick would otherwise draw again and again until then.
+  if (top && tv && tv.hidden && !top.querySelector(".ratesdown")) {
+    if (servedPicks) releaseServedPicks();
+    return;
+  }
   if (top) {
-    const was = top.querySelector(".ratesdown");
-    const h = was ? parseInt(was.style.minHeight, 10) : Math.round(top.getBoundingClientRect().height);
+    const was = top.querySelector(".ratesdown"), wasBtn = was && $("ratesRetry");
     servedOnScreen = false;
     releaseServedPicks();
     _firstHold.done = true;
-    top.innerHTML = '<div class="ratesdown"' + (h > 0 ? ' style="min-height:' + h + 'px"' : "") + "><p>"
-      + esc(RATES_DOWN) + ' <button type="button" class="linkbtn" id="ratesRetry">Try again</button>'
-      + ' <span class="muted" data-tip="' + esc(RATES_DOWN_TIP) + '" title="">ⓘ</span></p></div>';
-    const b = $("ratesRetry");
-    if (b) b.onclick = retryRates;
+    // Already up (a Try again that failed, any other redraw): the same line
+    // stays, its button usable again, and the keyboard focus on it with it.
+    if (wasBtn) wasBtn.removeAttribute("aria-disabled");
+    else {
+      const h = was ? parseInt(was.style.minHeight, 10) : Math.round(top.getBoundingClientRect().height);
+      top.innerHTML = '<div class="ratesdown"' + (h > 0 ? ' style="min-height:' + h + 'px"' : "") + "><p>"
+        + esc(RATES_DOWN) + ' <button type="button" class="linkbtn" id="ratesRetry">Try again</button>'
+        + ' <span class="muted" data-tip="' + esc(RATES_DOWN_TIP) + '" title="">ⓘ</span></p></div>';
+      const b = $("ratesRetry");
+      if (b) b.onclick = retryRates;
+    }
   }
   if (tv) tv.setAttribute("data-ratesdown", "");
   const sm = $("showMore");

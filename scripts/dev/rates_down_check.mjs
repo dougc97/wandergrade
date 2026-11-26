@@ -8,6 +8,11 @@
 //   transient  the first /api/rates fails and the retry 2 s later answers: the full list, the notice
 //              never shown, nothing moved
 //   ok         the rates answer: the list, one /api/rates request, no retry
+//   keys       every /api/rates fails; Try again by keyboard (Enter) fails: the focus stays on it and
+//              the status line says so; the rates back, Enter again: the list, the focus on its first
+//              country (not <body>)
+//   press      every /api/rates fails; Try again pressed as soon as it shows fails; the rates back 5 s later: the
+//              30 s try it put back still runs and draws the list (~42 s; nothing else pressed)
 // R_SEED  localStorage items before the load, string values ('{"fx_origin":"DE"}': a reader from Germany)
 // R_W     viewport width (390 default, a phone; 1280 a desktop)
 // Wikipedia/Wikimedia answers come from wikicache.mjs; nothing goes to production.
@@ -17,7 +22,7 @@ const W = +process.env.R_W || 390;
 const ok = (c, m) => console.log((c ? '  PASS  ' : '  FAIL  ') + m);
 
 export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {
-  let wiki = null, failing = CASE === 'down', failLeft = CASE === 'transient' ? 1 : 0;
+  let wiki = null, failing = /^(down|keys|press)$/.test(CASE), failLeft = CASE === 'transient' ? 1 : 0;
   const asked = [];
   await enableWikiCache((m, p) => (m === 'Fetch.enable' ? Promise.resolve() : send(m, p)), (fn) => { wiki = fn; });
   on(async (d) => {
@@ -43,7 +48,7 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {
         : h.querySelector('.ratesdown') ? 'notice' : 'rows:' + h.querySelectorAll('table.gradetable tbody tr').length;
       if (k !== last) { last = k; window.__seen.push([Math.round(performance.now()), k, Math.round(h.getBoundingClientRect().height)]); } }, 50); })();` });
   await setSize(W, W < 768 ? 844 : 900, W < 768);
-  await nav(BASE + '/?cb=' + Date.now(), CASE === 'down' ? 11000 : 6000);
+  await nav(BASE + '/?cb=' + Date.now(), failing ? 11000 : 6000);
   const look = `(function(){ var h = document.getElementById('topCards');
     return { seen: window.__seen, cls: +window.__cls.toFixed(4), rows: h.querySelectorAll('table.gradetable:not(.skeleton) tbody tr').length,
       text: h.innerText.trim().replace(/\\s+/g, ' ').slice(0, 80), gems: document.querySelectorAll('#gemRows tbody tr').length,
@@ -51,7 +56,36 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, errs }) => {
   const a = await evaluate(look);
   a.seen.forEach((x) => console.log('    ' + String(x[0]).padStart(6) + 'ms  ' + x[1] + '  ' + x[2] + 'px'));
   const kinds = a.seen.map((x) => x[1]);
-  if (CASE === 'down') {
+  if (CASE === 'keys' || CASE === 'press') {
+    const active = `(function(){ var a = document.activeElement; return a ? a.tagName + (a.id ? '#' + a.id : '') + (a.classList.contains('destlink') ? '.destlink' : '') : null; })()`;
+    const enter = async () => { await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }); };
+    const n0 = asked.length;
+    await evaluate(`(function(){ document.getElementById('status').hidden = true; document.getElementById('ratesRetry').focus(); return 1; })()`);
+    await enter();
+    await sleep(1500);
+    const f = await evaluate(`(function(){ var s = document.getElementById('status'), b = document.getElementById('ratesRetry');
+      return { st: s.hidden ? '' : s.textContent, notice: !!document.querySelector('#topCards .ratesdown'), aria: b && b.getAttribute('aria-disabled') }; })()`);
+    const fa = await evaluate(active);
+    ok(asked.length === n0 + 1 && f.notice && /^Could not load rates/.test(f.st) && f.aria === null,
+       'Try again failing: the line stays, usable, and the status says so ("' + f.st + '")');
+    if (CASE === 'keys') {
+      ok(fa === 'BUTTON#ratesRetry', 'the focus stays on Try again (' + fa + ')');
+      failing = false;
+      await enter();
+      await sleep(4000);
+      const b = await evaluate(look), fb = await evaluate(active);
+      ok(b.lastRates && b.rows >= 5 && fb === 'A.destlink', 'Enter again with the rates back: the list, the focus on its first country (' + fb + ')');
+    } else {
+      await sleep(5000);
+      failing = false;
+      for (let i = 0; i < 60 && !(await evaluate('!!lastRates')); i++) await sleep(500);
+      const b = await evaluate(look);
+      const usd = asked.slice(n0).filter((x) => x.endsWith('(USD)'));
+      ok(b.lastRates && b.rows >= 5 && usd.join() === 'failed (USD),answered (USD)',
+         'the 30 s try put back after the failed press draws the list (' + asked.join(', ') + ')');
+    }
+  } else if (CASE === 'down') {
     const first = a.seen[0], notice = a.seen.find((x) => x[1] === 'notice');
     ok(kinds.length === 2 && (first[1] === 'served' || first[1] === 'skeleton') && notice,
        'the first paint, then the notice; never a partial list (' + kinds.join(' → ') + ')');
