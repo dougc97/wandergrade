@@ -286,9 +286,13 @@ if "error" not in js:
                           % (iso, want, "" if js["gov"].get(iso) == want else " — got %r" % js["gov"].get(iso))))
 
 # ---- the newsletter ---------------------------------------------------------------
-NL = [P("fxtracker", f) for f in ("picks.py", "newsletter.py", "digest_variants.py")] + \
-     [P("scripts", f) for f in ("send_digest.py", "check.py", "digest_check.py", "digest_snapshot.py")]
-named = [os.path.relpath(f, ROOT) for f in NL if os.path.exists(f)
+NL = [P("fxtracker", f) for f in ("picks.py", "newsletter.py", "digest_variants.py", "cover_check.py", "mailer.py")] + \
+     [P(f) for f in ("send_digest.py", "check.py")] + \
+     [P("scripts", f) for f in ("digest_check.py", "digest_snapshot.py")] + [P("scripts", "parity", "parity.py")]
+missing = [os.path.relpath(f, ROOT) for f in NL if not os.path.isfile(f)]
+results.append(ok(not missing, "every newsletter file the next check reads exists%s"
+                  % (": missing " + ", ".join(missing) if missing else "")))
+named = [os.path.relpath(f, ROOT) for f in NL if os.path.isfile(f)
          and re.search(r"""["']updated["']|\.updated\b""", open(f, encoding="utf-8").read())]
 results.append(ok(not named, "the newsletter's code never reads `updated`%s" % (": " + ", ".join(named) if named else "")))
 items_d, items_u = US["items"], [{k: v for k, v in it.items() if k != "updated"} for it in US["items"]]
