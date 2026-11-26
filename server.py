@@ -539,6 +539,17 @@ _SITE = "https://wandergrade.com"   # canonical origin for sitemap URLs
 
 _dataset_cache = {"at": 0, "payload": None, "csv": None, "retry_at": 0, "error": ""}
 _DATASET_TTL = 3600
+# The rebuild in flight, if any (a threading.Event, set when it lands or
+# fails): one at a time, shared by every request that finds the copy expired
+# meanwhile (_dataset).
+_dataset_flight = [None]
+_dataset_flight_lock = threading.Lock()
+# Seconds a request waits on another's rebuild before rebuilding itself, as
+# every request did before. Above a rebuild's worst case on a failing
+# upstream, as ADV_FLIGHT_WAIT is: build_dataset.build makes three rates
+# fetches one after another (rates.compute_favorability), each 3 tries of
+# rates.TIMEOUT (20 s) plus 1.5 + 3 s of backoff, so 3 x 64.5 = 193.5 s.
+DATASET_FLIGHT_WAIT = 240
 
 
 def _dataset():
@@ -551,24 +562,58 @@ def _dataset():
     one): /data reads the dataset three times per view, and with the rates
     down each read rebuilt, fetching with its retries and, on a page slot,
     queueing for the slot again after each.
+
+    One rebuild at a time: a request that finds one in flight waits for it
+    (holding no page slot, _idle_wait) and gets what it made, the new copy,
+    or the stale copy or the error inside the backoff it set. When the hourly
+    copy expired, every /data view and CSV/JSON download that came in during
+    the rebuild used to rebuild too, side by side, each its own rates fetch.
     """
-    now = time.time()
-    if _dataset_cache["payload"] is None or now - _dataset_cache["at"] > _DATASET_TTL:
+    while True:
+        now = time.time()
+        if _dataset_cache["payload"] is not None and now - _dataset_cache["at"] <= _DATASET_TTL:
+            return _dataset_cache
         if now < _dataset_cache.get("retry_at", 0):
             if _dataset_cache["payload"] is None:
                 raise RuntimeError(_dataset_cache.get("error") or "dataset rebuild failed")
             return _dataset_cache
+        with _dataset_flight_lock:
+            flight = _dataset_flight[0]
+            lead = flight is None
+            if lead:
+                flight = _dataset_flight[0] = threading.Event()
+        if lead:
+            break
+        if not _idle_wait(flight, DATASET_FLIGHT_WAIT):
+            # Stuck on the network past any real rebuild: rebuild as before.
+            with _no_slot():
+                return _dataset_rebuild()
+        # Landed or failed: the loop reads what it left (the copy, or the backoff).
+    # A rates fetch: /data gives its page slot back meanwhile, and the
+    # waiters get the outcome before it queues for the slot again.
+    with _no_slot():
         try:
-            with _no_slot():   # a rates fetch: /data gives its page slot back meanwhile
-                payload = build_dataset.build(_ppp_data())
-            _dataset_cache.update(at=now, payload=payload,
-                                  csv=build_dataset.to_csv(payload), retry_at=0, error="")
-        except Exception as e:
-            have = _dataset_cache["payload"] is not None
-            _dataset_cache.update(retry_at=time.time() + (STALE_RETRY if have else FAIL_RETRY),
-                                  error=str(e))
-            if not have:
-                raise
+            return _dataset_rebuild()
+        finally:
+            with _dataset_flight_lock:
+                _dataset_flight[0] = None
+            flight.set()
+
+
+def _dataset_rebuild():
+    """Rebuild the dataset into _dataset_cache and return the cache; on a
+    failure set the backoff and return the copy in hand, or raise with none."""
+    now = time.time()
+    try:
+        payload = build_dataset.build(_ppp_data())
+        _dataset_cache.update(at=now, payload=payload,
+                              csv=build_dataset.to_csv(payload), retry_at=0, error="")
+    except Exception as e:
+        have = _dataset_cache["payload"] is not None
+        _dataset_cache.update(retry_at=time.time() + (STALE_RETRY if have else FAIL_RETRY),
+                              error=str(e))
+        if not have:
+            raise
     return _dataset_cache
 
 
@@ -2670,7 +2715,8 @@ def _guide_query_redirect(raw_path):
 #         /privacy. Each reads caches and refreshes them
 #         on background threads, with two exceptions that wait on the network
 #         inline and give the slot back while they do (_no_slot): /data
-#         rebuilding its dataset (_dataset: a rates fetch, at most hourly), and
+#         rebuilding its dataset (_dataset: a rates fetch, at most hourly,
+#         computing it or waiting on the rebuild another request leads), and
 #         a list page asking for an advisory list not in hand at all
 #         (_adv_compute_once, after a cold start: computing it, or waiting on
 #         the computation another thread leads).
