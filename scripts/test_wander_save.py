@@ -16,7 +16,11 @@ What it holds the code to:
     writes the button into #visitedSaveRow exactly when
     ACCT_ON && !acctSignedIn() && (been || want to go), with the same label
     and ⓘ words as before, never anything into #visitedStats, and empties the
-    row when the rule stops holding (clear all, sign-in);
+    row when the rule stops holding (clear all, sign-in); a change of
+    sign-in state repaints the row (acctPaintSave, under jsc): signing out
+    brings the button back at once, a sign-in /api/auth/me reports after the
+    tab was drawn takes it away, and before the tab is built nothing is
+    touched;
   * server.py VISITED_HOLD, run under jsc (280 cases, one process): html
     [data-vis] carries "s" exactly when the button will show (accounts on,
     data-acct not "in", any mark), which is the button's rule with the head
@@ -137,6 +141,70 @@ results.append(ok(cases == 20 and not bad,
                   "renderVisitedStats: button in #visitedSaveRow iff ACCT_ON && !signed in && (been || want), "
                   "same label and ⓘ words, opens sign-in, never in #visitedStats (%d cases)%s"
                   % (cases, "" if not bad else " %s" % bad[:3])))
+
+# A change of sign-in state repaints the row (acctPaintSave), not only the
+# header button: signing out (or a 401) left the button away, and a sign-in
+# /api/auth/me reported after the tab was drawn left it up, both until
+# something else redrew the tab. Before the tab is built it touches nothing
+# (visited is still null then). scripts/dev/acct_save_check.mjs is the same
+# in a real browser against the mock store.
+one_line = lambda name: (re.search(r"^function %s\(\).*\}$" % name, APP, re.M) or re.match("", "")).group(0)
+acct_load = re.search(r"^async function acctLoad\(\) \{.*?^\}", APP, re.M | re.S)
+STATE = HARNESS.split("const visited")[0] + r"""
+const visited = %(v)s, wishlist = %(w)s;
+const ACCT_ON = true;
+let acctState = { email: "a@example.com", user: null }, acctKnown = true;
+const loaded = { visited: %(built)s };
+let painted = 0, merged = 0, signInOpened = 0;
+const acctPaintButton = () => { painted++; };
+const acctMergeDown = async () => { merged++; };
+const openSignIn = () => { signInOpened++; };
+const contFilter = null, WORLD_PCT_TIP = "tip";
+const visitedContinents = () => 1, worldPct = () => 2, continentProgress = () => [];
+const milestoneInfo = () => ({ earned: null, next: null });
+const setContFilter = () => {};
+let answer = null;
+const fetch = async () => ({ json: async () => answer });
+%(esc)s
+%(tiers)s
+%(fn)s
+%(signed_in)s
+%(signed_out)s
+%(paint_save)s
+%(load)s
+const row = () => (hosts.visitedSaveRow || { innerHTML: "" }).innerHTML;
+const steps = {};
+if (loaded.visited) renderVisitedStats();             // the tab drawn while signed in
+steps.drawnIn = row();
+acctSignedOut();                                      // Sign out, or a 401 from a sync
+steps.out = row();
+acctState = null;                                     // a fresh page: drawn before /api/auth/me answers
+if (loaded.visited) renderVisitedStats();
+steps.drawnUnknown = row();
+answer = { email: "a@example.com", user: { visited: ["FR"], wishlist: [] } };
+acctLoad().then(() => {
+  steps.in = row();
+  print(JSON.stringify({ steps, painted, merged }));
+});
+"""
+paint = []
+for built in (True, False):
+    r = jsc(STATE % {"v": 'new Set(["FR", "DE"])' if built else "null", "w": "new Set()" if built else "null",
+                     "built": str(built).lower(), "esc": js_fn_const("esc"), "tiers": tiers.group(0) if tiers else "",
+                     "fn": js_fn("renderVisitedStats"), "signed_in": one_line("acctSignedIn"),
+                     "signed_out": one_line("acctSignedOut"), "paint_save": one_line("acctPaintSave"),
+                     "load": acct_load.group(0) if acct_load else ""})
+    paint.append(r)
+btn_html = '<button type="button" id="visitedSave">👤 Save this map</button>'
+built_r, bare_r = paint
+results.append(ok(bool(built_r) and built_r["steps"]["drawnIn"] == "" and built_r["steps"]["out"].startswith(btn_html)
+                  and built_r["steps"]["drawnUnknown"].startswith(btn_html) and built_r["steps"]["in"] == ""
+                  and built_r["painted"] == 2 and built_r["merged"] == 1,
+                  "a change of sign-in state repaints the save row: Sign out (or a 401) brings the button back at "
+                  "once, a sign-in /api/auth/me reports after the tab was drawn takes it away (%s)" % built_r))
+results.append(ok(bool(bare_r) and all(v == "" for v in bare_r["steps"].values()) and bare_r["painted"] == 2,
+                  "before the Wander List is built it touches nothing, and doesn't throw on its null lists (%s)"
+                  % bare_r))
 
 # --- server.py VISITED_HOLD: the first-paint flags ---------------------------------
 # "v"/"w" as before; "c" when a been mark is a UN member (only those draw the

@@ -14906,7 +14906,12 @@ let acctKnown = false;              // the server has answered (or a 401 has)
 function acctSignedIn() { return !!(acctState && acctState.email); }
 // A 401 means the session is gone: show it, instead of silently dropping
 // every later sync.
-function acctSignedOut() { acctState = null; acctKnown = true; acctPaintButton(); }
+function acctSignedOut() { acctState = null; acctKnown = true; acctPaintButton(); acctPaintSave(); }
+// The Wander List's "👤 Save this map" shows by the sign-in state too
+// (renderVisitedStats), so a change of state repaints it: signing out left
+// the button away, and a sign-in /api/auth/me reported after the tab was
+// drawn left it up, until something else redrew the tab.
+function acctPaintSave() { if (loaded.visited) renderVisitedStats(); }
 
 async function acctLoad() {
   if (!ACCT_ON) return;
@@ -14917,6 +14922,7 @@ async function acctLoad() {
     acctKnown = true;
   } catch (e) { acctState = null; }
   acctPaintButton();
+  acctPaintSave();
   if (acctSignedIn() && acctState.user) await acctMergeDown(acctState.user);
 }
 
