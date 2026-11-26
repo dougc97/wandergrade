@@ -1831,7 +1831,7 @@ function postcardHTML(iso, o) {
     + "</div>";
   const vis = o.secondary && isVisited(iso), wish = o.secondary && loadWishlist().has(iso);
   const tip = postcardTip(iso, facts);
-  return `<div class="postcard${o.secondary ? " pcmap" : ""}" role="group" aria-label="${esc(name)}: quick look">${photo}
+  return `<div class="postcard${o.secondary ? " pcmap" : ""}" data-iso="${esc(iso)}" role="group" aria-label="${esc(name)}: quick look">${photo}
     <div class="pcbody">
       ${o.secondary ? `<h3 class="pcname"><span aria-hidden="true">${flagEmoji(iso)}</span> ${esc(name)}${vis ? ' <span class="visited-tag">✓ visited</span>' : ""}</h3>` : ""}
       <p class="pcline">${act && act.summary ? esc(act.summary) : ""}</p>
@@ -4635,6 +4635,55 @@ async function iconicPhotos(iso) {
   for (const p of settled) if (p && !seen.has(fileKey(p.full))) { seen.add(fileKey(p.full)); out.push(p.w ? { ...p, thumb: heroThumb(p.thumb, p.w) } : p); }
   if (out.length) _heroCache[iso] = out;
   return out;
+}
+// The postcard's photo (postcardHTML): the guide hero's first, through the
+// hero's own lookup (iconicPhotos, which honours photo-skip.json and keeps
+// the place each photo shows, for the alt), drawn 330px wide and 500px on a
+// 2x screen (wmThumbAt: Wikimedia's own thumbnail steps only, an unscaled
+// original too). One lookup per country a session: the same promise for
+// every caller, and the guide opened after it finds the list cached. Nothing
+// asks before a postcard is opened or about to be (a row's hover or focus).
+// A lookup that finds nothing (a failed call reads the same) resolves null,
+// and the next open asks again, up to PC_PHOTO_TRIES in all.
+const PC_PHOTO_TRIES = 3;
+const _pcPhotoP = {}, _pcPhotoDone = {}, _pcPhotoMiss = {};
+function postcardPhoto(iso) {
+  if (_pcPhotoP[iso]) return _pcPhotoP[iso];
+  const p = _pcPhotoP[iso] = Promise.resolve().then(() => iconicPhotos(iso)).then((list) => {
+    const f = list && list[0];
+    if (!f || !f.thumb) throw new Error("no photo");
+    const u1 = wmThumbAt(f.thumb, 330, f.w), u2 = wmThumbAt(f.thumb, 500, f.w);
+    const out = _pcPhotoDone[iso] = { src: u1, srcset: u1 + " 1x" + (u2 !== u1 ? ", " + u2 + " 2x" : ""),
+                                      alt: photoWhere(f, iso), file: f.file || "", credit: pcCredit(f) };
+    // The author and licence come in their own call; the ⓘ links the file
+    // page until then.
+    if (f.file) loadPhotoCredits([f]).then(() => { out.credit = pcCredit(f); pcCreditLanded(iso, out); }).catch(() => {});
+    return out;
+  }).catch(() => {
+    _pcPhotoMiss[iso] = (_pcPhotoMiss[iso] || 0) + 1;
+    if (_pcPhotoMiss[iso] < PC_PHOTO_TRIES) delete _pcPhotoP[iso];
+    return null;
+  });
+  return p;
+}
+// The photo already landed, or undefined: a redraw puts it straight back.
+function postcardPhotoNow(iso) { return _pcPhotoDone[iso]; }
+// The ⓘ on the photo: author and licence (CC BY / BY-SA ask for both, and
+// the source), the file page its link.
+function pcCredit(p) {
+  if (!p || !p.file) return null;
+  const c = _photoCredit[p.file] || {};
+  const page = /^https?:\/\//i.test(c.page || "") ? c.page
+    : "https://en.wikipedia.org/wiki/File:" + encodeURIComponent(p.file.replace(/ /g, "_"));
+  return { text: "📷 " + (c.artist || "Photo") + (c.lic ? " · " + c.lic : "") + ", via Wikimedia Commons", href: page };
+}
+// A credit that landed after its postcard opened: the open ⓘ takes it.
+function pcCreditLanded(iso, ph) {
+  document.querySelectorAll('.postcard[data-iso="' + iso + '"] .pccredit').forEach((a) => {
+    if (!ph.credit) return;
+    a.setAttribute("data-tip", ph.credit.text);
+    a.setAttribute("href", ph.credit.href);
+  });
 }
 // Every activity is a {t: title, d: description} object — the bare-string form is
 // legacy tolerance, nothing in activities.json uses it. Anything that prints one

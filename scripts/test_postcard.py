@@ -19,7 +19,12 @@ What it holds the code to:
   * the markup: "Full guide →" is a real link to /guide/<slug>, the trip
     button reads "🧳 Add to trip" / "✓ On your trip", no photo means the
     flag inside the same .pcphoto box, every interpolated string escaped,
-    a map's own fact appended last, and a map card's ✓ Been / ★ Want to go.
+    a map's own fact appended last, and a map card's ✓ Been / ★ Want to go;
+  * the photo (postcardPhoto): the guide hero's first (iconicPhotos, stubbed
+    here), 330px with a 500px 2x, Wikimedia's thumbnail steps only (an
+    unscaled original too), alt naming the place, a credit linking the file
+    page; one lookup per country (the same promise), a failed or empty one
+    resolves null and is asked again on the next open.
 """
 import html, json, os, re, subprocess, sys, tempfile
 
@@ -86,7 +91,38 @@ const keepC = climate; climate = null;
 T("s_pending", () => postcardFacts("JP", { rowHasMonth: false, mapFact: null }));
 T("s_settled", () => postcardFacts("JP", { rowHasMonth: false, mapFact: null, settled: true }));
 climate = keepC;
-print(JSON.stringify(out));
+// The photo loader, on a stubbed iconicPhotos (the guide hero's lookup).
+// wmThumbAt measures a file name's bytes with TextEncoder, which browsers
+// have and jsc doesn't.
+if (typeof TextEncoder === "undefined") this.TextEncoder = function () { this.encode = (s) => ({ length: unescape(encodeURIComponent(s)).length }); };
+const W = "https://upload.wikimedia.org/wikipedia/commons/";
+let calls = 0, mode = "ok";
+iconicPhotos = async (iso) => {
+  calls++;
+  if (mode === "throw") throw new Error("api down");
+  if (mode === "empty") return [];
+  if (iso === "IS") return [{ thumb: W + "a/ab/Small_falls.jpg", full: W + "a/ab/Small_falls.jpg", w: 900, file: "Small_falls.jpg", place: "Gullfoss" }];
+  return [{ thumb: W + "thumb/1/12/Fushimi.jpg/1600px-Fushimi.jpg", full: W + "1/12/Fushimi.jpg", file: "Fushimi.jpg", place: "Fushimi Inari-taisha", ar: 1.5 },
+          { thumb: W + "thumb/3/34/Second.jpg/1600px-Second.jpg", full: W + "3/34/Second.jpg", file: "Second.jpg", place: "Kyoto" }];
+};
+(async () => {
+  setOrigin("US");
+  const p1 = postcardPhoto("JP"), p2 = postcardPhoto("JP");
+  out.ph_same = p1 === p2;
+  out.ph = await p1;
+  out.ph_calls1 = calls;
+  out.ph_again = (await postcardPhoto("JP")) === out.ph;
+  out.ph_calls2 = calls;
+  out.ph_now = postcardPhotoNow("JP") === out.ph;
+  out.ph_orig = await postcardPhoto("IS");
+  out.ph_html = postcardHTML("JP", { rowHasMonth: false, mapFact: null, photo: out.ph, inTrip: false, secondary: false });
+  mode = "throw"; calls = 0;
+  out.ph_throw = await postcardPhoto("TH");
+  out.ph_throw_retry = (await postcardPhoto("TH"), calls);
+  mode = "empty";
+  out.ph_empty = await postcardPhoto("VN");
+  print(JSON.stringify(out));
+})().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
 """
 
 with tempfile.TemporaryDirectory() as d:
@@ -195,6 +231,32 @@ results.append(ok(isinstance(sp_, list) and (fact(sp_, "months") or {}).get("pen
                   "climate and the matrix still loading: months and visa pending (%s)" % sp_))
 results.append(ok(isinstance(ss, list) and not any(f["pending"] for f in ss) and fact(ss, "months") is None and fact(ss, "visa") is None,
                   "settled with neither: both left out, nothing pending (%s)" % ss))
+
+# The photo loader
+STEPS = {20, 40, 60, 120, 250, 330, 400, 500, 960, 1280, 1920, 3840}
+ph, po = js.get("ph"), js.get("ph_orig")
+widths = lambda p: [int(w) for w in re.findall(r"/(\d+)px-", (p or {}).get("src", "") + " " + (p or {}).get("srcset", ""))]
+results.append(ok(isinstance(ph, dict) and "/330px-Fushimi.jpg" in ph.get("src", "") and "Second" not in json.dumps(ph),
+                  "the hero's first photo, at 330px (%s)" % (ph or {}).get("src")))
+results.append(ok(isinstance(ph, dict) and "/500px-Fushimi.jpg 2x" in ph.get("srcset", "") and "/330px-Fushimi.jpg 1x" in ph.get("srcset", ""),
+                  "500px on a 2x screen (%s)" % (ph or {}).get("srcset")))
+results.append(ok(isinstance(ph, dict) and ph.get("alt") == "Fushimi Inari-taisha, Japan", "alt names the place (%r)" % (ph or {}).get("alt")))
+results.append(ok(isinstance(ph, dict) and (ph.get("credit") or {}).get("href", "").endswith("File:Fushimi.jpg")
+                  and "Wikimedia Commons" in (ph.get("credit") or {}).get("text", ""),
+                  "credit links the file page before its author is known (%s)" % (ph or {}).get("credit")))
+results.append(ok(isinstance(po, dict) and "/thumb/a/ab/Small_falls.jpg/330px-Small_falls.jpg" in po.get("src", "")
+                  and "/500px-Small_falls.jpg 2x" in po.get("srcset", ""),
+                  "an unscaled original gets real thumbnails (%s | %s)" % ((po or {}).get("src"), (po or {}).get("srcset"))))
+bad = [w for w in widths(ph) + widths(po) if w not in STEPS]
+results.append(ok(widths(ph) and widths(po) and not bad, "only Wikimedia's thumbnail steps (%s)" % (widths(ph) + widths(po))))
+results.append(ok(js.get("ph_same") is True and js.get("ph_calls1") == 1 and js.get("ph_again") is True and js.get("ph_calls2") == 1,
+                  "one lookup per country: the same promise, iconicPhotos asked once (%s, %s)" % (js.get("ph_calls1"), js.get("ph_calls2"))))
+results.append(ok(js.get("ph_now") is True, "postcardPhotoNow hands back the landed photo at once (no flicker on a redraw)"))
+pm = re.search(r'<div class="pcphoto[^"]*">(.*?)</div>', S("ph_html"), re.S)
+results.append(ok(pm and "330px-Fushimi.jpg" in pm.group(1) and "500px-Fushimi.jpg 2x" in pm.group(1), "the loader's photo drops into the markup"))
+results.append(ok(js.get("ph_throw") is None and "ph_throw" in js, "a lookup that throws resolves null"))
+results.append(ok(js.get("ph_throw_retry") == 2, "and is asked again on the next open (calls %s)" % js.get("ph_throw_retry")))
+results.append(ok(js.get("ph_empty") is None and "ph_empty" in js, "no photo found: null (the flag shows)"))
 
 print("\n%d/%d passed" % (sum(1 for x in results if x), len(results)))
 sys.exit(0 if all(results) else 1)
