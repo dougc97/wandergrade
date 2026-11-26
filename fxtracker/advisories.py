@@ -468,12 +468,7 @@ def _us_advisories():
             # place (any_level): it still says what the State Department
             # names as the risks. Quoted as the summary, it would contradict
             # the pill beside it (see _summary).
-            "risks": (_risks(_summary(desc, level, iso, name_iso, full=True, any_level=True), level)
-                      # The lead naming the place may give no reasons when a
-                      # placeless one does: Afghanistan's "Do not travel to
-                      # Afghanistan for any reason" beside "Do not travel due
-                      # to civil unrest, crime…". No ISO names that one first.
-                      or _risks(_summary(desc, level, "", name_iso, full=True), level)),
+            "risks": _item_risks(desc, level, iso, name_iso),
             # The bookkeeping sentences _summary discards ("The advisory level
             # was decreased to 1") are exactly the change signal — captured
             # here with the item's publish date so the UI can show what moved.
@@ -534,13 +529,15 @@ def _names(sentence, iso, name_iso):
     return any(i == iso for _, i in hits), any(i != iso for _, i in hits)
 
 
-def _sentences(desc):
+def _sentences(desc, titles=None):
     """The advisory description as plain-text sentences, in order, before
     _summary picks from them: markup gone, section titles dropped, and a
     block (paragraph, list item, heading, line break, list, <div>) that ends
     without punctuation ending its sentence. One ending in a colon runs on
     into the list it opens ("Do not travel to: …"). The tests read every
-    recorded advisory through it, so no title is glued onto a sentence."""
+    recorded advisory through it, so no title is glued onto a sentence.
+    Given a list as `titles`, each title it drops is added to it as
+    (where its markup starts in the description, the title), for _titles."""
     if not desc:
         return []
     text = re.sub(r"<!\[CDATA\[|\]\]>", "", desc)
@@ -552,6 +549,7 @@ def _sentences(desc):
     #    in a <span>) or run into the text ("<b>Crime<br></b>Violent crime..."),
     #    read as "Crime Violent crime..." once tags were stripped. Dropped.
     text = re.sub(r"<p>\s*<b>\s*<i>(.*?)</i>\s*</b>\s*</p>", " \\1 \x01 ", text, flags=re.I | re.S)
+    marked = text           # where each title's markup sits, for `titles`
     # What a bold line, a styled heading or a heading tag holds:
     #  * "lead": a level lead (a bold "Do not travel to Belarus due to:" is
     #    the lead, not a heading), kept as it is;
@@ -590,13 +588,22 @@ def _sentences(desc):
         if says or (stop and states) or (len(t.split()) > 6 and (stop or states)):
             return "sentence"
         return "title"
+    def dropped(m, t):
+        # Each pattern below only rewrites what it matches, so a title's
+        # markup is still found as it was; one that isn't (a match spanning
+        # an earlier cut) goes last.
+        t = " ".join(html.unescape(t).split()).rstrip(" :.")
+        if titles is not None and t and "\x01" not in t:
+            at = marked.find(m.group(0))
+            titles.append((at if at >= 0 else len(marked), t))
+        return " \x01 "
     def heading(m):
         t = m.group(1).strip()
         if not html.unescape(t).strip():
             return m.group(0)       # a styled span holding only a line break is no title
         k = kind(t)
         if k == "title":
-            return " \x01 "
+            return dropped(m, t)
         if k != "sentence" or re.search(r"[.!?]\s*$", t):
             return m.group(0)
         return " " + t.rstrip(":;, ") + ". "
@@ -636,7 +643,7 @@ def _sentences(desc):
         t = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", inner)).split())
         if "\x01" in inner or kind(t) != "title":
             return " \x01 <p>%s</p> " % inner
-        return " \x01 "
+        return dropped(m, t)
     text = re.sub(r"<(h[1-6])\b[^>]*>(.*?)</\1\s*>", heading_tag, text, flags=re.I | re.S)
     INL = r"</?(?:span|b|i|em|strong|u|a|font)\b[^>]*>"
     # A list's lead-in on its own ("If you decide to travel to Tonga:" over a
@@ -688,6 +695,14 @@ def _sentences(desc):
     parts = [re.sub(r"^[\s:;,.]+", "", p.replace("U\x00S\x00", "U.S."))
              for p in re.split(r"(?<=[.!?])\s+|\s*\x01\s*", text)]
     return [p for p in parts if p.strip()]
+
+
+def _titles(desc):
+    """The section titles ("Crime", "Armed Conflict") _sentences drops from an
+    advisory, in the order the advisory gives them."""
+    found = []
+    _sentences(desc, titles=found)
+    return [t for _, t in sorted(found, key=lambda f: f[0])]
 
 
 def _summary(desc, level=None, iso=None, name_iso=None, full=False, any_level=False):
@@ -850,7 +865,7 @@ RISK_WORDS = [
 ]
 
 
-def _risks(lead, level=None):
+def _risks(lead, level=None, sentences=True):
     """['Crime', 'Terrorism', …] from the lead's "due to" clauses, or [].
 
     Every clause counts (Hong Kong's first one arrived as "a rbitrary"), but
@@ -859,7 +874,8 @@ def _risks(lead, level=None):
     and landmines" is one region's reasons, not the country's. An advisory
     above Level 1 that gives no "due to" still names its dangers in its
     opening lines (Uganda: "Violent crime is a real danger"), so those are
-    read instead — never at Level 1, where general tips would become risks."""
+    read instead — never at Level 1, where general tips would become risks —
+    unless `sentences` is off (see _item_risks)."""
     text = (lead or "").replace("U.S.", "US")
     sents = re.split(r"(?<=[.!?])\s+", text)
     # Reasons come from the advisory's own level sentences ("Exercise…",
@@ -878,6 +894,8 @@ def _risks(lead, level=None):
     clauses = [listed.group(1)] if listed else []
     clauses += re.findall(r"\bdue to(?!:)\s+(.+?)(?:\.(?=\s|$)|$)", text, re.I | re.S)
     fallback = not clauses and (level or 0) >= 2
+    if fallback and not sentences:
+        return []
     if fallback:
         clauses = [full_text]
     clause = " / ".join(clauses)
@@ -886,6 +904,45 @@ def _risks(lead, level=None):
     # Not "Other" in the fallback, which reads whole sentences rather than a
     # list of reasons.
     return label_reasons(clause, other=not fallback)
+
+
+def _title_risks(desc, level=None):
+    """['Crime', 'Terrorism', …] from the advisory's section titles, or [].
+
+    Above Level 1 the feed's template gives each risk a section of its own
+    ("<h5><b>Crime</b></h5>", "Armed Conflict"), and those titles are the
+    reasons when the lead names none: Mali's "Do not travel to Mali for any
+    reason." has no "due to", but its sections are Crime, Terrorism,
+    Kidnapping, Unrest, Armed Conflict and Health. A title is a reason only
+    when the risk vocabulary has a word for it ("Air Travel" and "U.S.
+    government employee travel restrictions" are not), so no "Other". Never
+    at Level 1, whose titles are general tips ("Soufrière Hills volcano",
+    "State of Exception")."""
+    if (level or 0) < 2:
+        return []
+    return label_reasons(" / ".join(_titles(desc)), other=False)
+
+
+def _item_risks(desc, level, iso, name_iso):
+    """A US row's risks, from the first of:
+      * the "due to" of the lead naming the place (any level, see _summary);
+      * the "due to" of a lead naming no place: Afghanistan's "Do not travel
+        to Afghanistan for any reason" beside "Do not travel due to civil
+        unrest, crime…". No ISO names that one first;
+      * the section titles (_title_risks), the advisory's own list of its
+        risks: they come before the sentences read for a lead with no "due
+        to", which named only Crime for Liberia ("Exercise increased caution"
+        and then "Violent crime… are common"), whose sections are Crime,
+        Unrest and Health, and nothing for Mali;
+      * those sentences, first the lead naming the place's, then the other's
+        (see _risks)."""
+    own = _summary(desc, level, iso, name_iso, full=True, any_level=True)
+    found = _risks(own, level, sentences=False)
+    if found:
+        return found
+    placeless = _summary(desc, level, "", name_iso, full=True)
+    return (_risks(placeless, level, sentences=False) or _title_risks(desc, level)
+            or _risks(own, level) or _risks(placeless, level))
 
 
 def label_reasons(clause, other=True):
