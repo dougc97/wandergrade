@@ -1749,6 +1749,100 @@ document.addEventListener("fullscreenchange", () => {
   if (!document.fullscreenElement && mapFs && mapFs.real) closeMapFullscreen();
 });
 
+// ---- the postcard: a country at a glance -----------------------------------
+// One look at a country without leaving the page. A Top Picks or Hidden gems
+// row opens it under itself (togglePostcard), and every map's country card is
+// one (renderCountryCard), so a country looks the same wherever it opens: its
+// lead photo, its one line (activities' summary) and three facts the row
+// doesn't show, then Full guide → and 🧳 Add to trip. The facts:
+//   💰 prices in Top Picks' own words against the reader's home (aiPriceWords:
+//      plPhrase vs plAnchor, the US where home can't be priced, and round
+//      10's wording with live rates out: never "no figure for Germany");
+//   🛂 entry for the reader's passport, VISA_META's label;
+//   📅 the best months (the guide's own), or 🧳 how many days a first visit
+//      is worth on a row that already names a month: an "Any time" row's
+//      "Best in" chip or a "🗓️ Best in" tag. Two month facts side by side
+//      read as if they disagreed (seasonalTags' flex rule, for the same reason).
+// A map card adds the fact its map is about (opts.mapFact: mapFactFor), last.
+// A fact whose data is still on its way holds its place (pending, "…") and
+// fills in place; opts.settled: the loads are done, so a fact with nothing to
+// say is left out rather than held.
+function postcardFacts(iso, opts) {
+  opts = opts || {};
+  const home = guidePassport(), plIso = GUIDE_PARENT[iso] || iso, out = [];
+  const add = (k, html, pending) => out.push({ k, html, pending: !!pending });
+  const wait = (k, glyph) => { if (!opts.settled) add(k, glyph + " …", true); };
+  // Live rates out for good (ratesDown) is not "on its way": what can be
+  // priced without them is, the rest is left out.
+  if (!ppp || (!lastRates && !ratesDown)) wait("price", "💰");
+  else if (plIso === home) add("price", "💰 home prices");
+  else {
+    const words = aiPriceWords(iso, plAnchor(home).name);
+    if (words) add("price", "💰 " + esc(words));
+  }
+  if ((GUIDE_PARENT[iso] || iso) === home) add("visa", "🛂 your home country");
+  else if (!(home === "US" ? visa : visaMatrix)) wait("visa", "🛂");
+  else {
+    const v = visaInfo(iso, home);
+    if (v && v.home) add("visa", "🛂 your home country");
+    else if (v) add("visa", "🛂 " + esc(v.meta.label));
+  }
+  if (opts.rowHasMonth) {
+    const a = activities && activities[iso];
+    if (!activities) wait("days", "🧳");
+    else if (a && a.days) add("days", `🧳 worth ${a.days[0]}–${a.days[1]} days`);
+  } else {
+    const best = climate && climate[iso] && (climate[iso].best || []).filter((m) => m >= 1 && m <= 12);
+    if (!climate) wait("months", "📅");
+    else if (best && best.length) add("months", "📅 " + esc(monthSpan(best)));
+  }
+  if (opts.mapFact) add("map", opts.mapFact);
+  return out;
+}
+// The facts' one ⓘ: what each says and where it comes from.
+function postcardTip(iso, facts) {
+  const home = guidePassport(), has = (k) => facts.some((f) => f.k === k && !f.pending);
+  const t = [];
+  if (has("price")) t.push("💰 What a local basket costs against the same basket "
+    + (plAnchor(home).home ? "at home" : "in the US") + ": a national average, and tourist areas run higher.");
+  if (has("visa") && (GUIDE_PARENT[iso] || iso) !== home) {
+    const when = visaVerified(home);
+    t.push("🛂 Entry for a " + passportLabel(home) + (when ? ", as checked in " + when : "") + ". Confirm before you book.");
+  }
+  if (has("months")) t.push(climate && climate[iso] && climate[iso].curated
+    ? "📅 The best months to go, judged on weather and seasonality." : "📅 The months with the best weather.");
+  if (has("days")) t.push("🧳 How many days a first visit is worth.");
+  return t.join("\n");
+}
+// The postcard's markup. o: { rowHasMonth, mapFact, photo: {src, srcset, alt,
+// credit: {text, href}} | null, inTrip, secondary, settled }. secondary: a map
+// card, which names its country (there is no row above it) and keeps the
+// Wander List's ✓ Been / ★ Want to go (a row's postcard has just the two
+// buttons). The photo box has its size before the photo comes (styles.css
+// .pcphoto); without one it shows the flag on a tint.
+function postcardHTML(iso, o) {
+  o = o || {};
+  const name = countryName(iso), act = activities && activities[iso];
+  const facts = postcardFacts(iso, o), ph = o.photo;
+  const photo = `<div class="pcphoto"><span class="pcflag" aria-hidden="true">${flagEmoji(iso)}</span>`
+    + (ph ? `<img class="pcimg" src="${esc(ph.src)}"${ph.srcset ? ` srcset="${esc(ph.srcset)}"` : ""} alt="${esc(ph.alt)}" decoding="async">`
+      + (ph.credit ? `<a class="pccredit tiplink" href="${esc(ph.credit.href)}" target="_blank" rel="noopener" aria-label="Photo credit" data-tip="${esc(ph.credit.text)}" title="">ⓘ</a>` : "")
+      : "")
+    + "</div>";
+  const vis = o.secondary && isVisited(iso), wish = o.secondary && loadWishlist().has(iso);
+  const tip = postcardTip(iso, facts);
+  return `<div class="postcard${o.secondary ? " pcmap" : ""}" role="group" aria-label="${esc(name)}: quick look">${photo}
+    <div class="pcbody">
+      ${o.secondary ? `<h3 class="pcname"><span aria-hidden="true">${flagEmoji(iso)}</span> ${esc(name)}${vis ? ' <span class="visited-tag">✓ visited</span>' : ""}</h3>` : ""}
+      <p class="pcline">${act && act.summary ? esc(act.summary) : ""}</p>
+      <p class="pcfacts">${facts.map((f) => `<span class="pcfact${f.pending ? " pcpend" : ""}" data-k="${f.k}">${f.html}</span>`).join('<span class="pcsep" aria-hidden="true"> · </span>')}</p>
+      <div class="pcbtns"><a class="pcbtn pcguide" href="${esc(guidePath(iso))}" data-cc="todo" aria-label="${esc("Full guide to " + countryNameInText(iso))}">Full guide →</a><button type="button" class="pcbtn pctrip${o.inTrip ? " on" : ""}" data-cc="trip">${o.inTrip ? "✓ On your trip" : "🧳 Add to trip"}</button>${o.secondary
+        ? `<button type="button" class="pcbtn2${vis ? " on" : ""}" data-cc="visit" aria-pressed="${vis}">✓ Been</button><button type="button" class="pcbtn2${wish ? " on" : ""}" data-cc="wish" aria-pressed="${wish}">★ Want to go</button>` : ""}${tip
+        ? `<span class="muted pcinfo" data-tip="${esc(tip)}" title="">ⓘ</span>` : ""}</div>
+    </div>
+    <button type="button" class="pcclose" aria-label="Close the quick look">✕</button></div>`;
+}
+
 // ---- tap-for-detail country card -------------------------------------------
 let ccCurrent = null;   // { iso, host } of the open card
 
