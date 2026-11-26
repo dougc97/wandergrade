@@ -844,10 +844,30 @@ let _ratesSeq = 0, _ratesRiskWait = false, _ratesRiskDone = false;
 // Whether the Currency view knows which rows the risk filter hides: its
 // summary count and the map's gains list wait for it (the stand-ins hold).
 const ratesRiskKnown = () => showRisky || !!advisories || _ratesRiskDone;
-async function loadRates() {
+// The USD rates that failed (lastRates still null) are asked for again,
+// quietly: RATES_RETRY_MS[0] after the failure, then [1] after that one
+// fails, and so on. A dropped request or a Cloudflare or Render blip is over
+// in seconds. A cold server whose rate provider is down answers every
+// request with the same remembered error for 30 s (server.py FAIL_RETRY), so
+// the last try waits past that. Nothing says so until RATES_QUIET retries
+// have failed: Top Picks keeps its first paint (renderValue) and the Data
+// table its Loading row. Then Top Picks says the rates are out (ratesDown,
+// renderRatesDown) instead of ranking the few places priced in US dollars as
+// if they were the list, and a success after that draws everything that
+// waited on the rates (ratesLanded), whichever request brought them.
+// retry: "auto" (one of these tries) or "manual" (the notice's Try again).
+// Try again runs the pending try now; failing, it puts that try back, so a
+// press while the server still repeats its failure can't cancel the one try
+// that would get past it.
+const RATES_RETRY_MS = [2000, 6000, 30000], RATES_QUIET = 2;
+// _ratesTry: the quiet tries fired; _ratesOwed: drawn without the rates (a
+// USD fetch failed), so their landing draws again; _ratesSaid: the failure
+// said (once, with the Data table's Loading row let go).
+let _ratesTry = 0, _ratesRetryT = 0, _ratesOwed = false, _ratesSaid = false, ratesDown = false;
+async function loadRates(retry) {
   // Quiet: a polite live region would otherwise read this out on every load.
-  status("Fetching rates…", "", false, true);
-  const base = homeBase, seq = ++_ratesSeq;
+  if (!retry) status("Fetching rates…", "", false, true);
+  const base = homeBase, seq = ++_ratesSeq, had = !!lastRates;
   try {
     // Top Picks scoring always needs the USD dataset, even when the data tab
     // is viewing the world through another home currency.
@@ -857,12 +877,62 @@ async function loadRates() {
     if (seq !== _ratesSeq) return;
     // The currency moved without a newer request (setHomeCur skips its refetch
     // until the first rates land): fetch again for the current one.
-    if (base !== homeBase) return loadRates();
+    if (base !== homeBase) return loadRates(retry);
     renderRates(data);
-    status("");
+    if (!retry || /^Could not load rates/.test($("status").textContent)) status("");
   } catch (e) {
-    if (seq === _ratesSeq) { status("Could not load rates: " + e.message, "err"); dropLoadingRow("rows"); }
+    // The USD rates' failure is said once the quiet retries have failed, or
+    // at a Try again (each one: a sign it ran).
+    if (seq === _ratesSeq && (had || lastRates || retry === "manual" || (!_ratesSaid && _ratesTry >= RATES_QUIET))) {
+      _ratesSaid = true;
+      status("Could not load rates: " + e.message, "err"); dropLoadingRow("rows");
+    }
+  } finally {
+    // The newest request settles (_ratesSeq): one re-sent above, or sent by a
+    // currency switch, draws the landing this one brought (_ratesOwed).
+    if (seq === _ratesSeq && (!had || _ratesOwed)) ratesSettled(retry);
   }
+}
+function ratesSettled(retry) {
+  if (lastRates) {
+    clearTimeout(_ratesRetryT); _ratesRetryT = 0;
+    if (_ratesOwed) { _ratesOwed = false; ratesLanded(); }
+    return;
+  }
+  _ratesOwed = true;
+  if (!_ratesRetryT && _ratesTry < RATES_RETRY_MS.length) {
+    const n = _ratesTry;
+    _ratesRetryT = setTimeout(() => { _ratesRetryT = 0; _ratesTry = n + 1; loadRates("auto"); }, RATES_RETRY_MS[n]);
+  }
+  if (_ratesTry >= RATES_QUIET && !ratesDown) { ratesDown = true; if (loaded.value) renderValue(); }
+  else if (retry === "manual" && loaded.value) renderValue();   // Try again failed: its button back
+}
+// The notice's Try again. aria-disabled, not disabled, while it runs: a
+// disabled button drops the keyboard focus to <body>.
+function retryRates() {
+  const b = $("ratesRetry");
+  if (b) { if (b.getAttribute("aria-disabled") === "true") return; b.setAttribute("aria-disabled", "true"); }
+  clearTimeout(_ratesRetryT); _ratesRetryT = 0;
+  loadRates("manual");
+}
+// The rates in after a failure: whatever was drawn without them, again. The
+// keyboard focus on Try again (gone with the notice) goes to the list's first
+// country, as Help me choose's does (_returnTo), not to <body>: once the
+// redraws this sets off are done (setHomeCur's runs a microtask later).
+function ratesLanded() {
+  ratesDown = false;
+  const tv = $("tab-value"), b = $("ratesRetry"), focused = !!b && document.activeElement === b;
+  if (tv) tv.removeAttribute("data-ratesdown");
+  if (loaded.value) { initHomeCur(); renderValue(); }
+  if (focused) setTimeout(() => {
+    const a = document.querySelector("#topCards a.destlink"), f = document.activeElement;
+    if (a && (!f || f === document.body)) a.focus({ preventScroll: true });
+  }, 0);
+  if (loaded.afford) renderAfford();
+  if (loaded.flights && flightsData) renderFlights();
+  if (loaded.trip) { renderTripBar(); refreshTripPrompt(); }
+  if (ccCurrent) renderCountryCard();
+  if (ccGuideIso) { renderGuideCost(ccGuideIso); renderGuideGrades(ccGuideIso); renderGuideFares(ccGuideIso); refreshGuidePrompt(); }
 }
 
 // A Data table's "Loading…" row holds two screens of room for the rows on
@@ -9501,9 +9571,16 @@ function renderValue() {
   // Trip tab's month, a row with no month of its own).
   const flex = picksFlex();
   const win = flex ? flexWindow() : null;
+  // No USD rates: only places priced in US dollars could be graded, and that
+  // handful must never stand in for the ranking. While the quiet retries run
+  // (loadRates) the first paint stays, unless the visitor changed the ranking
+  // (endsFirstHold: a value, or a Top Picks control; opening the tab is not);
+  // after them, or then, the tables say the rates are out (renderRatesDown).
+  const down = !lastRates;
+  if (down && !ratesDown && firstPaintOnScreen() && !endsFirstHold(window.event)) return;
   // The served rows and note stay while held (holdServedPicks), and so does
   // the skeleton on a first paint whose data is still coming (holdFirstPicks).
-  const held = holdServedPicks(flex, win || []) || holdFirstPicks();
+  const held = !down && (holdServedPicks(flex, win || []) || holdFirstPicks());
   // win[0], not travelMonth(): that is the month of a row the reader opened
   // (flexFocusMonth), and the ranking is of the window, whichever row it was.
   const month = flex ? win[0] : travelMonth();
@@ -9529,7 +9606,7 @@ function renderValue() {
   // that moves banded routes only.
   const fits = flex && budgetOf().total ? passesBudget : null;
   const ownFare = (s) => s.flyBasis === "month";
-  for (const iso in CUR_BY_ISO) {
+  for (const iso in (down ? {} : CUR_BY_ISO)) {
     if (region !== "all" && ISO_REGION[iso] !== region) continue;
     if (!flex) {
       const s = valueScores(iso, month, advMap, fares, anchorPl);
@@ -9573,8 +9650,17 @@ function renderValue() {
   // says of what): the key then fits one row under the title in a half-width
   // card, where "Lower value … your top picks" wrapped to two.
   // The markup's invisible copy of this key (index.html) held its room until now.
-  if (vLeg) { vLeg.classList.remove("skel"); vLeg.removeAttribute("aria-hidden"); }
-  if (vLeg) vLeg.innerHTML = valueMapMode === "weather"
+  // Without the rates the value map isn't drawn (mapOut), and the copy stays.
+  // The weather map needs no rates: drawn as ever, its ranked countries' own
+  // months aside (there are none), each country on its comfiest month.
+  const mapOut = down && !(valueMapMode === "weather" && climate);
+  // Nor is there a map image to share then: its 📸 keeps its room unseen
+  // (styles.css #tab-value[data-mapout]), back the moment a map is drawn.
+  const tvEl = $("tab-value");
+  if (tvEl && mapOut) tvEl.setAttribute("data-mapout", "");
+  else if (tvEl) tvEl.removeAttribute("data-mapout");
+  if (vLeg && !mapOut) { vLeg.classList.remove("skel"); vLeg.removeAttribute("aria-hidden"); }
+  if (vLeg && !mapOut) vLeg.innerHTML = valueMapMode === "weather"
     ? '<span>Harsh</span><span class="scale"></span><span>Comfortable</span>'
       + '<span><span class="swatch"></span>No data</span>'
     : '<span>Lower</span><span class="scale"></span><span>Higher</span>'
@@ -9608,6 +9694,10 @@ function renderValue() {
         title: c ? `${c.name}: ${s == null ? "n/a" : s + "/100"} weather comfort in ${MONTHS[m - 1]}`
                  : f.properties.name + " — no data" };
     }, "Weather comfort by month");
+  } else if (mapOut) {
+    // As the Data tab's maps say it when their data failed (dropLoadingRow);
+    // the box keeps the map's shape (styles.css .map:not(:has(svg))).
+    $("valueMap").textContent = "Couldn't load";
   } else {
     drawMap("valueMap", (f) => {
       const s = scored[f.properties.iso];
@@ -9618,6 +9708,7 @@ function renderValue() {
       return { fill: NODATA, title: f.properties.name + " — " + notScoredReason(f.properties.iso) };
     }, "Best value destinations");
   }
+  if (down) { renderRatesDown(); return; }
 
   // The viewer's OWN been-list: while a shared map is open, `visited` holds the
   // sharer's countries, and Top Picks was hiding those as "you've been".
@@ -9831,13 +9922,63 @@ function renderValue() {
       ${td("safety", safe)}${td("weather", wx)}${td("flight", fly)}
       <td class="num ovcell${hot === "value" ? " sorted" : ""}"><span class="gr ${gradeCls(grade(s.value))}" title="${esc(`Overall ${grade(s.value)} · ${s.value}/100`)}">${s.value}</span></td></tr>`;
   }).join("") || '<tr><td colspan="7">No data for this region.</td></tr>';
-  // A factor Count leaves out weighs nothing; its row says so instead of
-  // showing a level the scorer isn't using.
+  markOffFactors(W);
+  syncURL();
+}
+// A factor Count leaves out weighs nothing; its row says so instead of
+// showing a level the scorer isn't using.
+function markOffFactors(W) {
   document.querySelectorAll("#weightRows .prirow").forEach((r) => {
     const off = !W[r.dataset.w];
     r.classList.toggle("off", off);
     r.title = off ? "Not counted — turn it back on under Count" : "";
   });
+}
+
+// Top Picks with the USD rates out after the quiet retries (loadRates,
+// renderValue): one line where the list goes, held at the height of what it
+// replaces (the skeleton or the served rows, which the list itself takes
+// too), so nothing under it moves now or when the list comes; a Try again;
+// the why in its ⓘ. The note above it and the share button keep their room
+// unseen (styles.css #tab-value[data-ratesdown]); the gems fold and the full
+// ranking say it in their own one line.
+const RATES_DOWN = "Live exchange rates didn't load.";
+const RATES_DOWN_TIP = "Every grade prices a country at today's exchange rate. Without it only places"
+  + " that use the US dollar could be priced, and a ranking of those few would leave out most of the world.";
+function renderRatesDown() {
+  const top = $("topCards"), tv = $("tab-value");
+  // A hidden tab has no height to hold: what is there stays until it shows
+  // (activateTab draws it then). The served rows' hold ends all the same:
+  // its 250 ms tick would otherwise draw again and again until then.
+  if (top && tv && tv.hidden && !top.querySelector(".ratesdown")) {
+    if (servedPicks) releaseServedPicks();
+    return;
+  }
+  if (top) {
+    const was = top.querySelector(".ratesdown"), wasBtn = was && $("ratesRetry");
+    servedOnScreen = false;
+    releaseServedPicks();
+    _firstHold.done = true;
+    // Already up (a Try again that failed, any other redraw): the same line
+    // stays, its button usable again, and the keyboard focus on it with it.
+    if (wasBtn) wasBtn.removeAttribute("aria-disabled");
+    else {
+      const h = was ? parseInt(was.style.minHeight, 10) : Math.round(top.getBoundingClientRect().height);
+      top.innerHTML = '<div class="ratesdown"' + (h > 0 ? ' style="min-height:' + h + 'px"' : "") + "><p>"
+        + esc(RATES_DOWN) + ' <button type="button" class="linkbtn" id="ratesRetry">Try again</button>'
+        + ' <span class="muted" data-tip="' + esc(RATES_DOWN_TIP) + '" title="">ⓘ</span></p></div>';
+      const b = $("ratesRetry");
+      if (b) b.onclick = retryRates;
+    }
+  }
+  if (tv) tv.setAttribute("data-ratesdown", "");
+  const sm = $("showMore");
+  if (sm) sm.hidden = true;
+  const gr = $("gemRows");
+  if (gr) gr.innerHTML = "<p class='hint'>" + esc(RATES_DOWN) + "</p>";
+  const vr = $("valueRows");
+  if (vr) vr.innerHTML = '<tr><td colspan="7">' + esc(RATES_DOWN) + "</td></tr>";
+  markOffFactors(loadWeights());
   syncURL();
 }
 

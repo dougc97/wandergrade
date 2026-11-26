@@ -1637,6 +1637,17 @@ html[data-vb] #gemsBox, html[data-vb="empty"] #topCards > table.skeleton { displ
 /* One unit: at 375 the count was left at a line's end ("Hidden gems. 11")
    with "you've been to hidden · show" on the next. */
 .beennote { white-space: nowrap; }
+/* Top Picks with the live rates out (app.js renderRatesDown): the line sits
+   in the middle of the room the list takes (its min-height, inline); the
+   note, the share buttons and the gems' 🎲 keep their room unseen (the
+   map's 📸 while the value map isn't drawn: data-mapout). */
+.ratesdown { display: flex; align-items: center; justify-content: center; text-align: center; }
+.ratesdown p { margin: 0; padding: 12px; color: var(--gray); font-size: 14px; }
+.ratesdown .linkbtn { color: var(--green); font-weight: 600; text-decoration: none; padding: 6px 4px; }
+.ratesdown .linkbtn:hover { text-decoration: underline; }
+.ratesdown .linkbtn[aria-disabled="true"] { opacity: .5; cursor: default; text-decoration: none; }
+#tab-value[data-ratesdown] #picksNote, #tab-value[data-ratesdown] #rankShare,
+#tab-value[data-ratesdown] #gemSurprise, #tab-value[data-mapout] #valueShare { visibility: hidden; }
 /* Guide jump chips. */
 .guidejump { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 14px; }
 .guidejump button { border: 1px solid var(--line); background: var(--card2); border-radius: 999px;
