@@ -24,7 +24,10 @@ What it holds the code to:
     here), 330px with a 500px 2x, Wikimedia's thumbnail steps only (an
     unscaled original too), alt naming the place, a credit linking the file
     page; one lookup per country (the same promise), a failed or empty one
-    resolves null and is asked again on the next open.
+    resolves null and is asked again on the next open;
+  * the grade tables' click (pcRowClick): a row, a badge or the name opens
+    the postcard; cmd/ctrl/shift/middle on the name is left to the browser.
+    scripts/dev/postcard_check.mjs drives the rest in headless Chrome.
 """
 import html, json, os, re, subprocess, sys, tempfile
 
@@ -80,6 +83,11 @@ activities = FIX.activities;
 const MF = "💱 JPY: your USD +1.2% vs 1-yr avg after inflation";
 T("h", () => postcardFacts("JP", { rowHasMonth: false, mapFact: MF }));
 T("h_html", () => card("JP", { mapFact: MF, secondary: true }));
+// The grade tables' click delegate: what a click on a row does.
+T("click", () => [
+  pcRowClick({ row: true, link: false, mods: false }), pcRowClick({ row: true, link: true, mods: false }),
+  pcRowClick({ row: true, link: true, mods: true }), pcRowClick({ row: true, link: false, mods: true }),
+  pcRowClick({ row: false, link: true, mods: false })]);
 // Live rates out (round 10): a German reader can't be priced today, nor can Japan.
 lastRates = null; ratesDown = true; setOrigin("DE");
 T("r_jp", () => postcardFacts("JP", { rowHasMonth: false, mapFact: null }));
@@ -215,6 +223,11 @@ hh = S("h_html")
 results.append(ok("✓ Been" in txt(hh) and "★ Want to go" in txt(hh) and "Full guide →" in txt(hh) and "Add to trip" in txt(hh),
                   "secondary: ✓ Been and ★ Want to go beside the two buttons"))
 results.append(ok("Japan" in txt(hh), "a map card names its country"))
+
+# The delegate's decision
+results.append(ok(js.get("click") == ["toggle", "toggle", "browser", "toggle", ""],
+                  "a row or its name toggles the postcard; cmd/ctrl/shift/middle on the name is the browser's; "
+                  "outside the grade tables, not ours (%s)" % js.get("click")))
 
 # Live rates out
 rj, rec = js.get("r_jp"), js.get("r_ec")
