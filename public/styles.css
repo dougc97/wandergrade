@@ -1554,7 +1554,6 @@ html[data-theme="dark"] .fvband.high { background: #3a151c; }
 /* Travel Guide "Where to stay" Stay22 map. */
 .guidestay { margin-top: 20px; }
 .staytitle { font-size: 18px; font-weight: 800; margin: 0 0 8px; }
-.staynear { font-weight: 400; font-size: 14px; color: var(--gray); }
 /* Compact stay-provider buttons (replaced the embedded Stay22 map). */
 .staychips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
 .staychip { border: 1px solid var(--line); background: var(--card2); border-radius: 999px;
@@ -1566,6 +1565,28 @@ html[data-theme="dark"] .fvband.high { background: #3a151c; }
   font-size: 13.5px; font-weight: 600; color: var(--ink); text-decoration: none; background: var(--card2); }
 .staybtn:hover { border-color: var(--green); color: var(--green); }
 .staybtn .ext { font-size: 11px; opacity: .6; }
+/* Booking.com and Vrbo name the spot they search ("🏨 Booking.com · Osaka
+   ↗", renderGuideStay). The place is its own span, cut with an ellipsis when
+   its row is too narrow; its full name is in the chip above, the span's
+   title and the link's name. Each button is at least 19em (Booking.com) or
+   13em (Vrbo) wide and grows up to its place's length: the rows wrap on
+   those widths, never on the name, so a chip tap can't add or drop a row,
+   and the server's stand-in (guide_sizers.stay), the same spans, wraps the
+   same. Measured on all 772 place names: 19em keeps Booking.com on a row
+   of its own on a phone (room for 98% of names at 390; beside Hostelworld
+   it had room for a third), and 13em lets Vrbo share the next row with
+   Hostelworld from 360px; at 1280 Booking.com and Vrbo share a row and
+   Hostelworld goes under them (beside them, room for three names in five). */
+.staybtn.stayto { display: inline-flex; justify-content: center; align-items: baseline; white-space: nowrap;
+  flex: 1 0 19em; min-width: 19em; min-width: min(19em, 100%); max-width: max-content; }
+.staybtn.stayvr { flex-basis: 13em; min-width: 13em; min-width: min(13em, 100%); }
+.stayto > * { flex: none; }
+/* position: the screen-reader words inside the place (" (opens in a new tab)")
+   are an absolute 1px box at the end of the whole name, which a cut name put
+   past the page's edge: Guam's longest scrolled a phone sideways 23px. */
+.stayto .stayat { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; position: relative; }
+.stayto .staysep { padding: 0 .3em; }
+.stayto .ext { margin-left: .3em; }
 /* Server-rendered guide content shown until app.js hydrates the interactive
    guide (then removed). Kept legible so first paint / no-JS reads cleanly. */
 /* The SSR block below is real, visible content that renderGuide() deletes on
@@ -3120,6 +3141,9 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 #bestDetail.loading { min-height: 222px; }
 #tab-guide[data-hz="1"] #bestDetail.loading { min-height: 247px; }
 #tab-guide[data-hz="2"] #bestDetail.loading { min-height: 272px; }
+/* The stays' medians of the 162 guides that have them (2026-11, buttons
+   naming their spot): 115 at 768, two rows of buttons on a phone (199), and
+   from 900px Booking.com and Vrbo above Hostelworld for most (160). */
 #guideStay:empty { min-height: 115px; }
 #guideInsurance:empty { min-height: 67px; }
 @media (max-width: 560px) {
@@ -3129,7 +3153,7 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
   #bestDetail.loading { min-height: 302px; }
   #tab-guide[data-hz="1"] #bestDetail.loading { min-height: 328px; }
   #tab-guide[data-hz="2"] #bestDetail.loading { min-height: 353px; }
-  #guideStay:empty { min-height: 154px; }
+  #guideStay:empty { min-height: 199px; }
   #guideInsurance:empty { min-height: 84px; }
 }
 /* The fare column's blocks (fares by month, FX) fill from two fetches in
@@ -3166,7 +3190,8 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
    chart | fare column. The advisory is held at its row's usual height (the
    stays and insurance set it unless the advisory runs longer), and the
    half-width column wraps more below ~1150px: the visa line takes two lines
-   up to ~1060, the stays up to ~1000, the insurance note up to ~1150. */
+   up to ~1060, the insurance note up to ~1150 (the stays' buttons take two
+   rows from 900px wherever Vrbo has one, at every width). */
 @media (min-width: 900px) {
   #guideSafety:is(:empty, .filling) { min-height: 228px; }
   #tab-guide[data-hz="1"] #bestDetail.loading { min-height: 266px; }
@@ -3180,8 +3205,8 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 @media (min-width: 900px) and (max-width: 1059px) {
   #guideVisa:empty { min-height: 60px; }
 }
-@media (min-width: 900px) and (max-width: 999px) {
-  #guideStay:empty { min-height: 154px; }
+@media (min-width: 900px) {
+  #guideStay:empty { min-height: 160px; }
 }
 /* The advisory block runs with its level (data-level, the server's snapshot
    of it): at Level 1 it is mostly the badge and its links (133px at 768, 211

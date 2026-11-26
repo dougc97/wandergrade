@@ -15,12 +15,14 @@ the network or a server process.
   * the served stays stand-in has the button exactly where vrbo() says;
   * renderGuideStay under jsc (its page stubbed) draws the same buttons in
     the same order as the stand-in (Booking.com, Vrbo, Hostelworld, the
-    Philippines and Sri Lanka too; no Vrbo for Japan, Kenya or Greenland), and the Vrbo link is
+    Philippines and Sri Lanka too; no Vrbo for Japan, Kenya or Greenland),
+    Booking.com and Vrbo each naming the first spot, and the Vrbo link is
     https://www.stay22.com/allez/vrbo with aid=wandergrade, the chosen
     spot's lat and lng and the stay's checkin and checkout — Booking's own
     query — opened sponsored in a new tab;
   * the Trip tab keeps its single Booking.com Stays link.
 """
+import html
 import json
 import os
 import re
@@ -91,13 +93,36 @@ guides = sorted(set(slugs.values()))
 print("        %d of %d guides get Vrbo" % (sum(py[i] for i in guides), len(guides)))
 
 # --- the stand-in ------------------------------------------------------------------
-LABELS = re.compile(r'<a class="staybtn"[^>]*>(.*?) <span class="ext">')
+BTN = re.compile(r'<a class="staybtn(?: [^"]*)?"[^>]*>(.*?)</a>', re.S)
+
+
+def buttons(h):
+    """(label, place) per stay button as a reader sees it: "🏨 Booking.com"
+    and the spot a named button searches ("Lisbon"), or None (Hostelworld,
+    the country). The screen-reader words (.vh) are left out."""
+    out = []
+    for inner in BTN.findall(h):
+        vis = re.sub(r'<span class="vh">.*?</span>', "", inner)
+        place = re.search(r'<span class="stayat"[^>]*>(.*?)</span>', vis)
+        label = vis.split('<span class="staysep"')[0] if place else vis.split(' <span class="ext">')[0]
+        out.append((html.unescape(re.sub(r"<[^>]+>", "", label)).strip(),
+                    html.unescape(place.group(1)) if place else None))
+    return out
+
+
+def first(iso):
+    return [s for s in coords[iso] if s.get("ll") and s.get("n")][0]["n"] if isinstance(coords[iso], list) else coords[iso]["near"]
+
+
 wrong = []
 for iso in sorted(coords):
     h = guide_sizers.stay(iso)
-    if h and (("🏡 Vrbo" in h) is not py[iso] or LABELS.findall(h)[0] != "🏨 Booking.com"):
+    b = buttons(h)
+    if h and (any(x[0] == "🏡 Vrbo" for x in b) is not py[iso] or b[0] != ("🏨 Booking.com", first(iso))
+              or (py[iso] and b[1] != ("🏡 Vrbo", first(iso))) or b[-1] != ("🎒 Hostelworld", None)):
         wrong.append(iso)
-results.append(ok(not wrong, "the stays stand-in has the Vrbo button exactly where vrbo() says (wrong: %s)" % wrong[:8]))
+results.append(ok(not wrong, "the stays stand-in has the Vrbo button exactly where vrbo() says, Booking.com and Vrbo naming"
+                  " the first spot, Hostelworld unnamed (wrong: %s)" % wrong[:8]))
 
 # --- renderGuideStay under jsc -------------------------------------------------------
 PICK = ["PT", "MX", "AU", "TH", "MA", "AE", "MU", "PH", "LK", "GB-ENG", "JP", "KE", "GL", "FK"]
@@ -125,16 +150,19 @@ drawn = run(prog)
 same, links = {}, {}
 for iso in PICK:
     h = drawn.get(iso) or ""
-    same[iso] = bool(h) and LABELS.findall(h) == LABELS.findall(guide_sizers.stay(iso))
-    a = re.findall(r'<a class="staybtn" target="_blank" rel="([^"]*)" href="([^"]*)">🏡 Vrbo ', h)
+    same[iso] = bool(h) and buttons(h) == buttons(guide_sizers.stay(iso))
+    a = re.findall(r'<a class="staybtn stayto stayvr" target="_blank" rel="([^"]*)" href="([^"]*)">', h)
     b = re.findall(r'href="(https://www\.stay22\.com/allez/booking\?[^"]*)"', h)
     links[iso] = (a[0] if a else None, b[0] if b else None)
 results.append(ok(all(same.values()), "renderGuideStay draws the stand-in's buttons in its order (%s%s)"
                   % (same, " " + drawn["error"] if "error" in drawn else "")))
 THREE = ["🏨 Booking.com", "🏡 Vrbo", "🎒 Hostelworld"]
-results.append(ok([LABELS.findall(drawn.get(i) or "") for i in ("PT", "PH", "LK", "JP")]
-                  == [THREE, THREE, THREE, ["🏨 Booking.com", "🎒 Hostelworld"]],
-                  "Portugal, the Philippines, Sri Lanka: Booking.com, Vrbo, Hostelworld; Japan: Booking.com, Hostelworld"))
+results.append(ok([[b[0] for b in buttons(drawn.get(i) or "")] for i in ("PT", "PH", "LK", "JP")]
+                  == [THREE, THREE, THREE, ["🏨 Booking.com", "🎒 Hostelworld"]]
+                  and buttons(drawn.get("PT") or "") == [("🏨 Booking.com", first("PT")), ("🏡 Vrbo", first("PT")),
+                                                         ("🎒 Hostelworld", None)],
+                  "Portugal, the Philippines, Sri Lanka: Booking.com, Vrbo, Hostelworld; Japan: Booking.com, Hostelworld"
+                  " (Portugal: %s)" % buttons(drawn.get("PT") or "")))
 good = []
 for iso in PICK:
     (vr, booking) = links[iso]

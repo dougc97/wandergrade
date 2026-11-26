@@ -10,8 +10,9 @@ generator's rules for a sound point, without the network.
     skipped place quoting the US;
   * no anchor in public/stay-coords.json is a skipped place, and the guide's
     served stays stand-in follows: the freed slots refilled from each
-    guide's own places (Ethiopia near Bale Mountains National Park, Cameroon
-    near Kribi with Foumban, Benin with Porto-Novo), never a skipped one;
+    guide's own places (Ethiopia's buttons search Bale Mountains National
+    Park, Cameroon's Kribi with Foumban, Benin with Porto-Novo), never a
+    skipped one;
   * each place skipped since the first list is skipped under its own
     government's list and under its other names (Tiya, clear of Canada's
     zones, is in the US's Oromia), and nothing beside them is (Bale
@@ -88,13 +89,13 @@ with open(os.path.join(ROOT, "public", "stay-coords.json"), encoding="utf-8") as
 left = g.skipped_present(stays)
 results.append(ok(not left, "no stay anchor is a skipped place (%s)" % left[:3]))
 et = guide_sizers.stay("ET")
-results.append(ok("near Bale Mountains National Park" in et and "staychip" not in et
+results.append(ok('<span class="stayat">Bale Mountains National Park</span>' in et and "staychip" not in et
                   and not any(x in et for x in ("Lalibela", "Gondar", "Simien", "Danakil", "Tiya")),
                   "Ethiopia's stand-in is Bale Mountains National Park alone (Amhara, Afar and the US's Oromia left out)"))
 cm = guide_sizers.stay("CM")
-results.append(ok("near Kribi" in cm and "Foumban" in cm
+results.append(ok('<span class="stayat">Kribi</span>' in cm and "Foumban" in cm
                   and not any(x in cm for x in ("Mount Cameroon", "Limbe", "Waza", "Bafut", "Mokolo", "Korup")),
-                  "Cameroon's stand-in is near Kribi, with Foumban; nothing in the North-West, South-West or Far North"))
+                  "Cameroon's stand-in searches Kribi, with Foumban; nothing in the North-West, South-West or Far North"))
 bj = guide_sizers.stay("BJ")
 results.append(ok("Pendjari" not in bj and "Tanougou" not in bj and "Ganvié" in bj and "Porto-Novo" in bj,
                   "Benin's stand-in keeps Ganvié, Ouidah, Abomey and adds Porto-Novo, not Pendjari"))

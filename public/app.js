@@ -3578,9 +3578,9 @@ function hostelworldURL(iso) {
 // the Philippines (homes on Boracay, Palawan and Siargao) and Sri Lanka
 // (about 850 villas). Elsewhere in Asia, Africa and the Middle East Vrbo is
 // thinner: Japan's home-sharing law (registered hosts, 180 nights a year)
-// left it mostly hotels. A third button wraps the row onto two lines on a
-// phone (Portugal 154 -> 199px at 390), which the stand-in draws too:
-// guide_sizers.vrbo() is the same rule, so change them together.
+// left it mostly hotels. A third button takes the row onto two lines at
+// 1280 (Booking.com and Vrbo, then Hostelworld), which the stand-in draws
+// too: guide_sizers.vrbo() is the same rule, so change them together.
 const VRBO_REGIONS = new Set(["AMER", "EUR", "OCEANIA"]);
 const VRBO_ALSO = new Set(["TH", "ID", "ZA", "MA", "AE", "MU", "PH", "LK"]);
 const VRBO_NOT = new Set(["RU", "PG", "SB", "GL", "FK", "CU"]);
@@ -3589,7 +3589,8 @@ function vrboOK(iso) {
 }
 let _staySpotIdx = 0, _staySpotIso = null;   // chip selection, reset per country
 let _ssrNoStay = null;                        // the server's data-nostay on its own guide, as served
-function renderGuideStay(iso) {
+// refocus: a chip tap whose chip had the focus (renderGuideStay's chips).
+function renderGuideStay(iso, refocus) {
   const host = $("guideStay");
   if (!host) return;
   // The country's usable stay spots in stay-coords.json (guide_sizers.stay
@@ -3649,24 +3650,47 @@ function renderGuideStay(iso) {
     const btn = (href, label) =>
       '<a class="staybtn" target="_blank" rel="sponsored nofollow noopener" href="' + href + '">' + label +
       ' <span class="ext">↗</span></a>';
+    // Booking.com and Vrbo search around the chosen spot, so their buttons
+    // name it ("🏨 Booking.com · Osaka ↗") and change with the chips: the
+    // heading's grey "near Osaka" was the only sign a chip did anything.
+    // Hostelworld searches the whole country and stays unnamed. The place
+    // is its own span, cut with an ellipsis where the row is too narrow
+    // (styles.css .stayto); the link's name for screen readers carries it in
+    // full ("Booking.com hotels near Osaka (opens in a new tab)"), its title
+    // shows it on hover, and the active chip above reads it whole.
+    // guide_sizers.stay draws the same spans, so the stand-in wraps alike.
+    // (The hidden words sit inside the visible spans: each span is a flex
+    // item, and Chrome puts a space around flex items and absolute boxes in a
+    // link's name, so the last words go in brackets, not after a comma.)
+    const at = (href, cls, emoji, name, what) =>
+      '<a class="staybtn ' + cls + '" target="_blank" rel="sponsored nofollow noopener" href="' + href + '">' +
+      '<span><span aria-hidden="true">' + emoji + " </span>" + name + '<span class="vh"> ' + what + " near </span></span>" +
+      '<span class="staysep" aria-hidden="true">·</span><span class="stayat" title="' + esc(sp.n) + '">' + esc(sp.n) +
+      '<span class="vh"> (opens in a new tab)</span></span><span class="ext" aria-hidden="true">↗</span></a>';
     const chips = spots.length > 1
       ? '<div class="staychips">' + spots.map((s, i) =>
           '<button type="button" class="staychip' + (i === _staySpotIdx ? " active" : "") +
           '" aria-pressed="' + (i === _staySpotIdx) + '" data-si="' + i + '">📍 ' + esc(s.n) + "</button>").join("") + "</div>"
       : "";
     host.innerHTML =
-      '<h3 class="staytitle">🏨 Where to stay <span class="staynear">near ' + esc(sp.n) + "</span></h3>" +
+      '<h3 class="staytitle">🏨 Where to stay</h3>' +
       chips +
       '<div class="staybtns">' +
-        btn("https://www.stay22.com/allez/booking?" + q, "🏨 Booking.com") +
-        (vrboOK(iso) ? btn("https://www.stay22.com/allez/vrbo?" + q, "🏡 Vrbo") : "") +
+        at("https://www.stay22.com/allez/booking?" + q, "stayto", "🏨", "Booking.com", "hotels") +
+        (vrboOK(iso) ? at("https://www.stay22.com/allez/vrbo?" + q, "stayto stayvr", "🏡", "Vrbo", "homes") : "") +
         btn(hw, "🎒 Hostelworld") +
       "</div>";
     host.querySelectorAll(".staychip").forEach((b) => b.addEventListener("click", () => {
       _staySpotIdx = parseInt(b.dataset.si, 10) || 0;
-      renderGuideStay(iso);
+      // Drawing again replaces the chips: a keyboard user's focus went with
+      // the old one, to <body>. The new chip with the same index takes it.
+      renderGuideStay(iso, document.activeElement === b);
     }));
     host.hidden = false; host.style.minHeight = "";
+    if (refocus) {
+      const c = host.querySelector('.staychip[data-si="' + _staySpotIdx + '"]');
+      if (c) c.focus({ preventScroll: true });
+    }
   }).catch(() => { if (!host.firstChild) none(); });
 }
 
