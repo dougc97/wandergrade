@@ -25,11 +25,16 @@ What it holds the code to:
     elsewhere the US stands in for their home ("≈ 43% of the US", not "no
     figure for Germany": Germany has one, only today's rate is missing), so
     no band word or grade note there either, and the ⓘ says the basket is
-    the US's because live exchange rates didn't load; a US reader's line is
+    the US's because live exchange rates didn't load (without "carried to
+    today's exchange rate", which read against it); a US reader's line is
     untouched (test_rates_down_home.py has the rest);
   * the same with ppp.json out and live rates in;
   * fee countries are as round 8 left them: Bhutan has no band word for
-    anyone, and its ⓘ ends on the fee note.
+    anyone, and its ⓘ ends on the fee note;
+  * a British reader on Scotland and a German on Germany keep the home
+    line, shortened to "Home prices" while live rates are out, its ⓘ
+    saying other guides compare with the US for now (the full line says
+    they compare with home).
 """
 import datetime, html, json, os, re, subprocess, sys, tempfile
 
@@ -163,7 +168,8 @@ for o, home in (("DE", "DE"), ("IN", "IN")):
             continue
         want = lead.sub("<b>Local prices", A["US"][iso]).replace(GRADE.replace("&", "&amp;"), "")
         if iso in LIVE:
-            want = want.replace("against the same basket at home.", RATES_OUT)
+            want = want.replace(", carried to today&#39;s exchange rate —", " —", 1).replace(
+                "against the same basket at home.", RATES_OUT)
         if A[o][iso] != want or BAND.search(A[o][iso]):
             diff[o + ":" + iso] = (A[o][iso][:160], want[:160])
 n_band = sum(1 for iso in ALL if BAND.search(A["US"][iso]))
@@ -177,6 +183,7 @@ results.append(ok("EC" in LIVE and 3 <= len(LIVE) <= 30
                   and "same basket at home" in tip(ec_us) and tip(ec_us).endswith(GRADE)
                   and re.match(r"💰 <b>Local prices ≈ \d+% of the US</b><span class=\"fxinfo\"", ec_de)
                   and "same basket in the US, because live exchange rates didn't load." in tip(ec_de)
+                  and "today's exchange rate" not in tip(ec_de) and "today's exchange rate" in tip(ec_us)
                   and "grade C or D" not in tip(ec_de) and "no figure" not in ec_de
                   and not BAND.search(A["IN"]["EC"])
                   and text(A["DE"]["US"]) == "💰 Local prices ≈ 100% of the US"
@@ -202,9 +209,11 @@ results.append(ok(all(not BAND.search(h) and tip(h).endswith(FEE_NOTE) and "grad
                   and ' <span class="guidefee">+ $100/night fee</span>' in bt["US"],
                   "Bhutan: no band word for anyone, the fee note in the ⓘ, US$100 for all but an Indian reader's "
                   "₹1,200: %r / %r" % (text(bt["US"]), text(bt["IN"]))))
-results.append(ok("Home prices: the 100% other guides compare to" in c["GB:GB-SCT"]
-                  and "Home prices: the 100% other guides compare to" in c["DE:DE"],
-                  "a British reader on Scotland and a German on Germany keep the home line"))
+HOME_OUT_TIP = "Other guides compare with the US for now, because live exchange rates didn't load."
+results.append(ok(text(c["GB:GB-SCT"]) == text(c["DE:DE"]) == "💰 Home prices"
+                  and tip(c["GB:GB-SCT"]) == tip(c["DE:DE"]) == HOME_OUT_TIP,
+                  "a British reader on Scotland and a German on Germany keep the home line, just \"Home prices\" "
+                  "while live rates are out, its ⓘ saying why: %r / %r" % (text(c["DE:DE"]), tip(c["DE:DE"]))))
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)
