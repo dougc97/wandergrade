@@ -8,8 +8,10 @@ The chips (📍 Kyoto, Tokyo, Osaka…) choose where the Booking.com search (and
 Vrbo's, where vrboOK) lands, by lat/lng in the Stay22 link. The only sign of a
 tap used to be the heading's small grey "near Osaka", so readers took the
 chips for dead buttons. Now Booking.com and Vrbo name the spot
-("🏨 Booking.com · Osaka ↗") and the heading is just "🏨 Where to stay";
-Hostelworld searches the whole country and stays unnamed.
+("🏨 Booking.com · Osaka ↗") and the heading is just "🏨 Where to stay".
+Hostelworld names it too, and opens its city page, where the spot has one
+(public/hw-cities.json: "🎒 Hostelworld · Kyoto ↗"); elsewhere it opens the
+country page, unnamed.
 
   * renderGuideStay under jsc (its page stubbed: chips that can be tapped and
     focused): on Portugal (Vrbo), Japan (no Vrbo) and Ethiopia (one spot, no
@@ -17,12 +19,20 @@ Hostelworld searches the whole country and stays unnamed.
     names that chip's spot on Booking.com (and Vrbo), marks only that chip
     aria-pressed="true", and points the links at its lat/lng — the hrefs
     exactly main's (aid, lat, lng, checkin, checkout), rel="sponsored
-    nofollow noopener", new tab; Hostelworld's button is main's, byte for
-    byte, whatever the chip;
+    nofollow noopener", new tab; Hostelworld's button follows the chip too:
+    Japan's Kyoto, Tokyo, Osaka and Hakone name the spot and open its city
+    page, Hokkaido (a region: no city page) opens the country page unnamed,
+    in the same spans less the place (.stayhw, so its row breaks as a named
+    one's would); Portugal's Lisbon and Porto (and Pena Palace, Sintra's)
+    name theirs, the Algarve doesn't; Ethiopia and Guam (no city page) keep
+    main's plain button, byte for byte;
   * a screen reader hears where each link searches: the link's words less
     the aria-hidden parts read "Booking.com hotels near Lisbon (opens in a
-    new tab)" / "Vrbo homes near Lisbon (opens in a new tab)", the full name
-    whatever the ellipsis shows, and the place span's title holds it too;
+    new tab)" / "Vrbo homes near Lisbon (opens in a new tab)" / "Hostelworld
+    hostels near Lisbon (opens in a new tab)" ("near": Pena Palace, a
+    landmark, opens Sintra's page), the full name whatever the
+    ellipsis shows, and the place span's title holds it too; Hostelworld
+    unnamed reads "Hostelworld (opens in a new tab)";
   * a chip tapped with the focus on it (keyboard Enter or Space) hands the
     focus to the redrawn chip with the same index (no scroll), so a keyboard
     user isn't dropped to <body>; a tap that didn't focus the chip (Safari's
@@ -30,16 +40,24 @@ Hostelworld searches the whole country and stays unnamed.
   * the served stand-in (guide_sizers.stay) is the drawn block less what
     can't change its size (screen-reader words, title, link targets, chip
     state; a <div> for the h3), for every country with spots: the same
-    spans, so it wraps the same; the longest name (Guam's "War in the
-    Pacific National Historical Park", its second chip) in both;
+    spans, so it wraps the same, Hostelworld named for the first spot where
+    it has a city page, .stayhw where any spot has one, main's plain button
+    elsewhere; the longest name (Guam's "War in the Pacific National
+    Historical Park", its second chip) in both;
   * styles.css wraps the named buttons on fixed widths, never on the name:
     Booking.com at least 19em, Vrbo 13em, each growing only up to its
     content and shrinking only to the column (min(…, 100%): alone on a row
     narrower than 19em, under ~290px, it isn't 7px wider than the column),
     one line, the place cut with an ellipsis and the containing
     block of its screen-reader words (else a cut name's 1px box sat past the
-    page's edge and scrolled a phone sideways); no .staynear left in the
-    stylesheet, app.js or the stand-in.
+    page's edge and scrolled a phone sideways); Hostelworld's .stayhw starts
+    from a fixed width of its own, named or not; no .staynear left in the
+    stylesheet, app.js or the stand-in;
+  * the empty block's CSS hold (an in-app open before the files land) for
+    the countries renderGuideStay marks data-hw: 245px beside Vrbo on a
+    phone up to 442px, 160 from 561 to 651px, 199 without Vrbo from 900 to
+    922px, the bands worked out from the start widths and the column; on a
+    phone a row of buttons with .stayhw fills its rows.
 """
 import html
 import json
@@ -61,6 +79,8 @@ with open(os.path.join(ROOT, "public", "styles.css"), encoding="utf-8") as f:
     CSS = f.read()
 with open(os.path.join(ROOT, "public", "stay-coords.json"), encoding="utf-8") as f:
     COORDS = json.load(f)
+with open(os.path.join(ROOT, "public", "hw-cities.json"), encoding="utf-8") as f:
+    HWC = json.load(f)
 
 
 def js_fn(name):
@@ -86,20 +106,22 @@ def spots(iso):
 
 
 # --- renderGuideStay under jsc: draw, tap every chip (keyboard, then a mouse) -------------
-PICK = ["PT", "JP", "ET", "GU"]
+PICK = ["PT", "JP", "ET", "GU", "ID"]
 DATES = {"checkin": "2026-12-15", "checkout": "2026-12-18"}
 REGION_JS = "\n".join([js_const("REGIONS"), js_const("ISO_REGION"), js_const("EXTRA_CONTINENT"),
                        js_const("_SOUTH_AMERICA"), js_const("_MENA_AFRICA"), js_fn("continentOf"), js_fn("regionOf"),
                        js_const("VRBO_REGIONS"), js_const("VRBO_ALSO"), js_const("VRBO_NOT"), js_fn("vrboOK")])
 prog = "\n".join([js_const("esc"), REGION_JS, js_const("STAY22_AID"), js_const("HW_CAMREF"), js_const("HW_COUNTRY"),
-                  js_fn("hostelworldURL"), "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;",
+                  js_fn("hostelworldURL"), js_const("HW_ANY"), "let _hwFailed = false;",
+                  "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;",
                   js_fn("renderGuideStay")]) + """
-const COORDS = %s, DATES = %s, PICK = %s, out = {};
+const COORDS = %s, HWC = %s, DATES = %s, PICK = %s, out = {};
 let host = null, ccGuideIso = null, advisories = null, focused = [];
 const document = { activeElement: null };
 const window = {}, $ = (id) => (id === "guideStay" ? host : null), holdSizer = () => {};
 const guideNoBookings = () => false, dntSettled = () => true;
 const ensureStayCoords = () => Promise.resolve(COORDS), ensureBookingsKnown = () => Promise.resolve(null);
+const ensureHwCities = () => Promise.resolve(HWC);
 const stayDates = () => DATES;
 function mkHost() {
   // Just enough DOM: the chips app.js wires up, found by their data-si.
@@ -143,7 +165,8 @@ const settle = async () => { for (let k = 0; k < 20; k++) await null; };
     }
   }
   print(JSON.stringify(out));
-})();""" % (json.dumps({i: COORDS[i] for i in PICK}), json.dumps(DATES), json.dumps(PICK))
+})();""" % (json.dumps({i: COORDS[i] for i in PICK}), json.dumps({i: HWC[i] for i in PICK if i in HWC}),
+            json.dumps(DATES), json.dumps(PICK))
 try:
     p = subprocess.run([JSC, "-e", prog], capture_output=True, text=True, timeout=30)
     drawn = json.loads(p.stdout) if p.stdout.strip() else {"error": p.stderr[:300]}
@@ -181,13 +204,33 @@ def pressed(h):
 
 
 HW = '<a class="staybtn" target="_blank" rel="sponsored nofollow noopener" href="%s">🎒 Hostelworld <span class="ext">↗</span></a>'
+HW_OFF = ('<a class="staybtn stayto stayhw" target="_blank" rel="sponsored nofollow noopener" href="%s">'
+          '<span><span aria-hidden="true">🎒 </span>Hostelworld<span class="vh"> (opens in a new tab)</span></span>'
+          '<span class="ext" aria-hidden="true">↗</span></a>')
 HW_URL = {"PT": "https://hostelworld.prf.hn/click/camref:1101l5NoBM/pubref:guide-PT/destination:"
                 "https%3A%2F%2Fwww.hostelworld.com%2Fhostels%2Feurope%2Fportugal%2F",
           "JP": "https://hostelworld.prf.hn/click/camref:1101l5NoBM/pubref:guide-JP/destination:"
                 "https%3A%2F%2Fwww.hostelworld.com%2Fhostels%2Fasia%2Fjapan%2F",
           "ET": "https://hostelworld.prf.hn/click/camref:1101l5NoBM/pubref:guide-ET/destination:"
-                "https%3A%2F%2Fwww.hostelworld.com%2Fhostels%2Fafrica%2Fethiopia%2F"}
-VRBO = {"PT": True, "JP": False, "ET": False, "GU": True}
+                "https%3A%2F%2Fwww.hostelworld.com%2Fhostels%2Fafrica%2Fethiopia%2F",
+          "GU": "https://hostelworld.prf.hn/click/camref:1101l5NoBM/pubref:guide-GU/destination:"
+                "https%3A%2F%2Fwww.hostelworld.com%2Fhostels%2Foceania%2Fguam%2F",
+          "ID": "https://hostelworld.prf.hn/click/camref:1101l5NoBM/pubref:guide-ID/destination:"
+                "https%3A%2F%2Fwww.hostelworld.com%2Fhostels%2Fasia%2Findonesia%2F"}
+# Each spot's Hostelworld page, typed out: Japan's cities (Hokkaido, a region,
+# has none), Portugal's (the Algarve, a region, has none; Pena Palace is in
+# Sintra); Ethiopia and Guam have none.
+HW_CITY = {"JP": {"Kyoto": "asia%2Fjapan%2Fkyoto", "Tokyo": "asia%2Fjapan%2Ftokyo", "Osaka": "asia%2Fjapan%2Fosaka",
+                  "Hakone": "asia%2Fjapan%2Fhakone"},
+           "PT": {"Lisbon": "europe%2Fportugal%2Flisbon", "Porto": "europe%2Fportugal%2Fporto",
+                  "Pena Palace": "europe%2Fportugal%2Fsintra"},
+           "ID": {"Yogyakarta": "asia%2Findonesia%2Fyogyakarta", "Borobudur": "asia%2Findonesia%2Fborobudur"}}
+VRBO = {"PT": True, "JP": False, "ET": False, "GU": True, "ID": True}
+
+
+def hw_city_url(iso, page):
+    return ("https://hostelworld.prf.hn/click/camref:1101l5NoBM/pubref:guide-%s/destination:"
+            "https%%3A%%2F%%2Fwww.hostelworld.com%%2Fhostels%%2F%s%%2F" % (iso, page))
 
 
 def expect(iso, i):
@@ -201,15 +244,18 @@ def check_state(iso, h, i):
     """One drawn state for spot i: heading, labels, hrefs, pressed chip, Hostelworld."""
     sp = spots(iso)
     b = buttons(h)
+    page = HW_CITY.get(iso, {}).get(sp[i]["n"])
     named = [x for x in b if x["place"] is not None]
-    want = ["🏨 Booking.com"] + (["🏡 Vrbo"] if VRBO[iso] else [])
+    want = ["🏨 Booking.com"] + (["🏡 Vrbo"] if VRBO[iso] else []) + (["🎒 Hostelworld"] if page else [])
+    hw_ok = (b[-1]["place"] == sp[i]["n"] and b[-1]["href"] == hw_city_url(iso, page) and b[-1]["cls"] == "stayto stayhw"
+             and b[-1]["heard"] == "Hostelworld hostels near %s (opens in a new tab)" % sp[i]["n"]) if page \
+        else b[-1]["html"] == (HW_OFF if iso in HW_CITY else HW) % HW_URL[iso]
     return (h.startswith('<h3 class="staytitle">🏨 Where to stay</h3>') and "near" not in h.split("</h3>")[0]
-            and [x["href"] for x in named] == expect(iso, i)
+            and [x["href"] for x in named][: len(expect(iso, i))] == expect(iso, i)
             and all(x["place"] == sp[i]["n"] and x["title"] == sp[i]["n"] and x["rel"] == "sponsored nofollow noopener"
                     and x["target"] == "_blank" for x in named)
             and [x["heard"].split(" ")[0] for x in named] == [w.split(" ")[1] for w in want]
-            and (b[-1]["html"] == HW % HW_URL[iso] if iso in HW_URL else b[-1]["place"] is None and "Hostelworld" in b[-1]["html"])
-            and len(b) == len(want) + 1
+            and hw_ok and len(b) == len(want) + (0 if page else 1)
             and (pressed(h) == [("true" if k == i else "false", str(k)) for k in range(len(sp))] if len(sp) > 1
                  else "staychip" not in h))
 
@@ -221,12 +267,23 @@ for iso in PICK:
     res[iso] = bool(d) and all(check_state(iso, h, i) for i, h in states)
 results.append(ok(all(res.values()),
                   "heading \"🏨 Where to stay\"; each chip's tap names its spot on Booking.com (and Vrbo), presses only"
-                  " that chip and links its lat/lng exactly as main does; Hostelworld main's button (%s%s)" % (res, err)))
+                  " that chip and links its lat/lng exactly as main does; Hostelworld names it and opens its city page"
+                  " where it has one, else the country page (%s%s)" % (res, err)))
+jp = drawn.get("JP") or {}
+jp_hw = {spots("JP")[t["i"]]["n"]: buttons(t["html"])[-1] for t in [{"i": 0, "html": jp.get("first", "")}] + jp.get("kbd", [])}
+results.append(ok(sorted(jp_hw) == sorted(s["n"] for s in spots("JP"))
+                  and all(jp_hw[n]["href"] == hw_city_url("JP", HW_CITY["JP"][n]) and jp_hw[n]["place"] == n
+                          for n in ("Kyoto", "Tokyo", "Osaka"))
+                  and jp_hw["Hokkaido"]["href"] == HW_URL["JP"] and jp_hw["Hokkaido"]["place"] is None
+                  and jp_hw["Hokkaido"]["heard"] == "Hostelworld (opens in a new tab)",
+                  "Japan: Kyoto, Tokyo and Osaka open their Hostelworld city pages and name them; Hokkaido opens the"
+                  " country page, unnamed (%s)" % {n: (x["place"], (x["href"] or "")[-40:]) for n, x in jp_hw.items()}))
 
 pt = drawn.get("PT") or {}
 pt_b = buttons(pt.get("first", ""))
 results.append(ok([x["heard"] for x in pt_b] == ["Booking.com hotels near Lisbon (opens in a new tab)",
-                                                 "Vrbo homes near Lisbon (opens in a new tab)", "🎒 Hostelworld ↗"]
+                                                 "Vrbo homes near Lisbon (opens in a new tab)",
+                                                 "Hostelworld hostels near Lisbon (opens in a new tab)"]
                   and buttons((pt.get("kbd") or [{"html": ""}])[0]["html"])[0]["heard"]
                   == "Booking.com hotels near %s (opens in a new tab)" % spots("PT")[1]["n"],
                   "the links' names say where they search, and follow the chip: %s" % [x["heard"] for x in pt_b]))
@@ -242,8 +299,10 @@ et = drawn.get("ET") or {}
 et_b = buttons(et.get("first", ""))
 results.append(ok(et and not et["kbd"] and "staychip" not in et.get("first", "")
                   and [x["place"] for x in et_b] == ["Bale Mountains National Park", None]
+                  and et_b[-1]["html"] == HW % HW_URL["ET"]
                   and et.get("first", "").startswith('<h3 class="staytitle">🏨 Where to stay</h3><div class="staybtns">'),
-                  "one spot (Ethiopia): no chips, the heading alone, Booking.com names Bale Mountains National Park"))
+                  "one spot (Ethiopia): no chips, the heading alone, Booking.com names Bale Mountains National Park,"
+                  " Hostelworld main's plain button (a national park: no city page)"))
 
 foc = {iso: [(t["i"], t["focused"]) for t in (drawn.get(iso) or {}).get("kbd", [])] for iso in ("PT", "JP")}
 results.append(ok(all(v and all(f == [{"si": str(i), "preventScroll": True}] for i, f in v) for v in foc.values()),
@@ -272,6 +331,43 @@ def as_stand_in(h):
 same = {iso: bool(drawn.get(iso)) and as_drawn_layout(drawn[iso]["first"]) == as_stand_in(guide_sizers.stay(iso))
         for iso in PICK}
 results.append(ok(all(same.values()), "the stand-in is the drawn block's layout, span for span (%s)" % same))
+# Every country with spots, its first chip drawn by renderGuideStay under jsc
+# against its stand-in: named, unnamed (.stayhw) and plain Hostelworld alike.
+ALL = sorted(i for i in COORDS if isinstance(COORDS[i], list) and spots(i))
+prog_all = "\n".join([js_const("esc"), REGION_JS, js_const("STAY22_AID"), js_const("HW_CAMREF"), js_const("HW_COUNTRY"),
+                      js_fn("hostelworldURL"), js_const("HW_ANY"), "let _hwFailed = false;",
+                  "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;",
+                      js_fn("renderGuideStay")]) + """
+const COORDS = %s, HWC = %s, DATES = %s, ALL = %s, out = {};
+let host = null, ccGuideIso = null, advisories = null;
+const document = { activeElement: null }, window = {}, $ = (id) => (id === "guideStay" ? host : null), holdSizer = () => {};
+const guideNoBookings = () => false, dntSettled = () => true, stayDates = () => DATES;
+const ensureStayCoords = () => Promise.resolve(COORDS), ensureBookingsKnown = () => Promise.resolve(null);
+const ensureHwCities = () => Promise.resolve(HWC);
+(async () => {
+  for (const iso of ALL) {
+    host = { innerHTML: "", hidden: true, style: {}, firstChild: null, dataset: {}, querySelectorAll: () => [], querySelector: () => null };
+    ccGuideIso = iso; renderGuideStay(iso);
+    for (let k = 0; k < 20; k++) await null;
+    out[iso] = host.innerHTML;
+  }
+  print(JSON.stringify(out));
+})();""" % (json.dumps({i: COORDS[i] for i in ALL}), json.dumps(HWC), json.dumps(DATES), json.dumps(ALL))
+try:
+    p_all = subprocess.run([JSC, "-e", prog_all], capture_output=True, text=True, timeout=30)
+    drawn_all = json.loads(p_all.stdout) if p_all.stdout.strip() else {"error": p_all.stderr[:300]}
+except Exception as e:  # noqa: BLE001
+    drawn_all = {"error": str(e)}
+# (Compared as text: app.js esc() writes an apostrophe &#39;, Python's escape &#x27;.)
+differ = [i for i in ALL if not drawn_all.get(i)
+          or html.unescape(as_drawn_layout(drawn_all[i])) != html.unescape(as_stand_in(guide_sizers.stay(i)))]
+kinds = {"named": 0, "unnamed": 0, "plain": 0}
+for i in ALL:
+    hh = drawn_all.get(i) or ""
+    kinds["named" if "stayto stayhw" in hh and "hostels near" in hh else "unnamed" if "stayhw" in hh else "plain"] += 1
+results.append(ok(len(drawn_all) == len(ALL) > 180 and not differ and min(kinds.values()) > 10,
+                  "every country's stand-in is its drawn first chip's layout, span for span (%d countries: %s; differ: %s%s)"
+                  % (len(ALL), kinds, differ[:6], " " + drawn_all["error"] if "error" in drawn_all else "")))
 bad = []
 for iso in sorted(COORDS):
     h = guide_sizers.stay(iso)
@@ -280,13 +376,23 @@ for iso in sorted(COORDS):
         continue
     vr = guide_sizers.vrbo(iso)
     b = buttons(h)
+    hw_named = sp[0]["n"] in HWC.get(iso, {})
+    hw_cls = "stayto stayhw" if any(x["n"] in HWC.get(iso, {}) for x in sp) else ""
     if (not h.startswith('<div class="gsizer"') or '<div class="staytitle">🏨 Where to stay</div>' not in h
-            or [x["place"] for x in b] != [sp[0]["n"]] * (2 if vr else 1) + [None]
-            or [x["cls"] for x in b] != ["stayto"] + (["stayto stayvr"] if vr else []) + [""]
+            or [x["place"] for x in b] != [sp[0]["n"]] * (2 if vr else 1) + [sp[0]["n"] if hw_named else None]
+            or [x["cls"] for x in b] != ["stayto"] + (["stayto stayvr"] if vr else []) + [hw_cls]
             or ("staychip" in h) is not (len(sp) > 1) or "near" in h.split('<div class="staychips">')[0].split("staybtns")[0]):
         bad.append(iso)
 results.append(ok(not bad, "every country's stand-in: the heading alone, Booking.com (and Vrbo where vrbo()) naming the first"
-                  " spot, Hostelworld unnamed, chips only for two spots or more (wrong: %s)" % bad[:8]))
+                  " spot, Hostelworld naming it where it has a city page, .stayhw where any spot has one, main's plain"
+                  " button elsewhere; chips only for two spots or more (wrong: %s)" % bad[:8]))
+# Every chip of every country, drawn by the stand-in's rule: a chip tap that
+# names Hostelworld, or stops naming it, keeps .stayhw, so the row it starts
+# from is the same width (the sweep in the browser measures the heights).
+flip = [iso for iso in sorted(HWC) if not all(guide_sizers.stay(iso, [s] + [x for x in spots(iso) if x is not s]).count("stayhw") == 1
+                                              for s in spots(iso))]
+results.append(ok(not flip, "every country with a city page keeps .stayhw on Hostelworld whichever spot comes first"
+                  " (lost on: %s)" % flip[:8]))
 
 # --- the stylesheet ------------------------------------------------------------------------
 def rule(sel):
@@ -294,15 +400,42 @@ def rule(sel):
     return re.sub(r"\s+", " ", m.group(1)).strip() if m else ""
 
 
-bk, vr, at = rule(".staybtn.stayto"), rule(".staybtn.stayvr"), rule(".stayto .stayat")
+bk, vr, at, hwr = rule(".staybtn.stayto"), rule(".staybtn.stayvr"), rule(".stayto .stayat"), rule(".staybtn.stayhw")
 results.append(ok("flex: 1 1 19em" in bk and "min-width: min(19em, 100%)" in bk and "max-width: max-content" in bk
                   and "white-space: nowrap" in bk and "display: inline-flex" in bk
                   and "flex-basis: 13em" in vr and "min-width: min(13em, 100%)" in vr
                   and all(x in at for x in ("min-width: 0", "overflow: hidden", "text-overflow: ellipsis", "position: relative"))
-                  and "flex: none" in rule(".stayto > *"),
+                  and "flex: none" in rule(".stayto > *")
+                  and re.search(r"flex-basis: ([\d.]+em); min-width: \1; min-width: min\(\1, 100%\)", hwr),
                   "styles.css: Booking.com at least 19em, Vrbo 13em, growing only to their content and shrinking only"
                   " to the column, one line, the place"
-                  " cut with an ellipsis and holding its screen-reader words (%s | %s | %s)" % (bk, vr, at)))
+                  " cut with an ellipsis and holding its screen-reader words; Hostelworld's .stayhw a fixed start"
+                  " width of its own (%s | %s | %s | %s)" % (bk, vr, at, hwr)))
+# The empty block's hold for the countries renderGuideStay marks data-hw
+# (a spot with a Hostelworld city page): its fixed-width button adds a row in
+# three bands, worked out from the start widths at 13.5px (Booking.com 19em,
+# Vrbo 13em, Hostelworld 12em, 17em on a phone, 8px gaps) and the stays
+# column (the viewport less 30px on a phone, less 42px to 899px, half of it
+# less 35px from 900px): beside Vrbo on a phone while Vrbo and a 17em
+# Hostelworld don't fit side by side; beside Booking.com and Vrbo below 610px
+# of column; beside Booking.com alone (no Vrbo) from 900px below 426.5px.
+EM, GAP = 13.5, 8
+bands = {"phone": int((13 + 17) * EM + GAP + 30 - 0.001),
+         "mid": int((19 + 13 + 12) * EM + 2 * GAP + 42 - 0.001),
+         "wide": int(((19 + 12) * EM + GAP + 35) * 2 - 0.001)}
+flat = re.sub(r"\s+", " ", CSS)
+holds = {"phone": "@media (max-width: %dpx) { #guideStay[data-hw=\"vrbo\"]:empty { min-height: 245px; } }" % bands["phone"],
+         "mid": "@media (min-width: 561px) and (max-width: %dpx) { #guideStay[data-hw=\"vrbo\"]:empty { min-height: 160px; } }"
+                % bands["mid"],
+         "wide": "@media (min-width: 900px) and (max-width: %dpx) { #guideStay[data-hw=\"solo\"]:empty { min-height: 199px; } }"
+                 % bands["wide"]}
+fill = re.search(r"@media \(max-width: 560px\) \{[^{}]*\.staybtn\.stayhw \{[^}]*\}\s*"
+                 r"\.staybtns:has\(> \.stayhw\) > \.stayto \{ max-width: none; \}\s*\}", CSS)
+results.append(ok(bands == {"phone": 442, "mid": 651, "wide": 922} and all(h in flat for h in holds.values()) and fill,
+                  "styles.css holds the marked countries' empty block at their own medians in the bands where"
+                  " Hostelworld's fixed width adds a row (to %(phone)dpx beside Vrbo 245, 561-%(mid)dpx 160, 900-%(wide)dpx"
+                  " without Vrbo 199), and on a phone the buttons of a row with .stayhw fill their rows (%(miss)s)"
+                  % dict(bands, miss=[k for k, h in holds.items() if h not in flat] + ([] if fill else ["fill"]))))
 with open(os.path.join(ROOT, "fxtracker", "guide_sizers.py"), encoding="utf-8") as f:
     SIZERS = f.read()
 results.append(ok(not any("staynear" in t for t in (CSS, APP, SIZERS)), "no .staynear left (styles.css, app.js, guide_sizers)"))

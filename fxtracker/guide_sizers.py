@@ -240,23 +240,30 @@ def vrbo(iso):
     return iso in VRBO_ALSO or (ISO_REGION.get(iso) in VRBO_REGIONS and iso not in VRBO_NOT)
 
 
-def stay(iso, spots=None):
+def stay(iso, spots=None, hw=None):
     """The stays block as renderGuideStay draws it (first spot chosen), or ""
     with no spots (app.js hides the block then). `spots` defaults to the
-    country's entry in public/stay-coords.json, the file app.js reads. Its
-    buttons are app.js's, in order: Booking.com and Vrbo where vrbo() says
-    so (Portugal, Mexico, Australia; not Japan or Kenya), each naming the
-    first spot, then Hostelworld, unnamed. The named ones are app.js's spans
+    country's entry in public/stay-coords.json and `hw` to its entry in
+    public/hw-cities.json (each spot's Hostelworld city page), the files
+    app.js reads. Its buttons are app.js's, in order: Booking.com and Vrbo
+    where vrbo() says so (Portugal, Mexico, Australia; not Japan or Kenya),
+    each naming the first spot, then Hostelworld: naming the first spot too
+    where it has a city page (Japan's Kyoto), unnamed but as wide as a named
+    one where another spot has one (styles.css .stayhw), and the plain
+    button it always was where none has. The named ones are app.js's spans
     less the screen-reader words (out of the flow): styles.css .stayto wraps
     them on fixed widths, Booking.com on a row of its own on a phone and
     Hostelworld under Booking.com and Vrbo at 1280."""
     if spots is None:
         spots = _json("stay-coords.json").get(iso)
+    if hw is None:
+        hw = _json("hw-cities.json").get(iso)
     if isinstance(spots, dict):
         spots = [{"n": spots.get("near"), "ll": spots.get("ll")}]
     spots = [s for s in spots or [] if isinstance(s, dict) and s.get("ll") and s.get("n")]
     if not spots:
         return ""
+    hw = hw if isinstance(hw, dict) else {}
     chips = ('<div class="staychips">' + "".join(
         '<button type="button" class="staychip%s" tabindex="-1">📍 %s</button>' % (" active" if i == 0 else "", _e(s["n"]))
         for i, s in enumerate(spots)) + "</div>") if len(spots) > 1 else ""
@@ -265,13 +272,20 @@ def stay(iso, spots=None):
         return ('<a class="staybtn %s"><span><span aria-hidden="true">%s </span>%s</span>'
                 '<span class="staysep" aria-hidden="true">·</span><span class="stayat">%s</span>'
                 '<span class="ext" aria-hidden="true">↗</span></a>' % (cls, emoji, name, _e(spots[0]["n"])))
+    if spots[0]["n"] in hw:
+        hw_btn = at("stayto stayhw", "🎒", "Hostelworld")
+    elif any(s["n"] in hw for s in spots):
+        hw_btn = ('<a class="staybtn stayto stayhw"><span><span aria-hidden="true">🎒 </span>Hostelworld</span>'
+                  '<span class="ext" aria-hidden="true">↗</span></a>')
+    else:
+        hw_btn = '<a class="staybtn">🎒 Hostelworld <span class="ext">↗</span></a>'
     # A <div>, not the h3 app.js writes: no heading in the served outline
     # for a block that isn't there yet (.staytitle sets the h3's font and
     # margins, so it lays out the same).
     return _wrap(iso, '<div class="staytitle">🏨 Where to stay</div>'
                  + chips + '<div class="staybtns">' + at("stayto", "🏨", "Booking.com")
                  + (at("stayto stayvr", "🏡", "Vrbo") if vrbo(iso) else "")
-                 + '<a class="staybtn">🎒 Hostelworld <span class="ext">↗</span></a></div>')
+                 + hw_btn + '</div>')
 
 
 # app.js VISA_META: the chip's word and colour, and the line's words.

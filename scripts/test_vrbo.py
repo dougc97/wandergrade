@@ -16,7 +16,9 @@ the network or a server process.
   * renderGuideStay under jsc (its page stubbed) draws the same buttons in
     the same order as the stand-in (Booking.com, Vrbo, Hostelworld, the
     Philippines and Sri Lanka too; no Vrbo for Japan, Kenya or Greenland),
-    Booking.com and Vrbo each naming the first spot, and the Vrbo link is
+    Booking.com and Vrbo each naming the first spot (and Hostelworld where
+    the spot has a Hostelworld city page, public/hw-cities.json: Portugal's
+    Lisbon; scripts/test_hostelworld_link.py tests that), and the Vrbo link is
     https://www.stay22.com/allez/vrbo with aid=wandergrade, the chosen
     spot's lat and lng and the stay's checkin and checkout — Booking's own
     query — opened sponsored in a new tab;
@@ -104,7 +106,7 @@ def buttons(h):
     for inner in BTN.findall(h):
         vis = re.sub(r'<span class="vh">.*?</span>', "", inner)
         place = re.search(r'<span class="stayat"[^>]*>(.*?)</span>', vis)
-        label = vis.split('<span class="staysep"')[0] if place else vis.split(' <span class="ext">')[0]
+        label = vis.split('<span class="staysep"')[0] if place else re.split(r' ?<span class="ext"', vis)[0]
         out.append((html.unescape(re.sub(r"<[^>]+>", "", label)).strip(),
                     html.unescape(place.group(1)) if place else None))
     return out
@@ -114,38 +116,48 @@ def first(iso):
     return [s for s in coords[iso] if s.get("ll") and s.get("n")][0]["n"] if isinstance(coords[iso], list) else coords[iso]["near"]
 
 
+hwc = load("hw-cities.json")
+
+
+def hw_place(iso):
+    """The place Hostelworld's button names on the first spot: its own, where
+    it has a Hostelworld city page, else none."""
+    return first(iso) if first(iso) in (hwc.get(iso) or {}) else None
+
+
 wrong = []
 for iso in sorted(coords):
     h = guide_sizers.stay(iso)
     b = buttons(h)
     if h and (any(x[0] == "🏡 Vrbo" for x in b) is not py[iso] or b[0] != ("🏨 Booking.com", first(iso))
-              or (py[iso] and b[1] != ("🏡 Vrbo", first(iso))) or b[-1] != ("🎒 Hostelworld", None)):
+              or (py[iso] and b[1] != ("🏡 Vrbo", first(iso))) or b[-1] != ("🎒 Hostelworld", hw_place(iso))):
         wrong.append(iso)
 results.append(ok(not wrong, "the stays stand-in has the Vrbo button exactly where vrbo() says, Booking.com and Vrbo naming"
-                  " the first spot, Hostelworld unnamed (wrong: %s)" % wrong[:8]))
+                  " the first spot, then Hostelworld (wrong: %s)" % wrong[:8]))
 
 # --- renderGuideStay under jsc -------------------------------------------------------
 PICK = ["PT", "MX", "AU", "TH", "MA", "AE", "MU", "PH", "LK", "GB-ENG", "JP", "KE", "GL", "FK"]
 DATES = {"checkin": "2026-11-15", "checkout": "2026-11-18"}
 prog = "\n".join([js_const("esc"), REGION_JS, js_const("STAY22_AID"), js_const("HW_CAMREF"), js_const("HW_COUNTRY"),
-                  js_fn("hostelworldURL"),
+                  js_fn("hostelworldURL"), js_const("HW_ANY"), "let _hwFailed = false;",
                   "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;", js_fn("renderGuideStay")]) + """
-const COORDS = %s, DATES = %s, PICK = %s, out = {};
+const COORDS = %s, HWC = %s, DATES = %s, PICK = %s, out = {};
 let host = null, ccGuideIso = null, advisories = null;
 const window = {}, $ = (id) => (id === "guideStay" ? host : null), holdSizer = () => {};
 const guideNoBookings = () => false, dntSettled = () => true;
 const ensureStayCoords = () => Promise.resolve(COORDS), ensureBookingsKnown = () => Promise.resolve(null);
+const ensureHwCities = () => Promise.resolve(HWC);
 const stayDates = () => DATES;
 (async () => {
   for (const iso of PICK) {
-    host = { innerHTML: "", hidden: true, style: {}, firstChild: null, querySelectorAll: () => [] };
+    host = { innerHTML: "", hidden: true, style: {}, firstChild: null, dataset: {}, querySelectorAll: () => [] };
     ccGuideIso = iso;
     renderGuideStay(iso);
     for (let k = 0; k < 20; k++) await null;
     out[iso] = host.innerHTML;
   }
   print(JSON.stringify(out));
-})();""" % (json.dumps({i: coords[i] for i in PICK}), json.dumps(DATES), json.dumps(PICK))
+})();""" % (json.dumps({i: coords[i] for i in PICK}), json.dumps(hwc), json.dumps(DATES), json.dumps(PICK))
 drawn = run(prog)
 same, links = {}, {}
 for iso in PICK:
@@ -160,7 +172,7 @@ THREE = ["🏨 Booking.com", "🏡 Vrbo", "🎒 Hostelworld"]
 results.append(ok([[b[0] for b in buttons(drawn.get(i) or "")] for i in ("PT", "PH", "LK", "JP")]
                   == [THREE, THREE, THREE, ["🏨 Booking.com", "🎒 Hostelworld"]]
                   and buttons(drawn.get("PT") or "") == [("🏨 Booking.com", first("PT")), ("🏡 Vrbo", first("PT")),
-                                                         ("🎒 Hostelworld", None)],
+                                                         ("🎒 Hostelworld", "Lisbon")],
                   "Portugal, the Philippines, Sri Lanka: Booking.com, Vrbo, Hostelworld; Japan: Booking.com, Hostelworld"
                   " (Portugal: %s)" % buttons(drawn.get("PT") or "")))
 good = []
