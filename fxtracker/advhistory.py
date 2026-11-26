@@ -3,8 +3,9 @@ government last changed its level for a country.
 
 Only the US feed ever says so, in words ("The advisory level was increased
 to 3", advisories._change), and only until the item is next reissued. Canada's
-and Germany's feeds carry the current level and nothing else — Germany's
-"lastModified" moves with every edit to the page, not with the level. So each
+and Germany's feeds carry the current level and a date, nothing more — their
+dates (Canada's "date-published", Germany's "lastModified") move with every
+edit to the page, not with the level. So each
 time a source's list is freshly fetched, its levels are compared with the last
 ones recorded for it; a different level is a change we saw happen, dated the
 day we saw it.

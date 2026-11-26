@@ -4114,7 +4114,7 @@ function renderGuideSafety(iso) {
     const badgeCls = deCall && lvl === 1 ? "nowarn" : "advlvl" + lvl;
     // When the government issued it and when this site last read the list,
     // in the badge's tip, not a visible line (the list pages show the date:
-    // Thailand's is 7 Jul 2026). Canada's feed carries no date of its own.
+    // Thailand's is 7 Jul 2026). All three feeds date their advisories.
     const dated = [it.updated ? "Advisory dated " + fmtDay(String(it.updated).slice(0, 10)) : "",
       advisories.fetched ? (it.updated ? "fetched " : "Fetched ") + fmtDay(String(advisories.fetched).slice(0, 10)) : ""]
       .filter(Boolean).join(" · ");

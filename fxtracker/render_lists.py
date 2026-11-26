@@ -183,10 +183,10 @@ def _pill(src, it, missing="no rating"):
 
 
 def _when(it):
-    """The dated part of a government's cell: the feed's own date, and the
-    date WanderGrade's record saw the level arrive (advhistory's `changed`)
-    with the direction. Canada's feed carries no date in the payload, so its
-    cell shows only a recorded change."""
+    """The dated part of a government's cell: the feed's own date (each of
+    the three publishes one: the US pubDate, Canada's date-published,
+    Germany's lastModified), and the date WanderGrade's record saw the level
+    arrive (advhistory's `changed`) with the direction."""
     if not it:
         return ""
     bits = []
