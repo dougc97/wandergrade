@@ -225,9 +225,12 @@
             <span class="picklabel">💱 In</span>
             <select id="homeCur"></select>
           </span>
+          <!-- These selects take aria-label, not aria-labelledby to their .picklabel:
+               Chrome names a control from its label as drawn, and .picklabel is drawn
+               in capitals ("BEEN-TO"). -->
           <span class="pickgroup" data-tip="hide countries below this safety grade from both Top Picks and Hidden Gems" title="">
-            <span class="picklabel" id="safeFloorLbl">🛡️ Safety at least</span>
-            <select id="safeFloor" aria-labelledby="safeFloorLbl">
+            <span class="picklabel">🛡️ Safety at least</span>
+            <select id="safeFloor" aria-label="Safety at least">
               <option value="a">A — Level 1 only</option>
               <option value="b" selected>B — Levels 1–2</option>
               <option value="any">Any level</option>
@@ -237,8 +240,8 @@
             <span class="picklabel">Into</span>
           </span>
           <span class="pickgroup" data-tip="countries marked ✓ been on your travel map — hide them from picks, or include them; or rank only the ones you've starred ★ want to go" title="">
-            <span class="picklabel" id="beenFilterLbl">Been-to</span>
-            <select id="beenFilter" aria-labelledby="beenFilterLbl">
+            <span class="picklabel">Been-to</span>
+            <select id="beenFilter" aria-label="Been-to">
               <option value="hide" selected>Somewhere new</option>
               <option value="show">Include visited</option>
               <option value="want">★ My want-to-go</option>
@@ -248,8 +251,8 @@
             <span class="picklabel">Count</span>
           </span>
           <span class="pickgroup" data-tip="how many picks to show" title="">
-            <span class="picklabel" id="pickCountLbl">Show</span>
-            <select id="pickCount" aria-labelledby="pickCountLbl">
+            <span class="picklabel">Show</span>
+            <select id="pickCount" aria-label="Show">
               <option value="5" selected>Top 5</option>
               <option value="10">Top 10</option>
               <option value="20">Top 20</option>

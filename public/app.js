@@ -537,6 +537,27 @@ function sortRows(rows, state, getters, nameOf) {
     return dir * (va - vb) || tie(a, b);
   });
 }
+// A sort button's accessible name: header words are drawn in capitals
+// (styles.css th { text-transform: uppercase }, which .sortbtn inherits) and
+// Chrome names a button from the drawn text, so screen readers met
+// "DESTINATION", "PRICE LEVEL", "VS 1-YR AVG Ⓘ" (the ⓘ capitalised too). The
+// label is the words as written: no aria-hidden emoji, no ⓘ tip ([data-tip])
+// and, as enhanceSelect names its combos, only the long variant (.lbl-sm left
+// out). Set wherever a header's words are: markSort, wireSort at boot,
+// restoreShellText (a guide serves them as comments), and the headers that
+// rewrite theirs (renderRates, renderAfford, renderAdvisories, renderFlights).
+function nameSortBtn(b) {
+  if (!b) return;
+  let s = "";
+  const walk = (n) => n.childNodes.forEach((c) => {
+    if (c.nodeType === 3) s += c.nodeValue;
+    else if (c.nodeType === 1 && c.getAttribute("aria-hidden") !== "true" && !c.hasAttribute("data-tip")
+             && !c.classList.contains("lbl-sm")) walk(c);
+  });
+  walk(b);
+  s = s.replace(/\s+/g, " ").trim();
+  if (s) b.setAttribute("aria-label", s); else b.removeAttribute("aria-label");
+}
 // WAI-ARIA APG sortable table: the th keeps its columnheader role (a role on
 // the th itself would hide aria-sort and break header/cell association) and
 // a real <button> inside it is the control, so Enter/Space and focus come
@@ -545,18 +566,23 @@ function sortRows(rows, state, getters, nameOf) {
 // the tab order.
 function markSort(theadSel, state) {
   document.querySelectorAll(theadSel + " th.sortable").forEach((th) => {
-    if (!th.querySelector(".sortbtn")) {
-      const b = document.createElement("button");
+    let b = th.querySelector(".sortbtn");
+    if (!b) {
+      b = document.createElement("button");
       b.type = "button"; b.className = "sortbtn";
       while (th.firstChild) b.appendChild(th.firstChild);
       th.appendChild(b);
     }
+    nameSortBtn(b);
     const cur = th.dataset.sk === state.key;
     th.dataset.sortdir = cur ? (state.asc ? "asc" : "desc") : "";
     th.setAttribute("aria-sort", cur ? (state.asc ? "ascending" : "descending") : "none");
   });
 }
 function wireSort(theadSel, state, firstAsc, rerender) {
+  // Headers already on the page (the markup's, the served Top Picks) are
+  // named now, not at their table's first render.
+  document.querySelectorAll(theadSel + " th.sortable .sortbtn").forEach((b) => nameSortBtn(b));
   const act = (th) => {
     const sk = th.dataset.sk;
     if (state.key === sk) state.asc = !state.asc;
@@ -691,6 +717,7 @@ function renderRates(data) {
   // Into the sort button, not the th: textContent on the th would wipe it.
   const rch = $("rateColHead");
   (rch.querySelector(".sortbtn") || rch).textContent = `1 ${base} =`;
+  nameSortBtn(rch.querySelector(".sortbtn"));
   // Says "fixed at a year" on purpose: the chart's window toggle sits directly
   // above this column and looks like it drives it. It must not — this figure
   // is every currency chip on Top Picks and the guides (and the newsletter's
@@ -5173,7 +5200,7 @@ function renderAdvisories() {
   // column is the US's, and says so, as with Germany.
   const caOwn = caMine && (advisories.items.some((it) => it._rkSrc === "ca") || (!health && !healthFailed));
   const rkLabel = $("riskLabel");
-  if (rkLabel) rkLabel.textContent = usMine || caOwn ? "Risks" : "Risks · US";
+  if (rkLabel) { rkLabel.textContent = usMine || caOwn ? "Risks" : "Risks · US"; nameSortBtn(rkLabel.closest(".sortbtn")); }
   const riskInfo = $("riskInfo");
   const usWhy = "the reasons the U.S. State Department gives for its level — its own “due to crime, terrorism…” line — "
     + "as short labels; “Other” is a reason no label fits (the tip quotes the sentence).";
@@ -5753,7 +5780,7 @@ function renderAfford() {
   // The header carries the currency ("€100 buys"), so the cells needn't
   // repeat "of at-home goods" 176 times — the th title still says it.
   const bth = document.querySelector('#affTable th[data-sk="buys"] .sortbtn');
-  if (bth) bth.textContent = hundred + " buys";
+  if (bth) { bth.textContent = hundred + " buys"; nameSortBtn(bth); }
   // The Currency tab's grammar: flag + name (the currency code under it), the
   // price level with its word, a move column against the country's own norm,
   // green rows where that move favours the reader, and a range bar.
@@ -10206,7 +10233,7 @@ function renderFlights() {
 
   markSort("#flightTable", flightSort);
   const mth = document.querySelector('#flightTable th[data-sk="mfare"] .sortbtn');
-  if (mth) mth.textContent = MON_ABBR[m - 1] + " fare";
+  if (mth) { mth.textContent = MON_ABBR[m - 1] + " fare"; nameSortBtn(mth); }
   $("flightRows").innerHTML = sortRows(countries, flightSort, FLIGHT_GET, FLIGHT_GET.dest).map((c) => {
     const v = c._fv;
     const avg = avgFare(c);
@@ -11691,6 +11718,7 @@ function restoreShellText() {
     for (let n; (n = walk.nextNode());) if (/^t\d+$/.test(n.data)) marks.push(n);
     for (const n of marks) { const s = words[n.data.slice(1)]; if (s != null) n.replaceWith(s); }
   }
+  document.querySelectorAll("th.sortable .sortbtn").forEach((b) => nameSortBtn(b));   // their words are back
 }
 function promoteShellHeadings() {
   restoreShellText();
@@ -13502,17 +13530,20 @@ function openGuidedPicker() {
   let want = GUIDE_PRIORITY_LABEL.map(([k]) => k).find((k) =>
     Object.entries(GUIDE_PRIORITY[k]).every(([f, v]) => curPri[f] === v)) || null;
   const months = monthSel ? [...monthSel.options].map((o) => `<option value="${esc(o.value)}">${esc(o.textContent)}</option>`).join("") : "";
+  // The two .gqlabel labels are drawn in capitals, and Chrome names a
+  // control from its label as drawn: "WHEN ARE YOU GOING?". aria-label gives
+  // each the same words as written.
   const m = acctModal(`
     <h3 class="gqh">Let's narrow it down</h3>
     <p class="gqsub">Three questions. Skip any of them.</p>
     <div class="gqrow">
       <label class="gqlabel" for="gqMonth">When are you going?</label>
-      <select id="gqMonth" class="gqinput">${months}</select>
+      <select id="gqMonth" class="gqinput" aria-label="When are you going?">${months}</select>
     </div>
     <div class="gqrow">
       <label class="gqlabel" for="gqBudget">What's your total budget?</label>
       <span class="gqbudget">
-        <input id="gqBudget" class="gqinput numin" type="number" min="0" step="100" placeholder="any" inputmode="numeric">
+        <input id="gqBudget" class="gqinput numin" type="number" min="0" step="100" placeholder="any" inputmode="numeric" aria-label="What's your total budget?">
         <span class="gqfor">for</span>
         <input id="gqDays" class="gqinput numin" type="number" min="1" max="365" step="1" placeholder="10" inputmode="numeric">
         <span class="gqfor">days</span>
