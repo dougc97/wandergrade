@@ -2318,6 +2318,26 @@ const healthOf = (iso) => (!health ? undefined : (iso && health.c[iso]) || null)
 const wnOf = (iso) => (health && health.w && health.w.c && iso && health.w.c[iso]) || null;
 // A sentence closed with a full stop, unless it already ends one.
 const fullStop = (s) => String(s || "").trim().replace(/([^.!?])$/, "$1.");
+// Where quoted text's sentences end: the index just past each full stop, "!"
+// or "?" (and any closing quote or bracket) that a space and a capital, digit,
+// quote or bracket follow, in order. Never the stop of an abbreviation —
+// U.S., U.A.E., D.R., e.g., a.m., an initial (not the C of 40°C), St., Mt.,
+// No., Dr., Mrs., a month: Ukraine's State Department quote was cut to
+// "…assistance to U.S." at "U.S. citizens", the DRC's at "the U.S. Code",
+// the UAE's at "U.S. government". A sentence that really ends on one ("…in
+// the U.S. The Embassy…") reads like "the U.S. Embassy", so it isn't cut
+// there either: a quote a sentence longer beats one cut in the wrong place.
+// (The server's own cuts skip abbreviations too: advisories.py _summary's at
+// 280 characters, watchouts.py _sentences.)
+const SENT_ABBR = /(?:^|[^\p{L}\p{N}.°])(?:(?:\p{L}\.){2,}|\p{Lu}\.|(?:St|Ste|Mt|Mts|Ft|Pt|No|Nos|Dr|Mr|Mrs|Ms|Jr|Sr|Gen|Gov|Lt|Col|Capt|Sgt|Rev|Prof|vs|approx|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.)$/u;
+function sentenceEnds(s) {
+  const t = String(s || ""), out = [];
+  for (const m of t.matchAll(/[.!?]["'”’)\]]*(?=\s+[\p{Lu}\p{N}"“'‘(\[])/gu)) {
+    if (m[0][0] === "." && SENT_ABBR.test(t.slice(0, m.index + 1))) continue;
+    out.push(m.index + m[0].length);
+  }
+  return out;
+}
 // Whose line it is. `w.source` names every agency in the build ("ECDC ·
 // CDC"), so printing it credited ECDC with the US's count and CDC with
 // Italy's; each entry's sentence opens with the one agency that made it
@@ -5394,9 +5414,12 @@ async function renderGov(focus) {
         : src === "de" && !govGraded(src, it)
           ? `<div>${parseInt(it.level, 10) === 2 ? "A formal warning for some regions only" : "No formal warning from Germany"}</div>`
         : `<div>${pill(it, src)} ${esc(it.level_text || "")}</div>`;
-      // A long feed summary ends on its last full sentence, not mid-word.
+      // A long feed summary ends on its last full sentence, not mid-word (or
+      // inside "U.S.": sentenceEnds); with none past 40 characters it keeps
+      // its "…".
       let sum = it && it.summary ? String(it.summary) : "";
-      if (/\.\.\.$|…$/.test(sum)) { const k = sum.lastIndexOf(". ", sum.length - 4); if (k > 40) sum = sum.slice(0, k + 1); }
+      const ell = /(?:\.\.\.|…)$/.exec(sum);
+      if (ell) { const k = sentenceEnds(sum.slice(0, ell.index)).filter((e) => e > 41).pop(); if (k) sum = sum.slice(0, k); }
       return `<div class="govrow${src === mine ? " mine" : ""}"><div class="govname">${flag} ${esc(full)}</div>`
         + line
         + (meta.length ? `<div class="muted">${meta.map((m, i) => (i ? " · " : "") + m).join("")}</div>` : "")

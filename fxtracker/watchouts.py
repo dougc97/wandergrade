@@ -41,11 +41,16 @@ def _txt(fragment):
 
 
 def _first_sentence(html_block):
+    """The first sentence of a block's lead paragraph, as _sentences reads
+    one: a stop after "U.S.", "St." or "a.m." doesn't end it. Split at every
+    stop, a chip's tip quoted "The U.S." (the U.S. Virgin Islands' seismic
+    zone), "…located on the island of St." (St. Vincent's volcano) and
+    "Buses operate between 6 a.m." (Brunei)."""
     p = re.search(r"<p[^>]*>(.*?)</p>", html_block or "", re.S)
     if not p:
         return ""
     lead = _txt(p.group(1))
-    return re.split(r"(?<=[.!?])\s+", lead)[0][:220] if lead else ""
+    return (_sentences(lead) or [""])[0][:220] if lead else ""
 
 
 def _sections(html_str):
