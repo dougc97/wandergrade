@@ -237,18 +237,111 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
 .foldable[open] { padding-bottom: 14px; }
 .foldable .tablewrap { padding: 0; margin-top: 10px; }
 
-/* tap-for-detail country card */
-.countrycard { position: relative; margin-top: 10px; padding: 14px 38px 12px 16px; border: 1px solid var(--line);
-  border-left: 4px solid var(--green); border-radius: 8px; background: var(--card2); font-size: 14px; }
-.countrycard h3 { margin: 0 0 6px; font-size: 16px; }
-.countrycard .ccfacts { display: flex; flex-wrap: wrap; gap: 6px 18px; color: #333; margin-bottom: 8px; }
-.countrycard .ccfacts span { white-space: nowrap; }
-.countrycard .ccsummary { color: var(--gray); margin: 0 0 8px; }
-.countrycard .ccbtns { display: flex; gap: 8px; flex-wrap: wrap; }
-.countrycard .ccbtns button { padding: 5px 11px; font-size: 13px; }
-.countrycard .ccclose { position: absolute; top: 8px; right: 8px; border: none; background: none;
-  font-size: 15px; color: var(--gray); cursor: pointer; padding: 4px; }
-.countrycard .ccclose:hover { color: var(--ink); }
+/* ---- the postcard: a country at a glance (app.js postcardHTML) ----
+   A Top Picks / Hidden gems row opens it under itself (tr.pcrow, one cell
+   across the table); every map's country card (.countrycard) is one too.
+   Its height is set when it opens and nothing arriving later moves it: the
+   photo box has its size before the photo comes (the flag on a tint until
+   then, or for good), a fact still loading holds its line ("…"), and the
+   facts are one line (one line each on a phone). */
+.gradetable tbody tr.pcrow { cursor: auto; animation: none; background: none; }
+/* The stripes (tbody tr:nth-child(even)) don't flip under an open postcard:
+   the rows after it count one more, so they swap back, and its own row takes
+   the stripe of the row it belongs to. */
+.gradetable tbody tr:nth-child(even) + tr.pcrow { background: var(--zebra); }
+.gradetable tbody tr.pcrow ~ tr:nth-child(odd) { background: var(--zebra); }
+.gradetable tbody tr.pcrow ~ tr:nth-child(even) { background: none; }
+.gradetable tr.pcrow > td { padding: 2px 0 12px; text-align: left; border-top: 0; }
+/* width 0 + min-width 100%: the card fills its cell but adds nothing to the
+   table's own sizing, so no column widens when one opens. */
+.postcard { position: relative; box-sizing: border-box; width: 0; min-width: 100%;
+  display: flex; gap: 14px; align-items: center; padding: 12px 40px 12px 12px;
+  border: 1px solid var(--line); border-left: 4px solid var(--green); border-radius: 10px;
+  background: var(--card2); color: var(--ink); font-size: 14px; font-weight: 400; line-height: 1.4;
+  white-space: normal; text-align: left; }
+.pcphoto { position: relative; flex: none; width: 168px; height: 112px; border-radius: 8px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--green) 10%, var(--soft)); }
+.pcflag { font-size: 46px; line-height: 1; }
+.pcimg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .25s; }
+.pcimg.in { opacity: 1; }
+/* The photo's credit: an ⓘ in its corner (a.tiplink: tap for the tip, again
+   for the file page). [data-tip] outranks the tips' own position: relative. */
+.pcphoto a.pccredit[data-tip] { position: absolute; right: 5px; bottom: 5px; width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1;
+  background: rgba(0,0,0,.5); color: #fff; }
+/* Its focus ring inside the dot: the photo box's rounded, clipped corner cut
+   the browser's own ring off on two sides. */
+.pcphoto a.pccredit:focus-visible { outline: 2px solid #fff; outline-offset: -2px; box-shadow: inset 0 0 0 4px var(--green); }
+.pcbody { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.pcname { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: -0.2px; }
+.pcname .visited-tag { font-size: 12px; font-weight: 600; }
+/* The one line, as a postcard says it: Plus Jakarta Sans 800. */
+.pcline { margin: 0; min-height: 1.35em; font-size: 15.5px; font-weight: 800; line-height: 1.35; letter-spacing: -0.15px; }
+.pcfacts { margin: 0; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pcsep, .pcpend { color: var(--gray); }
+/* The line of a fact this open showed waiting that then had nothing to say
+   (app.js postcardHTML's hold): kept, empty, so the card doesn't shrink. */
+.pchold { visibility: hidden; }
+.pcbtns { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 1px; }
+.pcbtn { display: inline-flex; align-items: center; min-height: 34px; box-sizing: border-box; padding: 6px 13px;
+  border-radius: 9px; font-size: 13.5px; font-weight: 700; line-height: 1.25; text-decoration: none; cursor: pointer; }
+a.pcguide { background: var(--green-fill); border: 1px solid var(--green-fill); color: #fff; }
+a.pcguide:hover { filter: brightness(1.08); }
+button.pctrip { background: none; border: 1px solid var(--line); color: inherit; }
+button.pctrip:hover, button.pctrip.on { border-color: var(--green); color: var(--green); }
+/* A map card's Wander List toggles, a step quieter than the two buttons. */
+button.pcbtn2 { min-height: 30px; padding: 4px 11px; border: 1px solid var(--line); border-radius: 999px;
+  background: none; color: var(--gray); font-size: 12.5px; font-weight: 600; }
+button.pcbtn2:hover, button.pcbtn2.on { border-color: var(--green); color: var(--green); }
+.pcinfo { margin-left: auto; padding: 4px 4px; }
+button.pcclose { position: absolute; top: 6px; right: 6px; min-width: 30px; min-height: 30px; padding: 0;
+  border: 0; border-radius: 50%; background: none; color: var(--gray); font-size: 15px; line-height: 1; cursor: pointer; }
+button.pcclose:hover { color: var(--ink); }
+@media (prefers-reduced-motion: no-preference) {
+  .pcrow.pcnew .postcard { animation: pcin .18s ease-out both; }
+  @keyframes pcin { from { opacity: 0; transform: translateY(-4px); } }
+}
+/* A map card: under its map (or floating over it in full screen), often in
+   a half-width column. Its facts wrap as a row (no " · " left at a line's
+   end), the map's own one on a line of its own (the Currency map's says
+   what its figure nets out); the photo sits at the top. */
+.countrycard { position: relative; margin-top: 10px; }
+.countrycard .postcard { width: auto; min-width: 0; align-items: flex-start; }
+.pcmap .pcfacts { display: flex; flex-wrap: wrap; gap: 2px 14px; white-space: normal; overflow: visible; }
+/* A fact takes a line of its own before it breaks, and breaks rather than
+   run out of the card (a long price fact in a narrow column). */
+.pcmap .pcfact { white-space: normal; }
+.pcmap .pcfact[data-k="map"] { flex-basis: 100%; }
+.pcmap .pcsep { display: none; }
+/* Two maps abreast (above 760px) leave a map card a column 320-490px wide:
+   too narrow for the photo beside the words (the words went one to a line
+   and ran out of the card). By the card's own width (a container), it stacks
+   as on a phone. Not the full-screen card: that one is as wide as its
+   content, which a size container can't be (it is outside .toprow). */
+.toprow .countrycard { container: pccard / inline-size; }
+@container pccard (max-width: 479.98px) {
+  .countrycard .postcard { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px; }
+  .countrycard .pcphoto { width: 100%; height: 120px; }
+  .countrycard button.pcclose { top: 14px; right: 14px; background: rgba(0,0,0,.5); color: #fff; }
+  .countrycard button.pcclose:hover { color: #fff; }
+}
+/* Narrower screens: one fact a line, where one line of three no longer fits
+   beside the photo (so a fact filling in never re-wraps the others) ... */
+@media (max-width: 760px) {
+  .pcfacts { white-space: normal; overflow: visible; }
+  .pcfact, .pchold { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pcmap .pcfact { white-space: normal; }
+  .pcsep { display: none; }
+}
+/* ... and phones: stacked, the photo a short wide strip on top. */
+@media (max-width: 600px) {
+  .postcard { flex-direction: column; align-items: stretch; gap: 10px; padding: 10px; }
+  .pcphoto { width: 100%; height: 120px; }
+  /* Over the photo strip's corner. */
+  button.pcclose { top: 14px; right: 14px; background: rgba(0,0,0,.5); color: #fff; }
+  button.pcclose:hover { color: #fff; }
+}
 .map svg path { cursor: pointer; }
 
 /* visited */
@@ -587,11 +680,16 @@ html.mapfs-open, html.mapfs-open body { overflow: hidden; }
 .mapfs .mappicksrow { margin: 0; }
 /* An opened country floats over the map instead of shrinking it. */
 .mapfs .countrycard { position: absolute; left: 12px; bottom: 12px; margin: 0; z-index: 6;
-  max-width: min(480px, calc(100% - 24px)); max-height: 60%; overflow: auto;
-  box-sizing: border-box;
-  background: var(--card); box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+  max-width: min(520px, calc(100% - 24px)); max-height: 60%; overflow: auto;
+  box-sizing: border-box; border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.35); }
+.mapfs .countrycard .postcard { background: var(--card); }
+.mapfs .pcphoto { width: 132px; height: 88px; }
+@media (max-width: 600px) { .mapfs .pcphoto { width: 100%; height: 84px; } }
 /* A short (landscape phone) screen: the card takes less of the map. */
-@media (max-height: 500px) { .mapfs .countrycard { max-height: 48%; max-width: min(420px, 55%); padding: 10px 34px 10px 12px; } }
+@media (max-height: 500px) {
+  .mapfs .countrycard { max-height: 48%; max-width: min(440px, 60%); }
+  .mapfs .pcphoto { width: 96px; height: 64px; }
+}
 /* "Ctrl/⌘ + scroll to zoom": a plain wheel scrolls the page past the map. */
 .maphint { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 4;
   background: rgba(0,0,0,.66); color: #fff; font-size: 13px; font-weight: 600; padding: 6px 12px;
@@ -1801,7 +1899,6 @@ html[data-theme="dark"] { --doodle: 0.10; }
     --doodle: 0.10;
   }
 }
-html[data-theme="dark"] .countrycard .ccfacts { color: var(--ink); }
 html[data-theme="dark"] .status.err { background: #3a151c; }
 html[data-theme="dark"] .chip2.rm:hover { background: #3a151c; }
 html[data-theme="dark"] .chip2.rm.w { background: #16304a; color: #7fb3e6; }

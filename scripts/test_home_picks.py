@@ -160,8 +160,10 @@ def run_jsc():
 
 
 def bare(h):
-    """The markup with the tooltips taken out — all the served copy leaves out."""
-    return re.sub(r' (?:title|data-tip|aria-label)="[^"]*"', "", h or "")
+    """The markup with the tooltips taken out — all the served copy leaves out —
+    and the name links' aria-expanded: app.js's names open a postcard and say
+    so, the served ones are plain links until app.js takes over."""
+    return re.sub(r' (?:title|data-tip|aria-label|aria-expanded)="[^"]*"', "", h or "")
 
 
 def mark_sorted(h):

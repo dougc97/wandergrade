@@ -96,13 +96,14 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot }) => {
 
   if (C.row) {
     // The Any time row, clicked the way a reader does (its data-m sets the
-    // guide's month), then the guide's own AI button.
+    // guide's month): its postcard's Full guide → (a tree before the postcard
+    // opens the guide from the row itself), then the guide's own AI button.
     let ok = null;
     for (let i = 0; i < 20 && !ok; i++) {
       ok = await evaluate(`(() => { const tr = document.querySelector('.gradetable tr[data-iso="${C.row}"]');
         if (!tr || !flightValue) return null; const a = tr.querySelector('a.destlink') || tr.querySelector('td.dest') || tr;
         const chips = [...tr.querySelectorAll('td.dest .seastag')].map((c) => c.textContent.trim() + (c.dataset.tip ? ' [' + c.dataset.tip + ']' : ''));
-        a.click(); return { m: tr.dataset.m, chips }; })()`);
+        a.click(); const g = document.querySelector('tr.pcrow a.pcguide'); if (g) g.click(); return { m: tr.dataset.m, chips }; })()`);
       if (!ok) await sleep(500);
     }
     console.log('ROW', JSON.stringify(ok));
