@@ -755,7 +755,8 @@ def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
              '<a href="/dollar-strength">where the US dollar is strongest</a>.</p>')
     notes = ["Levels are each government's own; the pill's tooltip quotes its phrase. Dates: the feed's own "
              "date where it publishes one, and “since” when WanderGrade's record saw the level change "
-             "(↑ raised, ↓ lowered). US reasons are the State Department's “due to” clause.",
+             "(↑ raised, ↓ lowered). US reasons are the State Department's “due to” clause, "
+             "or its section headings where it gives none.",
              _missing_note(missing)]
     stale = {s: a for s, a in (stale or {}).items() if a and s not in missing}
     sources = _sources_line(fetched, own, stale=stale, today=today)

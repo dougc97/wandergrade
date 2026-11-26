@@ -5347,7 +5347,8 @@ function renderAdvisories() {
   const rkLabel = $("riskLabel");
   if (rkLabel) { rkLabel.textContent = usMine || caOwn ? "Risks" : "Risks · US"; nameSortBtn(rkLabel.closest(".sortbtn")); }
   const riskInfo = $("riskInfo");
-  const usWhy = "the reasons the U.S. State Department gives for its level — its own “due to crime, terrorism…” line — "
+  const usWhy = "the reasons the U.S. State Department gives for its level — its own “due to crime, terrorism…” line, "
+    + "or its section headings where it gives none — "
     + "as short labels; “Other” is a reason no label fits (the tip quotes the sentence).";
   if (riskInfo) riskInfo.dataset.tip = usMine ? "T" + usWhy.slice(1)
     : caOwn ? "The reasons Global Affairs Canada gives for its level — its own lead sentence on each country's page — "
