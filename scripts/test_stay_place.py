@@ -29,7 +29,8 @@ country page, unnamed.
   * a screen reader hears where each link searches: the link's words less
     the aria-hidden parts read "Booking.com hotels near Lisbon (opens in a
     new tab)" / "Vrbo homes near Lisbon (opens in a new tab)" / "Hostelworld
-    hostels in Lisbon (opens in a new tab)", the full name whatever the
+    hostels near Lisbon (opens in a new tab)" ("near": Pena Palace, a
+    landmark, opens Sintra's page), the full name whatever the
     ellipsis shows, and the place span's title holds it too; Hostelworld
     unnamed reads "Hostelworld (opens in a new tab)";
   * a chip tapped with the focus on it (keyboard Enter or Space) hands the
@@ -51,7 +52,12 @@ country page, unnamed.
     block of its screen-reader words (else a cut name's 1px box sat past the
     page's edge and scrolled a phone sideways); Hostelworld's .stayhw starts
     from a fixed width of its own, named or not; no .staynear left in the
-    stylesheet, app.js or the stand-in.
+    stylesheet, app.js or the stand-in;
+  * the empty block's CSS hold (an in-app open before the files land) for
+    the countries renderGuideStay marks data-hw: 245px beside Vrbo on a
+    phone up to 442px, 160 from 561 to 651px, 199 without Vrbo from 900 to
+    922px, the bands worked out from the start widths and the column; on a
+    phone a row of buttons with .stayhw fills its rows.
 """
 import html
 import json
@@ -106,7 +112,8 @@ REGION_JS = "\n".join([js_const("REGIONS"), js_const("ISO_REGION"), js_const("EX
                        js_const("_SOUTH_AMERICA"), js_const("_MENA_AFRICA"), js_fn("continentOf"), js_fn("regionOf"),
                        js_const("VRBO_REGIONS"), js_const("VRBO_ALSO"), js_const("VRBO_NOT"), js_fn("vrboOK")])
 prog = "\n".join([js_const("esc"), REGION_JS, js_const("STAY22_AID"), js_const("HW_CAMREF"), js_const("HW_COUNTRY"),
-                  js_fn("hostelworldURL"), "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;",
+                  js_fn("hostelworldURL"), js_const("HW_ANY"), "let _hwFailed = false;",
+                  "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;",
                   js_fn("renderGuideStay")]) + """
 const COORDS = %s, HWC = %s, DATES = %s, PICK = %s, out = {};
 let host = null, ccGuideIso = null, advisories = null, focused = [];
@@ -241,7 +248,7 @@ def check_state(iso, h, i):
     named = [x for x in b if x["place"] is not None]
     want = ["🏨 Booking.com"] + (["🏡 Vrbo"] if VRBO[iso] else []) + (["🎒 Hostelworld"] if page else [])
     hw_ok = (b[-1]["place"] == sp[i]["n"] and b[-1]["href"] == hw_city_url(iso, page) and b[-1]["cls"] == "stayto stayhw"
-             and b[-1]["heard"] == "Hostelworld hostels in %s (opens in a new tab)" % sp[i]["n"]) if page \
+             and b[-1]["heard"] == "Hostelworld hostels near %s (opens in a new tab)" % sp[i]["n"]) if page \
         else b[-1]["html"] == (HW_OFF if iso in HW_CITY else HW) % HW_URL[iso]
     return (h.startswith('<h3 class="staytitle">🏨 Where to stay</h3>') and "near" not in h.split("</h3>")[0]
             and [x["href"] for x in named][: len(expect(iso, i))] == expect(iso, i)
@@ -276,7 +283,7 @@ pt = drawn.get("PT") or {}
 pt_b = buttons(pt.get("first", ""))
 results.append(ok([x["heard"] for x in pt_b] == ["Booking.com hotels near Lisbon (opens in a new tab)",
                                                  "Vrbo homes near Lisbon (opens in a new tab)",
-                                                 "Hostelworld hostels in Lisbon (opens in a new tab)"]
+                                                 "Hostelworld hostels near Lisbon (opens in a new tab)"]
                   and buttons((pt.get("kbd") or [{"html": ""}])[0]["html"])[0]["heard"]
                   == "Booking.com hotels near %s (opens in a new tab)" % spots("PT")[1]["n"],
                   "the links' names say where they search, and follow the chip: %s" % [x["heard"] for x in pt_b]))
@@ -328,7 +335,8 @@ results.append(ok(all(same.values()), "the stand-in is the drawn block's layout,
 # against its stand-in: named, unnamed (.stayhw) and plain Hostelworld alike.
 ALL = sorted(i for i in COORDS if isinstance(COORDS[i], list) and spots(i))
 prog_all = "\n".join([js_const("esc"), REGION_JS, js_const("STAY22_AID"), js_const("HW_CAMREF"), js_const("HW_COUNTRY"),
-                      js_fn("hostelworldURL"), "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;",
+                      js_fn("hostelworldURL"), js_const("HW_ANY"), "let _hwFailed = false;",
+                  "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;",
                       js_fn("renderGuideStay")]) + """
 const COORDS = %s, HWC = %s, DATES = %s, ALL = %s, out = {};
 let host = null, ccGuideIso = null, advisories = null;
@@ -356,7 +364,7 @@ differ = [i for i in ALL if not drawn_all.get(i)
 kinds = {"named": 0, "unnamed": 0, "plain": 0}
 for i in ALL:
     hh = drawn_all.get(i) or ""
-    kinds["named" if "stayto stayhw" in hh and "hostels in" in hh else "unnamed" if "stayhw" in hh else "plain"] += 1
+    kinds["named" if "stayto stayhw" in hh and "hostels near" in hh else "unnamed" if "stayhw" in hh else "plain"] += 1
 results.append(ok(len(drawn_all) == len(ALL) > 180 and not differ and min(kinds.values()) > 10,
                   "every country's stand-in is its drawn first chip's layout, span for span (%d countries: %s; differ: %s%s)"
                   % (len(ALL), kinds, differ[:6], " " + drawn_all["error"] if "error" in drawn_all else "")))
@@ -403,6 +411,31 @@ results.append(ok("flex: 1 1 19em" in bk and "min-width: min(19em, 100%)" in bk 
                   " to the column, one line, the place"
                   " cut with an ellipsis and holding its screen-reader words; Hostelworld's .stayhw a fixed start"
                   " width of its own (%s | %s | %s | %s)" % (bk, vr, at, hwr)))
+# The empty block's hold for the countries renderGuideStay marks data-hw
+# (a spot with a Hostelworld city page): its fixed-width button adds a row in
+# three bands, worked out from the start widths at 13.5px (Booking.com 19em,
+# Vrbo 13em, Hostelworld 12em, 17em on a phone, 8px gaps) and the stays
+# column (the viewport less 30px on a phone, less 42px to 899px, half of it
+# less 35px from 900px): beside Vrbo on a phone while Vrbo and a 17em
+# Hostelworld don't fit side by side; beside Booking.com and Vrbo below 610px
+# of column; beside Booking.com alone (no Vrbo) from 900px below 426.5px.
+EM, GAP = 13.5, 8
+bands = {"phone": int((13 + 17) * EM + GAP + 30 - 0.001),
+         "mid": int((19 + 13 + 12) * EM + 2 * GAP + 42 - 0.001),
+         "wide": int(((19 + 12) * EM + GAP + 35) * 2 - 0.001)}
+flat = re.sub(r"\s+", " ", CSS)
+holds = {"phone": "@media (max-width: %dpx) { #guideStay[data-hw=\"vrbo\"]:empty { min-height: 245px; } }" % bands["phone"],
+         "mid": "@media (min-width: 561px) and (max-width: %dpx) { #guideStay[data-hw=\"vrbo\"]:empty { min-height: 160px; } }"
+                % bands["mid"],
+         "wide": "@media (min-width: 900px) and (max-width: %dpx) { #guideStay[data-hw=\"solo\"]:empty { min-height: 199px; } }"
+                 % bands["wide"]}
+fill = re.search(r"@media \(max-width: 560px\) \{[^{}]*\.staybtn\.stayhw \{[^}]*\}\s*"
+                 r"\.staybtns:has\(> \.stayhw\) > \.stayto \{ max-width: none; \}\s*\}", CSS)
+results.append(ok(bands == {"phone": 442, "mid": 651, "wide": 922} and all(h in flat for h in holds.values()) and fill,
+                  "styles.css holds the marked countries' empty block at their own medians in the bands where"
+                  " Hostelworld's fixed width adds a row (to %(phone)dpx beside Vrbo 245, 561-%(mid)dpx 160, 900-%(wide)dpx"
+                  " without Vrbo 199), and on a phone the buttons of a row with .stayhw fill their rows (%(miss)s)"
+                  % dict(bands, miss=[k for k, h in holds.items() if h not in flat] + ([] if fill else ["fill"]))))
 with open(os.path.join(ROOT, "fxtracker", "guide_sizers.py"), encoding="utf-8") as f:
     SIZERS = f.read()
 results.append(ok(not any("staynear" in t for t in (CSS, APP, SIZERS)), "no .staynear left (styles.css, app.js, guide_sizers)"))

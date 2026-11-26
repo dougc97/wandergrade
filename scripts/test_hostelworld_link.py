@@ -33,6 +33,17 @@ would count as a click in the owner's stats).
     Barrier Reef), and the plain button main drew, byte for byte, where no
     spot of the country has one (the Falklands, Kenya, Ethiopia); such a
     country's whole block is the same bytes as with no hw-cities.json;
+    before the files land it marks the empty block for its CSS hold:
+    data-hw "vrbo" (a spot with a city page, and Vrbo), "solo" (no Vrbo),
+    none (no spot with one);
+  * app.js HW_ANY, those countries known without the file, is exactly
+    hw-cities.json's keys, in build_hw_cities.py's block;
+  * hw-cities.json unreadable (a 503, or not an object): ensureHwCities
+    fetches it once for the session, however many chips are tapped, and
+    every chip of every country draws Hostelworld unnamed on the country
+    page, with the class the served stand-in drew (.stayhw where HW_ANY has
+    the country, main's plain button elsewhere), so a tap can't change the
+    block's height;
   * public/hw-cities.json is scripts/build_hw_cities.py's output, byte for
     byte, from the committed inputs (scripts/hw-city-pages.txt, Hostelworld's
     sitemap read once; stay-coords.json; app.js HW_COUNTRY), with no network;
@@ -196,10 +207,11 @@ PICK = ["VN", "JP", "TH", "GB", "GB-ENG", "PT", "FK", "ID", "AU", "KE", "ET"]
 # file and without it (each chip): the same bytes.
 NONE = sorted(i for i in coords if isinstance(coords[i], list) and coords[i] and not HWC.get(i))
 DATES = {"checkin": "2026-11-15", "checkout": "2026-11-18"}
-prog = "\n".join([js_const("esc"), REGION_JS, js_const("STAY22_AID"), js_const("HW_CAMREF"), hw_block,
-                  js_fn("hostelworldURL"), "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;",
-                  js_fn("renderGuideStay")]) + """
-const COORDS = %s, HWC = %s, DATES = %s, PICK = %s, NONE = %s, out = {}, none = {};
+STAY_JS = "\n".join([js_const("esc"), REGION_JS, js_const("STAY22_AID"), js_const("HW_CAMREF"), hw_block,
+                     js_fn("hostelworldURL"), js_const("HW_ANY"), "let _hwFailed = false;",
+                     "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;", js_fn("renderGuideStay")])
+prog = STAY_JS + """
+const COORDS = %s, HWC = %s, DATES = %s, PICK = %s, NONE = %s, out = {}, none = {}, hint = {};
 let host = null, ccGuideIso = null, advisories = null, HW = HWC;
 const window = {}, $ = (id) => (id === "guideStay" ? host : null), holdSizer = () => {};
 const guideNoBookings = () => false, dntSettled = () => true;
@@ -207,9 +219,10 @@ const ensureStayCoords = () => Promise.resolve(COORDS), ensureBookingsKnown = ()
 const ensureHwCities = () => Promise.resolve(HW);
 const stayDates = () => DATES;
 const draw = async (iso, i) => {
-  host = { innerHTML: "", hidden: true, style: {}, firstChild: null, querySelectorAll: () => [] };
+  host = { innerHTML: "", hidden: true, style: {}, firstChild: null, dataset: {}, querySelectorAll: () => [] };
   ccGuideIso = iso; _staySpotIso = iso; _staySpotIdx = i;
   renderGuideStay(iso);
+  if (!i) hint[iso] = [host.dataset.hw || null, host.innerHTML];   // before the files land
   for (let k = 0; k < 20; k++) await null;
   return host.innerHTML;
 };
@@ -224,7 +237,7 @@ const draw = async (iso, i) => {
     }
   }
   HW = HWC;
-  print(JSON.stringify({ out, none }));
+  print(JSON.stringify({ out, none, hint }));
 })();""" % (json.dumps({i: coords[i] for i in sorted(set(PICK) | set(NONE))}), json.dumps(HWC), json.dumps(DATES),
             json.dumps(PICK), json.dumps(NONE))
 both = run(prog)
@@ -236,7 +249,7 @@ drawn = both.get("out", both)
 BTN = re.compile(r'<a class="staybtn(?: [^"]*)?" target="_blank" rel="([^"]*)" href="([^"]*)">(.*?)</a>', re.S)
 HW_BTN = '<a class="staybtn" target="_blank" rel="sponsored nofollow noopener" href="%s">🎒 Hostelworld <span class="ext">↗</span></a>'
 HW_AT = ('<a class="staybtn stayto stayhw" target="_blank" rel="sponsored nofollow noopener" href="%s">'
-         '<span><span aria-hidden="true">🎒 </span>Hostelworld<span class="vh"> hostels in </span></span>'
+         '<span><span aria-hidden="true">🎒 </span>Hostelworld<span class="vh"> hostels near </span></span>'
          '<span class="staysep" aria-hidden="true">·</span><span class="stayat" title="%s">%s'
          '<span class="vh"> (opens in a new tab)</span></span><span class="ext" aria-hidden="true">↗</span></a>')
 HW_OFF = ('<a class="staybtn stayto stayhw" target="_blank" rel="sponsored nofollow noopener" href="%s">'
@@ -278,6 +291,75 @@ same = [i for i in PICK if len(set(rels[i].values())) != 1 or len(rels[i]) < 2]
 results.append(ok(not same, "every stay button there has the same rel as Booking.com's (%s; differ: %s)"
                   % ({i: sorted(rels[i]) for i in ("PT", "JP")}, same)))
 
+# The empty block's hold knows, before the files land, whether Hostelworld's
+# fixed-width button will add a row (styles.css #guideStay[data-hw]): data-hw
+# "vrbo" beside Vrbo, "solo" without, none where no spot has a city page.
+hint = both.get("hint") or {}
+want_hint = {"VN": "solo", "JP": "solo", "TH": "vrbo", "GB": "vrbo", "GB-ENG": "vrbo", "PT": "vrbo", "FK": None,
+             "ID": "vrbo", "AU": "vrbo", "KE": None, "ET": None}
+results.append(ok({i: (hint.get(i) or [None])[0] for i in PICK} == want_hint
+                  and all((hint.get(i) or [0, 1])[1] == "" for i in PICK),
+                  "renderGuideStay marks the empty block before the files land: data-hw \"vrbo\" (Thailand, Portugal,"
+                  " the UK), \"solo\" (Vietnam, Japan), none (Kenya, Ethiopia, the Falklands) (%s)"
+                  % {i: (hint.get(i) or [None])[0] for i in PICK}))
+
+# app.js HW_ANY is hw-cities.json's countries, in build_hw_cities.py's block.
+any_js = set(re.findall(r"[A-Z]{2}(?:-[A-Z]{3})?", js_const("HW_ANY").split("new Set(", 1)[-1]))
+with_page = {i for i in coords if isinstance(coords[i], list) and any(x.get("n") in (HWC.get(i) or {}) for x in coords[i])}
+results.append(ok(any_js == set(HWC) == with_page and len(any_js) > 100,
+                  "app.js HW_ANY is exactly the countries in hw-cities.json, each with a spot of that name (%d; only in"
+                  " app.js: %s; missing: %s)" % (len(any_js), sorted(any_js - set(HWC)), sorted(set(HWC) - any_js))))
+
+# hw-cities.json unreadable (a failed fetch, or not an object): ensureHwCities
+# says so once for the session, so a chip tap doesn't fetch it again, and the
+# button keeps the width the served stand-in drew (unnamed .stayhw where
+# HW_ANY says a spot has a page), for every chip of every country.
+ALLSP = sorted(i for i in coords if isinstance(coords[i], list) and coords[i])
+prog = STAY_JS.replace("let _hwFailed = false;", "") + "\n" + js_const("_hwCities") + "\n" + js_fn("ensureHwCities") + """
+const COORDS = %s, DATES = %s, ALL = %s, out = {}, calls = [];
+let host = null, ccGuideIso = null, advisories = null, ANSWER = "fail";
+const window = {}, $ = (id) => (id === "guideStay" ? host : null), holdSizer = () => {};
+const guideNoBookings = () => false, dntSettled = () => true, stayDates = () => DATES;
+const ensureStayCoords = () => Promise.resolve(COORDS), ensureBookingsKnown = () => Promise.resolve(null);
+// (js_const("esc") brings app.js's own getJSON along: replaced, not redeclared.)
+getJSON = (u) => { calls.push(u); return ANSWER === "fail" ? Promise.reject(new Error("HTTP 503")) : Promise.resolve(null); };
+const draw = async (iso, i) => {
+  host = { innerHTML: "", hidden: true, style: {}, firstChild: null, dataset: {}, querySelectorAll: () => [] };
+  ccGuideIso = iso; _staySpotIso = iso; _staySpotIdx = i;
+  renderGuideStay(iso);
+  for (let k = 0; k < 20; k++) await null;
+  return host.innerHTML;
+};
+(async () => {
+  const r = { fail: {}, nul: {} };
+  for (const iso of ALL) { out[iso] = []; for (let i = 0; i < COORDS[iso].length; i++) out[iso].push(await draw(iso, i)); }
+  r.fail = { calls: calls.length, failed: _hwFailed, cities: JSON.stringify(_hwCities) };
+  _hwCities = null; _hwFailed = false; ANSWER = "null"; calls.length = 0;
+  const a = await draw("JP", 0), b = await draw("JP", 1);
+  r.nul = { calls: calls.length, failed: _hwFailed, jp: [a, b] };
+  print(JSON.stringify({ out, r }));
+})();""" % (json.dumps({i: coords[i] for i in ALLSP}), json.dumps(DATES), json.dumps(ALLSP))
+fl = run(prog)
+fr = fl.get("r") or {}
+results.append(ok(fr.get("fail") == {"calls": 1, "failed": True, "cities": "{}"}
+                  and (fr.get("nul") or {}).get("calls") == 1 and (fr.get("nul") or {}).get("failed") is True,
+                  "hw-cities.json unreadable (a 503, or null): fetched once for the session however many chips are"
+                  " tapped, and remembered as failed (%s%s)" % (fr, " " + fl["error"] if "error" in fl else "")))
+hw_cls = lambda h: (re.findall(r'<a class="staybtn( [^"]*)?"[^>]*>(?:(?!</a>).)*Hostelworld', h, re.S) or ["?"])[-1].strip()
+wrongf = []
+for iso in ALLSP:
+    want = (HW_OFF if iso in any_js else HW_BTN) % url(iso)
+    stand = hw_cls(guide_sizers.stay(iso))
+    for h in (fl.get("out") or {}).get(iso) or ["?"]:
+        if not h.endswith(want + "</div>") or hw_cls(h) != stand:
+            wrongf.append(iso)
+            break
+results.append(ok(len(fl.get("out") or {}) == len(ALLSP) > 180 and not wrongf
+                  and all(h.endswith((HW_OFF % url("JP")) + "</div>") for h in (fr.get("nul") or {}).get("jp") or ["?"]),
+                  "with hw-cities.json unreadable, every chip of every country (%d) draws Hostelworld unnamed on the"
+                  " country page, as wide as the served stand-in's (.stayhw where HW_ANY has the country, main's plain"
+                  " button elsewhere) (wrong: %s)" % (len(ALLSP), wrongf[:6])))
+
 # --- the data: scripts/build_hw_cities.py, offline ------------------------------------------
 import gzip  # noqa: E402
 import importlib.util  # noqa: E402
@@ -296,6 +378,9 @@ finally:
     _ur.urlopen = _urlopen
 with open(os.path.join(ROOT, "public", "hw-cities.json"), encoding="utf-8") as f:
     committed = f.read()
+results.append(ok(B.hw_any_js(data) in APP and B.app_hw_any() == set(data),
+                  "app.js HW_ANY is build_hw_cities.py's block for these countries, character for character (--check"
+                  " fails and prints it when they differ)"))
 results.append(ok(text == committed and not net and json.loads(text) == HWC,
                   "public/hw-cities.json is build_hw_cities.py's output, byte for byte, from the committed inputs, with"
                   " no network (%d spots mapped of %d)" % (sum(len(v) for v in data.values()), len(rows))))

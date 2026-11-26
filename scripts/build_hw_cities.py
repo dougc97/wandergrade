@@ -19,8 +19,8 @@ A spot maps only to a city page of its own country (app.js HW_COUNTRY; the
 UK's guide also looks in Scotland, Wales and Northern Ireland), when:
   * its name is the city's, once both are folded (accents, case, "&",
     apostrophes, punctuation) and plain qualifiers are dropped: a
-    parenthesis, "City", "Old Town", "Old City", "Medina" and the like
-    ("Ho Chi Minh City" is Hostelworld's ho-chi-minh); or
+    parenthesis, a leading "Old", a trailing "City", "Old Town" or "Old
+    City" (QUALIFIERS: "Ho Chi Minh City" is Hostelworld's ho-chi-minh); or
   * ALIASES below names the city, each with its reason: the same city
     spelt another way (Marrakesh, Odesa); a district or landmark inside it
     or at its edge (Prague's Charles Bridge, Sintra's Pena Palace);
@@ -42,7 +42,10 @@ Run from the repo root with /usr/bin/python3:
                                                             # sitemaps holding the hostel city pages into DIR
                                                             # (one at a time, a pause between), then as --pages
 Re-run (offline) when stay-coords.json or ALIASES change; --fetch only when
-Hostelworld's cities may have changed.
+Hostelworld's cities may have changed. app.js keeps the file's countries
+(HW_ANY, for the empty block's hold before the file lands): every run says
+when that list no longer matches and prints the one to paste (--check fails
+on it; then rebuild app.min.js with scripts/build_min_js.py).
 """
 
 import gzip
@@ -290,6 +293,29 @@ def dump(data):
     return "\n".join(lines) + "\n"
 
 
+def hw_any_js(data):
+    """app.js's HW_ANY block for these countries, as it is to be pasted."""
+    lines, cur = [], []
+    for iso in sorted(data):
+        cur.append(iso)
+        if len(" ".join(cur)) > 88:
+            lines.append(" ".join(cur))
+            cur = []
+    if cur:
+        lines.append(" ".join(cur))
+    body = " +\n    ".join('"%s%s"' % (l, " " if n < len(lines) - 1 else "") for n, l in enumerate(lines))
+    return 'const HW_ANY = (() => {\n  return new Set((' + body + ').split(" "));\n})();'
+
+
+def app_hw_any(app_js=None):
+    """The countries in app.js's HW_ANY, or None without the block."""
+    if app_js is None:
+        with open(os.path.join(PUBLIC, "app.js"), encoding="utf-8") as f:
+            app_js = f.read()
+    m = re.search(r"^const HW_ANY = \(\(\) => \{\n(.*?)^\}\)\(\);$", app_js, re.M | re.S)
+    return set("".join(re.findall(r'"([^"]*)"', m.group(1))).split()) if m else None
+
+
 def load_inputs():
     with open(os.path.join(PUBLIC, "stay-coords.json"), encoding="utf-8") as f:
         coords = json.load(f)
@@ -314,7 +340,14 @@ def main(argv):
     mapped = sum(len(v) for v in data.values())
     print("%d of %d spots map to a Hostelworld city page, in %d of %d countries with spots"
           % (mapped, len(rows), len(data), len({r[0] for r in rows})))
+    in_app = app_hw_any()
+    app_ok = in_app == set(data)
+    if not app_ok:
+        print("public/app.js HW_ANY is not this file's countries (only in app.js: %s; missing: %s). Paste:\n%s"
+              % (sorted((in_app or set()) - set(data)), sorted(set(data) - (in_app or set())), hw_any_js(data)))
     if "--check" in args:
+        if not app_ok:
+            sys.exit("public/app.js HW_ANY: paste the block above, then /usr/bin/python3 scripts/build_min_js.py")
         try:
             with open(OUT, encoding="utf-8") as f:
                 cur = f.read()

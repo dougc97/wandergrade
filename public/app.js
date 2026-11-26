@@ -3655,11 +3655,29 @@ function ensureStayCoords() {
 // Each stay spot's Hostelworld city page where it has one, from Hostelworld's
 // sitemap (scripts/build_hw_cities.py): {ISO: {spot name: "asia/japan/kyoto"}}.
 // Unreadable, no spot has one: the button opens the country page, as before.
-let _hwCities = null;
+// A failed fetch is kept for the session (_hwFailed), so a chip tap can't
+// fetch it again and change the button's width under the reader.
+let _hwCities = null, _hwFailed = false;
 function ensureHwCities() {
   if (_hwCities) return Promise.resolve(_hwCities);
-  return getJSON("/hw-cities.json").then((c) => (_hwCities = c && typeof c === "object" ? c : {}), () => ({}));
+  return getJSON("/hw-cities.json").then((c) => {
+    if (!c || typeof c !== "object") throw new Error("hw-cities.json");
+    return (_hwCities = c);
+  }).catch(() => { _hwFailed = true; return (_hwCities = {}); });
 }
+// The countries where any spot has a city page: hw-cities.json's own keys,
+// known before the file lands (test_hostelworld_link and build_hw_cities.py
+// --check keep the two in step; the script prints this list when they
+// differ). The empty block's hold uses it (renderGuideStay's data-hw), and
+// so does the button if the file can't be read: unnamed, but as wide as the
+// served stand-in drew it.
+const HW_ANY = (() => {
+  return new Set(("AE AL AM AO AR AT AU AW AZ BA BD BE BG BN BO BR BS BT BZ CA CH CL CN CO CR CU CV CY CZ DE " +
+    "DK DO EC EE EG ES FI FJ FR GB GB-ENG GB-SCT GB-WLS GE GH GR GT GW HK HN HR HU ID IE IL IN " +
+    "IR IT JM JO JP KH KR KZ LA LB LK LT LU LV MA MD ME MG MK MM MN MW MX MY MZ NA NI NL NO NP " +
+    "NZ OM PA PE PH PK PL PR PS PT PY RO RS RW SA SE SG SI SK SN SR SV TH TJ TL TN TR TW TZ UA " +
+    "UG US UY UZ VN VU XK ZA ZM ZW").split(" "));
+})();
 // Concrete check-in window from the selected travel month: the 15th of that
 // month (this year if still ahead, else next year) for a 3-night stay.
 function stayDates() {
@@ -3790,6 +3808,14 @@ function renderGuideStay(iso, refocus) {
   // the advisory collapsed to the insurance line and the weather chart under
   // both rode up 135px and back down when the stays came (1280).
   holdSizer(host, iso);
+  // Opened in-app before the stays' files have landed (no stand-in, so the
+  // block sits on its CSS :empty hold): Hostelworld's fixed-width button
+  // adds a row where Vrbo has one, on a phone and from 561 to 651px, and
+  // where it hasn't from 435 to 523px and 900 to 922px, so those countries'
+  // hold is taller (styles.css #guideStay[data-hw]). HW_ANY knows them
+  // without the file.
+  if (HW_ANY.has(iso)) host.dataset.hw = vrboOK(iso) ? "vrbo" : "solo";
+  else delete host.dataset.hw;
   host.innerHTML = ""; host.hidden = false;
   // The server's data-nostay (no room held for stays that never come) is
   // its own guide's; another guide's stays are held as usual, but for a
@@ -3859,9 +3885,12 @@ function renderGuideStay(iso, refocus) {
     // fixed width to start from (styles.css .stayhw), named or not, so the
     // rows break on fixed widths and a chip tap never moves one; it is
     // .stayto's spans, less the place, for a spot without one. A country
-    // where none has one draws the plain button it always had.
-    const hwAny = spots.some((s) => Object.prototype.hasOwnProperty.call(hwIn, s.n));
-    const hwBtn = hwCity ? at(hw, "stayto stayhw", "🎒", "Hostelworld", "hostels in")
+    // where none has one draws the plain button it always had. With the
+    // file unreadable, HW_ANY keeps the width the stand-in held. "Near", as
+    // Booking.com's and Vrbo's: a chip can be a landmark in the city (Pena
+    // Palace opens Sintra's page), so "hostels in Pena Palace" was wrong.
+    const hwAny = _hwFailed ? HW_ANY.has(iso) : spots.some((s) => Object.prototype.hasOwnProperty.call(hwIn, s.n));
+    const hwBtn = hwCity ? at(hw, "stayto stayhw", "🎒", "Hostelworld", "hostels near")
       : !hwAny ? btn(hw, "🎒 Hostelworld")
       : '<a class="staybtn stayto stayhw" target="_blank" rel="sponsored nofollow noopener" href="' + hw + '">' +
         '<span><span aria-hidden="true">🎒 </span>Hostelworld<span class="vh"> (opens in a new tab)</span></span>' +

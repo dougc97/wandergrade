@@ -139,7 +139,7 @@ results.append(ok(not wrong, "the stays stand-in has the Vrbo button exactly whe
 PICK = ["PT", "MX", "AU", "TH", "MA", "AE", "MU", "PH", "LK", "GB-ENG", "JP", "KE", "GL", "FK"]
 DATES = {"checkin": "2026-11-15", "checkout": "2026-11-18"}
 prog = "\n".join([js_const("esc"), REGION_JS, js_const("STAY22_AID"), js_const("HW_CAMREF"), js_const("HW_COUNTRY"),
-                  js_fn("hostelworldURL"),
+                  js_fn("hostelworldURL"), js_const("HW_ANY"), "let _hwFailed = false;",
                   "let _staySpotIdx = 0, _staySpotIso = null, _ssrNoStay = null;", js_fn("renderGuideStay")]) + """
 const COORDS = %s, HWC = %s, DATES = %s, PICK = %s, out = {};
 let host = null, ccGuideIso = null, advisories = null;
@@ -150,7 +150,7 @@ const ensureHwCities = () => Promise.resolve(HWC);
 const stayDates = () => DATES;
 (async () => {
   for (const iso of PICK) {
-    host = { innerHTML: "", hidden: true, style: {}, firstChild: null, querySelectorAll: () => [] };
+    host = { innerHTML: "", hidden: true, style: {}, firstChild: null, dataset: {}, querySelectorAll: () => [] };
     ccGuideIso = iso;
     renderGuideStay(iso);
     for (let k = 0; k < 20; k++) await null;

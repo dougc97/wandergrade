@@ -1589,15 +1589,23 @@ html[data-theme="dark"] .fvband.high { background: #3a151c; }
    button starts from a fixed width, named or not, so a chip tap can't move
    a row either (guide_sizers.stay draws the same class): 12em, just over
    "🎒 Hostelworld · ↗" itself, so it keeps main's rows almost everywhere
-   (one more only at 900-922px, beside Booking.com in a country without
-   Vrbo) and grows into the row's room for the name. On a phone it takes a
-   row of its own instead (17em is more than a 430px screen has left beside
-   Vrbo): beside Vrbo, at 390, a 12em button had room for a letter or two
-   of the name (197 of 290 named spots cut), which is the whole point of
-   naming it. */
+   and grows into the row's room for the name. One row more only where the
+   buttons used to just fit on one: from about 626 to 651px beside
+   Booking.com and Vrbo, and from 900 to 922px beside Booking.com in a
+   country without Vrbo (#guideStay[data-hw] holds both). On a phone it
+   starts from 17em instead: a row of its own beside Vrbo up to 442px (17em
+   is more than that screen has left beside Vrbo), and in a country without
+   Vrbo up to 523px, where main's plain button shared Booking.com's row
+   from 435px. Beside Vrbo, at 390, a 12em button had room for a letter or
+   two of the name (197 of 290 named spots cut), which is the whole point
+   of naming it. With a row each, the buttons fill their rows
+   there (no max-width), so the stack reads as a list, not three staggered
+   widths. Rows still break on the same start widths (flex-basis and
+   min-width; here a max-width only caps the growth), so no height moves. */
 .staybtn.stayhw { flex-basis: 12em; min-width: 12em; min-width: min(12em, 100%); }
 @media (max-width: 560px) {
   .staybtn.stayhw { flex-basis: 17em; min-width: 17em; min-width: min(17em, 100%); }
+  .staybtns:has(> .stayhw) > .stayto { max-width: none; }
 }
 .stayto > * { flex: none; }
 /* position: the screen-reader words inside the place (" (opens in a new tab)")
@@ -3173,8 +3181,22 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
 #tab-guide[data-hz="2"] #bestDetail.loading { min-height: 272px; }
 /* The stays' medians of the 162 guides that have them (2026-11, buttons
    naming their spot): 115 at 768, two rows of buttons on a phone (199), and
-   from 900px Booking.com and Vrbo above Hostelworld for most (160). */
+   from 900px Booking.com and Vrbo above Hostelworld for most (160). Where
+   a spot has a Hostelworld city page its button starts from a fixed width
+   (.stayhw), which adds a row in three bands; renderGuideStay marks those
+   countries before the files land (data-hw, from app.js HW_ANY), and they
+   are held at their own medians (below): beside Vrbo ("vrbo", 76 guides)
+   245 on a phone up to 442px and 160 from 561 to 651px; without it
+   ("solo", 43) 199 from 900 to 922px. Their third band, 435 to 523px
+   without Vrbo, keeps the phone's 199: their median there (199 to 470px,
+   then 160) is nearer it than main's (154, then 115) was. */
 #guideStay:empty { min-height: 115px; }
+@media (min-width: 561px) and (max-width: 651px) {
+  #guideStay[data-hw="vrbo"]:empty { min-height: 160px; }
+}
+@media (min-width: 900px) and (max-width: 922px) {
+  #guideStay[data-hw="solo"]:empty { min-height: 199px; }
+}
 #guideInsurance:empty { min-height: 67px; }
 @media (max-width: 560px) {
   #guideVisa:empty { min-height: 59px; }
@@ -3185,6 +3207,9 @@ html[data-tab="guide"] #guideH1[hidden] { display: block; visibility: hidden; }
   #tab-guide[data-hz="2"] #bestDetail.loading { min-height: 353px; }
   #guideStay:empty { min-height: 199px; }
   #guideInsurance:empty { min-height: 84px; }
+}
+@media (max-width: 442px) {
+  #guideStay[data-hw="vrbo"]:empty { min-height: 245px; }
 }
 /* The fare column's blocks (fares by month, FX) fill from two fetches in
    either order, and the fares strip, arriving last, sat on top and pushed
