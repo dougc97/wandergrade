@@ -20,7 +20,8 @@ would count as a click in the owner's stats).
     inside the href attribute renderGuideStay writes it into;
   * renderGuideStay under jsc (its page stubbed, as scripts/test_vrbo.py
     does) draws the Hostelworld button with that href, opened in a new tab
-    with rel="sponsored nofollow noopener", like Booking.com and Vrbo;
+    with rel="sponsored nofollow noopener", like Booking.com and Vrbo, and
+    unnamed (it searches the country, not the chosen spot);
   * the served stand-in (fxtracker/guide_sizers.stay) keeps its Hostelworld
     button without an href, and no other Hostelworld link is written
     anywhere: app.js outside hostelworldURL, index.html, server.py,
@@ -159,15 +160,28 @@ const stayDates = () => DATES;
   print(JSON.stringify(out));
 })();""" % (json.dumps({i: coords[i] for i in PICK}), json.dumps(DATES), json.dumps(PICK))
 drawn = run(prog)
-BTN = re.compile(r'<a class="staybtn" target="_blank" rel="([^"]*)" href="([^"]*)">([^<]*?) <span class="ext">')
-rels, hw = {}, {}
+# Booking.com and Vrbo name their spot in spans of their own (renderGuideStay);
+# Hostelworld is the plain button it always was: its label, then the arrow.
+BTN = re.compile(r'<a class="staybtn(?: [^"]*)?" target="_blank" rel="([^"]*)" href="([^"]*)">(.*?)</a>', re.S)
+HW_BTN = '<a class="staybtn" target="_blank" rel="sponsored nofollow noopener" href="%s">🎒 Hostelworld <span class="ext">↗</span></a>'
+
+
+def label(inner):
+    vis = re.sub(r'<span class="vh">.*?</span>', "", inner)
+    return re.sub(r"<[^>]+>", "", vis.split('<span class="staysep"')[0].split(' <span class="ext">')[0]).strip()
+
+
+rels, hw, hw_html = {}, {}, {}
 for iso in PICK:
     btns = BTN.findall(drawn.get(iso) or "")
-    rels[iso] = {label: rel for rel, _, label in btns}
-    hw[iso] = next((href for _, href, label in btns if label == "🎒 Hostelworld"), None)
-wrong = [i for i in PICK if hw[i] != url(i) or rels[i].get("🎒 Hostelworld") != "sponsored nofollow noopener"]
+    rels[iso] = {label(inner): rel for rel, _, inner in btns}
+    hw[iso] = next((href for _, href, inner in btns if label(inner) == "🎒 Hostelworld"), None)
+    hw_html[iso] = HW_BTN % url(iso) in (drawn.get(iso) or "")
+wrong = [i for i in PICK if hw[i] != url(i) or rels[i].get("🎒 Hostelworld") != "sponsored nofollow noopener"
+         or not hw_html[i]]
 results.append(ok(not wrong, "renderGuideStay: the Hostelworld button opens hostelworldURL's link, rel=\"sponsored nofollow"
-                  " noopener\" (%s; wrong: %s%s)" % (" ".join(PICK), wrong, " " + drawn["error"] if "error" in drawn else "")))
+                  " noopener\", unnamed: \"🎒 Hostelworld ↗\" as before (%s; wrong: %s%s)"
+                  % (" ".join(PICK), wrong, " " + drawn["error"] if "error" in drawn else "")))
 same = [i for i in PICK if len(set(rels[i].values())) != 1 or len(rels[i]) < 2]
 results.append(ok(not same, "every stay button there has the same rel as Booking.com's (%s; differ: %s)"
                   % ({i: sorted(rels[i]) for i in ("PT", "JP")}, same)))

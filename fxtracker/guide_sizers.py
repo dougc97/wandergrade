@@ -244,9 +244,12 @@ def stay(iso, spots=None):
     """The stays block as renderGuideStay draws it (first spot chosen), or ""
     with no spots (app.js hides the block then). `spots` defaults to the
     country's entry in public/stay-coords.json, the file app.js reads. Its
-    buttons are app.js's, in order: Booking.com, Vrbo where vrbo() says so
-    (Portugal, Mexico, Australia; not Japan or Kenya), Hostelworld — a third
-    button wraps the row onto two lines on a phone."""
+    buttons are app.js's, in order: Booking.com and Vrbo where vrbo() says
+    so (Portugal, Mexico, Australia; not Japan or Kenya), each naming the
+    first spot, then Hostelworld, unnamed. The named ones are app.js's spans
+    less the screen-reader words (out of the flow): styles.css .stayto wraps
+    them on fixed widths, Booking.com on a row of its own on a phone and
+    Hostelworld under Booking.com and Vrbo at 1280."""
     if spots is None:
         spots = _json("stay-coords.json").get(iso)
     if isinstance(spots, dict):
@@ -257,12 +260,17 @@ def stay(iso, spots=None):
     chips = ('<div class="staychips">' + "".join(
         '<button type="button" class="staychip%s" tabindex="-1">📍 %s</button>' % (" active" if i == 0 else "", _e(s["n"]))
         for i, s in enumerate(spots)) + "</div>") if len(spots) > 1 else ""
+
+    def at(cls, emoji, name):
+        return ('<a class="staybtn %s"><span><span aria-hidden="true">%s </span>%s</span>'
+                '<span class="staysep" aria-hidden="true">·</span><span class="stayat">%s</span>'
+                '<span class="ext" aria-hidden="true">↗</span></a>' % (cls, emoji, name, _e(spots[0]["n"])))
     # A <div>, not the h3 app.js writes: no heading in the served outline
     # for a block that isn't there yet (.staytitle sets the h3's font and
     # margins, so it lays out the same).
-    return _wrap(iso, '<div class="staytitle">🏨 Where to stay <span class="staynear">near %s</span></div>' % _e(spots[0]["n"])
-                 + chips + '<div class="staybtns"><a class="staybtn">🏨 Booking.com <span class="ext">↗</span></a>'
-                 + ('<a class="staybtn">🏡 Vrbo <span class="ext">↗</span></a>' if vrbo(iso) else "")
+    return _wrap(iso, '<div class="staytitle">🏨 Where to stay</div>'
+                 + chips + '<div class="staybtns">' + at("stayto", "🏨", "Booking.com")
+                 + (at("stayto stayvr", "🏡", "Vrbo") if vrbo(iso) else "")
                  + '<a class="staybtn">🎒 Hostelworld <span class="ext">↗</span></a></div>')
 
 

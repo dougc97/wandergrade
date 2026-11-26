@@ -58,7 +58,9 @@ export default async ({ send, on, evaluate, setSize, scheme, nav, shot, sleep })
         if (v) { const u = new URL(v.href); q = { host: u.host, path: u.pathname, aid: u.searchParams.get('aid'), lat: u.searchParams.get('lat'),
                  checkin: u.searchParams.get('checkin'), rel: v.rel, target: v.target }; }
         if (host) host.scrollIntoView({ block: 'center' });
-        return { labels: btns.map((b) => b.textContent.replace(/\\s*↗/, '').trim()), vrbo: q, near: host && (host.querySelector('.staynear') || {}).textContent }; })()`);
+        const seen = (b) => { const c = b.cloneNode(true); c.querySelectorAll('.vh').forEach((v) => v.remove()); return c.textContent; };
+        return { labels: btns.map((b) => seen(b).replace(/\\s*↗/, '').trim()),
+                 vrbo: q, near: host && (host.querySelector('.stayat') || {}).title }; })()`);
       console.log('vrbo', slug, JSON.stringify(r));
       await sleep(400); await shot('vrbo-' + slug);
     }
