@@ -22,9 +22,11 @@ What it holds the code to:
     reader's own: test_fee_budget.py);
   * the same rule where live rates are out but a country priced in US
     dollars (Ecuador, Panama…) still gets a computed line: for a reader from
-    elsewhere the US stands in for their home ("≈ 43% of the US (no figure
-    for Germany)"), so no band word or grade note there either, and the ⓘ
-    says the basket is the US's; a US reader's line is untouched;
+    elsewhere the US stands in for their home ("≈ 43% of the US", not "no
+    figure for Germany": Germany has one, only today's rate is missing), so
+    no band word or grade note there either, and the ⓘ says the basket is
+    the US's because live exchange rates didn't load; a US reader's line is
+    untouched (test_rates_down_home.py has the rest);
   * the same with ppp.json out and live rates in;
   * fee countries are as round 8 left them: Bhutan has no band word for
     anyone, and its ⓘ ends on the fee note.
@@ -153,7 +155,7 @@ A = js["all"]
 lead = re.compile(r"<b>(?:Very cheap|Cheap|A bit cheaper|About the same|Pricey): local prices")
 # Dollar-priced countries draw a computed line with rates out (rateForCurrency("USD") is 1).
 LIVE = [iso for iso in ALL if "carried to today&#39;s exchange rate" in A["US"][iso]]
-NAME = {"DE": "Germany", "IN": "India"}
+RATES_OUT = "against the same basket in the US, because live exchange rates didn&#39;t load."
 diff = {}
 for o, home in (("DE", "DE"), ("IN", "IN")):
     for iso in ALL:
@@ -161,8 +163,7 @@ for o, home in (("DE", "DE"), ("IN", "IN")):
             continue
         want = lead.sub("<b>Local prices", A["US"][iso]).replace(GRADE.replace("&", "&amp;"), "")
         if iso in LIVE:
-            want = re.sub(r"(% of the US)", r"\1 (no figure for %s)" % NAME[o], want, count=1) \
-                .replace("against the same basket at home.", "against the same basket in the US.")
+            want = want.replace("against the same basket at home.", RATES_OUT)
         if A[o][iso] != want or BAND.search(A[o][iso]):
             diff[o + ":" + iso] = (A[o][iso][:160], want[:160])
 n_band = sum(1 for iso in ALL if BAND.search(A["US"][iso]))
@@ -174,10 +175,11 @@ ec_us, ec_de = A["US"]["EC"], A["DE"]["EC"]
 results.append(ok("EC" in LIVE and 3 <= len(LIVE) <= 30
                   and re.match(r"💰 <b>(?:Very cheap|Cheap): local prices ≈ \d+% of the US</b>", ec_us)
                   and "same basket at home" in tip(ec_us) and tip(ec_us).endswith(GRADE)
-                  and re.match(r"💰 <b>Local prices ≈ \d+% of the US \(no figure for Germany\)</b><span class=\"fxinfo\"", ec_de)
-                  and "same basket in the US" in tip(ec_de) and "grade C or D" not in tip(ec_de)
+                  and re.match(r"💰 <b>Local prices ≈ \d+% of the US</b><span class=\"fxinfo\"", ec_de)
+                  and "same basket in the US, because live exchange rates didn't load." in tip(ec_de)
+                  and "grade C or D" not in tip(ec_de) and "no figure" not in ec_de
                   and not BAND.search(A["IN"]["EC"])
-                  and text(A["DE"]["US"]) == "💰 Local prices ≈ 100% of the US (no figure for Germany)"
+                  and text(A["DE"]["US"]) == "💰 Local prices ≈ 100% of the US"
                   and "Home prices" in A["US"]["US"],
                   "rates out, a dollar-priced country (%d: %s) still draws a computed line: a US reader's keeps its "
                   "band word (%r); a German's has none and its ⓘ says the basket is the US's (%r), on the US's own "
