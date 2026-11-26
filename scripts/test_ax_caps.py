@@ -16,8 +16,13 @@ What it holds the code to:
     served Top Picks table (fxtracker/home_picks.py, which
     test_home_picks.py holds to the grade tables app.js draws) is named by
     app.js nameSortBtn: its words in their written case, no emoji
-    (aria-hidden), no ⓘ ([data-tip]), the long label variant only (.lbl-lg
-    kept, .lbl-sm left out) — index.html's pinned word for word;
+    (aria-hidden), no ⓘ ([data-tip]) and, of a long/short pair (.lbl-lg /
+    .lbl-sm), only the half on screen (computed display) — index.html's
+    pinned word for word at desktop width and at phone width, where the
+    two "vs avg" headers drop their "1-yr"/"10-yr" (WCAG 2.5.3: the name
+    holds the words on screen);
+  * the width crossing 600/601 or 374/375 (matchMedia change) renames every
+    sort button, so a turned phone or a resized window gets the other half;
   * markSort names a button it wraps and one already there, wireSort names
     the page's at boot (and restoreShellText once a guide's words, served as
     comments, are back), and a header whose words change is renamed ("1 EUR
@@ -28,7 +33,8 @@ What it holds the code to:
     points at, and no <label> (for= or wrapping) of a class styles.css draws
     uppercase names, a control without its own aria-label; the Top Picks
     filters (Safety at least, Been-to, Show) and Help me choose's two
-    questions say their words as written.
+    questions say their words as written; its days box is named like Top
+    Picks' (not by its placeholder "10").
 """
 import html.parser, json, os, re, subprocess, sys, tempfile
 
@@ -112,8 +118,23 @@ def sort_ths(markup):
 IDX = sort_ths(INDEX)
 SERVED = [("served", sk, th) for _, sk, th in sort_ths(home_picks._HEAD)]
 
+# Before app.js: a matchMedia that keeps its change listeners, so the driver can cross a width.
+PRE = r"""
+var __mq = [];
+window.matchMedia = function (q) {
+  var o = { q: q, matches: false, fns: [], addEventListener: function (t, f) { if (t === "change") o.fns.push(f); },
+            addListener: function (f) { o.fns.push(f); } };
+  __mq.push(o); return o;
+};
+"""
+
 DRIVER = r"""
 const FIX = JSON.parse(read(FIX_PATH));
+// The width, as styles.css draws the .lbl pairs: desktop shows .lbl-lg, a phone (375-600, or any
+// width up to 600 inside #tab-data, where these headers live) shows .lbl-sm.
+let narrow = false;
+window.getComputedStyle = (el) => ({ getPropertyValue: () => "",
+  display: el.classList && (narrow ? el.classList.contains("lbl-lg") : el.classList.contains("lbl-sm")) ? "none" : "inline" });
 // A tiny DOM of real nodes (the harness's stubs have no tree): enough for nameSortBtn, markSort
 // and wireSort.
 function mk(spec, parent) {
@@ -139,12 +160,30 @@ function mk(spec, parent) {
   return n;
 }
 const label = (b) => b ? b.getAttribute("aria-label") : "(no button)";
-const out = { buttons: [], wrap: null, existing: null, boot: null, rewrite: {}, nullOk: null };
+const out = { buttons: [], phone: [], wrap: null, existing: null, boot: null, rewrite: {}, nullOk: null, width: {} };
+const all = [];
 for (const th of FIX.ths) {
   const t = mk(th.node); const b = t.querySelector(".sortbtn");
-  nameSortBtn(b);
+  nameSortBtn(b); all.push(b);
   out.buttons.push({ table: th.table, sk: th.sk, label: label(b), text: b ? b.textContent : null });
 }
+for (const [i, th] of FIX.ths.entries()) {   // the same buttons at phone width
+  const b = mk(th.node).querySelector(".sortbtn");
+  narrow = true; nameSortBtn(b); narrow = false;
+  out.phone.push({ table: th.table, sk: th.sk, label: label(b) });
+}
+// Crossing a width: each query's change listeners alone, on the page's buttons plus a pair of each half.
+const pair = mk(FIX.pairTh).querySelector(".sortbtn"); nameSortBtn(pair); all.push(pair);
+const qsa0 = document.querySelectorAll;
+document.querySelectorAll = (sel) => sel === "th.sortable .sortbtn" ? all : [];
+const names = () => all.map(label);
+for (const q of ["(max-width: 600px)", "(max-width: 374px)"]) {
+  const fns = [].concat(...__mq.filter((m) => m.q === q).map((m) => m.fns));
+  narrow = true; fns.forEach((f) => f({ matches: true })); const ph = names();
+  narrow = false; fns.forEach((f) => f({ matches: false })); const dk = names();
+  out.width[q] = { listeners: fns.length, phone: ph, desktop: dk };
+}
+document.querySelectorAll = qsa0;
 // markSort: one th without a button (a grade table's, as renderGradeTable writes it), one with.
 const bare = mk(FIX.bareTh), withBtn = mk(FIX.btnTh);
 const qsa = document.querySelectorAll, ce = document.createElement;
@@ -177,12 +216,15 @@ def run_jsc():
                  '<span class="thword">Affordability</span></th>')["k"][0]
     btn = parse('<th class="sortable" data-sk="safety"><button type="button" class="sortbtn">'
                 '<span aria-hidden="true">🛡️</span> <span class="thword">Safety</span></button></th>')["k"][0]
-    fix = {"ths": [{"table": t, "sk": s, "node": th} for t, s, th in IDX + SERVED], "bareTh": bare, "btnTh": btn,
+    pair = parse('<th class="sortable" data-sk="x"><button type="button" class="sortbtn">Show <span class="lbl-lg">'
+                 'every row</span><span class="lbl-sm">all</span></button></th>')["k"][0]
+    fix = {"ths": [{"table": t, "sk": s, "node": th} for t, s, th in IDX + SERVED], "bareTh": bare, "btnTh": btn, "pairTh": pair,
            "rateTh": th_of("rates", "rate"), "buysTh": th_of("affTable", "buys"), "risksTh": th_of("advTable", "risks")}
     with tempfile.TemporaryDirectory() as d:
         fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
         json.dump(fix, open(fp, "w"))
-        open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + DRIVER.replace("FIX_PATH", json.dumps(fp)))
+        open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + PRE + "\n" + APP + "\n"
+                                              + DRIVER.replace("FIX_PATH", json.dumps(fp)))
         try:
             r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
             return json.loads(r.stdout.strip().splitlines()[-1]), r
@@ -208,6 +250,23 @@ bad = [b for b in js["buttons"] if not b["label"] or "ⓘ" in b["label"] or re.s
        or (b["label"] == b["label"].upper() and b["label"] != b["label"].lower() and b["text"].upper() != b["text"])]
 results.append(ok(not bad, "no sort button's name is empty, carries an ⓘ or an emoji, or is in capitals its words "
                   "aren't written in %s" % (bad or "")))
+# At phone width the two "vs avg" headers show "VS AVG": their name follows the screen; nothing else differs.
+gotp = {}
+for b in js["phone"]:
+    gotp.setdefault(b["table"], {})[b["sk"]] = b["label"]
+wantp = json.loads(json.dumps(want))
+wantp["rates"]["vsavg"] = wantp["affTable"]["vs"] = "vs avg"
+results.append(ok(gotp == wantp, "at phone width each name holds the words on screen: 'vs avg' for the two headers that "
+                  "drop their '1-yr'/'10-yr', the rest as on desktop %s"
+                  % ("" if gotp == wantp else {k: v for k, v in gotp.items() if wantp.get(k) != v})))
+n = len(js["buttons"])
+dk_all = [b["label"] for b in js["buttons"]] + ["Show every row"]
+ph_all = [b["label"] for b in js["phone"]] + ["Show all"]
+wd = js["width"]
+results.append(ok(all(wd[q]["listeners"] >= 1 and wd[q]["phone"] == ph_all and wd[q]["desktop"] == dk_all
+                      for q in ("(max-width: 600px)", "(max-width: 374px)")),
+                  "crossing 600/601 or 374/375 renames every sort button to the half on screen (%d buttons + a "
+                  "long/short pair; listeners %s)" % (n, {q: v["listeners"] for q, v in wd.items()})))
 vs = [b["text"] for b in js["buttons"] if b["sk"] in ("vsavg", "vs") and b["table"] in ("rates", "affTable")]
 results.append(ok(len(vs) == 2 and all("ⓘ" in t for t in vs),
                   "the two 'vs avg' buttons hold an ⓘ in their markup, kept out of the name (%s)" % vs))
@@ -308,6 +367,9 @@ q = {i: (attr(APP, i, "aria-label"), re.search(r'<label class="gqlabel" for="%s"
 results.append(ok(all(a and l and a == l.group(1) for a, l in q.values()),
                   "Help me choose's two questions are named by their label's words as written: %s"
                   % {i: a for i, (a, _) in q.items()}))
+days = (attr(APP, "gqDays", "aria-label"), attr(INDEX, "budgetDays", "aria-label"))
+results.append(ok(days[0] and days[0] == days[1] == "Trip length in days",
+                  "Help me choose's days box is named like Top Picks' (not by its placeholder '10'): %s" % (days,)))
 
 print("\n%d/%d passed" % (sum(1 for r in results if r), len(results)))
 sys.exit(0 if all(results) else 1)

@@ -542,21 +542,38 @@ function sortRows(rows, state, getters, nameOf) {
 // Chrome names a button from the drawn text, so screen readers met
 // "DESTINATION", "PRICE LEVEL", "VS 1-YR AVG Ⓘ" (the ⓘ capitalised too). The
 // label is the words as written: no aria-hidden emoji, no ⓘ tip ([data-tip])
-// and, as enhanceSelect names its combos, only the long variant (.lbl-sm left
-// out). Set wherever a header's words are: markSort, wireSort at boot,
-// restoreShellText (a guide serves them as comments), and the headers that
-// rewrite theirs (renderRates, renderAfford, renderAdvisories, renderFlights).
+// and, of a long/short pair (.lbl-lg/.lbl-sm), only the half on screen now: a
+// phone's Currency header reads "VS AVG", so its name is "vs avg", not "vs
+// 1-yr avg" (a name must hold the words a reader sees, WCAG 2.5.3, so voice
+// control's "tap vs avg" finds it). sortLblWidth renames them when the width
+// swaps the pair. Set wherever a header's words are: markSort, wireSort at
+// boot, restoreShellText (a guide serves them as comments), and the headers
+// that rewrite theirs (renderRates, renderAfford, renderAdvisories,
+// renderFlights).
 function nameSortBtn(b) {
   if (!b) return;
   let s = "";
+  const shown = (c) => !(c.classList.contains("lbl-lg") || c.classList.contains("lbl-sm"))
+    || getComputedStyle(c).display !== "none";
   const walk = (n) => n.childNodes.forEach((c) => {
     if (c.nodeType === 3) s += c.nodeValue;
     else if (c.nodeType === 1 && c.getAttribute("aria-hidden") !== "true" && !c.hasAttribute("data-tip")
-             && !c.classList.contains("lbl-sm")) walk(c);
+             && shown(c)) walk(c);
   });
   walk(b);
   s = s.replace(/\s+/g, " ").trim();
   if (s) b.setAttribute("aria-label", s); else b.removeAttribute("aria-label");
+}
+// styles.css swaps the .lbl pairs at 600/601 (375-600 everywhere, all of
+// 0-600 inside #tab-data) and at 374/375: rename every sort button when the
+// width crosses either.
+function sortLblWidth() {
+  document.querySelectorAll("th.sortable .sortbtn").forEach((b) => nameSortBtn(b));
+}
+if (window.matchMedia) for (const q of ["(max-width: 600px)", "(max-width: 374px)"]) {
+  const mq = matchMedia(q);
+  if (mq.addEventListener) mq.addEventListener("change", sortLblWidth);
+  else if (mq.addListener) mq.addListener(sortLblWidth);
 }
 // WAI-ARIA APG sortable table: the th keeps its columnheader role (a role on
 // the th itself would hide aria-sort and break header/cell association) and
@@ -13532,7 +13549,8 @@ function openGuidedPicker() {
   const months = monthSel ? [...monthSel.options].map((o) => `<option value="${esc(o.value)}">${esc(o.textContent)}</option>`).join("") : "";
   // The two .gqlabel labels are drawn in capitals, and Chrome names a
   // control from its label as drawn: "WHEN ARE YOU GOING?". aria-label gives
-  // each the same words as written.
+  // each the same words as written. The days box had only its placeholder
+  // ("10") for a name; it takes Top Picks' #budgetDays one.
   const m = acctModal(`
     <h3 class="gqh">Let's narrow it down</h3>
     <p class="gqsub">Three questions. Skip any of them.</p>
@@ -13545,7 +13563,7 @@ function openGuidedPicker() {
       <span class="gqbudget">
         <input id="gqBudget" class="gqinput numin" type="number" min="0" step="100" placeholder="any" inputmode="numeric" aria-label="What's your total budget?">
         <span class="gqfor">for</span>
-        <input id="gqDays" class="gqinput numin" type="number" min="1" max="365" step="1" placeholder="10" inputmode="numeric">
+        <input id="gqDays" class="gqinput numin" type="number" min="1" max="365" step="1" placeholder="10" inputmode="numeric" aria-label="Trip length in days">
         <span class="gqfor">days</span>
       </span>
     </div>
