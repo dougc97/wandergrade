@@ -7,7 +7,8 @@
 //   PC_SEED   localStorage to start from, JSON of strings ('{"fx_origin":"DE"}')
 //   PC_FIX    recorded /api answers, <dir>/<sha1(path + query)>.json ({status, ct, body base64})
 //   PC_PAR    scripts/parity/fixtures (non-USD rates, IN/GB/DE flights)
-//   PC_SHOTS  where the shots case saves its PNGs (default: shots/ beside cdp.mjs)
+//   PC_SHOTS  where the shots case saves its PNGs (default: shots/ beside cdp.mjs); PC_PREFIX names them,
+//             PC_ONLY=1 takes just the Top Picks one, PC_SCHEME=light|dark the colour scheme
 // Production hosts are refused; Wikipedia and Wikimedia go through wikicache.mjs. Each case prints
 // PASS/FAIL lines and "RESULT passed/total"; keep a case under ~50 s (one Chrome at a time).
 import fs from 'node:fs'; import crypto from 'node:crypto'; import path from 'node:path';
@@ -52,6 +53,7 @@ async function intercept({ send, on, sleep }, opt = {}) {
     if (/wikipedia\.org$|wikimedia\.org$/.test(u.hostname)) { st.wiki.push(u.href); return wiki(d); }
     if (u.hostname !== '127.0.0.1') return send('Fetch.continueRequest', { requestId: id });
     if (u.pathname === '/api/rates' && opt.rates === 'net') return send('Fetch.failRequest', { requestId: id, errorReason: 'Failed' });
+    if (u.pathname.startsWith('/api/advisories') && opt.adv === 'net') return send('Fetch.failRequest', { requestId: id, errorReason: 'Failed' });
     if (u.pathname === '/api/geo') return json(id, '{}');
     if (u.pathname.startsWith('/api/') && !u.pathname.startsWith('/api/advisories')) {
       const pb = parityAnswer(u);
@@ -81,8 +83,9 @@ export default async (ctx) => {
   const slow = [];
   if (CASE === 'visa') slow.push({ re: /\/visa-passport\.json/, ms: 2500 });
   if (CASE === 'photo') slow.push({ re: /(upload|thumb)\.wikimedia\.org|wikipedia\.org\/w\/api\.php/, ms: 2000 });
-  const st = await intercept(ctx, { rates: CASE === 'ratesdown' ? 'net' : 'ok', slow });
+  const st = await intercept(ctx, { rates: CASE === 'ratesdown' ? 'net' : 'ok', adv: CASE === 'advdown' ? 'net' : 'ok', slow });
   await setSize(W, H, PHONE);
+  if (process.env.PC_SCHEME) await ctx.scheme(process.env.PC_SCHEME === 'dark');   // light | dark (default: the browser's)
 
   const waitFor = async (expr, ms = 15000) => {
     const t0 = Date.now();
@@ -135,16 +138,35 @@ export default async (ctx) => {
     && h.querySelectorAll('table.gradetable:not(.skeleton) tbody tr[data-iso]').length >= 5 && typeof togglePostcard === 'function'; })()`;
   const tag = `${CASE}@${W}`;
 
+  if (CASE === 'advdown') {
+    // Advisories down: Top Picks can't rank (as before), the served rows stay, and a click on one
+    // opens its postcard (it reads no advisory) without an error of its own.
+    await nav(BASE + '/', 0);
+    const live = await waitFor(`(() => { const h = document.getElementById('topCards'); return typeof togglePostcard === 'function' && h && h.querySelector('tr[data-iso]') ? [...h.querySelectorAll('tr[data-iso]')].map((t) => t.dataset.iso) : null; })()`, 8000);
+    if (!ok(Array.isArray(live), `${tag}: rows on screen with app.js running (${JSON.stringify(live)})`)) return finish();
+    await sleep(3000);
+    const iso = live[1];
+    await click(`#topCards tr[data-iso="${iso}"] td.rank`);
+    await sleep(2500);
+    const s1 = await state();
+    ok(s1.n === 1 && s1.iso === iso && /Full guide →/.test(s1.text || ''), `${tag}: a row opens its postcard (${(s1.text || '').slice(0, 140)})`);
+    ok(!/…/.test(s1.text || ''), `${tag}: nothing left waiting (${(s1.text || '').slice(0, 140)})`);
+    return finish();
+  }
   if (CASE === 'served') {
     // A click on the served rows before app.js redraws them: the postcard opens, and stays on that
     // country through the redraw (or closes if the redraw drops it). Never two.
     await nav(BASE + '/', 0);
     const live = await waitFor(`(() => { const h = document.getElementById('topCards'); return typeof renderValue === 'function' && h && h.hasAttribute('data-ssr') && h.querySelector('tr[data-iso]') ? [...h.querySelectorAll('tr[data-iso]')].map((t) => t.dataset.iso) : null; })()`, 8000);
     if (!ok(Array.isArray(live), `${tag}: served rows on screen with app.js running (${JSON.stringify(live)})`)) return finish();
+    // In-page, in one go: a pointer click can land after the app's redraw has moved the rows (these
+    // fixtures rank them differently from the server's own data).
     const iso = live[1];
-    await click(`#topCards tr[data-iso="${iso}"] td.rank`);
+    const was = await evaluate(`(() => { const h = document.getElementById('topCards'); const ssr = h.hasAttribute('data-ssr');
+      h.querySelector('tr[data-iso="${iso}"] td.rank').click(); return ssr; })()`);
+    await sleep(250);
     const s1 = await state();
-    ok(s1.n === 1 && s1.iso === iso && s1.after === iso, `${tag}: a served row opens its postcard (${JSON.stringify(s1)})`);
+    ok(s1.n === 1 && s1.iso === iso && s1.after === iso, `${tag}: a ${was ? 'served' : '(already redrawn)'} row opens its postcard (${JSON.stringify(s1).slice(0, 200)})`);
     await waitFor(ready, 20000);
     const s2 = await state(), listed = (await rows()).includes(iso);
     ok(listed ? s2.n === 1 && s2.iso === iso && s2.after === iso : s2.n === 0,
@@ -362,6 +384,13 @@ export default async (ctx) => {
         const tr = await evaluate(`(() => ({ t: document.querySelector('.countrycard .pctrip').textContent, has: tripHas('${iso}') }))()`);
         ok(/✓ On your trip/.test(tr.t) && tr.has, `${tag}: the card's 🧳 Add to trip flips to ✓ On your trip`);
         await evaluate(`document.querySelector('.countrycard .pctrip').click()`); await sleep(300);
+        // Another country on the same map reuses the card: never the last one's photo.
+        const other = process.env.PC_ISO2 || 'TH';
+        await evaluate(`document.querySelector('#${id} path[data-iso="${other}"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+        await sleep(80);
+        const sw = await evaluate(`(() => { const c = document.querySelector('.countrycard .postcard'); const i = c && c.querySelector('img.pcimg');
+          return { iso: c && c.getAttribute('data-iso'), src: i ? i.currentSrc || i.src : null, alt: i ? i.alt : null }; })()`);
+        ok(sw.iso === other && (!sw.src || sw.src !== ph.src) && !/Japan/.test(sw.alt || ''), `${tag}: ${other} after ${iso}: not ${iso}'s photo (${JSON.stringify(sw).slice(0, 200)})`);
       }
       await evaluate(`document.querySelector('.countrycard .pcclose').click()`); await sleep(300);
       const gone = await evaluate(`!document.querySelector('.countrycard') && !ccCurrent`);

@@ -160,8 +160,10 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot, errs }) =
       return t ? { iso: t.dataset.iso, m: +t.dataset.m, chip: (t.querySelector('.seasbest') || {}).textContent, win: flexWindow() } : null; })()`);
     console.log('ROW', JSON.stringify(row));
     if (!row) return;
-    // 1. The name link: the guide on the row's month.
-    await evaluate(`(() => { document.querySelector('#topCards tr[data-iso="${row.iso}"] a.destlink').click(); return 1; })()`);
+    // 1. The name link: the guide on the row's month (through its postcard's
+    // Full guide → since round 12; a tree before it opens the guide at once).
+    await evaluate(`(() => { document.querySelector('#topCards tr[data-iso="${row.iso}"] a.destlink').click();
+      const g = document.querySelector('tr.pcrow a.pcguide'); if (g) g.click(); return 1; })()`);
     await sleep(3000);
     console.log('GUIDE_FROM_ROW', JSON.stringify(await evaluate(guideState)));
     // 2. Back to Top Picks by its tab: Any time still on, the focus gone.
