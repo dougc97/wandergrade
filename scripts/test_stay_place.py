@@ -20,8 +20,8 @@ Hostelworld searches the whole country and stays unnamed.
     nofollow noopener", new tab; Hostelworld's button is main's, byte for
     byte, whatever the chip;
   * a screen reader hears where each link searches: the link's words less
-    the aria-hidden parts read "Booking.com hotels near Lisbon, opens in a
-    new tab" / "Vrbo homes near Lisbon (opens in a new tab)", the full name
+    the aria-hidden parts read "Booking.com hotels near Lisbon (opens in a
+    new tab)" / "Vrbo homes near Lisbon (opens in a new tab)", the full name
     whatever the ellipsis shows, and the place span's title holds it too;
   * a chip tapped with the focus on it (keyboard Enter or Space) hands the
     focus to the redrawn chip with the same index (no scroll), so a keyboard
@@ -34,7 +34,9 @@ Hostelworld searches the whole country and stays unnamed.
     Pacific National Historical Park", its second chip) in both;
   * styles.css wraps the named buttons on fixed widths, never on the name:
     Booking.com at least 19em, Vrbo 13em, each growing only up to its
-    content, one line, the place cut with an ellipsis and the containing
+    content and shrinking only to the column (min(…, 100%): alone on a row
+    narrower than 19em, under ~290px, it isn't 7px wider than the column),
+    one line, the place cut with an ellipsis and the containing
     block of its screen-reader words (else a cut name's 1px box sat past the
     page's edge and scrolled a phone sideways); no .staynear left in the
     stylesheet, app.js or the stand-in.
@@ -293,12 +295,13 @@ def rule(sel):
 
 
 bk, vr, at = rule(".staybtn.stayto"), rule(".staybtn.stayvr"), rule(".stayto .stayat")
-results.append(ok("flex: 1 0 19em" in bk and "min-width: min(19em, 100%)" in bk and "max-width: max-content" in bk
+results.append(ok("flex: 1 1 19em" in bk and "min-width: min(19em, 100%)" in bk and "max-width: max-content" in bk
                   and "white-space: nowrap" in bk and "display: inline-flex" in bk
                   and "flex-basis: 13em" in vr and "min-width: min(13em, 100%)" in vr
                   and all(x in at for x in ("min-width: 0", "overflow: hidden", "text-overflow: ellipsis", "position: relative"))
                   and "flex: none" in rule(".stayto > *"),
-                  "styles.css: Booking.com at least 19em, Vrbo 13em, growing only to their content, one line, the place"
+                  "styles.css: Booking.com at least 19em, Vrbo 13em, growing only to their content and shrinking only"
+                  " to the column, one line, the place"
                   " cut with an ellipsis and holding its screen-reader words (%s | %s | %s)" % (bk, vr, at)))
 with open(os.path.join(ROOT, "fxtracker", "guide_sizers.py"), encoding="utf-8") as f:
     SIZERS = f.read()

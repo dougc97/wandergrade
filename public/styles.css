@@ -1576,9 +1576,13 @@ html[data-theme="dark"] .fvband.high { background: #3a151c; }
    of its own on a phone (room for 98% of names at 390; beside Hostelworld
    it had room for a third), and 13em lets Vrbo share the next row with
    Hostelworld from 360px; at 1280 Booking.com and Vrbo share a row and
-   Hostelworld goes under them (beside them, room for three names in five). */
+   Hostelworld goes under them (beside them, room for three names in five).
+   Shrink 1: rows still break on the 19em/13em start widths, so only a
+   button alone on a row narrower than that (a screen under ~290px, or a big
+   page zoom) shrinks, down to its min(…, 100%), the column; with shrink 0 a
+   long name kept it 19em wide and 7px past the column at 280. */
 .staybtn.stayto { display: inline-flex; justify-content: center; align-items: baseline; white-space: nowrap;
-  flex: 1 0 19em; min-width: 19em; min-width: min(19em, 100%); max-width: max-content; }
+  flex: 1 1 19em; min-width: 19em; min-width: min(19em, 100%); max-width: max-content; }
 .staybtn.stayvr { flex-basis: 13em; min-width: 13em; min-width: min(13em, 100%); }
 .stayto > * { flex: none; }
 /* position: the screen-reader words inside the place (" (opens in a new tab)")
