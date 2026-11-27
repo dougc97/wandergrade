@@ -1852,6 +1852,13 @@ function renderCountryCard() {
   };
 }
 
+// The list under the currency map, biggest real (after inflation) move
+// first; a tie (realFxPct is 2 decimals, so ties happen) goes by currency
+// code, as /dollar-strength ranks the same figure (render_strength.rank),
+// not by the rates feed's order.
+function rankRealGain(a, b) {
+  return (b.real - a.real) || pyStrCmp(a.r.code, b.r.code);
+}
 function renderMap(rows, base) {
   base = base || "USD";
   const byCode = {};
@@ -1896,7 +1903,7 @@ function renderMap(rows, base) {
       return { r, iso, real: iso ? realFxPct(iso, r.strength_pct) : null };
     })
     .filter((g) => g.real != null && g.real > 0 && fxInflBasis(g.iso).adj)
-    .sort((a, b) => b.real - a.real).slice(0, 8);
+    .sort(rankRealGain).slice(0, 8);
   // "Your dollar's", "Your euro's", "Your money's" — never a bare code.
   if (ratesRiskKnown()) renderDimPicks("map", baseWord(base).replace(/^(the|your) /, "Your ") + "'s biggest gains, after inflation",
     gains.map((g) => (g.r.code in PRIMARY_COUNTRY ? g.r.name : countryName(g.iso)) + " " + sgn(g.real)),

@@ -19,6 +19,9 @@ What it holds the code to:
     node is missing), order a constructed exact tie of accented, odd-case and
     hyphenated names (and a character past U+FFFF) exactly as Python's sort
     does, where localeCompare does not;
+  * the list under the currency map ("biggest gains, after inflation",
+    app.js rankRealGain) ranks the 2-decimal real move as /dollar-strength
+    (render_strength.rank) does, a tie by currency code, not feed order;
   * valueScores' name (the tie key) is picks._score's for every country the
     fixture scores, app.js run whole under jsc (scripts/appjs_harness.js);
   * two constructed ties on real countries (every other country scored
@@ -101,6 +104,32 @@ results.append(ok(js is not None and js["cmp"] == [0, 1, -1, 0], "pyStrCmp: equa
                   % (js and js["cmp"])))
 results.append(ok(js is not None and js["locale"] != py,
                   "localeCompare (the old tie-break) orders the same tie differently, so the check bites"))
+
+# --- 2b. the currency map's "biggest gains, after inflation" vs /dollar-strength ---------
+# Both rank realFxPct / real_fx_pct (2 decimals, so ties happen: AED/QAR 0.82,
+# MDL/SGD 0.62 on the fixture). /dollar-strength breaks a tie by currency code;
+# the list under the map kept the rates feed's order (Qatar before the UAE).
+from fxtracker import render_strength as RS  # noqa: E402
+want_s = 'ranked.sort(key=lambda x: (-x["real"], x["code"]))'
+results.append(ok(want_s in read("fxtracker", "render_strength.py") and ".sort(rankRealGain)" in APP
+                  and "pyStrCmp(a.r.code, b.r.code)" in js_fn("rankRealGain"),
+                  "/dollar-strength sorts on %s; the map's gains list sorts with rankRealGain (code on a tie)"
+                  % want_s[12:-1]))
+_fx = load("scripts", "parity", "fixture_rates.json")
+ranked = RS.rank(_fx, load("public", "ppp.json"), datetime.date.today())[0]
+real_by = {r["code"]: r["real"] for r in ranked}
+feed = [{"r": {"code": r["code"]}, "real": real_by[r["code"]]} for r in _fx["rows"] if r["code"] in real_by]
+ref_s = [r["code"] for r in ranked]
+ties_s = sorted({c for c in real_by if sum(1 for v in real_by.values() if v == real_by[c]) > 1})
+prog = "%s\n%s\nconst feed = %s;\nprint(JSON.stringify({ site: feed.slice().sort(rankRealGain).map((g) => g.r.code),\n" \
+       "  old: feed.slice().sort((a, b) => b.real - a.real).map((g) => g.r.code) }));" \
+       % (js_fn("pyStrCmp"), js_fn("rankRealGain"), json.dumps(feed))
+js, eng = run_js(prog)
+results.append(ok(js is not None and js["site"] == ref_s and len(ties_s) >= 4,
+                  "rankRealGain (%s) orders all %d currencies as /dollar-strength does, ties included (%s)"
+                  % (eng, len(ref_s), " ".join(ties_s) if js and js["site"] == ref_s else (js and js["site"]))))
+results.append(ok(js is not None and js["old"] != ref_s,
+                  "the old sort (feed order on a tie) orders them differently, so the check bites"))
 
 # --- 3. app.js whole under jsc: names, and the drawn table for two ties ------------------
 FIX = {"rates": load("scripts", "parity", "fixture_rates.json"),
