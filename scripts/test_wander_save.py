@@ -14,13 +14,15 @@ What it holds the code to:
   * app.js: one `id="visitedSave"` template; renderVisitedStats, run under
     jsc for accounts on/off x signed in/out x every been/want-to-go mix,
     writes the button into #visitedSaveRow exactly when
-    ACCT_ON && !acctSignedIn() && (been || want to go), with the same label
-    and ⓘ words as before, never anything into #visitedStats, and empties the
-    row when the rule stops holding (clear all, sign-in); a change of
-    sign-in state repaints the row (acctPaintSave, under jsc): signing out
-    brings the button back at once, a sign-in /api/auth/me reports after the
-    tab was drawn takes it away, and before the tab is built nothing is
-    touched;
+    ACCT_ON && !acctSignedIn() && (been || want to go), the head script's
+    sign-in flag (html[data-acct]="in") counting as signed in until
+    /api/auth/me has answered (acctKnown), with the same label and ⓘ words
+    as before, never anything into #visitedStats, and empties the row when
+    the rule stops holding (clear all, sign-in); a change of sign-in state
+    repaints the row (acctPaintSave, under jsc): signing out brings the
+    button back at once, a signed-in reload with the flag never shows it,
+    one without the flag loses it when /api/auth/me answers, a stale flag
+    gets it then, and before the tab is built nothing is touched;
   * server.py VISITED_HOLD, run under jsc (280 cases, one process): html
     [data-vis] carries "s" exactly when the button will show (accounts on,
     data-acct not "in", any mark), which is the button's rule with the head
@@ -101,6 +103,8 @@ const $ = (id) => {
 const visited = new Set(%(v)s), wishlist = new Set(%(w)s);
 const ACCT_ON = %(acct)s;
 const acctSignedIn = () => %(signed)s;
+const acctKnown = %(known)s;
+const document = { documentElement: { getAttribute: (k) => (k === "data-acct" ? %(flag)s : null) } };
 let signInOpened = 0;
 const openSignIn = () => { signInOpened++; };
 const contFilter = null, WORLD_PCT_TIP = "tip";
@@ -119,15 +123,21 @@ print(JSON.stringify({ stats: hosts.visitedStats.innerHTML, save: hosts.visitedS
 """
 bad = []
 cases = 0
+# known: /api/auth/me has answered (acctKnown); flag: the head script's
+# html[data-acct], set from the last answer (wg_acct). Not yet known, "in"
+# stands in for signed in, as it does for VISITED_HOLD's "s".
+STATES = [(signed, known, flag) for signed in (True, False) for known in (True, False) for flag in (None, "in")
+          if known or not signed]
 for acct in (True, False):
-    for signed in (True, False):
+    for signed, known, flag in STATES:
         for v, w in (([], []), (["FR", "DE", "IT"], []), ([], ["JP", "PE"]), (["FR", "DE", "IT"], ["JP", "PE"]),
                      (["FR"], ["FR"])):
             cases += 1
             r = jsc(HARNESS % {"v": json.dumps(v), "w": json.dumps(w), "acct": str(acct).lower(),
-                               "signed": str(signed).lower(), "esc": js_fn_const("esc"),
+                               "signed": str(signed).lower(), "known": str(known).lower(), "flag": json.dumps(flag),
+                               "esc": js_fn_const("esc"),
                                "tiers": tiers.group(0) if tiers else "", "fn": js_fn("renderVisitedStats")})
-            shows = acct and not signed and bool(v or w)
+            shows = acct and not signed and not (not known and flag == "in") and bool(v or w)
             n, m = len(v), len(w)
             words = ("Saved in this browser only. Sign in to keep your "
                      + ("%d been" % n if n else "") + (" + " if n and m else "")
@@ -136,24 +146,30 @@ for acct in (True, False):
                     '<span class="muted" data-tip="%s" title="">ⓘ</span>' % words) if shows else ""
             if (not r or "visitedSave" in r["stats"] or "vsave" in r["stats"] or r["save"] != want
                     or r["opened"] != (1 if shows else 0)):
-                bad.append(((acct, signed, n, m), r))
-results.append(ok(cases == 20 and not bad,
+                bad.append(((acct, signed, known, flag, n, m), r))
+results.append(ok(cases == 60 and not bad,
                   "renderVisitedStats: button in #visitedSaveRow iff ACCT_ON && !signed in && (been || want), "
-                  "same label and ⓘ words, opens sign-in, never in #visitedStats (%d cases)%s"
+                  "html[data-acct]=\"in\" counting as signed in until /api/auth/me answers, same label and ⓘ words, "
+                  "opens sign-in, never in #visitedStats (%d cases)%s"
                   % (cases, "" if not bad else " %s" % bad[:3])))
 
 # A change of sign-in state repaints the row (acctPaintSave), not only the
 # header button: signing out (or a 401) left the button away, and a sign-in
 # /api/auth/me reported after the tab was drawn left it up, both until
-# something else redrew the tab. Before the tab is built it touches nothing
-# (visited is still null then). scripts/dev/acct_save_check.mjs is the same
-# in a real browser against the mock store.
+# something else redrew the tab. A tab drawn before that answer reads the head
+# script's flag (html[data-acct]), so a signed-in reload with the flag never
+# shows the button (it flashed on and off, and the phone map jumped twice);
+# without the flag the answer takes it away, and a stale flag (the session
+# gone) gets it then. Before the tab is built it touches nothing (visited is
+# still null then). scripts/dev/acct_save_check.mjs is the same in a real
+# browser against the mock store.
 one_line = lambda name: (re.search(r"^function %s\(\).*\}$" % name, APP, re.M) or re.match("", "")).group(0)
 acct_load = re.search(r"^async function acctLoad\(\) \{.*?^\}", APP, re.M | re.S)
 STATE = HARNESS.split("const visited")[0] + r"""
 const visited = %(v)s, wishlist = %(w)s;
 const ACCT_ON = true;
-let acctState = { email: "a@example.com", user: null }, acctKnown = true;
+let acctState = { email: "a@example.com", user: null }, acctKnown = true, flag = "in";
+const document = { documentElement: { getAttribute: (k) => (k === "data-acct" ? flag : null) } };
 const loaded = { visited: %(built)s };
 let painted = 0, merged = 0, signInOpened = 0;
 const acctPaintButton = () => { painted++; };
@@ -174,18 +190,27 @@ const fetch = async () => ({ json: async () => answer });
 %(load)s
 const row = () => (hosts.visitedSaveRow || { innerHTML: "" }).innerHTML;
 const steps = {};
-if (loaded.visited) renderVisitedStats();             // the tab drawn while signed in
-steps.drawnIn = row();
-acctSignedOut();                                      // Sign out, or a 401 from a sync
-steps.out = row();
-acctState = null;                                     // a fresh page: drawn before /api/auth/me answers
-if (loaded.visited) renderVisitedStats();
-steps.drawnUnknown = row();
-answer = { email: "a@example.com", user: { visited: ["FR"], wishlist: [] } };
-acctLoad().then(() => {
-  steps.in = row();
+const IN = { email: "a@example.com", user: { visited: ["FR"], wishlist: [] } };
+// A fresh page: drawn before /api/auth/me answers, with the head script's flag
+// as the last answer left it; then the answer.
+const reload = async (name, f, ans) => {
+  acctState = null; acctKnown = false; flag = f;
+  if (loaded.visited) renderVisitedStats();
+  steps[name + "Drawn"] = row();
+  answer = ans;
+  await acctLoad();
+  steps[name + "Answered"] = row();
+};
+(async () => {
+  if (loaded.visited) renderVisitedStats();           // the tab drawn while signed in
+  steps.drawnIn = row();
+  acctSignedOut();                                    // Sign out, or a 401 from a sync
+  steps.out = row();
+  await reload("flagIn", "in", IN);                   // signed in, flag set: never shown
+  await reload("noFlagIn", null, IN);                 // signed in, no flag: gone at the answer
+  await reload("staleFlag", "in", {});                // flag left, session gone: shown at the answer
   print(JSON.stringify({ steps, painted, merged }));
-});
+})();
 """
 paint = []
 for built in (True, False):
@@ -197,12 +222,19 @@ for built in (True, False):
     paint.append(r)
 btn_html = '<button type="button" id="visitedSave">👤 Save this map</button>'
 built_r, bare_r = paint
-results.append(ok(bool(built_r) and built_r["steps"]["drawnIn"] == "" and built_r["steps"]["out"].startswith(btn_html)
-                  and built_r["steps"]["drawnUnknown"].startswith(btn_html) and built_r["steps"]["in"] == ""
-                  and built_r["painted"] == 2 and built_r["merged"] == 1,
+st = (built_r or {}).get("steps", {})
+want_btn = {k: st.get(k, "").startswith(btn_html) for k in st}
+results.append(ok(bool(built_r) and st.get("drawnIn") == "" and want_btn.get("out")
+                  and built_r["painted"] == 4 and built_r["merged"] == 2,
                   "a change of sign-in state repaints the save row: Sign out (or a 401) brings the button back at "
-                  "once, a sign-in /api/auth/me reports after the tab was drawn takes it away (%s)" % built_r))
-results.append(ok(bool(bare_r) and all(v == "" for v in bare_r["steps"].values()) and bare_r["painted"] == 2,
+                  "once (%s)" % built_r))
+results.append(ok(bool(built_r) and st.get("flagInDrawn") == "" and st.get("flagInAnswered") == ""
+                  and want_btn.get("noFlagInDrawn") and st.get("noFlagInAnswered") == ""
+                  and st.get("staleFlagDrawn") == "" and want_btn.get("staleFlagAnswered"),
+                  "drawn before /api/auth/me answers: with the sign-in flag the button never shows (no flash, no "
+                  "jump), without it the answer takes it away, and a stale flag gets it when the answer says signed "
+                  "out (%s)" % {k: ("button" if want_btn[k] else st[k]) for k in st}))
+results.append(ok(bool(bare_r) and all(v == "" for v in bare_r["steps"].values()) and bare_r["painted"] == 4,
                   "before the Wander List is built it touches nothing, and doesn't throw on its null lists (%s)"
                   % bare_r))
 

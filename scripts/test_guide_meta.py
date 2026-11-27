@@ -440,7 +440,8 @@ try:
     # row beside the map (#visitedSaveRow; scripts/test_wander_save.py).
     out = subprocess.run([JSC, "-e", "const hosts = {}; const $ = (id) => hosts[id] || (hosts[id] = {});\n"
                           "const visited = new Set(), wishlist = new Set(); const ACCT_ON = true;\n"
-                          "const acctSignedIn = () => false, openSignIn = () => {};\n"
+                          "const acctSignedIn = () => false, openSignIn = () => {}, acctKnown = true;\n"
+                          "const document = { documentElement: { getAttribute: () => null } };\n"
                           "%s\n%s\n%s\nrenderVisitedStats(); print(hosts.visitedStats.innerHTML);"
                           % (js_fn_const("esc"), tiers.group(0) if tiers else "", js_fn("renderVisitedStats"))],
                          capture_output=True, text=True, timeout=30).stdout.strip()

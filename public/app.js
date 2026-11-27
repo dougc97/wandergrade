@@ -11840,10 +11840,14 @@ function renderVisitedStats() {
   // looked out of place, with blank space under it (Doug, 2026-11-13).
   // Written before the empty state returns, so clearing the lists takes it
   // away again; server.py VISITED_HOLD's "s" holds its phone line at first
-  // paint by the same rule.
+  // paint by the same rule. Until /api/auth/me answers, the head script's
+  // sign-in flag (html[data-acct], the one "s" reads) stands in for it: a
+  // signed-in phone reload drew the button, then took it away when the
+  // answer came, and the map jumped down and back up.
   const save = $("visitedSaveRow");
   if (save) {
-    save.innerHTML = (ACCT_ON && !acctSignedIn() && (n || m))
+    const hintIn = !acctKnown && document.documentElement.getAttribute("data-acct") === "in";
+    save.innerHTML = (ACCT_ON && !acctSignedIn() && !hintIn && (n || m))
       ? `<button type="button" id="visitedSave">👤 Save this map</button>`
         + `<span class="muted" data-tip="${esc(`Saved in this browser only. Sign in to keep your `
           + (n ? `${n} been` : "") + (n && m ? " + " : "") + (m ? `${m} want to go` : "")
@@ -14910,7 +14914,9 @@ function acctSignedOut() { acctState = null; acctKnown = true; acctPaintButton()
 // The Wander List's "👤 Save this map" shows by the sign-in state too
 // (renderVisitedStats), so a change of state repaints it: signing out left
 // the button away, and a sign-in /api/auth/me reported after the tab was
-// drawn left it up, until something else redrew the tab.
+// drawn left it up, until something else redrew the tab. (Drawn before the
+// answer, the head script's flag stands in, so this repaint changes the row
+// only when the flag was wrong.)
 function acctPaintSave() { if (loaded.visited) renderVisitedStats(); }
 
 async function acctLoad() {
