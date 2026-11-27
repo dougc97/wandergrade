@@ -25,9 +25,12 @@ code to:
     (the server can't know the link): those readers keep today's US one;
   * the script picks the saved From's stand-in, a shared link's ?vo= / ?fo=
     over it (?vo=US keeps the US one; a From the picker doesn't offer is
-    ignored, as app.js ignores it), empties and hides the block for a
-    passport that gets no line, and does nothing without a saved From or
-    when storage throws;
+    ignored, as app.js ignores it; a From it offers that has no stand-in,
+    a German one before Germany's list is cached, keeps the US one, not the
+    saved From's: app.js draws the link's passport), empties and hides the
+    block for a passport that gets no line, and does nothing without a saved
+    From or when storage throws; every From it follows is one app.js
+    follows (CUR_BY_ISO);
   * renderGuideVisa, waiting for the matrix, holds this guide's stand-in for
     the reader's passport (the geo seed sets the From after the first
     paint), and none for another guide;
@@ -88,7 +91,7 @@ const FIX = JSON.parse(read(FIX_PATH));
 visaMatrix = FIX.matrix; visa = FIX.visa;
 _advBySource.de = { items: FIX.de }; _advBySource.ca = { items: FIX.ca };
 const host = $("guideVisa");
-const out = { lines: {}, wait: {}, link: {} };
+const out = { lines: {}, wait: {}, link: {}, unfollowed: FIX.hubs.filter((c) => !CUR_BY_ISO[c]) };
 for (const iso of FIX.guides) {
   ccGuideIso = iso;
   for (const p of FIX.passports) {
@@ -149,7 +152,7 @@ with tempfile.TemporaryDirectory() as d:
     fp, sp = os.path.join(d, "fix.json"), os.path.join(d, "run.js")
     json.dump({"matrix": load("public", "visa-passport.json"), "visa": load("public", "visa.json"),
                "de": DE_ITEMS, "ca": CA_ITEMS, "guides": GUIDES, "passports": PASSPORTS,
-               "tpl": TPL, "waitCases": WAIT}, open(fp, "w"))
+               "tpl": TPL, "waitCases": WAIT, "hubs": sorted(flights.ORIGIN_HUBS)}, open(fp, "w"))
     open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + DRIVER.replace("FIX_PATH", json.dumps(fp)))
     r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
 try:
@@ -239,9 +242,14 @@ CASES = [{"name": "none", "o": None, "q": ""}, {"name": "us", "o": "US", "q": ""
          {"name": "de", "o": "DE", "q": ""}, {"name": "vo", "o": "DE", "q": "?vo=GB"},
          {"name": "fo", "o": None, "q": "?tab=guide&fo=CA"}, {"name": "vous", "o": "DE", "q": "?vo=US"},
          {"name": "vozz", "o": "DE", "q": "?vo=ZZ"}, {"name": "nolist", "o": "AU", "q": ""},
-         {"name": "noline", "o": "NO", "q": ""}, {"name": "boom", "o": "DE", "q": "", "boom": 1}]
+         {"name": "noline", "o": "NO", "q": ""}, {"name": "boom", "o": "DE", "q": "", "boom": 1},
+         # A link's From the picker offers but the page has no stand-in for (Germany's list not
+         # cached at render): app.js draws the German line, so the US one stays, not the saved Briton's.
+         {"name": "vonone", "o": "GB", "q": "?vo=DE", "tpl": ["GB", "CA", "NO"]},
+         {"name": "fonone", "o": "DE", "q": "?tab=guide&fo=AU"},
+         {"name": "vobad", "o": "DE", "q": "?vo=DE,GB"}]
 for c in CASES:
-    c["tpl"] = TPLS
+    c.setdefault("tpl", TPLS)
 body = PICK.replace("(function(){", "", 1)
 body = body[:body.rindex("})();")]
 with tempfile.TemporaryDirectory() as d:
@@ -255,13 +263,19 @@ except Exception:
     pk = {"error": (r.stderr or r.stdout)[-400:]}
 want = {"none": (["US"], False), "us": (["US"], False), "de": (["DE"], False), "vo": (["GB"], False),
         "fo": (["CA"], False), "vous": (["US"], False), "vozz": (["DE"], False), "nolist": (["US"], False),
-        "noline": ([], True), "boom": (["US"], False)}
+        "noline": ([], True), "boom": (["US"], False), "vonone": (["US"], False), "fonone": (["US"], False),
+        "vobad": (["DE"], False)}
 got = {k: (v["kids"], v["hidden"]) for k, v in pk.items()} if "error" not in pk else pk
 results.append(ok(got == want,
                   "before the first paint: the saved From's stand-in, a shared ?vo= / ?fo= over it (?vo=US keeps "
                   "the US one, an unknown ?vo= is ignored), the block emptied and hidden for a passport with no "
-                  "line, the US one kept with no saved From, a From without a stand-in, or storage blocked %s"
-                  % ("" if got == want else got)))
+                  "line, the US one kept with no saved From, a From without a stand-in (saved or a link's), or "
+                  "storage blocked %s" % ("" if got == want else got)))
+FROMS = re.search(r'"(,[A-Z,]+,)"\.indexOf', PICK)
+results.append(ok(FROMS is not None and FROMS.group(1) == "," + ",".join(sorted(flights.ORIGIN_HUBS)) + ","
+                  and js["unfollowed"] == [],
+                  "the script follows a link's From exactly when the picker offers it (all %d), each one app.js "
+                  "follows too (CUR_BY_ISO) %s" % (len(flights.ORIGIN_HUBS), js["unfollowed"])))
 
 # --- renderGuideVisa waiting for the matrix -------------------------------------------------
 W = js["wait"]

@@ -362,11 +362,16 @@ def _visa_alt(iso, passport, adv_items):
 # ?fo=) gets their own passport's stand-in in place of the US one. ES5, like
 # index.html's other inline scripts; app.js visaStandIn reads the same
 # template when the From changes before the matrix is in (the geo seed).
+# A link's From is the passport app.js draws whenever the picker offers it
+# (FROMS, ",AE,...,ZA,"), stand-in or not: one without (a German or Canadian
+# passport before that government's list is cached) keeps the US line, where
+# falling back to the saved From held a Briton's for a German line.
 _VISA_PICK = (
     '<script>(function(){try{var t=document.getElementById("guideVisaAlt"),h=document.getElementById("guideVisa");'
     'if(!t||!t.content||!h)return;var q=new URLSearchParams(location.search),v=q.get("vo")||q.get("fo"),'
     'f=function(p){return/^[A-Z]{2}$/.test(p||"")&&t.content.querySelector(\'[data-pp="\'+p+\'"]\');},'
-    'o=v==="US"||f(v)?v:localStorage.getItem("fx_origin")||"US",n=o!=="US"&&f(o);if(!n)return;'
+    'o=/^[A-Z]{2}$/.test(v||"")&&"FROMS".indexOf(","+v+",")>=0?v:localStorage.getItem("fx_origin")||"US",'
+    'n=o!=="US"&&f(o);if(!n)return;'
     'while(h.firstChild)h.removeChild(h.firstChild);'
     'if(n.firstChild)h.appendChild(n.cloneNode(true));else h.hidden=true;}catch(e){}})();</script>')
 
@@ -386,7 +391,8 @@ def visa_passports(iso, passports, adv_items):
     alts = [a for a in alts if a is not None]
     if not alts:
         return ""
-    return '<template id="guideVisaAlt">%s</template>%s' % ("".join(alts), _VISA_PICK)
+    froms = "," + ",".join(sorted(p for p in passports if re.match(r"^[A-Z]{2}$", p))) + ","
+    return '<template id="guideVisaAlt">%s</template>%s' % ("".join(alts), _VISA_PICK.replace("FROMS", froms))
 
 
 MONTHS = MON_FULL
