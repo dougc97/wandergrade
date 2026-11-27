@@ -689,9 +689,28 @@ wireSort("#flightTable", flightSort, {}, () => { if (flightsData) renderFlights(
 // A ranking tie (the same score shown) is broken on the unrounded score,
 // then the name: a tie used to keep list order, which is no reason at all
 // (Vietnam above Morocco at 86.75 each, by country-list position). The
-// Overall columns sort the same way. Mirrors picks.py build's sort.
+// Overall columns sort the same way. Mirrors picks.py build's sort, and the
+// name in it is compared as Python compares it (pyStrCmp), so an exact tie
+// lands the same way here, in the served Top Picks (home_picks), on
+// /cheapest (render_cheapest) and in the newsletter.
 function rankValue(a, b) {
-  return (b.value - a.value) || ((b.raw ?? b.value) - (a.raw ?? a.value)) || String(a.name).localeCompare(String(b.name));
+  return (b.value - a.value) || ((b.raw ?? b.value) - (a.raw ?? a.value)) || pyStrCmp(a.name, b.name);
+}
+// Python's string order, by Unicode code point: what picks.py, home_picks.py
+// and render_cheapest.py break a score tie on (s["name"] in the sort key).
+// localeCompare is a reader's A-Z and disagreed on exact ties: it put
+// "Côte d'Ivoire" before Croatia, "eSwatini" among the E's and "São Tomé"
+// before Saudi Arabia, where Python puts each after. UTF-16 order is
+// code-point order except for characters past U+FFFF, which codePointAt
+// reads whole. The A-Z lists (pickers, table columns) keep localeCompare.
+function pyStrCmp(a, b) {
+  a = String(a); b = String(b);
+  for (let i = 0, n = Math.min(a.length, b.length); i < n; i++) {
+    const x = a.codePointAt(i), y = b.codePointAt(i);
+    if (x !== y) return x < y ? -1 : 1;
+    if (x > 0xffff) i++;
+  }
+  return a.length === b.length ? 0 : a.length < b.length ? -1 : 1;
 }
 const PICK_GET = { dest: (s) => s.name, afford: (s) => s.afford, safety: (s) => s.advLvl,
                    weather: (s) => (s.wx == null ? null : s.wx), flights: (s) => (s.fly == null ? null : s.fly),
@@ -6598,7 +6617,11 @@ function valueScores(iso, month, advMap, fares, anchorPl) {
   // raw: the score before rounding, for ties only (rankValue). Two countries
   // shown at 91 fell back to list order: Argentina (91.00) sat above Morocco
   // (91.25) in Any time. picks.py _score keeps it too.
-  return { iso, name: (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso, raw: den ? num / den : 0,
+  // name: picks.py _score's, NAME_FIX first. A tie breaks on it, and Top
+  // Picks named its rows from the map data ("Dominican Rep.", "Congo") where
+  // the served table, the newsletter and every guide say Dominican Republic
+  // and Republic of the Congo, so the Republic of the Congo tied among the C's.
+  return { iso, name: NAME_FIX[iso] || (cl && cl.name) || (ppp[iso] && ppp[iso].name) || iso, raw: den ? num / den : 0,
            afford: comps.afford, safe: comps.safe, wx: wxKnown ? comps.wx : null,
            fly: comps.fly, fare, fareEst, fareMin, fareBase, dealRatio, flyBasis, advLvl, value,
            // Which dimensions this score is actually built on. A country with
