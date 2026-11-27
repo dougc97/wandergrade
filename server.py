@@ -37,7 +37,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
-    flightvalue, guide_facts, guide_lines, guide_sizers, health, home_picks, llms_txt, mailer, map_picks, picks, popularity, rates,
+    flightshadow, flightvalue, guide_facts, guide_lines, guide_sizers, health, home_picks, llms_txt, mailer, map_picks, picks, popularity, rates,
     render_cheapest, render_guide, render_lists, render_methodology, render_privacy, store, strip_comments, watchouts
 )
 
@@ -2794,7 +2794,8 @@ def _guide_query_redirect(raw_path):
 #         app.js, styles.css, images), /health.json and /guide-facts.json
 #         (bytes memoized per document), /ppp.json and /pl_history.json
 #         (bytes memoized per table, _json_bytes), /sitemap.xml and /llms.txt
-#         (well under a millisecond each), redirects, 404s. The app fetches
+#         (well under a millisecond each), /api/flight-shadow (bytes
+#         memoized, fxtracker/flightshadow.py), redirects, 404s. The app fetches
 #         the two tables on a visitor's first load, past Cloudflare's HTML
 #         cache, and the Top Picks tab doesn't build without the first: shed
 #         with the crawler's guides they were, and a Googlebot fetch of the
@@ -3843,6 +3844,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/flight-value":
             self._handle_flight_value()
             return
+        if path == "/api/flight-shadow":
+            # The fare-source comparison so far (fxtracker/flightshadow.py),
+            # for scripts/dev/flight_shadow_report.py: linked from nowhere,
+            # from memory alone (no upstream or storage call), never cached
+            # or indexed.
+            raw, gz = flightshadow.body(self._gzip_ok())
+            self._send_body(raw, "application/json; charset=utf-8", cache="no-store",
+                            extra=[("X-Robots-Tag", "noindex")], gzipped=gz)
+            return
         if path == "/api/fx-trend":
             from urllib.parse import parse_qs, urlparse
             qs = parse_qs(urlparse(self.path).query)
@@ -4451,6 +4461,35 @@ def _warm_flight_value(origin=flightvalue.DEFAULT_ORIGIN, delay=20):
     threading.Thread(target=run, daemon=True).start()
 
 
+def _flight_shadow_busy():
+    """Why the log-only fare comparison (fxtracker/flightshadow.py) must wait
+    right now, or None. It asks before its daily run and before every call
+    it makes: a background refresh that parses a feed, a page being rendered
+    or waiting for a slot, or pages queued deep or shed in the last 10
+    minutes (a [busy] line: a crawl)."""
+    if _adv_warming:
+        return "advisory refresh"
+    if _strength_warm["busy"]:
+        return "FX history fetch"
+    if health._running.locked():
+        return "health rebuild"
+    if guide_facts._running.locked():
+        return "guide facts rebuild"
+    slots = _page_slots
+    if slots is not None and (slots._value < slots._initial_value or _slot_waiting[0]):
+        return "pages rendering"
+    if _busy["at"] and time.time() - _busy["at"] < 600:
+        return "pages queued or shed lately"
+    return None
+
+
+def _cached_fares(origin):
+    """The fares payload in the cache for `origin`, or None: never a refresh
+    (the comparison must not move what readers see, not even its timing)."""
+    hit = _flights_cache.get(origin)
+    return hit[1] if hit else None
+
+
 def _warm_rates(delay=15):
     # /safe-and-cheap's dollar column reads the cached /api/rates rows and is
     # left out until some request has computed them (_fx_inputs: a page must
@@ -4584,6 +4623,11 @@ def main():
         get_rates=lambda: _rates_payload(store.load_config(), "USD"),
         get_advisories=lambda: _advisories_payload("us", background=True),
         get_ppp=lambda: _ppp_data() if _ppp_cache["at"] else None)
+    # Two weeks of a log-only, once-a-day comparison of the fare source with
+    # Travelpayouts' grouped_prices (fxtracker/flightshadow.py): Render only,
+    # off the request path, reads the caches and writes only its own Upstash
+    # keys; /api/flight-shadow shows what it has found.
+    flightshadow.start(_cached_fares, busy=_flight_shadow_busy)
     # One-off after deploy: opt-outs from before they reached Buttondown (see
     # accounts.reconcile_optouts). Background, and a no-op without the
     # Buttondown/Upstash keys or once its done-marker is set.

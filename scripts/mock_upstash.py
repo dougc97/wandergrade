@@ -49,6 +49,8 @@ class H(BaseHTTPRequestHandler):
                     res = "OK"
             elif op == "GET":
                 res = _alive(cmd[1])
+            elif op == "MGET":
+                res = [_alive(k) for k in cmd[1:]]
             elif op == "GETDEL":
                 res = _alive(cmd[1])
                 DB.pop(cmd[1], None)
