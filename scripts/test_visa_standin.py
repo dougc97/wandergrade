@@ -33,7 +33,10 @@ code to:
     follows (CUR_BY_ISO);
   * renderGuideVisa, waiting for the matrix, holds this guide's stand-in for
     the reader's passport (the geo seed sets the From after the first
-    paint), and none for another guide;
+    paint), and none for another guide; where the line is above a
+    scrolled reader's screen it keeps what is on screen until the matrix's
+    line settles it (swapped as the guide drew, it moved in the frame the
+    fares strip's room went, and Chrome scored the two as one bigger move);
   * a German or Canadian line drawn while its government's list is still
     loading keeps the held room until the redraw with the link, and lets it
     go if that list fails; a US line holds nothing;
@@ -142,6 +145,39 @@ const linkRun = async (p, iso, fail) => {
   host.innerHTML = ""; host.dataset = { for: "JP" }; host.style.minHeight = "99px";
   renderGuideVisa("TH");
   out.link.other = host.style.minHeight;
+  // A From set after the first paint (the geo seed before the guide drew): the served US
+  // line's stand-in (78px) is on screen and this passport's differs (a Briton's 59, a
+  // German's 97). Above a scrolled reader's screen the line stays as it is until the matrix's
+  // line settles it (nothing later in between); in view it takes the stand-in at once.
+  const rafQ = []; requestAnimationFrame = (f) => { rafQ.push(f); return rafQ.length; };
+  const frame = () => rafQ.splice(0).forEach((f) => f());
+  __els.guideVisaAlt = { content: { querySelector: (q) => {
+    const m = /data-pp="([A-Z]{2})"/.exec(q), h = m && { GB: 59, DE: 97 }[m[1]];
+    return h ? { dataset: { for: "TH" }, cloneNode: () => ({ gsizer: 1, for: "TH", h }) } : null;
+  } } };
+  visaMatrix = null; ensureVisaMatrix = () => new Promise(() => {});
+  const lateRun = (p, bottom, first, between) => {
+    let kids = [first || { gsizer: 1, for: "TH", h: 78 }];
+    const h = { hidden: false, dataset: {}, style: { minHeight: "" },
+      get innerHTML() { return kids.length ? "x" : ""; }, set innerHTML(v) { kids = []; },
+      get firstChild() { return kids[0] || null; }, appendChild(c) { kids.push(c); return c; },
+      querySelector(q) { const k = kids[0]; return q === ".gsizer" && k && k.gsizer ? { dataset: { for: k.for } } : null; },
+      get offsetHeight() { return Math.max(parseInt(this.style.minHeight, 10) || 0, kids.reduce((s, k) => s + k.h, 0)); },
+      getBoundingClientRect() { return { top: bottom - this.offsetHeight, bottom }; } };
+    __els.guideVisa = h; ccGuideIso = "TH"; localStorage.setItem("fx_origin", p); rafQ.length = 0;
+    renderGuideVisa("TH");
+    const r = [h.style.minHeight, rafQ.length];
+    if (between) between(h);
+    frame(); r.push(h.style.minHeight); frame(); r.push(h.style.minHeight);
+    return r;
+  };
+  out.late = {
+    gbAbove: lateRun("GB", -400), deAbove: lateRun("DE", -400), gbInView: lateRun("GB", 300),
+    // The matrix drew the line before the frames came: what it drew stands.
+    drawn: lateRun("GB", -400, null, (h) => { h.style.minHeight = ""; h.appendChild({ h: 59 }); }),
+    // A saved From: the first-paint script already put the Briton's stand-in in place.
+    saved: lateRun("GB", -400, { gsizer: 1, for: "TH", h: 59 }),
+  };
   print(JSON.stringify(out));
 })().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
 """
@@ -296,6 +332,17 @@ results.append(ok(K["de"]["first"] == {"minH": "78px", "link": False, "asked": T
                   "a German or Canadian line drawn while its government's list loads keeps the held 78px until the "
                   "redraw with the link, and lets go if the list fails; a US line holds nothing, nor another "
                   "guide's held room %s" % K))
+
+# --- a From set after the first paint -----------------------------------------------------------
+# [held after the call, frames asked for, after one frame, after two]
+LT = js["late"]
+results.append(ok(LT == {"gbAbove": ["78px", 0, "78px", "78px"], "deAbove": ["78px", 0, "78px", "78px"],
+                         "gbInView": ["59px", 0, "59px", "59px"], "drawn": ["78px", 0, "", ""],
+                         "saved": ["59px", 0, "59px", "59px"]},
+                  "a From set after the first paint (the geo seed): above a scrolled reader's screen the line "
+                  "keeps the served 78px (the fares strip's room can go in the frame the guide draws in) and "
+                  "nothing changes it before the matrix's line does; in view it takes the passport's stand-in "
+                  "at once (a Briton's 59); a saved From's stand-in is already in place %s" % LT))
 
 # --- the homepage and index.html ----------------------------------------------------------------
 idx = open(P("public", "index.html"), encoding="utf-8").read()

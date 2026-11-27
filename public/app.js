@@ -2960,12 +2960,18 @@ function renderGuide(iso) {
     // under it jumped 154px). loadFlightValue settles it when the data lands.
     // Where the server's caches know another origin's strip differs from its
     // mark, that origin's reader gets theirs (servedFareMark): set before the
-    // first paint for a saved From, here for one the geo seed or the picker
-    // set since.
+    // first paint for a saved From or a link's, here when the guide is drawn
+    // again later (another guide and back) for one the picker set since. Not
+    // as the page's guide first draws: a From the geo seed brought after the
+    // first paint keeps the served room until the column settles, as before.
+    // Changed in that frame, the strip's room went with the FX line (a pound
+    // reader's, data-fx) in one 296px move on the UK's guide for a first
+    // visit from Britain, which Chrome scored above the two apart (CLS 0.216
+    // against 0.191 at 390, scrolled down).
     const fvC = flightValue && flightValue.origin === originIso() && flightValue.countries
       && flightValue.countries[iso];
     const fm = fvC && !fvC.pending ? (fvC.n_curve || 0) >= 3
-      : iso === window.__WGGC__ ? servedFareMark(gtab, originIso()) : false;
+      : iso === window.__WGGC__ ? (ssr ? null : servedFareMark(gtab, originIso())) : false;
     if (fm) gtab.setAttribute("data-fm", "1");
     else if (fm === false) gtab.removeAttribute("data-fm");
     // The FX line likewise (data-fx): none for a currency the reader holds
@@ -3908,9 +3914,22 @@ function renderGuideVisa(iso) {
     // the matrix never comes. The stand-in held is this passport's own where
     // the server sent one (visaStandIn): the US line it is served with is a
     // line shorter than a German passport's at 390.
-    const alt = visaStandIn(iso, passport);
-    if (alt) { host.innerHTML = ""; host.appendChild(alt); }
+    // A From set after the first paint (the geo seed before the guide drew,
+    // a pick) keeps the line on screen where it is above a scrolled reader's
+    // screen: the matrix's line settles it, as before. Swapped for its
+    // stand-in in the frame the guide draws in, where the fares strip's room
+    // can go too (data-fm), Chrome's scroll anchoring took up the line's
+    // 19px, then scored it on top of the strip's 200px (CLS 0.183 against
+    // 0.166 at 390 on Sweden for a first visit from Britain); on its own a
+    // change up there is taken up unscored. A line in view takes it at once.
+    const alt = visaStandIn(iso, passport), prev = host.style.minHeight;
     holdSizer(host, iso);
+    const was = host.style.minHeight;
+    if (alt && !(was && host.getBoundingClientRect().bottom <= 0)) {
+      host.style.minHeight = prev;
+      host.innerHTML = ""; host.appendChild(alt);
+      holdSizer(host, iso);
+    }
     host.innerHTML = ""; host.hidden = false;
     ensureVisaMatrix().then(() => { if (ccGuideIso === iso) renderGuideVisa(iso); })
       .catch(() => { if (ccGuideIso === iso && !host.firstChild) { host.hidden = true; host.style.minHeight = ""; } });

@@ -28,7 +28,10 @@ recorded US fares (scripts/parity/fixture_*.json) and British fares
     ?vo= / ?fo= over it where the picker offers that From, and leaves the
     mark for an origin not listed, no saved From, or storage blocked;
   * app.js servedFareMark (run under jsc) reads the lists the same way, and
-    renderGuide asks it for its own guide only.
+    renderGuide asks it for its own guide only, and not as that guide first
+    draws: a From the geo seed brings after the first paint keeps the served
+    room until the column settles, as before this branch (changed in that
+    frame, it merged with the FX line's change into one bigger move).
 """
 import datetime, json, os, re, subprocess, sys, tempfile, time
 
@@ -283,10 +286,52 @@ except Exception:
 results.append(ok(m == [True, False, False, True, True, None, None],
                   "servedFareMark: a listed origin draws it under data-fmy and doesn't under data-fmn, any other "
                   "reads the mark's way, and with no list it answers null (the mark stands) %s" % m))
-results.append(ok(re.search(r"iso === window\.__WGGC__ \? servedFareMark\(gtab, originIso\(\)\) : false;", APP) is not None
+results.append(ok(re.search(r"iso === window\.__WGGC__ \? \(ssr \? null : servedFareMark\(gtab, originIso\(\)\)\) : false;", APP) is not None
                   and APP.count("servedFareMark(") == 2,
                   "renderGuide asks servedFareMark for its own guide only (another guide holds nothing until its "
                   "fares are in), and nowhere else"))
+
+# --- renderGuide's mark, run under jsc: not as the page's guide first draws ---------------------
+blk = re.search(r"\n(    const fvC = flightValue .*?\n)(?=    // The FX line likewise)", APP, re.S)
+JS2 = (fn.group(0) if fn else "") + r"""
+var window = { __WGGC__: "GB" }, flightValue = null, origin = "GB";
+var originIso = function () { return origin; };
+var mk = function (a) { return { getAttribute: function (k) { return k in a ? a[k] : null; },
+  hasAttribute: function (k) { return k in a; }, setAttribute: function (k, v) { a[k] = String(v); },
+  removeAttribute: function (k) { delete a[k]; } }; };
+var run = function (iso, attrs, opt) {
+  opt = opt || {}; var gtab = mk(attrs), ssr = opt.later ? null : {};
+  flightValue = opt.fv || null; origin = opt.o || "GB";
+  (function () { BLOCK })();
+  return gtab.hasAttribute("data-fm");
+};
+print(JSON.stringify({
+  firstLate: run("GB", { "data-fm": "1", "data-fmn": ",GB," }),
+  firstSaved: run("GB", { "data-fmn": ",GB," }),
+  laterGone: run("GB", { "data-fm": "1", "data-fmn": ",GB," }, { later: 1 }),
+  laterCome: run("GB", { "data-fmy": ",GB," }, { later: 1 }),
+  laterUS: run("GB", { "data-fm": "1", "data-fmn": ",GB," }, { later: 1, o: "US" }),
+  laterNoList: run("GB", { "data-fm": "1" }, { later: 1 }),
+  other: run("SE", { "data-fm": "1", "data-fmn": ",GB," }),
+  fvIn: run("GB", { "data-fmn": ",GB," }, { fv: { origin: "GB", countries: { GB: { n_curve: 5 } } } })
+}));
+"""
+with tempfile.TemporaryDirectory() as d:
+    sp = os.path.join(d, "r.js")
+    open(sp, "w", encoding="utf-8").write(JS2.replace("BLOCK", blk.group(1) if blk else "throw new Error('no block')"))
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=30)
+try:
+    rg = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    rg = {"error": (r.stderr or r.stdout)[-300:]}
+RG = {"firstLate": True, "firstSaved": False, "laterGone": False, "laterCome": True, "laterUS": True,
+      "laterNoList": True, "other": False, "fvIn": True}
+results.append(ok(rg == RG,
+                  "renderGuide: as the page's guide first draws, a From the geo seed brought after the first paint "
+                  "keeps the served room (the column settles it, as before), and a saved From keeps what the "
+                  "first-paint script set; drawn again later, the listed origins get theirs (gone for a Briton "
+                  "under data-fmn, there under data-fmy), a US reader and a guide with no list keep the mark; "
+                  "another guide holds nothing; the Flights data, once in, decides %s" % ("" if rg == RG else rg)))
 
 results.append(ok(not OUTSIDE, "nothing tried to reach another host %s" % sorted(set(OUTSIDE))))
 
