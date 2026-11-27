@@ -146,7 +146,9 @@ def _canadian_advisories():
     ours rung for rung (normal precautions / high degree of caution / avoid
     non-essential travel / avoid all travel), so the mapping is +1 and no
     interpretation is needed. Countries arrive with ISO-2 attached, so unlike the
-    US feed there is no name matching to get wrong."""
+    US feed there is no name matching to get wrong. Each also carries the day
+    its advisory was last published ("date-published"), kept as `updated`
+    like the US and German dates; a row without a readable one has none."""
     raw = rates.fetch_json(CA_FEED)
     data = (raw or {}).get("data") or {}
     items = []
@@ -159,17 +161,53 @@ def _canadian_advisories():
             continue
         eng = v.get("eng") or {}
         slug = eng.get("url-slug")
-        items.append({
+        item = {
             "iso": iso,
             "country": eng.get("name") or v.get("country-eng") or iso,
             "level": int(state) + 1,
             "level_text": eng.get("advisory-text") or LEVEL_TEXT.get(int(state) + 1, ""),
             "link": ("https://travel.gc.ca/destinations/" + slug) if slug else CA_URL,
-        })
+        }
+        day = _ca_date(v.get("date-published"))
+        if day:
+            item["updated"] = day
+        items.append(item)
     items.sort(key=lambda r: (-r["level"], r["country"]))
     return {"items": items, "count": len(items),
             "matched": sum(1 for i in items if i["iso"]),
             "source": "ca", "source_name": SOURCES["ca"], "source_url": CA_URL}
+
+
+def _ca_date(published):
+    """Canada's "date-published" -> 'YYYY-MM-DD', or '' when nothing in it
+    reads as a date. The feed gives it three ways, {"date": "2026-10-13
+    16:30:41", "asp": "2026-10-13T16:30:41.78-04:00", "timestamp":
+    1791923441}; "date" and "asp" are Ottawa's day, the one Canada's own
+    page shows ("October 13, 2026"), so they are read first. The timestamp
+    is the last resort, as a UTC day like Germany's. A day before 2000 is
+    not an advisory date (a zero timestamp is 1970)."""
+    if isinstance(published, dict):
+        texts, stamp = (published.get("date"), published.get("asp")), published.get("timestamp")
+    else:
+        texts, stamp = (published,), None
+    days = []
+    for t in texts:
+        m = re.match(r"\s*(\d{4}-\d\d-\d\d)(?!\d)", t) if isinstance(t, str) else None
+        if m:
+            days.append(m.group(1))
+    if stamp is not None and not isinstance(stamp, bool):
+        try:
+            days.append(time.strftime("%Y-%m-%d", time.gmtime(int(stamp))))
+        except (TypeError, ValueError, OverflowError, OSError):
+            pass
+    import datetime
+    for d in days:
+        try:
+            if datetime.date.fromisoformat(d).year >= 2000:
+                return d
+        except ValueError:
+            continue
+    return ""
 
 
 def _from(source):
@@ -250,7 +288,9 @@ def _from_shared(source):
 
 def get_advisories(source="us"):
     """Advisories from the given government source, normalized to a common shape:
-    {items: [{iso, country, level, level_text, link, via?, via_name?}], source, ...}.
+    {items: [{iso, country, level, level_text, link, updated?, via?, via_name?}],
+    source, ...}; `updated` is the feed's own date for the item ('YYYY-MM-DD')
+    where it gives one.
 
     Where the home government publishes nothing, the other government fills in and
     the item is stamped with `via` so the UI can say whose call it is. This is not
