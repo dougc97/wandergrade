@@ -1,0 +1,966 @@
+{
+ "note": "Recorded 2026-10-27 00:35 UTC by scripts/dev/tp_grouped_probe.py --round2 (the Oct 26 spike, run by Doug; no credentials in this file): for 9 NYC routes, /v1/prices/monthly's data (M, the server's call) and aviasales/v3/grouped_prices with group_by=month currency=usd market=us min_trip_duration=1 max_trip_duration=60 (G, flightshadow.PARAMS), trimmed to the fields the comparison reads. oneway_DXB: grouped_prices with NO trip length (round 1, variant G) - one-way rows, no return_at. Months are 2026-10 .. 2027-09; scripts/test_flight_shadow.py shifts them onto the current window.",
+ "oneway_DXB": {
+  "currency": "usd",
+  "data": {
+   "2026-10": {
+    "departure_at": "2026-10-29T22:05:00-04:00",
+    "price": 346,
+    "return_transfers": 0,
+    "transfers": 1
+   },
+   "2026-11": {
+    "departure_at": "2026-11-28T21:05:00-05:00",
+    "price": 332,
+    "return_transfers": 0,
+    "transfers": 1
+   },
+   "2026-12": {
+    "departure_at": "2026-12-30T11:55:00-05:00",
+    "price": 379,
+    "return_transfers": 0,
+    "transfers": 1
+   },
+   "2027-01": {
+    "departure_at": "2027-01-21T21:05:00-05:00",
+    "price": 318,
+    "return_transfers": 0,
+    "transfers": 1
+   },
+   "2027-02": {
+    "departure_at": "2027-02-06T21:05:00-05:00",
+    "price": 333,
+    "return_transfers": 0,
+    "transfers": 1
+   },
+   "2027-03": {
+    "departure_at": "2027-03-25T22:05:00-04:00",
+    "price": 351,
+    "return_transfers": 0,
+    "transfers": 1
+   },
+   "2027-04": {
+    "departure_at": "2027-04-27T20:20:00-04:00",
+    "price": 346,
+    "return_transfers": 0,
+    "transfers": 1
+   }
+  },
+  "success": true
+ },
+ "params": {
+  "currency": "usd",
+  "group_by": "month",
+  "market": "us",
+  "max_trip_duration": "60",
+  "min_trip_duration": "1"
+ },
+ "recorded": "2026-10-27T00:35:03+00:00",
+ "routes": {
+  "BUD": {
+   "G": {
+    "currency": "usd",
+    "data": {
+     "2026-11": {
+      "departure_at": "2026-11-13T16:25:00-05:00",
+      "price": 681,
+      "return_at": "2026-11-27T06:15:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-12": {
+      "departure_at": "2026-12-11T21:00:00-05:00",
+      "price": 471,
+      "return_at": "2026-12-18T06:20:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-01": {
+      "departure_at": "2027-01-19T12:50:00-05:00",
+      "price": 659,
+      "return_at": "2027-01-23T09:10:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-02": {
+      "departure_at": "2027-02-03T20:15:00-05:00",
+      "price": 649,
+      "return_at": "2027-02-18T09:10:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-04": {
+      "departure_at": "2027-04-18T19:05:00-04:00",
+      "price": 683,
+      "return_at": "2027-04-24T18:25:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     }
+    },
+    "success": true
+   },
+   "M": {
+    "2026-11": {
+     "departure_at": "2026-11-13T16:25:00-05:00",
+     "price": 681,
+     "return_at": "2026-11-27T06:15:00+01:00",
+     "transfers": 1
+    },
+    "2026-12": {
+     "departure_at": "2026-12-11T21:00:00-05:00",
+     "price": 471,
+     "return_at": "2026-12-18T06:20:00+01:00",
+     "transfers": 1
+    },
+    "2027-01": {
+     "departure_at": "2027-01-19T12:50:00-05:00",
+     "price": 659,
+     "return_at": "2027-01-23T09:10:00+01:00",
+     "transfers": 1
+    },
+    "2027-02": {
+     "departure_at": "2027-02-03T20:15:00-05:00",
+     "price": 649,
+     "return_at": "2027-02-18T09:10:00+01:00",
+     "transfers": 1
+    },
+    "2027-04": {
+     "departure_at": "2027-04-18T19:05:00-04:00",
+     "price": 683,
+     "return_at": "2027-04-24T18:25:00+02:00",
+     "transfers": 1
+    }
+   },
+   "iso": "HU"
+  },
+  "CAI": {
+   "G": {
+    "currency": "usd",
+    "data": {
+     "2026-10": {
+      "departure_at": "2026-10-29T22:05:00-04:00",
+      "price": 688,
+      "return_at": "2026-12-10T05:05:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-11": {
+      "departure_at": "2026-11-17T12:50:00-05:00",
+      "price": 414,
+      "return_at": "2026-11-30T20:45:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-12": {
+      "departure_at": "2026-12-14T21:05:00-05:00",
+      "price": 535,
+      "return_at": "2027-01-08T04:35:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-01": {
+      "departure_at": "2027-01-20T11:55:00-05:00",
+      "price": 672,
+      "return_at": "2027-01-28T16:00:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-02": {
+      "departure_at": "2027-02-15T20:00:00-05:00",
+      "price": 652,
+      "return_at": "2027-02-22T08:40:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-03": {
+      "departure_at": "2027-03-03T20:00:00-05:00",
+      "price": 410,
+      "return_at": "2027-03-17T19:30:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-07": {
+      "departure_at": "2027-07-30T10:50:00-04:00",
+      "price": 893,
+      "return_at": "2027-08-09T01:30:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-08": {
+      "departure_at": "2027-08-14T10:50:00-04:00",
+      "price": 490,
+      "return_at": "2027-09-05T20:30:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     }
+    },
+    "success": true
+   },
+   "M": {
+    "2026-10": {
+     "departure_at": "2026-10-29T22:05:00-04:00",
+     "price": 688,
+     "return_at": "2026-12-10T05:05:00+02:00",
+     "transfers": 1
+    },
+    "2026-11": {
+     "departure_at": "2026-11-17T12:50:00-05:00",
+     "price": 414,
+     "return_at": "2026-11-30T20:45:00+02:00",
+     "transfers": 1
+    },
+    "2026-12": {
+     "departure_at": "2026-12-14T21:05:00-05:00",
+     "price": 535,
+     "return_at": "2027-01-08T04:35:00+02:00",
+     "transfers": 1
+    },
+    "2027-01": {
+     "departure_at": "2027-01-20T11:55:00-05:00",
+     "price": 672,
+     "return_at": "2027-01-28T16:00:00+02:00",
+     "transfers": 1
+    },
+    "2027-02": {
+     "departure_at": "2027-02-15T20:00:00-05:00",
+     "price": 652,
+     "return_at": "2027-02-22T08:40:00+02:00",
+     "transfers": 1
+    },
+    "2027-03": {
+     "departure_at": "2027-03-03T20:00:00-05:00",
+     "price": 410,
+     "return_at": "2027-03-17T19:30:00+02:00",
+     "transfers": 1
+    },
+    "2027-07": {
+     "departure_at": "2027-07-30T10:50:00-04:00",
+     "price": 893,
+     "return_at": "2027-08-09T01:30:00+02:00",
+     "transfers": 1
+    },
+    "2027-08": {
+     "departure_at": "2027-08-14T10:50:00-04:00",
+     "price": 490,
+     "return_at": "2027-09-05T20:30:00+02:00",
+     "transfers": 1
+    }
+   },
+   "iso": "EG"
+  },
+  "DXB": {
+   "G": {
+    "currency": "usd",
+    "data": {
+     "2026-10": {
+      "departure_at": "2026-10-28T12:55:00-04:00",
+      "price": 561,
+      "return_at": "2026-10-31T23:35:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-11": {
+      "departure_at": "2026-11-01T11:55:00-05:00",
+      "price": 527,
+      "return_at": "2026-11-07T23:35:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-12": {
+      "departure_at": "2026-12-01T21:05:00-05:00",
+      "price": 682,
+      "return_at": "2026-12-10T06:45:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-01": {
+      "departure_at": "2027-01-24T11:55:00-05:00",
+      "price": 522,
+      "return_at": "2027-01-30T23:35:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-02": {
+      "departure_at": "2027-02-11T21:05:00-05:00",
+      "price": 620,
+      "return_at": "2027-02-16T06:45:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-03": {
+      "departure_at": "2027-03-25T22:05:00-04:00",
+      "price": 659,
+      "return_at": "2027-04-01T06:30:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-04": {
+      "departure_at": "2027-04-04T15:00:00-04:00",
+      "price": 543,
+      "return_at": "2027-04-15T23:35:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-06": {
+      "departure_at": "2027-06-08T11:20:00-04:00",
+      "price": 904,
+      "return_at": "2027-07-26T02:50:00+04:00",
+      "return_transfers": 0,
+      "transfers": 0
+     },
+     "2027-08": {
+      "departure_at": "2027-08-14T19:00:00-04:00",
+      "price": 826,
+      "return_at": "2027-08-21T04:05:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-09": {
+      "departure_at": "2027-09-01T19:00:00-04:00",
+      "price": 684,
+      "return_at": "2027-09-19T04:05:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     }
+    },
+    "success": true
+   },
+   "M": {
+    "2026-10": {
+     "departure_at": "2026-10-28T12:55:00-04:00",
+     "price": 561,
+     "return_at": "2026-10-31T23:35:00+04:00",
+     "transfers": 1
+    },
+    "2026-11": {
+     "departure_at": "2026-11-15T11:55:00-05:00",
+     "price": 536,
+     "return_at": "2026-11-24T23:35:00+04:00",
+     "transfers": 1
+    },
+    "2026-12": {
+     "departure_at": "2026-12-01T21:05:00-05:00",
+     "price": 682,
+     "return_at": "2026-12-10T06:45:00+04:00",
+     "transfers": 1
+    },
+    "2027-01": {
+     "departure_at": "2027-01-24T11:55:00-05:00",
+     "price": 522,
+     "return_at": "2027-01-30T23:35:00+04:00",
+     "transfers": 1
+    },
+    "2027-02": {
+     "departure_at": "2027-02-11T21:05:00-05:00",
+     "price": 620,
+     "return_at": "2027-02-16T06:45:00+04:00",
+     "transfers": 1
+    },
+    "2027-03": {
+     "departure_at": "2027-03-25T22:05:00-04:00",
+     "price": 659,
+     "return_at": "2027-04-01T06:30:00+04:00",
+     "transfers": 1
+    },
+    "2027-04": {
+     "departure_at": "2027-04-04T15:00:00-04:00",
+     "price": 543,
+     "return_at": "2027-04-15T23:35:00+04:00",
+     "transfers": 1
+    },
+    "2027-06": {
+     "departure_at": "2027-06-08T11:20:00-04:00",
+     "price": 904,
+     "return_at": "2027-07-26T02:50:00+04:00",
+     "transfers": 0
+    },
+    "2027-08": {
+     "departure_at": "2027-08-14T19:00:00-04:00",
+     "price": 826,
+     "return_at": "2027-08-21T04:05:00+04:00",
+     "transfers": 1
+    },
+    "2027-09": {
+     "departure_at": "2027-09-01T19:00:00-04:00",
+     "price": 820,
+     "return_at": "2027-09-19T23:00:00+04:00",
+     "transfers": 1
+    }
+   },
+   "iso": "AE"
+  },
+  "LON": {
+   "G": {
+    "currency": "usd",
+    "data": {
+     "2026-10": {
+      "departure_at": "2026-10-31T23:05:00-04:00",
+      "price": 776,
+      "return_at": "2026-11-04T10:00:00Z",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-11": {
+      "departure_at": "2026-11-07T23:05:00-05:00",
+      "price": 500,
+      "return_at": "2026-11-19T06:00:00Z",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-12": {
+      "departure_at": "2026-12-01T00:10:00-05:00",
+      "price": 632,
+      "return_at": "2026-12-08T18:50:00Z",
+      "return_transfers": 2,
+      "transfers": 2
+     },
+     "2027-01": {
+      "departure_at": "2027-01-07T09:33:00-05:00",
+      "price": 596,
+      "return_at": "2027-01-14T06:15:00Z",
+      "return_transfers": 2,
+      "transfers": 0
+     },
+     "2027-02": {
+      "departure_at": "2027-02-13T17:40:00-05:00",
+      "price": 495,
+      "return_at": "2027-02-14T19:50:00Z",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-03": {
+      "departure_at": "2027-03-02T00:10:00-05:00",
+      "price": 607,
+      "return_at": "2027-03-09T07:45:00Z",
+      "return_transfers": 2,
+      "transfers": 2
+     },
+     "2027-04": {
+      "departure_at": "2027-04-10T17:45:00-04:00",
+      "price": 630,
+      "return_at": "2027-04-17T15:35:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-05": {
+      "departure_at": "2027-05-22T17:45:00-04:00",
+      "price": 536,
+      "return_at": "2027-05-23T21:05:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-06": {
+      "departure_at": "2027-06-08T12:45:00-04:00",
+      "price": 789,
+      "return_at": "2027-06-26T06:50:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-07": {
+      "departure_at": "2027-07-01T21:55:00-04:00",
+      "price": 866,
+      "return_at": "2027-07-10T12:05:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-09": {
+      "departure_at": "2027-09-07T17:10:00-04:00",
+      "price": 638,
+      "return_at": "2027-09-14T19:50:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     }
+    },
+    "success": true
+   },
+   "M": {
+    "2026-10": {
+     "departure_at": "2026-10-31T23:05:00-04:00",
+     "price": 776,
+     "return_at": "2026-11-04T10:00:00Z",
+     "transfers": 1
+    },
+    "2026-11": {
+     "departure_at": "2026-11-23T00:10:00-05:00",
+     "price": 531,
+     "return_at": "2026-12-06T09:05:00Z",
+     "transfers": 1
+    },
+    "2026-12": {
+     "departure_at": "2026-12-04T00:10:00-05:00",
+     "price": 558,
+     "return_at": "2026-12-04T21:35:00Z",
+     "transfers": 2
+    },
+    "2027-01": {
+     "departure_at": "2027-01-07T09:33:00-05:00",
+     "price": 596,
+     "return_at": "2027-01-14T06:15:00Z",
+     "transfers": 2
+    },
+    "2027-02": {
+     "departure_at": "2027-02-13T17:40:00-05:00",
+     "price": 495,
+     "return_at": "2027-02-14T19:50:00Z",
+     "transfers": 1
+    },
+    "2027-03": {
+     "departure_at": "2027-03-02T00:10:00-05:00",
+     "price": 607,
+     "return_at": "2027-03-09T07:45:00Z",
+     "transfers": 2
+    },
+    "2027-04": {
+     "departure_at": "2027-04-10T17:45:00-04:00",
+     "price": 630,
+     "return_at": "2027-04-17T15:35:00+01:00",
+     "transfers": 1
+    },
+    "2027-05": {
+     "departure_at": "2027-05-22T17:45:00-04:00",
+     "price": 536,
+     "return_at": "2027-05-23T21:05:00+01:00",
+     "transfers": 1
+    },
+    "2027-06": {
+     "departure_at": "2027-06-08T12:45:00-04:00",
+     "price": 789,
+     "return_at": "2027-06-26T06:50:00+01:00",
+     "transfers": 1
+    },
+    "2027-07": {
+     "departure_at": "2027-07-01T21:55:00-04:00",
+     "price": 866,
+     "return_at": "2027-07-10T12:05:00+01:00",
+     "transfers": 1
+    },
+    "2027-09": {
+     "departure_at": "2027-09-07T17:10:00-04:00",
+     "price": 638,
+     "return_at": "2027-09-14T19:50:00+01:00",
+     "transfers": 1
+    }
+   },
+   "iso": "GB"
+  },
+  "MAD": {
+   "G": {
+    "currency": "usd",
+    "data": {
+     "2026-11": {
+      "departure_at": "2026-11-24T00:15:00-05:00",
+      "price": 498,
+      "return_at": "2026-12-01T11:55:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-12": {
+      "departure_at": "2026-12-14T00:10:00-05:00",
+      "price": 702,
+      "return_at": "2026-12-28T21:10:00+01:00",
+      "return_transfers": 2,
+      "transfers": 2
+     },
+     "2027-01": {
+      "departure_at": "2027-01-06T12:50:00-05:00",
+      "price": 295,
+      "return_at": "2027-02-24T16:20:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-02": {
+      "departure_at": "2027-02-15T00:15:00-05:00",
+      "price": 343,
+      "return_at": "2027-02-22T16:20:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-03": {
+      "departure_at": "2027-03-23T01:15:00-04:00",
+      "price": 309,
+      "return_at": "2027-03-30T08:10:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-05": {
+      "departure_at": "2027-05-05T19:55:00-04:00",
+      "price": 494,
+      "return_at": "2027-05-11T17:20:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-06": {
+      "departure_at": "2027-06-04T22:05:00-04:00",
+      "price": 673,
+      "return_at": "2027-06-07T22:25:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     }
+    },
+    "success": true
+   },
+   "M": {
+    "2026-11": {
+     "departure_at": "2026-11-24T00:15:00-05:00",
+     "price": 483,
+     "return_at": "2026-12-01T14:20:00+01:00",
+     "transfers": 1
+    },
+    "2026-12": {
+     "departure_at": "2026-12-14T00:10:00-05:00",
+     "price": 702,
+     "return_at": "2026-12-28T21:10:00+01:00",
+     "transfers": 2
+    },
+    "2027-01": {
+     "departure_at": "2027-01-06T12:50:00-05:00",
+     "price": 295,
+     "return_at": "2027-02-24T16:20:00+01:00",
+     "transfers": 1
+    },
+    "2027-02": {
+     "departure_at": "2027-02-15T00:15:00-05:00",
+     "price": 343,
+     "return_at": "2027-02-22T16:20:00+01:00",
+     "transfers": 1
+    },
+    "2027-03": {
+     "departure_at": "2027-03-23T01:15:00-04:00",
+     "price": 342,
+     "return_at": "2027-03-30T08:10:00+02:00",
+     "transfers": 1
+    },
+    "2027-05": {
+     "departure_at": "2027-05-05T19:55:00-04:00",
+     "price": 494,
+     "return_at": "2027-05-11T17:20:00+02:00",
+     "transfers": 1
+    },
+    "2027-06": {
+     "departure_at": "2027-06-04T22:05:00-04:00",
+     "price": 673,
+     "return_at": "2027-06-07T22:25:00+02:00",
+     "transfers": 1
+    }
+   },
+   "iso": "ES"
+  },
+  "PAR": {
+   "G": {
+    "currency": "usd",
+    "data": {
+     "2026-10": {
+      "departure_at": "2026-10-29T17:35:00-04:00",
+      "price": 690,
+      "return_at": "2026-11-01T14:00:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-11": {
+      "departure_at": "2026-11-04T23:00:00-05:00",
+      "price": 499,
+      "return_at": "2026-11-21T18:40:00+01:00",
+      "return_transfers": 0,
+      "transfers": 0
+     },
+     "2026-12": {
+      "departure_at": "2026-12-02T19:35:00-05:00",
+      "price": 552,
+      "return_at": "2026-12-06T18:40:00+01:00",
+      "return_transfers": 0,
+      "transfers": 1
+     },
+     "2027-01": {
+      "departure_at": "2027-01-20T23:25:00-05:00",
+      "price": 612,
+      "return_at": "2027-01-29T06:40:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-02": {
+      "departure_at": "2027-02-03T00:15:00-05:00",
+      "price": 568,
+      "return_at": "2027-02-10T07:20:00+01:00",
+      "return_transfers": 2,
+      "transfers": 2
+     },
+     "2027-03": {
+      "departure_at": "2027-03-06T22:00:00-05:00",
+      "price": 647,
+      "return_at": "2027-03-15T18:20:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-05": {
+      "departure_at": "2027-05-06T01:30:00-04:00",
+      "price": 498,
+      "return_at": "2027-05-10T06:05:00+02:00",
+      "return_transfers": 2,
+      "transfers": 2
+     },
+     "2027-06": {
+      "departure_at": "2027-06-22T21:55:00-04:00",
+      "price": 761,
+      "return_at": "2027-06-28T09:55:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-08": {
+      "departure_at": "2027-08-15T23:00:00-04:00",
+      "price": 595,
+      "return_at": "2027-08-31T18:50:00+02:00",
+      "return_transfers": 0,
+      "transfers": 0
+     },
+     "2027-09": {
+      "departure_at": "2027-09-04T17:20:00-04:00",
+      "price": 628,
+      "return_at": "2027-09-18T13:15:00+02:00",
+      "return_transfers": 1,
+      "transfers": 1
+     }
+    },
+    "success": true
+   },
+   "M": {
+    "2026-10": {
+     "departure_at": "2026-10-29T17:35:00-04:00",
+     "price": 690,
+     "return_at": "2026-11-01T14:00:00+01:00",
+     "transfers": 1
+    },
+    "2026-11": {
+     "departure_at": "2026-11-04T23:00:00-05:00",
+     "price": 499,
+     "return_at": "2026-11-21T18:40:00+01:00",
+     "transfers": 0
+    },
+    "2026-12": {
+     "departure_at": "2026-12-02T19:35:00-05:00",
+     "price": 552,
+     "return_at": "2026-12-06T18:40:00+01:00",
+     "transfers": 1
+    },
+    "2027-01": {
+     "departure_at": "2027-01-20T23:25:00-05:00",
+     "price": 612,
+     "return_at": "2027-01-29T06:40:00+01:00",
+     "transfers": 1
+    },
+    "2027-02": {
+     "departure_at": "2027-02-03T00:15:00-05:00",
+     "price": 568,
+     "return_at": "2027-02-10T07:20:00+01:00",
+     "transfers": 2
+    },
+    "2027-03": {
+     "departure_at": "2027-03-06T22:00:00-05:00",
+     "price": 647,
+     "return_at": "2027-03-15T18:20:00+01:00",
+     "transfers": 1
+    },
+    "2027-05": {
+     "departure_at": "2027-05-06T01:30:00-04:00",
+     "price": 498,
+     "return_at": "2027-05-10T06:05:00+02:00",
+     "transfers": 2
+    },
+    "2027-06": {
+     "departure_at": "2027-06-22T21:55:00-04:00",
+     "price": 761,
+     "return_at": "2027-06-28T09:55:00+02:00",
+     "transfers": 1
+    },
+    "2027-08": {
+     "departure_at": "2027-08-15T23:00:00-04:00",
+     "price": 595,
+     "return_at": "2027-08-31T18:50:00+02:00",
+     "transfers": 0
+    },
+    "2027-09": {
+     "departure_at": "2027-09-04T17:20:00-04:00",
+     "price": 628,
+     "return_at": "2027-09-18T13:15:00+02:00",
+     "transfers": 1
+    }
+   },
+   "iso": "FR"
+  },
+  "REK": {
+   "G": {
+    "currency": "usd",
+    "data": {
+     "2026-11": {
+      "departure_at": "2026-11-08T22:29:00-05:00",
+      "price": 616,
+      "return_at": "2026-11-13T17:00:00Z",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-06": {
+      "departure_at": "2027-06-18T19:55:00-04:00",
+      "price": 487,
+      "return_at": "2027-06-30T10:00:00Z",
+      "return_transfers": 1,
+      "transfers": 1
+     }
+    },
+    "success": true
+   },
+   "M": {
+    "2026-11": {
+     "departure_at": "2026-11-08T22:29:00-05:00",
+     "price": 616,
+     "return_at": "2026-11-13T17:00:00Z",
+     "transfers": 1
+    },
+    "2027-06": {
+     "departure_at": "2027-06-18T19:55:00-04:00",
+     "price": 487,
+     "return_at": "2027-06-30T10:00:00Z",
+     "transfers": 1
+    }
+   },
+   "iso": "IS"
+  },
+  "TBS": {
+   "G": {
+    "currency": "usd",
+    "data": {
+     "2026-10": {
+      "departure_at": "2026-10-27T11:20:00-04:00",
+      "price": 831,
+      "return_at": "2026-11-06T21:15:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-11": {
+      "departure_at": "2026-11-08T17:30:00-05:00",
+      "price": 716,
+      "return_at": "2026-11-20T06:15:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2026-12": {
+      "departure_at": "2026-12-26T22:35:00-05:00",
+      "price": 488,
+      "return_at": "2027-01-31T05:20:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-01": {
+      "departure_at": "2027-01-22T22:35:00-05:00",
+      "price": 854,
+      "return_at": "2027-01-29T06:45:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-05": {
+      "departure_at": "2027-05-04T16:20:00-04:00",
+      "price": 825,
+      "return_at": "2027-05-25T03:00:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-06": {
+      "departure_at": "2027-06-06T16:20:00-04:00",
+      "price": 1027,
+      "return_at": "2027-07-23T03:00:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-08": {
+      "departure_at": "2027-08-09T16:20:00-04:00",
+      "price": 947,
+      "return_at": "2027-09-01T03:00:00+04:00",
+      "return_transfers": 1,
+      "transfers": 1
+     }
+    },
+    "success": true
+   },
+   "M": {
+    "2026-10": {
+     "departure_at": "2026-10-29T11:20:00-04:00",
+     "price": 851,
+     "return_at": "2026-11-23T21:15:00+04:00",
+     "transfers": 1
+    },
+    "2026-11": {
+     "departure_at": "2026-11-26T12:50:00-05:00",
+     "price": 833,
+     "return_at": "2026-11-30T08:40:00+04:00",
+     "transfers": 1
+    },
+    "2026-12": {
+     "departure_at": "2026-12-26T22:35:00-05:00",
+     "price": 488,
+     "return_at": "2027-01-31T05:20:00+04:00",
+     "transfers": 1
+    },
+    "2027-01": {
+     "departure_at": "2027-01-22T22:35:00-05:00",
+     "price": 854,
+     "return_at": "2027-01-29T06:45:00+04:00",
+     "transfers": 1
+    },
+    "2027-05": {
+     "departure_at": "2027-05-04T16:20:00-04:00",
+     "price": 825,
+     "return_at": "2027-05-25T03:00:00+04:00",
+     "transfers": 1
+    },
+    "2027-06": {
+     "departure_at": "2027-06-06T16:20:00-04:00",
+     "price": 1027,
+     "return_at": "2027-07-23T03:00:00+04:00",
+     "transfers": 1
+    },
+    "2027-08": {
+     "departure_at": "2027-08-09T16:20:00-04:00",
+     "price": 947,
+     "return_at": "2027-09-01T03:00:00+04:00",
+     "transfers": 1
+    }
+   },
+   "iso": "GE"
+  },
+  "ZRH": {
+   "G": {
+    "currency": "usd",
+    "data": {
+     "2026-11": {
+      "departure_at": "2026-11-01T18:30:00-05:00",
+      "price": 511,
+      "return_at": "2026-11-08T20:25:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     },
+     "2027-02": {
+      "departure_at": "2027-02-24T17:40:00-05:00",
+      "price": 609,
+      "return_at": "2027-03-02T18:00:00+01:00",
+      "return_transfers": 1,
+      "transfers": 1
+     }
+    },
+    "success": true
+   },
+   "M": {
+    "2026-11": {
+     "departure_at": "2026-11-01T19:40:00-05:00",
+     "price": 943,
+     "return_at": "2026-11-08T09:30:00+01:00",
+     "transfers": 1
+    },
+    "2027-02": {
+     "departure_at": "2027-02-24T17:40:00-05:00",
+     "price": 609,
+     "return_at": "2027-03-02T18:00:00+01:00",
+     "transfers": 1
+    }
+   },
+   "iso": "CH"
+  }
+ }
+}

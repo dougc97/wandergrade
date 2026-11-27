@@ -323,3 +323,25 @@ Falls and Ureca beach were pinned, then dropped for exactly that).
 - `scripts/dev/cdp.mjs` is the headless-Chrome driver the checks use
   (`CDP_TIMEOUT=50 node cdp.mjs ./script.mjs`); `scripts/dev/ig_story.mjs`
   renders the monthly Instagram-story graphic from the live Top Picks.
+
+## Fare source test: two weeks, log only (`fxtracker/flightshadow.py`)
+
+Today's fares come from Travelpayouts' `/v1/prices/monthly` (20 calls a minute,
+so the US fill takes ~9 minutes after a deploy). Its replacement,
+`aviasales/v3/grouped_prices`, allows 600 a minute; before any switch the
+server compares the two side by side. Nothing a reader sees reads it.
+
+- **When.** On Render (locally only with `FLIGHT_SHADOW=1`; `FLIGHT_SHADOW=0`
+  turns it off anywhere), once a UTC day, at least 30 minutes after boot
+  (`FLIGHT_SHADOW_DELAY` in seconds), after the US fare fill and never while a
+  fill, an advisory refresh or page renders run. US only, one call a second
+  (about 175 calls a day, never over 400). It stops by itself after 14 complete days, or after
+  `FLIGHT_SHADOW_UNTIL` (default 2026-12-31). Needs `TRAVELPAYOUTS_TOKEN` and
+  Upstash. Log lines start `[flight-shadow]`.
+- **Where.** Upstash `fshadow:day:<date>` (one summary a day, 30-day expiry),
+  `fshadow:lock`, `fshadow:done`. `/api/flight-shadow` serves them from memory
+  (no-store, noindex, linked from nowhere).
+- **Reading it.** `/usr/bin/python3 scripts/dev/flight_shadow_report.py
+  https://wandergrade.com/api/flight-shadow` (or a saved copy) prints a
+  plain-words report: same-price and same-band rates, this month and next
+  against later months, the warm-up of each source, extra calls a day.

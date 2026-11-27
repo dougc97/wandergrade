@@ -42,8 +42,9 @@ US. /v1/prices/monthly allows 60 requests/minute per token (Travelpayouts,
 that budget — so ONE background warmer per origin, at most MAX_WARMERS at
 once, all behind one pacer at 1 call / PACE seconds (20/min), while the
 endpoint answers from the cache alone and says how far the fill has got.
-(Faster, untested without a token: /aviasales/v3/grouped_prices, grouped by
-departure month at 600/min, could fill a country in one call.)
+(Faster: /aviasales/v3/grouped_prices, grouped by departure month at
+600/min, could fill a country in one call; flightshadow.py compares the two
+side by side, log only, before any switch.)
 """
 
 import calendar
@@ -219,6 +220,11 @@ def serve(origin_iso, fares):
 _warm_lock = threading.Lock()
 _warming = {}     # origin -> monotonic start, while a pass runs (keys: ORIGIN_HUBS only)
 _warm_done = {}   # origin -> (monotonic end, aborted) of its last pass
+# How long passes take, for the log-only fare-source comparison
+# (fxtracker/flightshadow.py): read there, never by anything a reader sees.
+_T0 = time.monotonic()   # ~ process start: the server imports this at boot
+_pass_calls = {}  # origin -> [seconds per upstream call] of the pass running now
+_passes = {}      # origin -> {"first": record, "last": record} (pass_stats)
 _pace_cv = threading.Condition()
 _pace_next = [0.0]    # monotonic time the next warmer call may go
 _pace_first = [0]     # default-origin warmers waiting at the gate
@@ -256,6 +262,31 @@ def is_warming(origin_iso):
         return origin_iso in _warming
 
 
+def warming_any():
+    """True while any origin's pass runs."""
+    with _warm_lock:
+        return bool(_warming)
+
+
+def pass_stats(origin_iso):
+    """{"first", "last"} finished passes for an origin, or {}: each when it
+    started (UTC), how long it took, how long after boot it ended, how many
+    upstream calls it made and how long they took. The first pass after a
+    deploy is the fare warm-up the guides wait for (has_warmed)."""
+    with _warm_lock:
+        return dict(_passes.get(origin_iso) or {})
+
+
+def _ms_stats(secs):
+    """{median, p95, max} in whole milliseconds of a list of seconds, or {}."""
+    vals = sorted(secs)
+    if not vals:
+        return {}
+    pick = lambda q: vals[min(len(vals) - 1, int(q * len(vals)))]
+    return {"median": round(percentile(vals, 0.5) * 1000), "p95": round(pick(0.95) * 1000),
+            "max": round(vals[-1] * 1000)}
+
+
 class _Abort(Exception):
     pass
 
@@ -273,7 +304,11 @@ def _warm_pass(origin_iso, rows):
             return flights.get_monthly(o, c, cur)       # cache hit, no call
         known_bad = flights.monthly_failed(o, c, cur)
         _pace(first)
+        t0 = time.monotonic()
         m = flights.get_monthly(o, c, cur)
+        log = _pass_calls.get(origin_iso)
+        if log is not None:
+            log.append(time.monotonic() - t0)
         if not (m.get("error") or m.get("stale")):
             fails[0] = bad_run[0] = 0
         elif known_bad:
@@ -315,12 +350,19 @@ def _warm_pass(origin_iso, rows):
 
 def _warm(origin_iso, rows):
     aborted = False
+    t0, started = time.monotonic(), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    calls = _pass_calls[origin_iso] = []
     try:
         aborted = _warm_pass(origin_iso, rows)
     finally:
+        end = time.monotonic()
+        rec = {"started": started, "secs": round(end - t0, 1), "boot_s": round(end - _T0),
+               "calls": len(calls), "ms": _ms_stats(calls), "aborted": aborted}
         with _warm_lock:
             _warming.pop(origin_iso, None)
-            _warm_done[origin_iso] = (time.monotonic(), aborted)
+            _warm_done[origin_iso] = (end, aborted)
+            _pass_calls.pop(origin_iso, None)
+            _passes.setdefault(origin_iso, {"first": rec})["last"] = rec
 
 
 def start_warm(origin_iso, rows):
