@@ -39,7 +39,8 @@ GRAB = [
     "function flightMonthKey", "function fareValue",
     # plAnchor names the anchor as a sentence says it (countryNameInText over
     # the prelude's countryName stub); labels only, no number reads them.
-    "function valueScores", "const NAME_THE", "function countryNameInText", "const PL_SHORT",
+    # NAME_FIX: valueScores names a country as picks._score does (a tie's key).
+    "const NAME_FIX", "function valueScores", "const NAME_THE", "function countryNameInText", "const PL_SHORT",
     "function plAnchorName", "function plAnchor",
 ]
 
