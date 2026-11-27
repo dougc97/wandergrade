@@ -162,14 +162,23 @@ def run_app():
             return None, e
 
 
-def bare(h):     # test_home_picks: the markup with the tooltips taken out
-    return re.sub(r' (?:title|data-tip|aria-label)="[^"]*"', "", h or "")
+def _home_picks_helpers():
+    """bare() and mark_sorted() taken straight from test_home_picks.py, so the
+    two tests can never strip different attributes (main's postcard links added
+    aria-expanded there). Only those two functions are compiled: importing the
+    module would run its whole suite."""
+    import ast
+    src = read("scripts", "test_home_picks.py")
+    want = {"bare", "mark_sorted"}
+    nodes = [n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name in want]
+    if {n.name for n in nodes} != want:
+        raise SystemExit("test_home_picks.py no longer defines bare() and mark_sorted()")
+    ns = {"re": re}
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), P("scripts", "test_home_picks.py"), "exec"), ns)
+    return ns["bare"], ns["mark_sorted"]
 
 
-def mark_sorted(h):   # test_home_picks: the header as markSort leaves it
-    return re.sub(r'(<th class="[^"]*sortable"[^>]*>)(.*?)(</th>)',
-                  lambda m: m.group(1) + '<button type="button" class="sortbtn">' + m.group(2) + "</button>" + m.group(3),
-                  h, flags=re.S)
+bare, mark_sorted = _home_picks_helpers()
 
 
 def tied_scorer(real, tie):
