@@ -5419,7 +5419,9 @@ function renderAdvisories() {
     // reasons, one quiet phrase: "normal precautions" at Level 1 (the
     // advisory's full phrase repeated the pill down 83 rows), the level's own
     // words above it, or "no US advisory" where the US rates none. Beside
-    // another government's pill, each says it's the US's.
+    // another government's pill, each says it's the US's. Reasons that are
+    // all section headings (Mali: risks_from) name where they come from
+    // instead: the summary names none of them.
     const u = usItem(it);
     const usPre = usMine ? "" : "US: ";
     const uTip = u && u.summary ? "Per the U.S. State Department: “" + u.summary + "”"
@@ -5430,7 +5432,8 @@ function renderAdvisories() {
       : caMine && !health && !healthFailed ? '<span class="muted">…</span>'
       : it._rk
       ? `<span class="rkwrap" data-tip="${esc(it._rk.join(" · ") + " — per the U.S. State Department"
-          + (u && u.summary ? ": “" + u.summary + "”" : ""))}" title="">${usMine ? "" : '<span class="rkus">US</span>'}${chipsHTML(it._rk, null, true)}</span>`
+          + (u && u.risks_from === "headings" ? ": the section headings of its advisory"
+            : u && u.summary ? ": “" + u.summary + "”" : ""))}" title="">${usMine ? "" : '<span class="rkus">US</span>'}${chipsHTML(it._rk, null, true)}</span>`
       : !usLoaded && _advWait.usFailed ? `<span class="sftext" data-tip="The U.S. reasons couldn't be loaded — try again later." title="">—</span>`
       : !usLoaded ? '<span class="muted">…</span>'
       : !u ? `<span class="sftext">${usMine ? "no US advisory" : "US: no advisory"}</span>`

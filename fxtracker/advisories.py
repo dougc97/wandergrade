@@ -453,6 +453,7 @@ def _us_advisories():
         seen.add(key)
         iso = name_iso.get(key)
         desc = _tag(block, "description")
+        risks, titled = _item_risks(desc, level, iso, name_iso)
         item = {
             "iso": iso,
             "country": country,
@@ -468,13 +469,19 @@ def _us_advisories():
             # place (any_level): it still says what the State Department
             # names as the risks. Quoted as the summary, it would contradict
             # the pill beside it (see _summary).
-            "risks": _item_risks(desc, level, iso, name_iso),
+            "risks": risks,
             # The bookkeeping sentences _summary discards ("The advisory level
             # was decreased to 1") are exactly the change signal — captured
             # here with the item's publish date so the UI can show what moved.
             "change": _change(desc),
             "updated": _pubdate(_tag(block, "pubDate")),
         }
+        if titled:
+            # Every reason is a section heading (Mali, Liberia): the summary
+            # names none of them, so the chips' tip says where they come from
+            # instead of quoting it. Only on such rows, so every other row
+            # reads as before.
+            item["risks_from"] = "headings"
         if key in UMBRELLA:
             umbrellas.append((key, item))
             continue
@@ -917,32 +924,42 @@ def _title_risks(desc, level=None):
     when the risk vocabulary has a word for it ("Air Travel" and "U.S.
     government employee travel restrictions" are not), so no "Other". Never
     at Level 1, whose titles are general tips ("Soufrière Hills volcano",
-    "State of Exception")."""
+    "State of Exception"). A "Health" title is Health, as a bare "health" in
+    a "due to" is (Lesotho's "due to crime and health", over a Health section
+    word for word Liberia's); "Medical" is for a lead naming the care itself
+    ("inadequate health infrastructure": The Gambia, Sierra Leone)."""
     if (level or 0) < 2:
         return []
     return label_reasons(" / ".join(_titles(desc)), other=False)
 
 
 def _item_risks(desc, level, iso, name_iso):
-    """A US row's risks, from the first of:
+    """(risks, whether every one is a section title) for a US row, the risks
+    from the first of:
       * the "due to" of the lead naming the place (any level, see _summary);
       * the "due to" of a lead naming no place: Afghanistan's "Do not travel
         to Afghanistan for any reason" beside "Do not travel due to civil
         unrest, crime…". No ISO names that one first;
       * the section titles (_title_risks), the advisory's own list of its
-        risks: they come before the sentences read for a lead with no "due
-        to", which named only Crime for Liberia ("Exercise increased caution"
-        and then "Violent crime… are common"), whose sections are Crime,
-        Unrest and Health, and nothing for Mali;
-      * those sentences, first the lead naming the place's, then the other's
-        (see _risks)."""
+        risks, followed by any risk the sentences read for a lead with no
+        "due to" name that they don't (first the lead naming the place's,
+        then the other's; see _risks). Those sentences named only Crime for
+        Liberia ("Exercise increased caution" and then "Violent crime… are
+        common"), whose sections are Crime, Unrest and Health, and nothing
+        for Mali; added to, not replaced, so a section list that misses a
+        risk the opening names can't drop it."""
     own = _summary(desc, level, iso, name_iso, full=True, any_level=True)
     found = _risks(own, level, sentences=False)
     if found:
-        return found
+        return found, False
     placeless = _summary(desc, level, "", name_iso, full=True)
-    return (_risks(placeless, level, sentences=False) or _title_risks(desc, level)
-            or _risks(own, level) or _risks(placeless, level))
+    found = _risks(placeless, level, sentences=False)
+    if found:
+        return found, False
+    titled = _title_risks(desc, level)
+    said = _risks(own, level) or _risks(placeless, level)
+    extra = [r for r in said if r not in titled]
+    return titled + extra, bool(titled) and not extra
 
 
 def label_reasons(clause, other=True):
