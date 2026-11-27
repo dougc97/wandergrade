@@ -234,6 +234,18 @@ def _chips(words, cls="risk", title=None):
         '<span class="%s">%s</span>' % (cls, html.escape(w)) for w in words))
 
 
+US_HEADINGS = "From the section headings of the U.S. State Department's advisory"
+
+
+def _us_reasons(it):
+    """A US row's reasons as chips, titled with the sentence they were read
+    from — or, where every one is a section heading (Mali), with that, since
+    its summary names none of them (as the Safety tab's tip)."""
+    it = it or {}
+    title = US_HEADINGS if it.get("risks_from") == "headings" else it.get("summary") or None
+    return _chips(it.get("risks") or [], title=title)
+
+
 def _months(c):
     """The country's best months as the guide claims them: "best months to
     visit" only where they are hand-curated, otherwise the best-weather months
@@ -542,7 +554,7 @@ def safe_and_cheap(us, ca, de, facts, clim, health, pl_history, fetched=None, fx
                  % (n, _country(iso, _name(iso)), mark), _cell("Prices", pct_txt)]
         if nearly:
             it = us_own.get(iso) or {}
-            cells.append(_cell("US", _pill("us", it) + _chips(it.get("risks") or [], title=it.get("summary") or None)))
+            cells.append(_cell("US", _pill("us", it) + _us_reasons(it)))
         else:
             cells.append(_gov_cell("us", us_own.get(iso)))
         cells.append(_gov_cell("ca", ca_own.get(iso), "not loaded" if "ca" in missing else "no rating"))
@@ -711,8 +723,7 @@ def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
         cells = [_country_cell(iso, nm(iso))]
         for src in GOVS:
             cells.append(_gov_cell(src, (own[src] or {}).get(iso), "not loaded" if src in missing else "no rating"))
-        risks = (us_it or {}).get("risks") or []
-        cells.append(_cell("US reasons", _chips(risks, title=(us_it or {}).get("summary") or None) or "—"))
+        cells.append(_cell("US reasons", _us_reasons(us_it) or "—"))
         return "<tr>%s%s</tr>" % (cells[0], _card(cells[1:]))
 
     def table(isos, empty):
@@ -755,7 +766,8 @@ def do_not_travel(us, ca, de, fetched=None, stale=None, today=None):
              '<a href="/dollar-strength">where the US dollar is strongest</a>.</p>')
     notes = ["Levels are each government's own; the pill's tooltip quotes its phrase. Dates: the feed's own "
              "date where it publishes one, and “since” when WanderGrade's record saw the level change "
-             "(↑ raised, ↓ lowered). US reasons are the State Department's “due to” clause.",
+             "(↑ raised, ↓ lowered). US reasons are the State Department's “due to” clause, "
+             "or its section headings where it gives none.",
              _missing_note(missing)]
     stale = {s: a for s, a in (stale or {}).items() if a and s not in missing}
     sources = _sources_line(fetched, own, stale=stale, today=today)
