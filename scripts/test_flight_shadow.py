@@ -568,6 +568,31 @@ fs._fetch = real_gfetch
 flightvalue._warming.pop("US", None)
 results.append(ok(r == "dropped: server got busy" and len(GCALLS) - calls_at[0] == 2 and DAY not in fs._days,
                   "a live fare fill starting mid-run: it waits, and past BUSY_GIVE_UP drops the run"))
+# a run that outlasts its lock's TTL: the lock another process took since stays
+calls_at[0] = len(GCALLS)
+lock_seen = []
+
+
+def gfetch_lock_taken(url):
+    out = real_gfetch(url)
+    if len(GCALLS) - calls_at[0] == 1:
+        lock_seen.append(kv("GET", fs.KEY_LOCK))
+    if len(GCALLS) - calls_at[0] == 2:
+        kv("SET", fs.KEY_LOCK, "other-process", "EX", 60)   # ours expired, another took it
+    return out
+
+
+fs._fetch = gfetch_lock_taken
+r = fs.check(server._cached_fares, busy=server._flight_shadow_busy)
+fs._fetch = real_gfetch
+held = kv("GET", fs.KEY_LOCK)
+kv("DEL", fs.KEY_LOCK)
+results.append(ok(r.startswith("ran ") and held == "other-process" and lock_seen and lock_seen[0]
+                  and lock_seen[0] != "other-process" and TOKEN not in lock_seen[0],
+                  "a run that outlasts its lock leaves the lock another process took since (own lock %r)"
+                  % (lock_seen[:1],)))
+fs._days.pop(DAY, None)
+kv("DEL", fs.KEY_DAY + DAY)
 fs._state["tries"] = {DAY: fs.TRIES_PER_DAY}
 r = fs.check(server._cached_fares, busy=server._flight_shadow_busy)
 results.append(ok(r == "gave up today: busy every try", "at most TRIES_PER_DAY tries a day"))

@@ -38,7 +38,9 @@ day. It stops by itself after WANTED complete daily runs, or after UNTIL.
 Storage, in Upstash (the accounts client, accounts._redis), so the record
 survives deploys; nothing runs without it:
   fshadow:day:<YYYY-MM-DD>  one day's summary (JSON, at most MAX_BYTES), TTL 30 days
-  fshadow:lock              a run in progress (SET NX, TTL 15 min): one process at a time
+  fshadow:lock              a run in progress (SET NX, TTL 15 min): one process at a time;
+                            its value is the run's own, so a run that outlasts the TTL
+                            never deletes the lock another process took since
   fshadow:done              set once WANTED complete days are stored, TTL 60 days
 Read once at start and after each run, never on a request: /api/flight-shadow
 answers from memory (body()), and scripts/dev/flight_shadow_report.py turns
@@ -602,7 +604,8 @@ def check(fares_for, busy=None, today=None, now=None):
                 _state["ver"] += 1
             _set_state("waiting", "ran today (another process)")
             return _state["why"]
-        if not accounts._redis("SET", KEY_LOCK, int(now), "EX", LOCK_TTL, "NX"):
+        mine = "%d-%d-%s" % (int(now), os.getpid(), os.urandom(4).hex())
+        if not accounts._redis("SET", KEY_LOCK, mine, "EX", LOCK_TTL, "NX"):
             _set_state("waiting", "another process is running it")
             return _state["why"]
     except Exception as e:
@@ -625,10 +628,16 @@ def check(fares_for, busy=None, today=None, now=None):
         _set_state("ran", "ran " + summary["at"] + (" (aborted)" if summary["aborted"] else ""))
         return _state["why"]
     finally:
-        try:
+        _unlock(mine)
+
+
+def _unlock(mine):
+    """Delete the run lock only while it is still this run's (GET, then DEL)."""
+    try:
+        if accounts._redis("GET", KEY_LOCK) == mine:
             accounts._redis("DEL", KEY_LOCK)
-        except Exception:
-            pass
+    except Exception:
+        pass
 
 
 def _one_line(s):
