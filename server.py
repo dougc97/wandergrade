@@ -1717,14 +1717,22 @@ def _render_404_page(message, suggest=None):
 _nf_memo = {}
 _NF_MEMO_MAX = 256
 _nf_lock = threading.Lock()
+# At most one "Did you mean" search (difflib) per SUGGEST_EVERY seconds for
+# a 404 answered without a slot (_suggest_ok). Wall-clock seconds, so on a
+# starved CPU (Render's free tier; stall_check --on-ms 2 runs the process 2%
+# of the time) a shorter gap is a bigger share: 0.05 s let a burst that took
+# 3-4 s to drain run ~70 searches, about what its other 130 misses cost. Once
+# a second it's a few. _nf_suggest_at: when the last one started
+# (time.monotonic()).
+SUGGEST_EVERY = 1.0
+_nf_suggest_at = [float("-inf")]
 
 
 def _not_found_bytes(message, suggest, gz):
     """(raw, gzip or None) of _render_404_page(message, suggest); gzip only
     when `gz` (the client takes it)."""
     key = (message, suggest)
-    with _nf_lock:
-        hit = _nf_memo.get(key)
+    hit = _nf_memo.get(key)   # one dict read, atomic: no lock for the usual case
     if hit is None:
         hit = [_render_404_page(message, suggest), None]
         with _nf_lock:
@@ -1736,13 +1744,33 @@ def _not_found_bytes(message, suggest, gz):
     return hit[0], (hit[1] if gz else None)
 
 
-def _pages_busy():
-    """True while every page slot is taken and this request holds none: a
-    404 then goes out without its "Did you mean" (difflib, ~0.2 ms, most of
-    a miss's cost), so a burst of misses answered outside the slots costs
-    about what shedding them did. Slots off (tests, tools): False."""
+def _suggest_ok():
+    """True when this 404 may run its "Did you mean" search (difflib,
+    _did_you_mean: ~0.2-0.35 ms, most of a miss's cost). Always with slots off
+    (tests, tools) or when this request holds a slot: the slots bound those.
+    A 404 answered without one (a guide miss, _guide_miss, or any path off the
+    slot routes) searches only while a slot is free and at most once per
+    SUGGEST_EVERY across all of them: misses take no slot, so in a burst made
+    of nothing but misses the slots look free. 150 typo URLs at once
+    (stall_check --on-ms 2) each ran the search and held /healthz up to
+    5.8 s, where shedding most of them 503 had held it 0.7-2.7 s; paced at
+    0.05 s, 36 searches ran while the burst drained (worst probe 4.0 s);
+    once a second, 3, and over six runs beside the shedding code the worst
+    probe was 1.2-2.4 s against its 1.5-2.8 s, at the same CPU. A lone typo
+    keeps its suggestion."""
     slots = _page_slots
-    return slots is not None and getattr(_slot_held, "slots", None) is None and slots._value == 0
+    if slots is None or getattr(_slot_held, "slots", None) is not None:
+        return True
+    if slots._value == 0:
+        return False
+    now = time.monotonic()
+    if now - _nf_suggest_at[0] < SUGGEST_EVERY:   # the burst's usual answer, without the lock
+        return False
+    with _nf_lock:
+        if now - _nf_suggest_at[0] < SUGGEST_EVERY:
+            return False
+        _nf_suggest_at[0] = now
+    return True
 
 
 def _render_verify_page(token):
@@ -2774,8 +2802,9 @@ def _guide_query_redirect(raw_path):
 #         the 301 to reach the guide. Answering one is a few dict lookups.
 #         So is a /guide/ path that names no guide, answered with the 404
 #         page (_guide_miss: the shell's, made once, its "Did you mean"
-#         left out while every slot is taken): queued with the crawler's
-#         guides, a miss could get the 503 page instead of its 404.
+#         left out while every slot is taken and paced to one search per
+#         SUGGEST_EVERY, _suggest_ok): queued with the crawler's guides, a
+#         miss could get the 503 page instead of its 404.
 #         /?tab=guide&gc=SC (no Seychelles guide) is the homepage: a slot.
 #         Not a 301 to /: it is the address app.js gives the guide of each
 #         of the 29 countries with data but no guide page (guidePath, for
@@ -3000,7 +3029,8 @@ def _guide_miss(path, raw_path):
     (_guide_path_redirect), so do_GET runs it without a slot, as a redirect
     (class (ii) above). Its page is the shell's 404 with the guide index,
     made once (_not_found_bytes), with a "Did you mean" (difflib,
-    _did_you_mean) only while a slot is free (_pages_busy): a whole request
+    _did_you_mean) only while a slot is free and at most once per
+    SUGGEST_EVERY across all slotless misses (_suggest_ok): a whole request
     ~0.35 ms of CPU on a Mac with it, ~0.08 ms without, where the 503 a
     shed miss got was ~0.05 ms. A slot let a miss wait behind the crawler's
     guides and be shed 503 like them. Anything else, a URL longer than
@@ -3463,7 +3493,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, 404)
             return
         suggest = None
-        if not _pages_busy():
+        if _suggest_ok():
             try:
                 suggest = _did_you_mean(path)
             except Exception as e:   # a suggestion is a nicety: never a 500 instead of the 404

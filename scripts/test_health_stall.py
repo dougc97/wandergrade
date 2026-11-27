@@ -43,7 +43,9 @@ What it holds the code to:
     the onrender.com host) never waits for a slot nor is shed, and answers
     with the very bytes it does with slots off, and so does a guide miss's
     404 page (_guide_miss; its "Did you mean" left out while every slot is
-    taken, its bytes made once), while /?gc=SC&tab=guide (no guide: the
+    taken and searched at most once per SUGGEST_EVERY by slotless 404s, so
+    a burst made only of misses can't run it side by side, its bytes made
+    once), while /?gc=SC&tab=guide (no guide: the
     homepage) and a URL past REDIRECT_CHECK_MAX are pages; main() loads the
     guide data that check
     reads before it serves (cold, a burst parsed it once per request); and a
@@ -1678,35 +1680,66 @@ results.append(ok(not miss_wrong and miss_left == 0 and miss_waiting == 0
                   "off, but for a \"Did you mean\" (Colombia, Japan), left out while every slot is taken; nothing "
                   "queued (wrong: %s)" % miss_wrong))
 
-# _pages_busy: every slot taken and none held by this request (slots off:
-# never). _not_found_bytes: each page and its gzip made once.
-saved_nf = (server._page_slots, server._render_404_page)
-nf_calls = []
+# _suggest_ok: always with slots off or a slot held by this request; a
+# slotless 404 only while a slot is free and at most once per SUGGEST_EVERY
+# (150 typo misses at once each ran difflib side by side and held /healthz up
+# to 5.8 s; a 0.05 s gap still let a starved process run dozens while the
+# burst drained). _not_found_bytes: each page and its gzip made once.
+saved_nf = (server._page_slots, server._render_404_page, server._nf_suggest_at[0], server._did_you_mean)
+nf_calls, dym_calls = [], []
 try:
     server._page_slots = None
-    busy_off = server._pages_busy()
+    sug_off = [server._suggest_ok(), server._suggest_ok()]
     server._page_slots = threading.BoundedSemaphore(2)
-    busy_free = server._pages_busy()
+    server._nf_suggest_at[0] = float("-inf")
+    sug_free = [server._suggest_ok(), server._suggest_ok()]          # the second within SUGGEST_EVERY
+    server._nf_suggest_at[0] -= server.SUGGEST_EVERY + 0.001
+    sug_later = server._suggest_ok()                                 # SUGGEST_EVERY on
     server._page_slots.acquire()
+    server._nf_suggest_at[0] = float("-inf")
+    sug_one_left = server._suggest_ok()
     server._page_slots.acquire()
-    busy_full = server._pages_busy()
+    server._nf_suggest_at[0] = float("-inf")
+    sug_full = server._suggest_ok()
+    sug_full_paced_kept = server._nf_suggest_at[0] == float("-inf")  # a busy answer spends no turn
     server._slot_held.slots = server._page_slots
-    busy_mine = server._pages_busy()
+    sug_mine = [server._suggest_ok(), server._suggest_ok()]
     server._slot_held.slots = None
+    # Through the real Handler, slots on and free: a lone typo keeps its
+    # suggestion, a second miss within SUGGEST_EVERY goes out without one
+    # (no search at all), and the next after it has it again.
+    server._page_slots = threading.BoundedSemaphore(2)
+    server._did_you_mean = lambda p: (dym_calls.append(p), saved_nf[3](p))[1]
+    server._nf_suggest_at[0] = float("-inf")
+    paced_pages = [handler_get("/guide/columbia")[1]]
+    paced_pages.append(handler_get("/guide/columbia")[1])
+    paced_calls = len(dym_calls)
+    server._nf_suggest_at[0] -= server.SUGGEST_EVERY + 0.001
+    paced_pages.append(handler_get("/guide/columbia")[1])
     server._nf_memo.clear()
     server._render_404_page = lambda *a: (nf_calls.append(a), saved_nf[1](*a))[1]
     nf = [server._not_found_bytes("No guide for that country", s, gz)
           for s, gz in ((None, False), (None, True), (None, True), (("/guide/peru", "Peru"), False))]
 finally:
-    server._page_slots, server._render_404_page = saved_nf
+    server._page_slots, server._render_404_page, server._nf_suggest_at[0], server._did_you_mean = saved_nf
     server._slot_held.slots = None
-results.append(ok((busy_off, busy_free, busy_full, busy_mine) == (False, False, True, False)
-                  and len(nf_calls) == 2 and nf[0][0] is nf[1][0] is nf[2][0] and nf[0][1] is None
+sug = (sug_off, sug_free, sug_later, sug_one_left, sug_full, sug_full_paced_kept, sug_mine)
+results.append(ok(sug == ([True, True], [True, False], True, True, False, True, [True, True])
+                  and 0.5 <= server.SUGGEST_EVERY <= 2
+                  and "_suggest_ok()" in inspect.getsource(server.Handler._send_not_found),
+                  "a 404 searches for its suggestion always with slots off or a slot held, and without a slot only "
+                  "while one is free, at most once per SUGGEST_EVERY (%.2f s), a busy answer spending no turn (%s)"
+                  % (server.SUGGEST_EVERY, sug)))
+results.append(ok([b"didyoumean" in pg for pg in paced_pages] == [True, False, True] and paced_calls == 1
+                  and len(dym_calls) == 2 and paced_pages[1] == miss_ref["/guide/nowhere", "wandergrade.com", "GET"][1],
+                  "through the Handler, slots free: a lone /guide/columbia keeps \"Did you mean Colombia\", a second "
+                  "miss within SUGGEST_EVERY runs no search and gets /guide/nowhere's page, the next after it has the "
+                  "suggestion again (%s, %d searches)" % ([b"didyoumean" in pg for pg in paced_pages], len(dym_calls))))
+results.append(ok(len(nf_calls) == 2 and nf[0][0] is nf[1][0] is nf[2][0] and nf[0][1] is None
                   and nf[1][1] is nf[2][1] and _gz.decompress(nf[1][1]) == nf[0][0]
                   and b"didyoumean" in nf[3][0] and b"didyoumean" not in nf[0][0],
-                  "a 404 leaves out its suggestion only while every slot is taken and it holds none (%s), and its "
-                  "page and gzip are made once per message and suggestion (%d renders for 4 asks)"
-                  % ((busy_off, busy_free, busy_full, busy_mine), len(nf_calls))))
+                  "a 404's page and gzip are made once per message and suggestion (%d renders for 4 asks)"
+                  % len(nf_calls)))
 RO_CASES = [("/", "/?tab=guide&gc=JP", "wandergrade.com", True), ("/guide/Japan", "/guide/Japan", "", True),
             ("/data", "/data", "svc-x.onrender.com", True), ("/", "/", "wandergrade.com", False),
             ("/", "/?gc=SC&tab=guide", "wandergrade.com", False), ("/", "/?tab=guide&gc=TV", "", False),
