@@ -12,7 +12,7 @@ flightshadow._fetch, and Upstash is scripts/mock_upstash.py on a free port.
 
     /usr/bin/python3 scripts/test_flight_shadow.py
 """
-import contextlib, datetime, gzip, io, json, os, shutil, subprocess, sys, tempfile, threading, time
+import contextlib, datetime, gzip, io, json, os, re, shutil, subprocess, sys, tempfile, threading, time
 import urllib.error, urllib.parse, urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
@@ -219,7 +219,8 @@ mini = {"countries": [
     {"iso": "FF", "dest": "FFA", "cities": ["FFA", "FFB"], "n": 4}]}
 c = fs.compare("US", mini, mk(G, missing={"DDD", "EEE"}, log=asked), live=mk(L, missing={"CCC", "EEE"}), today=TODAY)
 a = c["agg"]
-results.append(ok(a["ready"] == {"countries": 6, "live": 4, "shadow": 4, "both": 3},
+results.append(ok(a["ready"] == {"countries": 6, "live": 4, "shadow": 4, "both": 3, "pending_grouped": 1,
+                                 "pending_live": 1},
                   "ready: 6 countries, live 4 (CC never fetched, EE), grouped 4 (DD failed, EE), both 3 -> %s"
                   % a["ready"]))
 results.append(ok(asked == ["AAA", "BBB", "CCC", "DDD", "EEE", "FFA", "FFB"],
@@ -263,6 +264,27 @@ results.append(ok(c["dest"]["CC"]["n"] == [None, 1] and c["dest"]["DD"]["n"] == 
                   "pending sides read None (CC live, DD grouped, EE both)"))
 results.append(ok(c["window"] == [WIN[0], WIN[-1]] and c["tab_month"] == (WIN[1] if TODAY.day > 15 else WIN[0]),
                   "the window and the Flights tab's own month (next month after the 15th)"))
+results.append(ok(a["ready"]["pending_grouped"] == 1 and a["ready"]["pending_live"] == 1
+                  and a["country_months"]["live_only"] == 1 + 0 + 1 and a["country_months"]["shadow_only"] == 1
+                  and "m" not in c["dest"]["CC"] and "m" not in c["dest"]["DD"],
+                  "a country with one side pending (CC, DD) is counted as pending, not as months one source lacks "
+                  "-> ready %s, country months %s" % (a["ready"], a["country_months"])))
+# A banded country whose grouped call failed (HTTP 429, a timeout, success:false):
+# a switched server retries it within minutes, so it never reads "would lose its range".
+same = {WIN[i]: p for i, p in zip(range(1, 9), (500, 510, 520, 530, 540, 550, 560, 900))}
+two = {"countries": [{"iso": "PP", "dest": "PPP", "cities": ["PPP"], "n": 9},
+                     {"iso": "QQ", "dest": "QQQ", "cities": ["QQQ"], "n": 8}]}
+f1 = fs.compare("US", two, mk({"QQQ": same}, missing={"PPP"}), live=mk({"PPP": same, "QQQ": same}), today=TODAY)["agg"]
+f2 = fs.compare("US", two, mk({"PPP": same, "QQQ": same}), live=mk({"QQQ": same}, missing={"PPP"}), today=TODAY)["agg"]
+results.append(ok(f1["banded"] == {"live": 1, "shadow": 1, "both": 1, "live_only": 0, "shadow_only": 0}
+                  and f1["country_months"]["live_only"] == 0 and f1["ready"]["pending_grouped"] == 1
+                  and f1["bands"]["both"] == f1["bands"]["agree"] == 8,
+                  "a banded country's grouped call failed: not 'would lose its range' (live_only 0), "
+                  "counted as pending -> banded %s, ready %s" % (f1["banded"], f1["ready"])))
+results.append(ok(f2["banded"]["shadow_only"] == 0 and f2["country_months"]["shadow_only"] == 0
+                  and f2["ready"]["pending_live"] == 1 and f2["banded"]["both"] == 1,
+                  "...and a country today's source has not fetched yet is not 'would gain it' -> banded %s"
+                  % f2["banded"]))
 
 # --- 3. the live side, filled the real way from the recorded v1 answers -----------
 import server  # noqa: E402
@@ -275,9 +297,10 @@ flightvalue._warm("US", fares["countries"])
 warm_calls = len(UP["monthly"]) - n_m0
 ps = flightvalue.pass_stats("US")
 results.append(ok(flightvalue.has_warmed("US") and ps["first"] is ps["last"] and ps["first"]["calls"] == warm_calls > 0
-                  and set(ps["first"]) == {"started", "secs", "boot_s", "calls", "ms", "aborted"}
+                  and set(ps["first"]) == {"secs", "calls", "ms", "aborted"}
                   and set(ps["first"]["ms"]) == {"median", "p95", "max"} and ps["first"]["aborted"] is False,
-                  "the live fill records its warm-up: %d upstream calls, timings, not aborted" % warm_calls))
+                  "the live fill records its warm-up as durations alone: %d upstream calls, timings, not aborted"
+                  % warm_calls))
 flightvalue._warm("US", fares["countries"])
 ps2 = flightvalue.pass_stats("US")
 results.append(ok(ps2["first"] == ps["first"] and ps2["last"] is not ps["first"] and ps2["last"]["calls"] == 0,
@@ -405,8 +428,8 @@ buf = io.StringIO()
 with contextlib.redirect_stdout(buf):
     r = fs.check(server._cached_fares, busy=server._flight_shadow_busy)
 log = buf.getvalue()
-s = fs._days.get(DAY) or {}
-results.append(ok(r.startswith("ran ") and s.get("aborted") is None and s.get("day") == DAY,
+s = fs.held_day(DAY) or {}
+results.append(ok(r == "ran " + DAY and s.get("aborted") is None and s.get("day") == DAY,
                   "all clear: today's comparison runs -> %r" % r))
 after = reader_outputs()
 diff = [k for k in before if before[k] != after[k]]
@@ -428,8 +451,10 @@ results.append(ok(sorted(cities_asked) == sorted(set(cities_asked))
                   "one grouped call per city the live curve uses (Spain's second city too), NYC, the spike's params"))
 gaps = [b[0] - a_[0] for a_, b in zip(GCALLS, GCALLS[1:])]
 results.append(ok(gaps and min(gaps) >= fs.PACE and s["calls"]["grouped"] == len(GCALLS) == 12
+                  and s["calls"]["day_total"] == 12 and s["calls"]["tries"] == 1 and s["calls"]["dropped_runs"] == 0
                   and s["calls"]["pace_s"] == fs.PACE,
-                  "serialized, %.1f s apart at least (60/min vs the 600/min limit); 12 calls counted" % fs.PACE))
+                  "serialized, %.1f s apart at least (60/min vs the 600/min limit); 12 calls counted, 12 today in all"
+                  % fs.PACE))
 results.append(ok(s["calls"]["failed"] == 2 and s["calls"]["rejected"] == 1 and s["calls"]["statuses"] == {"200": 11, "429": 1}
                   and s["calls"]["ms"]["median"] > 0 and s["calls"]["proj_fill_s"] >= 12 * fs.SWITCH_PACE,
                   "failures counted (REK 429, ATH success:false), latency kept, projected fill at the 0.3 s gap"))
@@ -462,6 +487,12 @@ results.append(ok(stored and json.loads(stored) == s and 30 * 86400 - 60 <= ttl 
                   and kv("GET", fs.KEY_LOCK) is None and len(stored) <= fs.MAX_BYTES,
                   "stored as fshadow:day:%s, expires in 30 days (TTL %ds), %d bytes, lock released"
                   % (DAY, ttl, len(stored))))
+cttl = kv("TTL", fs.KEY_CALLS + DAY)
+results.append(ok(int(kv("GET", fs.KEY_CALLS + DAY)) == 12 and 30 * 86400 - 60 <= cttl <= 30 * 86400,
+                  "every call counted in Upstash as it is made: fshadow:calls:%s = 12, expires in 30 days" % DAY))
+results.append(ok("at" not in s and not re.search(r"\d\d:\d\d", stored)
+                  and set(s["live"]["warm"]["first"]) == {"secs", "calls", "ms", "aborted"},
+                  "no time of day in the summary (its day and durations only): no restart time to work out"))
 results.append(ok(TOKEN not in stored and TOKEN not in log and "[flight-shadow] " + DAY in log,
                   "no token in what is stored or logged; one [flight-shadow] line"))
 
@@ -470,7 +501,7 @@ r = fs.check(server._cached_fares, busy=server._flight_shadow_busy)
 results.append(ok(r == "ran today" and len(GCALLS) == n_calls, "at most once a day: a second check calls nothing"))
 fs._days.pop(DAY)
 r = fs.check(server._cached_fares, busy=server._flight_shadow_busy)
-results.append(ok(r == "ran today (another process)" and DAY in fs._days and len(GCALLS) == n_calls,
+results.append(ok(r == "ran today (another process)" and fs.held_day(DAY) == s and len(GCALLS) == n_calls,
                   "a day another process stored (Upstash) also counts: read back, nothing called"))
 
 # endpoint
@@ -478,9 +509,15 @@ st, hd, raw = raw_get("/api/flight-shadow", {"Accept-Encoding": "identity"})
 doc = json.loads(raw)
 results.append(ok(st == 200 and hd.get("Content-Type") == "application/json; charset=utf-8"
                   and hd.get("Cache-Control") == "no-store" and hd.get("X-Robots-Tag") == "noindex"
-                  and set(doc) == {"v", "status", "days"} and doc["days"] == [fs._days[DAY]]
+                  and set(doc) == {"v", "status", "days"} and doc["days"] == [fs.held_day(DAY)]
                   and doc["status"]["complete"] == 1 and doc["status"]["wanted"] == 14,
                   "/api/flight-shadow: JSON, no-store, noindex; status + every stored day"))
+results.append(ok(set(doc["status"]) == {"state", "why", "finished", "until", "wanted", "complete", "origin",
+                                         "params", "pace_s"}
+                  and not re.search(rb"\d\d:\d\d", raw)
+                  and raw_get("/api/flight-shadow", {"Host": "wandergrade.com", "Accept-Encoding": "identity"})[2] == raw,
+                  "no time of day anywhere in it, on the public host too (no check stamp, no run time, no fill "
+                  "start): like /healthz's X-Uptime, restart times stay off the public site"))
 n_up, n_g = len(UP["monthly"]) + UP["latest"], len(GCALLS)
 real_redis, redis_calls = accounts._redis, []
 accounts._redis = lambda *cmd: redis_calls.append(cmd) or real_redis(*cmd)
@@ -515,6 +552,8 @@ p = subprocess.run([sys.executable, os.path.join(HERE, "dev", "flight_shadow_rep
 words = p.stdout
 results.append(ok(p.returncode == 0 and "Same price on" in words and "Warm-up after a deploy" in words
                   and "What this suggests" in words and "Not yet:" in words and "only 1 of 14 days" in words
+                  and "Countries compared, per day:" in words and "Extra calls: about 12 a day" in words
+                  and "lowest seen over the past week" in words and "fresh" not in words
                   and TOKEN not in words,
                   "the report turns the JSON into plain words (rc %d, %d lines)" % (p.returncode, words.count("\n"))))
 empty = os.path.join(tmp, "empty.json")
@@ -525,9 +564,22 @@ results.append(ok(p2.returncode == 0 and "No results yet" in p2.stdout, "...and 
 shutil.rmtree(tmp, ignore_errors=True)
 
 # --- 5. dropped runs, aborted runs, caps ----------------------------------------------
-fs._days.pop(DAY)
-kv("DEL", fs.KEY_DAY + DAY)
-fs._state["tries"] = {}
+
+
+def new_day():
+    """Today as if nothing had run yet: no day held or stored, no calls counted, no tries."""
+    fs._days.pop(DAY, None)
+    kv("DEL", fs.KEY_DAY + DAY)
+    kv("DEL", fs.KEY_CALLS + DAY)
+    fs._state["tries"] = {}
+    fs._carry.update(day=None, g=None)
+
+
+def counted():
+    return int(kv("GET", fs.KEY_CALLS + DAY) or 0)
+
+
+new_day()
 fs.BUSY_GIVE_UP, fs.BUSY_WAIT = 10, 5
 calls_at = [len(GCALLS)]
 real_busy = server._flight_shadow_busy
@@ -539,17 +591,59 @@ def busy_after(n):
 
 
 r = fs.check(server._cached_fares, busy=busy_after(3))
-results.append(ok(r == "dropped: server got busy" and len(GCALLS) - calls_at[0] == 3 and DAY not in fs._days
-                  and kv("GET", fs.KEY_DAY + DAY) is None and kv("GET", fs.KEY_LOCK) is None,
-                  "busy mid-run past BUSY_GIVE_UP: dropped after 3 calls, nothing stored, lock released"))
+first_try = [q["destination"] for _, q in GCALLS[calls_at[0]:]]
+results.append(ok(r == "dropped: server got busy" and len(first_try) == 3 and DAY not in fs._days
+                  and kv("GET", fs.KEY_DAY + DAY) is None and kv("GET", fs.KEY_LOCK) is None
+                  and counted() == 3,
+                  "busy mid-run past BUSY_GIVE_UP: dropped after 3 calls, nothing stored, lock released, "
+                  "the 3 calls counted in Upstash"))
 calls_at[0] = len(GCALLS)
 flips = iter([None, "pages rendering", "pages rendering"])
 r = fs.check(server._cached_fares, busy=lambda: next(flips, None))
-s2 = fs._days.get(DAY) or {}
-results.append(ok(r.startswith("ran ") and s2.get("calls", {}).get("busy_waits") == 2,
-                  "busy for a moment mid-run: it waits (2 waits) and carries on"))
-fs._days.pop(DAY)
-kv("DEL", fs.KEY_DAY + DAY)
+retry = [q["destination"] for _, q in GCALLS[calls_at[0]:]]
+s2 = fs.held_day(DAY) or {}
+c2 = s2.get("calls", {})
+results.append(ok(r == "ran " + DAY and c2.get("busy_waits") == 2 + 2,
+                  "busy for a moment mid-run: it waits (2 more waits) and carries on"))
+results.append(ok(len(retry) == 12 - 3 and not set(retry) & set(first_try)
+                  and set(retry) | set(first_try) == set(cities_asked),
+                  "the retry carries on: it asks only the 9 cities still missing, none of the first try's 3 again"))
+results.append(ok(c2.get("grouped") == 12 and c2.get("day_total") == 12 == counted()
+                  and c2.get("tries") == 2 and c2.get("dropped_runs") == 1
+                  and sum(c2["statuses"].values()) == 12
+                  and s2["agg"] == s["agg"] and s2["dest"] == s["dest"],
+                  "the stored day counts every call it made, the dropped try's too (12 in 2 tries, 1 dropped), "
+                  "and compares the same as an uninterrupted run -> %s"
+                  % {k: c2.get(k) for k in ("grouped", "day_total", "tries", "dropped_runs")}))
+# a restart mid-day: the in-memory answers and tries are gone, the Upstash count is not
+new_day()
+calls_at[0] = len(GCALLS)
+r = fs.check(server._cached_fares, busy=busy_after(5))
+fs._carry.update(day=None, g=None)        # the process restarts
+fs._state["tries"] = {}
+r2 = fs.check(server._cached_fares, busy=real_busy)
+c3 = (fs.held_day(DAY) or {}).get("calls", {})
+results.append(ok(r == "dropped: server got busy" and r2 == "ran " + DAY and c3.get("grouped") == 12
+                  and c3.get("day_total") == 5 + 12 == counted() and len(GCALLS) - calls_at[0] == 17,
+                  "a restart after a dropped try: the new process asks all 12 again, and the day's total says 17 "
+                  "(every process's calls) -> %s" % {k: c3.get(k) for k in ("grouped", "day_total")}))
+# the day's limit holds across tries and processes
+new_day()
+kv("SET", fs.KEY_CALLS + DAY, fs.MAX_CALLS, "EX", 60)
+calls_at[0] = len(GCALLS)
+r = fs.check(server._cached_fares, busy=real_busy)
+results.append(ok(r == "gave up today: %d calls made already" % fs.MAX_CALLS and len(GCALLS) == calls_at[0]
+                  and kv("GET", fs.KEY_LOCK) is None,
+                  "the day's %d calls already made (any process): no try, no call" % fs.MAX_CALLS))
+new_day()
+kv("SET", fs.KEY_CALLS + DAY, fs.MAX_CALLS - 4, "EX", 60)
+r = fs.check(server._cached_fares, busy=real_busy)
+c4 = (fs.held_day(DAY) or {}).get("calls", {})
+cap4 = (fs.held_day(DAY) or {}).get("capped")
+results.append(ok(r == "ran " + DAY and len(GCALLS) - calls_at[0] == 4 and cap4 is True
+                  and c4.get("day_total") == fs.MAX_CALLS == counted(),
+                  "4 calls left today: it makes 4, stops there (capped) and the day ends at exactly %d" % fs.MAX_CALLS))
+new_day()
 # a live fare fill starting mid-run pauses it too (its curves are the yardstick)
 calls_at[0] = len(GCALLS)
 real_gfetch = fs._fetch
@@ -568,6 +662,7 @@ fs._fetch = real_gfetch
 flightvalue._warming.pop("US", None)
 results.append(ok(r == "dropped: server got busy" and len(GCALLS) - calls_at[0] == 2 and DAY not in fs._days,
                   "a live fare fill starting mid-run: it waits, and past BUSY_GIVE_UP drops the run"))
+new_day()
 # a run that outlasts its lock's TTL: the lock another process took since stays
 calls_at[0] = len(GCALLS)
 lock_seen = []
@@ -591,29 +686,29 @@ results.append(ok(r.startswith("ran ") and held == "other-process" and lock_seen
                   and lock_seen[0] != "other-process" and TOKEN not in lock_seen[0],
                   "a run that outlasts its lock leaves the lock another process took since (own lock %r)"
                   % (lock_seen[:1],)))
-fs._days.pop(DAY, None)
-kv("DEL", fs.KEY_DAY + DAY)
+new_day()
 fs._state["tries"] = {DAY: fs.TRIES_PER_DAY}
 r = fs.check(server._cached_fares, busy=server._flight_shadow_busy)
 results.append(ok(r == "gave up today: busy every try", "at most TRIES_PER_DAY tries a day"))
-fs._state["tries"] = {}
+new_day()
 
 saved = dict(GROUPED)
 GROUPED.update({c: 429 for c in GROUPED})
 calls_at[0] = len(GCALLS)
 r = fs.check(server._cached_fares, busy=server._flight_shadow_busy)
-s3 = fs._days.get(DAY) or {}
+s3 = fs.held_day(DAY) or {}
 GROUPED.clear()
 GROUPED.update(saved)
 results.append(ok(r.endswith("(aborted)") and len(GCALLS) - calls_at[0] == fs.MAX_FAILS
                   and s3.get("aborted") == "5 failed calls in a row (last HTTP 429)" and "dest" not in s3
-                  and fs.complete_days() == 0,
+                  and s3["calls"]["day_total"] == fs.MAX_FAILS and fs.complete_days() == 0,
                   "grouped failing: stops after %d calls in a row, stored as aborted (not a complete day)"
                   % fs.MAX_FAILS))
 fs.MAX_CALLS = 4
 summ = fs.run_once(server._cached_fares("US"), today=TODAY)
 fs.MAX_CALLS = 400
-results.append(ok(summ["capped"] is True and summ["calls"]["grouped"] == 4, "hard cap on calls per run"))
+results.append(ok(summ["capped"] is True and summ["calls"]["grouped"] == 4 == summ["calls"]["day_total"],
+                  "hard cap on calls (a run with no day count: its own)"))
 
 # --- 6. Upstash: expiry, trimming, done marker, reload ----------------------------------
 big = dict(s, dest={("X%03d" % i): {"n": [12, 12], "b": [1, 1], "m": {k: [999, 1001, 1.002, "TT", "rr"] for k in WIN}}
@@ -650,29 +745,50 @@ results.append(ok(fs._state["finished"] and len(fs._days) == 2, "after a redeplo
 fs.WANTED = 14
 
 # --- 7. the background thread -------------------------------------------------------------
-gate = threading.Event()
+gate, delay_gate, at_delay, redis_log = threading.Event(), threading.Event(), {}, []
+real_redis = accounts._redis
 
 
 def thread_sleep(secs):
-    if threading.current_thread().name == "flight-shadow" and secs == fs.CHECK_EVERY:
-        gate.wait(10)
-    else:
-        fake_sleep(secs)
+    if threading.current_thread().name == "flight-shadow":
+        if secs == fs.CHECK_EVERY:
+            gate.wait(10)
+            return
+        if secs == 7.0:          # the boot delay (FLIGHT_SHADOW_DELAY below)
+            at_delay["redis"] = [c for t, c in redis_log if t == "flight-shadow"]
+            at_delay["doc"] = json.loads(fs.body()[0])
+            delay_gate.wait(10)
+            return
+    fake_sleep(secs)
 
 
 fs._sleep = thread_sleep
+accounts._redis = lambda *cmd: redis_log.append((threading.current_thread().name, cmd[0])) or real_redis(*cmd)
 fs._state.update(finished=False)
+fs._days.clear()
 kv("DEL", fs.KEY_DONE)
-os.environ["FLIGHT_SHADOW_DELAY"] = "0"
+os.environ["FLIGHT_SHADOW_DELAY"] = "7"
 n_g = len(GCALLS)
 started = fs.start(server._cached_fares, busy=server._flight_shadow_busy)
 t_end = time.time() + 5
+while time.time() < t_end and "doc" not in at_delay:
+    time.sleep(0.02)
+pub = raw_get("/api/flight-shadow", {"Host": "wandergrade.com", "Accept-Encoding": "identity"})[2]
+results.append(ok(started and at_delay.get("redis") == [] and at_delay["doc"]["days"] == []
+                  and at_delay["doc"]["status"]["why"] == "starting" and not re.search(rb"\d\d:\d\d", pub),
+                  "start(): nothing read from Upstash or parsed during the boot delay; the endpoint says "
+                  "'starting' with no time stamp -> %s" % at_delay.get("doc", {}).get("status")))
+delay_gate.set()
+t_end = time.time() + 5
 while time.time() < t_end and fs._state["why"] in ("starting",):
     time.sleep(0.02)
-results.append(ok(started and fs._state["why"] == "ran today" and len(GCALLS) == n_g
+accounts._redis = real_redis
+thread_redis = [c for t, c in redis_log if t == "flight-shadow"]
+results.append(ok(fs._state["why"] == "ran today" and len(GCALLS) == n_g and thread_redis[:1] == ["MGET"]
+                  and DAY in fs._days and isinstance(fs._days[DAY][0], str)
                   and any(t.name == "flight-shadow" for t in threading.enumerate()),
-                  "start(): a background thread loads the stored days, checks, sees today done -> %r"
-                  % fs._state["why"]))
+                  "...then it reads the stored days (one MGET, held as their stored text), checks, sees today "
+                  "done -> %r" % fs._state["why"]))
 fs._state["finished"] = True
 gate.set()
 t_end = time.time() + 5

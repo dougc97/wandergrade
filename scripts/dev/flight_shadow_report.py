@@ -90,7 +90,11 @@ def report(doc, out=print):
         % (st.get("state", "?"), st.get("why", "?"), st.get("complete", len(good)), st.get("wanted", 14),
            st.get("wanted", 14), st.get("until", "?")))
     if not days:
-        out("\nNo results yet. The first run comes 30 minutes or more after a deploy, once the fares are in.")
+        if st.get("why") == "starting":
+            out("\nNo results to show yet: the server restarted under 30 minutes ago and reads the stored days "
+                "only after that. Try again later.")
+        else:
+            out("\nNo results yet. The first run comes 30 minutes or more after a deploy, once the fares are in.")
         return
     out("Results: %d day(s), %s to %s%s." % (len(days), days[0].get("day"), days[-1].get("day"),
                                            ("; %d stopped early" % (len(days) - len(good))) if len(days) != len(good) else ""))
@@ -101,20 +105,22 @@ def report(doc, out=print):
     for d in days:
         c = d.get("calls") or {}
         if d.get("aborted") or not d.get("agg"):
-            out("  %-10s %6s  stopped early: %s" % (d.get("day"), c.get("grouped", "?"), d.get("aborted") or "no data"))
+            out("  %-10s %6s  stopped early: %s" % (d.get("day"), c.get("day_total", c.get("grouped", "?")),
+                                                  d.get("aborted") or "no data"))
             continue
         a = d["agg"]
         r, b, n = a["route_months"], a["bands"], a["banded"]
         near = [x for x in a["by_offset"]["route"][:2]]
         nb, ns = sum(x[0] for x in near), sum(x[1] for x in near)
-        out("  %-10s %6d %8d %6s %8s %12s %14s %10s" % (
-            d["day"], c.get("grouped", 0), r["both"], pct(r["same"], r["both"]), pct(r["within5"], r["both"]),
-            pct(b["agree"], b["both"]), "%d/%d" % (n["live"], n["shadow"]), pct(ns, nb)))
+        out("  %-10s %6d %8d %6s %8s %12s %14s %10s%s" % (
+            d["day"], c.get("day_total", c.get("grouped", 0)), r["both"], pct(r["same"], r["both"]), pct(r["within5"], r["both"]),
+            pct(b["agree"], b["both"]), "%d/%d" % (n["live"], n["shadow"]), pct(ns, nb),
+            "  (day's call limit reached: part compared)" if d.get("capped") else ""))
 
     if not good:
         out("\nNo complete run yet.")
         return
-    r, cm, bands, banded = {}, {}, {"both": 0, "agree": 0}, {}
+    r, cm, bands, banded, ready = {}, {}, {"both": 0, "agree": 0}, {}, {}
     matrix, by_route, by_band = {}, [[0] * 4 for _ in range(12)], [[0] * 6 for _ in range(12)]
     for d in good:
         a = d["agg"]
@@ -122,6 +128,7 @@ def report(doc, out=print):
         add(cm, a["country_months"])
         add(bands, {"both": a["bands"]["both"], "agree": a["bands"]["agree"]})
         add(banded, a["banded"])
+        add(ready, a.get("ready"))
         for k, v in a["bands"]["matrix"].items():
             matrix[k] = matrix.get(k, 0) + v
         for i, row in enumerate(a["by_offset"]["route"][:12]):
@@ -144,6 +151,12 @@ def report(doc, out=print):
         "(%.0f would lose it, %.0f would gain it)." % (
             banded.get("live", 0) / n, banded.get("shadow", 0) / n, banded.get("live_only", 0) / n,
             banded.get("shadow_only", 0) / n))
+    if ready.get("countries"):
+        out("  Countries compared, per day: %.0f of %.0f. Not compared: %.1f where the new source's call failed "
+            "(or the day's calls ran out), %.1f where today's source had not fetched it yet, %.1f missing on both sides."
+            % (ready.get("both", 0) / n, ready["countries"] / n, ready.get("pending_grouped", 0) / n,
+               ready.get("pending_live", 0) / n,
+               (ready["countries"] - ready.get("live", 0) - ready.get("shadow", 0) + ready.get("both", 0)) / n))
     out("  The Low/Typical/High word is the same on %s of the %d months both sources band."
         % (pct(bands["agree"], bands["both"]), bands["both"]))
     flips = sorted(((v, k) for k, v in matrix.items() if k[0] != k[1]), reverse=True)
@@ -171,25 +184,28 @@ def report(doc, out=print):
     warm = ((last.get("live") or {}).get("warm") or {}).get("first") or {}
     c = last.get("calls") or {}
     if warm:
-        out("  Warm-up after a deploy: today's source took %s to fill (%d calls, a typical call %s ms; "
-            "ready %s after the server started%s)." % (
-                mins(warm.get("secs")), warm.get("calls", 0), (warm.get("ms") or {}).get("median", "?"),
-                mins(warm.get("boot_s")), ", stopped early" if warm.get("aborted") else ""))
+        out("  Warm-up after a deploy: today's source took %s to fill (%d calls, a typical call %s ms%s)." % (
+            mins(warm.get("secs")), warm.get("calls", 0), (warm.get("ms") or {}).get("median", "?"),
+            ", stopped early" if warm.get("aborted") else ""))
     else:
         out("  Warm-up after a deploy: today's source not measured yet (no fill finished since the last deploy).")
     out("  The new source would need %d calls: about %s at the planned 0.3 s gap (a typical call %s ms)."
         % (c.get("grouped", 0), mins(c.get("proj_fill_s")), (c.get("ms") or {}).get("median", "?")))
-    calls = [d.get("calls", {}).get("grouped", 0) for d in days]
+    # Every call the day made (dropped tries and restarts included), where counted.
+    calls = [d.get("calls", {}).get("day_total", d.get("calls", {}).get("grouped", 0)) for d in days]
     failed = sum(d.get("calls", {}).get("failed", 0) for d in days)
+    dropped = sum(d.get("calls", {}).get("dropped_runs", 0) for d in days)
     pace = c.get("pace_s") or st.get("pace_s") or 1
     out("  Extra calls: about %d a day (most %d), at most %d a minute (the limit is 600 a minute); "
-        "%d failed in all%s." % (round(sum(calls) / len(calls)), max(calls), round(60 / pace), failed,
-                                  "; %d one-way rows ignored" % sum(d.get("calls", {}).get("oneway_rows", 0) for d in days)
-                                  if any(d.get("calls", {}).get("oneway_rows") for d in days) else ""))
+        "%d failed in all%s%s." % (round(sum(calls) / len(calls)), max(calls), round(60 / pace), failed,
+                                    "; %d one-way rows ignored" % sum(d.get("calls", {}).get("oneway_rows", 0) for d in days)
+                                    if any(d.get("calls", {}).get("oneway_rows") for d in days) else "",
+                                    "; %d run(s) paused for a busy server and carried on later" % dropped
+                                    if dropped else ""))
     age = (last.get("live") or {}).get("age_h") or {}
     if age:
-        out("  Today's curves were %.1f hours old (typical) when compared, at most %.1f: the new source's are fresh."
-            % (age.get("median", 0), age.get("max", 0)))
+        out("  Today's curves were %.1f hours old (typical) when compared, at most %.1f; the new source's prices "
+            "can be the lowest seen over the past week." % (age.get("median", 0), age.get("max", 0)))
 
     worst = []
     for iso, v in (last.get("dest") or {}).items():

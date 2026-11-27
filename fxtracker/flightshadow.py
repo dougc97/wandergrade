@@ -26,25 +26,33 @@ cache alone (flights.monthly_cached), each built into the country curve the
 site shows (flights.get_country_monthly, the same latest-prices fill on both
 sides) and banded the Flights tab's way (flightvalue.curve_stats / band).
 
-When: never in the first FIRST_DELAY after boot (the boot warm-ups), never
-before the default origin's first fare fill has finished or while any fill
-runs, never while the server says it is busy (an advisory refresh, the
-health or guide-facts rebuild, the FX history fetch, page slots in use or
-pages queued or shed in the last 10 minutes: server._flight_shadow_busy), which is
-asked again before every call: busy past BUSY_GIVE_UP and the run is dropped
-(nothing stored) and tried again at a later check, at most TRIES_PER_DAY a
-day. It stops by itself after WANTED complete daily runs, or after UNTIL.
+When: never in the first FIRST_DELAY after boot (the boot warm-ups; the
+stored days are read only after it too), never before the default origin's
+first fare fill has finished or while any fill runs, never while the server
+says it is busy (an advisory refresh, the health or guide-facts rebuild, the
+FX history fetch, page slots in use or pages queued or shed in the last 10
+minutes: server._flight_shadow_busy), which is asked again before every
+call: busy past BUSY_GIVE_UP and the run is dropped (nothing stored) and
+tried again at a later check, at most TRIES_PER_DAY a day. A retry in the
+same process carries on with the day's answers so far (the cities still
+missing, never all of them again), and every call is counted in Upstash as
+it is made, so the day's total (dropped tries and restarts included) is in
+the summary and never goes past MAX_CALLS. It stops by itself after WANTED complete daily runs, or
+after UNTIL.
 
 Storage, in Upstash (the accounts client, accounts._redis), so the record
 survives deploys; nothing runs without it:
   fshadow:day:<YYYY-MM-DD>  one day's summary (JSON, at most MAX_BYTES), TTL 30 days
+  fshadow:calls:<YYYY-MM-DD>  grouped calls made that day by any process (INCR per call), TTL 30 days
   fshadow:lock              a run in progress (SET NX, TTL 15 min): one process at a time;
                             its value is the run's own, so a run that outlasts the TTL
                             never deletes the lock another process took since
   fshadow:done              set once WANTED complete days are stored, TTL 60 days
-Read once at start and after each run, never on a request: /api/flight-shadow
-answers from memory (body()), and scripts/dev/flight_shadow_report.py turns
-that JSON into plain words.
+Read once after FIRST_DELAY and after each run, never on a request, and
+held as the stored JSON text: /api/flight-shadow answers from memory
+(body()), and scripts/dev/flight_shadow_report.py turns that JSON into plain
+words. Nothing in it is a time of day (dates and durations only): like
+/healthz's X-Uptime, the server's restart times stay off the public site.
 
 Env: RENDER (runs there), FLIGHT_SHADOW=1 (runs anyway, local testing),
 FLIGHT_SHADOW=0 (never), FLIGHT_SHADOW_DELAY (seconds before the first check,
@@ -71,7 +79,7 @@ PATH = "/aviasales/v3/grouped_prices"
 PARAMS = {"group_by": "month", "currency": "usd", "market": "us",
           "min_trip_duration": "1", "max_trip_duration": "60"}
 PACE = 1.0           # seconds between grouped calls: 60/min against a documented 600/min
-MAX_CALLS = 400      # per run (~117 countries x at most 3 cities = 351)
+MAX_CALLS = 400      # per UTC day, every process and try (~117 countries x at most 3 cities = 351)
 MAX_FAILS = 5        # failed calls in a row end the run (stored as aborted)
 SWITCH_PACE = 0.3    # the gap a switched warmer would leave between calls (200/min)
 NEAR = 2             # window months 0 and 1 (this month and next): the near-term check
@@ -80,6 +88,7 @@ DAY_TTL = 30 * 86400
 LOCK_TTL = 15 * 60
 DONE_TTL = 60 * 86400
 KEY_DAY = "fshadow:day:"
+KEY_CALLS = "fshadow:calls:"
 KEY_LOCK = "fshadow:lock"
 KEY_DONE = "fshadow:done"
 KEEP_DAYS = 30
@@ -95,9 +104,9 @@ UA = "fx-tracker/1.0"
 BANDS = {"low": "L", "typical": "T", "high": "H", None: "-"}
 
 _lock = threading.Lock()
-_days = {}           # "YYYY-MM-DD" -> summary, the last KEEP_DAYS
-_state = {"state": "off", "why": "not started", "checked": None, "finished": False,
-          "tries": {}, "ver": 0}
+_days = {}           # "YYYY-MM-DD" -> (summary as stored JSON text, complete), the last KEEP_DAYS
+_state = {"state": "off", "why": "not started", "finished": False, "tries": {}, "ver": 0}
+_carry = {"day": None, "g": None}   # today's grouped answers and counts, kept between tries
 _body = {"ver": -1, "raw": b"", "gz": None}
 _sleep = time.sleep  # tests replace it
 _clock = time.monotonic
@@ -115,10 +124,6 @@ def _utc_day(now=None):
     return time.strftime("%Y-%m-%d", time.gmtime(now))
 
 
-def _utc_stamp(now=None):
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
-
-
 def until():
     v = (os.environ.get("FLIGHT_SHADOW_UNTIL") or "").strip()
     try:
@@ -129,7 +134,7 @@ def until():
 
 def _set_state(state, why, **kw):
     with _lock:
-        _state.update(state=state, why=why, checked=_utc_stamp(), **kw)
+        _state.update(state=state, why=why, **kw)
         _state["ver"] += 1
 
 
@@ -180,9 +185,11 @@ def months_of(body):
 
 
 class _Grouped:
-    """The paced grouped_prices lookup for one run, shaped like
-    flights.monthly_cached (None = no curve: the call failed), memoized per
-    city so a country asked twice costs one call."""
+    """The paced grouped_prices lookup for one day, shaped like
+    flights.monthly_cached (None = no curve: the call failed, or the day's
+    calls ran out), memoized per city so a country asked twice costs one
+    call, and kept between a day's tries (begin()) so a retry asks only the
+    cities still missing and the counts cover every call the day made."""
 
     def __init__(self, origin, busy=None):
         self.origin, self.hub = origin, flights.ORIGIN_HUBS[origin][0]
@@ -194,6 +201,31 @@ class _Grouped:
         self.capped = False
         self.busy_waits = 0
         self.next_at = 0.0
+        self.limit = MAX_CALLS     # calls this lookup may make in all
+        self.counter = None        # Upstash key counting the day's calls (KEY_CALLS + day)
+        self.day_total = None      # the day's calls by every process, as last counted
+        self.tries = self.dropped = 0
+
+    def begin(self, busy=None, spent=0, counter=None):
+        """A new try today: `spent` calls already made today by any process
+        (the Upstash count, this one's earlier tries included)."""
+        self.busy = busy
+        self.fails = 0
+        self.capped = False
+        self.tries += 1
+        self.limit = self.calls + max(0, MAX_CALLS - spent)
+        self.counter, self.day_total = counter, spent
+
+    def _count(self):
+        """One more call today: counted in Upstash at once (a deploy that
+        kills the run mid-way loses no count), in memory if that fails."""
+        if self.day_total is None:
+            return
+        try:
+            n = accounts._redis("INCR", self.counter) if self.counter else None
+        except Exception:
+            n = None
+        self.day_total = n if isinstance(n, int) else self.day_total + 1
 
     def _quiet(self):
         """Wait while the server is busy or a live fare fill runs (its curves
@@ -213,7 +245,7 @@ class _Grouped:
     def __call__(self, origin, city, cur="usd"):
         if city in self.memo:
             return self.memo[city]
-        if self.calls >= MAX_CALLS:
+        if self.calls >= self.limit:
             self.capped = True
             return None
         self._quiet()
@@ -224,6 +256,7 @@ class _Grouped:
         q = dict(PARAMS, origin=self.hub, destination=city, token=flights.token())
         status, body, ms = _fetch("%s%s?%s" % (flights.API, PATH, urllib.parse.urlencode(q)))
         self.calls += 1
+        self._count()
         self.ms.append(ms)
         self.statuses[str(status)] = self.statuses.get(str(status), 0) + 1
         months, oneway = months_of(body) if status == 200 else (None, 0)
@@ -294,7 +327,9 @@ def compare(origin, fares, grouped, live=None, today=None, now=None):
     rm = dict(both=0, same=0, within5=0, live_only=0, shadow_only=0, shadow_cheaper=0,
               live_cheaper=0, stops_same=0, dep_same=0, routes=0, live_missing=0)
     banded = dict(live=0, shadow=0, both=0, live_only=0, shadow_only=0)
-    ready = dict(countries=len(rows), live=0, shadow=0, both=0)
+    # pending_grouped: today's curve in, the new source's missing (a call
+    # failed, or the day's calls ran out); pending_live: the reverse.
+    ready = dict(countries=len(rows), live=0, shadow=0, both=0, pending_grouped=0, pending_live=0)
     bands = {"both": 0, "agree": 0, "matrix": {}}
     by_route = [[0, 0, 0, 0] for _ in window]          # both, same, shadow cheaper, live cheaper
     by_band = [[0, 0, 0, 0, 0, 0] for _ in window]     # both banded, agree, low L/S, high L/S
@@ -321,6 +356,8 @@ def compare(origin, fares, grouped, live=None, today=None, now=None):
         ready["live"] += lc is not None
         ready["shadow"] += sc is not None
         ready["both"] += lc is not None and sc is not None
+        ready["pending_grouped"] += lc is not None and sc is None
+        ready["pending_live"] += sc is not None and lc is None
 
         # Route level: the two sources on the same city, before any merge —
         # every city the grouped side was asked for (an empty answer
@@ -367,12 +404,16 @@ def compare(origin, fares, grouped, live=None, today=None, now=None):
                 ld, sd = str(mm[k].get("departure_at") or "")[:10], str(gm[k].get("departure_at") or "")[:10]
                 rm["dep_same"] += bool(ld) and ld == sd
 
-        # Country level: the curve the site would show, and its bands.
-        if lc is None and sc is None:
-            dest[iso] = {"n": [None, None]}
+        # Country level: the curve the site would show, and its bands, only
+        # where both curves are in. A curve missing on one side is a call
+        # that failed or a city not fetched yet (a switched server retries
+        # it within minutes), never "this source has no fares": counted in
+        # "ready", never as a range or a month lost or gained.
+        if lc is None or sc is None:
+            dest[iso] = {"n": [None if lc is None else len(lc), None if sc is None else len(sc)]}
             continue
-        ls, lb = _bands(lc, partial) if lc is not None else ({}, {})
-        ss, sb = _bands(sc, partial) if sc is not None else ({}, {})
+        ls, lb = _bands(lc, partial)
+        ss, sb = _bands(sc, partial)
         lband, sband = "lo" in ls, "lo" in ss
         banded["live"] += lband
         banded["shadow"] += sband
@@ -380,9 +421,9 @@ def compare(origin, fares, grouped, live=None, today=None, now=None):
         banded["live_only"] += lband and not sband
         banded["shadow_only"] += sband and not lband
         months = {}
-        for k in sorted(set(lc or {}) | set(sc or {})):
-            lp, lk = (lc or {}).get(k, (None, "-"))
-            sp, sk = (sc or {}).get(k, (None, "-"))
+        for k in sorted(set(lc) | set(sc)):
+            lp, lk = lc.get(k, (None, "-"))
+            sp, sk = sc.get(k, (None, "-"))
             if lp is not None and sp is not None:
                 cm["both"] += 1
                 cm["same"] += lp == sp
@@ -406,8 +447,7 @@ def compare(origin, fares, grouped, live=None, today=None, now=None):
             by_band[i][5] += b2 == "high"
             ratio = round(sp / lp, 3) if lp and sp is not None else None
             months[k] = [lp, sp, ratio, BANDS[b1] + BANDS[b2], lk + sk]
-        dest[iso] = {"n": [None if lc is None else len(lc), None if sc is None else len(sc)],
-                     "b": [int(lband), int(sband)], "m": months}
+        dest[iso] = {"n": [len(lc), len(sc)], "b": [int(lband), int(sband)], "m": months}
 
     def dist(vals):
         return {"p10": round(_q(vals, 0.1), 3), "median": round(_q(vals, 0.5), 3),
@@ -430,30 +470,40 @@ def compare(origin, fares, grouped, live=None, today=None, now=None):
 
 # ---- one run -----------------------------------------------------------------
 
-def run_once(fares, busy=None, today=None, origin=ORIGIN, live=None):
+def run_once(fares, busy=None, today=None, origin=ORIGIN, live=None, g=None):
     """Fetch and compare once: the summary, or None when the run was dropped
-    because the server stayed busy (nothing to store)."""
-    g = _Grouped(origin, busy)
+    because the server stayed busy (nothing to store; `g`, the day's lookup,
+    keeps its answers and counts for the next try). The summary's dates are
+    days and its times durations, never a time of day."""
+    g = g or _Grouped(origin, busy)
     t0 = time.monotonic()
     started = time.time()
-    out = {"v": V, "day": _utc_day(started), "at": _utc_stamp(started), "origin": origin,
+    out = {"v": V, "day": _utc_day(started), "origin": origin,
            "hub": g.hub, "params": dict(PARAMS), "aborted": None}
     try:
         out.update(compare(origin, fares, g, live=live, today=today, now=started))
     except _Abandon as e:
-        print("[flight-shadow] dropped: server busy (%s) for %ds" % (e, BUSY_GIVE_UP), flush=True)
+        g.dropped += 1
+        print("[flight-shadow] dropped: server busy (%s) for %ds after %d grouped calls today"
+              % (e, BUSY_GIVE_UP, g.calls), flush=True)
         return None
     except _Abort as e:
         out["aborted"] = str(e)
     out["capped"] = g.capped
     ms = sorted(g.ms)
-    out["calls"] = {"grouped": g.calls, "failed": g.failed, "rejected": g.rejected,
+    # grouped / failed / ms...: every call this process made today for this
+    # comparison, dropped tries included (each city once: a retry carries
+    # on); day_total: the day's calls by every process, restarts included.
+    out["calls"] = {"grouped": g.calls, "day_total": g.calls if g.day_total is None else g.day_total,
+                    "tries": max(1, g.tries), "dropped_runs": g.dropped,
+                    "failed": g.failed, "rejected": g.rejected,
                     "oneway_rows": g.oneway, "statuses": g.statuses, "busy_waits": g.busy_waits,
                     "secs": round(time.monotonic() - t0, 1),
                     "ms": {"median": _q(ms, 0.5), "p95": _q(ms, 0.95), "max": ms[-1]} if ms else {},
                     # What a switched warmer would take for these calls at its own gap.
                     "proj_fill_s": round(sum(max(SWITCH_PACE, m / 1000) for m in ms), 1),
                     "pace_s": PACE}
+    # The live fill's durations alone (secs, calls, ms, aborted).
     out.setdefault("live", {})["warm"] = flightvalue.pass_stats(origin)
     return out
 
@@ -491,9 +541,19 @@ def _keep(day):
         _days.pop(d, None)
 
 
+def _held(raw):
+    """(stored JSON text, complete) for _days, or None when it is not a summary."""
+    try:
+        s = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    return (raw, not s.get("aborted")) if isinstance(s, dict) else None
+
+
 def load(today=None):
     """Read every stored day of the last KEEP_DAYS and the done marker (one
-    MGET, one GET). Background thread only."""
+    MGET, one GET). Background thread only, after FIRST_DELAY; held as the
+    stored text (the endpoint serves it as is), not as parsed objects."""
     today = today or _utc_day()
     base = datetime.date.fromisoformat(today)
     days = [(base - datetime.timedelta(days=i)).isoformat() for i in range(KEEP_DAYS)]
@@ -505,11 +565,9 @@ def load(today=None):
         return False
     with _lock:
         for d, raw in zip(days, vals):
-            if raw:
-                try:
-                    _days[d] = json.loads(raw)
-                except ValueError:
-                    pass
+            h = _held(raw) if raw else None
+            if h:
+                _days[d] = h
         _keep(today)
         if done:
             _state["finished"] = True
@@ -519,7 +577,14 @@ def load(today=None):
 
 def complete_days():
     with _lock:
-        return sum(1 for s in _days.values() if not s.get("aborted"))
+        return sum(1 for _raw, complete in _days.values() if complete)
+
+
+def held_day(day):
+    """One held day's summary, parsed (None when not held)."""
+    with _lock:
+        h = _days.get(day)
+    return json.loads(h[0]) if h else None
 
 
 def store(summary):
@@ -535,7 +600,7 @@ def store(summary):
     else:
         ok = True
     with _lock:
-        _days[day] = json.loads(raw)
+        _days[day] = (raw, not summary.get("aborted"))
         _keep(day)
         _state["ver"] += 1
     if ok and complete_days() >= WANTED:
@@ -598,11 +663,19 @@ def check(fares_for, busy=None, today=None, now=None):
         return _state["why"]
     try:
         stored = accounts._redis("GET", KEY_DAY + day)
-        if stored:
+        h = _held(stored) if stored else None
+        if h:
             with _lock:
-                _days[day] = json.loads(stored)
+                _days[day] = h
                 _state["ver"] += 1
             _set_state("waiting", "ran today (another process)")
+            return _state["why"]
+        # The day's call count: created with its 30-day expiry before the
+        # first INCR, read before every try (every process, restarts too).
+        accounts._redis("SET", KEY_CALLS + day, 0, "EX", DAY_TTL, "NX")
+        spent = int(accounts._redis("GET", KEY_CALLS + day) or 0)
+        if spent >= MAX_CALLS:
+            _set_state("waiting", "gave up today: %d calls made already" % spent)
             return _state["why"]
         mine = "%d-%d-%s" % (int(now), os.getpid(), os.urandom(4).hex())
         if not accounts._redis("SET", KEY_LOCK, mine, "EX", LOCK_TTL, "NX"):
@@ -613,19 +686,25 @@ def check(fares_for, busy=None, today=None, now=None):
         return _state["why"]
     with _lock:
         _state["tries"] = {day: tries + 1}
+        if _carry["day"] != day:
+            _carry.update(day=day, g=None)
+        g = _carry["g"] = _carry["g"] or _Grouped(ORIGIN, busy)
+    g.begin(busy, spent, KEY_CALLS + day)
     _set_state("running", "comparing")
     try:
-        summary = run_once(fares, busy=busy, today=today)
+        summary = run_once(fares, busy=busy, today=today, g=g)
         if summary is None:
             _set_state("waiting", "dropped: server got busy")
             return _state["why"]
         store(summary)
+        with _lock:
+            _carry.update(day=None, g=None)
         c = summary["calls"]
-        print("[flight-shadow] %s: %d grouped calls in %.0fs (%d failed)%s; %s" % (
-            summary["day"], c["grouped"], c["secs"], c["failed"],
+        print("[flight-shadow] %s: %d grouped calls (%d today in all, %d tries) in %.0fs (%d failed)%s; %s" % (
+            summary["day"], c["grouped"], c["day_total"], c["tries"], c["secs"], c["failed"],
             "; aborted: " + summary["aborted"] if summary["aborted"] else "",
             _one_line(summary)), flush=True)
-        _set_state("ran", "ran " + summary["at"] + (" (aborted)" if summary["aborted"] else ""))
+        _set_state("ran", "ran " + summary["day"] + (" (aborted)" if summary["aborted"] else ""))
         return _state["why"]
     finally:
         _unlock(mine)
@@ -666,8 +745,8 @@ def start(fares_for, busy=None):
     _set_state("waiting", "starting")
 
     def loop():
+        _sleep(delay)              # after the boot warm-ups: nothing read or parsed before
         loaded = load()            # a redeploy picks up the days already stored
-        _sleep(delay)              # after the boot warm-ups
         while True:
             try:
                 if not loaded:     # storage was unreachable at boot: the done marker and
@@ -689,16 +768,18 @@ def start(fares_for, busy=None):
 
 def body(want_gz=False):
     """(raw, gzipped or None) of /api/flight-shadow's JSON, from memory: the
-    status and every day held, oldest first. Rebuilt only when either moved."""
+    status and every day held, oldest first, as stored. Rebuilt only when
+    either moved. No time of day anywhere (see the module notes)."""
     with _lock:
         ver = _state["ver"]
         if _body["ver"] != ver:
-            status = {k: _state[k] for k in ("state", "why", "checked", "finished")}
+            status = {k: _state[k] for k in ("state", "why", "finished")}
             status.update(until=until(), wanted=WANTED,
-                          complete=sum(1 for s in _days.values() if not s.get("aborted")),
+                          complete=sum(1 for _raw, complete in _days.values() if complete),
                           origin=ORIGIN, params=dict(PARAMS), pace_s=PACE)
-            doc = {"v": V, "status": status, "days": [_days[d] for d in sorted(_days)]}
-            _body.update(ver=ver, raw=json.dumps(doc, separators=(",", ":")).encode("utf-8"), gz=None)
+            raw = '{"v":%d,"status":%s,"days":[%s]}' % (
+                V, json.dumps(status, separators=(",", ":")), ",".join(_days[d][0] for d in sorted(_days)))
+            _body.update(ver=ver, raw=raw.encode("utf-8"), gz=None)
         if want_gz and _body["gz"] is None:
             _body["gz"] = gzip.compress(_body["raw"], 6)
         return _body["raw"], _body["gz"] if want_gz else None

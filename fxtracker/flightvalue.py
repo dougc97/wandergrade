@@ -222,7 +222,7 @@ _warming = {}     # origin -> monotonic start, while a pass runs (keys: ORIGIN_H
 _warm_done = {}   # origin -> (monotonic end, aborted) of its last pass
 # How long passes take, for the log-only fare-source comparison
 # (fxtracker/flightshadow.py): read there, never by anything a reader sees.
-_T0 = time.monotonic()   # ~ process start: the server imports this at boot
+# Durations only, never a time of day (it is served on the public site).
 _pass_calls = {}  # origin -> [seconds per upstream call] of the pass running now
 _passes = {}      # origin -> {"first": record, "last": record} (pass_stats)
 _pace_cv = threading.Condition()
@@ -269,10 +269,10 @@ def warming_any():
 
 
 def pass_stats(origin_iso):
-    """{"first", "last"} finished passes for an origin, or {}: each when it
-    started (UTC), how long it took, how long after boot it ended, how many
-    upstream calls it made and how long they took. The first pass after a
-    deploy is the fare warm-up the guides wait for (has_warmed)."""
+    """{"first", "last"} finished passes for an origin, or {}: each how long
+    it took, how many upstream calls it made, how long they took and whether
+    it stopped early. The first pass after a deploy is the fare warm-up the
+    guides wait for (has_warmed)."""
     with _warm_lock:
         return dict(_passes.get(origin_iso) or {})
 
@@ -350,14 +350,13 @@ def _warm_pass(origin_iso, rows):
 
 def _warm(origin_iso, rows):
     aborted = False
-    t0, started = time.monotonic(), time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    t0 = time.monotonic()
     calls = _pass_calls[origin_iso] = []
     try:
         aborted = _warm_pass(origin_iso, rows)
     finally:
         end = time.monotonic()
-        rec = {"started": started, "secs": round(end - t0, 1), "boot_s": round(end - _T0),
-               "calls": len(calls), "ms": _ms_stats(calls), "aborted": aborted}
+        rec = {"secs": round(end - t0, 1), "calls": len(calls), "ms": _ms_stats(calls), "aborted": aborted}
         with _warm_lock:
             _warming.pop(origin_iso, None)
             _warm_done[origin_iso] = (end, aborted)
