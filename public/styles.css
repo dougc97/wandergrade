@@ -2341,6 +2341,13 @@ button.chip2 { border: 0; }
 /* Fare-by-month strip (guide + trip). Same visual grammar as the season
    strip: cells across a year, colour carries the answer, tips carry numbers. */
 .guidefares { display: block; margin: 14px 0 4px; }
+/* [hidden] has to say so here, as for .guidecost: the display above outranks
+   the browser's own [hidden] rule. A strip renderGuideFares hid stayed on the
+   page once the column settled: the last guide's (Japan's "United States →
+   Japan" on Croatia's page after picking Croatia), or an empty block whose
+   14px margin came back as .loading went, dropping all under the column 4px
+   about 2.9 s into a slow load. The FX line likewise. */
+.guidefares[hidden], .guidefx[hidden] { display: none; }
 .fareshead { display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 6px; }
 /* Under the bars, the chart's one booking link (renderGuideFares'
    guideFareLink, guide_lines.fares): one line, held empty where there is no

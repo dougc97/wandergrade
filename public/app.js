@@ -2931,8 +2931,11 @@ function renderGuide(iso) {
   // height (765px at 390 on Ethiopia) onto blank room and the newsletter box;
   // left out, the reader stays put and the activities fill in where the
   // crawler's words were.
+  // Measured as the span it and the activities fill (ssrSpan), not by their
+  // heights: the margins its first and last lines lent through its edges
+  // (an h2's 18px) went with its words, and the newsletter box rose 18px.
   const ssr = $("ssrGuide"), ssrH = ssr ? ssr.offsetHeight : 0;
-  const actH0 = ssr ? $("actDetail").offsetHeight : 0;
+  const span0 = ssr ? ssrSpan(ssr) : 0;
   if (ssr) { ssr.style.height = ssrH + "px"; ssr.style.overflowAnchor = "none"; ssr.innerHTML = ""; ssr.id = ""; ssr.setAttribute("aria-hidden", "true"); }
   // The server's month table (#when-to-go, render_guide.month_table) stays:
   // it is the page's own guide. Another country opened in-app hides it.
@@ -2955,10 +2958,14 @@ function renderGuide(iso) {
     // first visit learns its origin from location only after this runs),
     // and nothing is held for another guide (held and given back, the lines
     // under it jumped 154px). loadFlightValue settles it when the data lands.
+    // Where the server's caches know another origin's strip differs from its
+    // mark, that origin's reader gets theirs (servedFareMark): set before the
+    // first paint for a saved From, here for one the geo seed or the picker
+    // set since.
     const fvC = flightValue && flightValue.origin === originIso() && flightValue.countries
       && flightValue.countries[iso];
     const fm = fvC && !fvC.pending ? (fvC.n_curve || 0) >= 3
-      : iso === window.__WGGC__ ? null : false;
+      : iso === window.__WGGC__ ? servedFareMark(gtab, originIso()) : false;
     if (fm) gtab.setAttribute("data-fm", "1");
     else if (fm === false) gtab.removeAttribute("data-fm");
     // The FX line likewise (data-fx): none for a currency the reader holds
@@ -3003,12 +3010,12 @@ function renderGuide(iso) {
     // Chrome had scored the drop: one frame logged the box 51px down and
     // 51px back up as two shifts (768, Puerto Rico).
     const act = $("actDetail");
-    let room = Math.max(0, ssrH - (act.offsetHeight - actH0));
-    ssr.style.height = room + "px";
+    let room = ssrH;
     const fit = () => {
-      const h = Math.max(0, ssrH - (act.offsetHeight - actH0));
+      const h = Math.max(0, room - (ssrSpan(ssr) - span0));
       if (h < room) { room = h; ssr.style.height = h + "px"; }
     };
+    fit();
     const mo = typeof MutationObserver === "function" ? new MutationObserver(fit) : null;
     if (mo) mo.observe(act, { childList: true, subtree: true, characterData: true, attributes: true });
     // Released two frames on, once the frame with the last photos is painted:
@@ -3035,6 +3042,27 @@ function renderGuide(iso) {
   syncURL();
 }
 let _fareColSeq = 0;
+// From the rule over the activities to the foot of the guide's card: the
+// activities, the crawler block's room and the margins between them, which
+// collapse through an empty block's edges (the activities before they draw,
+// the crawler block's first h2 and last list). renderGuide keeps it the
+// height it had with the crawler's words in, as the activities take room.
+function ssrSpan(ssr) {
+  const act = $("actDetail"), above = act && act.previousElementSibling;
+  return ssr.parentElement.getBoundingClientRect().bottom
+    - (above ? above.getBoundingClientRect().bottom : act ? act.getBoundingClientRect().top : 0);
+}
+// The server's fares-strip mark for its own guide, for a reader flying from o:
+// its caches list the origins whose strip differs from the default origin's
+// (server.py _fare_strip_others) — data-fmy, those that draw it where the
+// mark holds nothing; data-fmn, those that don't where it holds. Any other
+// origin reads the default's. null: no list, so the mark as it stands.
+function servedFareMark(gtab, o) {
+  const y = gtab.getAttribute("data-fmy"), n = gtab.getAttribute("data-fmn");
+  if (y) return y.includes("," + o + ",");
+  if (n) return !n.includes("," + o + ",");
+  return null;
+}
 // The crawler block's leftover room goes once the activities have settled.
 // The newsletter box and the footer under it stay where they are on screen
 // whenever the box is on screen or would come up into view as the room goes.

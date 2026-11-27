@@ -312,6 +312,10 @@ _HTML_DEFAULTS = {
     # A guide's 💰 local-prices line under its grades (guide_lines.cost,
     # _guide_cost); hidden and empty, as index.html had it, elsewhere.
     "COST_ATTRS": " hidden", "GUIDE_COST": "", "COST_HOLD": "",
+    # The script that sets a guide's fares-strip room for the reader's From
+    # before first paint (_FM_PICK), only where another origin's strip
+    # differs from the page's mark; nothing elsewhere.
+    "FM_PICK": "",
 }
 _html_tpl = None
 
@@ -1695,18 +1699,71 @@ def _fare_strip_hint(iso):
     Slovakia for a reader scrolling during a slow load; 0.002 held only
     here). Not known (no token, fares not cached yet) is no hold."""
     try:
-        if not flights.is_configured():
-            return False
-        hit = _flights_cache.get(flightvalue.DEFAULT_ORIGIN)
-        rows = (hit[1].get("countries") or []) if hit else []
-        row = next((r for r in rows if r.get("iso") == iso), None)
-        if not row:
-            return False
-        m = flights.get_country_monthly(flightvalue.DEFAULT_ORIGIN, row, lookup=flights.monthly_cached)
-        win = set(flightvalue.window_months())
-        return bool(m) and sum(1 for k in (m.get("months") or {}) if k in win) >= 3
+        return _fare_strip_known(flightvalue.DEFAULT_ORIGIN, iso) is True
     except Exception:
         return False
+
+
+def _fare_strip_known(origin, iso):
+    """Whether guide `iso`'s fares strip will draw for a reader flying from
+    `origin`, from the caches alone (never an upstream call), as
+    /api/flight-months would answer that reader: True or False where the
+    origin's cached fares and the country's cached route curves say, None
+    where they can't (no token, the origin's fares or a route's curve not
+    cached yet). No row for the country is no strip (flight-months answers
+    it empty)."""
+    if not flights.is_configured():
+        return None
+    hit = _flights_cache.get(origin)
+    if not hit:
+        return None
+    row = next((r for r in hit[1].get("countries") or [] if r.get("iso") == iso), None)
+    if not row:
+        return False
+    m = flights.get_country_monthly(origin, row, lookup=flights.monthly_cached)
+    if m is None:
+        return None
+    win = set(flightvalue.window_months())
+    return sum(1 for k in (m.get("months") or {}) if k in win) >= 3
+
+
+def _fare_strip_others(iso, mark):
+    """The other origins the From picker offers whose strip for this guide
+    the caches know differs from the page's mark (`mark`, _fare_strip_hint:
+    the default origin's), as a data- attribute the first-paint script
+    (_FM_PICK) and app.js servedFareMark read: data-fmy=",GB,IE," (these draw
+    it where the mark holds nothing), data-fmn (these don't where it holds).
+    A British reader's strip was the US one's to hold, and on a fifth of the
+    guides Britain's fares disagree: Croatia's came 2.9 s into a slow load
+    and the stays and things to do under it dropped 186px (CLS 0.20 at 390
+    for a reader scrolled down), Sweden's was given back (0.16). An origin
+    whose fares aren't cached (nobody from there lately) isn't listed: its
+    reader keeps the mark, as before. "" when none differs."""
+    try:
+        diff = [o for o in sorted(flights.ORIGIN_HUBS)
+                if o != flightvalue.DEFAULT_ORIGIN and o in _flights_cache
+                and _fare_strip_known(o, iso) not in (None, mark)]
+    except Exception:
+        return ""
+    return ' data-%s=",%s,"' % ("fmn" if mark else "fmy", ",".join(diff)) if diff else ""
+
+
+# Before first paint, on a guide where another origin's fares strip differs
+# from the page's mark (_fare_strip_others): the reader's From (a shared link's
+# ?vo= / ?fo= where the picker offers it, else the saved one) sets the strip's
+# held room (data-fm) to theirs, before the fare column is parsed. A first
+# visit keeps the mark (its origin comes from /api/geo, after paint). ES5,
+# like index.html's other inline scripts.
+_FM_PICK = (
+    '<script>(function(){try{var g=document.getElementById("tab-guide"),y=g.getAttribute("data-fmy"),'
+    'n=g.getAttribute("data-fmn"),v=new URLSearchParams(location.search),o;v=v.get("vo")||v.get("fo");'
+    'o=","+(/^[A-Z]{2}$/.test(v||"")&&"FROMS".indexOf(","+v+",")>=0?v:localStorage.getItem("fx_origin")||"US")+",";'
+    'if(y&&y.indexOf(o)>=0)g.setAttribute("data-fm","1");if(n&&n.indexOf(o)>=0)g.removeAttribute("data-fm");'
+    '}catch(e){}})();</script>')
+
+
+def _fm_pick():
+    return _FM_PICK.replace("FROMS", "," + ",".join(sorted(flights.ORIGIN_HUBS)) + ",")
 
 
 # flightvalue.build for the default origin, as the server's pages read it:
@@ -2126,6 +2183,11 @@ def _render_index(gc_iso=None):
         # Canada's notes as cached: a marked place's ⓘ drops a quote they
         # show gone or reworded (fxtracker/avoid_marks.py).
         r = render_guide.render(gc_iso, fv, fares_at, no_book, watchouts.cached(gc_iso))
+        # The fares strip's held room: the default origin's (data-fm), and
+        # where another origin's caches say its strip differs, theirs
+        # (data-fmy / data-fmn, set before first paint by _FM_PICK).
+        fm = _fare_strip_hint(gc_iso)
+        fmo = _fare_strip_others(gc_iso, fm)
         vals.update(
             TITLE=html.escape(r["title"]),
             DESC=html.escape(r["desc"], quote=True),
@@ -2157,8 +2219,9 @@ def _render_index(gc_iso=None):
             GUIDE_DATA=(' data-level="%d"' % r["adv"] if r.get("adv") in (1, 2, 3, 4) else "")
             + (' data-hz="%d"' % min(r.get("hz") or 0, 2) if r.get("hz") else "")
             + ("" if not no_book and guide_sizers.stay(gc_iso) else ' data-nostay="1"')
-            + (' data-fm="1"' if _fare_strip_hint(gc_iso) else "")
+            + (' data-fm="1"' if fm else "") + fmo
             + _fare_col_hints(gc_iso),
+            FM_PICK=_fm_pick() if fmo else "",
             VALUE_ACTIVE="",
             GUIDE_ACTIVE=' class="active"',
             # No first-paint stand-ins for tabs a guide never shows first —
@@ -2257,7 +2320,10 @@ def _page_inputs(iso):
         notes = watchouts.cache_entry(iso)
         if notes is None or notes[1].get("_failed"):
             _warm_watchouts(iso)       # as _guide_sizers does with no notes in hand
-        objs += (notes,)
+        # The other origins' fares too (_fare_strip_others); their curves
+        # are in fv's (_fv_build reads every cached curve).
+        objs += (notes,) + tuple(_flights_cache.get(o) for o in sorted(flights.ORIGIN_HUBS)
+                                 if o != flightvalue.DEFAULT_ORIGIN)
     else:
         pop = _pop_cache.get("data")
         if not (pop or {}).get("arrivals"):
