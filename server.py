@@ -1717,8 +1717,9 @@ def _render_404_page(message, suggest=None):
 _nf_memo = {}
 _NF_MEMO_MAX = 256
 _nf_lock = threading.Lock()
-# At most one "Did you mean" search (difflib) per SUGGEST_EVERY seconds for
-# a 404 answered without a slot (_suggest_ok). Wall-clock seconds, so on a
+# At most one guide "Did you mean" search (difflib over every guide name)
+# per SUGGEST_EVERY seconds for a 404 answered without a slot (_suggest_ok).
+# Wall-clock seconds, so on a
 # starved CPU (Render's free tier; stall_check --on-ms 2 runs the process 2%
 # of the time) a shorter gap is a bigger share: 0.05 s let a burst that took
 # 3-4 s to drain run ~70 searches, about what its other 130 misses cost. Once
@@ -1744,14 +1745,19 @@ def _not_found_bytes(message, suggest, gz):
     return hit[0], (hit[1] if gz else None)
 
 
-def _suggest_ok():
-    """True when this 404 may run its "Did you mean" search (difflib,
-    _did_you_mean: ~0.2-0.35 ms, most of a miss's cost). Always with slots off
-    (tests, tools) or when this request holds a slot: the slots bound those.
-    A 404 answered without one (a guide miss, _guide_miss, or any path off the
-    slot routes) searches only while a slot is free and at most once per
-    SUGGEST_EVERY across all of them: misses take no slot, so in a burst made
-    of nothing but misses the slots look free. 150 typo URLs at once
+def _suggest_ok(path):
+    """True when the 404 for `path` may run its "Did you mean" search
+    (difflib, _did_you_mean). Always with slots off (tests, tools) or when
+    this request holds a slot: the slots bound those. Always for a path
+    outside /guide/ (any case, as _did_you_mean reads it): its search is over
+    a short list (the list pages, /cheapest/<month>: ~0.01-0.04 ms, less than
+    a 503), those 404s never took a slot, and they search as they always
+    did, so a scanner's /wp-login.php spends no turn and a reader's
+    /safe-and-cheep keeps its suggestion during a crawl. A /guide/ 404
+    answered without a slot (a guide miss, _guide_miss) searches every guide
+    name (~0.2-0.35 ms, most of a miss's cost) only while a slot is free and
+    at most once per SUGGEST_EVERY across all of them: misses take no slot,
+    so in a burst made of nothing but misses the slots look free. 150 typo URLs at once
     (stall_check --on-ms 2) each ran the search and held /healthz up to
     5.8 s, where shedding most of them 503 had held it 0.7-2.7 s; paced at
     0.05 s, 36 searches ran while the burst drained (worst probe 4.0 s);
@@ -1760,6 +1766,8 @@ def _suggest_ok():
     keeps its suggestion."""
     slots = _page_slots
     if slots is None or getattr(_slot_held, "slots", None) is not None:
+        return True
+    if not path.lower().startswith("/guide/"):
         return True
     if slots._value == 0:
         return False
@@ -3493,7 +3501,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"error": "not found"}, 404)
             return
         suggest = None
-        if _suggest_ok():
+        if _suggest_ok(path):
             try:
                 suggest = _did_you_mean(path)
             except Exception as e:   # a suggestion is a nicety: never a 500 instead of the 404
