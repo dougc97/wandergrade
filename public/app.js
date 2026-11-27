@@ -15271,9 +15271,15 @@ function openAccount() {
       await acctPrefs({ currency: curSel.value });
     }
     if (_syncTimer) await acctSync();   // a pending edit reaches the account first
-    try { await fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" }); } catch (e) {}
+    // The page changes at the tap, the request runs behind it: on a phone
+    // the Save row's return moves the map down, and drawn after a slow
+    // logout's round trip (past the tap's 500 ms) that move counted as a
+    // layout shift. keepalive: a reload right after can't cut it off.
+    const out = fetch("/api/auth/logout", { method: "POST", credentials: "same-origin", keepalive: true })
+      .catch(() => {});
     acctSignedOut();
     m.close();
+    await out;
     status("Signed out — your map stays in this browser.", "ok");
   };
 }
