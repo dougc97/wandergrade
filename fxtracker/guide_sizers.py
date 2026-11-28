@@ -15,8 +15,9 @@ Thailand at 768 (held at 272). For a reader scrolling during a slow load
 that was CLS 0.02-0.07 on most guides. The server has what those blocks will
 say: the three governments' advisory lists (one stand-in each, the
 reader's own picked before the first paint) and Canada's notes as its own
-caches hold them, the health document, and the visa, climate, activity and
-stay files app.js reads too. So it writes them, in app.js's own markup and classes, into a
+caches hold them, the health document, and the visa (one visa line per
+passport the From picker offers, the reader's picked before the first
+paint: visa_passports), climate, activity and stay files app.js reads too. So it writes them, in app.js's own markup and classes, into a
 hidden wrapper (.gsizer): the browser wraps that at the reader's real width,
 which no per-level or per-band number could (measured equal to the drawn
 blocks, to the pixel, on 20 guides at 390-1280). app.js replaces it, and
@@ -69,9 +70,9 @@ def _e(s):
     return html.escape(str(s or ""), quote=True)
 
 
-def _wrap(iso, inner, src=None):
-    return ('<div class="gsizer" aria-hidden="true" data-nosnippet data-for="%s"%s>%s</div>'
-            % (_e(iso), ' data-src="%s"' % _e(src) if src else "", inner))
+def _wrap(iso, inner, src=None, pp=None):
+    return ('<div class="gsizer" aria-hidden="true" data-nosnippet data-for="%s"%s%s>%s</div>'
+            % (_e(iso), ' data-src="%s"' % _e(src) if src else "", ' data-pp="%s"' % _e(pp) if pp else "", inner))
 
 
 def _day_short(d, today):
@@ -322,6 +323,98 @@ def visa(iso):
              else " Verify before booking — rules change.")
     return _wrap(iso, '<span class="visa %s">🛂 %s</span> <span class="guidevisa-txt"><b>Visa · US passport:</b> '
                  '%s.%s %s</span>' % (cls, _e(label), _e(detail), link, as_of))
+
+
+# app.js DEMONYM: "German passport", not "Germany passport" (every From the
+# picker offers is here; passportLabel says "passport of X" for the rest).
+DEMONYM = {
+    "US": "US", "GB": "British", "DE": "German", "FR": "French", "CA": "Canadian",
+    "AU": "Australian", "NZ": "New Zealand", "IN": "Indian", "IT": "Italian", "ES": "Spanish", "PT": "Portuguese",
+    "NL": "Dutch", "BE": "Belgian", "CH": "Swiss", "AT": "Austrian", "IE": "Irish", "SE": "Swedish", "NO": "Norwegian",
+    "DK": "Danish", "FI": "Finnish", "PL": "Polish", "CZ": "Czech", "GR": "Greek", "TR": "Turkish", "IL": "Israeli",
+    "JP": "Japanese", "KR": "South Korean", "CN": "Chinese", "TW": "Taiwanese", "HK": "Hong Kong", "SG": "Singaporean",
+    "MY": "Malaysian", "TH": "Thai", "PH": "Filipino", "ID": "Indonesian", "VN": "Vietnamese", "AE": "Emirati",
+    "SA": "Saudi", "ZA": "South African", "NG": "Nigerian", "KE": "Kenyan", "EG": "Egyptian", "MA": "Moroccan",
+    "BR": "Brazilian", "AR": "Argentine", "CL": "Chilean", "CO": "Colombian", "PE": "Peruvian", "MX": "Mexican",
+    "RU": "Russian", "UA": "Ukrainian", "RO": "Romanian", "HU": "Hungarian", "PK": "Pakistani", "BD": "Bangladeshi",
+    "IS": "Icelandic", "LK": "Sri Lankan", "KH": "Cambodian", "CR": "Costa Rican", "DO": "Dominican", "PA": "Panamanian",
+    "GH": "Ghanaian", "QA": "Qatari"}
+MX_STATUS = {"f": "free", "t": "eta", "v": "voa", "e": "evisa", "r": "required", "x": "special"}
+_CTA = {"GG": "GB", "JE": "GB", "IM": "GB"}   # app.js visaInfo: the Common Travel Area's UK rules
+_GOV_LINK = re.compile(r"^https://(www\.)?(auswaertiges-amt\.de|travel\.gc\.ca)/")
+
+
+def _visa_alt(iso, passport, adv_items):
+    """One passport's visa line as renderGuideVisa draws it once the
+    Passport Index matrix is in, wrapped and marked data-pp; an empty
+    wrapper where it draws none (the matrix has no entry: app.js hides the
+    line); None where the line can't be known here (a German or Canadian
+    passport whose government's list isn't cached: its link comes from it)."""
+    viso = GUIDE_PARENT.get(iso, iso)
+    if passport == viso:
+        return _wrap(iso, '<span class="visa vfree">🛂 Home</span> '
+                     '<span class="guidevisa-txt">Your home country — no visa needed.</span>', pp=passport)
+    row = _json("visa-passport.json").get(passport) or {}
+    code = row.get(viso) or (row.get(_CTA[iso]) if iso in _CTA else None)
+    if not code:
+        return _wrap(iso, "", pp=passport)
+    code = str(code)
+    status, note = ("free", code + " days") if code.isdigit() else (MX_STATUS.get(code, "check"), "")
+    label, cls, long_ = VISA_META.get(status) or VISA_META["check"]
+    detail = long_ + (" · " + note if note else "")
+    link = ""
+    if passport in ("DE", "CA"):
+        items = adv_items.get(passport)
+        if items is None:
+            return None
+        aviso = GUIDE_PARENT.get(iso) or ADV_PARENT.get(iso) or iso
+        it = next((x for x in items if x.get("iso") == aviso and not x.get("via")), None)
+        if it and _GOV_LINK.match(str(it.get("link") or "")):
+            link = " <a>official details ↗</a>"
+    y, _, m = str(_json("visa-passport.json").get("_verified") or "").partition("-")
+    checked = (MON_FULL[int(m) - 1] + " " + y if m.isdigit() and 1 <= int(m) <= 12 else y) if y else ""
+    as_of = (" Checked %s (Passport Index); verify before booking — rules change." % _e(checked) if checked
+             else " Verify before booking (Passport Index) — rules change.")
+    inner = ('<span class="visa %s">🛂 %s</span> <span class="guidevisa-txt"><b>Visa · %s passport:</b> %s.%s %s</span>'
+             % (cls, _e(label), _e(DEMONYM[passport]), _e(detail), link, as_of))
+    return _wrap(iso, inner, pp=passport)
+
+
+# Before first paint: a reader whose From is saved (or a shared link's ?vo= /
+# ?fo=) gets their own passport's stand-in in place of the US one. ES5, like
+# index.html's other inline scripts; app.js visaStandIn reads the same
+# template when the From changes before the matrix is in (the geo seed).
+# A link's From is the passport app.js draws whenever the picker offers it
+# (FROMS, ",AE,...,ZA,"), stand-in or not: one without (a German or Canadian
+# passport before that government's list is cached) keeps the US line, where
+# falling back to the saved From held a Briton's for a German line.
+_VISA_PICK = (
+    '<script>(function(){try{var t=document.getElementById("guideVisaAlt"),h=document.getElementById("guideVisa");'
+    'if(!t||!t.content||!h)return;var q=new URLSearchParams(location.search),v=q.get("vo")||q.get("fo"),'
+    'f=function(p){return/^[A-Z]{2}$/.test(p||"")&&t.content.querySelector(\'[data-pp="\'+p+\'"]\');},'
+    'o=/^[A-Z]{2}$/.test(v||"")&&"FROMS".indexOf(","+v+",")>=0?v:localStorage.getItem("fx_origin")||"US",'
+    'n=o!=="US"&&f(o);if(!n)return;'
+    'while(h.firstChild)h.removeChild(h.firstChild);'
+    'if(n.firstChild)h.appendChild(n.cloneNode(true));else h.hidden=true;}catch(e){}})();</script>')
+
+
+def visa_passports(iso, passports, adv_items):
+    """The visa line's stand-ins for each of `passports` but the US (the
+    From picker's origins, flights.ORIGIN_HUBS), in a <template> after #guideVisa,
+    and the script that puts the reader's in place before the first paint.
+    The page is served with the US line's (visa()), and a German reader's
+    line is a line longer at 390 (its government's "official details" link,
+    "(Passport Index)"): it filled in when the matrix landed, ~3 s into a
+    slow load, and the advisory and all under it dropped 19px (CLS 0.003 on
+    Thailand and Morocco). `adv_items` maps "DE"/"CA" to the cached German
+    and Canadian advisory lists (their items), where the line's link comes
+    from. "" when there is nothing to serve."""
+    alts = [_visa_alt(iso, p, adv_items) for p in sorted(passports) if p != "US" and p in DEMONYM]
+    alts = [a for a in alts if a is not None]
+    if not alts:
+        return ""
+    froms = "," + ",".join(sorted(p for p in passports if re.match(r"^[A-Z]{2}$", p))) + ","
+    return '<template id="guideVisaAlt">%s</template>%s' % ("".join(alts), _VISA_PICK.replace("FROMS", froms))
 
 
 MONTHS = MON_FULL

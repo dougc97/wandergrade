@@ -279,6 +279,32 @@ const gg = $("guideGrades"), gf = $("guideFares"), o = {};
   flightValue = FIX.fv; _fvAsk.done = true;
   await renderGuideGrades("VN");
   o.landed = [(gg.innerHTML.match(/ggpend/g) || []).length, gg.innerHTML.indexOf('data-gg="ov"') >= 0];
+  // A first visit's served strip on screen, the reader's own From (learned after
+  // paint) with no curve for this guide: the served strip stays, and stays through a
+  // poll's redraw; hidden, everything under it fell ~200px as the column settled
+  // (Portugal, a German first visit, 0.207 against main's 0.050). Their own curve,
+  // once it comes, is drawn over it.
+  ccGuideIso = "TH"; window.__WGGC__ = "TH"; servedFaresOnScreen = true;
+  gf.hidden = false; gf.innerHTML = "<div>served</div>"; gf._wgCurve = undefined; gf._wgServedKept = undefined;
+  const realEFM = ensureFareMonths;
+  ensureFareMonths = async () => null;
+  wf.writes = wf.hides = 0;
+  await renderGuideFares("TH");
+  const k1 = [gf.hidden, wf.hides, wf.writes];
+  await renderGuideFares("TH");
+  const k2 = [gf.hidden, wf.hides, wf.writes];
+  ensureFareMonths = async () => ({ origin: "US", months: { "2027-01": { price: 500 } } });
+  await renderGuideFares("TH");
+  const k3 = [gf.hidden, wf.hides, wf.writes];
+  ensureFareMonths = realEFM;
+  await renderGuideFares("TH");
+  o.servedKept = [k1, k2, k3, gf.hidden, wf.writes > 0, gf._wgServedKept === undefined];
+  // Not the served strip (another guide's page, or nothing served): hidden as before.
+  ccGuideIso = "VN"; servedFaresOnScreen = false; gf.hidden = false; gf._wgCurve = undefined;
+  ensureFareMonths = async () => null; wf.hides = 0;
+  await renderGuideFares("VN");
+  o.notServed = [gf.hidden, wf.hides > 0];
+  ensureFareMonths = realEFM;
   print(JSON.stringify(o));
 })().catch((e) => print(JSON.stringify({ error: String(e && e.stack || e) })));
 """
@@ -301,6 +327,12 @@ results.append(ok(rd.get("wait") == ["", 1] and rd.get("once") == 1 and rd.get("
                   "a guide opened from Top Picks while the month curves are out: another country's line goes, "
                   "one 2.5 s timer, then the grey boxes, then the grades once they land %s"
                   % {k: rd.get(k) for k in ("wait", "once", "boxes", "landed", "error") if k in rd}))
+sk = rd.get("servedKept")
+results.append(ok(sk is not None and sk[0] == [False, 0, 0] and sk[1] == [False, 0, 0] and sk[2] == [False, 0, 0]
+                  and sk[3] is False and sk[4] is True and sk[5] is True and rd.get("notServed") == [True, True],
+                  "a first visit's served strip stays on screen when the reader's own From has no curve (also through "
+                  "a poll's redraw and a curve under 3 months), their own curve is drawn over it once it comes, and a "
+                  "strip that wasn't served still hides %s" % {k: rd.get(k) for k in ("servedKept", "notServed", "error") if k in rd}))
 # The graded line's "Dec ⓘ" is also a link to /how-grades-work that keeps its
 # tip (the tip engine's a.tiplink: a tap shows the tip, a second follows the
 # link), served too.

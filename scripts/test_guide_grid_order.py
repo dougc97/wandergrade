@@ -11,7 +11,9 @@ layout shift goes (index.html .guidegrid, styles.css, app.js renderGuide):
   - renderGuide's hand-off of #ssrGuide, run under jsc as written: its height
     is pinned and it leaves scroll anchoring before its words go, the room
     gives up what the activities take as they grow (never taking any back),
-    and releaseSsrRoom gets it two frames after the activities settle, once;
+    measured as the span under the rule over them, so the margins the
+    crawler block's words lent through its edges stay in it, and
+    releaseSsrRoom gets it two frames after the activities settle, once;
   - releaseSsrRoom (run under jsc) keeps the newsletter box where a reader
     at, over or past the leftover room sees it, scrolling only by what it
     measures, and moves nothing for a reader above the room.
@@ -77,8 +79,12 @@ t.feed(HTML)
 hit = find(t.root, lambda e: e[0] == "div" and (e[1].get("class") or "").split(" ")[0] == "guidegrid")
 grid, card = hit if hit else (None, None)
 order = [label(c) for c in grid[2]] if grid else []
-results.append(ok(order == ["#guideVisa", "#guideSafety", "#guideAI", "#bestDetail", "{{GUIDE_MONTHS}}",
-                            "div.farecol", "hr.softrule", "div.staycol"],
+# {{GUIDE_VISA_ALT}}: the visa line's stand-ins for other passports, a <template>
+# and a script (guide_sizers.visa_passports); {{FM_PICK}}: a script that sets
+# the fares strip's room for the reader's From (server.py _FM_PICK) — nothing
+# that lays out.
+results.append(ok(order == ["#guideVisa", "{{GUIDE_VISA_ALT}}", "#guideSafety", "#guideAI", "#bestDetail",
+                            "{{GUIDE_MONTHS}}", "{{FM_PICK}}", "div.farecol", "hr.softrule", "div.staycol"],
                   "the grid's blocks are in the phone's reading order: %s" % order))
 after = []
 if card:
@@ -105,18 +111,62 @@ results.append(ok(CSS.count(".guidegrid:not(:has(+ *))") == 1,
 results.append(ok(not re.search(r"visibility\s*:\s*visible", CSS) and "style.visibility" not in APP,
                   "nothing un-hides those rows early (no visibility: visible in styles.css, no style.visibility in app.js)"))
 
+# A fares strip or FX line renderGuideFares / renderGuideFx hid is hidden once
+# the fare column settles: their display: block outranks the browser's [hidden],
+# so the last guide's strip stayed on screen after an in-app switch, and an
+# empty one's margin came back as .loading went (everything under it 4px down).
+# While the column loads, .farecol.loading's rule (more specific) still holds them.
+results.append(ok(re.search(r"^\.guidefares\[hidden\], \.guidefx\[hidden\] \{ display: none; \}$", CSS, re.M) is not None
+                  and re.search(r"^\.farecol\.loading > \[hidden\] \{ display: block; visibility: hidden; \}$", CSS, re.M) is not None
+                  and "#tab-guide:not([data-fm]) .farecol.loading > #guideFares[hidden] { display: none; }" in CSS
+                  and "#tab-guide[data-fx] .farecol.loading > #guideFx[hidden] { display: none; }" in CSS,
+                  "a hidden fares strip or FX line is display: none once the column settles, and the same while it "
+                  "loads unless held (.farecol.loading)"))
+
+# Wherever that hidden strip is display: none (the column settled, or loading
+# with no room held), the FX line keeps the strip's own top gap: the strip's
+# 14px margin, not the line's 10. With the line's 10, a held strip given back
+# as the column settled (a German reader the server has no fares for yet, on
+# a guide the US strip holds room on) also lifted the column 4px in the
+# frame everything under it rose 196px, and Chrome scored the column's move
+# too (Japan 0.149 against 0.125, 390, slow, scrolled 2000). A general
+# sibling (~): _GUIDE_HOLD's <script> can sit between the two.
+fares_top = re.search(r"^\.guidefares \{ display: block; margin: (\d+)px 0 \d+px; \}$", CSS, re.M)
+fx_gap = re.search(r"^#tab-guide\[data-fm\] \.farecol:not\(\.loading\) > #guideFares\[hidden\] ~ #guideFx "
+                   r"\{ margin-top: (\d+)px; \}$", CSS, re.M)
+# Only there: with no room held (no data-fm) the line keeps its own 10px from
+# the first paint to the settled page. Giving it 14 while loading too made its
+# held room 4px taller, so where the FX line never came (a German reader on a
+# euro guide, Croatia at 390) everything under the column fell 100px, not 96.
+results.append(ok("#tab-guide:not([data-fm]) .farecol.loading > #guideFares[hidden] ~ #guideFx" not in CSS
+                  and ".farecol:not(.loading) > .guidefares[hidden] ~ .guidefx" not in CSS,
+                  "the FX line's 14px gap applies only where a room was held (data-fm), never while loading"))
+results.append(ok(fares_top is not None and fx_gap is not None and fx_gap.group(1) == fares_top.group(1),
+                  "the FX line under a display: none fares strip keeps the strip's top gap (%s px; the strip's %s)"
+                  % (fx_gap and fx_gap.group(1), fares_top and fares_top.group(1))))
+
 # renderGuide's hand-off of the crawler block, run under jsc as written: its
 # first lines (find, measure, pin, empty) and the block after renderActivity.
-pin = re.search(r'^  const ssr = \$\("ssrGuide"\)[^\n]*\n  const actH0[^\n]*\n  if \(ssr\) \{[^\n]*\}\n', APP, re.M)
+pin = re.search(r'^  const ssr = \$\("ssrGuide"\)[^\n]*\n  const span0[^\n]*\n  if \(ssr\) \{[^\n]*\}\n', APP, re.M)
+span_fn = re.search(r"^function ssrSpan\(ssr\) \{.*?^\}\n", APP, re.M | re.S)
 hand = re.search(r"^  if \(ssr\) \{\n    // Only what.*?^  \}\n(?=  renderGuideStay\(iso\);)", APP, re.M | re.S)
-results.append(ok(pin and hand, "found renderGuide's crawler-block lines"))
+results.append(ok(pin and hand and span_fn, "found renderGuide's crawler-block lines and ssrSpan"))
 HAND = r"""
 var log = [], released = [], rafQ = [], moCb = null, moOn = null, moOff = 0, resolveActs;
+// The card from the rule over the activities down: the activities, the crawler
+// block (1103px with its words, then its pinned height) and the margins between
+// them; LENT of those go with the crawler's words (its first h2's, its last
+// list's, collapsing through its edges), 8px stay (the activities' own).
+var LENT = LENT_PX;
 var ssrEl = { offsetHeight: 1103, style: {}, id: "ssrGuide", _w: "words", setAttribute: function (k, v) { this[k] = v; } };
 Object.defineProperty(ssrEl, "innerHTML", { get: function () { return this._w; },
   set: function (v) { log.push([this.style.height, this.style.overflowAnchor]); this._w = v; } });
-var actEl = { offsetHeight: 40 };
+var actEl = { offsetHeight: 40, previousElementSibling: { getBoundingClientRect: function () { return { bottom: 500 }; } } };
+ssrEl.parentElement = { getBoundingClientRect: function () {
+  var room = ssrEl._w ? 1103 + LENT : parseFloat(ssrEl.style.height);
+  return { bottom: 500 + actEl.offsetHeight + room + 8 }; } };
 function $(id) { return id === "ssrGuide" ? ssrEl : id === "actDetail" ? actEl : null; }
+SPANFN
 function MutationObserver(cb) { moCb = cb; this.observe = function (t) { moOn = t; }; this.disconnect = function () { moOff++; }; }
 function requestAnimationFrame(f) { rafQ.push(f); }
 function frame() { var q = rafQ; rafQ = []; q.forEach(function (f) { f(); }); }
@@ -144,11 +194,17 @@ p.then(function () {
   print(JSON.stringify(out));
 });
 """
-try:
-    prog = HAND.replace("PIN", pin.group(0)).replace("HAND", hand.group(0))
-    h = json.loads(subprocess.run([JSC, "-e", prog], capture_output=True, text=True, timeout=30).stdout)
-except Exception:
-    h = None
+def hand_off(lent):
+    try:
+        prog = (HAND.replace("PIN", pin.group(0)).replace("HAND", hand.group(0)).replace("SPANFN", span_fn.group(0))
+                .replace("LENT_PX", str(lent)))
+        return json.loads(subprocess.run([JSC, "-e", prog], capture_output=True, text=True, timeout=30).stdout)
+    except Exception:
+        return None
+
+
+h = hand_off(0)
+h18 = hand_off(18)
 results.append(ok(h and h["pinned"] == [["1103px", "none"]],
                   "the crawler block's height is pinned and it leaves scroll anchoring before its words go (%s)" % (h and h["pinned"])))
 results.append(ok(h and h["room"] == ["338px", True],
@@ -161,6 +217,13 @@ results.append(ok(h and h["settled"] == 0 and h["oneFrame"] == 0,
 results.append(ok(h and h["release"] == [[True, "313px", 1]] and h["after"] == 1,
                   "two frames on: the watch stops, the room fits once more, releaseSsrRoom gets it once (%s)"
                   % (h and h["release"])))
+# The margins the crawler's first and last lines lent through its edges (18px)
+# go with its words: the room keeps them, so the newsletter box doesn't rise.
+results.append(ok(h18 and h18["pinned"] == [["1103px", "none"]] and h18["room"] == ["356px", True]
+                  and h18["grew"] == "337px" and h18["shrank"] == "337px" and h18["release"] == [[True, "331px", 1]],
+                  "the margins the crawler block's words lent (18px) stay in the room: 356px left, then 337 and 331 "
+                  "as the activities grow, the span under the rule unchanged (%s)"
+                  % (h18 and [h18["room"], h18["grew"], h18["shrank"], h18["release"]])))
 
 fn = re.search(r"^function releaseSsrRoom\(ssr\) \{.*?^\}", APP, re.M | re.S)
 results.append(ok(fn, "found releaseSsrRoom"))

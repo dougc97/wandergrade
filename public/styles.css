@@ -2486,6 +2486,23 @@ button.chip2 { border: 0; }
 /* Fare-by-month strip (guide + trip). Same visual grammar as the season
    strip: cells across a year, colour carries the answer, tips carry numbers. */
 .guidefares { display: block; margin: 14px 0 4px; }
+/* [hidden] has to say so here, as for .guidecost: the display above outranks
+   the browser's own [hidden] rule. A strip renderGuideFares hid stayed on the
+   page once the column settled: the last guide's (Japan's "United States →
+   Japan" on Croatia's page after picking Croatia), or an empty block whose
+   14px margin came back as .loading went, dropping all under the column 4px
+   about 2.9 s into a slow load. The FX line likewise. */
+.guidefares[hidden], .guidefx[hidden] { display: none; }
+/* Where a strip's room was held (data-fm) and the strip didn't come, the
+   settled FX line keeps the strip's 14px gap, not its own 10: given back as
+   the column settled (a German reader whose fares the server hadn't cached
+   yet), the room's 196px went and the column rose 4px in the same frame, and
+   Chrome scored both. Only there: with no room held the line keeps its 10px
+   from the first paint on, as any 14 while loading made its own held room
+   4px taller and the fall where it never came 4px longer. data-fm changes
+   only while .loading is on. ~, not +: _GUIDE_HOLD's <script> can sit
+   between them. */
+#tab-guide[data-fm] .farecol:not(.loading) > #guideFares[hidden] ~ #guideFx { margin-top: 14px; }
 .fareshead { display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 6px; }
 /* Under the bars, the chart's one booking link (renderGuideFares'
    guideFareLink, guide_lines.fares): one line, held empty where there is no

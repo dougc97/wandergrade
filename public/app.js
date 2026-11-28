@@ -3102,8 +3102,11 @@ function renderGuide(iso) {
   // height (765px at 390 on Ethiopia) onto blank room and the newsletter box;
   // left out, the reader stays put and the activities fill in where the
   // crawler's words were.
+  // Measured as the span it and the activities fill (ssrSpan), not by their
+  // heights: the margins its first and last lines lent through its edges
+  // (an h2's 18px) went with its words, and the newsletter box rose 18px.
   const ssr = $("ssrGuide"), ssrH = ssr ? ssr.offsetHeight : 0;
-  const actH0 = ssr ? $("actDetail").offsetHeight : 0;
+  const span0 = ssr ? ssrSpan(ssr) : 0;
   if (ssr) { ssr.style.height = ssrH + "px"; ssr.style.overflowAnchor = "none"; ssr.innerHTML = ""; ssr.id = ""; ssr.setAttribute("aria-hidden", "true"); }
   // The server's month table (#when-to-go, render_guide.month_table) stays:
   // it is the page's own guide. Another country opened in-app hides it.
@@ -3126,10 +3129,20 @@ function renderGuide(iso) {
     // first visit learns its origin from location only after this runs),
     // and nothing is held for another guide (held and given back, the lines
     // under it jumped 154px). loadFlightValue settles it when the data lands.
+    // Where the server's caches know another origin's strip differs from its
+    // mark, that origin's reader gets theirs (servedFareMark): set before the
+    // first paint for a saved From or a link's, here when the guide is drawn
+    // again later (another guide and back) for one the picker set since. Not
+    // as the page's guide first draws: a From the geo seed brought after the
+    // first paint keeps the served room until the column settles, as before.
+    // Changed in that frame, the strip's room went with the FX line (a pound
+    // reader's, data-fx) in one 296px move on the UK's guide for a first
+    // visit from Britain, which Chrome scored above the two apart (CLS 0.216
+    // against 0.191 at 390, scrolled down).
     const fvC = flightValue && flightValue.origin === originIso() && flightValue.countries
       && flightValue.countries[iso];
     const fm = fvC && !fvC.pending ? (fvC.n_curve || 0) >= 3
-      : iso === window.__WGGC__ ? null : false;
+      : iso === window.__WGGC__ ? (ssr ? null : servedFareMark(gtab, originIso())) : false;
     if (fm) gtab.setAttribute("data-fm", "1");
     else if (fm === false) gtab.removeAttribute("data-fm");
     // The FX line likewise (data-fx): none for a currency the reader holds
@@ -3174,12 +3187,12 @@ function renderGuide(iso) {
     // Chrome had scored the drop: one frame logged the box 51px down and
     // 51px back up as two shifts (768, Puerto Rico).
     const act = $("actDetail");
-    let room = Math.max(0, ssrH - (act.offsetHeight - actH0));
-    ssr.style.height = room + "px";
+    let room = ssrH;
     const fit = () => {
-      const h = Math.max(0, ssrH - (act.offsetHeight - actH0));
+      const h = Math.max(0, room - (ssrSpan(ssr) - span0));
       if (h < room) { room = h; ssr.style.height = h + "px"; }
     };
+    fit();
     const mo = typeof MutationObserver === "function" ? new MutationObserver(fit) : null;
     if (mo) mo.observe(act, { childList: true, subtree: true, characterData: true, attributes: true });
     // Released two frames on, once the frame with the last photos is painted:
@@ -3206,6 +3219,27 @@ function renderGuide(iso) {
   syncURL();
 }
 let _fareColSeq = 0;
+// From the rule over the activities to the foot of the guide's card: the
+// activities, the crawler block's room and the margins between them, which
+// collapse through an empty block's edges (the activities before they draw,
+// the crawler block's first h2 and last list). renderGuide keeps it the
+// height it had with the crawler's words in, as the activities take room.
+function ssrSpan(ssr) {
+  const act = $("actDetail"), above = act && act.previousElementSibling;
+  return ssr.parentElement.getBoundingClientRect().bottom
+    - (above ? above.getBoundingClientRect().bottom : act ? act.getBoundingClientRect().top : 0);
+}
+// The server's fares-strip mark for its own guide, for a reader flying from o:
+// its caches list the origins whose strip differs from the default origin's
+// (server.py _fare_strip_others) — data-fmy, those that draw it where the
+// mark holds nothing; data-fmn, those that don't where it holds. Any other
+// origin reads the default's. null: no list, so the mark as it stands.
+function servedFareMark(gtab, o) {
+  const y = gtab.getAttribute("data-fmy"), n = gtab.getAttribute("data-fmn");
+  if (y) return y.includes("," + o + ",");
+  if (n) return !n.includes("," + o + ",");
+  return null;
+}
 // The crawler block's leftover room goes once the activities have settled.
 // The newsletter box and the footer under it stay where they are on screen
 // whenever the box is on screen or would come up into view as the room goes.
@@ -3332,12 +3366,21 @@ async function renderGuideFares(iso) {
   // poll's redraw): hidden and shown again, the reader's focus inside fell
   // to <body>. Another guide's or origin's strip hides meanwhile.
   const curveKey = originIso() + ":" + iso;
-  const keep = (servedFaresOnScreen && iso === window.__WGGC__) || (!host.hidden && host._wgCurve === curveKey);
+  // A first visit's served strip (the default origin's, named in its own
+  // heading) also stays when the reader's From, learned after the paint,
+  // has no curve here, and through later polls for that same From: hidden
+  // as the column settled, all under it fell ~200px for a reader already
+  // scrolled down (Portugal for a German first visit, CLS 0.207 against
+  // main's 0.050, where main kept it by accident). Their own curve, once
+  // it comes, is drawn over it.
+  const served = (servedFaresOnScreen && iso === window.__WGGC__) || (!host.hidden && host._wgServedKept === curveKey);
+  const keep = served || (!host.hidden && host._wgCurve === curveKey);
   servedFaresOnScreen = false;
   if (!keep) host.hidden = true;
   const fm = await ensureFareMonths(iso);
   if (ccGuideIso !== iso) return;
-  if (!fm || !fm.months) { host.hidden = true; return; }
+  const none = () => { if (served && !host.hidden) host._wgServedKept = curveKey; else host.hidden = true; };
+  if (!fm || !fm.months) { none(); return; }
   const now2 = new Date();
   const prices = [];
   for (let m = 1; m <= 12; m++) {
@@ -3348,8 +3391,9 @@ async function renderGuideFares(iso) {
   const known = prices.filter((p) => p != null);
   // Under three months there is no curve to read (the Trip strip's floor,
   // fareStripHTML minMonths): two bars would claim a season.
-  if (known.length < 3) { host.hidden = true; return; }
+  if (known.length < 3) { none(); return; }
   host.hidden = false;
+  host._wgServedKept = undefined;
   // Origin name from the strip's own payload — flightsData may be null on a
   // direct guide load (that null is what hid the first production version).
   const originName = countryName(fm.origin || travelOrigin() || "US");
@@ -4128,13 +4172,31 @@ function renderGuideVisa(iso) {
     // Empty, not hidden, while it loads: empty it keeps the height styles.css
     // holds for it (or the served stand-in's, holdSizer), where hiding it
     // collapsed the line and the guide under it jumped twice. Hidden only if
-    // the matrix never comes.
+    // the matrix never comes. The stand-in held is this passport's own where
+    // the server sent one (visaStandIn): the US line it is served with is a
+    // line shorter than a German passport's at 390.
+    // A From set after the first paint (the geo seed before the guide drew,
+    // a pick) keeps the line on screen where it is above a scrolled reader's
+    // screen: the matrix's line settles it, as before. Swapped for its
+    // stand-in in the frame the guide draws in, where the fares strip's room
+    // can go too (data-fm), Chrome's scroll anchoring took up the line's
+    // 19px, then scored it on top of the strip's 200px (CLS 0.183 against
+    // 0.166 at 390 on Sweden for a first visit from Britain); on its own a
+    // change up there is taken up unscored. A line in view takes it at once.
+    const alt = visaStandIn(iso, passport), prev = host.style.minHeight;
     holdSizer(host, iso);
+    const was = host.style.minHeight;
+    if (alt && !(was && host.getBoundingClientRect().bottom <= 0)) {
+      host.style.minHeight = prev;
+      host.innerHTML = ""; host.appendChild(alt);
+      holdSizer(host, iso);
+    }
     host.innerHTML = ""; host.hidden = false;
     ensureVisaMatrix().then(() => { if (ccGuideIso === iso) renderGuideVisa(iso); })
       .catch(() => { if (ccGuideIso === iso && !host.firstChild) { host.hidden = true; host.style.minHeight = ""; } });
     return;
   }
+  const held = host.dataset.for === iso ? host.style.minHeight : "";
   host.style.minHeight = "";
   const info = visaInfo(iso, passport);
   if (info && info.home) {
@@ -4147,6 +4209,7 @@ function renderGuideVisa(iso) {
   host.hidden = false;
   const detail = info.meta.long + (info.note ? " · " + info.note : "");
   let href = /^https:\/\/travel\.state\.gov\//.test(info.link) ? info.link : "";
+  let linkWait = false;
   if (!href && (passport === "DE" || passport === "CA")) {
     const src = passport.toLowerCase();
     const viso = GUIDE_PARENT[iso] || ADV_PARENT[iso] || iso;
@@ -4154,9 +4217,12 @@ function renderGuideVisa(iso) {
     if (it && /^https:\/\/(www\.)?(auswaertiges-amt\.de|travel\.gc\.ca)\//.test(it.link || "")) href = it.link;
     // Not loaded yet (the safety row fetches the CHOSEN source, which need not
     // be this passport's): fetch it once and redraw, like the matrix above.
-    else if (!_advBySource[src]) fetchAdv(src).then(() => {
-      if (ccGuideIso === iso) renderGuideVisa(iso);
-    }).catch(() => {});
+    else if (!_advBySource[src]) {
+      linkWait = true;
+      fetchAdv(src).then(() => {
+        if (ccGuideIso === iso) renderGuideVisa(iso);
+      }).catch(() => { if (ccGuideIso === iso) host.style.minHeight = ""; });
+    }
   }
   const link = href ? ` <a href="${esc(href)}" target="_blank" rel="noopener">official details ↗</a>` : "";
   const checked = visaVerified(passport);
@@ -4168,6 +4234,20 @@ function renderGuideVisa(iso) {
   host.innerHTML = `<span class="visa ${info.meta.cls}">🛂 ${esc(info.meta.label)}</span>
     <span class="guidevisa-txt"><b>Visa · ${esc(passportLabel(passport))}:</b> ${esc(detail)}.${link}
     ${asOf}</span>`;
+  // The link's list still loading: the room held for the line (its stand-in
+  // has the link) stays until the redraw, or the line, a line shorter without
+  // the link for a moment, took the advisory and all under it up and back.
+  if (linkWait && held) host.style.minHeight = held;
+}
+// This guide's visa line as another passport reads it, unseen: the server's
+// stand-in (guide_sizers.visa_passports, a <template> after #guideVisa, one
+// per From the picker offers), or null for any other guide or passport. The
+// index.html script puts a saved From's in place before the first paint; this
+// is for a From set after it (the geo seed, a pick) before the matrix is in.
+function visaStandIn(iso, passport) {
+  const t = $("guideVisaAlt");
+  const n = t && t.content && /^[A-Z]{2}$/.test(passport || "") && t.content.querySelector(`[data-pp="${passport}"]`);
+  return n && n.dataset.for === iso ? n.cloneNode(true) : null;
 }
 
 // Safety advisory for this country, from the traveler's home-country source
