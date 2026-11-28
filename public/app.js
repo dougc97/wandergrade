@@ -7772,6 +7772,204 @@ let lastGems = [];   // current hidden-gems list, for the 💎 surprise button
 // (setFlexFocus). Null in month mode.
 let valueMapMonths = null;
 
+// ---- Trip route: legs and the recommended order (round 16) ------------------
+// A trip is a round trip by air: home (the reader's From) -> every trip
+// country once -> home. The leg model is a matrix over home + the stops
+// (index 0 = home), directed, one fare kind everywhere: the trip month's
+// cheapest cached round trip where known, else the yearly average, HALVED
+// for one way (USD). Real where our fare data has the leg (/api/trip-legs
+// for legs between trip countries, the reader's own fares for the home
+// legs), estimated from the distance between countryCentroids() otherwise:
+// fare from the server's regional fit (a + b * km, never under USD 50 a
+// round trip, buildFareContext's floor — the recorded fit starts at -10,
+// which priced a 100 km hop at a dollar), minutes = km / 800 * 60 + 120.
+// Estimated parts are flagged (real / realMin) and shown with "≈".
+const TRIP_EXACT_MAX = 10;    // Held-Karp up to this many stops; nearest neighbour + 2-opt above
+const TRIP_LEGS_MAX = 12;     // /api/trip-legs answers at most this many countries
+const TRIP_RT_FLOOR = 50;     // an estimated round trip never under USD 50
+function tripEstMinutes(km) { return km / 800 * 60 + 120; }
+// A usable fare-by-distance fit {a, b}, or null: a slope that isn't positive
+// would price far legs under near ones.
+function tripFit(f) {
+  return f && Number.isFinite(f.a) && Number.isFinite(f.b) && f.b > 0 ? { a: f.a, b: f.b } : null;
+}
+// The reader's own long-haul fit (buildFareContext's: every cached country,
+// yearly averages, 8 or more), for when /api/trip-legs sent none or failed.
+function tripFallbackFit() {
+  if (!(flightsData && flightsData.configured && flightsData.countries)) return null;
+  const C = countryCentroids(), o = C[flightsData.origin];
+  if (!o) return null;
+  const pts = flightsData.countries.filter((r) => C[r.iso] && Number(r.avg) > 0)
+    .map((r) => [distKm(o, C[r.iso]), Number(r.avg)]);
+  if (pts.length < 8) return null;
+  const n = pts.length, mx = pts.reduce((s, p) => s + p[0], 0) / n, my = pts.reduce((s, p) => s + p[1], 0) / n;
+  let num = 0, den = 0;
+  for (const [x, y] of pts) { num += (x - mx) * (y - my); den += (x - mx) ** 2; }
+  return den ? tripFit({ a: my - (num / den) * mx, b: num / den }) : null;
+}
+// The legs request: at most TRIP_LEGS_MAX countries, chosen by code, not by
+// the order on screen (a reorder must not ask for a different twelve).
+function tripLegsURL(origin, isos, monthKey) {
+  const ask = [...new Set(isos)].sort().slice(0, TRIP_LEGS_MAX);
+  return "/api/trip-legs?origin=" + encodeURIComponent(origin) + "&isos=" + ask.map(encodeURIComponent).join(",")
+    + (monthKey ? "&month=" + encodeURIComponent(monthKey) : "");
+}
+// isos: the trip in its current order; home: the reader's From; legsJson:
+// /api/trip-legs' answer ({legs: {from: {to: {fare (round trip), dur}}},
+// fit: {a, b}}; {} when it failed); homeFares: {iso: {to, back (one-way
+// USD), basis, dur}} from the reader's own fares. Returns {n (home + stops),
+// isos, fare, min, real, realMin, fareOk}: fare null where nothing prices a
+// leg (no fit at all — then fareOk is false and every order is by time).
+// England and the UK (GUIDE_PARENT), or home on its own trip, are no flight.
+function tripLegMatrix(isos, home, legsJson, homeFares) {
+  const nodes = [home].concat(isos), n = nodes.length;
+  const C = countryCentroids();
+  const par = (iso) => GUIDE_PARENT[iso] || iso;
+  const pos = nodes.map((iso) => C[iso] || C[par(iso)] || null);
+  const L = (legsJson && legsJson.legs) || {}, hf = homeFares || {};
+  const fit = tripFit(legsJson && legsJson.fit);
+  // A place with no shape on the map: the trip's middle distance, so its
+  // legs are finite and neither favoured nor punished.
+  const known = [];
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (pos[i] && pos[j]) known.push(distKm(pos[i], pos[j]));
+  known.sort((x, y) => x - y);
+  const midKm = known.length ? known[Math.floor(known.length / 2)] : 2000;
+  const grid = (v) => nodes.map(() => nodes.map(() => v));
+  const fare = grid(0), min = grid(0), real = grid(true), realMin = grid(true);
+  let fareOk = true;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (i === j || par(nodes[i]) === par(nodes[j])) continue;
+    let f = null, d = null;
+    if (i === 0 || j === 0) {
+      const iso = nodes[i === 0 ? j : i], h = hf[iso] || hf[par(iso)];
+      const v = h ? Number(i === 0 ? h.to : h.back) : 0;
+      if (v > 0) f = v;
+      if (h && Number(h.dur) > 0) d = Number(h.dur);
+    } else {
+      const r = L[nodes[i]] && L[nodes[i]][nodes[j]];
+      if (r && Number(r.fare) > 0) f = Number(r.fare) / 2;
+      if (r && Number(r.dur) > 0) d = Number(r.dur);
+    }
+    const km = pos[i] && pos[j] ? distKm(pos[i], pos[j]) : midKm;
+    real[i][j] = f != null;
+    realMin[i][j] = d != null;
+    if (f == null) f = fit ? Math.max(TRIP_RT_FLOOR, fit.a + fit.b * km) / 2 : null;
+    if (f == null) fareOk = false;
+    fare[i][j] = f;
+    min[i][j] = d != null ? d : tripEstMinutes(km);
+  }
+  return { n, isos: nodes, fare, min, real, realMin, fareOk };
+}
+// Totals along home -> order -> home (order: indices into the stops):
+// {fare (null when a leg has none), minutes, estimated (any part of it)}.
+function tripTotals(m, order) {
+  const path = [0].concat(order.map((i) => i + 1), [0]);
+  let fare = 0, minutes = 0, estimated = false;
+  for (let k = 1; k < path.length; k++) {
+    const a = path[k - 1], b = path[k];
+    if (a === b) continue;
+    const f = m.fare[a][b];
+    fare = fare == null || f == null ? null : fare + f;
+    minutes += m.min[a][b];
+    if (!m.real[a][b] || !m.realMin[a][b]) estimated = true;
+  }
+  return { fare, minutes, estimated };
+}
+// The order of the stops (indices into them, home excluded) that minimises
+// the round trip's cost C (a (k+1)x(k+1) matrix, 0 = home). Exact (Held-Karp,
+// read forward so the earliest stop wins every tie) up to TRIP_EXACT_MAX
+// stops; above, nearest neighbour then 2-opt. Either way the input order
+// (0..k-1) is kept whenever nothing beats it, so a recomputed order never
+// churns between equals.
+function tripSolve(C, k) {
+  if (k <= 1) return k ? [0] : [];
+  const tour = (o) => {
+    let s = C[0][o[0] + 1];
+    for (let i = 1; i < o.length; i++) s += C[o[i - 1] + 1][o[i] + 1];
+    return s + C[o[o.length - 1] + 1][0];
+  };
+  const tol = (v) => 1e-9 * Math.max(1, Math.abs(v));
+  const input = [...Array(k).keys()];
+  let best;
+  if (k <= TRIP_EXACT_MAX) {
+    // g[mask * k + j]: the cheapest way from stop j through every stop in
+    // mask (j not in it) and home.
+    const full = (1 << k) - 1, g = new Float64Array((full + 1) * k);
+    for (let j = 0; j < k; j++) g[j] = C[j + 1][0];
+    for (let mask = 1; mask <= full; mask++) for (let j = 0; j < k; j++) {
+      if (mask & (1 << j)) continue;
+      let v = Infinity;
+      for (let i = 0; i < k; i++) if (mask & (1 << i)) {
+        const c = C[j + 1][i + 1] + g[(mask ^ (1 << i)) * k + i];
+        if (c < v) v = c;
+      }
+      g[mask * k + j] = v;
+    }
+    let target = Infinity;
+    for (let j = 0; j < k; j++) target = Math.min(target, C[0][j + 1] + g[(full ^ (1 << j)) * k + j]);
+    best = [];
+    let cur = 0, rem = full;
+    while (rem) {
+      for (let j = 0; j < k; j++) {
+        if (!(rem & (1 << j))) continue;
+        const v = C[cur][j + 1] + g[(rem ^ (1 << j)) * k + j];
+        if (v <= target + tol(target)) { best.push(j); target = g[(rem ^ (1 << j)) * k + j]; cur = j + 1; rem ^= 1 << j; break; }
+      }
+    }
+  } else {
+    // Nearest neighbour from each of the 12 cheapest first stops, each then
+    // improved by 2-opt (a reversed run changes its own legs' direction on a
+    // directed tour, so each candidate is priced whole) and by moving one
+    // stop elsewhere; the cheapest wins, the earlier start on a tie. One
+    // start and 2-opt alone ended 2.1% above the exact order on average at
+    // 12 stops of distance-like fares, and 19% on random ones; this, 0.3%
+    // and 6%, in under a millisecond (40 stops: ~15 ms).
+    const firsts = input.slice().sort((x, y) => C[0][x + 1] - C[0][y + 1] || x - y).slice(0, 12);
+    let bestCost = Infinity;
+    best = null;
+    for (const s0 of firsts) {
+      let o = [s0], cur = s0 + 1;
+      const left = new Set(input);
+      left.delete(s0);
+      while (left.size) {
+        let bj = -1;
+        for (const j of left) if (bj < 0 || C[cur][j + 1] < C[cur][bj + 1]) bj = j;
+        o.push(bj); left.delete(bj); cur = bj + 1;
+      }
+      let cost = tour(o);
+      const tryIt = (cand) => {
+        const c = tour(cand);
+        if (c < cost - tol(cost)) { o = cand; cost = c; return true; }
+        return false;
+      };
+      for (let pass = 0, better = true; better && pass < 50; pass++) {
+        better = false;
+        for (let i = 0; i < k - 1; i++) for (let j = i + 1; j < k; j++)
+          if (tryIt(o.slice(0, i).concat(o.slice(i, j + 1).reverse(), o.slice(j + 1)))) better = true;
+        for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) {
+          if (i === j) continue;
+          const rest = o.slice(0, i).concat(o.slice(i + 1));
+          if (tryIt(rest.slice(0, j).concat([o[i]], rest.slice(j)))) better = true;
+        }
+      }
+      if (!best || cost < bestCost - tol(bestCost)) { best = o; bestCost = cost; }
+    }
+  }
+  return tour(input) <= tour(best) + tol(tour(best)) ? input : best;
+}
+// mode: "cheap" (total fare), "quick" (total minutes) or "best" (fare /
+// bestFare + minutes / bestMinutes, each over its own best possible total).
+// No fare for some leg (fareOk false): every mode orders by time.
+function tripBestOrder(m, mode) {
+  const k = m.n - 1;
+  if (k <= 1) return k === 1 ? [0] : [];
+  if (!m.fareOk || mode === "quick") return tripSolve(m.min, k);
+  if (mode === "cheap") return tripSolve(m.fare, k);
+  const bf = tripTotals(m, tripSolve(m.fare, k)).fare || 1;
+  const bm = tripTotals(m, tripSolve(m.min, k)).minutes || 1;
+  return tripSolve(m.fare.map((r, i) => r.map((f, j) => f / bf + m.min[i][j] / bm)), k);
+}
+
 // ---- Trip builder -----------------------------------------------------------
 // A working set for ONE trip, deliberately separate from the ★ wishlist. The
 // wishlist is a lifetime list and can run to dozens of countries; feeding that
