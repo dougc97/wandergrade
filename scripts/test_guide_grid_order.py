@@ -132,9 +132,15 @@ results.append(ok(re.search(r"^\.guidefares\[hidden\], \.guidefx\[hidden\] \{ di
 # too (Japan 0.149 against 0.125, 390, slow, scrolled 2000). A general
 # sibling (~): _GUIDE_HOLD's <script> can sit between the two.
 fares_top = re.search(r"^\.guidefares \{ display: block; margin: (\d+)px 0 \d+px; \}$", CSS, re.M)
-fx_gap = re.search(r"^\.farecol:not\(\.loading\) > \.guidefares\[hidden\] ~ \.guidefx,\n"
-                   r"#tab-guide:not\(\[data-fm\]\) \.farecol\.loading > #guideFares\[hidden\] ~ #guideFx "
+fx_gap = re.search(r"^#tab-guide\[data-fm\] \.farecol:not\(\.loading\) > #guideFares\[hidden\] ~ #guideFx "
                    r"\{ margin-top: (\d+)px; \}$", CSS, re.M)
+# Only there: with no room held (no data-fm) the line keeps its own 10px from
+# the first paint to the settled page. Giving it 14 while loading too made its
+# held room 4px taller, so where the FX line never came (a German reader on a
+# euro guide, Croatia at 390) everything under the column fell 100px, not 96.
+results.append(ok("#tab-guide:not([data-fm]) .farecol.loading > #guideFares[hidden] ~ #guideFx" not in CSS
+                  and ".farecol:not(.loading) > .guidefares[hidden] ~ .guidefx" not in CSS,
+                  "the FX line's 14px gap applies only where a room was held (data-fm), never while loading"))
 results.append(ok(fares_top is not None and fx_gap is not None and fx_gap.group(1) == fares_top.group(1),
                   "the FX line under a display: none fares strip keeps the strip's top gap (%s px; the strip's %s)"
                   % (fx_gap and fx_gap.group(1), fares_top and fares_top.group(1))))
