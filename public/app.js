@@ -7042,6 +7042,314 @@ function distKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
+// ---- small globes (round 16) -------------------------------------------------
+// The site's own little Earths: the Top Picks postcard's badge and the Trip
+// route. The Wander List spin globe's look (land rgb(96,212,138), ocean
+// rgb(38,122,202), lit from the upper left, halo, limb, gloss, rim), but its
+// own code on world.geojson's countries, so it can centre on any longitude
+// and latitude, at any size, and colour a country. It shares nothing with
+// the spin globe (drawGlobe/sphereCache/landMask): those land rings put 58 of
+// 226 centroids in the sea, and that cache has one slot and a fixed tilt.
+// Per pixel: inverse orthographic onto an equirectangular country-id mask.
+const GM_W = 1024, GM_H = 512;            // GM_W stays a power of two (wrap via &)
+const G_RAD = Math.PI / 180;
+const G_LAND = [96, 212, 138], G_OCEAN = [38, 122, 202], G_HL = [10, 125, 40];   // G_HL: the site green
+let _gMask = null;
+// The country under each pixel centre of a 1024x512 lon/lat grid: feature
+// index + 1 (0 = sea), isoAt[id] its iso (Northern Ireland's feature says GB
+// too). Built once, by an even-odd scanline fill per polygon (holes stay
+// sea; a later feature, a microstate, wins over an earlier one). Null until
+// world.geojson is in.
+function globeMask() {
+  if (_gMask || !worldGeo) return _gMask;
+  const W = GM_W, H = GM_H, ids = new Uint8Array(W * H), isoAt = [""];
+  worldGeo.features.forEach((f, fi) => {
+    const id = fi + 1;
+    isoAt.push(String(f.properties.iso || ""));
+    if (id > 255 || !f.geometry) return;
+    const polys = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates];
+    for (const poly of polys) {
+      const rings = poly.map((ring) => ring.map((p) => [(p[0] + 180) / 360 * W, (90 - p[1]) / 180 * H]));
+      let ymin = Infinity, ymax = -Infinity;
+      for (const ring of rings) for (const p of ring) { if (p[1] < ymin) ymin = p[1]; if (p[1] > ymax) ymax = p[1]; }
+      // rows whose centre (r + 0.5) lies in [ymin, ymax)
+      const rA = Math.max(0, Math.ceil(ymin - 0.5)), rB = Math.min(H - 1, Math.ceil(ymax - 0.5) - 1);
+      if (rB < rA) continue;
+      const rows = [];
+      for (let r = rA; r <= rB; r++) rows.push([]);
+      for (const ring of rings) {
+        for (let i = 0, n = ring.length; i < n; i++) {
+          const a = ring[i], b = ring[(i + 1) % n];
+          if (a[1] === b[1]) continue;
+          const lo = a[1] < b[1] ? a : b, hi = a[1] < b[1] ? b : a, k = (hi[0] - lo[0]) / (hi[1] - lo[1]);
+          const s = Math.max(rA, Math.ceil(lo[1] - 0.5)), e = Math.min(rB, Math.ceil(hi[1] - 0.5) - 1);
+          for (let r = s; r <= e; r++) rows[r - rA].push(lo[0] + (r + 0.5 - lo[1]) * k);
+        }
+      }
+      for (let r = rA; r <= rB; r++) {
+        const xs = rows[r - rA];
+        if (xs.length < 2) continue;
+        xs.sort((p, q) => p - q);
+        for (let k = 0; k + 1 < xs.length; k += 2) {
+          const xa = Math.max(0, Math.ceil(xs[k] - 0.5)), xb = Math.min(W - 1, Math.ceil(xs[k + 1] - 0.5) - 1);
+          for (let x = xa, o = r * W + xa; x <= xb; x++, o++) ids[o] = id;
+        }
+      }
+    }
+  });
+  _gMask = { w: W, h: H, ids, isoAt };
+  return _gMask;
+}
+
+// Orthographic projection, centred on view {lon, lat}, radius r (CSS px)
+// around (cx, cy): [x, y, visible] (visible: on the hemisphere facing us).
+function globeProject(lon, lat, view) {
+  const l = (lon - view.lon) * G_RAD, p = lat * G_RAD, p0 = view.lat * G_RAD;
+  const cp = Math.cos(p), sp = Math.sin(p), c0 = Math.cos(p0), s0 = Math.sin(p0), cl = Math.cos(l);
+  const x = cp * Math.sin(l), y = c0 * sp - s0 * cp * cl, z = s0 * sp + c0 * cp * cl;
+  return [view.cx + x * view.r, view.cy - y * view.r, z > 0];
+}
+// The inverse: [lon, lat] under a screen point, or null off the disc.
+function globeInverse(X, Y, view) {
+  const x = (X - view.cx) / view.r, y = (view.cy - Y) / view.r, r2 = x * x + y * y;
+  if (r2 > 1) return null;
+  const z = Math.sqrt(1 - r2), p0 = view.lat * G_RAD, c0 = Math.cos(p0), s0 = Math.sin(p0);
+  const lat = Math.asin(Math.max(-1, Math.min(1, z * s0 + y * c0))) / G_RAD;
+  const lon = view.lon + Math.atan2(x, z * c0 - y * s0) / G_RAD;
+  return [((lon + 540) % 360) - 180, lat];
+}
+// n points (ends included) along the great circle from a to b ([lon, lat]).
+function gcPoints(a, b, n) {
+  n = Math.max(2, n | 0);
+  const v = (p) => { const l = p[0] * G_RAD, f = p[1] * G_RAD; return [Math.cos(f) * Math.cos(l), Math.cos(f) * Math.sin(l), Math.sin(f)]; };
+  const A = v(a), B = v(b);
+  const d = Math.acos(Math.max(-1, Math.min(1, A[0] * B[0] + A[1] * B[1] + A[2] * B[2]))), sd = Math.sin(d);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    if (i === 0 || d < 1e-9) { out.push([a[0], a[1]]); continue; }
+    if (i === n - 1) { out.push([b[0], b[1]]); continue; }
+    if (sd < 1e-9) {                              // antipodes: any great circle; go by lon/lat
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      continue;
+    }
+    const wa = Math.sin((1 - t) * d) / sd, wb = Math.sin(t * d) / sd;
+    const x = wa * A[0] + wb * B[0], y = wa * A[1] + wb * B[1], z = wa * A[2] + wb * B[2];
+    out.push([Math.atan2(y, x) / G_RAD, Math.atan2(z, Math.hypot(x, y)) / G_RAD]);
+  }
+  return out;
+}
+// A whole-Earth view of size x size CSS px centred on a place (its parent's
+// centroid for a guide-only place: Scotland on the UK).
+function globeViewFor(iso, size) {
+  const c = countryCentroids()[GUIDE_PARENT[iso] || iso];
+  return { lon: c ? c[0] : 0, lat: c ? c[1] : 16, r: size * 0.4, cx: size / 2, cy: size / 2, w: size, h: size };
+}
+
+// Everything that depends only on the size and the centre's latitude, per
+// device pixel on the disc: where it lands in the mask (a column offset from
+// the centre's longitude, and a row) and its light. A longitude change is
+// then one add per pixel (the Trip globe's drag); the six most recent kept.
+let _gGeo = [];
+function globeGeo(view, devW, devH) {
+  const dpr = devW / (view.w || view.cx * 2);
+  const key = [devW, devH, dpr, view.cx, view.cy, view.r, view.lat].map((v) => (+v).toFixed(4)).join("|");
+  const hit = _gGeo.find((g) => g.key === key);
+  if (hit) return hit;
+  const cxd = view.cx * dpr, cyd = view.cy * dpr, rd = view.r * dpr;
+  const p0 = view.lat * G_RAD, c0 = Math.cos(p0), s0 = Math.sin(p0);
+  let lx = -0.42, ly = 0.55, lz = 0.72;            // the spin globe's light: upper left, front
+  const lm = Math.hypot(lx, ly, lz);
+  lx /= lm; ly /= lm; lz /= lm;
+  const x0 = Math.max(0, Math.floor(cxd - rd)), x1 = Math.min(devW - 1, Math.ceil(cxd + rd));
+  const y0 = Math.max(0, Math.floor(cyd - rd)), y1 = Math.min(devH - 1, Math.ceil(cyd + rd));
+  const cap = Math.max(0, (x1 - x0 + 1) * (y1 - y0 + 1));
+  const pix = new Uint32Array(cap), colf = new Float32Array(cap), row = new Uint32Array(cap), lum = new Float32Array(cap);
+  let n = 0;
+  for (let py = y0; py <= y1; py++) {
+    for (let px = x0; px <= x1; px++) {
+      const x = (px + 0.5 - cxd) / rd, y = (cyd - py - 0.5) / rd, r2 = x * x + y * y;
+      if (r2 > 1) continue;
+      const z = Math.sqrt(1 - r2);
+      const phi = Math.asin(Math.max(-1, Math.min(1, z * s0 + y * c0)));
+      pix[n] = py * devW + px;
+      colf[n] = Math.atan2(x, z * c0 - y * s0) / (2 * Math.PI) * GM_W + GM_W;   // kept positive for the | 0
+      row[n] = Math.min(GM_H - 1, Math.max(0, Math.floor((0.5 - phi / Math.PI) * GM_H))) * GM_W;
+      lum[n] = 0.62 + 0.42 * Math.max(0, lx * x + ly * y + lz * z);
+      n++;
+    }
+  }
+  const g = { key, n, pix, colf, row, lum, dpr, idb: new Int16Array(devW * devH) };
+  _gGeo.unshift(g);
+  if (_gGeo.length > 6) _gGeo.length = 6;
+  return g;
+}
+
+// The disc's pixels (RGBA, devW x devH device px, into `out` when given):
+// land, sea and the highlighted countries (opts.highlight, guide-only places
+// as their parent; a -99 feature never), shaded; a white outline round the
+// highlight with a soft glow outside it, and a faint line between other
+// countries. Pure (no canvas), so jsc can test it.
+function globeRaster(view, devW, devH, opts, out) {
+  const d = out || new Uint8ClampedArray(devW * devH * 4);
+  if (out) d.fill(0);
+  const m = globeMask();
+  if (!m) return d;
+  const g = globeGeo(view, devW, devH);
+  const want = new Set([...((opts && opts.highlight) || [])].map((i) => GUIDE_PARENT[i] || i));
+  const hl = new Uint8Array(m.isoAt.length);
+  m.isoAt.forEach((iso, id) => { if (id && iso !== "-99" && want.has(iso)) hl[id] = 1; });
+  const shift = (view.lon + 180) / 360 * GM_W, idb = g.idb, ids = m.ids, WM = GM_W - 1;
+  idb.fill(-1);
+  for (let k = 0; k < g.n; k++) idb[g.pix[k]] = ids[g.row[k] + (((g.colf[k] + shift) | 0) & WM)];
+  // the outline and glow are a CSS pixel wide (two device pixels at 2x)
+  const ow = Math.max(1, Math.round(g.dpr));
+  for (let k = 0; k < g.n; k++) {
+    const p = g.pix[k], id = idb[p], L = g.lum[k], px = p % devW;
+    const on = hl[id];
+    let edge = 0, glow = 0, border = 0;
+    for (let s = 1; s <= ow && !edge; s++) {
+      const nb = [px >= s ? p - s : -1, px + s < devW ? p + s : -1, p - s * devW, p + s * devW];
+      for (const q of nb) {
+        if (q < 0 || q >= idb.length) continue;
+        const o = idb[q];
+        if (o < 0) continue;
+        if (on && !hl[o]) edge = 1;
+        else if (!on && hl[o]) glow = 1;
+        else if (s === 1 && !on && id && o && o !== id && m.isoAt[o] !== m.isoAt[id]) border = 1;
+      }
+    }
+    const c = on ? G_HL : id ? G_LAND : G_OCEAN, o4 = p * 4;
+    let r = c[0] * L, gg = c[1] * L, b = c[2] * L;
+    if (edge) { r = gg = b = 255; }
+    else if (glow) { r += (255 - r) * 0.4; gg += (255 - gg) * 0.4; b += (255 - b) * 0.4; }
+    else if (border) { r *= 0.84; gg *= 0.84; b *= 0.84; }
+    d[o4] = r; d[o4 + 1] = gg; d[o4 + 2] = b; d[o4 + 3] = 255;
+  }
+  return d;
+}
+
+// One globe on a canvas whose CSS size is view.w x view.h (its width/height
+// attributes in device pixels, DPR capped at 2 by the caller). opts:
+// {highlight: Set<iso>, dots: ([lon, lat] | {ll, label})[], arcs: {a, b,
+// dashed, label}[], home: [lon, lat]}. Before world.geojson is in: a plain
+// sea disc in the same place. Static: the caller decides when to redraw.
+let _gScratch = null, _gImg = null;
+function globeDraw(canvas, view, opts) {
+  opts = opts || {};
+  const ctx = canvas && canvas.getContext && canvas.getContext("2d");
+  if (!ctx) return;
+  const W = view.w || view.cx * 2, H = view.h || view.cy * 2, dw = canvas.width, dh = canvas.height, dpr = dw / W;
+  const cx = view.cx, cy = view.cy, R = view.r, TAU = Math.PI * 2;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, dw, dh);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  let g = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.2);   // atmosphere halo
+  g.addColorStop(0, "rgba(120,190,255,.33)");
+  g.addColorStop(1, "rgba(120,190,255,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, R * 1.2, 0, TAU); ctx.fill();
+  if (!globeMask()) {
+    ctx.fillStyle = "rgb(38,122,202)";
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  } else {
+    if (!_gScratch) _gScratch = document.createElement("canvas");
+    const s = _gScratch, sc = s.getContext("2d");
+    if (s.width !== dw || s.height !== dh) { s.width = dw; s.height = dh; _gImg = null; }
+    if (!_gImg) _gImg = sc.createImageData(dw, dh);
+    globeRaster(view, dw, dh, opts, _gImg.data);
+    sc.putImageData(_gImg, 0, 0);
+    ctx.drawImage(s, 0, 0, W, H);
+  }
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.clip();
+  // graticule (30 degrees), the near side only
+  ctx.strokeStyle = "rgba(255,255,255,.14)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const line = (pts) => {
+    let pen = false;
+    for (const p of pts) {
+      const q = globeProject(p[0], p[1], view);
+      if (!q[2]) { pen = false; continue; }
+      pen ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]);
+      pen = true;
+    }
+  };
+  for (let lo = -180; lo < 180; lo += 30) { const pts = []; for (let la = -85; la <= 85; la += 5) pts.push([lo, la]); line(pts); }
+  for (let la = -60; la <= 60; la += 30) { const pts = []; for (let lo = -180; lo <= 180; lo += 5) pts.push([lo, la]); line(pts); }
+  ctx.stroke();
+  g = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, R);            // limb darkening
+  g.addColorStop(0, "rgba(2,16,38,0)");
+  g.addColorStop(0.8, "rgba(2,16,38,.06)");
+  g.addColorStop(1, "rgba(2,16,38,.5)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  ctx.restore();
+  ctx.beginPath();                                                      // gloss + rim light
+  ctx.ellipse(cx - R * 0.38, cy - R * 0.48, R * 0.42, R * 0.2, -0.5, 0, TAU);
+  ctx.fillStyle = "rgba(255,255,255,.15)";
+  ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU);
+  ctx.strokeStyle = "rgba(195,228,255,.7)";
+  ctx.lineWidth = Math.max(1, R / 26);
+  ctx.stroke();
+  const ring = (x, y, rad) => {
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU);
+    ctx.lineWidth = 3.4; ctx.strokeStyle = "rgba(6,26,52,.4)"; ctx.stroke();
+    ctx.lineWidth = 1.8; ctx.strokeStyle = "#fff"; ctx.stroke();
+  };
+  // a highlighted place too small to see at world scale (the flat maps' rule):
+  // a ring round it
+  if (globeMask()) {
+    const spans = placeSpans(), C = countryCentroids();
+    for (const iso0 of opts.highlight || []) {
+      const iso = GUIDE_PARENT[iso0] || iso0, c = C[iso];
+      if (iso === "-99" || !c || (spans[iso] != null && spans[iso] >= 1.5)) continue;
+      const q = globeProject(c[0], c[1], view);
+      if (!q[2]) continue;
+      ring(q[0], q[1], Math.max(5, R * 0.26));
+      ctx.beginPath(); ctx.arc(q[0], q[1], 1.8, 0, TAU); ctx.fillStyle = "rgb(10,125,40)"; ctx.fill();
+    }
+  }
+  // route arcs: great circles, the near side only, dashed when estimated
+  for (const a of opts.arcs || []) {
+    const ang = distKm(a.a, a.b) / 111.2;
+    const pts = gcPoints(a.a, a.b, Math.max(8, Math.ceil(ang / 2)));
+    ctx.save();
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.setLineDash(a.dashed ? [3, 4] : []);
+    ctx.beginPath(); line(pts);
+    ctx.lineWidth = 3.6; ctx.strokeStyle = "rgba(6,26,52,.35)"; ctx.stroke();
+    ctx.lineWidth = 1.8; ctx.strokeStyle = "#fff"; ctx.stroke();
+    ctx.restore();
+  }
+  const label = (x, y, t) => {
+    ctx.font = "800 10px system-ui, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff";
+    ctx.fillText(String(t), x, y + 0.5);
+  };
+  if (opts.home) {
+    const q = globeProject(opts.home[0], opts.home[1], view);
+    if (q[2]) {
+      ctx.beginPath(); ctx.arc(q[0], q[1], 4.5, 0, TAU);
+      ctx.fillStyle = "#fff"; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = "rgba(6,26,52,.75)"; ctx.stroke();
+    }
+  }
+  for (const dt of opts.dots || []) {
+    const ll = Array.isArray(dt) ? dt : dt.ll, t = Array.isArray(dt) ? null : dt.label;
+    if (!ll) continue;
+    const q = globeProject(ll[0], ll[1], view);
+    if (!q[2]) continue;
+    ctx.beginPath(); ctx.arc(q[0], q[1], t != null ? 7 : 4, 0, TAU);
+    ctx.fillStyle = "rgb(10,125,40)"; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "#fff"; ctx.stroke();
+    if (t != null) label(q[0], q[1], t);
+  }
+}
+// ---- end of small globes ------------------------------------------------------
+
 // Returns { prices, dealPrices, mins, est:Set, min, max, expected } — known
 // fares plus distance-based estimates for every mappable country, or null when
 // no fare data is loaded. `prices` is what a traveller would pay (the cached
