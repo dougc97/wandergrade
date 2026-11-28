@@ -15,7 +15,8 @@
 //   TR_ISOS   shots / cls / rowfit: the trip itself (comma list), over TR_SHOTN / TR_N; TR_MONTH its month (fx_tripmonth:
 //             '' unset = the picks month, 0 flexible, 1-12)
 //   TR_LS     shots: more localStorage as JSON (a reader's From and currency)
-//   rowfit    a phone trip of long names and ⚠️ countries with a month set: every name's ⚠️ beside it, rows one height
+//   rowfit    a trip of long names and ⚠️ countries with a month set: every name's ⚠️ beside it on its line, and
+//             under 1200px every row one height
 // /api/trip-legs is answered from a fixture (below) unless TR_CASE=real; production hosts are refused; Wikipedia
 // and Wikimedia go through wikicache.mjs. Each case prints PASS/FAIL lines and "RESULT passed/total"; keep a case
 // under ~50 s (one Chrome at a time).
@@ -663,7 +664,10 @@ export default async (ctx) => {
     ok(r.every((x) => !x.warn || (x.warnLine && x.inside && x.warnRight >= 0 && x.warnRight < 8)),
        `${tag}: every ⚠️ beside its name, on its line (${JSON.stringify(r.map((x) => [x.iso, x.warnLine, x.warnRight]))})`);
     ok(r.every((x) => x.handleLine !== false), `${tag}: handle, number and name on one line`);
-    ok(new Set(r.map((x) => x.h)).size === 1, `${tag}: every row one height (${r.map((x) => x.h)})`);
+    // Under 1200px the links take a line of their own, so every row is one height; from 1200 they share the row's
+    // line and a row with more of them may wrap (reported, not held).
+    if (W < 1200) ok(new Set(r.map((x) => x.h)).size === 1, `${tag}: every row one height (${r.map((x) => x.h)})`);
+    else console.log(`  rows' heights ${r.map((x) => x.h)} (one line shared with the links from 1200px)`);
     const s = await state();
     ok(s.sw <= s.cw, `${tag}: no sideways scroll (${s.sw} <= ${s.cw})`);
     return finish();
