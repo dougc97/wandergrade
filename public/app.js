@@ -3195,12 +3195,21 @@ async function renderGuideFares(iso) {
   // poll's redraw): hidden and shown again, the reader's focus inside fell
   // to <body>. Another guide's or origin's strip hides meanwhile.
   const curveKey = originIso() + ":" + iso;
-  const keep = (servedFaresOnScreen && iso === window.__WGGC__) || (!host.hidden && host._wgCurve === curveKey);
+  // A first visit's served strip (the default origin's, named in its own
+  // heading) also stays when the reader's From, learned after the paint,
+  // has no curve here, and through later polls for that same From: hidden
+  // as the column settled, all under it fell ~200px for a reader already
+  // scrolled down (Portugal for a German first visit, CLS 0.207 against
+  // main's 0.050, where main kept it by accident). Their own curve, once
+  // it comes, is drawn over it.
+  const served = (servedFaresOnScreen && iso === window.__WGGC__) || (!host.hidden && host._wgServedKept === curveKey);
+  const keep = served || (!host.hidden && host._wgCurve === curveKey);
   servedFaresOnScreen = false;
   if (!keep) host.hidden = true;
   const fm = await ensureFareMonths(iso);
   if (ccGuideIso !== iso) return;
-  if (!fm || !fm.months) { host.hidden = true; return; }
+  const none = () => { if (served && !host.hidden) host._wgServedKept = curveKey; else host.hidden = true; };
+  if (!fm || !fm.months) { none(); return; }
   const now2 = new Date();
   const prices = [];
   for (let m = 1; m <= 12; m++) {
@@ -3211,8 +3220,9 @@ async function renderGuideFares(iso) {
   const known = prices.filter((p) => p != null);
   // Under three months there is no curve to read (the Trip strip's floor,
   // fareStripHTML minMonths): two bars would claim a season.
-  if (known.length < 3) { host.hidden = true; return; }
+  if (known.length < 3) { none(); return; }
   host.hidden = false;
+  host._wgServedKept = undefined;
   // Origin name from the strip's own payload — flightsData may be null on a
   // direct guide load (that null is what hid the first production version).
   const originName = countryName(fm.origin || travelOrigin() || "US");
