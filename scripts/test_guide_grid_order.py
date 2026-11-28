@@ -123,6 +123,22 @@ results.append(ok(re.search(r"^\.guidefares\[hidden\], \.guidefx\[hidden\] \{ di
                   "a hidden fares strip or FX line is display: none once the column settles, and the same while it "
                   "loads unless held (.farecol.loading)"))
 
+# Wherever that hidden strip is display: none (the column settled, or loading
+# with no room held), the FX line keeps the strip's own top gap: the strip's
+# 14px margin, not the line's 10. With the line's 10, a held strip given back
+# as the column settled (a German reader the server has no fares for yet, on
+# a guide the US strip holds room on) also lifted the column 4px in the
+# frame everything under it rose 196px, and Chrome scored the column's move
+# too (Japan 0.149 against 0.125, 390, slow, scrolled 2000). A general
+# sibling (~): _GUIDE_HOLD's <script> can sit between the two.
+fares_top = re.search(r"^\.guidefares \{ display: block; margin: (\d+)px 0 \d+px; \}$", CSS, re.M)
+fx_gap = re.search(r"^\.farecol:not\(\.loading\) > \.guidefares\[hidden\] ~ \.guidefx,\n"
+                   r"#tab-guide:not\(\[data-fm\]\) \.farecol\.loading > #guideFares\[hidden\] ~ #guideFx "
+                   r"\{ margin-top: (\d+)px; \}$", CSS, re.M)
+results.append(ok(fares_top is not None and fx_gap is not None and fx_gap.group(1) == fares_top.group(1),
+                  "the FX line under a display: none fares strip keeps the strip's top gap (%s px; the strip's %s)"
+                  % (fx_gap and fx_gap.group(1), fares_top and fares_top.group(1))))
+
 # renderGuide's hand-off of the crawler block, run under jsc as written: its
 # first lines (find, measure, pin, empty) and the block after renderActivity.
 pin = re.search(r'^  const ssr = \$\("ssrGuide"\)[^\n]*\n  const span0[^\n]*\n  if \(ssr\) \{[^\n]*\}\n', APP, re.M)

@@ -2348,6 +2348,14 @@ button.chip2 { border: 0; }
    14px margin came back as .loading went, dropping all under the column 4px
    about 2.9 s into a slow load. The FX line likewise. */
 .guidefares[hidden], .guidefx[hidden] { display: none; }
+/* Where that leaves the FX line first in the fare column (settled, or loading
+   with no room held), it keeps the strip's 14px gap, not its own 10: a held
+   strip given back as the column settled (a German reader whose fares the
+   server hadn't cached yet) also lifted the column 4px in the frame all
+   under it rose 196px, and Chrome scored both. ~, not +: _GUIDE_HOLD's
+   <script> can sit between them. */
+.farecol:not(.loading) > .guidefares[hidden] ~ .guidefx,
+#tab-guide:not([data-fm]) .farecol.loading > #guideFares[hidden] ~ #guideFx { margin-top: 14px; }
 .fareshead { display: block; font-size: 13.5px; font-weight: 700; margin-bottom: 6px; }
 /* Under the bars, the chart's one booking link (renderGuideFares'
    guideFareLink, guide_lines.fares): one line, held empty where there is no
