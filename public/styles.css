@@ -1591,6 +1591,38 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
   #tripBook .tblow { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 }
+/* The trip's route (round 16): the order switch over the list, a drag handle
+   per row, a leg line before, between and after the rows, the totals. Each
+   is one fixed-height line from first paint (index.html's stand-in draws the
+   same), so the legs filling in move nothing; contain: inline-size keeps a
+   long leg from widening the grid's columns. */
+.tripsort { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 0 0 10px; font-size: 13px; }
+.tripsort .windowtoggle { margin-top: 0; }
+.tripsort .windowtoggle button { white-space: nowrap; }
+.tsmine { font-weight: 700; white-space: nowrap; }
+.tsrec { font: inherit; font-weight: 600; background: none; border: 0; padding: 4px 2px; color: var(--green);
+  cursor: pointer; white-space: nowrap; }
+.tsrec:hover { text-decoration: underline; }
+/* Six dots, drawn (no glyph to go missing): a 10x15 content box of 5px tiles. */
+.tbdrag { display: inline-block; vertical-align: middle; width: 24px; height: 26px; margin: 0 2px 0 0; padding: 5px 7px;
+  border: 0; border-radius: 6px; cursor: grab; touch-action: none;
+  background: radial-gradient(circle, var(--gray) 1.2px, transparent 1.6px) content-box 0 0 / 5px 5px; }
+.tbdrag:hover { background-color: var(--soft); }
+.tbdrag:active { cursor: grabbing; }
+.tbdrag:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+.tbdrag + .tbdest { max-width: calc(100% - 26px); }
+.tbrow.tbdragging { position: relative; z-index: 2; background: var(--card); border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+.tbrow.tbdropb { box-shadow: inset 0 2px 0 var(--green); }
+.tbrow.tbdropa { box-shadow: inset 0 -2px 0 var(--green); }
+.tbleg, .tbtotal { grid-column: 1 / -1; min-width: 0; contain: inline-size; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; line-height: 18px; }
+.tbleg { height: 24px; padding: 3px 0 3px 28px; font-size: 12px; color: var(--gray); }
+.tbtotal { height: 31px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; font-weight: 700; }
+@media (max-width: 560px) {
+  .tripsort .windowtoggle button { padding: 5px 9px; }
+}
 .triplink { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line);
   border-radius: 999px; color: var(--ink); text-decoration: none; }
 .triplink:hover { border-color: var(--green); color: var(--green); }

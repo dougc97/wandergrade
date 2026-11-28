@@ -7976,13 +7976,18 @@ function tripBestOrder(m, mode) {
 // into "plan my two weeks" produces mush. This is the three-to-eight you are
 // actually choosing between. Persisted, because planning happens over weeks.
 //
-// Grouping is left to the AI on purpose. Which countries make one trip is not a
-// geometry problem — it turns on flight connections, land borders, visas and
-// season — and a distance-based clustering would produce tidy, travel-naive
-// answers (splitting the Baltics from Poland on centroids, routing a Balkans
-// loop through an awkward crossing). We hand over coordinates and let it judge.
+// The order is the site's since round 16 (it used to be left to the AI): one
+// round trip by air, home -> every country -> home, in the order with the
+// lowest fares, the least flying, or the best of both (tripBestOrder over
+// real fares where we have them, distance estimates marked ≈ elsewhere), or
+// the reader's own after a drag. Flights only: land borders, visas and
+// season still decide whether that order makes a good trip (the ⓘ says so).
 let _trip = null;
 let sharedTripView = null;   // {td, tm} while viewing a shared trip link
+// A shared trip's order mode while it is on screen and not yet the reader's
+// own (the link's tp= opens as "Your order"): a mode picked on it reorders
+// the screen only. Saving the trip (an edit) makes it, and this, theirs.
+let _tripSharedSort = null;
 function loadTrip() {
   if (!_trip) {
     try { _trip = new Set(JSON.parse(localStorage.getItem("fx_trip") || "[]")); }
@@ -7990,7 +7995,11 @@ function loadTrip() {
   }
   return _trip;
 }
+// fx_trip holds the trip in the order shown (the recommended order, or the
+// reader's own after a drag): a reload paints it as it was, and the share
+// link and the AI prompt read it in that order.
 function saveTrip() {
+  if (_tripSharedSort) { const s = _tripSharedSort; _tripSharedSort = null; setTripSort(s); }
   try { localStorage.setItem("fx_trip", JSON.stringify([...loadTrip()])); } catch (e) {}
 }
 function tripHas(iso) { return loadTrip().has(iso); }
@@ -8190,6 +8199,9 @@ function renderTripBook(isos) {
     return '<span class="gr ' + gradeCls(grade(sc)) + '" role="img" aria-label="' + esc(MONTHS[m - 1] + " weather " + grade(sc))
       + '" data-tip="' + esc(tip) + '" title="">' + grade(sc) + "</span>";
   };
+  // The route's parts (round 16): the order switch, a drag handle per row,
+  // a leg line before, between and after the rows, the totals line.
+  const rp = tripRouteParts(isos, host);
   const hdr = '<div class="tbrow tbhdr">'
     + '<span class="tbn">' + isos.length + " " + (isos.length === 1 ? "country" : "countries") + "</span>"
     + '<span class="tbwx">' + (m ? '<span aria-hidden="true">🌤️</span><span class="vh">' + MONTHS[m - 1] + " weather</span>" : "") + "</span>"
@@ -8200,7 +8212,7 @@ function renderTripBook(isos) {
     + '<span class="tbacts">' + (seedable ? '<button type="button" class="tripseed" id="tripSeed">+ my ★ wishlist</button>' : "")
     + '<button type="button" class="tripseed" id="tripClear">Clear</button></span></div>';
   let unknown = false;   // a row whose stays and things to do wait on the marks
-  const rows = isos.map((iso) => {
+  const rows = isos.map((iso, k) => {
     const name = countryName(iso);
     const fr = flightsData && flightsData.countries
       ? flightsData.countries.find((r) => r.iso === iso) : null;
@@ -8227,20 +8239,22 @@ function renderTripBook(isos) {
     // Level 3-4: the table's ⚠️ exception mark.
     const warn = lvl >= 3 ? ' <span class="hzmark" data-tip="' + esc(advLevelText(iso, lvl) + advVia(iso)) + '" title="">⚠️</span>' : "";
     return '<div class="tbrow" data-iso="' + iso + '">'
-      + '<span class="tbn"><a class="tbdest" href="' + esc(guidePath(iso)) + '"><span aria-hidden="true">' + flagEmoji(iso)
+      + '<span class="tbn">' + rp.handle(iso, name, k) + '<a class="tbdest" href="' + esc(guidePath(iso)) + '"><span aria-hidden="true">' + flagEmoji(iso)
       + "</span> " + esc(name) + "</a>" + warn + "</span>"
       + '<span class="tbwx">' + wxPill(iso) + "</span>"
       + '<span class="tbfare" data-iso="' + iso + '"><span class="farestrip empty" aria-hidden="true"></span></span>'
       + '<span class="tblinks">' + links.join("") + "</span>"
       + '<button type="button" class="tbx" data-iso="' + iso + '" aria-label="' + esc("Remove " + name + " from the trip")
       + '" title="' + esc("Remove " + name) + '">×</button></div>';
-  }).join("");
+  });
   // 🧳, not 🛡️: 🛡️ means Safety everywhere else on the site.
-  host.innerHTML = hdr + rows
+  host.innerHTML = rp.sort + hdr + rp.leg("", isos[0] || "")
+    + rows.map((r, k) => r + rp.leg(isos[k], isos[k + 1] || "")).join("") + rp.total
     + '<div class="tbrow tbins"><span class="tbn">🧳 The whole trip</span>'
     + '<span class="tblinks">' + A(insuranceHref(isos[0] || "US"), "", "Travel insurance (EKTA)", "whole trip") + "</span></div>"
     + '<p class="affnote">These earn us a commission at no extra cost to you — it’s what keeps the site free.</p>';
   bindTripActions();
+  tripBookAfter(host, rp);
   // A list the server is still fetching (dnt_pending, seconds after a
   // deploy): those rows get their links once it is in, as the guide does.
   if (unknown && advisories && !dntSettled(advisories)) {
@@ -8298,6 +8312,309 @@ function renderTripBook(isos) {
         + "&checkin=" + checkin + "&checkout=" + checkout, "🏨", "Stays", countryName(el.dataset.iso));
     });
   }).catch(() => {});
+}
+
+// ---- Trip route: the switch, the legs, the drag (round 16) -------------------
+// The order modes: "best" (Best overall, the default), "cheap", "quick", and
+// "mine" once the reader drags. fx_tripsort holds the mode, fx_tripsortlast
+// the last recommended one (for ↺ Recommended); a shared trip's on screen is
+// _tripSharedSort until it becomes the reader's own.
+const TRIP_SORTS = { best: "Best overall", cheap: "Cheapest", quick: "Quickest" };
+const TRIP_HOLD_MS = 2000;   // a trip's first order waits this long for its data
+function tripSortMode() {
+  if (_tripSharedSort) return _tripSharedSort;
+  let s = null;
+  try { s = localStorage.getItem("fx_tripsort"); } catch (e) {}
+  return s === "mine" || TRIP_SORTS[s] ? s : "best";
+}
+function tripSortLast() {
+  let s = null;
+  try { s = localStorage.getItem("fx_tripsortlast"); } catch (e) {}
+  return TRIP_SORTS[s] ? s : "best";
+}
+function setTripSort(mode) {
+  if (_tripSharedSort) { _tripSharedSort = mode; return; }
+  try {
+    localStorage.setItem("fx_tripsort", mode);
+    if (TRIP_SORTS[mode]) localStorage.setItem("fx_tripsortlast", mode);
+  } catch (e) {}
+}
+const TRIP_SORT_TIP = "Best overall weighs total fare and flying time equally; Cheapest and Quickest each go for one. "
+  + "Flights only: from your From country through every stop and home. Real fares and flight times come from cached "
+  + "searches (Aviasales) where a trip country has its own airport hub in our fare data; the rest (≈) are estimated "
+  + "from distance. A leg's fare is half a cached round trip, in the trip month where known. Ground travel, borders "
+  + "and visas aren't considered. Drag a row's handle to set your own order.";
+// The markup renderTripBook weaves in, and where focus was (a redraw puts it
+// back: the legs landing must not drop a keyboard reader to <body>).
+function tripRouteParts(isos, host) {
+  const n = isos.length, multi = n > 1, mode = tripSortMode();
+  let keep = null;
+  const a = document.activeElement;
+  if (a && a !== host && host.contains(a)) {
+    const row = a.closest(".tbrow[data-iso]");
+    // ↺ Recommended goes when it is pressed: focus the mode it picked.
+    if (a.dataset.ts) keep = { sel: '.tripsort [data-ts="' + (a.dataset.ts === "rec" ? mode : a.dataset.ts) + '"]' };
+    else if (row && a.classList.length) {
+      const sel = '.tbrow[data-iso="' + row.dataset.iso + '"] .' + a.classList[0];
+      keep = { sel, i: [...row.querySelectorAll("." + a.classList[0])].indexOf(a) };
+    }
+  }
+  const sort = !multi ? "" : '<div class="tripsort"><div class="windowtoggle" role="group" aria-label="Order the trip by">'
+    + Object.keys(TRIP_SORTS).map((k) => '<button type="button" data-ts="' + k + '"' + (mode === k ? ' class="active"' : "")
+      + ' aria-pressed="' + (mode === k) + '">' + TRIP_SORTS[k] + "</button>").join("") + "</div>"
+    + (mode === "mine" ? '<span class="tsmine">Your order</span><button type="button" class="tsrec" data-ts="rec">↺ Recommended</button>' : "")
+    + '<span class="muted" data-tip="' + esc(TRIP_SORT_TIP) + '" title="">ⓘ</span></div>';
+  return {
+    keep, sort,
+    handle: (iso, name, k) => !multi ? "" : '<button type="button" class="tbdrag" data-iso="' + esc(iso) + '" aria-label="'
+      + esc(name + ", stop " + (k + 1) + " of " + n + ". Drag, or use the up and down arrow keys, to move it")
+      + '" title="Drag to reorder"></button>',
+    leg: (from, to) => !n ? "" : '<div class="tbleg" data-from="' + esc(from) + '" data-to="' + esc(to) + '"><span aria-hidden="true">✈️ …</span></div>',
+    total: n ? '<div class="tbtotal"><span aria-hidden="true">…</span></div>' : "",
+  };
+}
+function tripBookAfter(host, rp) {
+  tripFillLegs(host);
+  host.querySelectorAll(".tripsort [data-ts]").forEach((b) => b.addEventListener("click", () => tripSortClick(b.dataset.ts)));
+  host.querySelectorAll(".tbdrag").forEach((h) => {
+    h.addEventListener("keydown", tripDragKey);
+    h.addEventListener("pointerdown", tripDragStart);
+  });
+  if (rp && rp.keep) {
+    const els = host.querySelectorAll(rp.keep.sel), el = els[rp.keep.i > 0 ? rp.keep.i : 0];
+    if (el) el.focus({ preventScroll: true });
+  }
+  tripRouteSoon();
+}
+
+// What the route depends on: the trip, the reader's From and the trip month.
+function tripRouteCtx() {
+  const isos = [...loadTrip()], origin = originIso(), tm = tripMonth();
+  const key = tm.flexible || !tm.month ? null : nextMonthKey(tm.month);
+  return { isos, origin, key, sig: origin + "|" + (key || "") + "|" + isos.slice().sort().join(",") };
+}
+// /api/trip-legs per (origin, the twelve asked for, month). A failed answer,
+// or one with countries still pending (their hub fares not cached yet), is
+// asked again after 30 s on a later draw.
+const _tripLegsReq = {};
+function tripLegsNow(origin, isos, key) {
+  const url = tripLegsURL(origin, isos, key);
+  let r = _tripLegsReq[url];
+  if (r && r.state !== "wait" && Date.now() - r.at > 30000 && (r.state === "fail" || (r.json.pending || []).length)) r = null;
+  if (!r) {
+    r = _tripLegsReq[url] = { at: Date.now(), state: "wait", json: null };
+    getJSON(url).then((j) => {
+      r.state = j && j.legs ? "done" : "fail";
+      r.json = j && j.legs ? j : null;
+    }).catch(() => { r.state = "fail"; }).then(() => { r.at = Date.now(); tripRouteSoon(); });
+  }
+  return r;
+}
+// The home legs, from the reader's own fares: the trip month's price where
+// the row's month strip has it (what the row says, "Oct USD 608"), else the
+// yearly average, halved; the most direct cached trip's flight time.
+// waiting: a month strip still on its way.
+const _tripFM = {};
+function tripHomeFares(origin, isos, key) {
+  const fares = {};
+  let waiting = false;
+  const rows = flightsData && flightsData.origin === origin && flightsData.countries || [];
+  for (const iso of isos) {
+    const r = rows.find((x) => x.iso === iso) || rows.find((x) => x.iso === GUIDE_PARENT[iso]);
+    let rt = null, basis = null;
+    if (key) {
+      const k = origin + ":" + iso;
+      if (!(k in _tripFM)) {
+        waiting = true;
+        if (!_tripFM["?" + k]) {
+          _tripFM["?" + k] = true;
+          ensureFareMonths(iso).then((v) => { if (originIso() === origin) _tripFM[k] = v; delete _tripFM["?" + k]; tripRouteSoon(); });
+        }
+      }
+      const rec = _tripFM[k] && _tripFM[k].months && _tripFM[k].months[key];
+      if (rec && Number(rec.price) > 0) { rt = Number(rec.price); basis = "month"; }
+    }
+    if (rt == null && r && Number(r.avg) > 0) { rt = Number(r.avg); basis = "avg"; }
+    fares[iso] = { to: rt != null ? rt / 2 : null, back: rt != null ? rt / 2 : null, basis,
+                   dur: r && Number(r.dur) > 0 ? Number(r.dur) : null };
+  }
+  return { fares, waiting };
+}
+
+// The route in hand: {sig, nodes (home + the stops, in the order the matrix
+// was built), m}. Built only while the Trip tab is on screen.
+let _tripM = null, _tripHold = null, _tripDragging = false, _tripRouteT = 0;
+function tripRouteSoon() {
+  if (_tripRouteT) return;
+  _tripRouteT = setTimeout(() => { _tripRouteT = 0; tripRouteUpdate(false); }, 0);
+}
+// Builds the leg matrix from what has landed and, in a recommended mode,
+// puts the trip in its order (saved, so a reload paints it so). A trip's
+// first order waits up to TRIP_HOLD_MS for its legs, month fares and the
+// reader's fares, so it doesn't reorder twice on a cold load; later
+// arrivals reorder at once. Never while a row is being dragged, never in
+// "Your order". force: a click on the switch, now, with what there is.
+// Returns true when it redrew the list.
+function tripRouteUpdate(force) {
+  const host = $("tripBook");
+  if (!host || _tripDragging || document.documentElement.getAttribute("data-tab") !== "trip") return false;
+  const ctx = tripRouteCtx();
+  if (!ctx.isos.length) return false;
+  const have = _tripM && _tripM.sig === ctx.sig;
+  if (!have && (!_tripHold || _tripHold.sig !== ctx.sig)) {
+    _tripHold = { sig: ctx.sig, until: Date.now() + TRIP_HOLD_MS };
+    setTimeout(tripRouteSoon, TRIP_HOLD_MS + 20);
+  }
+  if (!worldGeo) { ensureWorld().then(tripRouteSoon, () => {}); return false; }
+  const L = tripLegsNow(ctx.origin, ctx.isos, ctx.key);
+  const hf = tripHomeFares(ctx.origin, ctx.isos, ctx.key);
+  const fares = flightsData && flightsData.origin === ctx.origin;
+  const waiting = L.state === "wait" || hf.waiting || (!fares && !valueFlightsSettled);
+  if (waiting && !have && !force && Date.now() < _tripHold.until) return false;
+  let lj = L.json || {};
+  if (!tripFit(lj.fit)) lj = Object.assign({}, lj, { fit: tripFallbackFit() });
+  _tripM = { sig: ctx.sig, nodes: [ctx.origin].concat(ctx.isos), m: tripLegMatrix(ctx.isos, ctx.origin, lj, hf.fares) };
+  const mode = tripSortMode();
+  if (mode !== "mine" && ctx.isos.length > 1) {
+    const order = tripBestOrder(_tripM.m, mode).map((i) => ctx.isos[i]);
+    if (order.join() !== ctx.isos.join()) {
+      _trip = new Set(order);
+      if (!_tripSharedSort) saveTrip();
+      renderTripBook(order);
+      refreshTripPrompt();
+      return true;
+    }
+  }
+  tripFillLegs(host);
+  return false;
+}
+function tripSortClick(mode) {
+  setTripSort(mode === "rec" ? tripSortLast() : mode);
+  if (!tripRouteUpdate(true)) renderTripBook([...loadTrip()]);
+}
+
+// "✈️ USD 95 · 1h 40m": ≈ before what is estimated (a converted fare already
+// carries fareMoney's ≈); the home legs carry the home flag, leaving and
+// coming back. sr: the same leg in words for screen readers.
+function tripDurText(min) { return fmtDuration(Math.round(min)).trim(); }
+function tripLegWords(m, i, j, o, names) {
+  const home = flagEmoji(names[0].iso);
+  if (m.fare[i][j] === 0 && m.min[i][j] === 0)
+    return { vis: "✈️ —", sr: "No flight from " + names[i].name + " to " + names[j].name + ": the same country" };
+  const f = m.fare[i][j];
+  let money = "";
+  if (f != null) {
+    money = fareMoney(f, o.cur, o.conv);
+    if (!m.real[i][j] && money[0] !== "≈") money = "≈" + money;
+  }
+  const time = (m.realMin[i][j] ? "" : "≈") + tripDurText(m.min[i][j]);
+  const body = "✈️ " + (money ? money + " · " : "") + time;
+  const est = !m.real[i][j] || !m.realMin[i][j];
+  return { vis: (i === 0 ? home + " " : "") + body + (j === 0 ? " " + home : ""),
+           sr: "Flight from " + names[i].name + " to " + names[j].name + ": " + (money ? money.replace(/^≈/, "about ") + ", " : "")
+             + tripDurText(m.min[i][j]) + (est ? " (estimated)" : "") };
+}
+function tripTotalWords(t, o) {
+  const money = t.fare != null ? fareMoney(t.fare, o.cur, o.conv) : "";
+  const pre = t.estimated && money[0] !== "≈" ? "≈ " : "";
+  return pre + (money ? money + " · " : "") + tripDurText(t.minutes) + " flying";
+}
+// Fills the leg lines and the totals from the route in hand, for the rows
+// as drawn; placeholders stay while it is still coming.
+function tripFillLegs(host) {
+  const ctx = tripRouteCtx();
+  if (!host || !_tripM || _tripM.sig !== ctx.sig) return;
+  const { m, nodes } = _tripM, o = fareStripOpts(null);
+  const ix = (iso) => (iso ? nodes.indexOf(iso, 1) : 0);
+  const names = nodes.map((iso, k) => ({ iso, name: k === 0 ? (iso === "US" ? "the US" : countryName(iso)) : countryName(iso) }));
+  host.querySelectorAll(".tbleg").forEach((el) => {
+    const i = ix(el.dataset.from), j = ix(el.dataset.to);
+    if (i < 0 || j < 0 || i === j) return;
+    const w = tripLegWords(m, i, j, o, names);
+    el.innerHTML = '<span aria-hidden="true">' + esc(w.vis) + '</span><span class="vh">' + esc(w.sr) + "</span>";
+  });
+  const tot = host.querySelector(".tbtotal");
+  const order = [...host.querySelectorAll(".tbrow[data-iso]")].map((r) => ix(r.dataset.iso) - 1);
+  if (tot && order.length && order.every((i) => i >= 0)) {
+    const t = tripTotals(m, order);
+    tot.innerHTML = '<span aria-hidden="true">' + esc(tripTotalWords(t, o)) + '</span><span class="vh">'
+      + esc("Whole trip: " + tripTotalWords(t, o).replace(/≈\s?/g, "about ")) + "</span>";
+  }
+}
+
+// Reordering by hand: a row moves to index j of the trip and the trip is the
+// reader's own order from then on (saved, as an edit is).
+function tripMoveTo(iso, j) {
+  const isos = [...loadTrip()].filter((x) => x !== iso);
+  isos.splice(Math.max(0, Math.min(j, isos.length)), 0, iso);
+  _trip = new Set(isos);
+  _tripSharedSort = null;
+  setTripSort("mine");
+  saveTrip();
+  renderTripBook(isos);
+  refreshTripPrompt();
+}
+// Keyboard: Up/Down on a focused handle moves its row one place.
+function tripDragKey(e) {
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  e.preventDefault();
+  const iso = e.currentTarget.dataset.iso, isos = [...loadTrip()], i = isos.indexOf(iso);
+  const j = i + (e.key === "ArrowUp" ? -1 : 1);
+  if (i < 0 || j < 0 || j >= isos.length) return;
+  tripMoveTo(iso, j);
+}
+// Pointer: the row follows the pointer (a transform, so nothing below it
+// moves), a line marks where it will land, and the drop moves it there. The
+// handle alone starts a drag (touch-action: none on it), so a swipe anywhere
+// else on the list still scrolls the page.
+function tripDragStart(e) {
+  if (e.button !== 0 || _tripDragging) return;
+  const h = e.currentTarget, host = $("tripBook"), row = h.closest(".tbrow");
+  if (!host || !row) return;
+  e.preventDefault();
+  const rows = [...host.querySelectorAll(".tbrow[data-iso]")], from = rows.indexOf(row);
+  const others = rows.filter((r) => r !== row);
+  const mids = others.map((r) => { const b = r.getBoundingClientRect(); return b.top + b.height / 2; });
+  const b0 = row.getBoundingClientRect(), mid0 = b0.top + b0.height / 2, y0 = e.clientY;
+  let to = from, moved = false;
+  _tripDragging = true;
+  try { h.setPointerCapture(e.pointerId); } catch (x) {}
+  row.classList.add("tbdragging");
+  const mark = () => others.forEach((r, k) => {
+    r.classList.toggle("tbdropb", moved && k === to && to !== from);
+    r.classList.toggle("tbdropa", moved && to === others.length && k === others.length - 1 && to !== from);
+  });
+  const pid = e.pointerId;
+  const move = (ev) => {
+    if (ev.pointerId !== pid) return;
+    const dy = ev.clientY - y0;
+    if (!moved && Math.abs(dy) < 4) return;
+    moved = true;
+    row.style.transform = "translateY(" + Math.round(dy) + "px)";
+    to = mids.filter((y) => y < mid0 + dy).length;
+    mark();
+  };
+  const end = (ev) => {
+    if (ev.pointerId !== pid) return;
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    h.removeEventListener("lostpointercapture", end);
+    if (!_tripDragging) return;
+    _tripDragging = false;
+    row.classList.remove("tbdragging");
+    row.style.transform = "";
+    moved = moved && ev.type === "pointerup";
+    mark();
+    if (moved && to !== from) tripMoveTo(row.dataset.iso, to);
+    else tripRouteSoon();   // what landed during the drag
+  };
+  // On window (a captured pointer's events still bubble there), so a lost
+  // capture can't leave a drag running.
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+  h.addEventListener("lostpointercapture", end);
 }
 
 // ---- AI prompts: shared pieces ----------------------------------------------
@@ -14093,6 +14410,8 @@ function preApplyShared() {
   const tp = sharedQ.get("tp");
   if (tp) {
     _trip = new Set(tp.split(",").map((s) => s.trim().toUpperCase()).filter((s) => GC_RE.test(s)));
+    // In the sender's order, as "Your order" (round 16): what they shared.
+    _tripSharedSort = "mine";
     // Days/month from the link override the recipient's saved ones for this
     // view only — renderTripBar reads this instead of localStorage until the
     // recipient edits either control, which dissolves the shared view into

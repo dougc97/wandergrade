@@ -27,7 +27,13 @@ What it holds the code to:
     average on distance-like 12-stop trips;
   * tripTotals sums home -> stops -> home and says when any of it is
     estimated; tripFallbackFit is the reader's long-haul fit (8+ rows);
-    tripLegsURL asks for at most 12 countries, the same 12 whatever the order.
+    tripLegsURL asks for at most 12 countries, the same 12 whatever the order;
+  * the Trip UI's pure parts (Task 5): the order modes and where they are
+    kept (a shared trip's on screen only), a move by hand, the leg and
+    totals wording (≈ once, the home flag, no flight inside one country),
+    the switch / handle / leg markup, no reorder under a drag or in Your
+    order, and index.html's stand-in and the styles that keep it all from
+    shifting the page.
 """
 import json, os, subprocess, sys, tempfile
 
@@ -212,6 +218,63 @@ T("url", () => {
   return { u1, same: u1 === u2, isos: q(u1).isos.split(","), month: q(u1).month, path: u1.slice(0, u1.indexOf("?")),
            flex: tripLegsURL("GB", ["GB-ENG", "FR"], null) };
 });
+// ---- Task 5: the UI's pure parts ----
+T("modes", () => {
+  localStorage.clear(); _tripSharedSort = null;
+  const r = { def: tripSortMode(), last: tripSortLast() };
+  setTripSort("cheap"); r.cheap = [tripSortMode(), localStorage.getItem("fx_tripsort"), tripSortLast()];
+  setTripSort("mine"); r.mine = [tripSortMode(), tripSortLast()];
+  localStorage.setItem("fx_tripsort", "bogus"); r.bogus = tripSortMode();
+  // a shared trip: its mode on screen only, until saved
+  localStorage.setItem("fx_tripsort", "quick"); localStorage.setItem("fx_trip", '["FR","IT"]'); _trip = new Set(["KH", "TH", "VN"]);
+  _tripSharedSort = "mine";
+  r.shared = tripSortMode();
+  setTripSort("cheap"); r.sharedPick = [tripSortMode(), localStorage.getItem("fx_tripsort"), localStorage.getItem("fx_trip")];
+  saveTrip(); r.saved = [_tripSharedSort, tripSortMode(), localStorage.getItem("fx_tripsort"), localStorage.getItem("fx_trip")];
+  // a drag makes it the reader's own order, saved
+  _tripSharedSort = "mine"; renderTripBook = () => {}; refreshTripPrompt = () => {};
+  tripMoveTo("VN", 0);
+  r.moved = [[..._trip], localStorage.getItem("fx_trip"), localStorage.getItem("fx_tripsort"), _tripSharedSort, localStorage.getItem("fx_tripsortlast")];
+  return r;
+});
+T("words", () => {
+  const F = [[0, 300, 150], [310, 0, 0], [140, 0, 0]], Mi = [[0, 1100, 600], [1100, 0, 0], [600, 0, 0]];
+  const R = [[true, true, false], [true, true, true], [false, true, true]], RM = [[true, true, false], [true, true, true], [true, true, true]];
+  const m = { n: 3, fare: F, min: Mi, real: R, realMin: RM, fareOk: true };
+  const names = [{ iso: "US", name: "the US" }, { iso: "GB-ENG", name: "England" }, { iso: "GB", name: "United Kingdom" }];
+  const usd = { cur: "USD", conv: 1 }, eur = { cur: "EUR", conv: 0.9 };
+  const m2 = { n: 2, fare: [[0, null], [null, 0]], min: [[0, 95], [95, 0]], real: [[true, false], [false, true]], realMin: [[true, false], [false, true]], fareOk: false };
+  return { first: tripLegWords(m, 0, 1, usd, names), last: tripLegWords(m, 1, 0, usd, names), same: tripLegWords(m, 1, 2, usd, names),
+           est: tripLegWords(m, 0, 2, usd, names), estEur: tripLegWords(m, 0, 2, eur, names), realEur: tripLegWords(m, 0, 1, eur, names),
+           nofare: tripLegWords(m2, 0, 1, usd, [{ iso: "US", name: "the US" }, { iso: "TH", name: "Thailand" }]),
+           tot: [tripTotalWords({ fare: 1240.4, minutes: 1265, estimated: true }, usd), tripTotalWords({ fare: 1240, minutes: 60, estimated: false }, usd),
+                 tripTotalWords({ fare: 1000, minutes: 125, estimated: true }, eur), tripTotalWords({ fare: null, minutes: 45, estimated: true }, usd)] };
+});
+T("parts", () => {
+  localStorage.clear(); _tripSharedSort = null;
+  const host = document.getElementById("tripBook");
+  const p3 = tripRouteParts(["TH", "VN", "KH"], host), p1 = tripRouteParts(["TH"], host), p0 = tripRouteParts([], host);
+  setTripSort("mine");
+  const pm = tripRouteParts(["TH", "VN"], host);
+  return { sort3: p3.sort, handle: p3.handle("VN", "Vietnam", 1), leg: p3.leg("", "TH"), total: p3.total,
+           sort1: p1.sort, handle1: p1.handle("TH", "Thailand", 0), leg1: p1.leg("TH", ""), leg0: p0.leg("", ""), total0: p0.total, sortMine: pm.sort };
+});
+T("guards", () => {
+  // never reorder under a finger, nor a dragged ("Your order") trip
+  localStorage.clear(); _tripSharedSort = null;
+  document.documentElement.setAttribute("data-tab", "trip");
+  _trip = new Set(["KH", "TH", "VN"]);
+  _tripDragging = true;
+  const dragging = tripRouteUpdate(true);
+  _tripDragging = false;
+  setTripSort("mine");
+  flightsData = null; valueFlightsSettled = true;
+  const url = tripLegsURL(originIso(), ["KH", "TH", "VN"], null);
+  _tripLegsReq[url] = { at: Date.now(), state: "done", json: { legs: { TH: { VN: { fare: 20, dur: 600 } }, VN: { KH: { fare: 20, dur: 600 } } }, fit: { a: 40, b: 0.06, n: 35 }, pending: [] } };
+  localStorage.setItem("fx_tripmonth", "0");
+  const mine = tripRouteUpdate(true);
+  return { dragging, mine, order: [..._trip], built: !!(_tripM && _tripM.m && _tripM.m.n === 4), sig: _tripM && _tripM.sig };
+});
 print(JSON.stringify(out));
 """
 
@@ -319,6 +382,70 @@ u = G("url") or {}
 results.append(ok(u.get("path") == "/api/trip-legs" and len(u.get("isos") or []) == 12 and u.get("same") is True and u.get("month") == "2026-12",
                   "tripLegsURL: at most 12 countries, the same 12 whatever the order, with the month (%s)" % u.get("u1")))
 results.append(ok(u.get("flex") == "/api/trip-legs?origin=GB&isos=FR,GB-ENG", "no month when flexible (%s)" % u.get("flex")))
+
+# ---- Task 5: the UI's pure parts ----
+md = G("modes") or {}
+results.append(ok(md.get("def") == "best" and md.get("last") == "best" and md.get("cheap") == ["cheap", "cheap", "cheap"]
+                  and md.get("mine") == ["mine", "cheap"] and md.get("bogus") == "best",
+                  "modes: Best overall by default; a pick is saved (fx_tripsort) and remembered for ↺ (fx_tripsortlast) (%s)"
+                  % {k: md.get(k) for k in ("def", "cheap", "mine", "bogus")}))
+results.append(ok(md.get("shared") == "mine" and md.get("sharedPick") == ["cheap", "quick", '["FR","IT"]'],
+                  "a shared trip opens as Your order; a mode picked on it touches neither the saved mode nor the saved trip (%s)" % md.get("sharedPick")))
+results.append(ok(md.get("saved") == [None, "cheap", "cheap", '["KH","TH","VN"]'],
+                  "saving a shared trip makes it the reader's own, with the mode on screen (%s)" % md.get("saved")))
+results.append(ok(md.get("moved") == [["VN", "KH", "TH"], '["VN","KH","TH"]', "mine", None, "cheap"],
+                  "a move by hand: the row goes there, saved as Your order, ↺ still remembers Cheapest (%s)" % md.get("moved")))
+w = G("words") or {}
+v = lambda k: (w.get(k) or {}).get("vis")
+results.append(ok(v("first") == "🇺🇸 ✈️ USD 300 · 18h 20m" and v("last") == "✈️ USD 310 · 18h 20m 🇺🇸",
+                  "home legs carry the home flag, leaving and coming back (%s | %s)" % (v("first"), v("last"))))
+results.append(ok(v("same") == "✈️ —" and "same country" in ((w.get("same") or {}).get("sr") or ""),
+                  "England -> the UK: no flight (%s)" % w.get("same")))
+results.append(ok(v("est") == "🇺🇸 ✈️ ≈USD 150 · ≈10h" and v("estEur") == "🇺🇸 ✈️ ≈EUR 135 · ≈10h" and v("realEur") == "🇺🇸 ✈️ ≈EUR 270 · 18h 20m",
+                  "estimates say ≈, once (a converted fare's own ≈ is enough) (%s | %s | %s)" % (v("est"), v("estEur"), v("realEur"))))
+results.append(ok(v("nofare") == "🇺🇸 ✈️ ≈1h 35m", "no fare known: the time alone (%s)" % v("nofare")))
+sr = (w.get("est") or {}).get("sr") or ""
+results.append(ok(sr == "Flight from the US to United Kingdom: about USD 150, 10h (estimated)", "screen readers get the leg in words (%s)" % sr))
+results.append(ok(w.get("tot") == ["≈ USD 1,240 · 21h 5m flying", "USD 1,240 · 1h flying", "≈EUR 900 · 2h 5m flying", "≈ 45m flying"],
+                  "the totals line (%s)" % w.get("tot")))
+pa = G("parts") or {}
+s3 = pa.get("sort3") or ""
+results.append(ok('data-ts="best" class="active" aria-pressed="true">Best overall' in s3 and 'data-ts="cheap" aria-pressed="false">Cheapest' in s3
+                  and 'data-ts="quick" aria-pressed="false">Quickest' in s3 and "tsmine" not in s3 and 'data-tip="' in s3
+                  and "≈" in s3 and "visas" in s3, "the switch: Best overall pressed, Cheapest, Quickest, one ⓘ (%s)" % s3[:160]))
+sm = pa.get("sortMine") or ""
+results.append(ok('class="tsmine">Your order' in sm and 'data-ts="rec">↺ Recommended' in sm and 'aria-pressed="true"' not in sm,
+                  "after a drag: Your order and ↺ Recommended, no mode pressed"))
+results.append(ok('class="tbdrag" data-iso="VN"' in (pa.get("handle") or "") and "stop 2 of 3" in (pa.get("handle") or "")
+                  and "arrow keys" in (pa.get("handle") or ""), "a handle per row names its place and the keys (%s)" % pa.get("handle")))
+results.append(ok(pa.get("leg") == '<div class="tbleg" data-from="" data-to="TH"><span aria-hidden="true">✈️ …</span></div>'
+                  and pa.get("total") == '<div class="tbtotal"><span aria-hidden="true">…</span></div>',
+                  "a leg line and the totals hold their line until the route is in (%s)" % pa.get("leg")))
+results.append(ok(pa.get("sort1") == "" and pa.get("handle1") == "" and pa.get("leg1", "").startswith('<div class="tbleg" data-from="TH" data-to=""')
+                  and pa.get("leg0") == "" and pa.get("total0") == "", "one country: no switch, no handle, still its legs; none: nothing"))
+gd = G("guards") or {}
+results.append(ok(gd.get("dragging") is False and gd.get("mine") is False and gd.get("order") == ["KH", "TH", "VN"] and gd.get("built") is True,
+                  "never reorders under a drag or in Your order (the legs still build) (%s)" % gd))
+
+# The first-paint stand-in and the styles
+HTML = open(P("public", "index.html"), encoding="utf-8").read()
+CSS = open(P("public", "styles.css"), encoding="utf-8").read()
+i = HTML.find('<div id="tripBar"')
+stand = HTML[i:HTML.find("</script>", i)]
+results.append(ok(all(x in stand for x in ('class="tripsort"', '<div class="windowtoggle">', ">Best overall<", ">Cheapest<", ">Quickest<",
+                                            'class="tsmine">Your order', 'class="tsrec">↺ Recommended', 'class="tbdrag"',
+                                            '<div class="tbleg"><span>✈️ …</span></div>', '<div class="tbtotal"><span>…</span></div>',
+                                            'localStorage.getItem("fx_tripsort")==="mine"', 'get("tp")', "rows=leg", "rows+=row+leg")),
+                  "index.html's Trip stand-in draws the switch (Your order when saved or shared), handles, n+1 legs and the totals"))
+import re as _re
+rule = lambda sel: (_re.search(r"(?m)^" + _re.escape(sel) + r" \{([^}]*)\}", CSS) or [None, ""])[1]
+results.append(ok("height: 24px" in rule(".tbleg") and "height: 31px" in rule(".tbtotal")
+                  and "contain: inline-size" in rule(".tbleg, .tbtotal") and "white-space: nowrap" in rule(".tbleg, .tbtotal"),
+                  "leg lines and totals are fixed-height single lines that can't widen the grid"))
+results.append(ok("touch-action: none" in rule(".tbdrag") and "transform" not in rule(".tbrow.tbdragging"),
+                  "only the handle captures a touch drag (the page still scrolls elsewhere)"))
+new_classes = set(_re.findall(r"\.(trip[a-z]+|tb[a-z]+|ts[a-z]+)", CSS))
+results.append(ok(not [c for c in new_classes if _re.match(r"(ad|adv|sponsor|banner|promo)", c)], "no class name an ad blocker hides"))
 
 print("\n%d/%d passed" % (sum(1 for x in results if x), len(results)))
 sys.exit(0 if all(results) else 1)

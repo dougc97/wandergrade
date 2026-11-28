@@ -406,6 +406,8 @@ const MONTHS = [], originLabel = () => "the US", countryName = (i) => i, flightS
 const viatorURL = (n) => "https://viator.example/" + n, flagEmoji = () => "", guidePath = (i) => "/guide/" + i;
 const advLevelText = () => "", advVia = () => "", insuranceHref = () => "ins", bindTripActions = () => {};
 const fareStripOpts = () => ({}), ensureFareMonths = async () => null, ensureStayCoords = () => Promise.resolve({});
+// round 16's route parts (the order switch, handles, legs): drawn and tested in test_trip_order.py
+const tripRouteParts = () => ({ sort: "", handle: () => "", leg: () => "", total: "", keep: null }), tripBookAfter = () => {};
 const trip = ["BF", "SA", "JP"], loadTrip = () => new Set(trip);
 const advisoryByIso = () => { const m = {}; for (const it of advisories.items) if (it.iso) m[it.iso] = Number(it.level) || 0; return m; };
 let asked = 0, draws = 0;
