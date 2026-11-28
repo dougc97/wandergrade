@@ -3,11 +3,13 @@
 // Env:
 //   PC_BASE   the local server (never production)
 //   PC_CASE   rows | keys | gems | served | filters | ratesdown | ratesslow | advdown | visa | photo | maps | maps2 | layout
-//             | cut | shots | net | cls   (PC_DROP=1 with visa: the late table has no entry for the country)
+//             | cut | shots | net | cls | globe   (PC_DROP=1 with visa: the late table has no entry for the country;
+//             PC_BASELINE=1 with globe: a base tree without the badge, only the open's layout shift)
 //   PC_W, PC_H the viewport (below 700 wide: a phone, touch + a phone UA)
 //   PC_SEED   localStorage to start from, JSON of strings ('{"fx_origin":"DE"}')
 //   PC_FIX    recorded /api answers, <dir>/<sha1(path + query)>.json ({status, ct, body base64})
 //   PC_PAR    scripts/parity/fixtures (non-USD rates, IN/GB/DE flights)
+//   PC_NET    latency,kbps: a slow link, HTTP cache off (cls and globe: the cold load before the open)
 //   PC_SHOTS  where the shots case saves its PNGs (default: shots/ beside cdp.mjs); PC_PREFIX names them,
 //             PC_ONLY=1 takes just the Top Picks one, PC_SCHEME=light|dark the colour scheme
 // Production hosts are refused; Wikipedia and Wikimedia go through wikicache.mjs. Each case prints
@@ -88,6 +90,11 @@ export default async (ctx) => {
   const st = await intercept(ctx, { rates: CASE === 'ratesdown' ? 'net' : 'ok', adv: CASE === 'advdown' ? 'net' : 'ok', slow });
   await setSize(W, H, PHONE);
   if (process.env.PC_SCHEME) await ctx.scheme(process.env.PC_SCHEME === 'dark');   // light | dark (default: the browser's)
+  if (process.env.PC_NET) {
+    const [lat, kbps] = process.env.PC_NET.split(',').map(Number);
+    await send('Network.enable'); await send('Network.setCacheDisabled', { cacheDisabled: true });
+    await send('Network.emulateNetworkConditions', { offline: false, latency: lat, downloadThroughput: kbps * 1000 / 8, uploadThroughput: kbps * 1000 / 8 });
+  }
 
   const waitFor = async (expr, ms = 15000) => {
     const t0 = Date.now();
@@ -552,6 +559,68 @@ export default async (ctx) => {
     else ok(g.photo[0] + g.photo[2] <= g.body[0] + 1 && Math.abs(g.photo[1] - g.body[1]) < 40, `${tag}: the photo on the left (${JSON.stringify(g)})`);
     ok(g.card[0] >= g.table[0] - 1 && g.card[1] <= g.table[1] + 1, `${tag}: the card stays inside the table (${g.card} in ${g.table})`);
     ok(g.sw <= g.cw, `${tag}: no sideways scroll with it open (${g.sw} <= ${g.cw})`);
+    return finish();
+  }
+
+  if (CASE === 'globe') {
+    // The globe badge (round 16) on a row's postcard: drawn (opaque pixels, some the highlight green),
+    // 72x72 at 6px from the photo box's bottom-left, under the credit ⓘ (still what a tap there hits),
+    // the flag centred beside it above 600px; redrawn rows keep it; a map card has none; opening a
+    // postcard adds no layout shift. PC_BASELINE=1 (a base tree, no badge): only the shift is measured.
+    const a = list[0];
+    const cls0 = await evaluate('window.__cls');
+    await click(`#topCards tr[data-iso="${a}"] td.rank`);
+    await sleep(1200);
+    const cls1 = await evaluate('window.__cls');
+    console.log('OPENCLS ' + JSON.stringify({ before: cls0, after: cls1, delta: +(cls1 - cls0).toFixed(5) }));
+    ok(cls1 - cls0 === 0, `${tag}: opening a postcard adds no layout shift (${cls0} → ${cls1})`);
+    if (process.env.PC_BASELINE) return finish();
+    const badge = (sel) => `(() => { const c = document.querySelector('${sel} canvas.pcglobe'); if (!c || !c.getAttribute('data-drawn')) return null;
+      const x = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let op = 0, hl = 0;
+      for (let i = 0; i < x.length; i += 4) { if (x[i + 3] > 200) op++; if (x[i + 3] > 200 && x[i] < 40 && x[i + 1] > 70 && x[i + 1] < 160 && x[i + 2] < 70) hl++; }
+      const box = c.closest('.pcphoto'), p = box.getBoundingClientRect(), r = c.getBoundingClientRect(), f = box.querySelector('.pcflag').getBoundingClientRect();
+      return { n: document.querySelectorAll('${sel} canvas.pcglobe').length, drawn: c.getAttribute('data-drawn'), w: c.width, h: c.height, op, hl, px: c.width * c.height,
+        left: Math.round(r.left - p.left), bottom: Math.round(p.bottom - r.bottom), cw: Math.round(r.width), ch: Math.round(r.height),
+        flagC: Math.round((f.left + f.right) / 2 - p.left), boxW: Math.round(p.width), boxH: Math.round(p.height), aria: c.getAttribute('aria-hidden'),
+        z: getComputedStyle(c).zIndex, pe: getComputedStyle(c).pointerEvents, dpr: devicePixelRatio }; })()`;
+    const g = await waitFor(badge('tr.pcrow'), 10000);
+    if (!ok(g && g.drawn === a, `${tag}: ${a}'s postcard has its globe badge drawn (${JSON.stringify(g)})`)) return finish();
+    ok(g.n === 1 && g.aria === 'true' && g.w === Math.round(72 * Math.min(g.dpr, 2)) && g.h === g.w, `${tag}: one badge, aria-hidden, ${g.w}px backing for ${g.dpr}x (DPR capped at 2)`);
+    ok(g.op > g.px * 0.35 && g.hl > 0, `${tag}: the badge has the globe's pixels (${g.op} of ${g.px} opaque) and the highlight green (${g.hl})`);
+    ok(g.cw === 72 && g.ch === 72 && g.left === 6 && g.bottom === 6, `${tag}: 72x72, 6px in from the photo box's bottom-left (${g.cw}x${g.ch} at ${g.left},${g.bottom})`);
+    ok(g.pe === 'none', `${tag}: the badge takes no taps (${g.pe})`);
+    const wantFlag = W > 600 ? 78 + (g.boxW - 78) / 2 : g.boxW / 2;
+    ok(Math.abs(g.flagC - wantFlag) <= 2, `${tag}: the flag centres ${W > 600 ? 'in the space right of the badge' : 'in the strip'} (${g.flagC} vs ${wantFlag})`);
+    const ph = await waitFor(`(() => { const i = document.querySelector('tr.pcrow img.pcimg.in'), c = document.querySelector('tr.pcrow .pccredit'); if (!i || !c) return null;
+      const r = c.getBoundingClientRect(), hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return { hit: !!(hit && hit.closest('.pccredit')), z: getComputedStyle(c).zIndex }; })()`, 9000);
+    ok(ph && ph.hit && +ph.z > +g.z, `${tag}: with the photo in, a tap on the credit ⓘ still hits it (z ${ph && ph.z} over the badge's ${g.z}) (${JSON.stringify(ph)})`);
+    // A redraw of the open card (Add to trip) keeps a drawn badge.
+    await click('tr.pcrow .pctrip');
+    const g2 = await evaluate(badge('tr.pcrow'));
+    ok(g2 && g2.drawn === a && g2.op === g.op, `${tag}: after 🧳 Add to trip redraws the card, the badge is still drawn (${g2 && g2.op} opaque)`);
+    await click('tr.pcrow .pctrip');
+    // Another row: its own country.
+    const b = list[1];
+    await click(`#topCards tr[data-iso="${b}"] td.rank`);
+    const g3 = await waitFor(badge('tr.pcrow'), 8000);
+    ok(g3 && g3.drawn === b && g3.n === 1, `${tag}: ${b}'s postcard draws ${b} (${g3 && g3.drawn})`);
+    await press('Escape');
+    // Hidden gems rows too.
+    await evaluate(`(() => { const d = document.getElementById('gemsBox'); if (d) { d.open = true; d.dispatchEvent(new Event('toggle')); } })()`);
+    await sleep(800);
+    const gl = await rows('#gemRows');
+    if (gl.length) {
+      await click(`#gemRows tr[data-iso="${gl[0]}"] td.rank`);
+      const g4 = await waitFor(badge('#gemRows tr.pcrow'), 8000);
+      ok(g4 && g4.drawn === gl[0], `${tag}: a Hidden gems row's postcard has the badge too (${g4 && g4.drawn})`);
+      await press('Escape');
+    }
+    // A map card: none.
+    const iso = process.env.PC_ISO || 'JP';
+    await evaluate(`document.querySelector('#valueMap path[data-iso="${iso}"]').dispatchEvent(new MouseEvent('click', { bubbles: true }))`);
+    const mc = await waitFor(`(() => { const c = document.querySelector('.countrycard .postcard'); return c ? { badges: c.querySelectorAll('canvas.pcglobe').length } : null; })()`, 8000);
+    ok(mc && mc.badges === 0, `${tag}: a map card has no badge (${JSON.stringify(mc)})`);
     return finish();
   }
 

@@ -269,7 +269,17 @@ select { padding: 7px 10px; border: 1px solid var(--border-input); border-radius
    for the file page). [data-tip] outranks the tips' own position: relative. */
 .pcphoto a.pccredit[data-tip] { position: absolute; right: 5px; bottom: 5px; width: 22px; height: 22px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1;
-  background: rgba(0,0,0,.5); color: #fff; }
+  background: rgba(0,0,0,.5); color: #fff; z-index: 2; }
+/* A row's postcard: a still globe of where the country is (app.js pcBadge),
+   over the photo's bottom-left corner and under the credit ⓘ. Fixed in a
+   fixed box, so nothing moves when it draws; it takes no taps. */
+.pcglobe { position: absolute; left: 6px; bottom: 6px; width: 72px; height: 72px; z-index: 1;
+  pointer-events: none; filter: drop-shadow(0 2px 5px rgba(0,0,0,.35)); }
+/* The 168px box beside the words: the flag centres in the space right of
+   the badge, not under it. (The phone strip is wide enough as it is.) */
+@media (min-width: 601px) {
+  .pcphoto:has(.pcglobe) { padding-left: 78px; }
+}
 /* Its focus ring inside the dot: the photo box's rounded, clipped corner cut
    the browser's own ring off on two sides. */
 .pcphoto a.pccredit:focus-visible { outline: 2px solid #fff; outline-offset: -2px; box-shadow: inset 0 0 0 4px var(--green); }
@@ -1527,8 +1537,9 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
    guide pages. Pills echo .tripseed so the tab keeps one visual language. */
 /* The trip list: one grid, so the name, 🌤️, ✈️ and link columns line up
    across rows (each row a subgrid) under a header row in the grade tables'
-   th style. Desktop: name | 🌤️ | fare | links | ×. At 900 and under the links
-   take a second line; the × stays on the first. */
+   th style. Desktop: name | 🌤️ | fare | links | ×. Under 1200 the links
+   take a second line; the × stays on the first (from 901 to 1199 the
+   route's globe takes 304px beside the list, round 16). */
 .tripbook { margin-top: 14px; display: grid; column-gap: 14px;
   grid-template-columns: minmax(0, max-content) auto auto auto 1fr; }
 .tbrow { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center;
@@ -1547,6 +1558,14 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 .tbfarenote { font-size: 12px; white-space: nowrap; }
 .tblow { color: var(--gray); }
 .tblinks { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+/* A row's links before anything says what they are (its fares and the
+   advisories' marks still coming): an invisible pill holds the links line
+   where the links take a line of their own (under 1200px), so it doesn't
+   open 27px under every row when they land (renderTripBook). */
+.tbph { visibility: hidden; }
+@media (min-width: 1200px) {
+  .triplink.tbph { display: none; }
+}
 .tbx { justify-self: end; background: none; border: 0; color: var(--gray); font-size: 18px; line-height: 1;
   min-width: 28px; min-height: 28px; border-radius: 6px; cursor: pointer; }
 .tbx:hover { color: #b00020; background: var(--soft); }
@@ -1559,7 +1578,7 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 #tripBook .farestrip { gap: 1px; width: 95px; flex: none; }
 #tripBook .farestrip .fcell { width: 7px; height: 11px; border-radius: 1px; }
 #tripBook .farestrip .fcell.now { outline: 0; box-shadow: 0 3px 0 -1px var(--ink); }
-@media (max-width: 900px) {
+@media (max-width: 1199px) {
   .tripbook { grid-template-columns: minmax(0, 1fr) auto auto auto; column-gap: 10px; }
   .tbrow .tblinks { grid-column: 1 / -1; grid-row: 2; margin-top: 6px; }
   .tbrow .tbx { grid-column: 4; grid-row: 1; }
@@ -1580,6 +1599,69 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
   #tripBook .farestrip { display: none; }
   #tripBook .tblow { position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+}
+/* The trip's route (round 16): the order switch over the list, a drag handle
+   per row, a leg line before, between and after the rows, the totals. Each
+   is one fixed-height line from first paint (index.html's stand-in draws the
+   same), so the legs filling in move nothing; contain: inline-size keeps a
+   long leg from widening the grid's columns. */
+.tripsort { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 0 0 10px; font-size: 13px; }
+.tripsort .windowtoggle { margin-top: 0; }
+.tripsort .windowtoggle button { white-space: nowrap; }
+.tsmine { font-weight: 700; white-space: nowrap; }
+.tsrec { font: inherit; font-weight: 600; background: none; border: 0; padding: 4px 2px; color: var(--green);
+  cursor: pointer; white-space: nowrap; }
+.tsrec:hover { text-decoration: underline; }
+/* Six dots, drawn (no glyph to go missing): a 10x15 content box of 5px tiles. */
+.tbdrag { display: inline-block; vertical-align: middle; width: 24px; height: 26px; margin: 0 2px 0 0; padding: 5px 7px;
+  border: 0; border-radius: 6px; cursor: grab; touch-action: none;
+  background: radial-gradient(circle, var(--gray) 1.2px, transparent 1.6px) content-box 0 0 / 5px 5px; }
+.tbdrag:hover { background-color: var(--soft); }
+.tbdrag:active { cursor: grabbing; }
+.tbdrag:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+/* The stop's number, as the globe marks it. */
+.tbno { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; width: 18px; height: 18px;
+  margin: 0 6px 0 0; border-radius: 50%; background: var(--green-fill); color: #fff; font-size: 11px; font-weight: 800; line-height: 1; }
+/* A country's first cell on one line: the handle, the number, the name and
+   its ⚠️. The name gives way (its ellipsis), never the ⚠️: as inline boxes a
+   long name took the whole cell and the ⚠️ wrapped under the handle, a
+   phone row growing 80 to 93px. (The header and the whole-trip row keep
+   their own.) */
+.tbrow:not(.tbhdr):not(.tbins) > .tbn { display: flex; align-items: center; }
+.tbn > .tbdrag, .tbn > .tbno, .tbn > .hzmark { flex: none; }
+.tbn > .tbdest { flex: 0 1 auto; min-width: 0; }
+.tbrow.tbdragging { position: relative; z-index: 2; background: var(--card); border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0,0,0,.2); }
+.tbrow.tbdropb { box-shadow: inset 0 2px 0 var(--green); }
+.tbrow.tbdropa { box-shadow: inset 0 -2px 0 var(--green); }
+.tbleg, .tbtotal { grid-column: 1 / -1; min-width: 0; contain: inline-size; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; line-height: 18px; }
+.tbleg { height: 24px; padding: 3px 0 3px 28px; font-size: 12px; color: var(--gray); }
+.tbtotal { height: 31px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; font-weight: 700; }
+/* The route on a globe (app.js tripGlobeUpdate): above the list, beside it
+   from 901px. A fixed box from first paint (index.html's stand-in has it),
+   the canvas laid over it, so drawing it moves nothing. A sideways drag
+   turns it; a vertical swipe stays the page's (pan-y). The globe looks the
+   same in both themes (the spin globe's); its box is the maps' ground. */
+.tripglobe { position: relative; height: 260px; margin: 14px 0 0; border-radius: 12px; overflow: hidden;
+  background: var(--mapbg); contain: size layout paint; touch-action: pan-y; cursor: grab;
+  user-select: none; -webkit-user-select: none; }
+.tripglobe.tgdragging { cursor: grabbing; }
+.tripglobe canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+@media (min-width: 561px) {
+  .tripglobe { width: min(100%, 480px); height: 300px; margin-left: auto; margin-right: auto; }
+}
+@media (min-width: 901px) {
+  .triproute { display: grid; grid-template-columns: minmax(0, 1fr) 280px; column-gap: 24px; align-items: start; }
+  .triproute > .tripbook { grid-column: 1; grid-row: 1; min-width: 0; }
+  .tripglobe { grid-column: 2; grid-row: 1; width: auto; height: 280px; margin: 14px 0 0; }
+}
+@media (max-width: 560px) {
+  .tripsort .windowtoggle button { padding: 5px 9px; }
+  /* 8px more for a phone's names: the dots' side padding and the gaps. */
+  .tbdrag { width: 20px; padding: 5px; margin: 0; }
+  .tbno { margin-right: 4px; }
 }
 .triplink { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line);
   border-radius: 999px; color: var(--ink); text-decoration: none; }

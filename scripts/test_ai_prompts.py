@@ -30,6 +30,17 @@ run under jsc.
   aiLevelText    Germany's levels said as what they are
   aiEntryAsk     the Schengen 90/180 ask only for a passport from outside it
   tripMonth      unset under Top Picks' "Any time" is flexible over its window
+  aiTripRoute /  the trip prompt follows the Trip tab's order (round 16): the
+  buildTripAIPrompt  countries in the order shown, a ROUTE line naming whose
+                 order it is (the site's best overall / cheapest / quickest
+                 on flight legs alone, once computed; the reader's own; else
+                 just the list's), an ask to keep it unless ground travel,
+                 borders or the seasons argue otherwise, and no "group these
+                 into realistic trips"; one country has no route line; with
+                 no fares known, Cheapest / Best overall say they went by
+                 time. The route line and its ask are no longer than the two
+                 asks they replaced, for up to ten countries. The whole
+                 prompt runs under jsc (scripts/appjs_harness.js).
 
     /usr/bin/python3 scripts/test_ai_prompts.py
 """
@@ -467,6 +478,95 @@ results.append(ok(len(mx_states) == 14 and all(mx_entry(x) for x in mx_states) a
                   and trip.get("mx", "").endswith("Tamaulipas*; Zacatecas*")
                   and "Olancho" in trip.get("hn", "") and "El Salvador" in trip.get("hn", ""),
                   "avoidAreas, trip: brief names every place where they all fit at their shortest — Mexico's 14 states (MX %r)" % trip.get("mx", "")[-80:]))
+
+# --- the trip prompt follows the shown order (round 16) ----------------------------------
+# aiTripRoute on its own, then buildTripAIPrompt whole: public/app.js under jsc
+# (scripts/appjs_harness.js, no data loaded), the trip set as the Trip tab
+# would have it.
+got = jsc("%s\n%s\nprint(JSON.stringify([aiTripRoute(['Cambodia', 'Thailand', 'Vietnam'], 'cheap', true), aiTripRoute(['A', 'B'], 'best', true),"
+          " aiTripRoute(['A', 'B'], 'quick', true), aiTripRoute(['A', 'B'], 'mine', true), aiTripRoute(['A', 'B'], 'cheap', false),"
+          " aiTripRoute(['A'], 'best', true), aiTripRoute(['A', 'B'], 'cheap', true, true), aiTripRoute(['A', 'B'], 'best', true, true),"
+          " aiTripRoute(['A', 'B'], 'quick', true, true)]));" % (js_const("AI_ROUTE_WHY"), js_fn("aiTripRoute"))) or [None] * 9
+results.append(ok(got[0] and got[0]["line"] == "ROUTE (WanderGrade's cheapest on flights alone): home -> Cambodia -> Thailand -> Vietnam -> home."
+                  and got[0]["ask"] == "- Keep this order unless ground travel, borders or the seasons make another clearly better, and say why if you change it.",
+                  "aiTripRoute: the order shown, home to home, named as the site's cheapest on flight legs alone, and the ask to keep it (got %s)" % got[0]))
+results.append(ok(got[1] and "(WanderGrade's best overall on flights alone): home -> A -> B -> home." in got[1]["line"]
+                  and got[2] and "(WanderGrade's quickest on flights alone): home" in got[2]["line"],
+                  "aiTripRoute: Best overall and Quickest named as such (%s | %s)" % (got[1] and got[1]["line"], got[2] and got[2]["line"])))
+results.append(ok(got[3] and got[3]["line"].startswith("ROUTE (my own order): home -> A -> B -> home") and got[3]["ask"].startswith("- Keep my order unless"),
+                  "aiTripRoute: a dragged order is the reader's own (%s)" % got[3]))
+results.append(ok(got[4] and got[4]["line"].startswith("ROUTE (the order on my list):") and "WanderGrade" not in got[4]["line"],
+                  "aiTripRoute: before the site has ordered the trip, no claim that it did (%s)" % (got[4] and got[4]["line"])))
+results.append(ok(got[5] is None, "aiTripRoute: one country, no route"))
+# No fares to order by (fareOk false): Cheapest and Best overall went by flying
+# time, and the line says so instead of calling it the cheapest.
+results.append(ok(got[6] and got[6]["line"].startswith("ROUTE (WanderGrade's quickest on flights alone, no fares known): home -> A")
+                  and got[7] and got[7]["line"] == got[6]["line"] and got[8] and got[8]["line"].startswith("ROUTE (WanderGrade's quickest on flights alone): "),
+                  "aiTripRoute: with no fares, Cheapest and Best overall are named as the quickest, no fares known (%s | %s)"
+                  % (got[6] and got[6]["line"], got[8] and got[8]["line"])))
+# Its length: the path repeats every name, so the line and its ask together
+# are held to the two asks they replaced, for up to ten real countries.
+OLD_ASKS = ["- Group these into realistic trips: countries that genuinely combine into one route, not just ones that are near each other."
+            " Consider flight connections, land borders and border crossings, and whether the visas work together.",
+            "- Name each trip the way a traveller would (\"Balkans loop\", \"Benelux + Rhine\", \"Northern Vietnam & Laos\")."]
+ten = ["Portugal", "Spain", "France", "Italy", "Croatia", "Greece", "Türkiye", "Morocco", "Thailand", "Vietnam"]
+lens = jsc("%s\n%s\nprint(JSON.stringify([2,3,4,5,6,7,8,9,10].map((k) => ['best', 'cheap', 'quick', 'mine'].map((md) => {"
+           " const r = aiTripRoute(%s.slice(0, k), md, true); return encodeURIComponent(r.line + '\\n' + r.ask).length; }))));"
+           % (js_const("AI_ROUTE_WHY"), js_fn("aiTripRoute"), json.dumps(ten))) or []
+old_len = len(urllib.parse.quote("\n".join(OLD_ASKS), safe="!'()*-._~"))
+results.append(ok(len(lens) == 9 and max(max(r) for r in lens) <= old_len,
+                  "the ROUTE line and its ask, 2-10 countries, encoded: %s at most, within the two asks they replaced (%d)"
+                  % (max(max(r) for r in lens) if lens else None, old_len)))
+
+import tempfile
+HARNESS = open(os.path.join(ROOT, "scripts", "appjs_harness.js"), encoding="utf-8").read()
+DRV = r'''
+const out = {};
+const run = (k, f) => { try { out[k] = f(); } catch (e) { out[k] = { error: String(e && e.stack || e) }; } };
+const setTrip = (isos, mode) => { _trip = new Set(isos); try { localStorage.setItem("fx_tripsort", mode); } catch (e) {} };
+run("cheap", () => { setTrip(["KH", "TH", "VN"], "cheap"); _tripM = { sig: tripRouteCtx().sig, nodes: [], m: null }; return buildTripAIPrompt(); });
+run("best", () => { setTrip(["VN", "KH", "TH"], "best"); _tripM = { sig: tripRouteCtx().sig, nodes: [], m: null }; return buildTripAIPrompt(); });
+run("mine", () => { setTrip(["TH", "KH", "VN"], "mine"); return buildTripAIPrompt(); });
+run("early", () => { setTrip(["TH", "KH", "VN"], "quick"); _tripM = null; return buildTripAIPrompt(); });
+run("one", () => { setTrip(["TH"], "best"); return buildTripAIPrompt(); });
+run("eight", () => { setTrip(["PT", "ES", "FR", "IT", "HR", "GR", "TR", "MA"], "best"); _tripM = { sig: tripRouteCtx().sig, nodes: [], m: null }; return buildTripAIPrompt(); });
+print(JSON.stringify(out));
+'''
+with tempfile.TemporaryDirectory() as d:
+    sp = os.path.join(d, "run.js")
+    open(sp, "w", encoding="utf-8").write(HARNESS + "\n" + APP + "\n" + DRV)
+    r = subprocess.run([JSC, sp], capture_output=True, text=True, timeout=120)
+try:
+    tp = json.loads(r.stdout.strip().splitlines()[-1])
+except Exception:
+    tp = {"error": (r.stderr or r.stdout)[-600:]}
+bad = {k: v for k, v in tp.items() if not isinstance(v, str)}
+results.append(ok(not bad, "buildTripAIPrompt ran under jsc for every case %s" % (json.dumps(bad)[:600] if bad else "")))
+P_ = lambda k: tp.get(k) if isinstance(tp.get(k), str) else ""
+shortlist = lambda p: [l[2:].split(":")[0] for l in p.split("SHORTLIST:\n", 1)[-1].split("\n\n", 1)[0].splitlines() if l.startswith("- ")]
+results.append(ok(shortlist(P_("cheap")) == ["Cambodia", "Thailand", "Vietnam"] and shortlist(P_("best")) == ["Vietnam", "Cambodia", "Thailand"]
+                  and P_("best").startswith("Help me plan a trip to Vietnam, Cambodia and Thailand,"),
+                  "the prompt lists the countries in the order shown, in its first line and its shortlist (%s | %s)" % (shortlist(P_("cheap")), shortlist(P_("best")))))
+results.append(ok("ROUTE (WanderGrade's cheapest on flights alone): home -> Cambodia -> Thailand -> Vietnam -> home." in P_("cheap")
+                  and "ROUTE (WanderGrade's best overall on flights alone): home -> Vietnam -> Cambodia -> Thailand -> home." in P_("best")
+                  and "ROUTE (my own order): home -> Thailand -> Cambodia -> Vietnam -> home." in P_("mine")
+                  and "ROUTE (the order on my list): home -> Thailand -> Cambodia -> Vietnam -> home." in P_("early"),
+                  "the ROUTE line names whose order it is: the site's cheapest / best overall, the reader's own, or (not yet ordered) the list's"))
+results.append(ok(P_("cheap").index("ROUTE (") < P_("cheap").index("SHORTLIST:") and "- Keep this order unless ground travel, borders or the seasons" in P_("cheap")
+                  and "- Keep my order unless" in P_("mine"), "the facts carry the route; the asks keep it unless ground travel, borders or the seasons argue otherwise"))
+results.append(ok(all(P_(k) and "Group these into realistic trips" not in P_(k) and "Name each trip" not in P_(k) for k in ("cheap", "best", "mine", "early", "one", "eight"))
+                  and "Group these into realistic trips" not in APP, "the old 'Group these into realistic trips' ask is gone"))
+results.append(ok(P_("one") and "ROUTE" not in P_("one") and "Keep this order" not in P_("one") and "\nPLEASE:\n- BE HONEST" in P_("one"),
+                  "one country: no route line, no order to keep"))
+# (Its length is held above, against the asks it replaced: a no-data prompt
+# says nothing about the prefill caps, which a real 8-country prompt was
+# already over for Claude and Grok before round 16.)
+results.append(ok(P_("eight") and "ROUTE (WanderGrade's best overall on flights alone): home -> Portugal -> Spain -> France -> Italy -> Croatia -> Greece -> Türkiye -> Morocco -> home." in P_("eight"),
+                  "an 8-country prompt carries its route line in full"))
+HTML = open(os.path.join(ROOT, "public", "index.html"), encoding="utf-8").read()
+tip = re.search(r'<button id="tripPlanBtn"[^\n]*\n(?:.*\n){0,3}?.*?data-tip="([^"]*)"', HTML)
+results.append(ok(tip and "order shown" in tip.group(1) and "ground travel, borders or the seasons" in tip.group(1) and "Builds a realistic route" not in tip.group(1),
+                  "the button's ⓘ says the plan keeps the order shown (%s)" % (tip and tip.group(1))))
 
 print("\n%d/%d passed" % (sum(bool(r) for r in results), len(results)))
 sys.exit(0 if all(results) else 1)

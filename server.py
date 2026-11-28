@@ -38,7 +38,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from fxtracker import (
     accounts, advhistory, advisories, build_dataset, build_pl_history, build_ppp, flights,
     flightshadow, flightvalue, guide_facts, guide_lines, guide_sizers, health, home_picks, llms_txt, mailer, map_picks, picks, popularity, rates,
-    render_cheapest, render_guide, render_lists, render_methodology, render_privacy, store, strip_comments, watchouts
+    render_cheapest, render_guide, render_lists, render_methodology, render_privacy, store, strip_comments, triplegs, watchouts
 )
 
 # Optional HTTP Basic Auth — enforced only when BOTH env vars are set, so local
@@ -3916,6 +3916,9 @@ class Handler(BaseHTTPRequestHandler):
                     return
             self._send_fare_months(flights.get_monthly(origin, dest))
             return
+        if path == "/api/trip-legs":
+            self._handle_trip_legs()
+            return
         if path == "/api/flight-value":
             self._handle_flight_value()
             return
@@ -4294,6 +4297,30 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send_json(_public_fares(data))
 
+    def _handle_trip_legs(self):
+        # The Trip tab's legs between its countries (fxtracker/triplegs.py),
+        # from the cached hub fares only: at most triplegs.MAX_FETCH uncached
+        # hub payloads per request, none while the server is busy (the rest
+        # come back pending and the browser estimates them). /api/ takes no
+        # page slot. Per reader and trip, so never cached; linked from
+        # nowhere a crawler follows, and noindex in case.
+        from urllib.parse import parse_qs, urlparse
+        qs = parse_qs(urlparse(self.path).query)
+        hdrs = [("Cache-Control", "no-store"), ("X-Robots-Tag", "noindex")]
+        try:
+            origin, isos, month = triplegs.parse(qs.get("origin", [""])[0], qs.get("isos", [""])[0],
+                                                 qs.get("month", [""])[0])
+        except ValueError as e:
+            self._send_json({"error": str(e)}, 400, extra=hdrs)
+            return
+        if not flights.is_configured():
+            self._send_json({"configured": False, "origin": origin, "month": month, "legs": {},
+                             "fit": {"a": None, "b": None, "n": 0}, "pending": []}, extra=hdrs)
+            return
+        out = triplegs.legs(origin, isos, month, fares_for=_fares, cached=_fares_fresh,
+                            busy=bool(_flight_shadow_busy()), stale_for=_fares_in_hand)
+        self._send_json(out, extra=hdrs)
+
     def _handle_flight_value(self):
         # Low / typical / high per destination for the Flights tab: every
         # country's monthly curve + its typical range, so the browser bands
@@ -4563,6 +4590,22 @@ def _cached_fares(origin):
     (the comparison must not move what readers see, not even its timing)."""
     hit = _flights_cache.get(origin)
     return hit[1] if hit else None
+
+
+def _fares_fresh(origin):
+    """True when _fares(origin) answers from the cache (a copy inside its
+    hour): /api/trip-legs reads those freely, and counts the rest against
+    its fetch cap."""
+    hit = _flights_cache.get(origin)
+    return bool(hit) and time.time() - hit[0] < FLIGHTS_TTL
+
+
+def _fares_in_hand(origin):
+    """A copy past its hour but inside STALE_MAX (what a failed refresh would
+    serve), or None: never a refresh. /api/trip-legs uses it rather than
+    fetch, or leave the country pending."""
+    hit = _flights_cache.get(origin)
+    return hit[1] if hit and time.time() - hit[0] < STALE_MAX else None
 
 
 def _warm_rates(delay=15):

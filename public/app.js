@@ -1857,12 +1857,16 @@ function pcPhotoHTML(ph) {
 // card, which names its country (there is no row above it) and keeps the
 // Wander List's ✓ Been / ★ Want to go (a row's postcard has just the two
 // buttons). The photo box has its size before the photo comes (styles.css
-// .pcphoto); without one it shows the flag on a tint.
+// .pcphoto); without one it shows the flag on a tint. A row's postcard (not a
+// map card's: that one sits under its own map) carries a globe badge over
+// the photo's bottom-left corner, a 144px canvas shown at 72px that pcRender
+// draws (pcBadge); decorative, so aria-hidden.
 function postcardHTML(iso, o) {
   o = o || {};
   const name = countryName(iso), act = activities && activities[iso];
   const facts = postcardFacts(iso, o), ph = o.photo;
-  const photo = `<div class="pcphoto"><span class="pcflag" aria-hidden="true">${flagEmoji(iso)}</span>${pcPhotoHTML(ph)}</div>`;
+  const badge = o.secondary ? "" : '<canvas class="pcglobe" width="144" height="144" aria-hidden="true"></canvas>';
+  const photo = `<div class="pcphoto"><span class="pcflag" aria-hidden="true">${flagEmoji(iso)}</span>${badge}${pcPhotoHTML(ph)}</div>`;
   const vis = o.secondary && isVisited(iso), wish = o.secondary && loadWishlist().has(iso);
   const tip = postcardTip(iso, facts);
   // A place with no guide (Tonga, on the Currency map) gets no Full guide →,
@@ -7122,6 +7126,339 @@ function distKm(a, b) {
   return 2 * R * Math.asin(Math.sqrt(s));
 }
 
+// ---- small globes (round 16) -------------------------------------------------
+// The site's own little Earths: the Top Picks postcard's badge and the Trip
+// route. The Wander List spin globe's look (land rgb(96,212,138), ocean
+// rgb(38,122,202), lit from the upper left, halo, limb, gloss, rim), but its
+// own code on world.geojson's countries, so it can centre on any longitude
+// and latitude, at any size, and colour a country. It shares nothing with
+// the spin globe (drawGlobe/sphereCache/landMask): those land rings put 58 of
+// 226 centroids in the sea, and that cache has one slot and a fixed tilt.
+// Per pixel: inverse orthographic onto an equirectangular country-id mask.
+const GM_W = 1024, GM_H = 512;            // GM_W stays a power of two (wrap via &)
+const G_RAD = Math.PI / 180;
+const G_LAND = [96, 212, 138], G_OCEAN = [38, 122, 202], G_HL = [10, 125, 40];   // G_HL: the site green
+let _gMask = null;
+// The country under each pixel centre of a 1024x512 lon/lat grid: feature
+// index + 1 (0 = sea), isoAt[id] its iso (Northern Ireland's feature says GB
+// too). Built once, by an even-odd scanline fill per polygon (holes stay
+// sea; a later feature, a microstate, wins over an earlier one). Null until
+// world.geojson is in.
+function globeMask() {
+  if (_gMask || !worldGeo) return _gMask;
+  const W = GM_W, H = GM_H, ids = new Uint8Array(W * H), isoAt = [""];
+  worldGeo.features.forEach((f, fi) => {
+    const id = fi + 1;
+    isoAt.push(String(f.properties.iso || ""));
+    if (id > 255 || !f.geometry) return;
+    const polys = f.geometry.type === "MultiPolygon" ? f.geometry.coordinates : [f.geometry.coordinates];
+    for (const poly of polys) {
+      const rings = poly.map((ring) => ring.map((p) => [(p[0] + 180) / 360 * W, (90 - p[1]) / 180 * H]));
+      let ymin = Infinity, ymax = -Infinity;
+      for (const ring of rings) for (const p of ring) { if (p[1] < ymin) ymin = p[1]; if (p[1] > ymax) ymax = p[1]; }
+      // rows whose centre (r + 0.5) lies in [ymin, ymax)
+      const rA = Math.max(0, Math.ceil(ymin - 0.5)), rB = Math.min(H - 1, Math.ceil(ymax - 0.5) - 1);
+      if (rB < rA) continue;
+      const rows = [];
+      for (let r = rA; r <= rB; r++) rows.push([]);
+      for (const ring of rings) {
+        for (let i = 0, n = ring.length; i < n; i++) {
+          const a = ring[i], b = ring[(i + 1) % n];
+          if (a[1] === b[1]) continue;
+          const lo = a[1] < b[1] ? a : b, hi = a[1] < b[1] ? b : a, k = (hi[0] - lo[0]) / (hi[1] - lo[1]);
+          const s = Math.max(rA, Math.ceil(lo[1] - 0.5)), e = Math.min(rB, Math.ceil(hi[1] - 0.5) - 1);
+          for (let r = s; r <= e; r++) rows[r - rA].push(lo[0] + (r + 0.5 - lo[1]) * k);
+        }
+      }
+      for (let r = rA; r <= rB; r++) {
+        const xs = rows[r - rA];
+        if (xs.length < 2) continue;
+        xs.sort((p, q) => p - q);
+        for (let k = 0; k + 1 < xs.length; k += 2) {
+          const xa = Math.max(0, Math.ceil(xs[k] - 0.5)), xb = Math.min(W - 1, Math.ceil(xs[k + 1] - 0.5) - 1);
+          for (let x = xa, o = r * W + xa; x <= xb; x++, o++) ids[o] = id;
+        }
+      }
+    }
+  });
+  _gMask = { w: W, h: H, ids, isoAt };
+  return _gMask;
+}
+
+// Orthographic projection, centred on view {lon, lat}, radius r (CSS px)
+// around (cx, cy): [x, y, visible] (visible: on the hemisphere facing us).
+function globeProject(lon, lat, view) {
+  const l = (lon - view.lon) * G_RAD, p = lat * G_RAD, p0 = view.lat * G_RAD;
+  const cp = Math.cos(p), sp = Math.sin(p), c0 = Math.cos(p0), s0 = Math.sin(p0), cl = Math.cos(l);
+  const x = cp * Math.sin(l), y = c0 * sp - s0 * cp * cl, z = s0 * sp + c0 * cp * cl;
+  return [view.cx + x * view.r, view.cy - y * view.r, z > 0];
+}
+// The inverse: [lon, lat] under a screen point, or null off the disc.
+function globeInverse(X, Y, view) {
+  const x = (X - view.cx) / view.r, y = (view.cy - Y) / view.r, r2 = x * x + y * y;
+  if (r2 > 1) return null;
+  const z = Math.sqrt(1 - r2), p0 = view.lat * G_RAD, c0 = Math.cos(p0), s0 = Math.sin(p0);
+  const lat = Math.asin(Math.max(-1, Math.min(1, z * s0 + y * c0))) / G_RAD;
+  const lon = view.lon + Math.atan2(x, z * c0 - y * s0) / G_RAD;
+  return [((lon + 540) % 360) - 180, lat];
+}
+// n points (ends included) along the great circle from a to b ([lon, lat]).
+function gcPoints(a, b, n) {
+  n = Math.max(2, n | 0);
+  const v = (p) => { const l = p[0] * G_RAD, f = p[1] * G_RAD; return [Math.cos(f) * Math.cos(l), Math.cos(f) * Math.sin(l), Math.sin(f)]; };
+  const A = v(a), B = v(b);
+  const d = Math.acos(Math.max(-1, Math.min(1, A[0] * B[0] + A[1] * B[1] + A[2] * B[2]))), sd = Math.sin(d);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    if (i === 0 || d < 1e-9) { out.push([a[0], a[1]]); continue; }
+    if (i === n - 1) { out.push([b[0], b[1]]); continue; }
+    if (sd < 1e-9) {                              // antipodes: any great circle; go by lon/lat
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+      continue;
+    }
+    const wa = Math.sin((1 - t) * d) / sd, wb = Math.sin(t * d) / sd;
+    const x = wa * A[0] + wb * B[0], y = wa * A[1] + wb * B[1], z = wa * A[2] + wb * B[2];
+    out.push([Math.atan2(y, x) / G_RAD, Math.atan2(z, Math.hypot(x, y)) / G_RAD]);
+  }
+  return out;
+}
+// A whole-Earth view of size x size CSS px centred on a place (its parent's
+// centroid for a guide-only place: Scotland on the UK).
+function globeViewFor(iso, size) {
+  const c = countryCentroids()[GUIDE_PARENT[iso] || iso];
+  return { lon: c ? c[0] : 0, lat: c ? c[1] : 16, r: size * 0.4, cx: size / 2, cy: size / 2, w: size, h: size };
+}
+
+// Everything that depends only on the size and the centre's latitude, per
+// device pixel on the disc: where it lands in the mask (a column offset from
+// the centre's longitude, and a row) and its light. A longitude change is
+// then one add per pixel (the Trip globe's drag); the three most recent kept
+// (the Trip globe sharp and at 1x for its drag, a badge): 16 bytes a disc
+// pixel, 3-5 MB for a 2x Trip globe, and six kept grew to 15-19 MB after a
+// few tilts. globeRaster's per-pixel country ids share one buffer (_gIdb),
+// grown to the largest canvas, rather than one per entry.
+let _gGeo = [], _gIdb = null;
+function globeGeo(view, devW, devH) {
+  const dpr = devW / (view.w || view.cx * 2);
+  const key = [devW, devH, dpr, view.cx, view.cy, view.r, view.lat].map((v) => (+v).toFixed(4)).join("|");
+  const hit = _gGeo.find((g) => g.key === key);
+  if (hit) return hit;
+  const cxd = view.cx * dpr, cyd = view.cy * dpr, rd = view.r * dpr;
+  const p0 = view.lat * G_RAD, c0 = Math.cos(p0), s0 = Math.sin(p0);
+  let lx = -0.42, ly = 0.55, lz = 0.72;            // the spin globe's light: upper left, front
+  const lm = Math.hypot(lx, ly, lz);
+  lx /= lm; ly /= lm; lz /= lm;
+  const x0 = Math.max(0, Math.floor(cxd - rd)), x1 = Math.min(devW - 1, Math.ceil(cxd + rd));
+  const y0 = Math.max(0, Math.floor(cyd - rd)), y1 = Math.min(devH - 1, Math.ceil(cyd + rd));
+  const cap = Math.max(0, (x1 - x0 + 1) * (y1 - y0 + 1));
+  const pix = new Uint32Array(cap), colf = new Float32Array(cap), row = new Uint32Array(cap), lum = new Float32Array(cap);
+  let n = 0;
+  for (let py = y0; py <= y1; py++) {
+    for (let px = x0; px <= x1; px++) {
+      const x = (px + 0.5 - cxd) / rd, y = (cyd - py - 0.5) / rd, r2 = x * x + y * y;
+      if (r2 > 1) continue;
+      const z = Math.sqrt(1 - r2);
+      const phi = Math.asin(Math.max(-1, Math.min(1, z * s0 + y * c0)));
+      pix[n] = py * devW + px;
+      colf[n] = Math.atan2(x, z * c0 - y * s0) / (2 * Math.PI) * GM_W + GM_W;   // kept positive for the | 0
+      row[n] = Math.min(GM_H - 1, Math.max(0, Math.floor((0.5 - phi / Math.PI) * GM_H))) * GM_W;
+      lum[n] = 0.62 + 0.42 * Math.max(0, lx * x + ly * y + lz * z);
+      n++;
+    }
+  }
+  const g = { key, n, pix, colf, row, lum, dpr };
+  _gGeo.unshift(g);
+  if (_gGeo.length > 3) _gGeo.length = 3;
+  return g;
+}
+
+// The disc's pixels (RGBA, devW x devH device px, into `out` when given):
+// land, sea and the highlighted countries (opts.highlight, guide-only places
+// as their parent; a -99 feature never), shaded; a white outline round the
+// highlight with a soft glow outside it, and a faint line between other
+// countries. Pure (no canvas), so jsc can test it.
+function globeRaster(view, devW, devH, opts, out) {
+  const d = out || new Uint8ClampedArray(devW * devH * 4);
+  if (out) d.fill(0);
+  const m = globeMask();
+  if (!m) return d;
+  const g = globeGeo(view, devW, devH);
+  const want = new Set([...((opts && opts.highlight) || [])].map((i) => GUIDE_PARENT[i] || i));
+  const hl = new Uint8Array(m.isoAt.length);
+  m.isoAt.forEach((iso, id) => { if (id && iso !== "-99" && want.has(iso)) hl[id] = 1; });
+  if (!_gIdb || _gIdb.length < devW * devH) _gIdb = new Int16Array(devW * devH);
+  const shift = (view.lon + 180) / 360 * GM_W, idb = _gIdb.subarray(0, devW * devH), ids = m.ids, WM = GM_W - 1;
+  idb.fill(-1);
+  for (let k = 0; k < g.n; k++) idb[g.pix[k]] = ids[g.row[k] + (((g.colf[k] + shift) | 0) & WM)];
+  // Round the highlight, outside it so a thin country stays green: a white
+  // line a CSS pixel wide (two device pixels at 2x), then as wide a glow.
+  const ow = Math.max(1, Math.round(g.dpr)), N = idb.length;
+  let id = 0, best = 0, border = 0;
+  const look = (q, s) => {               // the neighbour s pixels away (an index into idb, or -1)
+    const o = q < 0 || q >= N ? -1 : idb[q];
+    if (o < 0) return;
+    if (hl[o]) { if (!best || s < best) best = s; }
+    else if (s === 1 && id && o && o !== id && m.isoAt[o] !== m.isoAt[id]) border = 1;
+  };
+  for (let k = 0; k < g.n; k++) {
+    const p = g.pix[k], L = g.lum[k], px = p % devW;
+    id = idb[p]; best = 0; border = 0;
+    const on = hl[id];
+    if (!on) {
+      for (let s = 1; s <= 2 * ow && !best; s++) {
+        look(px >= s ? p - s : -1, s); look(px + s < devW ? p + s : -1, s); look(p - s * devW, s); look(p + s * devW, s);
+      }
+    }
+    const c = on ? G_HL : id ? G_LAND : G_OCEAN, o4 = p * 4;
+    let r = c[0] * L, gg = c[1] * L, b = c[2] * L;
+    if (best && best <= ow) { r = gg = b = 255; }
+    else if (best) { r += (255 - r) * 0.45; gg += (255 - gg) * 0.45; b += (255 - b) * 0.45; }
+    else if (border) { r *= 0.9; gg *= 0.9; b *= 0.9; }
+    d[o4] = r; d[o4 + 1] = gg; d[o4 + 2] = b; d[o4 + 3] = 255;
+  }
+  return d;
+}
+
+// One globe on a canvas whose CSS size is view.w x view.h (its width/height
+// attributes in device pixels, DPR capped at 2 by the caller). opts:
+// {highlight: Set<iso>, dots: ([lon, lat] | {ll, label})[], arcs: {a, b,
+// dashed, label}[], home: [lon, lat]}. Before world.geojson is in: a plain
+// sea disc in the same place. Static: the caller decides when to redraw.
+let _gScratch = null, _gImg = null;
+function globeDraw(canvas, view, opts) {
+  opts = opts || {};
+  const ctx = canvas && canvas.getContext && canvas.getContext("2d");
+  if (!ctx) return;
+  const W = view.w || view.cx * 2, H = view.h || view.cy * 2, dw = canvas.width, dh = canvas.height, dpr = dw / W;
+  const cx = view.cx, cy = view.cy, R = view.r, TAU = Math.PI * 2;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, dw, dh);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  let g = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 1.2);   // atmosphere halo
+  g.addColorStop(0, "rgba(120,190,255,.33)");
+  g.addColorStop(1, "rgba(120,190,255,0)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, R * 1.2, 0, TAU); ctx.fill();
+  if (!globeMask()) {
+    ctx.fillStyle = "rgb(38,122,202)";
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  } else {
+    if (!_gScratch) _gScratch = document.createElement("canvas");
+    const s = _gScratch, sc = s.getContext("2d");
+    if (s.width !== dw || s.height !== dh) { s.width = dw; s.height = dh; _gImg = null; }
+    if (!_gImg) _gImg = sc.createImageData(dw, dh);
+    globeRaster(view, dw, dh, opts, _gImg.data);
+    sc.putImageData(_gImg, 0, 0);
+    ctx.drawImage(s, 0, 0, W, H);
+  }
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.clip();
+  // graticule (30 degrees), the near side only
+  ctx.strokeStyle = "rgba(255,255,255,.14)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const line = (pts) => {
+    let pen = false;
+    for (const p of pts) {
+      const q = globeProject(p[0], p[1], view);
+      if (!q[2]) { pen = false; continue; }
+      pen ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]);
+      pen = true;
+    }
+  };
+  for (let lo = -180; lo < 180; lo += 30) { const pts = []; for (let la = -85; la <= 85; la += 5) pts.push([lo, la]); line(pts); }
+  for (let la = -60; la <= 60; la += 30) { const pts = []; for (let lo = -180; lo <= 180; lo += 5) pts.push([lo, la]); line(pts); }
+  ctx.stroke();
+  g = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, R);            // limb darkening
+  g.addColorStop(0, "rgba(2,16,38,0)");
+  g.addColorStop(0.8, "rgba(2,16,38,.06)");
+  g.addColorStop(1, "rgba(2,16,38,.5)");
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  ctx.restore();
+  ctx.beginPath();                                                      // gloss + rim light
+  ctx.ellipse(cx - R * 0.38, cy - R * 0.48, R * 0.42, R * 0.2, -0.5, 0, TAU);
+  ctx.fillStyle = "rgba(255,255,255,.15)";
+  ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU);
+  ctx.strokeStyle = "rgba(195,228,255,.7)";
+  ctx.lineWidth = Math.max(1, R / 26);
+  ctx.stroke();
+  const ring = (x, y, rad) => {
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU);
+    ctx.lineWidth = 3.4; ctx.strokeStyle = "rgba(6,26,52,.4)"; ctx.stroke();
+    ctx.lineWidth = 1.8; ctx.strokeStyle = "#fff"; ctx.stroke();
+  };
+  // a highlighted place too small to see at world scale (the flat maps' rule):
+  // a ring round it, a quarter of the radius on the 72px badge (7.5px) but
+  // never over 9px: on the Trip globe's 120-190px radius it drew an 80px
+  // white circle over Monaco's neighbours and the route.
+  if (globeMask()) {
+    const spans = placeSpans(), C = countryCentroids();
+    for (const iso0 of opts.highlight || []) {
+      const iso = GUIDE_PARENT[iso0] || iso0, c = C[iso];
+      if (iso === "-99" || !c || (spans[iso] != null && spans[iso] >= 1.5)) continue;
+      const q = globeProject(c[0], c[1], view);
+      if (!q[2]) continue;
+      ring(q[0], q[1], Math.min(9, Math.max(5, R * 0.26)));
+      ctx.beginPath(); ctx.arc(q[0], q[1], 1.8, 0, TAU); ctx.fillStyle = "rgb(10,125,40)"; ctx.fill();
+    }
+  }
+  // route arcs: great circles, the near side only, dashed when estimated
+  for (const a of opts.arcs || []) {
+    const ang = distKm(a.a, a.b) / 111.2;
+    const pts = gcPoints(a.a, a.b, Math.max(8, Math.ceil(ang / 2)));
+    ctx.save();
+    ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.setLineDash(a.dashed ? [3, 4] : []);
+    ctx.beginPath(); line(pts);
+    ctx.lineWidth = 3.6; ctx.strokeStyle = "rgba(6,26,52,.35)"; ctx.stroke();
+    ctx.lineWidth = 1.8; ctx.strokeStyle = "#fff"; ctx.stroke();
+    ctx.restore();
+  }
+  const label = (x, y, t) => {
+    ctx.font = "800 10px system-ui, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "#fff";
+    ctx.fillText(String(t), x, y + 0.5);
+  };
+  if (opts.home) {
+    const q = globeProject(opts.home[0], opts.home[1], view);
+    if (q[2]) {
+      ctx.beginPath(); ctx.arc(q[0], q[1], 4.5, 0, TAU);
+      ctx.fillStyle = "#fff"; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = "rgba(6,26,52,.75)"; ctx.stroke();
+    }
+  }
+  for (const dt of opts.dots || []) {
+    const ll = Array.isArray(dt) ? dt : dt.ll, t = Array.isArray(dt) ? null : dt.label;
+    if (!ll) continue;
+    const q = globeProject(ll[0], ll[1], view);
+    if (!q[2]) continue;
+    ctx.beginPath(); ctx.arc(q[0], q[1], t != null ? 7 : 4, 0, TAU);
+    ctx.fillStyle = "rgb(10,125,40)"; ctx.fill();
+    ctx.lineWidth = 1.5; ctx.strokeStyle = "#fff"; ctx.stroke();
+    if (t != null) label(q[0], q[1], t);
+  }
+}
+// A 72px still globe of a place, drawn once per place and screen density
+// (DPR capped at 2) and kept (the 24 most recent): the postcard copies it in.
+// Null until world.geojson is in.
+const _gBadges = new Map();
+function globeBadge(iso) {
+  if (!globeMask()) return null;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), key = iso + "|" + dpr;
+  let cv = _gBadges.get(key);
+  if (cv) { _gBadges.delete(key); _gBadges.set(key, cv); return cv; }
+  cv = document.createElement("canvas");
+  cv.width = cv.height = Math.round(72 * dpr);
+  globeDraw(cv, globeViewFor(iso, 72), { highlight: new Set([iso]) });
+  _gBadges.set(key, cv);
+  if (_gBadges.size > 24) _gBadges.delete(_gBadges.keys().next().value);
+  return cv;
+}
+// ---- end of small globes ------------------------------------------------------
+
 // Returns { prices, dealPrices, mins, est:Set, min, max, expected } — known
 // fares plus distance-based estimates for every mappable country, or null when
 // no fare data is loaded. `prices` is what a traveller would pay (the cached
@@ -7522,19 +7859,243 @@ let lastGems = [];   // current hidden-gems list, for the 💎 surprise button
 // (setFlexFocus). Null in month mode.
 let valueMapMonths = null;
 
+// ---- Trip route: legs and the recommended order (round 16) ------------------
+// A trip is a round trip by air: home (the reader's From) -> every trip
+// country once -> home. The leg model is a matrix over home + the stops
+// (index 0 = home), directed, one fare kind everywhere: the trip month's
+// cheapest cached round trip where known, else the yearly average, HALVED
+// for one way (USD). Real where our fare data has the leg (/api/trip-legs
+// for legs between trip countries, the reader's own fares for the home
+// legs), estimated from the distance between countryCentroids() otherwise:
+// fare from the server's regional fit (a + b * km, never under USD 50 a
+// round trip, buildFareContext's floor — the recorded fit starts at -10,
+// which priced a 100 km hop at a dollar), minutes = km / 800 * 60 + 120.
+// Estimated parts are flagged (real / realMin) and shown with "≈".
+const TRIP_EXACT_MAX = 10;    // Held-Karp up to this many stops; nearest neighbour + 2-opt above
+const TRIP_LEGS_MAX = 12;     // /api/trip-legs answers at most this many countries
+const TRIP_RT_FLOOR = 50;     // an estimated round trip never under USD 50
+function tripEstMinutes(km) { return km / 800 * 60 + 120; }
+// A usable fare-by-distance fit {a, b}, or null: a slope that isn't positive
+// would price far legs under near ones.
+function tripFit(f) {
+  return f && Number.isFinite(f.a) && Number.isFinite(f.b) && f.b > 0 ? { a: f.a, b: f.b } : null;
+}
+// The reader's own long-haul fit (buildFareContext's: every cached country,
+// yearly averages, 8 or more), for when /api/trip-legs sent none or failed.
+function tripFallbackFit() {
+  if (!(flightsData && flightsData.configured && flightsData.countries)) return null;
+  const C = countryCentroids(), o = C[flightsData.origin];
+  if (!o) return null;
+  const pts = flightsData.countries.filter((r) => C[r.iso] && Number(r.avg) > 0)
+    .map((r) => [distKm(o, C[r.iso]), Number(r.avg)]);
+  if (pts.length < 8) return null;
+  const n = pts.length, mx = pts.reduce((s, p) => s + p[0], 0) / n, my = pts.reduce((s, p) => s + p[1], 0) / n;
+  let num = 0, den = 0;
+  for (const [x, y] of pts) { num += (x - mx) * (y - my); den += (x - mx) ** 2; }
+  return den ? tripFit({ a: my - (num / den) * mx, b: num / den }) : null;
+}
+// The legs request: at most TRIP_LEGS_MAX countries, chosen by code, not by
+// the order on screen (a reorder must not ask for a different twelve).
+function tripLegsURL(origin, isos, monthKey) {
+  const ask = [...new Set(isos)].sort().slice(0, TRIP_LEGS_MAX);
+  return "/api/trip-legs?origin=" + encodeURIComponent(origin) + "&isos=" + ask.map(encodeURIComponent).join(",")
+    + (monthKey ? "&month=" + encodeURIComponent(monthKey) : "");
+}
+// isos: the trip in its current order; home: the reader's From; legsJson:
+// /api/trip-legs' answer ({legs: {from: {to: {fare (round trip), dur}}},
+// fit: {a, b}}; {} when it failed); homeFares: {iso: {to, back (one-way
+// USD), basis, dur}} from the reader's own fares. Returns {n (home + stops),
+// isos, fare, min, real, realMin, fareOk}: fare null where nothing prices a
+// leg (no fit at all — then fareOk is false and every order is by time).
+// England and the UK (GUIDE_PARENT), or home on its own trip, are no flight.
+function tripLegMatrix(isos, home, legsJson, homeFares) {
+  const nodes = [home].concat(isos), n = nodes.length;
+  const C = countryCentroids();
+  const par = (iso) => GUIDE_PARENT[iso] || iso;
+  const pos = nodes.map((iso) => C[iso] || C[par(iso)] || null);
+  const L = (legsJson && legsJson.legs) || {}, hf = homeFares || {};
+  const fit = tripFit(legsJson && legsJson.fit);
+  // A place with no shape on the map: the trip's middle distance, so its
+  // legs are finite and neither favoured nor punished.
+  const known = [];
+  for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (pos[i] && pos[j]) known.push(distKm(pos[i], pos[j]));
+  known.sort((x, y) => x - y);
+  const midKm = known.length ? known[Math.floor(known.length / 2)] : 2000;
+  const grid = (v) => nodes.map(() => nodes.map(() => v));
+  const fare = grid(0), min = grid(0), real = grid(true), realMin = grid(true);
+  let fareOk = true;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    if (i === j || par(nodes[i]) === par(nodes[j])) continue;
+    let f = null, d = null;
+    if (i === 0 || j === 0) {
+      const iso = nodes[i === 0 ? j : i], h = hf[iso] || hf[par(iso)];
+      const v = h ? Number(i === 0 ? h.to : h.back) : 0;
+      if (v > 0) f = v;
+      if (h && Number(h.dur) > 0) d = Number(h.dur);
+    } else {
+      const r = L[nodes[i]] && L[nodes[i]][nodes[j]];
+      if (r && Number(r.fare) > 0) f = Number(r.fare) / 2;
+      if (r && Number(r.dur) > 0) d = Number(r.dur);
+    }
+    const km = pos[i] && pos[j] ? distKm(pos[i], pos[j]) : midKm;
+    real[i][j] = f != null;
+    realMin[i][j] = d != null;
+    if (f == null) f = fit ? Math.max(TRIP_RT_FLOOR, fit.a + fit.b * km) / 2 : null;
+    if (f == null) fareOk = false;
+    fare[i][j] = f;
+    min[i][j] = d != null ? d : tripEstMinutes(km);
+  }
+  return { n, isos: nodes, fare, min, real, realMin, fareOk };
+}
+// Totals along home -> order -> home (order: indices into the stops):
+// {fare (null when a leg has none), minutes, estimated (any part of it)}.
+function tripTotals(m, order) {
+  const path = [0].concat(order.map((i) => i + 1), [0]);
+  let fare = 0, minutes = 0, estimated = false;
+  for (let k = 1; k < path.length; k++) {
+    const a = path[k - 1], b = path[k];
+    if (a === b) continue;
+    const f = m.fare[a][b];
+    fare = fare == null || f == null ? null : fare + f;
+    minutes += m.min[a][b];
+    if (!m.real[a][b] || !m.realMin[a][b]) estimated = true;
+  }
+  return { fare, minutes, estimated };
+}
+// The order of the stops (indices into them, home excluded) that minimises
+// the round trip's cost C (a (k+1)x(k+1) matrix, 0 = home). Exact (Held-Karp,
+// read forward so the earliest stop wins every tie) up to TRIP_EXACT_MAX
+// stops; above, nearest neighbour then 2-opt. Either way the input order
+// (0..k-1) is kept whenever nothing beats it, so a recomputed order never
+// churns between equals.
+function tripSolve(C, k) {
+  if (k <= 1) return k ? [0] : [];
+  const tour = (o) => {
+    let s = C[0][o[0] + 1];
+    for (let i = 1; i < o.length; i++) s += C[o[i - 1] + 1][o[i] + 1];
+    return s + C[o[o.length - 1] + 1][0];
+  };
+  const tol = (v) => 1e-9 * Math.max(1, Math.abs(v));
+  const input = [...Array(k).keys()];
+  let best;
+  if (k <= TRIP_EXACT_MAX) {
+    // g[mask * k + j]: the cheapest way from stop j through every stop in
+    // mask (j not in it) and home.
+    const full = (1 << k) - 1, g = new Float64Array((full + 1) * k);
+    for (let j = 0; j < k; j++) g[j] = C[j + 1][0];
+    for (let mask = 1; mask <= full; mask++) for (let j = 0; j < k; j++) {
+      if (mask & (1 << j)) continue;
+      let v = Infinity;
+      for (let i = 0; i < k; i++) if (mask & (1 << i)) {
+        const c = C[j + 1][i + 1] + g[(mask ^ (1 << i)) * k + i];
+        if (c < v) v = c;
+      }
+      g[mask * k + j] = v;
+    }
+    let target = Infinity;
+    for (let j = 0; j < k; j++) target = Math.min(target, C[0][j + 1] + g[(full ^ (1 << j)) * k + j]);
+    best = [];
+    let cur = 0, rem = full;
+    while (rem) {
+      for (let j = 0; j < k; j++) {
+        if (!(rem & (1 << j))) continue;
+        const v = C[cur][j + 1] + g[(rem ^ (1 << j)) * k + j];
+        if (v <= target + tol(target)) { best.push(j); target = g[(rem ^ (1 << j)) * k + j]; cur = j + 1; rem ^= 1 << j; break; }
+      }
+    }
+  } else {
+    // Nearest neighbour from each of the 12 cheapest first stops, each then
+    // improved by 2-opt and by moving one stop elsewhere; the cheapest wins,
+    // the earlier start on a tie. One start and 2-opt alone ended 2.1% above
+    // the exact order on average at 12 stops of distance-like fares, and 19%
+    // on random ones; this, 0.3% and 6%. Each candidate is priced by what it
+    // changes, not whole: a reversed run turns its own legs round on a
+    // directed tour, which the running sums of the tour's inner legs, each
+    // way (F, Bk), price at once. Priced whole, a 40-stop trip took 75 ms
+    // and 60 stops 0.2 s (the wishlist seed can add dozens).
+    const firsts = input.slice().sort((x, y) => C[0][x + 1] - C[0][y + 1] || x - y).slice(0, 12);
+    const F = new Float64Array(k), Bk = new Float64Array(k);
+    let bestCost = Infinity;
+    best = null;
+    for (const s0 of firsts) {
+      let o = [s0], cur = s0 + 1;
+      const left = new Set(input);
+      left.delete(s0);
+      while (left.size) {
+        let bj = -1;
+        for (const j of left) if (bj < 0 || C[cur][j + 1] < C[cur][bj + 1]) bj = j;
+        o.push(bj); left.delete(bj); cur = bj + 1;
+      }
+      let cost = 0;
+      const take = (cand) => {
+        o = cand; cost = tour(o);
+        for (let t = 0; t + 1 < k; t++) {
+          const a = o[t] + 1, b = o[t + 1] + 1;
+          F[t + 1] = F[t] + C[a][b]; Bk[t + 1] = Bk[t] + C[b][a];
+        }
+      };
+      take(o);
+      const at = (t) => (t < 0 || t >= k ? 0 : o[t] + 1);   // the matrix index at tour place t (home past either end)
+      for (let pass = 0, better = true; better && pass < 50; pass++) {
+        better = false;
+        // 2-opt: o[i..j] reversed
+        for (let i = 0; i < k - 1; i++) for (let j = i + 1; j < k; j++) {
+          const p = at(i - 1), a = o[i] + 1, z = o[j] + 1, nx = at(j + 1);
+          const d = C[p][z] + C[a][nx] - C[p][a] - C[z][nx] + (Bk[j] - Bk[i]) - (F[j] - F[i]);
+          if (d < -tol(cost)) { take(o.slice(0, i).concat(o.slice(i, j + 1).reverse(), o.slice(j + 1))); better = true; }
+        }
+        // o[i] taken out and put back at place j of what is left
+        for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) {
+          if (i === j) continue;
+          const x = o[i] + 1, p = at(i - 1), nx = at(i + 1);
+          const a = j - 1 < 0 ? 0 : o[j - 1 < i ? j - 1 : j] + 1, b = j >= k - 1 ? 0 : o[j < i ? j : j + 1] + 1;
+          const d = C[p][nx] - C[p][x] - C[x][nx] + C[a][x] + C[x][b] - C[a][b];
+          if (d < -tol(cost)) {
+            const rest = o.slice(0, i).concat(o.slice(i + 1));
+            take(rest.slice(0, j).concat([o[i]], rest.slice(j)));
+            better = true;
+          }
+        }
+      }
+      if (!best || cost < bestCost - tol(bestCost)) { best = o; bestCost = cost; }
+    }
+  }
+  return tour(input) <= tour(best) + tol(tour(best)) ? input : best;
+}
+// mode: "cheap" (total fare), "quick" (total minutes) or "best" (fare /
+// bestFare + minutes / bestMinutes, each over its own best possible total).
+// No fare for some leg (fareOk false): every mode orders by time.
+function tripBestOrder(m, mode) {
+  const k = m.n - 1;
+  if (k <= 1) return k === 1 ? [0] : [];
+  if (!m.fareOk || mode === "quick") return tripSolve(m.min, k);
+  if (mode === "cheap") return tripSolve(m.fare, k);
+  const bf = tripTotals(m, tripSolve(m.fare, k)).fare || 1;
+  const bm = tripTotals(m, tripSolve(m.min, k)).minutes || 1;
+  return tripSolve(m.fare.map((r, i) => r.map((f, j) => f / bf + m.min[i][j] / bm)), k);
+}
+
 // ---- Trip builder -----------------------------------------------------------
 // A working set for ONE trip, deliberately separate from the ★ wishlist. The
 // wishlist is a lifetime list and can run to dozens of countries; feeding that
 // into "plan my two weeks" produces mush. This is the three-to-eight you are
 // actually choosing between. Persisted, because planning happens over weeks.
 //
-// Grouping is left to the AI on purpose. Which countries make one trip is not a
-// geometry problem — it turns on flight connections, land borders, visas and
-// season — and a distance-based clustering would produce tidy, travel-naive
-// answers (splitting the Baltics from Poland on centroids, routing a Balkans
-// loop through an awkward crossing). We hand over coordinates and let it judge.
+// The order is the site's since round 16 (it used to be left to the AI): one
+// round trip by air, home -> every country -> home, in the order with the
+// lowest fares, the least flying, or the best of both (tripBestOrder over
+// real fares where we have them, distance estimates marked ≈ elsewhere), or
+// the reader's own after a drag. Flights only: land borders, visas and
+// season still decide whether that order makes a good trip (the ⓘ says so).
+// The globe draws it and "Plan this trip with AI" hands it on (aiTripRoute):
+// the AI keeps it unless ground travel, borders or the seasons argue for
+// another, so the site and the AI no longer give two different routes.
 let _trip = null;
 let sharedTripView = null;   // {td, tm} while viewing a shared trip link
+// A shared trip's order mode while it is on screen and not yet the reader's
+// own (the link's tp= opens as "Your order"): a mode picked on it reorders
+// the screen only. Saving the trip (an edit) makes it, and this, theirs.
+let _tripSharedSort = null;
 function loadTrip() {
   if (!_trip) {
     try { _trip = new Set(JSON.parse(localStorage.getItem("fx_trip") || "[]")); }
@@ -7542,7 +8103,14 @@ function loadTrip() {
   }
   return _trip;
 }
+// fx_trip holds the trip in the order shown (the recommended order, or the
+// reader's own after a drag): a reload paints it as it was, and the share
+// link and the AI prompt read it in that order.
 function saveTrip() {
+  if (_tripSharedSort) { const s = _tripSharedSort; _tripSharedSort = null; setTripSort(s); }
+  // An emptied trip (Clear, the last ×) starts the next one recommended:
+  // "Your order" was the order of the countries just removed.
+  if (!loadTrip().size && tripSortMode() === "mine") setTripSort(tripSortLast());
   try { localStorage.setItem("fx_trip", JSON.stringify([...loadTrip()])); } catch (e) {}
 }
 function tripHas(iso) { return loadTrip().has(iso); }
@@ -7639,6 +8207,10 @@ function renderTripBar() {
     // Clear moved to the list's header row (renderTripBook), and the chips
     // went: every country was listed twice, and the chips were the only way
     // to remove one. Each row now carries its own ×.
+    // The route's globe (round 16) is carried across this redraw (a tab
+    // switch, a country added), drawn as it was: never index.html's
+    // stand-in box, which has no canvas.
+    const keepG = host.querySelector(".tripglobe canvas") ? host.querySelector(".tripglobe") : null;
     host.innerHTML = '<div class="triphead">'
       + '<label class="tripdays">for <input id="tripDays" type="number" min="1" max="180" aria-label="Trip length in days" '
       // One trip length: a budget's "for N days" on Top Picks seeds this until
@@ -7651,7 +8223,9 @@ function renderTripBar() {
         + ((flexM ? false : (parseInt(savedM, 10) || picksMonth()) === i + 1)
           ? " selected" : "") + ">" + m + "</option>").join("")
       + "</select></label></div>"
-      + '<div class="tripbook" id="tripBook"></div>';
+      + '<div class="triproute"><div class="tripglobe" role="img" aria-label="Your route on a globe">'
+      + '<canvas aria-hidden="true"></canvas></div><div class="tripbook" id="tripBook"></div></div>';
+    if (keepG) host.querySelector(".tripglobe").replaceWith(keepG);
     renderTripBook([...t]);
     // An open plan panel follows the trip: a country's × left Cambodia in
     // "Help me plan a trip to Thailand, Vietnam and Cambodia". No-op closed.
@@ -7742,6 +8316,9 @@ function renderTripBook(isos) {
     return '<span class="gr ' + gradeCls(grade(sc)) + '" role="img" aria-label="' + esc(MONTHS[m - 1] + " weather " + grade(sc))
       + '" data-tip="' + esc(tip) + '" title="">' + grade(sc) + "</span>";
   };
+  // The route's parts (round 16): the order switch, a drag handle per row,
+  // a leg line before, between and after the rows, the totals line.
+  const rp = tripRouteParts(isos, host);
   const hdr = '<div class="tbrow tbhdr">'
     + '<span class="tbn">' + isos.length + " " + (isos.length === 1 ? "country" : "countries") + "</span>"
     + '<span class="tbwx">' + (m ? '<span aria-hidden="true">🌤️</span><span class="vh">' + MONTHS[m - 1] + " weather</span>" : "") + "</span>"
@@ -7752,7 +8329,14 @@ function renderTripBook(isos) {
     + '<span class="tbacts">' + (seedable ? '<button type="button" class="tripseed" id="tripSeed">+ my ★ wishlist</button>' : "")
     + '<button type="button" class="tripseed" id="tripClear">Clear</button></span></div>';
   let unknown = false;   // a row whose stays and things to do wait on the marks
-  const rows = isos.map((iso) => {
+  // The fare note's room, held (invisible) until the month fares land with
+  // it, as the note will read: the fare column grew 98 to 201px (279 with a
+  // trip month) a frame after the list drew, sliding the header's ✈️ and
+  // the whole-trip row's link 100px. A typical fare, in the reader's money.
+  const oh = fareStripOpts(m), feh = fareMoney(600, oh.cur, oh.conv);
+  const noteHold = '<span class="tbfarenote tbph" aria-hidden="true">' + (m ? "<b>" + MON_ABBR[m - 1] + "</b> " + feh : "")
+    + '<span class="tblow">' + (m ? " · " : "") + "low Aug " + feh + "</span></span>";
+  const rows = isos.map((iso, k) => {
     const name = countryName(iso);
     const fr = flightsData && flightsData.countries
       ? flightsData.countries.find((r) => r.iso === iso) : null;
@@ -7776,23 +8360,32 @@ function renderTripBook(isos) {
       links.push('<span class="tbstay" data-iso="' + iso + '"></span>');
       links.push(A(viatorURL(name), "🎟️", "Things to do", name));
     }
+    // Nothing yet, and more to come (the fares, or the marks that say
+    // whether it gets stays, unless their fetch failed): an invisible pill
+    // holds the links line, which the stand-in drew; empty, the row shrank
+    // 80 to 53px and grew back.
+    const coming = (nb == null && (!advisories || !dntSettled(advisories))) || (!flightsData && !valueFlightsSettled);
+    if (!links.length && lvl < 4 && coming)
+      links.push('<span class="triplink tbph" aria-hidden="true">🏨 Stays ↗</span>');
     // Level 3-4: the table's ⚠️ exception mark.
     const warn = lvl >= 3 ? ' <span class="hzmark" data-tip="' + esc(advLevelText(iso, lvl) + advVia(iso)) + '" title="">⚠️</span>' : "";
     return '<div class="tbrow" data-iso="' + iso + '">'
-      + '<span class="tbn"><a class="tbdest" href="' + esc(guidePath(iso)) + '"><span aria-hidden="true">' + flagEmoji(iso)
+      + '<span class="tbn">' + rp.handle(iso, name, k) + '<a class="tbdest" href="' + esc(guidePath(iso)) + '"><span aria-hidden="true">' + flagEmoji(iso)
       + "</span> " + esc(name) + "</a>" + warn + "</span>"
       + '<span class="tbwx">' + wxPill(iso) + "</span>"
-      + '<span class="tbfare" data-iso="' + iso + '"><span class="farestrip empty" aria-hidden="true"></span></span>'
+      + '<span class="tbfare" data-iso="' + iso + '"><span class="farestrip empty" aria-hidden="true"></span>' + noteHold + "</span>"
       + '<span class="tblinks">' + links.join("") + "</span>"
       + '<button type="button" class="tbx" data-iso="' + iso + '" aria-label="' + esc("Remove " + name + " from the trip")
       + '" title="' + esc("Remove " + name) + '">×</button></div>';
-  }).join("");
+  });
   // 🧳, not 🛡️: 🛡️ means Safety everywhere else on the site.
-  host.innerHTML = hdr + rows
+  host.innerHTML = rp.sort + hdr + rp.leg("", isos[0] || "")
+    + rows.map((r, k) => r + rp.leg(isos[k], isos[k + 1] || "")).join("") + rp.total
     + '<div class="tbrow tbins"><span class="tbn">🧳 The whole trip</span>'
     + '<span class="tblinks">' + A(insuranceHref(isos[0] || "US"), "", "Travel insurance (EKTA)", "whole trip") + "</span></div>"
     + '<p class="affnote">These earn us a commission at no extra cost to you — it’s what keeps the site free.</p>';
   bindTripActions();
+  tripBookAfter(host, rp);
   // A list the server is still fetching (dnt_pending, seconds after a
   // deploy): those rows get their links once it is in, as the guide does.
   if (unknown && advisories && !dntSettled(advisories)) {
@@ -7850,6 +8443,686 @@ function renderTripBook(isos) {
         + "&checkin=" + checkin + "&checkout=" + checkout, "🏨", "Stays", countryName(el.dataset.iso));
     });
   }).catch(() => {});
+}
+
+// ---- Trip route: the switch, the legs, the drag (round 16) -------------------
+// The order modes: "best" (Best overall, the default), "cheap", "quick", and
+// "mine" once the reader drags. fx_tripsort holds the mode, fx_tripsortlast
+// the last recommended one (for ↺ Recommended); a shared trip's on screen is
+// _tripSharedSort until it becomes the reader's own.
+const TRIP_SORTS = { best: "Best overall", cheap: "Cheapest", quick: "Quickest" };
+const TRIP_HOLD_MS = 2000;   // a trip's first order waits this long for its data
+function tripSortMode() {
+  if (_tripSharedSort) return _tripSharedSort;
+  let s = null;
+  try { s = localStorage.getItem("fx_tripsort"); } catch (e) {}
+  return s === "mine" || TRIP_SORTS[s] ? s : "best";
+}
+function tripSortLast() {
+  let s = null;
+  try { s = localStorage.getItem("fx_tripsortlast"); } catch (e) {}
+  return TRIP_SORTS[s] ? s : "best";
+}
+function setTripSort(mode) {
+  if (_tripSharedSort) { _tripSharedSort = mode; return; }
+  try {
+    localStorage.setItem("fx_tripsort", mode);
+    if (TRIP_SORTS[mode]) localStorage.setItem("fx_tripsortlast", mode);
+  } catch (e) {}
+}
+const TRIP_SORT_TIP = "Best overall weighs total fare and flying time equally; Cheapest and Quickest each go for one. "
+  + "Flights only: from your From country through every stop and home. Real fares and flight times come from cached "
+  + "searches (Aviasales) where a trip country has its own airport hub in our fare data; the rest (≈, dashed on the "
+  + "globe) are estimated from distance. A fare converted from USD carries ≈ too, so there the ≈ on a leg's time marks "
+  + "the estimate. A leg's fare is half a cached round trip, in the trip month where known; with no fares, every order "
+  + "goes by flying time. Ground travel, borders and visas aren't considered. Drag a row's handle to set your own order, and the globe "
+  + "sideways to turn it.";
+// The markup renderTripBook weaves in, and where focus was (a redraw puts it
+// back: the legs landing must not drop a keyboard reader to <body>).
+function tripRouteParts(isos, host) {
+  const n = isos.length, multi = n > 1, mode = tripSortMode();
+  let keep = null;
+  const a = document.activeElement;
+  if (a && a !== host && host.contains(a)) {
+    const row = a.closest(".tbrow[data-iso]");
+    // ↺ Recommended goes when it is pressed: focus the mode it picked.
+    if (a.dataset.ts) keep = { sel: '.tripsort [data-ts="' + (a.dataset.ts === "rec" ? mode : a.dataset.ts) + '"]' };
+    else if (row && a.classList.length) {
+      const sel = '.tbrow[data-iso="' + row.dataset.iso + '"] .' + a.classList[0];
+      keep = { sel, i: [...row.querySelectorAll("." + a.classList[0])].indexOf(a) };
+    }
+  }
+  const sort = !multi ? "" : '<div class="tripsort"><div class="windowtoggle" role="group" aria-label="Order the trip by">'
+    + Object.keys(TRIP_SORTS).map((k) => '<button type="button" data-ts="' + k + '"' + (mode === k ? ' class="active"' : "")
+      + ' aria-pressed="' + (mode === k) + '">' + TRIP_SORTS[k] + "</button>").join("") + "</div>"
+    + (mode === "mine" ? '<span class="tsmine">Your order</span><button type="button" class="tsrec" data-ts="rec">↺ Recommended</button>' : "")
+    + '<span class="muted" data-tip="' + esc(TRIP_SORT_TIP) + '" title="">ⓘ</span></div>';
+  return {
+    keep, sort,
+    // The handle, then the stop's number as the globe marks it (the handle
+    // already says it to screen readers).
+    handle: (iso, name, k) => !multi ? "" : '<button type="button" class="tbdrag" data-iso="' + esc(iso) + '" aria-label="'
+      + esc(name + ", stop " + (k + 1) + " of " + n + ". Drag, or use the up and down arrow keys, to move it")
+      + '" title="Drag to reorder"></button><span class="tbno" aria-hidden="true">' + (k + 1) + "</span>",
+    leg: (from, to) => !n ? "" : '<div class="tbleg" data-from="' + esc(from) + '" data-to="' + esc(to) + '"><span aria-hidden="true">✈️ …</span></div>',
+    total: n ? '<div class="tbtotal"><span aria-hidden="true">…</span></div>' : "",
+  };
+}
+function tripBookAfter(host, rp) {
+  tripFillLegs(host);
+  host.querySelectorAll(".tripsort [data-ts]").forEach((b) => b.addEventListener("click", () => tripSortClick(b.dataset.ts)));
+  host.querySelectorAll(".tbdrag").forEach((h) => {
+    h.addEventListener("keydown", tripDragKey);
+    h.addEventListener("pointerdown", tripDragStart);
+  });
+  if (rp && rp.keep) {
+    const els = host.querySelectorAll(rp.keep.sel), el = els[rp.keep.i > 0 ? rp.keep.i : 0];
+    if (el) el.focus({ preventScroll: true });
+  }
+  tripRouteSoon();
+}
+
+// What the route depends on: the trip, the reader's From and the trip month.
+function tripRouteCtx() {
+  const isos = [...loadTrip()], origin = originIso(), tm = tripMonth();
+  const key = tm.flexible || !tm.month ? null : nextMonthKey(tm.month);
+  return { isos, origin, key, sig: origin + "|" + (key || "") + "|" + isos.slice().sort().join(",") };
+}
+// /api/trip-legs per (origin, the twelve asked for, month). A failed answer,
+// or one with countries still pending (their hub fares not cached yet), is
+// asked again after 30 s on a later draw.
+const _tripLegsReq = {};
+let _tripLegsV = 0;   // a serial per answer landed (tripRouteUpdate's memo)
+function tripLegsNow(origin, isos, key) {
+  const url = tripLegsURL(origin, isos, key);
+  let r = _tripLegsReq[url];
+  if (r && r.state !== "wait" && Date.now() - r.at > 30000 && (r.state === "fail" || (r.json.pending || []).length)) r = null;
+  if (!r) {
+    r = _tripLegsReq[url] = { at: Date.now(), state: "wait", json: null, v: 0 };
+    getJSON(url).then((j) => {
+      r.state = j && j.legs ? "done" : "fail";
+      r.json = j && j.legs ? j : null;
+    }).catch(() => { r.state = "fail"; }).then(() => { r.at = Date.now(); r.v = ++_tripLegsV; tripRouteSoon(); });
+  }
+  return r;
+}
+// The home legs, from the reader's own fares: the trip month's price where
+// the row's month strip has it (what the row says, "Oct USD 608"), else the
+// yearly average, halved; the most direct cached trip's flight time.
+// waiting: a month strip still on its way.
+const _tripFM = {};
+function tripHomeFares(origin, isos, key) {
+  const fares = {};
+  let waiting = false;
+  const rows = flightsData && flightsData.origin === origin && flightsData.countries || [];
+  for (const iso of isos) {
+    const r = rows.find((x) => x.iso === iso) || rows.find((x) => x.iso === GUIDE_PARENT[iso]);
+    let rt = null, basis = null;
+    if (key) {
+      const k = origin + ":" + iso;
+      if (!(k in _tripFM)) {
+        waiting = true;
+        if (!_tripFM["?" + k]) {
+          _tripFM["?" + k] = true;
+          ensureFareMonths(iso).then((v) => { if (originIso() === origin) _tripFM[k] = v; delete _tripFM["?" + k]; tripRouteSoon(); });
+        }
+      }
+      const rec = _tripFM[k] && _tripFM[k].months && _tripFM[k].months[key];
+      if (rec && Number(rec.price) > 0) { rt = Number(rec.price); basis = "month"; }
+    }
+    if (rt == null && r && Number(r.avg) > 0) { rt = Number(r.avg); basis = "avg"; }
+    fares[iso] = { to: rt != null ? rt / 2 : null, back: rt != null ? rt / 2 : null, basis,
+                   dur: r && Number(r.dur) > 0 ? Number(r.dur) : null };
+  }
+  return { fares, waiting };
+}
+
+// The route in hand: {sig, nodes (home + the stops, in the order the matrix
+// was built), m}. Built only while the Trip tab is on screen.
+let _tripM = null, _tripHold = null, _tripDragging = false, _tripRouteT = 0;
+// The last order worked out {key, from, to}: key is everything it depends on
+// (the trip, From, month, mode, the legs answer, the fit, the home fares), so
+// the redraws in between (every month strip landing calls back here, and the
+// reorder's own redraw) don't solve again, and an order the site gave is
+// kept as it is when nothing it depends on has changed.
+let _tripOrd = null;
+function tripRouteSoon() {
+  if (_tripRouteT) return;
+  _tripRouteT = setTimeout(() => { _tripRouteT = 0; tripRouteUpdate(false); }, 0);
+}
+// Builds the leg matrix from what has landed and, in a recommended mode,
+// puts the trip in its order (saved, so a reload paints it so). A trip's
+// first order waits up to TRIP_HOLD_MS for its legs, month fares and the
+// reader's fares, so it doesn't reorder twice on a cold load; later
+// arrivals reorder at once. Never while a row is being dragged, never in
+// "Your order". force: a click on the switch, now, with what there is.
+// Returns true when it redrew the list.
+function tripRouteUpdate(force) {
+  const host = $("tripBook");
+  if (!host || _tripDragging || document.documentElement.getAttribute("data-tab") !== "trip") return false;
+  const ctx = tripRouteCtx();
+  if (!ctx.isos.length) return false;
+  const have = _tripM && _tripM.sig === ctx.sig;
+  if (!have && (!_tripHold || _tripHold.sig !== ctx.sig)) {
+    _tripHold = { sig: ctx.sig, until: Date.now() + TRIP_HOLD_MS };
+    setTimeout(tripRouteSoon, TRIP_HOLD_MS + 20);
+  }
+  if (!worldGeo) { ensureWorld().then(tripRouteSoon, () => {}); return false; }
+  const L = tripLegsNow(ctx.origin, ctx.isos, ctx.key);
+  const hf = tripHomeFares(ctx.origin, ctx.isos, ctx.key);
+  const fares = flightsData && flightsData.origin === ctx.origin;
+  const waiting = L.state === "wait" || hf.waiting || (!fares && !valueFlightsSettled);
+  if (waiting && !have && !force && Date.now() < _tripHold.until) return false;
+  let lj = L.json || {};
+  if (!tripFit(lj.fit)) lj = Object.assign({}, lj, { fit: tripFallbackFit() });
+  _tripM = { sig: ctx.sig, nodes: [ctx.origin].concat(ctx.isos), m: tripLegMatrix(ctx.isos, ctx.origin, lj, hf.fares) };
+  const mode = tripSortMode();
+  if (mode !== "mine" && ctx.isos.length > 1) {
+    const key = [mode, ctx.sig, L.state, L.v || 0, JSON.stringify(lj.fit || null)]
+      .concat(ctx.isos.slice().sort().map((i) => i + JSON.stringify(hf.fares[i]))).join("|");
+    const cur = ctx.isos.join();
+    let order;
+    if (_tripOrd && _tripOrd.key === key && (_tripOrd.from === cur || _tripOrd.to === cur)) order = _tripOrd.to.split(",");
+    else {
+      order = tripBestOrder(_tripM.m, mode).map((i) => ctx.isos[i]);
+      _tripOrd = { key, from: cur, to: order.join() };
+    }
+    if (order.join() !== cur) {
+      _trip = new Set(order);
+      if (!_tripSharedSort) saveTrip();
+      renderTripBook(order);
+      refreshTripPrompt();
+      return true;
+    }
+  }
+  tripFillLegs(host);
+  return false;
+}
+function tripSortClick(mode) {
+  setTripSort(mode === "rec" ? tripSortLast() : mode);
+  if (!tripRouteUpdate(true)) renderTripBook([...loadTrip()]);
+}
+
+// "✈️ USD 95 · 1h 40m": ≈ before what is estimated (a converted fare already
+// carries fareMoney's ≈); the home legs carry the home flag, leaving and
+// coming back. sr: the same leg in words for screen readers.
+function tripDurText(min) { return fmtDuration(Math.round(min)).trim(); }
+function tripLegWords(m, i, j, o, names) {
+  const home = flagEmoji(names[0].iso);
+  if (m.fare[i][j] === 0 && m.min[i][j] === 0)
+    return { vis: "✈️ —", sr: "No flight from " + names[i].name + " to " + names[j].name + ": the same country" };
+  const f = m.fare[i][j];
+  let money = "";
+  if (f != null) {
+    money = fareMoney(f, o.cur, o.conv);
+    if (!m.real[i][j] && money[0] !== "≈") money = "≈" + money;
+  }
+  const time = (m.realMin[i][j] ? "" : "≈") + tripDurText(m.min[i][j]);
+  const body = "✈️ " + (money ? money + " · " : "") + time;
+  const est = !m.real[i][j] || !m.realMin[i][j];
+  return { vis: (i === 0 ? home + " " : "") + body + (j === 0 ? " " + home : ""),
+           sr: "Flight from " + names[i].name + " to " + names[j].name + ": " + (money ? money.replace(/^≈/, "about ") + ", " : "")
+             + tripDurText(m.min[i][j]) + (est ? " (estimated)" : "") };
+}
+// The totals line: "≈ USD 1,417 · 60h 58m flying". One "≈ " for an
+// estimate or a converted fare alike (fareMoney's own ≈ has no space).
+function tripTotalWords(t, o) {
+  const money = t.fare != null ? fareMoney(t.fare, o.cur, o.conv).replace(/^≈/, "") : "";
+  const pre = t.estimated || (money && o.cur !== "USD") ? "≈ " : "";
+  return pre + (money ? money + " · " : "") + tripDurText(t.minutes) + " flying";
+}
+// The total fare as the leg lines add up: each leg rounded in the shown
+// currency as its line shows it, then summed (rounding the sum once was a
+// dollar off the legs: 512 + 512 shown, "USD 1,023" in the totals). In
+// display units (conv applied); null when a leg has no fare.
+function tripShownFare(m, order, conv) {
+  const path = [0].concat(order.map((i) => i + 1), [0]);
+  let sum = 0;
+  for (let k = 1; k < path.length; k++) {
+    const a = path[k - 1], b = path[k];
+    if (a === b) continue;
+    const f = m.fare[a][b];
+    if (f == null) return null;
+    sum += Math.round(f * (conv || 1));
+  }
+  return sum;
+}
+// Fills the leg lines and the totals from the route in hand, for the rows
+// as drawn; placeholders stay while it is still coming.
+function tripFillLegs(host) {
+  const ctx = tripRouteCtx();
+  tripGlobeUpdate();   // the globe follows the rows as drawn, the route once it is in
+  if (!host || !_tripM || _tripM.sig !== ctx.sig) return;
+  const { m, nodes } = _tripM, o = fareStripOpts(null);
+  const ix = (iso) => (iso ? nodes.indexOf(iso, 1) : 0);
+  const names = nodes.map((iso, k) => ({ iso, name: k === 0 ? (iso === "US" ? "the US" : countryName(iso)) : countryName(iso) }));
+  host.querySelectorAll(".tbleg").forEach((el) => {
+    const i = ix(el.dataset.from), j = ix(el.dataset.to);
+    if (i < 0 || j < 0 || i === j) return;
+    const w = tripLegWords(m, i, j, o, names);
+    el.innerHTML = '<span aria-hidden="true">' + esc(w.vis) + '</span><span class="vh">' + esc(w.sr) + "</span>";
+  });
+  const tot = host.querySelector(".tbtotal");
+  const order = [...host.querySelectorAll(".tbrow[data-iso]")].map((r) => ix(r.dataset.iso) - 1);
+  if (tot && order.length && order.every((i) => i >= 0)) {
+    const t0 = tripTotals(m, order), shown = tripShownFare(m, order, o.conv);
+    const t = Object.assign({}, t0, { fare: t0.fare == null || shown == null ? null : shown }), o1 = { cur: o.cur, conv: 1 };
+    tot.innerHTML = '<span aria-hidden="true">' + esc(tripTotalWords(t, o1)) + '</span><span class="vh">'
+      + esc("Whole trip: " + tripTotalWords(t, o1).replace(/≈\s?/g, "about ")) + "</span>";
+  }
+}
+
+// Reordering by hand: a row moves to index j of the trip and the trip is the
+// reader's own order from then on (saved, as an edit is).
+function tripMoveTo(iso, j) {
+  const isos = [...loadTrip()].filter((x) => x !== iso);
+  isos.splice(Math.max(0, Math.min(j, isos.length)), 0, iso);
+  _trip = new Set(isos);
+  _tripSharedSort = null;
+  setTripSort("mine");
+  saveTrip();
+  renderTripBook(isos);
+  refreshTripPrompt();
+}
+// Keyboard: Up/Down on a focused handle moves its row one place.
+function tripDragKey(e) {
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  e.preventDefault();
+  const iso = e.currentTarget.dataset.iso, isos = [...loadTrip()], i = isos.indexOf(iso);
+  const j = i + (e.key === "ArrowUp" ? -1 : 1);
+  if (i < 0 || j < 0 || j >= isos.length) return;
+  tripMoveTo(iso, j);
+}
+// Pointer: the row follows the pointer (a transform, so nothing below it
+// moves), a line marks where it will land, and the drop moves it there. The
+// handle alone starts a drag (touch-action: none on it), so a swipe anywhere
+// else on the list still scrolls the page.
+function tripDragStart(e) {
+  if (e.button !== 0 || _tripDragging) return;
+  const h = e.currentTarget, host = $("tripBook"), row = h.closest(".tbrow");
+  if (!host || !row) return;
+  e.preventDefault();
+  const rows = [...host.querySelectorAll(".tbrow[data-iso]")], from = rows.indexOf(row);
+  const others = rows.filter((r) => r !== row);
+  const mids = others.map((r) => { const b = r.getBoundingClientRect(); return b.top + b.height / 2; });
+  const b0 = row.getBoundingClientRect(), mid0 = b0.top + b0.height / 2, y0 = e.clientY;
+  let to = from, moved = false;
+  _tripDragging = true;
+  try { h.setPointerCapture(e.pointerId); } catch (x) {}
+  row.classList.add("tbdragging");
+  const mark = () => others.forEach((r, k) => {
+    r.classList.toggle("tbdropb", moved && k === to && to !== from);
+    r.classList.toggle("tbdropa", moved && to === others.length && k === others.length - 1 && to !== from);
+  });
+  const pid = e.pointerId;
+  const move = (ev) => {
+    if (ev.pointerId !== pid) return;
+    const dy = ev.clientY - y0;
+    if (!moved && Math.abs(dy) < 4) return;
+    moved = true;
+    row.style.transform = "translateY(" + Math.round(dy) + "px)";
+    to = mids.filter((y) => y < mid0 + dy).length;
+    mark();
+  };
+  const end = (ev) => {
+    if (ev.pointerId !== pid) return;
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    h.removeEventListener("lostpointercapture", end);
+    if (!_tripDragging) return;
+    _tripDragging = false;
+    row.classList.remove("tbdragging");
+    row.style.transform = "";
+    moved = moved && ev.type === "pointerup";
+    mark();
+    if (moved && to !== from) tripMoveTo(row.dataset.iso, to);
+    else tripRouteSoon();   // what landed during the drag
+  };
+  // On window (a captured pointer's events still bubble there), so a lost
+  // capture can't leave a drag running.
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+  h.addEventListener("lostpointercapture", end);
+}
+
+// ---- Trip route: the globe (round 16) ----------------------------------------
+// The route as the list has it: home (a house), the numbered stops (the
+// rows carry the same numbers), an arc per flight in the list's order,
+// lifted off the surface with an arrowhead for the way it goes, dashed where
+// the leg is estimated (≈); the trip's countries in the site green. Its box
+// is fixed from first paint (index.html's stand-in has it): above the list,
+// beside it from 901px, so drawing it moves nothing. The view centres on
+// home and the stops (the point whose farthest place is nearest), once per
+// set of countries: a reorder or the legs landing never move it. A sideways
+// drag turns it (touch-action: pan-y leaves a vertical swipe to the page; a
+// mouse's up/down tilts it when the drag ends, the costly rebuild done
+// once), drawn at 1x while it moves. The arcs draw in once, the first time a
+// route is shown, never under reducedMotion(); the animation stops while
+// the box is offscreen (another tab), the page hidden or the box gone, and
+// resumes where it was. The list (its leg lines) is the text equivalent;
+// the box names the route for screen readers.
+const TG_DRAWIN_MS = 1400;
+// el: the box drawn into; ctr: the view's centre and zoom {lon, lat, z};
+// fitSig: the places it was fitted to; hl: the trip's countries; home:
+// [lon, lat]; route: {legs: [{a, b, dashed}], stops: [{ll, label}]} once the
+// legs are in; base: the globe without the route (cached by baseKey); t: the
+// draw-in, 0..1; drawn: done (once a page); frames: draw-in frames and
+// marks: the markers as last placed (tests).
+const _tg = { el: null, ro: null, io: null, vis: false, ctr: null, fitSig: "", hl: [], home: null, route: null,
+              base: null, baseKey: "", t: 0, drawn: false, raf: 0, drag: null, dragRaf: 0, frames: 0, marks: [] };
+const tgWrap = (lon) => (((lon % 360) + 540) % 360) - 180;
+const tgVec = (p) => { const l = p[0] * G_RAD, f = p[1] * G_RAD; return [Math.cos(f) * Math.cos(l), Math.cos(f) * Math.sin(l), Math.sin(f)]; };
+// The view's centre: the 3-degree grid point whose farthest place is the
+// nearest (ties: the first), and a zoom that fills the disc with them —
+// the whole Earth for a long haul, up to 1.45x for a trip near home.
+function tgFit(pts) {
+  const P = pts.map(tgVec);
+  if (!P.length) return { lon: 0, lat: 20, z: 1 };
+  let best = null;
+  for (let la = -60; la <= 60; la += 3) {
+    for (let lo = -180; lo < 180; lo += 3) {
+      const c = tgVec([lo, la]);
+      let mn = 1;
+      for (const q of P) {
+        const d = c[0] * q[0] + c[1] * q[1] + c[2] * q[2];
+        if (d < mn) { mn = d; if (best && mn <= best.cos) break; }
+      }
+      if (!best || mn > best.cos) best = { lon: lo, lat: la, cos: mn };
+    }
+  }
+  const s = best.cos <= 0 ? 1 : Math.sqrt(1 - best.cos * best.cos);   // the farthest place's distance on the disc
+  return { lon: best.lon, lat: best.lat, z: Math.max(1, Math.min(1.45, 0.8 / Math.max(s, 1e-6))) };
+}
+function tgView(w, h) {
+  const c = _tg.ctr || { lon: 0, lat: 20, z: 1 };
+  return { lon: c.lon, lat: c.lat, r: Math.min(w, h) / 2 * 0.86 * c.z, cx: w / 2, cy: h / 2, w, h };
+}
+// globeProject for a point h radii above the surface: visible when on the
+// near side, or out past the disc's edge (an arc's top seen over the limb).
+function tgProj(lon, lat, h, view) {
+  const l = (lon - view.lon) * G_RAD, p = lat * G_RAD, p0 = view.lat * G_RAD;
+  const cp = Math.cos(p), sp = Math.sin(p), c0 = Math.cos(p0), s0 = Math.sin(p0), cl = Math.cos(l), k = 1 + h;
+  const x = cp * Math.sin(l), y = c0 * sp - s0 * cp * cl, z = s0 * sp + c0 * cp * cl;
+  return [view.cx + x * k * view.r, view.cy - y * k * view.r, z > 0 || Math.hypot(x, y) * k >= 1];
+}
+// The great circle a -> b: its angle d (radians) and the point t of the way.
+function tgArc(a, b) {
+  const A = tgVec(a), B = tgVec(b);
+  const d = Math.acos(Math.max(-1, Math.min(1, A[0] * B[0] + A[1] * B[1] + A[2] * B[2]))), sd = Math.sin(d);
+  return { d, at: (t) => {
+    if (sd < 1e-9) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    const wa = Math.sin((1 - t) * d) / sd, wb = Math.sin(t * d) / sd;
+    const x = wa * A[0] + wb * B[0], y = wa * A[1] + wb * B[1], z = wa * A[2] + wb * B[2];
+    return [Math.atan2(y, x) / G_RAD, Math.atan2(z, Math.hypot(x, y)) / G_RAD];
+  } };
+}
+
+// After every redraw of the list (tripFillLegs): the countries, the order
+// as drawn, the route once the legs are in for this trip.
+function tripGlobeUpdate() {
+  const el = document.querySelector("#tripBar .tripglobe");
+  if (!el || !el.querySelector || !el.querySelector("canvas")) return;
+  tgBind(el);
+  const ctx = tripRouteCtx();
+  const rows = [...document.querySelectorAll("#tripBook .tbrow[data-iso]")].map((r) => r.dataset.iso);
+  const isos = rows.length ? rows : ctx.isos;
+  const C = worldGeo ? countryCentroids() : null;
+  const at = (iso) => (C && (C[iso] || C[GUIDE_PARENT[iso]])) || null;
+  const home = at(ctx.origin);
+  const fitSig = ctx.origin + "|" + isos.slice().sort().join(",") + "|" + (C ? 1 : 0);
+  if (fitSig !== _tg.fitSig) {
+    _tg.fitSig = fitSig;
+    _tg.ctr = tgFit([home].concat(isos.map(at)).filter(Boolean));
+  }
+  _tg.hl = isos.slice().sort();
+  _tg.home = home;
+  // An arc per flight: none inside one country (England -> the UK, no
+  // flight) or to a place with no shape on the map; one marker per place
+  // (England and the UK on one trip: "2,3").
+  let route = null;
+  if (C && _tripM && _tripM.sig === ctx.sig) {
+    const { m, nodes } = _tripM, ix = (iso) => (iso ? nodes.indexOf(iso, 1) : 0);
+    const seq = [""].concat(isos, [""]), legs = [], stops = [];
+    for (let k = 0; k + 1 < seq.length; k++) {
+      const i = ix(seq[k]), j = ix(seq[k + 1]);
+      const a = seq[k] ? at(seq[k]) : home, b = seq[k + 1] ? at(seq[k + 1]) : home;
+      if (i < 0 || j < 0 || !a || !b || (a[0] === b[0] && a[1] === b[1]) || (m.fare[i][j] === 0 && m.min[i][j] === 0)) continue;
+      legs.push({ a, b, dashed: !m.real[i][j] || !m.realMin[i][j] });
+    }
+    isos.forEach((iso, k) => {
+      const p = at(iso);
+      if (!p) return;
+      const s = stops.find((x) => x.ll[0] === p[0] && x.ll[1] === p[1]);
+      if (s) s.label += "," + (k + 1);
+      else stops.push({ ll: p, label: isos.length > 1 ? String(k + 1) : "" });
+    });
+    route = { legs, stops };
+  }
+  _tg.route = route;
+  el.setAttribute("aria-label", "Your route on a globe: from " + (ctx.origin === "US" ? "the US" : countryName(ctx.origin))
+    + " to " + isos.map(countryName).join(", ") + " and back");
+  if (route && !_tg.drawn) tgDrawIn();
+  else tgPaint(!!_tg.drag);
+}
+// Observers and the drag, once per box (renderTripBar carries the box over).
+function tgBind(el) {
+  if (_tg.el === el) return;
+  if (_tg.ro) _tg.ro.disconnect();
+  if (_tg.io) _tg.io.disconnect();
+  _tg.el = el; _tg.ro = _tg.io = null; _tg.baseKey = "";
+  _tg.vis = !window.IntersectionObserver;
+  if (window.ResizeObserver) { _tg.ro = new ResizeObserver(() => tgPaint(!!_tg.drag)); _tg.ro.observe(el); }
+  if (window.IntersectionObserver) {
+    _tg.io = new IntersectionObserver((es) => {
+      _tg.vis = es[es.length - 1].isIntersecting;
+      if (_tg.vis && _tg.route && !_tg.drawn) tgDrawIn();
+      else if (!_tg.vis && _tg.raf) { cancelAnimationFrame(_tg.raf); _tg.raf = 0; }
+    });
+    _tg.io.observe(el);
+  }
+  el.addEventListener("pointerdown", tgDragStart);
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { if (_tg.raf) { cancelAnimationFrame(_tg.raf); _tg.raf = 0; } }
+  else if (_tg.vis && _tg.route && !_tg.drawn) tgDrawIn();
+});
+// The arcs drawing in, home first, each leg in proportion to its length.
+function tgDrawIn() {
+  if (_tg.drawn || reducedMotion()) { _tg.drawn = true; tgPaint(!!_tg.drag); return; }
+  tgPaint(!!_tg.drag);
+  if (_tg.raf || !_tg.vis || document.hidden) return;   // it starts (or resumes) once on screen
+  const t0 = performance.now() - _tg.t * TG_DRAWIN_MS;
+  const step = (now) => {
+    _tg.raf = 0;
+    if (!_tg.el || !_tg.el.isConnected || !_tg.vis || document.hidden || !_tg.route) return;   // paused where it is
+    _tg.frames++;
+    _tg.t = Math.min(1, Math.max(0, (now - t0) / TG_DRAWIN_MS));
+    if (_tg.t >= 1) _tg.drawn = true;
+    tgPaint(!!_tg.drag);
+    if (!_tg.drawn) _tg.raf = requestAnimationFrame(step);
+  };
+  _tg.raf = requestAnimationFrame(step);
+}
+// One frame: the globe (redrawn only when its view, size or countries
+// change; at 1x while dragged), then the route over it.
+function tgPaint(fast) {
+  const el = _tg.el, cv = el && el.isConnected && el.querySelector("canvas");
+  if (!cv) return;
+  const w = el.clientWidth, h = el.clientHeight;
+  if (!w || !h) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), dw = Math.round(w * dpr), dh = Math.round(h * dpr);
+  if (cv.width !== dw || cv.height !== dh) { cv.width = dw; cv.height = dh; }
+  const view = tgView(w, h), bd = fast ? 1 : dpr;
+  const key = [w, h, bd, view.lon, view.lat, view.r, _tg.hl.join(","), globeMask() ? 1 : 0].join("|");
+  if (_tg.baseKey !== key || !_tg.base) {
+    const b = _tg.base || (_tg.base = document.createElement("canvas"));
+    b.width = Math.round(w * bd); b.height = Math.round(h * bd);
+    globeDraw(b, view, { highlight: new Set(_tg.hl) });
+    _tg.baseKey = key;
+  }
+  const x = cv.getContext("2d");
+  if (!x) return;
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  x.clearRect(0, 0, dw, dh);
+  x.drawImage(_tg.base, 0, 0, dw, dh);
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  tgOverlay(x, view, _tg.drawn ? 1 : _tg.t);
+  const was = _tg.route ? "route" : globeMask() ? "globe" : "disc";
+  if (el.getAttribute("data-drawn") !== was) el.setAttribute("data-drawn", was);
+}
+function tgOverlay(x, view, prog) {
+  const TAU = Math.PI * 2, r = _tg.route, legs = r ? r.legs : [];
+  const lens = legs.map((L) => Math.max(1e-6, distKm(L.a, L.b))), tot = lens.reduce((s, v) => s + v, 0);
+  x.lineCap = "round"; x.lineJoin = "round";
+  let acc = 0;
+  const us = legs.map((L, k) => { const u = Math.max(0, Math.min(1, (prog * tot - acc) / lens[k])); acc += lens[k]; return u; });
+  // The solid legs first, the dashed (estimated) ones over them: a way home
+  // on nearly the path of a real way out hid its dashes completely.
+  const seq = legs.map((L, k) => k).sort((a, b) => (legs[a].dashed ? 1 : 0) - (legs[b].dashed ? 1 : 0) || a - b);
+  seq.forEach((k) => {
+    const L = legs[k], u = us[k];
+    if (u <= 0) return;
+    const arc = tgArc(L.a, L.b), H = 0.03 + 0.2 * arc.d / Math.PI, lift = (t) => H * Math.sin(Math.PI * t);
+    const n = Math.max(18, Math.round(arc.d / G_RAD / 1.5));
+    x.beginPath();
+    let pen = false;
+    for (let s = 0; s <= n; s++) {
+      const t = Math.min(s / n, u), p = arc.at(t), q = tgProj(p[0], p[1], lift(t), view);
+      if (q[2]) { pen ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1]); pen = true; } else pen = false;
+      if (s / n >= u) break;
+    }
+    x.setLineDash(L.dashed ? [4, 4] : []);
+    x.lineWidth = 4; x.strokeStyle = "rgba(6,26,52,.4)"; x.stroke();
+    x.lineWidth = 2; x.strokeStyle = "#fff"; x.stroke();
+    x.setLineDash([]);
+    // The way it goes: an arrowhead 42% along, so a round trip's two legs
+    // over one path show two.
+    if (u >= 0.45) {
+      const p = arc.at(0.42), p0 = arc.at(0.4), q = tgProj(p[0], p[1], lift(0.42), view), q0 = tgProj(p0[0], p0[1], lift(0.4), view);
+      if (q[2]) {
+        x.save();
+        x.translate(q[0], q[1]);
+        x.rotate(Math.atan2(q[1] - q0[1], q[0] - q0[0]));
+        x.beginPath(); x.moveTo(5.5, 0); x.lineTo(-4, -4.5); x.lineTo(-1.8, 0); x.lineTo(-4, 4.5); x.closePath();
+        x.fillStyle = "#fff"; x.fill();
+        x.lineWidth = 1; x.strokeStyle = "rgba(6,26,52,.6)"; x.stroke();
+        x.restore();
+      }
+    }
+  });
+  // The markers: home where it is; the stops pushed apart where they would
+  // overlap (Thailand, Vietnam and Cambodia on a whole Earth are 10px
+  // apart), each tied to its place by a short line.
+  x.font = "800 10.5px system-ui, -apple-system, 'Segoe UI', sans-serif";
+  x.textAlign = "center"; x.textBaseline = "middle";
+  const mk = [];
+  if (_tg.home) {
+    const q = globeProject(_tg.home[0], _tg.home[1], view);
+    if (q[2]) mk.push({ x: q[0], y: q[1], x0: q[0], y0: q[1], rad: 8, half: 0, home: true });
+  }
+  for (const s of (r ? r.stops : [])) {
+    const q = globeProject(s.ll[0], s.ll[1], view);
+    if (!q[2]) continue;
+    const half = s.label ? Math.max(0, x.measureText(s.label).width / 2 + 4.5 - 7.5) : 0;
+    mk.push({ x: q[0], y: q[1], x0: q[0], y0: q[1], rad: s.label ? 7.5 : 5.5, half, label: s.label });
+  }
+  tgSpread(mk, view.w || view.cx * 2, view.h || view.cy * 2);
+  _tg.marks = mk;
+  for (const p of mk) {
+    if (Math.hypot(p.x - p.x0, p.y - p.y0) < 1) continue;
+    x.beginPath(); x.moveTo(p.x0, p.y0); x.lineTo(p.x, p.y);
+    x.lineWidth = 3; x.strokeStyle = "rgba(6,26,52,.45)"; x.stroke();
+    x.lineWidth = 1.4; x.strokeStyle = "#fff"; x.stroke();
+    x.beginPath(); x.arc(p.x0, p.y0, 2.6, 0, TAU);
+    x.fillStyle = "rgb(10,125,40)"; x.fill();
+    x.lineWidth = 1.2; x.strokeStyle = "#fff"; x.stroke();
+  }
+  for (const p of mk) {
+    x.beginPath();
+    x.arc(p.x - p.half, p.y, p.rad, Math.PI / 2, Math.PI * 1.5);
+    x.arc(p.x + p.half, p.y, p.rad, -Math.PI / 2, Math.PI / 2);
+    x.closePath();
+    x.fillStyle = "rgb(10,125,40)"; x.fill();
+    x.lineWidth = 2; x.strokeStyle = "#fff"; x.stroke();
+    x.fillStyle = "#fff";
+    if (p.home) {
+      const hx = p.x, hy = p.y;
+      x.beginPath();
+      x.moveTo(hx - 4, hy - 0.5); x.lineTo(hx, hy - 4.5); x.lineTo(hx + 4, hy - 0.5); x.lineTo(hx + 2.8, hy - 0.5);
+      x.lineTo(hx + 2.8, hy + 3.6); x.lineTo(hx - 2.8, hy + 3.6); x.lineTo(hx - 2.8, hy - 0.5); x.closePath();
+      x.fill();
+    } else if (p.label) x.fillText(p.label, p.x, p.y + 0.5);
+  }
+}
+// Markers {x, y, rad, half (a pill's extra half-width), home} moved apart
+// until none overlap (home stays put), kept inside the w x h box. A few
+// rounds of pushing each overlapping pair apart along the line between
+// them; two at one point part along a fixed angle per marker.
+function tgSpread(mk, w, h) {
+  const gap = 2;
+  for (let round = 0; round < 60; round++) {
+    let hit = false;
+    for (let i = 0; i < mk.length; i++) {
+      for (let j = i + 1; j < mk.length; j++) {
+        const a = mk[i], b = mk[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx, dy);
+        const need = a.rad + b.rad + (Math.abs(dx) > Math.abs(dy) ? a.half + b.half : 0) + gap;
+        if (d >= need) continue;
+        hit = true;
+        if (d < 1e-6) { const g = 2.4 * (j + 1); dx = Math.cos(g); dy = Math.sin(g); } else { dx /= d; dy /= d; }
+        const push = need - d + 0.01;
+        const sa = a.home ? 0 : b.home ? 1 : 0.5, sb = 1 - sa;
+        a.x -= dx * push * sa; a.y -= dy * push * sa;
+        b.x += dx * push * sb; b.y += dy * push * sb;
+      }
+    }
+    for (const p of mk) {
+      if (p.home) continue;
+      p.x = Math.max(p.rad + p.half + 1, Math.min(w - p.rad - p.half - 1, p.x));
+      p.y = Math.max(p.rad + 1, Math.min(h - p.rad - 1, p.y));
+    }
+    if (!hit) break;
+  }
+}
+// Turning it: sideways follows the pointer at once (the globe's light and
+// rows stay; only the longitude moves); a mouse's up/down is the tilt,
+// applied when the drag ends. A touch's vertical swipe never gets here as a
+// drag: the page scrolls (touch-action: pan-y) and the browser cancels it.
+function tgDragStart(e) {
+  if (e.button !== 0 || _tg.drag || !_tg.ctr || !_tg.el) return;
+  const el = _tg.el;
+  const st = { id: e.pointerId, x: e.clientX, y: e.clientY, lon: _tg.ctr.lon, lat: _tg.ctr.lat,
+               r: tgView(el.clientWidth, el.clientHeight).r || 1, mouse: e.pointerType === "mouse", moved: false, lat1: null };
+  _tg.drag = st;
+  try { el.setPointerCapture(e.pointerId); } catch (x) {}
+  const move = (ev) => {
+    if (ev.pointerId !== st.id) return;
+    const dx = ev.clientX - st.x, dy = ev.clientY - st.y;
+    if (!st.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+    if (!st.moved) { st.moved = true; el.classList.add("tgdragging"); }
+    _tg.ctr.lon = tgWrap(st.lon - dx / st.r / G_RAD);
+    if (st.mouse) st.lat1 = Math.max(-60, Math.min(60, st.lat + dy / st.r / G_RAD));
+    if (!_tg.dragRaf) _tg.dragRaf = requestAnimationFrame(() => { _tg.dragRaf = 0; if (_tg.drag) tgPaint(true); });
+  };
+  const end = (ev) => {
+    if (ev.pointerId !== st.id || _tg.drag !== st) return;
+    _tg.drag = null;
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    el.removeEventListener("lostpointercapture", end);
+    el.classList.remove("tgdragging");
+    if (_tg.dragRaf) { cancelAnimationFrame(_tg.dragRaf); _tg.dragRaf = 0; }
+    if (st.lat1 != null) _tg.ctr.lat = st.lat1;
+    if (st.moved) tgPaint(false);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+  el.addEventListener("lostpointercapture", end);
 }
 
 // ---- AI prompts: shared pieces ----------------------------------------------
@@ -8242,12 +9515,37 @@ function closeTripPanel() {
   if (p) { p.hidden = true; p.innerHTML = ""; }
 }
 
+// The trip's route as the prompt gives it (round 16): the countries in the
+// order the Trip tab shows, and what put them there, so the model plans the
+// route the reader is looking at (the globe, the leg lines) instead of
+// grouping the shortlist afresh. names: in that order; mode: tripSortMode();
+// computed: the site's order is in hand for this trip (tripRouteUpdate ran;
+// before that the list is only in the order it was saved, and isn't called
+// a suggestion); byTime: no fares to order by (tripBestOrder's fareOk
+// false), so Cheapest and Best overall went by flying time and say so. Null
+// for one country: there is no order to keep. line: the fact; ask: the
+// PLEASE item. Short, because the path repeats every name: the line and its
+// ask together stay within the two asks they replaced ("Group these into
+// realistic trips", "Name each trip") up to ten countries or so.
+const AI_ROUTE_WHY = { best: "best overall", cheap: "cheapest", quick: "quickest" };
+function aiTripRoute(names, mode, computed, byTime) {
+  if (names.length < 2) return null;
+  const path = "home -> " + names.join(" -> ") + " -> home";
+  const site = AI_ROUTE_WHY[mode] && computed, timed = byTime && mode !== "quick";
+  return {
+    line: "ROUTE (" + (mode === "mine" ? "my own order" : site ? "WanderGrade's " + AI_ROUTE_WHY[timed ? "quick" : mode]
+      + " on flights alone" + (timed ? ", no fares known" : "") : "the order on my list") + "): " + path + ".",
+    ask: "- Keep " + (mode === "mine" ? "my" : "this") + " order unless ground travel, borders or the seasons make another clearly better, and say why if you change it.",
+  };
+}
 // The trip prompt. Everything the model cannot look up goes in: the season
 // fit for the chosen month, the local price level, each route's month fares,
 // the visa position for this passport, and the advisories that bite. The
 // task comes first, so a link a site cuts short still says what's wanted;
 // the facts next; the asks last. Coordinates and the site's region labels
 // went: the model knows where Portugal is, and "Turkey — Europe" was ours.
+// The countries come in the order the Trip tab shows (fx_trip holds it),
+// with the route line (aiTripRoute) saying whose order it is.
 function buildTripAIPrompt() {
   const t = [...loadTrip()];
   if (!t.length) return "";
@@ -8266,6 +9564,8 @@ function buildTripAIPrompt() {
   const inWin = (ms) => !win || (ms || []).some((m) => win.includes(m));
   const names = t.map(countryNameInText);   // "the Philippines, the Netherlands"
   const avoid = [], flights = [];
+  const ctx = tripRouteCtx();
+  const route = aiTripRoute(t.map(countryName), tripSortMode(), !!_tripM && _tripM.sig === ctx.sig, !!_tripM && _tripM.m && !_tripM.m.fareOk);
 
   const lines = [];
   lines.push("Help me plan a trip to " + (names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1]
@@ -8280,6 +9580,7 @@ function buildTripAIPrompt() {
   if (bud.entered) lines.push("BUDGET: " + bud.cur + " " + Math.round(bud.entered).toLocaleString() + " all-in"
     + (bud.days === days ? " for the " + days + " days" : " for " + bud.days + " days (scale it to my " + days + ")")
     + ", flights included.");
+  if (route) lines.push(route.line);
   lines.push("");
   lines.push("SHORTLIST:");
   t.forEach((iso) => {
@@ -8373,9 +9674,9 @@ function buildTripAIPrompt() {
     + [...beenOwn].map(countryName).join(", "));
   lines.push("");
   lines.push("PLEASE:");
-  lines.push("- Group these into realistic trips: countries that genuinely combine into one route, not just ones that are near each other. Consider flight connections, land borders and border crossings, and whether the visas work together."
-    + (avoid.length ? " Keep every route out of the avoid-travel areas above." : ""));
-  lines.push("- Name each trip the way a traveller would (\"Balkans loop\", \"Benelux + Rhine\", \"Northern Vietnam & Laos\").");
+  // The route as shown (it used to be "group these into realistic trips"
+  // from scratch, and the AI's route and the globe's could differ).
+  if (route || avoid.length) lines.push((route ? route.ask : "-") + (avoid.length ? " Keep every route out of the avoid-travel areas above." : ""));
   // The honest-failure instruction. Without it the model will cheerfully cram
   // every country in and hand back an itinerary that reads fine and would be
   // miserable to actually travel.
@@ -9849,7 +11150,29 @@ function pcRender(el, focusKey) {
                                      inTrip: tripHas(iso), secondary: false, settled: !!o && o.settledFor === home, hold });
   if (shown) td.querySelector(".pcphoto").replaceWith(shown);
   else pcWireImg(td);
+  pcBadge(td, iso);
   pcRefocus(td, focusKey);
+}
+// The postcard's globe badge: the whole Earth centred on the country, the
+// country in the site green (a ring round a tiny one). Still: drawn once per
+// country and screen density (globeBadge's cache), then copied in, so a
+// redraw of the card costs nothing; a kept photo box keeps its drawn badge.
+// Before world.geojson is in (Top Picks waits for it, so rarely) it appears
+// when it lands; the canvas holds its place either way.
+function pcBadge(root, iso) {
+  const c = root.querySelector("canvas.pcglobe");
+  if (!c || c.getAttribute("data-drawn") === iso) return;
+  const b = globeBadge(iso);
+  if (!b) {
+    ensureWorld().then(() => { if (c.isConnected && globeMask()) pcBadge(root, iso); }).catch(() => {});
+    return;
+  }
+  if (c.width !== b.width || c.height !== b.height) { c.width = b.width; c.height = b.height; }
+  const x = c.getContext("2d");
+  if (!x) return;
+  x.clearRect(0, 0, c.width, c.height);
+  x.drawImage(b, 0, 0);
+  c.setAttribute("data-drawn", iso);
 }
 // The photo box already showing this country's photo, to keep through a
 // redraw; never another country's (a map card is reused for the next one).
@@ -13623,6 +14946,8 @@ function preApplyShared() {
   const tp = sharedQ.get("tp");
   if (tp) {
     _trip = new Set(tp.split(",").map((s) => s.trim().toUpperCase()).filter((s) => GC_RE.test(s)));
+    // In the sender's order, as "Your order" (round 16): what they shared.
+    _tripSharedSort = "mine";
     // Days/month from the link override the recipient's saved ones for this
     // view only — renderTripBar reads this instead of localStorage until the
     // recipient edits either control, which dissolves the shared view into
