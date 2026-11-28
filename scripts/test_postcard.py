@@ -26,7 +26,11 @@ What it holds the code to:
     page; one lookup per country (the same promise), a failed or empty one
     resolves null and is asked again on the next open;
   * the grade tables' click (pcRowClick): a row, a badge or the name opens
-    the postcard; cmd/ctrl/shift/middle on the name is left to the browser.
+    the postcard; cmd/ctrl/shift/middle on the name is left to the browser;
+  * the globe badge (round 16): one aria-hidden 144px canvas.pcglobe inside
+    a row postcard's .pcphoto, none on a map card; styles.css puts it 72x72
+    6px in from the bottom-left, under the credit ⓘ, taking no taps, and
+    centres the flag right of it above 600px; pcRender draws it, still.
     scripts/dev/postcard_check.mjs drives the rest in headless Chrome.
 """
 import html, json, os, re, subprocess, sys, tempfile
@@ -252,6 +256,40 @@ results.append(ok(gt and not re.search(r"[Cc]lick for", gt), "no grade badge tip
 ng = js.get("noguide")
 results.append(ok(isinstance(ng, list) and ng[0] is False and "Full guide" not in ng[1] and "Add to trip" in txt(ng[1]),
                   "a place with no guide (Tonga) gets no Full guide →, as the old map card"))
+
+# The globe badge (round 16): a row's postcard only, inside its photo box, decorative.
+BADGE = '<canvas class="pcglobe" width="144" height="144" aria-hidden="true"></canvas>'
+pbox = lambda h: (re.search(r'<div class="pcphoto[^"]*">(.*?)</div>', h, re.S) or re.search("$^", "")) if isinstance(h, str) else None
+for k, what in (("e0", "no photo"), ("f", "a photo"), ("e1", "on the trip")):
+    h = S(k); b = pbox(h)
+    results.append(ok(h.count("pcglobe") == 1 and b and BADGE in b.group(1),
+                      "a row's postcard (%s): one globe badge canvas, 144x144, aria-hidden, inside .pcphoto (%d)" % (what, h.count("pcglobe"))))
+results.append(ok("pcglobe" in S("ph_html"), "the loader's photo keeps the badge beside it"))
+fb = pbox(S("f"))
+results.append(ok(fb and fb.group(1).find("pcglobe") < fb.group(1).find("pcimg"), "the badge comes before the photo in the box (the photo is added at the end)"))
+results.append(ok("pcglobe" not in S("h_html") and "pcglobe" not in (ng[1] if isinstance(ng, list) else "x pcglobe"),
+                  "a map card (secondary) has no badge: it sits under its own map"))
+CSS = open(P("public", "styles.css"), encoding="utf-8").read()
+def rule(sel, css=CSS):
+    m = re.search(r"(?:^|[}\s])" + re.escape(sel) + r"\s*\{([^}]*)\}", css)
+    return {k.strip(): v.strip() for k, v in (d.split(":", 1) for d in m.group(1).split(";") if ":" in d)} if m else {}
+pg, pcr = rule(".pcglobe"), rule(".pcphoto a.pccredit[data-tip]")
+results.append(ok(pg.get("position") == "absolute" and pg.get("width") == "72px" and pg.get("height") == "72px"
+                  and pg.get("left") == "6px" and pg.get("bottom") == "6px", ".pcglobe: absolute, 72x72, 6px in from the bottom-left (%s)" % pg))
+zg, zc = pg.get("z-index"), pcr.get("z-index")
+results.append(ok(zg and zc and zg.isdigit() and zc.isdigit() and int(zg) < int(zc), "the badge sits under the credit ⓘ (z-index %s < %s)" % (zg, zc)))
+results.append(ok(pg.get("pointer-events") == "none", "the badge takes no clicks (%s)" % pg.get("pointer-events")))
+mq = re.search(r"@media \(min-width: 601px\) \{\s*\.pcphoto:has\(\.pcglobe\)\s*\{([^}]*)\}", CSS)
+results.append(ok(mq and re.search(r"padding-left:\s*78px", mq.group(1)),
+                  "above 600px the flag centres in the space right of the badge (padding-left 78px on .pcphoto:has(.pcglobe)) (%s)" % (mq and mq.group(1))))
+def body(name):
+    i = APP.find("\nfunction " + name + "(")
+    j = APP.find("\nfunction ", i + 10)
+    return APP[i:j] if i >= 0 else ""
+results.append(ok("pcBadge(" in body("pcRender") and "pcBadge(" not in body("renderCountryCard"),
+                  "the row postcard draws its badge (pcRender), a map card doesn't"))
+gb = body("globeBadge")
+results.append(ok(gb and "requestAnimationFrame" not in gb and "requestAnimationFrame" not in body("pcBadge"), "the badge is drawn once, static (no animation frame)"))
 
 # The delegate's decision
 results.append(ok(js.get("click") == ["toggle", "toggle", "browser", "toggle", ""],

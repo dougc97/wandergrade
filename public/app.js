@@ -1857,12 +1857,16 @@ function pcPhotoHTML(ph) {
 // card, which names its country (there is no row above it) and keeps the
 // Wander List's ✓ Been / ★ Want to go (a row's postcard has just the two
 // buttons). The photo box has its size before the photo comes (styles.css
-// .pcphoto); without one it shows the flag on a tint.
+// .pcphoto); without one it shows the flag on a tint. A row's postcard (not a
+// map card's: that one sits under its own map) carries a globe badge over
+// the photo's bottom-left corner, a 144px canvas shown at 72px that pcRender
+// draws (pcBadge); decorative, so aria-hidden.
 function postcardHTML(iso, o) {
   o = o || {};
   const name = countryName(iso), act = activities && activities[iso];
   const facts = postcardFacts(iso, o), ph = o.photo;
-  const photo = `<div class="pcphoto"><span class="pcflag" aria-hidden="true">${flagEmoji(iso)}</span>${pcPhotoHTML(ph)}</div>`;
+  const badge = o.secondary ? "" : '<canvas class="pcglobe" width="144" height="144" aria-hidden="true"></canvas>';
+  const photo = `<div class="pcphoto"><span class="pcflag" aria-hidden="true">${flagEmoji(iso)}</span>${badge}${pcPhotoHTML(ph)}</div>`;
   const vis = o.secondary && isVisited(iso), wish = o.secondary && loadWishlist().has(iso);
   const tip = postcardTip(iso, facts);
   // A place with no guide (Tonga, on the Currency map) gets no Full guide →,
@@ -7202,28 +7206,30 @@ function globeRaster(view, devW, devH, opts, out) {
   const shift = (view.lon + 180) / 360 * GM_W, idb = g.idb, ids = m.ids, WM = GM_W - 1;
   idb.fill(-1);
   for (let k = 0; k < g.n; k++) idb[g.pix[k]] = ids[g.row[k] + (((g.colf[k] + shift) | 0) & WM)];
-  // the outline and glow are a CSS pixel wide (two device pixels at 2x)
-  const ow = Math.max(1, Math.round(g.dpr));
+  // Round the highlight, outside it so a thin country stays green: a white
+  // line a CSS pixel wide (two device pixels at 2x), then as wide a glow.
+  const ow = Math.max(1, Math.round(g.dpr)), N = idb.length;
+  let id = 0, best = 0, border = 0;
+  const look = (q, s) => {               // the neighbour s pixels away (an index into idb, or -1)
+    const o = q < 0 || q >= N ? -1 : idb[q];
+    if (o < 0) return;
+    if (hl[o]) { if (!best || s < best) best = s; }
+    else if (s === 1 && id && o && o !== id && m.isoAt[o] !== m.isoAt[id]) border = 1;
+  };
   for (let k = 0; k < g.n; k++) {
-    const p = g.pix[k], id = idb[p], L = g.lum[k], px = p % devW;
+    const p = g.pix[k], L = g.lum[k], px = p % devW;
+    id = idb[p]; best = 0; border = 0;
     const on = hl[id];
-    let edge = 0, glow = 0, border = 0;
-    for (let s = 1; s <= ow && !edge; s++) {
-      const nb = [px >= s ? p - s : -1, px + s < devW ? p + s : -1, p - s * devW, p + s * devW];
-      for (const q of nb) {
-        if (q < 0 || q >= idb.length) continue;
-        const o = idb[q];
-        if (o < 0) continue;
-        if (on && !hl[o]) edge = 1;
-        else if (!on && hl[o]) glow = 1;
-        else if (s === 1 && !on && id && o && o !== id && m.isoAt[o] !== m.isoAt[id]) border = 1;
+    if (!on) {
+      for (let s = 1; s <= 2 * ow && !best; s++) {
+        look(px >= s ? p - s : -1, s); look(px + s < devW ? p + s : -1, s); look(p - s * devW, s); look(p + s * devW, s);
       }
     }
     const c = on ? G_HL : id ? G_LAND : G_OCEAN, o4 = p * 4;
     let r = c[0] * L, gg = c[1] * L, b = c[2] * L;
-    if (edge) { r = gg = b = 255; }
-    else if (glow) { r += (255 - r) * 0.4; gg += (255 - gg) * 0.4; b += (255 - b) * 0.4; }
-    else if (border) { r *= 0.84; gg *= 0.84; b *= 0.84; }
+    if (best && best <= ow) { r = gg = b = 255; }
+    else if (best) { r += (255 - r) * 0.45; gg += (255 - gg) * 0.45; b += (255 - b) * 0.45; }
+    else if (border) { r *= 0.9; gg *= 0.9; b *= 0.9; }
     d[o4] = r; d[o4 + 1] = gg; d[o4 + 2] = b; d[o4 + 3] = 255;
   }
   return d;
@@ -7347,6 +7353,22 @@ function globeDraw(canvas, view, opts) {
     ctx.lineWidth = 1.5; ctx.strokeStyle = "#fff"; ctx.stroke();
     if (t != null) label(q[0], q[1], t);
   }
+}
+// A 72px still globe of a place, drawn once per place and screen density
+// (DPR capped at 2) and kept (the 24 most recent): the postcard copies it in.
+// Null until world.geojson is in.
+const _gBadges = new Map();
+function globeBadge(iso) {
+  if (!globeMask()) return null;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), key = iso + "|" + dpr;
+  let cv = _gBadges.get(key);
+  if (cv) { _gBadges.delete(key); _gBadges.set(key, cv); return cv; }
+  cv = document.createElement("canvas");
+  cv.width = cv.height = Math.round(72 * dpr);
+  globeDraw(cv, globeViewFor(iso, 72), { highlight: new Set([iso]) });
+  _gBadges.set(key, cv);
+  if (_gBadges.size > 24) _gBadges.delete(_gBadges.keys().next().value);
+  return cv;
 }
 // ---- end of small globes ------------------------------------------------------
 
@@ -10077,7 +10099,29 @@ function pcRender(el, focusKey) {
                                      inTrip: tripHas(iso), secondary: false, settled: !!o && o.settledFor === home, hold });
   if (shown) td.querySelector(".pcphoto").replaceWith(shown);
   else pcWireImg(td);
+  pcBadge(td, iso);
   pcRefocus(td, focusKey);
+}
+// The postcard's globe badge: the whole Earth centred on the country, the
+// country in the site green (a ring round a tiny one). Still: drawn once per
+// country and screen density (globeBadge's cache), then copied in, so a
+// redraw of the card costs nothing; a kept photo box keeps its drawn badge.
+// Before world.geojson is in (Top Picks waits for it, so rarely) it appears
+// when it lands; the canvas holds its place either way.
+function pcBadge(root, iso) {
+  const c = root.querySelector("canvas.pcglobe");
+  if (!c || c.getAttribute("data-drawn") === iso) return;
+  const b = globeBadge(iso);
+  if (!b) {
+    ensureWorld().then(() => { if (c.isConnected && globeMask()) pcBadge(root, iso); }).catch(() => {});
+    return;
+  }
+  if (c.width !== b.width || c.height !== b.height) { c.width = b.width; c.height = b.height; }
+  const x = c.getContext("2d");
+  if (!x) return;
+  x.clearRect(0, 0, c.width, c.height);
+  x.drawImage(b, 0, 0);
+  c.setAttribute("data-drawn", iso);
 }
 // The photo box already showing this country's photo, to keep through a
 // redraw; never another country's (a map card is reused for the next one).
