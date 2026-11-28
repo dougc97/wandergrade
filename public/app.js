@@ -7982,6 +7982,9 @@ function tripBestOrder(m, mode) {
 // real fares where we have them, distance estimates marked ≈ elsewhere), or
 // the reader's own after a drag. Flights only: land borders, visas and
 // season still decide whether that order makes a good trip (the ⓘ says so).
+// The globe draws it and "Plan this trip with AI" hands it on (aiTripRoute):
+// the AI keeps it unless ground travel, borders or the seasons argue for
+// another, so the site and the AI no longer give two different routes.
 let _trip = null;
 let sharedTripView = null;   // {td, tm} while viewing a shared trip link
 // A shared trip's order mode while it is on screen and not yet the reader's
@@ -9352,12 +9355,34 @@ function closeTripPanel() {
   if (p) { p.hidden = true; p.innerHTML = ""; }
 }
 
+// The trip's route as the prompt gives it (round 16): the countries in the
+// order the Trip tab shows, and what put them there, so the model plans the
+// route the reader is looking at (the globe, the leg lines) instead of
+// grouping the shortlist afresh. names: in that order; mode: tripSortMode();
+// computed: the site's order is in hand for this trip (tripRouteUpdate ran;
+// before that the list is only in the order it was saved, and isn't called
+// a suggestion). Null for one country: there is no order to keep. line: the
+// fact; ask: the PLEASE item.
+const AI_ROUTE_WHY = { best: "best overall on flight legs alone, fares and flying time weighed equally",
+                       cheap: "the cheapest on flight legs alone", quick: "the quickest on flight legs alone" };
+function aiTripRoute(names, mode, computed) {
+  if (names.length < 2) return null;
+  const path = "home -> " + names.join(" -> ") + " -> home";
+  const site = AI_ROUTE_WHY[mode] && computed;
+  return {
+    line: "ROUTE (" + (mode === "mine" ? "my own order" : site ? "WanderGrade's suggestion, " + AI_ROUTE_WHY[mode] : "the order on my list")
+      + "): " + path + ". The shortlist below follows it.",
+    ask: "- Keep " + (mode === "mine" ? "my" : "this") + " order unless ground travel, borders or the seasons make another clearly better, and say why if you change it.",
+  };
+}
 // The trip prompt. Everything the model cannot look up goes in: the season
 // fit for the chosen month, the local price level, each route's month fares,
 // the visa position for this passport, and the advisories that bite. The
 // task comes first, so a link a site cuts short still says what's wanted;
 // the facts next; the asks last. Coordinates and the site's region labels
 // went: the model knows where Portugal is, and "Turkey — Europe" was ours.
+// The countries come in the order the Trip tab shows (fx_trip holds it),
+// with the route line (aiTripRoute) saying whose order it is.
 function buildTripAIPrompt() {
   const t = [...loadTrip()];
   if (!t.length) return "";
@@ -9376,6 +9401,8 @@ function buildTripAIPrompt() {
   const inWin = (ms) => !win || (ms || []).some((m) => win.includes(m));
   const names = t.map(countryNameInText);   // "the Philippines, the Netherlands"
   const avoid = [], flights = [];
+  const ctx = tripRouteCtx();
+  const route = aiTripRoute(t.map(countryName), tripSortMode(), !!_tripM && _tripM.sig === ctx.sig);
 
   const lines = [];
   lines.push("Help me plan a trip to " + (names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1]
@@ -9390,6 +9417,7 @@ function buildTripAIPrompt() {
   if (bud.entered) lines.push("BUDGET: " + bud.cur + " " + Math.round(bud.entered).toLocaleString() + " all-in"
     + (bud.days === days ? " for the " + days + " days" : " for " + bud.days + " days (scale it to my " + days + ")")
     + ", flights included.");
+  if (route) lines.push(route.line);
   lines.push("");
   lines.push("SHORTLIST:");
   t.forEach((iso) => {
@@ -9483,9 +9511,9 @@ function buildTripAIPrompt() {
     + [...beenOwn].map(countryName).join(", "));
   lines.push("");
   lines.push("PLEASE:");
-  lines.push("- Group these into realistic trips: countries that genuinely combine into one route, not just ones that are near each other. Consider flight connections, land borders and border crossings, and whether the visas work together."
-    + (avoid.length ? " Keep every route out of the avoid-travel areas above." : ""));
-  lines.push("- Name each trip the way a traveller would (\"Balkans loop\", \"Benelux + Rhine\", \"Northern Vietnam & Laos\").");
+  // The route as shown (it used to be "group these into realistic trips"
+  // from scratch, and the AI's route and the globe's could differ).
+  if (route || avoid.length) lines.push((route ? route.ask : "-") + (avoid.length ? " Keep every route out of the avoid-travel areas above." : ""));
   // The honest-failure instruction. Without it the model will cheerfully cram
   // every country in and hand back an itinerary that reads fine and would be
   // miserable to actually travel.

@@ -38,6 +38,9 @@
 //   W, H   the viewport (a width under 768 runs as a phone); SHOT names a
 //          screenshot of the panel in shots/; OUT writes the prompt as JSON
 //          ({case, prompt, chars, encoded})
+//   FARES=local  no production at all: the fares come from the local
+//          server (its recorded ones), every other host is refused (the
+//          gate's runs; DELAY and APPJS don't apply)
 import fs from 'node:fs';
 const PORT = process.env.PORT || '9471';
 const BASE = process.env.BASE || `http://127.0.0.1:${PORT}`;
@@ -71,7 +74,9 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot }) => {
     || fetch(PROD + pathq, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(15000) })
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status))))
       .catch((e) => { delete cache[pathq]; throw e; }));
-  const patterns = ['/api/flights?', '/api/flight-value?', '/api/flight-months?'].map((p) => ({ urlPattern: '*' + p + '*', requestStage: 'Request' }));
+  const LOCAL = process.env.FARES === 'local', refused = [];
+  const patterns = LOCAL ? [{ urlPattern: '*', requestStage: 'Request' }]
+    : ['/api/flights?', '/api/flight-value?', '/api/flight-months?'].map((p) => ({ urlPattern: '*' + p + '*', requestStage: 'Request' }));
   const appjs = process.env.APPJS ? fs.readFileSync(process.env.APPJS).toString('base64') : null;
   if (appjs) patterns.push({ urlPattern: '*/app.js*', requestStage: 'Request' });
   await send('Fetch.enable', { patterns });
@@ -80,6 +85,11 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot }) => {
   on((d) => {
     if (d.method !== 'Fetch.requestPaused') return;
     const u = new URL(d.params.request.url), id = d.params.requestId;
+    if (LOCAL) {
+      if (u.hostname === '127.0.0.1' || u.hostname === 'localhost') return send('Fetch.continueRequest', { requestId: id });
+      refused.push(u.hostname);
+      return send('Fetch.failRequest', { requestId: id, errorReason: 'BlockedByClient' });
+    }
     if (u.pathname.endsWith('/app.js')) return reply(id, 'application/javascript; charset=utf-8', appjs);
     if (d.params.request.method !== 'GET') return send('Fetch.failRequest', { requestId: id, errorReason: 'Failed' });
     const hold = u.pathname === '/api/flight-months' ? DELAY : 0;
@@ -158,6 +168,7 @@ export default async ({ send, on, evaluate, setSize, nav, sleep, shot }) => {
   const fits = await evaluate(`(() => [...document.querySelectorAll('${panelSel} a.aiact')].map((a) => a.textContent.replace(/ ↗$/, '') + (a.dataset.fits === '0' ? ' (over cap)' : '')).join(', '))()`);
   const odd = [...new Set([...prompt].filter((c) => c.charCodeAt(0) > 127))].join('');
   console.log(`PROMPT ${CASE} chars=${prompt.length} encoded=${enc}${odd ? ' non-ASCII=' + odd : ''}${fits ? ' | ' + fits : ''}`);
+  if (LOCAL) console.log('REFUSED ' + JSON.stringify([...new Set(refused)]));
   console.log(prompt);
   if (process.env.OUT) fs.writeFileSync(process.env.OUT, JSON.stringify({ case: CASE, prompt, chars: prompt.length, encoded: enc }));
 
