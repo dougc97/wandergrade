@@ -405,7 +405,8 @@ let wishlist = new Set(), climate = null, flightsData = null, valueFlightsSettle
 const MONTHS = [], originLabel = () => "the US", countryName = (i) => i, flightSearchURL = () => "f";
 const viatorURL = (n) => "https://viator.example/" + n, flagEmoji = () => "", guidePath = (i) => "/guide/" + i;
 const advLevelText = () => "", advVia = () => "", insuranceHref = () => "ins", bindTripActions = () => {};
-const fareStripOpts = () => ({}), ensureFareMonths = async () => null, ensureStayCoords = () => Promise.resolve({});
+const fareStripOpts = () => ({ cur: "USD", conv: 1 }), ensureFareMonths = async () => null, ensureStayCoords = () => Promise.resolve({});
+const fareMoney = (v, cur) => cur + " " + v, MON_ABBR = ["Jan"];
 // round 16's route parts (the order switch, handles, legs): drawn and tested in test_trip_order.py
 const tripRouteParts = () => ({ sort: "", handle: () => "", leg: () => "", total: "", keep: null }), tripBookAfter = () => {};
 const trip = ["BF", "SA", "JP"], loadTrip = () => new Set(trip);
@@ -416,7 +417,7 @@ const links = () => { const o = {}; for (const iso of trip) {
   const at = host.innerHTML.indexOf('<div class="tbrow" data-iso="' + iso + '"');
   const row = at < 0 ? "" : host.innerHTML.slice(at).split('<div class="tbrow')[1];
   o[iso] = (row.match(/Things to do/g) || []).length + (row.match(/class="tbstay"/g) || []).length;
-  if (/tbph/.test(row)) o[iso + "_held"] = true; } return o; };
+  if (/triplink tbph/.test(row)) o[iso + "_held"] = true; } return o; };
 advisories = C.us; renderTripBook(trip); out.all = links();
 advisories = C.us_failed; asked = 0; renderTripBook(trip); out.failed = links(); out.failed_asked = asked;
 advisories = C.us_pending; asked = 0; renderTripBook(trip); out.pending = links(); out.pending_asked = asked;

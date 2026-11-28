@@ -8249,6 +8249,13 @@ function renderTripBook(isos) {
     + '<span class="tbacts">' + (seedable ? '<button type="button" class="tripseed" id="tripSeed">+ my ★ wishlist</button>' : "")
     + '<button type="button" class="tripseed" id="tripClear">Clear</button></span></div>';
   let unknown = false;   // a row whose stays and things to do wait on the marks
+  // The fare note's room, held (invisible) until the month fares land with
+  // it, as the note will read: the fare column grew 98 to 201px (279 with a
+  // trip month) a frame after the list drew, sliding the header's ✈️ and
+  // the whole-trip row's link 100px. A typical fare, in the reader's money.
+  const oh = fareStripOpts(m), feh = fareMoney(600, oh.cur, oh.conv);
+  const noteHold = '<span class="tbfarenote tbph" aria-hidden="true">' + (m ? "<b>" + MON_ABBR[m - 1] + "</b> " + feh : "")
+    + '<span class="tblow">' + (m ? " · " : "") + "low Aug " + feh + "</span></span>";
   const rows = isos.map((iso, k) => {
     const name = countryName(iso);
     const fr = flightsData && flightsData.countries
@@ -8286,7 +8293,7 @@ function renderTripBook(isos) {
       + '<span class="tbn">' + rp.handle(iso, name, k) + '<a class="tbdest" href="' + esc(guidePath(iso)) + '"><span aria-hidden="true">' + flagEmoji(iso)
       + "</span> " + esc(name) + "</a>" + warn + "</span>"
       + '<span class="tbwx">' + wxPill(iso) + "</span>"
-      + '<span class="tbfare" data-iso="' + iso + '"><span class="farestrip empty" aria-hidden="true"></span></span>'
+      + '<span class="tbfare" data-iso="' + iso + '"><span class="farestrip empty" aria-hidden="true"></span>' + noteHold + "</span>"
       + '<span class="tblinks">' + links.join("") + "</span>"
       + '<button type="button" class="tbx" data-iso="' + iso + '" aria-label="' + esc("Remove " + name + " from the trip")
       + '" title="' + esc("Remove " + name) + '">×</button></div>';

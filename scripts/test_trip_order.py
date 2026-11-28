@@ -621,6 +621,21 @@ results.append(ok("height: 260px" in g_ and "touch-action: pan-y" in g_ and "con
                   "the globe's box: 260px, 300px from 561, 280 beside the list from 901, size-contained, pan-y, the canvas laid over it"))
 results.append(ok("@media (max-width: 1199px) {\n  .tripbook { grid-template-columns: minmax(0, 1fr) auto auto auto;" in CSS,
                   "with the globe beside it (901-1199) the list takes its two-line layout"))
+# What holds a row's shape while its data comes (round 16 review): the fare
+# column (the stand-in's fare cell carries a note, as the real one does once
+# the month fares land) and the links line under 1200px (an invisible pill
+# while the fares or advisories' marks are still coming), so neither the row
+# nor the columns move when they land.
+results.append(ok("<span class=\"tbfarenote\">'+(mset?'<b>Mar</b> USD 600':'')+'<span class=\"tblow\">'+(mset?' · ':'')+'low Aug USD 605</span></span>" in stand
+                  and "const noteHold = '<span class=\"tbfarenote tbph\" aria-hidden=\"true\">'" in APP and "+ noteHold + \"</span>\"" in APP
+                  and "links.push('<span class=\"triplink tbph\" aria-hidden=\"true\">" in APP
+                  and "(!links.length && lvl < 4 && coming)" in APP
+                  and "visibility: hidden" in rule(".tbph")
+                  and _re.search(r"@media \(min-width: 1200px\) \{\n  \.triplink\.tbph \{ display: none; \}", CSS),
+                  "the fare note's room is held (stand-in and first draw, month-aware), and an invisible pill (under 1200px) the links line, until their data lands"))
+results.append(ok("display: flex" in rule(".tbrow:not(.tbhdr):not(.tbins) > .tbn") and "flex: none" in rule(".tbn > .tbdrag, .tbn > .tbno, .tbn > .hzmark")
+                  and "min-width: 0" in rule(".tbn > .tbdest"),
+                  "a row's handle, number, name and warning share one line; the name takes the ellipsis"))
 new_classes = set(_re.findall(r"\.(trip[a-z]+|tb[a-z]+|ts[a-z]+)", CSS))
 results.append(ok(not [c for c in new_classes if _re.match(r"(ad|adv|sponsor|banner|promo)", c)], "no class name an ad blocker hides"))
 

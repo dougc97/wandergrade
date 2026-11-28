@@ -600,17 +600,21 @@
           b.querySelector(".tripstart").insertAdjacentHTML("beforeend",'<button type="button" class="tripseed" id="tripSeed">★ Use my wishlist</button>');}catch(e){}return;}
         // One row as renderTripBook draws it before its fares land: name,
         // weather pill, the strip's fixed slot, Stays and Things to do, ×.
+        // The fare cell's note too, as renderTripBook holds it ("Mar USD 600
+        // · low Aug USD 605" with a trip month, "low Aug ..." flexible; the
+        // "low" part hidden on phones as the real one's is).
         // The route's parts too (round 16): with 2+ countries the order
         // switch (and "Your order" with ↺ Recommended when a drag or a shared
         // link put the trip in the reader's own order) and a drag handle and
         // stop number per row; a leg line before, between and after the
         // rows; the totals; the route's globe box (above the list, beside
         // it from 901px: styles.css sizes it).
-        var multi=n>1,mine=false;
+        var multi=n>1,mine=false,mset=true;
+        try{mset=localStorage.getItem("fx_tripmonth")!=="0";}catch(e){}
         try{mine=!!new URLSearchParams(location.search).get("tp")||localStorage.getItem("fx_tripsort")==="mine";}catch(e){}
         var leg='<div class="tbleg"><span>✈️ …</span></div>';
         var row='<div class="tbrow"><span class="tbn">'+(multi?'<button type="button" class="tbdrag"></button><span class="tbno">1</span>':'')+'<a class="tbdest">🇵🇹 Portugal</a></span><span class="tbwx"><span class="gr">A</span></span>'
-          +'<span class="tbfare"><span class="farestrip empty"></span></span><span class="tblinks"><a class="triplink">🏨 Stays ↗</a>'
+          +'<span class="tbfare"><span class="farestrip empty"></span><span class="tbfarenote">'+(mset?'<b>Mar</b> USD 600':'')+'<span class="tblow">'+(mset?' · ':'')+'low Aug USD 605</span></span></span><span class="tblinks"><a class="triplink">🏨 Stays ↗</a>'
           +'<a class="triplink">🎟️ Things to do ↗</a></span><button type="button" class="tbx">×</button></div>',rows=leg;
         for(var i=0;i<n;i++)rows+=row+leg;
         var sort=multi?'<div class="tripsort"><div class="windowtoggle"><button type="button"'+(mine?'':' class="active"')+'>Best overall</button><button type="button">Cheapest</button><button type="button">Quickest</button></div>'

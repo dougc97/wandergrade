@@ -1562,7 +1562,7 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
    advisories' marks still coming): an invisible pill holds the links line
    where the links take a line of their own (under 1200px), so it doesn't
    open 27px under every row when they land (renderTripBook). */
-.triplink.tbph { visibility: hidden; }
+.tbph { visibility: hidden; }
 @media (min-width: 1200px) {
   .triplink.tbph { display: none; }
 }
