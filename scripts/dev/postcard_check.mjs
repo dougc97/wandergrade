@@ -9,6 +9,7 @@
 //   PC_SEED   localStorage to start from, JSON of strings ('{"fx_origin":"DE"}')
 //   PC_FIX    recorded /api answers, <dir>/<sha1(path + query)>.json ({status, ct, body base64})
 //   PC_PAR    scripts/parity/fixtures (non-USD rates, IN/GB/DE flights)
+//   PC_NET    latency,kbps: a slow link, HTTP cache off (cls and globe: the cold load before the open)
 //   PC_SHOTS  where the shots case saves its PNGs (default: shots/ beside cdp.mjs); PC_PREFIX names them,
 //             PC_ONLY=1 takes just the Top Picks one, PC_SCHEME=light|dark the colour scheme
 // Production hosts are refused; Wikipedia and Wikimedia go through wikicache.mjs. Each case prints
@@ -89,6 +90,11 @@ export default async (ctx) => {
   const st = await intercept(ctx, { rates: CASE === 'ratesdown' ? 'net' : 'ok', adv: CASE === 'advdown' ? 'net' : 'ok', slow });
   await setSize(W, H, PHONE);
   if (process.env.PC_SCHEME) await ctx.scheme(process.env.PC_SCHEME === 'dark');   // light | dark (default: the browser's)
+  if (process.env.PC_NET) {
+    const [lat, kbps] = process.env.PC_NET.split(',').map(Number);
+    await send('Network.enable'); await send('Network.setCacheDisabled', { cacheDisabled: true });
+    await send('Network.emulateNetworkConditions', { offline: false, latency: lat, downloadThroughput: kbps * 1000 / 8, uploadThroughput: kbps * 1000 / 8 });
+  }
 
   const waitFor = async (expr, ms = 15000) => {
     const t0 = Date.now();

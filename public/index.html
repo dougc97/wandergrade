@@ -602,12 +602,14 @@
         // weather pill, the strip's fixed slot, Stays and Things to do, ×.
         // The route's parts too (round 16): with 2+ countries the order
         // switch (and "Your order" with ↺ Recommended when a drag or a shared
-        // link put the trip in the reader's own order) and a drag handle per
-        // row; a leg line before, between and after the rows; the totals.
+        // link put the trip in the reader's own order) and a drag handle and
+        // stop number per row; a leg line before, between and after the
+        // rows; the totals; the route's globe box (above the list, beside
+        // it from 901px: styles.css sizes it).
         var multi=n>1,mine=false;
         try{mine=!!new URLSearchParams(location.search).get("tp")||localStorage.getItem("fx_tripsort")==="mine";}catch(e){}
         var leg='<div class="tbleg"><span>✈️ …</span></div>';
-        var row='<div class="tbrow"><span class="tbn">'+(multi?'<button type="button" class="tbdrag"></button>':'')+'<a class="tbdest">🇵🇹 Portugal</a></span><span class="tbwx"><span class="gr">A</span></span>'
+        var row='<div class="tbrow"><span class="tbn">'+(multi?'<button type="button" class="tbdrag"></button><span class="tbno">1</span>':'')+'<a class="tbdest">🇵🇹 Portugal</a></span><span class="tbwx"><span class="gr">A</span></span>'
           +'<span class="tbfare"><span class="farestrip empty"></span></span><span class="tblinks"><a class="triplink">🏨 Stays ↗</a>'
           +'<a class="triplink">🎟️ Things to do ↗</a></span><button type="button" class="tbx">×</button></div>',rows=leg;
         for(var i=0;i<n;i++)rows+=row+leg;
@@ -615,10 +617,10 @@
           +(mine?'<span class="tsmine">Your order</span><button type="button" class="tsrec">↺ Recommended</button>':'')+'<span class="muted">ⓘ</span></div>':'';
         b.innerHTML='<div aria-hidden="true" style="visibility:hidden"><div class="triphead"><label class="tripdays">for <input type="number" value="14"> days</label>'
           +'<label class="tripmonth">in <select><option>I\'m flexible</option><option>September</option></select></label></div>'
-          +'<div class="tripbook">'+sort+'<div class="tbrow tbhdr"><span class="tbn">'+n+' countries</span><span class="tbwx">🌤️</span>'
+          +'<div class="triproute"><div class="tripglobe"></div><div class="tripbook">'+sort+'<div class="tbrow tbhdr"><span class="tbn">'+n+' countries</span><span class="tbwx">🌤️</span>'
           +'<span class="tbfare">✈️<span class="thw"> Fares by month</span><span class="muted"> ⓘ</span></span><span class="tbacts"><button type="button" class="tripseed">Clear</button></span></div>'
           +rows+'<div class="tbtotal"><span>…</span></div><div class="tbrow tbins"><span class="tbn">🧳 The whole trip</span><span class="tblinks"><a class="triplink">Travel insurance (EKTA) ↗</a></span></div>'
-          +'<p class="affnote">These earn us a commission at no extra cost to you — it’s what keeps the site free.</p></div></div>';})();</script>
+          +'<p class="affnote">These earn us a commission at no extra cost to you — it’s what keeps the site free.</p></div></div></div>';})();</script>
       <div class="aibar">
         <button id="tripPlanBtn" class="aibtn" type="button" title="Build a planning prompt for these countries">✨ Plan this trip with AI →</button>
         <!-- The hint sentence repeated its own ⓘ tip; the ⓘ alone carries it. -->

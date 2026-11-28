@@ -1537,8 +1537,9 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
    guide pages. Pills echo .tripseed so the tab keeps one visual language. */
 /* The trip list: one grid, so the name, 🌤️, ✈️ and link columns line up
    across rows (each row a subgrid) under a header row in the grade tables'
-   th style. Desktop: name | 🌤️ | fare | links | ×. At 900 and under the links
-   take a second line; the × stays on the first. */
+   th style. Desktop: name | 🌤️ | fare | links | ×. Under 1200 the links
+   take a second line; the × stays on the first (from 901 to 1199 the
+   route's globe takes 304px beside the list, round 16). */
 .tripbook { margin-top: 14px; display: grid; column-gap: 14px;
   grid-template-columns: minmax(0, max-content) auto auto auto 1fr; }
 .tbrow { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center;
@@ -1569,7 +1570,7 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 #tripBook .farestrip { gap: 1px; width: 95px; flex: none; }
 #tripBook .farestrip .fcell { width: 7px; height: 11px; border-radius: 1px; }
 #tripBook .farestrip .fcell.now { outline: 0; box-shadow: 0 3px 0 -1px var(--ink); }
-@media (max-width: 900px) {
+@media (max-width: 1199px) {
   .tripbook { grid-template-columns: minmax(0, 1fr) auto auto auto; column-gap: 10px; }
   .tbrow .tblinks { grid-column: 1 / -1; grid-row: 2; margin-top: 6px; }
   .tbrow .tbx { grid-column: 4; grid-row: 1; }
@@ -1611,7 +1612,10 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 .tbdrag:hover { background-color: var(--soft); }
 .tbdrag:active { cursor: grabbing; }
 .tbdrag:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
-.tbdrag + .tbdest { max-width: calc(100% - 26px); }
+/* The stop's number, as the globe marks it. */
+.tbno { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; width: 18px; height: 18px;
+  margin: 0 6px 0 0; border-radius: 50%; background: var(--green-fill); color: #fff; font-size: 11px; font-weight: 800; line-height: 1; }
+.tbno + .tbdest { max-width: calc(100% - 50px); }
 .tbrow.tbdragging { position: relative; z-index: 2; background: var(--card); border-radius: 6px;
   box-shadow: 0 4px 14px rgba(0,0,0,.2); }
 .tbrow.tbdropb { box-shadow: inset 0 2px 0 var(--green); }
@@ -1620,6 +1624,24 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
   text-overflow: ellipsis; line-height: 18px; }
 .tbleg { height: 24px; padding: 3px 0 3px 28px; font-size: 12px; color: var(--gray); }
 .tbtotal { height: 31px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; font-weight: 700; }
+/* The route on a globe (app.js tripGlobeUpdate): above the list, beside it
+   from 901px. A fixed box from first paint (index.html's stand-in has it),
+   the canvas laid over it, so drawing it moves nothing. A sideways drag
+   turns it; a vertical swipe stays the page's (pan-y). The globe looks the
+   same in both themes (the spin globe's); its box is the maps' ground. */
+.tripglobe { position: relative; height: 260px; margin: 14px 0 0; border-radius: 12px; overflow: hidden;
+  background: var(--mapbg); contain: size layout paint; touch-action: pan-y; cursor: grab;
+  user-select: none; -webkit-user-select: none; }
+.tripglobe.tgdragging { cursor: grabbing; }
+.tripglobe canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+@media (min-width: 561px) {
+  .tripglobe { width: min(100%, 480px); height: 300px; margin-left: auto; margin-right: auto; }
+}
+@media (min-width: 901px) {
+  .triproute { display: grid; grid-template-columns: minmax(0, 1fr) 280px; column-gap: 24px; align-items: start; }
+  .triproute > .tripbook { grid-column: 1; grid-row: 1; min-width: 0; }
+  .tripglobe { grid-column: 2; grid-row: 1; width: auto; height: 280px; margin: 14px 0 0; }
+}
 @media (max-width: 560px) {
   .tripsort .windowtoggle button { padding: 5px 9px; }
 }

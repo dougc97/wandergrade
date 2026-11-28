@@ -4,11 +4,14 @@
 // Env:
 //   TR_BASE   the local server (never production)
 //   TR_CASE   modes | drag | keys | share | fail | late | context | origin | one | empty | big | real | shots | cls
+//             | globe | turn | motion   (the route's globe, Task 6)
 //   TR_W      viewport width (below 700: a phone, touch + a phone UA)
 //   TR_FAIL   net | 503   (fail: how /api/trip-legs fails)
 //   TR_N      cls: countries on the trip (0, 1, 3, 8); TR_NET=latency,kbps a slow link (cache off); TR_RUNS loads
 //   TR_BASELINE=1  cls on a tree without the route (the base): only the layout shift is reported
 //   TR_PAR    scripts/parity/fixtures: non-USD rates (/api/rates?base=EUR, GBP) answered from the repo's recordings
+//   TR_SHOTN  shots: countries on the trip (3: TH VN KH, the default; 8: eight across three continents); TR_SHOTS the
+//             folder for the PNGs (default shots/ beside cdp.mjs)
 // /api/trip-legs is answered from a fixture (below) unless TR_CASE=real; production hosts are refused; Wikipedia
 // and Wikimedia go through wikicache.mjs. Each case prints PASS/FAIL lines and "RESULT passed/total"; keep a case
 // under ~50 s (one Chrome at a time).
@@ -87,7 +90,7 @@ export default async (ctx) => {
     try { if (!sessionStorage.getItem('__seeded')) { sessionStorage.setItem('__seeded', '1'); localStorage.clear();
       var s = ${JSON.stringify(o)}; for (var k in s) localStorage.setItem(k, s[k]); } } catch (e) {}` });
   const legsMode = CASE === 'real' ? 'real' : CASE === 'fail' ? (process.env.TR_FAIL || 'net') : null;
-  const st = await intercept(ctx, { legs: legsMode, legsDelay: CASE === 'late' ? 4000 : 0 });
+  const st = await intercept(ctx, { legs: legsMode, legsDelay: CASE === 'late' ? 4000 : CASE === 'motion' && !process.env.TR_RM ? 1500 : 0 });
   await setSize(W, H, PHONE);
 
   const waitFor = async (expr, ms = 12000) => {
@@ -108,6 +111,33 @@ export default async (ctx) => {
       total: (host.querySelector('.tbtotal') || { textContent: null }).textContent, ls,
       active: document.activeElement ? (document.activeElement.className || document.activeElement.tagName) + ':' + (document.activeElement.dataset.iso || document.activeElement.dataset.ts || '') : null,
       sw: document.documentElement.scrollWidth, cw: document.documentElement.clientWidth };
+  })()`);
+  // The route's globe as drawn: its box, the canvas, the model it drew (_tg) and where each place lands.
+  const globe = () => evaluate(`(() => {
+    const el = document.querySelector('#tripBar .tripglobe'), book = document.getElementById('tripBook');
+    if (!el || typeof _tg === 'undefined') return null;
+    const cv = el.querySelector('canvas'), b = el.getBoundingClientRect(), bb = book ? book.getBoundingClientRect() : null;
+    const view = tgView(el.clientWidth, el.clientHeight), r = _tg.route;
+    const at1 = (X, Y) => { if (!cv || !cv.width || !el.clientWidth) return null; const k = cv.width / el.clientWidth,
+      d = cv.getContext('2d').getImageData(Math.round(X * k), Math.round(Y * k), 1, 1).data; return [d[0], d[1], d[2], d[3]]; };
+    // each marker as last placed (a stop may sit off its place, tied to it by a line): a pixel inside its disc
+    const marks = (_tg.marks || []).map((m) => ({ home: !!m.home, label: m.label || '', x: m.x, y: m.y, rad: m.rad, half: m.half,
+      off: Math.round(Math.hypot(m.x - m.x0, m.y - m.y0)), px: m.home ? at1(m.x - 6, m.y + 1) : at1(m.x, m.y - 5.3) }));
+    let white = 0, green = 0, n = 0;
+    if (cv && cv.width) { const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; n = d.length / 4;
+      for (let i = 0; i < d.length; i += 4) { if (d[i] > 245 && d[i + 1] > 245 && d[i + 2] > 245) white++; if (d[i] < 40 && d[i + 1] > 100 && d[i + 1] < 150 && d[i + 2] < 70) green++; } }
+    const rows = [...document.querySelectorAll('#tripBook .tbrow[data-iso]')].map((x) => x.dataset.iso);
+    const C = countryCentroids(), at = (iso) => C[iso] || C[GUIDE_PARENT[iso]] || null;
+    return { drawn: el.getAttribute('data-drawn'), w: Math.round(b.width), h: Math.round(b.height), cw: cv && cv.width, ch: cv && cv.height,
+      dpr: devicePixelRatio, top: Math.round(b.top), left: Math.round(b.left), bottom: Math.round(b.bottom),
+      bookTop: bb && Math.round(bb.top), bookRight: bb && Math.round(bb.right), bookLeft: bb && Math.round(bb.left),
+      aria: el.getAttribute('aria-label'), role: el.getAttribute('role'), touch: getComputedStyle(el).touchAction,
+      ctr: _tg.ctr, t: _tg.t, done: _tg.drawn, frames: _tg.frames, raf: _tg.raf, white, green, n, rows,
+      nums: [...document.querySelectorAll('#tripBook .tbrow[data-iso] .tbno')].map((x) => x.textContent),
+      legs: r ? r.legs.map((L) => ({ a: L.a, b: L.b, dashed: L.dashed })) : null,
+      stops: r ? r.stops.map((s) => ({ ll: s.ll, label: s.label, back: !globeProject(s.ll[0], s.ll[1], view)[2] })) : null, marks,
+      home: _tg.home, want: { home: at(originIso()), rows: rows.map(at) },
+      finite: !!r && r.legs.every((L) => L.a.concat(L.b).every(Number.isFinite)) && r.stops.every((s) => s.ll.every(Number.isFinite)) };
   })()`);
   const filled = `(() => { const l = [...document.querySelectorAll('#tripBook .tbleg')]; return l.length && l.every((x) => !/…/.test(x.textContent)) && !/…/.test((document.querySelector('#tripBook .tbtotal') || {}).textContent || '…'); })()`;
   // The page's own answer for a mode over its current matrix (the jsc test checks the maths itself).
@@ -411,12 +441,21 @@ export default async (ctx) => {
 
   if (CASE === 'shots') {
     // the Trip card in Best overall, then after a drag (Your order); TR_SCHEME=light|dark, TR_PREFIX names the PNGs
-    await seed(trip(['KH', 'TH', 'VN']));
+    const N8 = ['TH', 'VN', 'KH', 'JP', 'PT', 'MA', 'MX', 'PE'];
+    await seed(trip(+process.env.TR_SHOTN === 8 ? N8 : ['KH', 'TH', 'VN']));
     if (process.env.TR_SCHEME) await ctx.scheme(process.env.TR_SCHEME === 'dark');
     await nav(BASE + '/?tab=trip', 0);
     await waitFor(filled);
+    await waitFor(`(() => { const g = document.querySelector('#tripBar .tripglobe'); return !g || (g.getAttribute('data-drawn') === 'route' && _tg.drawn); })()`, 6000);
     await sleep(800);
     const pre = (process.env.TR_PREFIX || 'trip') + '_' + W;
+    const snap = async (name) => {
+      if (!process.env.TR_SHOTS) return ctx.shot(name);
+      const r = await send('Page.captureScreenshot', { format: 'png' }), f = process.env.TR_SHOTS + '/' + name + '.png';
+      fs.mkdirSync(process.env.TR_SHOTS, { recursive: true }); fs.writeFileSync(f, Buffer.from(r.result.data, 'base64'));
+      return f;
+    };
+    ctx.shot = snap;
     await evaluate(`(() => { document.querySelector('#tab-trip .cardwide').scrollIntoView({ block: 'start', behavior: 'instant' }); return 1; })()`);
     await sleep(300);
     ok(!!(await ctx.shot(pre + '_best')), `${tag}: shot ${pre}_best`);
@@ -426,6 +465,166 @@ export default async (ctx) => {
     await sleep(300);
     s = await state();
     ok(s.mine && !!(await ctx.shot(pre + '_mine')), `${tag}: shot ${pre}_mine (${s.rows})`);
+    return finish();
+  }
+
+  if (CASE === 'globe') {
+    // The route's globe (Task 6): its box beside the list from 901px, above it under; home, the numbered stops and
+    // an arc per leg in the list's order, dashed where the leg line says ≈; the rows carry the same numbers; a
+    // reorder redraws the route and leaves the view where it was; the box is fixed (no layout shift as it draws).
+    await seed(trip(['KH', 'TH', 'VN']));
+    await nav(BASE + '/?tab=trip', 0);
+    await waitFor(filled);
+    await waitFor(`(() => { const g = document.querySelector('#tripBar .tripglobe'); return g && g.getAttribute('data-drawn') === 'route' && _tg.drawn; })()`, 6000);
+    let g = await globe(), s = await state();
+    if (!ok(g && g.drawn === 'route' && g.done, `${tag}: the globe drew the route (${g && g.drawn}, drawn-in ${g && g.done}, ${g && g.frames} frames)`)) return finish();
+    const wantH = W > 900 ? 280 : W > 560 ? 300 : 260;
+    ok(g.h === wantH && g.cw === Math.round(g.w * Math.min(g.dpr, 2)) && g.ch === Math.round(g.h * Math.min(g.dpr, 2)),
+       `${tag}: a ${g.w}x${g.h} box (want height ${wantH}), canvas ${g.cw}x${g.ch} at ${g.dpr}x (DPR capped at 2)`);
+    ok(W > 900 ? g.left >= g.bookRight && Math.abs(g.top - g.bookTop) <= 1 : g.bottom <= g.bookTop,
+       `${tag}: ${W > 900 ? 'beside the list' : 'above the list'} (globe ${g.left},${g.top}-${g.bottom}; list ${g.bookLeft}-${g.bookRight}, top ${g.bookTop})`);
+    ok(g.role === 'img' && /from the US to /.test(g.aria || '') && g.touch === 'pan-y', `${tag}: named for screen readers, pan-y (${g.aria}; ${g.touch})`);
+    const eq = (p, q) => !!p && !!q && Math.abs(p[0] - q[0]) < 1e-9 && Math.abs(p[1] - q[1]) < 1e-9;
+    const seqWant = [g.want.home].concat(g.want.rows, [g.want.home]);
+    ok(g.legs.length === 4 && g.legs.every((L, k) => eq(L.a, seqWant[k]) && eq(L.b, seqWant[k + 1])) && g.finite,
+       `${tag}: one arc per leg, home -> ${s.rows} -> home, in the list's order (${g.legs.length})`);
+    const est = s.legs.map((l) => /≈/.test(l.text));
+    ok(JSON.stringify(g.legs.map((L) => L.dashed)) === JSON.stringify(est), `${tag}: dashed exactly where the leg line says ≈ (${g.legs.map((L) => L.dashed)} vs ${est})`);
+    ok(JSON.stringify(g.stops.map((x) => x.label)) === '["1","2","3"]' && g.stops.every((x, k) => eq(x.ll, g.want.rows[k]))
+       && JSON.stringify(g.nums) === '["1","2","3"]', `${tag}: numbered stops 1-3 at the rows' countries, the rows numbered the same (${g.nums})`);
+    const isGreen = (p) => Array.isArray(p) && p[0] < 40 && p[1] > 100 && p[1] < 150 && p[2] < 70;
+    const front = g.stops.filter((x) => !x.back).map((x) => x.label).sort();
+    const sep = g.marks.every((a, i) => g.marks.every((b, j) => j <= i || Math.hypot(a.x - b.x, a.y - b.y) >= a.rad + b.rad - 0.5));
+    ok(JSON.stringify(g.marks.filter((m) => !m.home).map((m) => m.label).sort()) === JSON.stringify(front) && g.marks.some((m) => m.home)
+       && g.marks.every((m) => isGreen(m.px)) && sep,
+       `${tag}: a marker per stop on this side of the globe (${front}) and home, drawn, none on another (${JSON.stringify(g.marks.map((m) => [m.label || 'home', m.off, m.px]))})`);
+    ok(g.white > 200 && g.green > 200, `${tag}: arcs (${g.white} white px) and the trip's countries and markers (${g.green} green px)`);
+    const ctr0 = JSON.stringify(g.ctr), cls0 = await evaluate('window.__cls');
+    await click('#tripBook .tripsort [data-ts="cheap"]');
+    await sleep(300);
+    g = await globe(); s = await state();
+    ok(JSON.stringify(s.rows) === '["TH","VN","KH"]' && g.stops.every((x, k) => eq(x.ll, g.want.rows[k])) && g.legs.every((L, k) => eq(L.a, [g.want.home].concat(g.want.rows)[k])),
+       `${tag}: Cheapest reorders the arcs and numbers with the rows (${s.rows})`);
+    ok(JSON.stringify(g.ctr) === ctr0, `${tag}: the view stays where it was (${ctr0})`);
+    const cls1 = await evaluate('window.__cls');
+    ok(cls1 === cls0, `${tag}: no layout shift from the reorder's redraw (${cls0} -> ${cls1})`);
+    ok(s.sw <= s.cw, `${tag}: no sideways scroll (${s.sw} <= ${s.cw})`);
+    return finish();
+  }
+
+  if (CASE === 'turn') {
+    // Turning it: a sideways drag turns it (the longitude, kept within -180..180), a mouse's up/down tilts it once
+    // the drag ends; on a phone a vertical swipe over it scrolls the page and turns nothing.
+    await seed(trip(['KH', 'TH', 'VN']));
+    await nav(BASE + '/?tab=trip', 0);
+    await waitFor(filled);
+    await waitFor(`(() => _tg.drawn && document.querySelector('#tripBar .tripglobe').getAttribute('data-drawn') === 'route')()`, 6000);
+    await box('#tripBar .tripglobe');
+    await sleep(300);
+    const at = await evaluate(`(() => { const b = document.querySelector('#tripBar .tripglobe').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, sy: scrollY }; })()`);
+    let g0 = await globe();
+    if (!PHONE) {
+      const mv = (type, x, y, btn = 'left', buttons = 1) => send('Input.dispatchMouseEvent', { type, x, y, button: btn, buttons, clickCount: 1 });
+      await mv('mouseMoved', at.x, at.y, 'none', 0);
+      await mv('mousePressed', at.x, at.y);
+      for (let k = 1; k <= 8; k++) { await mv('mouseMoved', at.x - 10 * k, at.y - 5 * k); await sleep(30); }
+      await sleep(100);
+      const mid = await globe();
+      await mv('mouseReleased', at.x - 80, at.y - 40);
+      await sleep(200);
+      const g1 = await globe(), sy1 = await evaluate('scrollY');
+      const r = await evaluate(`tgView(document.querySelector('#tripBar .tripglobe').clientWidth, document.querySelector('#tripBar .tripglobe').clientHeight).r`);
+      const dlon = ((g1.ctr.lon - g0.ctr.lon + 540) % 360) - 180, wantD = 80 / r * 180 / Math.PI;
+      ok(Math.abs(dlon - wantD) < 0.5 && g1.ctr.lon >= -180 && g1.ctr.lon < 180, `${tag}: an 80px drag to the left turns it ${dlon.toFixed(1)} degrees east (want ${wantD.toFixed(1)}), longitude ${g1.ctr.lon.toFixed(1)}`);
+      ok(mid.ctr.lat === g0.ctr.lat && g1.ctr.lat < g0.ctr.lat - 5, `${tag}: a drag upward tilts it south, once dropped (${mid.ctr.lat} during, ${g1.ctr.lat.toFixed(1)} after)`);
+      ok(sy1 === at.sy && JSON.stringify(g1.rows) === JSON.stringify(g0.rows) && g1.drawn === 'route', `${tag}: the page didn't scroll, the list didn't change`);
+      // keep turning: still within -180..180
+      for (let i = 0; i < 3; i++) {
+        await mv('mouseMoved', at.x + 120, at.y, 'none', 0); await mv('mousePressed', at.x + 120, at.y);
+        for (let k = 1; k <= 6; k++) { await mv('mouseMoved', at.x + 120 - 40 * k, at.y); await sleep(20); }
+        await mv('mouseReleased', at.x - 120, at.y); await sleep(100);
+      }
+      const g2 = await globe();
+      ok(g2.ctr.lon >= -180 && g2.ctr.lon < 180, `${tag}: after turning on, the longitude is still within -180..180 (${g2.ctr.lon.toFixed(1)})`);
+    } else {
+      const touch = async (pts) => {
+        await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: pts[0][0], y: pts[0][1] }] });
+        for (const p of pts.slice(1)) { await send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: p[0], y: p[1] }] }); await sleep(16); }
+        await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await sleep(500);
+      };
+      const vs = []; for (let k = 0; k <= 12; k++) vs.push([at.x, at.y + 60 - 10 * k]);
+      await touch(vs);
+      const g1 = await globe(), sy1 = await evaluate('scrollY');
+      ok(sy1 > at.sy + 20, `${tag}: a vertical swipe over the globe scrolls the page (${at.sy} -> ${sy1})`);
+      ok(JSON.stringify(g1.ctr) === JSON.stringify(g0.ctr), `${tag}: and turns nothing (${JSON.stringify(g1.ctr)})`);
+      const at2 = await evaluate(`(() => { const b = document.querySelector('#tripBar .tripglobe').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2, sy: scrollY }; })()`);
+      const hs = []; for (let k = 0; k <= 10; k++) hs.push([at2.x + 60 - 12 * k, at2.y]);
+      await touch(hs);
+      const g2 = await globe(), sy2 = await evaluate('scrollY');
+      ok(Math.abs(g2.ctr.lon - g1.ctr.lon) > 5 && g2.ctr.lat === g1.ctr.lat && Math.abs(sy2 - at2.sy) <= 1,
+         `${tag}: a sideways swipe turns it (${g1.ctr.lon.toFixed(1)} -> ${g2.ctr.lon.toFixed(1)}), the page stays (${at2.sy} -> ${sy2})`);
+    }
+    return finish();
+  }
+
+  if (CASE === 'motion') {
+    // motion_and_touch: TR_RM=1 (prefers-reduced-motion): the route is drawn whole at once, no animation frame
+    // runs for it, and none at all while the page sits; else the draw-in waits while the page is hidden, stops
+    // when it is hidden or the Trip tab goes offscreen, resumes, and runs once.
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__raf = 0; const __r = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = (f) => { window.__raf++; return __r(f); };` });
+    if (process.env.TR_RM) await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
+    await seed(trip(['KH', 'TH', 'VN']));
+    const hide = (on) => evaluate(`(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => ${on} });
+      document.dispatchEvent(new Event('visibilitychange')); return document.hidden; })()`);
+    if (process.env.TR_RM) {
+      await nav(BASE + '/?tab=trip', 0);
+      await waitFor(filled);
+      await waitFor(`(() => document.querySelector('#tripBar .tripglobe').getAttribute('data-drawn') === 'route')()`, 6000);
+      const g = await globe();
+      ok(g.drawn === 'route' && g.done && g.frames === 0 && g.t === 0 && g.white > 200,
+         `${tag}: reduced motion: the route drawn whole at once, no draw-in frames (${g.frames}), arcs there (${g.white} white px)`);
+      const r0 = await evaluate('window.__raf');
+      await sleep(2000);
+      const r1 = await evaluate('window.__raf'), g2 = await globe();
+      ok(r1 === r0 && g2.frames === 0, `${tag}: nothing asks for an animation frame while the page sits (${r0} -> ${r1} in 2 s)`);
+      return finish();
+    }
+    // the page hidden before the route is in: the draw-in waits
+    await nav(BASE + '/?tab=trip', 0);
+    await hide(true);
+    await waitFor(filled);
+    await waitFor(`(() => !!_tg.route)()`, 6000);
+    await sleep(400);
+    let g = await globe();
+    ok(g.frames === 0 && !g.done && !g.raf && g.drawn === 'route', `${tag}: hidden: the route is in but nothing animates (${g.frames} frames)`);
+    await hide(false);
+    await waitFor(`(() => _tg.frames > 3)()`, 3000);
+    await hide(true);
+    await sleep(60);
+    const f1 = (await globe()).frames;
+    await sleep(600);
+    g = await globe();
+    ok(g.frames === f1 && !g.raf && !g.done && g.t > 0 && g.t < 1, `${tag}: hidden mid-way: it stops (${f1} -> ${g.frames} frames, at ${g.t.toFixed(2)})`);
+    await hide(false);
+    await waitFor(`(() => _tg.frames > ${f1} + 2)()`, 3000);
+    // offscreen: another tab
+    await evaluate(`(() => { activateTab('value', true); return 1; })()`);
+    await sleep(300);
+    const f2 = (await globe()).frames;
+    await sleep(600);
+    g = await globe();
+    ok(g.frames === f2 && !g.raf && !g.done, `${tag}: on another tab it stops (${f2} -> ${g.frames} frames, at ${g.t.toFixed(2)})`);
+    await evaluate(`(() => { activateTab('trip', true); return 1; })()`);
+    await waitFor(`(() => _tg.drawn)()`, 4000);
+    g = await globe();
+    ok(g.done && g.t === 1 && g.drawn === 'route' && g.frames > f2, `${tag}: back on the Trip tab it finishes (${g.frames} frames)`);
+    const f3 = g.frames, rows3 = JSON.stringify(g.rows);
+    await click('#tripBook .tripsort [data-ts="quick"]');
+    await sleep(400);
+    g = await globe();
+    ok(g.frames === f3 && g.t === 1 && g.done && g.drawn === 'route', `${tag}: a reorder after that redraws at once, no second draw-in (${rows3} -> ${JSON.stringify(g.rows)}, ${g.frames} frames)`);
     return finish();
   }
 

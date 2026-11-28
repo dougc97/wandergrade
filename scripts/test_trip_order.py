@@ -33,7 +33,16 @@ What it holds the code to:
     totals wording (≈ once, the home flag, no flight inside one country),
     the switch / handle / leg markup, no reorder under a drag or in Your
     order, and index.html's stand-in and the styles that keep it all from
-    shifting the page.
+    shifting the page;
+  * the route's globe (Task 6), its model and maths: tripGlobeUpdate turns
+    the list as drawn into an arc per flight (home -> stops -> home, dashed
+    where the leg is estimated) and a marker per place: England and the UK
+    on one trip are one marker ("1,2") and no arc, Monaco a marker of its
+    own, nothing NaN (Review Focus 1); tgFit centres the view on the places
+    (a European trip from the UK zoomed in, a long haul the whole Earth);
+    tgSpread parts overlapping markers and leaves home where it is; tgWrap
+    keeps a turned longitude within -180..180; the stand-in and styles give
+    the globe a fixed box (pan-y, never under a row's handle's own rule).
 """
 import json, os, subprocess, sys, tempfile
 
@@ -275,6 +284,54 @@ T("guards", () => {
   const mine = tripRouteUpdate(true);
   return { dragging, mine, order: [..._trip], built: !!(_tripM && _tripM.m && _tripM.m.n === 4), sig: _tripM && _tripM.sig };
 });
+// ---- Task 6: the route's globe ----
+// A stand-in Trip bar for tripGlobeUpdate: the globe box (a canvas inside), the rows in their order.
+const fakeBar = (rows) => {
+  const attrs = {}, box = { querySelector: (q) => (q === "canvas" ? { getContext: () => null, width: 0, height: 0 } : null),
+    setAttribute: (k, v) => { attrs[k] = String(v); }, getAttribute: (k) => (k in attrs ? attrs[k] : null), attrs,
+    addEventListener: () => {}, isConnected: true, clientWidth: 0, clientHeight: 0, classList: { add() {}, remove() {} } };
+  document.querySelector = (q) => (q === "#tripBar .tripglobe" ? box : null);
+  document.querySelectorAll = (q) => (q === "#tripBook .tbrow[data-iso]" ? rows.map((iso) => ({ dataset: { iso } })) : []);
+  return box;
+};
+T("globe_route", () => {
+  localStorage.clear(); _tripSharedSort = null; flightsData = null;
+  const one = (isos, legsJson, hf) => {
+    _trip = new Set(isos);
+    const ctx = tripRouteCtx();
+    _tripM = { sig: ctx.sig, nodes: [ctx.origin].concat(isos), m: tripLegMatrix(isos, ctx.origin, legsJson, hf) };
+    const box = fakeBar(isos);
+    tripGlobeUpdate();
+    const r = _tg.route;
+    return { legs: r && r.legs.map((L) => ({ a: L.a, b: L.b, dashed: L.dashed })), stops: r && r.stops.map((x) => ({ ll: x.ll, label: x.label })),
+             hl: _tg.hl.slice(), home: _tg.home, aria: box.attrs["aria-label"],
+             finite: !!r && r.legs.every((L) => L.a.concat(L.b).every(Number.isFinite)) && r.stops.every((x) => x.ll.every(Number.isFinite)) };
+  };
+  const C = countryCentroids();
+  const fit = { fit: { a: 40, b: 0.06, n: 35 } };
+  const sea = one(["TH", "VN", "KH"], { legs: { TH: { VN: { fare: 120, dur: 95 } } }, fit: fit.fit }, { TH: { to: 300, back: 310, basis: "avg", dur: 1100 } });
+  const par = one(["GB-ENG", "GB", "MC"], fit, {});
+  const solo = one(["JP"], fit, {});
+  return { sea, par, solo, C: { US: C.US, TH: C.TH, VN: C.VN, KH: C.KH, GB: C.GB, MC: C.MC, JP: C.JP } };
+});
+T("globe_fit", () => {
+  const C = countryCentroids();
+  const far = tgFit([C.US, C.TH, C.VN, C.KH]), near = tgFit([C.GB, C.FR, C.ES]), none = tgFit([]);
+  const ang = (c, p) => distKm([c.lon, c.lat], p) / 6371 / G_RAD;
+  return { far, near, none, farMax: Math.max(...[C.US, C.TH, C.VN, C.KH].map((p) => ang(far, p))),
+           nearMax: Math.max(...[C.GB, C.FR, C.ES].map((p) => ang(near, p))) };
+});
+T("globe_spread", () => {
+  const mk = [{ x: 100, y: 100, x0: 100, y0: 100, rad: 8, half: 0, home: true }];
+  for (let k = 0; k < 5; k++) mk.push({ x: 101 + k, y: 100 + (k % 2), x0: 101 + k, y0: 100 + (k % 2), rad: 7.5, half: k === 4 ? 6 : 0 });
+  mk.push({ x: 2, y: 3, x0: 2, y0: 3, rad: 7.5, half: 0 });
+  tgSpread(mk, 280, 280);
+  let overlap = 0;
+  for (let i = 0; i < mk.length; i++) for (let j = i + 1; j < mk.length; j++) if (Math.hypot(mk[i].x - mk[j].x, mk[i].y - mk[j].y) < mk[i].rad + mk[j].rad - 0.01) overlap++;
+  return { overlap, home: [mk[0].x, mk[0].y], inBox: mk.every((m) => m.x - m.rad - m.half >= 0 && m.x + m.rad + m.half <= 280 && m.y - m.rad >= 0 && m.y + m.rad <= 280),
+           apart: mk.slice(1).every((m) => Number.isFinite(m.x) && Number.isFinite(m.y)) };
+});
+T("globe_wrap", () => [tgWrap(-200), tgWrap(190), tgWrap(-180), tgWrap(180), tgWrap(-1000), tgWrap(1e6 + 0.5)]);
 print(JSON.stringify(out));
 """
 
@@ -427,6 +484,41 @@ gd = G("guards") or {}
 results.append(ok(gd.get("dragging") is False and gd.get("mine") is False and gd.get("order") == ["KH", "TH", "VN"] and gd.get("built") is True,
                   "never reorders under a drag or in Your order (the legs still build) (%s)" % gd))
 
+# ---- Task 6: the route's globe ----
+gr = G("globe_route") or {}
+eq = lambda p, q: p is not None and q is not None and abs(p[0] - q[0]) < 1e-9 and abs(p[1] - q[1]) < 1e-9
+sea, Cc = gr.get("sea") or {}, gr.get("C") or {}
+want = [Cc.get("US"), Cc.get("TH"), Cc.get("VN"), Cc.get("KH"), Cc.get("US")]
+legs = sea.get("legs") or []
+results.append(ok(len(legs) == 4 and all(eq(L["a"], want[k]) and eq(L["b"], want[k + 1]) for k, L in enumerate(legs)) and sea.get("finite"),
+                  "the globe's route: an arc per flight, home -> TH -> VN -> KH -> home, in the list's order (%d)" % len(legs)))
+results.append(ok([L["dashed"] for L in legs] == [False, False, True, True],
+                  "dashed where the leg is estimated: home->TH and TH->VN real, VN->KH and KH->home estimated (%s)" % [L["dashed"] for L in legs]))
+results.append(ok([x["label"] for x in sea.get("stops") or []] == ["1", "2", "3"] and eq(sea.get("home"), Cc.get("US"))
+                  and sea.get("hl") == ["KH", "TH", "VN"] and "from the US to Thailand, Vietnam, Cambodia and back" in (sea.get("aria") or ""),
+                  "numbered stops, home, the trip's countries highlighted, the box named (%s)" % sea.get("aria")))
+par = gr.get("par") or {}
+pl = par.get("legs") or []
+results.append(ok(par.get("finite") is True and [x["label"] for x in par.get("stops") or []] == ["1,2", "3"]
+                  and eq((par.get("stops") or [{}])[0].get("ll"), Cc.get("GB")) and eq((par.get("stops") or [{}, {}])[1].get("ll"), Cc.get("MC")),
+                  "parent_and_tiny_stops on the globe: England and the UK one marker (1,2) at the UK, Monaco its own (3), nothing NaN (%s)" % par.get("stops")))
+results.append(ok(len(pl) == 3 and not any(eq(L["a"], Cc.get("GB")) and eq(L["b"], Cc.get("GB")) for L in pl),
+                  "no arc from England to the UK (no flight): home -> UK, UK -> Monaco, Monaco -> home (%d arcs)" % len(pl)))
+so = gr.get("solo") or {}
+results.append(ok([x["label"] for x in so.get("stops") or []] == [""] and len(so.get("legs") or []) == 2,
+                  "one country: a plain marker (no number) and home -> it -> home (%s)" % so.get("stops")))
+gf = G("globe_fit") or {}
+far, near = gf.get("far") or {}, gf.get("near") or {}
+results.append(ok(far.get("z") == 1 and gf.get("farMax", 99) < 80 and near.get("z", 0) > 1.3 and gf.get("nearMax", 99) < 10
+                  and abs(near.get("lat", 0) - 46) < 8 and gf.get("none") == {"lon": 0, "lat": 20, "z": 1},
+                  "tgFit: a long haul (US -> SE Asia) the whole Earth, every place within %.0f degrees of the centre; a UK/France/Spain trip "
+                  "zoomed %.2fx on %s; none: a default view" % (gf.get("farMax", 0), near.get("z", 0), near)))
+sp_ = G("globe_spread") or {}
+results.append(ok(sp_.get("overlap") == 0 and sp_.get("home") == [100, 100] and sp_.get("inBox") and sp_.get("apart"),
+                  "tgSpread: six markers on one spot parted, none overlapping, home left where it is, all inside the box (%s)" % sp_))
+results.append(ok(G("globe_wrap") == [160, -170, -180, -180, 80, -79.5],
+                  "tgWrap keeps a turned longitude within -180..180 (%s)" % G("globe_wrap")))
+
 # The first-paint stand-in and the styles
 HTML = open(P("public", "index.html"), encoding="utf-8").read()
 CSS = open(P("public", "styles.css"), encoding="utf-8").read()
@@ -444,6 +536,16 @@ results.append(ok("height: 24px" in rule(".tbleg") and "height: 31px" in rule(".
                   "leg lines and totals are fixed-height single lines that can't widen the grid"))
 results.append(ok("touch-action: none" in rule(".tbdrag") and "transform" not in rule(".tbrow.tbdragging"),
                   "only the handle captures a touch drag (the page still scrolls elsewhere)"))
+results.append(ok('<div class="triproute"><div class="tripglobe"></div><div class="tripbook">' in stand and '<span class="tbno">1</span>' in stand,
+                  "index.html's Trip stand-in holds the globe's box and each row's stop number"))
+g_ = rule(".tripglobe")
+mq = lambda w: (_re.search(r"(?m)^@media \(min-width: %dpx\) \{\n(.*?)\n\}" % w, CSS, _re.S) or [None, ""])[1]
+results.append(ok("height: 260px" in g_ and "touch-action: pan-y" in g_ and "contain: size layout paint" in g_
+                  and "height: 300px" in mq(561) and "height: 280px" in mq(901) and "grid-template-columns: minmax(0, 1fr) 280px" in mq(901)
+                  and "position: absolute" in rule(".tripglobe canvas"),
+                  "the globe's box: 260px, 300px from 561, 280 beside the list from 901, size-contained, pan-y, the canvas laid over it"))
+results.append(ok("@media (max-width: 1199px) {\n  .tripbook { grid-template-columns: minmax(0, 1fr) auto auto auto;" in CSS,
+                  "with the globe beside it (901-1199) the list takes its two-line layout"))
 new_classes = set(_re.findall(r"\.(trip[a-z]+|tb[a-z]+|ts[a-z]+)", CSS))
 results.append(ok(not [c for c in new_classes if _re.match(r"(ad|adv|sponsor|banner|promo)", c)], "no class name an ad blocker hides"))
 

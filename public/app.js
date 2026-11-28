@@ -8096,6 +8096,10 @@ function renderTripBar() {
     // Clear moved to the list's header row (renderTripBook), and the chips
     // went: every country was listed twice, and the chips were the only way
     // to remove one. Each row now carries its own ×.
+    // The route's globe (round 16) is carried across this redraw (a tab
+    // switch, a country added), drawn as it was: never index.html's
+    // stand-in box, which has no canvas.
+    const keepG = host.querySelector(".tripglobe canvas") ? host.querySelector(".tripglobe") : null;
     host.innerHTML = '<div class="triphead">'
       + '<label class="tripdays">for <input id="tripDays" type="number" min="1" max="180" aria-label="Trip length in days" '
       // One trip length: a budget's "for N days" on Top Picks seeds this until
@@ -8108,7 +8112,9 @@ function renderTripBar() {
         + ((flexM ? false : (parseInt(savedM, 10) || picksMonth()) === i + 1)
           ? " selected" : "") + ">" + m + "</option>").join("")
       + "</select></label></div>"
-      + '<div class="tripbook" id="tripBook"></div>';
+      + '<div class="triproute"><div class="tripglobe" role="img" aria-label="Your route on a globe">'
+      + '<canvas aria-hidden="true"></canvas></div><div class="tripbook" id="tripBook"></div></div>';
+    if (keepG) host.querySelector(".tripglobe").replaceWith(keepG);
     renderTripBook([...t]);
     // An open plan panel follows the trip: a country's × left Cambodia in
     // "Help me plan a trip to Thailand, Vietnam and Cambodia". No-op closed.
@@ -8341,9 +8347,10 @@ function setTripSort(mode) {
 }
 const TRIP_SORT_TIP = "Best overall weighs total fare and flying time equally; Cheapest and Quickest each go for one. "
   + "Flights only: from your From country through every stop and home. Real fares and flight times come from cached "
-  + "searches (Aviasales) where a trip country has its own airport hub in our fare data; the rest (≈) are estimated "
-  + "from distance. A leg's fare is half a cached round trip, in the trip month where known. Ground travel, borders "
-  + "and visas aren't considered. Drag a row's handle to set your own order.";
+  + "searches (Aviasales) where a trip country has its own airport hub in our fare data; the rest (≈, dashed on the "
+  + "globe) are estimated from distance. A leg's fare is half a cached round trip, in the trip month where known. "
+  + "Ground travel, borders and visas aren't considered. Drag a row's handle to set your own order, and the globe "
+  + "sideways to turn it.";
 // The markup renderTripBook weaves in, and where focus was (a redraw puts it
 // back: the legs landing must not drop a keyboard reader to <body>).
 function tripRouteParts(isos, host) {
@@ -8366,9 +8373,11 @@ function tripRouteParts(isos, host) {
     + '<span class="muted" data-tip="' + esc(TRIP_SORT_TIP) + '" title="">ⓘ</span></div>';
   return {
     keep, sort,
+    // The handle, then the stop's number as the globe marks it (the handle
+    // already says it to screen readers).
     handle: (iso, name, k) => !multi ? "" : '<button type="button" class="tbdrag" data-iso="' + esc(iso) + '" aria-label="'
       + esc(name + ", stop " + (k + 1) + " of " + n + ". Drag, or use the up and down arrow keys, to move it")
-      + '" title="Drag to reorder"></button>',
+      + '" title="Drag to reorder"></button><span class="tbno" aria-hidden="true">' + (k + 1) + "</span>",
     leg: (from, to) => !n ? "" : '<div class="tbleg" data-from="' + esc(from) + '" data-to="' + esc(to) + '"><span aria-hidden="true">✈️ …</span></div>',
     total: n ? '<div class="tbtotal"><span aria-hidden="true">…</span></div>' : "",
   };
@@ -8523,6 +8532,7 @@ function tripTotalWords(t, o) {
 // as drawn; placeholders stay while it is still coming.
 function tripFillLegs(host) {
   const ctx = tripRouteCtx();
+  tripGlobeUpdate();   // the globe follows the rows as drawn, the route once it is in
   if (!host || !_tripM || _tripM.sig !== ctx.sig) return;
   const { m, nodes } = _tripM, o = fareStripOpts(null);
   const ix = (iso) => (iso ? nodes.indexOf(iso, 1) : 0);
@@ -8615,6 +8625,341 @@ function tripDragStart(e) {
   window.addEventListener("pointerup", end);
   window.addEventListener("pointercancel", end);
   h.addEventListener("lostpointercapture", end);
+}
+
+// ---- Trip route: the globe (round 16) ----------------------------------------
+// The route as the list has it: home (a house), the numbered stops (the
+// rows carry the same numbers), an arc per flight in the list's order,
+// lifted off the surface with an arrowhead for the way it goes, dashed where
+// the leg is estimated (≈); the trip's countries in the site green. Its box
+// is fixed from first paint (index.html's stand-in has it): above the list,
+// beside it from 901px, so drawing it moves nothing. The view centres on
+// home and the stops (the point whose farthest place is nearest), once per
+// set of countries: a reorder or the legs landing never move it. A sideways
+// drag turns it (touch-action: pan-y leaves a vertical swipe to the page; a
+// mouse's up/down tilts it when the drag ends, the costly rebuild done
+// once), drawn at 1x while it moves. The arcs draw in once, the first time a
+// route is shown, never under reducedMotion(); the animation stops while
+// the box is offscreen (another tab), the page hidden or the box gone, and
+// resumes where it was. The list (its leg lines) is the text equivalent;
+// the box names the route for screen readers.
+const TG_DRAWIN_MS = 1400;
+// el: the box drawn into; ctr: the view's centre and zoom {lon, lat, z};
+// fitSig: the places it was fitted to; hl: the trip's countries; home:
+// [lon, lat]; route: {legs: [{a, b, dashed}], stops: [{ll, label}]} once the
+// legs are in; base: the globe without the route (cached by baseKey); t: the
+// draw-in, 0..1; drawn: done (once a page); frames: draw-in frames and
+// marks: the markers as last placed (tests).
+const _tg = { el: null, ro: null, io: null, vis: false, ctr: null, fitSig: "", hl: [], home: null, route: null,
+              base: null, baseKey: "", t: 0, drawn: false, raf: 0, drag: null, dragRaf: 0, frames: 0, marks: [] };
+const tgWrap = (lon) => (((lon % 360) + 540) % 360) - 180;
+const tgVec = (p) => { const l = p[0] * G_RAD, f = p[1] * G_RAD; return [Math.cos(f) * Math.cos(l), Math.cos(f) * Math.sin(l), Math.sin(f)]; };
+// The view's centre: the 3-degree grid point whose farthest place is the
+// nearest (ties: the first), and a zoom that fills the disc with them —
+// the whole Earth for a long haul, up to 1.45x for a trip near home.
+function tgFit(pts) {
+  const P = pts.map(tgVec);
+  if (!P.length) return { lon: 0, lat: 20, z: 1 };
+  let best = null;
+  for (let la = -60; la <= 60; la += 3) {
+    for (let lo = -180; lo < 180; lo += 3) {
+      const c = tgVec([lo, la]);
+      let mn = 1;
+      for (const q of P) {
+        const d = c[0] * q[0] + c[1] * q[1] + c[2] * q[2];
+        if (d < mn) { mn = d; if (best && mn <= best.cos) break; }
+      }
+      if (!best || mn > best.cos) best = { lon: lo, lat: la, cos: mn };
+    }
+  }
+  const s = best.cos <= 0 ? 1 : Math.sqrt(1 - best.cos * best.cos);   // the farthest place's distance on the disc
+  return { lon: best.lon, lat: best.lat, z: Math.max(1, Math.min(1.45, 0.8 / Math.max(s, 1e-6))) };
+}
+function tgView(w, h) {
+  const c = _tg.ctr || { lon: 0, lat: 20, z: 1 };
+  return { lon: c.lon, lat: c.lat, r: Math.min(w, h) / 2 * 0.86 * c.z, cx: w / 2, cy: h / 2, w, h };
+}
+// globeProject for a point h radii above the surface: visible when on the
+// near side, or out past the disc's edge (an arc's top seen over the limb).
+function tgProj(lon, lat, h, view) {
+  const l = (lon - view.lon) * G_RAD, p = lat * G_RAD, p0 = view.lat * G_RAD;
+  const cp = Math.cos(p), sp = Math.sin(p), c0 = Math.cos(p0), s0 = Math.sin(p0), cl = Math.cos(l), k = 1 + h;
+  const x = cp * Math.sin(l), y = c0 * sp - s0 * cp * cl, z = s0 * sp + c0 * cp * cl;
+  return [view.cx + x * k * view.r, view.cy - y * k * view.r, z > 0 || Math.hypot(x, y) * k >= 1];
+}
+// The great circle a -> b: its angle d (radians) and the point t of the way.
+function tgArc(a, b) {
+  const A = tgVec(a), B = tgVec(b);
+  const d = Math.acos(Math.max(-1, Math.min(1, A[0] * B[0] + A[1] * B[1] + A[2] * B[2]))), sd = Math.sin(d);
+  return { d, at: (t) => {
+    if (sd < 1e-9) return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    const wa = Math.sin((1 - t) * d) / sd, wb = Math.sin(t * d) / sd;
+    const x = wa * A[0] + wb * B[0], y = wa * A[1] + wb * B[1], z = wa * A[2] + wb * B[2];
+    return [Math.atan2(y, x) / G_RAD, Math.atan2(z, Math.hypot(x, y)) / G_RAD];
+  } };
+}
+
+// After every redraw of the list (tripFillLegs): the countries, the order
+// as drawn, the route once the legs are in for this trip.
+function tripGlobeUpdate() {
+  const el = document.querySelector("#tripBar .tripglobe");
+  if (!el || !el.querySelector || !el.querySelector("canvas")) return;
+  tgBind(el);
+  const ctx = tripRouteCtx();
+  const rows = [...document.querySelectorAll("#tripBook .tbrow[data-iso]")].map((r) => r.dataset.iso);
+  const isos = rows.length ? rows : ctx.isos;
+  const C = worldGeo ? countryCentroids() : null;
+  const at = (iso) => (C && (C[iso] || C[GUIDE_PARENT[iso]])) || null;
+  const home = at(ctx.origin);
+  const fitSig = ctx.origin + "|" + isos.slice().sort().join(",") + "|" + (C ? 1 : 0);
+  if (fitSig !== _tg.fitSig) {
+    _tg.fitSig = fitSig;
+    _tg.ctr = tgFit([home].concat(isos.map(at)).filter(Boolean));
+  }
+  _tg.hl = isos.slice().sort();
+  _tg.home = home;
+  // An arc per flight: none inside one country (England -> the UK, no
+  // flight) or to a place with no shape on the map; one marker per place
+  // (England and the UK on one trip: "2,3").
+  let route = null;
+  if (C && _tripM && _tripM.sig === ctx.sig) {
+    const { m, nodes } = _tripM, ix = (iso) => (iso ? nodes.indexOf(iso, 1) : 0);
+    const seq = [""].concat(isos, [""]), legs = [], stops = [];
+    for (let k = 0; k + 1 < seq.length; k++) {
+      const i = ix(seq[k]), j = ix(seq[k + 1]);
+      const a = seq[k] ? at(seq[k]) : home, b = seq[k + 1] ? at(seq[k + 1]) : home;
+      if (i < 0 || j < 0 || !a || !b || (a[0] === b[0] && a[1] === b[1]) || (m.fare[i][j] === 0 && m.min[i][j] === 0)) continue;
+      legs.push({ a, b, dashed: !m.real[i][j] || !m.realMin[i][j] });
+    }
+    isos.forEach((iso, k) => {
+      const p = at(iso);
+      if (!p) return;
+      const s = stops.find((x) => x.ll[0] === p[0] && x.ll[1] === p[1]);
+      if (s) s.label += "," + (k + 1);
+      else stops.push({ ll: p, label: isos.length > 1 ? String(k + 1) : "" });
+    });
+    route = { legs, stops };
+  }
+  _tg.route = route;
+  el.setAttribute("aria-label", "Your route on a globe: from " + (ctx.origin === "US" ? "the US" : countryName(ctx.origin))
+    + " to " + isos.map(countryName).join(", ") + " and back");
+  if (route && !_tg.drawn) tgDrawIn();
+  else tgPaint(!!_tg.drag);
+}
+// Observers and the drag, once per box (renderTripBar carries the box over).
+function tgBind(el) {
+  if (_tg.el === el) return;
+  if (_tg.ro) _tg.ro.disconnect();
+  if (_tg.io) _tg.io.disconnect();
+  _tg.el = el; _tg.ro = _tg.io = null; _tg.baseKey = "";
+  _tg.vis = !window.IntersectionObserver;
+  if (window.ResizeObserver) { _tg.ro = new ResizeObserver(() => tgPaint(!!_tg.drag)); _tg.ro.observe(el); }
+  if (window.IntersectionObserver) {
+    _tg.io = new IntersectionObserver((es) => {
+      _tg.vis = es[es.length - 1].isIntersecting;
+      if (_tg.vis && _tg.route && !_tg.drawn) tgDrawIn();
+      else if (!_tg.vis && _tg.raf) { cancelAnimationFrame(_tg.raf); _tg.raf = 0; }
+    });
+    _tg.io.observe(el);
+  }
+  el.addEventListener("pointerdown", tgDragStart);
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { if (_tg.raf) { cancelAnimationFrame(_tg.raf); _tg.raf = 0; } }
+  else if (_tg.vis && _tg.route && !_tg.drawn) tgDrawIn();
+});
+// The arcs drawing in, home first, each leg in proportion to its length.
+function tgDrawIn() {
+  if (_tg.drawn || reducedMotion()) { _tg.drawn = true; tgPaint(!!_tg.drag); return; }
+  tgPaint(!!_tg.drag);
+  if (_tg.raf || !_tg.vis || document.hidden) return;   // it starts (or resumes) once on screen
+  const t0 = performance.now() - _tg.t * TG_DRAWIN_MS;
+  const step = (now) => {
+    _tg.raf = 0;
+    if (!_tg.el || !_tg.el.isConnected || !_tg.vis || document.hidden || !_tg.route) return;   // paused where it is
+    _tg.frames++;
+    _tg.t = Math.min(1, Math.max(0, (now - t0) / TG_DRAWIN_MS));
+    if (_tg.t >= 1) _tg.drawn = true;
+    tgPaint(!!_tg.drag);
+    if (!_tg.drawn) _tg.raf = requestAnimationFrame(step);
+  };
+  _tg.raf = requestAnimationFrame(step);
+}
+// One frame: the globe (redrawn only when its view, size or countries
+// change; at 1x while dragged), then the route over it.
+function tgPaint(fast) {
+  const el = _tg.el, cv = el && el.isConnected && el.querySelector("canvas");
+  if (!cv) return;
+  const w = el.clientWidth, h = el.clientHeight;
+  if (!w || !h) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), dw = Math.round(w * dpr), dh = Math.round(h * dpr);
+  if (cv.width !== dw || cv.height !== dh) { cv.width = dw; cv.height = dh; }
+  const view = tgView(w, h), bd = fast ? 1 : dpr;
+  const key = [w, h, bd, view.lon, view.lat, view.r, _tg.hl.join(","), globeMask() ? 1 : 0].join("|");
+  if (_tg.baseKey !== key || !_tg.base) {
+    const b = _tg.base || (_tg.base = document.createElement("canvas"));
+    b.width = Math.round(w * bd); b.height = Math.round(h * bd);
+    globeDraw(b, view, { highlight: new Set(_tg.hl) });
+    _tg.baseKey = key;
+  }
+  const x = cv.getContext("2d");
+  if (!x) return;
+  x.setTransform(1, 0, 0, 1, 0, 0);
+  x.clearRect(0, 0, dw, dh);
+  x.drawImage(_tg.base, 0, 0, dw, dh);
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  tgOverlay(x, view, _tg.drawn ? 1 : _tg.t);
+  const was = _tg.route ? "route" : globeMask() ? "globe" : "disc";
+  if (el.getAttribute("data-drawn") !== was) el.setAttribute("data-drawn", was);
+}
+function tgOverlay(x, view, prog) {
+  const TAU = Math.PI * 2, r = _tg.route, legs = r ? r.legs : [];
+  const lens = legs.map((L) => Math.max(1e-6, distKm(L.a, L.b))), tot = lens.reduce((s, v) => s + v, 0);
+  x.lineCap = "round"; x.lineJoin = "round";
+  let acc = 0;
+  legs.forEach((L, k) => {
+    const u = Math.max(0, Math.min(1, (prog * tot - acc) / lens[k]));
+    acc += lens[k];
+    if (u <= 0) return;
+    const arc = tgArc(L.a, L.b), H = 0.03 + 0.2 * arc.d / Math.PI, lift = (t) => H * Math.sin(Math.PI * t);
+    const n = Math.max(18, Math.round(arc.d / G_RAD / 1.5));
+    x.beginPath();
+    let pen = false;
+    for (let s = 0; s <= n; s++) {
+      const t = Math.min(s / n, u), p = arc.at(t), q = tgProj(p[0], p[1], lift(t), view);
+      if (q[2]) { pen ? x.lineTo(q[0], q[1]) : x.moveTo(q[0], q[1]); pen = true; } else pen = false;
+      if (s / n >= u) break;
+    }
+    x.setLineDash(L.dashed ? [4, 4] : []);
+    x.lineWidth = 4; x.strokeStyle = "rgba(6,26,52,.4)"; x.stroke();
+    x.lineWidth = 2; x.strokeStyle = "#fff"; x.stroke();
+    x.setLineDash([]);
+    // The way it goes: an arrowhead 42% along, so a round trip's two legs
+    // over one path show two.
+    if (u >= 0.45) {
+      const p = arc.at(0.42), p0 = arc.at(0.4), q = tgProj(p[0], p[1], lift(0.42), view), q0 = tgProj(p0[0], p0[1], lift(0.4), view);
+      if (q[2]) {
+        x.save();
+        x.translate(q[0], q[1]);
+        x.rotate(Math.atan2(q[1] - q0[1], q[0] - q0[0]));
+        x.beginPath(); x.moveTo(5.5, 0); x.lineTo(-4, -4.5); x.lineTo(-1.8, 0); x.lineTo(-4, 4.5); x.closePath();
+        x.fillStyle = "#fff"; x.fill();
+        x.lineWidth = 1; x.strokeStyle = "rgba(6,26,52,.6)"; x.stroke();
+        x.restore();
+      }
+    }
+  });
+  // The markers: home where it is; the stops pushed apart where they would
+  // overlap (Thailand, Vietnam and Cambodia on a whole Earth are 10px
+  // apart), each tied to its place by a short line.
+  x.font = "800 10.5px system-ui, -apple-system, 'Segoe UI', sans-serif";
+  x.textAlign = "center"; x.textBaseline = "middle";
+  const mk = [];
+  if (_tg.home) {
+    const q = globeProject(_tg.home[0], _tg.home[1], view);
+    if (q[2]) mk.push({ x: q[0], y: q[1], x0: q[0], y0: q[1], rad: 8, half: 0, home: true });
+  }
+  for (const s of (r ? r.stops : [])) {
+    const q = globeProject(s.ll[0], s.ll[1], view);
+    if (!q[2]) continue;
+    const half = s.label ? Math.max(0, x.measureText(s.label).width / 2 + 4.5 - 7.5) : 0;
+    mk.push({ x: q[0], y: q[1], x0: q[0], y0: q[1], rad: s.label ? 7.5 : 5.5, half, label: s.label });
+  }
+  tgSpread(mk, view.w || view.cx * 2, view.h || view.cy * 2);
+  _tg.marks = mk;
+  for (const p of mk) {
+    if (Math.hypot(p.x - p.x0, p.y - p.y0) < 1) continue;
+    x.beginPath(); x.moveTo(p.x0, p.y0); x.lineTo(p.x, p.y);
+    x.lineWidth = 3; x.strokeStyle = "rgba(6,26,52,.45)"; x.stroke();
+    x.lineWidth = 1.4; x.strokeStyle = "#fff"; x.stroke();
+    x.beginPath(); x.arc(p.x0, p.y0, 2.6, 0, TAU);
+    x.fillStyle = "rgb(10,125,40)"; x.fill();
+    x.lineWidth = 1.2; x.strokeStyle = "#fff"; x.stroke();
+  }
+  for (const p of mk) {
+    x.beginPath();
+    x.arc(p.x - p.half, p.y, p.rad, Math.PI / 2, Math.PI * 1.5);
+    x.arc(p.x + p.half, p.y, p.rad, -Math.PI / 2, Math.PI / 2);
+    x.closePath();
+    x.fillStyle = "rgb(10,125,40)"; x.fill();
+    x.lineWidth = 2; x.strokeStyle = "#fff"; x.stroke();
+    x.fillStyle = "#fff";
+    if (p.home) {
+      const hx = p.x, hy = p.y;
+      x.beginPath();
+      x.moveTo(hx - 4, hy - 0.5); x.lineTo(hx, hy - 4.5); x.lineTo(hx + 4, hy - 0.5); x.lineTo(hx + 2.8, hy - 0.5);
+      x.lineTo(hx + 2.8, hy + 3.6); x.lineTo(hx - 2.8, hy + 3.6); x.lineTo(hx - 2.8, hy - 0.5); x.closePath();
+      x.fill();
+    } else if (p.label) x.fillText(p.label, p.x, p.y + 0.5);
+  }
+}
+// Markers {x, y, rad, half (a pill's extra half-width), home} moved apart
+// until none overlap (home stays put), kept inside the w x h box. A few
+// rounds of pushing each overlapping pair apart along the line between
+// them; two at one point part along a fixed angle per marker.
+function tgSpread(mk, w, h) {
+  const gap = 2;
+  for (let round = 0; round < 60; round++) {
+    let hit = false;
+    for (let i = 0; i < mk.length; i++) {
+      for (let j = i + 1; j < mk.length; j++) {
+        const a = mk[i], b = mk[j];
+        let dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.hypot(dx, dy);
+        const need = a.rad + b.rad + (Math.abs(dx) > Math.abs(dy) ? a.half + b.half : 0) + gap;
+        if (d >= need) continue;
+        hit = true;
+        if (d < 1e-6) { const g = 2.4 * (j + 1); dx = Math.cos(g); dy = Math.sin(g); } else { dx /= d; dy /= d; }
+        const push = need - d + 0.01;
+        const sa = a.home ? 0 : b.home ? 1 : 0.5, sb = 1 - sa;
+        a.x -= dx * push * sa; a.y -= dy * push * sa;
+        b.x += dx * push * sb; b.y += dy * push * sb;
+      }
+    }
+    for (const p of mk) {
+      if (p.home) continue;
+      p.x = Math.max(p.rad + p.half + 1, Math.min(w - p.rad - p.half - 1, p.x));
+      p.y = Math.max(p.rad + 1, Math.min(h - p.rad - 1, p.y));
+    }
+    if (!hit) break;
+  }
+}
+// Turning it: sideways follows the pointer at once (the globe's light and
+// rows stay; only the longitude moves); a mouse's up/down is the tilt,
+// applied when the drag ends. A touch's vertical swipe never gets here as a
+// drag: the page scrolls (touch-action: pan-y) and the browser cancels it.
+function tgDragStart(e) {
+  if (e.button !== 0 || _tg.drag || !_tg.ctr || !_tg.el) return;
+  const el = _tg.el;
+  const st = { id: e.pointerId, x: e.clientX, y: e.clientY, lon: _tg.ctr.lon, lat: _tg.ctr.lat,
+               r: tgView(el.clientWidth, el.clientHeight).r || 1, mouse: e.pointerType === "mouse", moved: false, lat1: null };
+  _tg.drag = st;
+  try { el.setPointerCapture(e.pointerId); } catch (x) {}
+  const move = (ev) => {
+    if (ev.pointerId !== st.id) return;
+    const dx = ev.clientX - st.x, dy = ev.clientY - st.y;
+    if (!st.moved && Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+    if (!st.moved) { st.moved = true; el.classList.add("tgdragging"); }
+    _tg.ctr.lon = tgWrap(st.lon - dx / st.r / G_RAD);
+    if (st.mouse) st.lat1 = Math.max(-60, Math.min(60, st.lat + dy / st.r / G_RAD));
+    if (!_tg.dragRaf) _tg.dragRaf = requestAnimationFrame(() => { _tg.dragRaf = 0; if (_tg.drag) tgPaint(true); });
+  };
+  const end = (ev) => {
+    if (ev.pointerId !== st.id || _tg.drag !== st) return;
+    _tg.drag = null;
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", end);
+    window.removeEventListener("pointercancel", end);
+    el.removeEventListener("lostpointercapture", end);
+    el.classList.remove("tgdragging");
+    if (_tg.dragRaf) { cancelAnimationFrame(_tg.dragRaf); _tg.dragRaf = 0; }
+    if (st.lat1 != null) _tg.ctr.lat = st.lat1;
+    if (st.moved) tgPaint(false);
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", end);
+  window.addEventListener("pointercancel", end);
+  el.addEventListener("lostpointercapture", end);
 }
 
 // ---- AI prompts: shared pieces ----------------------------------------------
