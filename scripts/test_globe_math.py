@@ -15,6 +15,8 @@ What it holds the code to:
     London, the sea mid-Atlantic, and is built once;
   * globeViewFor centres on countryCentroids(), a guide-only place (Scotland)
     on its parent's (GB) via GUIDE_PARENT; a microstate gets a finite view;
+  * the ring round a tiny highlighted place (Monaco, Singapore): a quarter
+    of the radius on the 72px badge, never over 9px on the Trip globe;
   * globeRaster (the per-pixel pass, no canvas needed): the centre of
     France's own globe is the highlight green, the corners are transparent,
     open sea is ocean blue, an N. Cyprus (-99) highlight paints nothing,
@@ -113,16 +115,28 @@ T("raster_agrees", () => {
   for (const v of [{ lon: 100, lat: 10, r: 120, cx: 150, cy: 150, w: 300, h: 300 }, { lon: -60, lat: -45, r: 28.8, cx: 36, cy: 36, w: 72, h: 72 }]) {
     const dw = v.w * 2;
     globeRaster(v, dw, dw, { highlight: new Set() });
-    const g = globeGeo(v, dw, dw);
+    const idb = _gIdb.subarray(0, dw * dw);   // the raster's per-pixel ids (one shared buffer)
     for (let i = 0; i < 400; i++) {
       const px = Math.floor(rnd() * dw), py = Math.floor(rnd() * dw), ll = globeInverse((px + 0.5) / 2, (py + 0.5) / 2, v);
-      if (!ll) { if (g.idb[py * dw + px] !== -1) bad.push(["off", px, py]); continue; }
+      if (!ll) { if (idb[py * dw + px] !== -1) bad.push(["off", px, py]); continue; }
       const x = Math.floor((ll[0] + 180) / 360 * m.w) & (m.w - 1), y = Math.min(m.h - 1, Math.floor((90 - ll[1]) / 180 * m.h));
       n++;
-      if (g.idb[py * dw + px] !== m.ids[y * m.w + x]) bad.push([px, py, ll, g.idb[py * dw + px], m.ids[y * m.w + x]]);
+      if (idb[py * dw + px] !== m.ids[y * m.w + x]) bad.push([px, py, ll, idb[py * dw + px], m.ids[y * m.w + x]]);
     }
   }
   return { n, bad: bad.length, ex: bad.slice(0, 3) };
+});
+T("ring", () => {
+  // the tiny-place ring: a quarter of the radius on the 72px badge, never over 9px on a big globe
+  const arcs = [];
+  const ctx = new Proxy({}, { get: (o, k) => (k === "arc" ? (x, y, r) => arcs.push(r)
+    : k === "createRadialGradient" ? () => ({ addColorStop() {} }) : k === "createImageData" ? (w, h) => ({ data: new Uint8ClampedArray(w * h * 4) })
+    : k in o ? o[k] : () => {}), set: (o, k, v) => { o[k] = v; return true; } });
+  const cv = (w) => ({ width: w, height: w, getContext: () => ctx });
+  document.createElement = () => cv(10);
+  const ringR = (iso, size) => { arcs.length = 0; const v = globeViewFor(iso, size); globeDraw(cv(size * 2), v, { highlight: new Set([iso]) });
+    return arcs.filter((r) => r > 2.5 && Math.abs(r - v.r) > 1e-6 && Math.abs(r - v.r * 1.2) > 1e-6); };
+  return { badge: ringR("MC", 72), big: ringR("MC", 380), sg: ringR("SG", 300), fr: ringR("FR", 300) };
 });
 print(JSON.stringify(out));
 """
@@ -200,6 +214,11 @@ ra = G("raster_agrees") or {}
 # float32 column offsets can tip a pixel sitting exactly on a mask column edge: allow a handful in 800
 results.append(ok(ra.get("n", 0) > 300 and ra.get("bad", 99) <= 4,
                   "the raster samples the same country as globeInverse + the mask (%s)" % ra))
+rg = G("ring") or {}
+results.append(ok(len(rg.get("badge") or []) == 1 and 7 < rg["badge"][0] < 8 and rg.get("fr") == []
+                  and all(len(rg.get(k) or []) == 1 and rg[k][0] <= 9 for k in ("big", "sg")),
+                  "the tiny-place ring: %.1fpx on the 72px badge (as before), at most 9px on a big globe (Monaco %s, Singapore %s), none for France"
+                  % ((rg.get("badge") or [0])[0], rg.get("big"), rg.get("sg"))))
 
 # Doug's spin globe and the flat maps: byte for byte as on main (186e43e).
 def fn_src(name):

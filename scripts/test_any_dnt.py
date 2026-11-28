@@ -401,7 +401,7 @@ const C = %s, out = {};
 const host = { innerHTML: "", isConnected: true, querySelectorAll: () => [], querySelector: () => null };
 const $ = (id) => (id === "tripBook" ? host : null), esc = (x) => String(x);
 const tripMonth = () => ({ flexible: true }), nextMonthKey = () => null, loadWishlist = () => new Set();
-let wishlist = new Set(), climate = null, flightsData = null;
+let wishlist = new Set(), climate = null, flightsData = null, valueFlightsSettled = true;   // fares known: none
 const MONTHS = [], originLabel = () => "the US", countryName = (i) => i, flightSearchURL = () => "f";
 const viatorURL = (n) => "https://viator.example/" + n, flagEmoji = () => "", guidePath = (i) => "/guide/" + i;
 const advLevelText = () => "", advVia = () => "", insuranceHref = () => "ins", bindTripActions = () => {};
@@ -415,7 +415,8 @@ const ensureBookingsKnown = () => { asked++; advisories = C.us; return Promise.r
 const links = () => { const o = {}; for (const iso of trip) {
   const at = host.innerHTML.indexOf('<div class="tbrow" data-iso="' + iso + '"');
   const row = at < 0 ? "" : host.innerHTML.slice(at).split('<div class="tbrow')[1];
-  o[iso] = (row.match(/Things to do/g) || []).length + (row.match(/class="tbstay"/g) || []).length; } return o; };
+  o[iso] = (row.match(/Things to do/g) || []).length + (row.match(/class="tbstay"/g) || []).length;
+  if (/tbph/.test(row)) o[iso + "_held"] = true; } return o; };
 advisories = C.us; renderTripBook(trip); out.all = links();
 advisories = C.us_failed; asked = 0; renderTripBook(trip); out.failed = links(); out.failed_asked = asked;
 advisories = C.us_pending; asked = 0; renderTripBook(trip); out.pending = links(); out.pending_asked = asked;
@@ -427,8 +428,8 @@ except Exception as e:
     tj = {"error": str(e)}
 results.append(ok(tj.get("all") == {"BF": 0, "SA": 0, "JP": 2},
                   "renderTripBook, all lists in: Stays and Things to do for Japan only, none for BF or SA (%s)" % tj.get("all")))
-results.append(ok(tj.get("pending") == {"BF": 0, "SA": 0, "JP": 0} and tj.get("pending_asked") == 1,
-                  "a list pending: no links for any row yet, and the marks are asked for (%s, asked %s)"
+results.append(ok(tj.get("pending") == {"BF": 0, "SA": 0, "SA_held": True, "JP": 0, "JP_held": True} and tj.get("pending_asked") == 1,
+                  "a list pending: no links for any row yet (the rows still to know held by an invisible pill, not Level 4 BF), and the marks are asked for (%s, asked %s)"
                   % (tj.get("pending"), tj.get("pending_asked"))))
 results.append(ok(tj.get("landed") == {"BF": 0, "SA": 0, "JP": 2},
                   "once they land the rows are redrawn: Japan's links, still none for BF or SA (%s)" % tj.get("landed")))

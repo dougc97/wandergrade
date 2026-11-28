@@ -51,17 +51,21 @@ def parse(origin, isos_raw, month_raw, hubs=None):
     origin = (origin or "").strip().upper()
     if origin not in hubs:
         raise ValueError("origin must be a supported hub country")
-    isos = []
+    # Refused at the 13th distinct code, not after the whole list: a
+    # hand-made 64 KB query of distinct codes cost a quarter second of CPU
+    # in the old list-membership loop, on a route that takes no page slot.
+    isos, seen = [], set()
     for part in (isos_raw or "").split(","):
         iso = part.strip().upper()
         if not iso:
             continue
         if not _ISO_RE.fullmatch(iso):
             raise ValueError("not a country code: %s" % iso[:12])
-        if iso not in isos:
+        if iso not in seen:
+            if len(isos) >= MAX_ISOS:
+                raise ValueError("at most %d countries" % MAX_ISOS)
+            seen.add(iso)
             isos.append(iso)
-    if len(isos) > MAX_ISOS:
-        raise ValueError("at most %d countries" % MAX_ISOS)
     month = (month_raw or "").strip()
     if month and not _MONTH_RE.fullmatch(month):
         raise ValueError("month must be YYYY-MM")

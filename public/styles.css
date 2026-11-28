@@ -1558,6 +1558,14 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 .tbfarenote { font-size: 12px; white-space: nowrap; }
 .tblow { color: var(--gray); }
 .tblinks { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+/* A row's links before anything says what they are (its fares and the
+   advisories' marks still coming): an invisible pill holds the links line
+   where the links take a line of their own (under 1200px), so it doesn't
+   open 27px under every row when they land (renderTripBook). */
+.triplink.tbph { visibility: hidden; }
+@media (min-width: 1200px) {
+  .triplink.tbph { display: none; }
+}
 .tbx { justify-self: end; background: none; border: 0; color: var(--gray); font-size: 18px; line-height: 1;
   min-width: 28px; min-height: 28px; border-radius: 6px; cursor: pointer; }
 .tbx:hover { color: #b00020; background: var(--soft); }
@@ -1615,7 +1623,14 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 /* The stop's number, as the globe marks it. */
 .tbno { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; width: 18px; height: 18px;
   margin: 0 6px 0 0; border-radius: 50%; background: var(--green-fill); color: #fff; font-size: 11px; font-weight: 800; line-height: 1; }
-.tbno + .tbdest { max-width: calc(100% - 50px); }
+/* A country's first cell on one line: the handle, the number, the name and
+   its ⚠️. The name gives way (its ellipsis), never the ⚠️: as inline boxes a
+   long name took the whole cell and the ⚠️ wrapped under the handle, a
+   phone row growing 80 to 93px. (The header and the whole-trip row keep
+   their own.) */
+.tbrow:not(.tbhdr):not(.tbins) > .tbn { display: flex; align-items: center; }
+.tbn > .tbdrag, .tbn > .tbno, .tbn > .hzmark { flex: none; }
+.tbn > .tbdest { flex: 0 1 auto; min-width: 0; }
 .tbrow.tbdragging { position: relative; z-index: 2; background: var(--card); border-radius: 6px;
   box-shadow: 0 4px 14px rgba(0,0,0,.2); }
 .tbrow.tbdropb { box-shadow: inset 0 2px 0 var(--green); }
@@ -1644,6 +1659,9 @@ select.combosel { height: 32px; padding: 0 10px; border-radius: 8px; }
 }
 @media (max-width: 560px) {
   .tripsort .windowtoggle button { padding: 5px 9px; }
+  /* 8px more for a phone's names: the dots' side padding and the gaps. */
+  .tbdrag { width: 20px; padding: 5px; margin: 0; }
+  .tbno { margin-right: 4px; }
 }
 .triplink { font-size: 12px; padding: 4px 10px; border: 1px solid var(--line);
   border-radius: 999px; color: var(--ink); text-decoration: none; }

@@ -7153,8 +7153,12 @@ function globeViewFor(iso, size) {
 // Everything that depends only on the size and the centre's latitude, per
 // device pixel on the disc: where it lands in the mask (a column offset from
 // the centre's longitude, and a row) and its light. A longitude change is
-// then one add per pixel (the Trip globe's drag); the six most recent kept.
-let _gGeo = [];
+// then one add per pixel (the Trip globe's drag); the three most recent kept
+// (the Trip globe sharp and at 1x for its drag, a badge): 16 bytes a disc
+// pixel, 3-5 MB for a 2x Trip globe, and six kept grew to 15-19 MB after a
+// few tilts. globeRaster's per-pixel country ids share one buffer (_gIdb),
+// grown to the largest canvas, rather than one per entry.
+let _gGeo = [], _gIdb = null;
 function globeGeo(view, devW, devH) {
   const dpr = devW / (view.w || view.cx * 2);
   const key = [devW, devH, dpr, view.cx, view.cy, view.r, view.lat].map((v) => (+v).toFixed(4)).join("|");
@@ -7183,9 +7187,9 @@ function globeGeo(view, devW, devH) {
       n++;
     }
   }
-  const g = { key, n, pix, colf, row, lum, dpr, idb: new Int16Array(devW * devH) };
+  const g = { key, n, pix, colf, row, lum, dpr };
   _gGeo.unshift(g);
-  if (_gGeo.length > 6) _gGeo.length = 6;
+  if (_gGeo.length > 3) _gGeo.length = 3;
   return g;
 }
 
@@ -7203,7 +7207,8 @@ function globeRaster(view, devW, devH, opts, out) {
   const want = new Set([...((opts && opts.highlight) || [])].map((i) => GUIDE_PARENT[i] || i));
   const hl = new Uint8Array(m.isoAt.length);
   m.isoAt.forEach((iso, id) => { if (id && iso !== "-99" && want.has(iso)) hl[id] = 1; });
-  const shift = (view.lon + 180) / 360 * GM_W, idb = g.idb, ids = m.ids, WM = GM_W - 1;
+  if (!_gIdb || _gIdb.length < devW * devH) _gIdb = new Int16Array(devW * devH);
+  const shift = (view.lon + 180) / 360 * GM_W, idb = _gIdb.subarray(0, devW * devH), ids = m.ids, WM = GM_W - 1;
   idb.fill(-1);
   for (let k = 0; k < g.n; k++) idb[g.pix[k]] = ids[g.row[k] + (((g.colf[k] + shift) | 0) & WM)];
   // Round the highlight, outside it so a thin country stays green: a white
@@ -7306,7 +7311,9 @@ function globeDraw(canvas, view, opts) {
     ctx.lineWidth = 1.8; ctx.strokeStyle = "#fff"; ctx.stroke();
   };
   // a highlighted place too small to see at world scale (the flat maps' rule):
-  // a ring round it
+  // a ring round it, a quarter of the radius on the 72px badge (7.5px) but
+  // never over 9px: on the Trip globe's 120-190px radius it drew an 80px
+  // white circle over Monaco's neighbours and the route.
   if (globeMask()) {
     const spans = placeSpans(), C = countryCentroids();
     for (const iso0 of opts.highlight || []) {
@@ -7314,7 +7321,7 @@ function globeDraw(canvas, view, opts) {
       if (iso === "-99" || !c || (spans[iso] != null && spans[iso] >= 1.5)) continue;
       const q = globeProject(c[0], c[1], view);
       if (!q[2]) continue;
-      ring(q[0], q[1], Math.max(5, R * 0.26));
+      ring(q[0], q[1], Math.min(9, Math.max(5, R * 0.26)));
       ctx.beginPath(); ctx.arc(q[0], q[1], 1.8, 0, TAU); ctx.fillStyle = "rgb(10,125,40)"; ctx.fill();
     }
   }
@@ -7918,13 +7925,16 @@ function tripSolve(C, k) {
     }
   } else {
     // Nearest neighbour from each of the 12 cheapest first stops, each then
-    // improved by 2-opt (a reversed run changes its own legs' direction on a
-    // directed tour, so each candidate is priced whole) and by moving one
-    // stop elsewhere; the cheapest wins, the earlier start on a tie. One
-    // start and 2-opt alone ended 2.1% above the exact order on average at
-    // 12 stops of distance-like fares, and 19% on random ones; this, 0.3%
-    // and 6%, in under a millisecond (40 stops: ~15 ms).
+    // improved by 2-opt and by moving one stop elsewhere; the cheapest wins,
+    // the earlier start on a tie. One start and 2-opt alone ended 2.1% above
+    // the exact order on average at 12 stops of distance-like fares, and 19%
+    // on random ones; this, 0.3% and 6%. Each candidate is priced by what it
+    // changes, not whole: a reversed run turns its own legs round on a
+    // directed tour, which the running sums of the tour's inner legs, each
+    // way (F, Bk), price at once. Priced whole, a 40-stop trip took 75 ms
+    // and 60 stops 0.2 s (the wishlist seed can add dozens).
     const firsts = input.slice().sort((x, y) => C[0][x + 1] - C[0][y + 1] || x - y).slice(0, 12);
+    const F = new Float64Array(k), Bk = new Float64Array(k);
     let bestCost = Infinity;
     best = null;
     for (const s0 of firsts) {
@@ -7936,20 +7946,35 @@ function tripSolve(C, k) {
         for (const j of left) if (bj < 0 || C[cur][j + 1] < C[cur][bj + 1]) bj = j;
         o.push(bj); left.delete(bj); cur = bj + 1;
       }
-      let cost = tour(o);
-      const tryIt = (cand) => {
-        const c = tour(cand);
-        if (c < cost - tol(cost)) { o = cand; cost = c; return true; }
-        return false;
+      let cost = 0;
+      const take = (cand) => {
+        o = cand; cost = tour(o);
+        for (let t = 0; t + 1 < k; t++) {
+          const a = o[t] + 1, b = o[t + 1] + 1;
+          F[t + 1] = F[t] + C[a][b]; Bk[t + 1] = Bk[t] + C[b][a];
+        }
       };
+      take(o);
+      const at = (t) => (t < 0 || t >= k ? 0 : o[t] + 1);   // the matrix index at tour place t (home past either end)
       for (let pass = 0, better = true; better && pass < 50; pass++) {
         better = false;
-        for (let i = 0; i < k - 1; i++) for (let j = i + 1; j < k; j++)
-          if (tryIt(o.slice(0, i).concat(o.slice(i, j + 1).reverse(), o.slice(j + 1)))) better = true;
+        // 2-opt: o[i..j] reversed
+        for (let i = 0; i < k - 1; i++) for (let j = i + 1; j < k; j++) {
+          const p = at(i - 1), a = o[i] + 1, z = o[j] + 1, nx = at(j + 1);
+          const d = C[p][z] + C[a][nx] - C[p][a] - C[z][nx] + (Bk[j] - Bk[i]) - (F[j] - F[i]);
+          if (d < -tol(cost)) { take(o.slice(0, i).concat(o.slice(i, j + 1).reverse(), o.slice(j + 1))); better = true; }
+        }
+        // o[i] taken out and put back at place j of what is left
         for (let i = 0; i < k; i++) for (let j = 0; j < k; j++) {
           if (i === j) continue;
-          const rest = o.slice(0, i).concat(o.slice(i + 1));
-          if (tryIt(rest.slice(0, j).concat([o[i]], rest.slice(j)))) better = true;
+          const x = o[i] + 1, p = at(i - 1), nx = at(i + 1);
+          const a = j - 1 < 0 ? 0 : o[j - 1 < i ? j - 1 : j] + 1, b = j >= k - 1 ? 0 : o[j < i ? j : j + 1] + 1;
+          const d = C[p][nx] - C[p][x] - C[x][nx] + C[a][x] + C[x][b] - C[a][b];
+          if (d < -tol(cost)) {
+            const rest = o.slice(0, i).concat(o.slice(i + 1));
+            take(rest.slice(0, j).concat([o[i]], rest.slice(j)));
+            better = true;
+          }
         }
       }
       if (!best || cost < bestCost - tol(bestCost)) { best = o; bestCost = cost; }
@@ -8003,6 +8028,9 @@ function loadTrip() {
 // link and the AI prompt read it in that order.
 function saveTrip() {
   if (_tripSharedSort) { const s = _tripSharedSort; _tripSharedSort = null; setTripSort(s); }
+  // An emptied trip (Clear, the last ×) starts the next one recommended:
+  // "Your order" was the order of the countries just removed.
+  if (!loadTrip().size && tripSortMode() === "mine") setTripSort(tripSortLast());
   try { localStorage.setItem("fx_trip", JSON.stringify([...loadTrip()])); } catch (e) {}
 }
 function tripHas(iso) { return loadTrip().has(iso); }
@@ -8245,6 +8273,13 @@ function renderTripBook(isos) {
       links.push('<span class="tbstay" data-iso="' + iso + '"></span>');
       links.push(A(viatorURL(name), "🎟️", "Things to do", name));
     }
+    // Nothing yet, and more to come (the fares, or the marks that say
+    // whether it gets stays, unless their fetch failed): an invisible pill
+    // holds the links line, which the stand-in drew; empty, the row shrank
+    // 80 to 53px and grew back.
+    const coming = (nb == null && (!advisories || !dntSettled(advisories))) || (!flightsData && !valueFlightsSettled);
+    if (!links.length && lvl < 4 && coming)
+      links.push('<span class="triplink tbph" aria-hidden="true">🏨 Stays ↗</span>');
     // Level 3-4: the table's ⚠️ exception mark.
     const warn = lvl >= 3 ? ' <span class="hzmark" data-tip="' + esc(advLevelText(iso, lvl) + advVia(iso)) + '" title="">⚠️</span>' : "";
     return '<div class="tbrow" data-iso="' + iso + '">'
@@ -8351,8 +8386,9 @@ function setTripSort(mode) {
 const TRIP_SORT_TIP = "Best overall weighs total fare and flying time equally; Cheapest and Quickest each go for one. "
   + "Flights only: from your From country through every stop and home. Real fares and flight times come from cached "
   + "searches (Aviasales) where a trip country has its own airport hub in our fare data; the rest (≈, dashed on the "
-  + "globe) are estimated from distance. A leg's fare is half a cached round trip, in the trip month where known. "
-  + "Ground travel, borders and visas aren't considered. Drag a row's handle to set your own order, and the globe "
+  + "globe) are estimated from distance. A fare converted from USD carries ≈ too, so there the ≈ on a leg's time marks "
+  + "the estimate. A leg's fare is half a cached round trip, in the trip month where known; with no fares, every order "
+  + "goes by flying time. Ground travel, borders and visas aren't considered. Drag a row's handle to set your own order, and the globe "
   + "sideways to turn it.";
 // The markup renderTripBook weaves in, and where focus was (a redraw puts it
 // back: the legs landing must not drop a keyboard reader to <body>).
@@ -8409,16 +8445,17 @@ function tripRouteCtx() {
 // or one with countries still pending (their hub fares not cached yet), is
 // asked again after 30 s on a later draw.
 const _tripLegsReq = {};
+let _tripLegsV = 0;   // a serial per answer landed (tripRouteUpdate's memo)
 function tripLegsNow(origin, isos, key) {
   const url = tripLegsURL(origin, isos, key);
   let r = _tripLegsReq[url];
   if (r && r.state !== "wait" && Date.now() - r.at > 30000 && (r.state === "fail" || (r.json.pending || []).length)) r = null;
   if (!r) {
-    r = _tripLegsReq[url] = { at: Date.now(), state: "wait", json: null };
+    r = _tripLegsReq[url] = { at: Date.now(), state: "wait", json: null, v: 0 };
     getJSON(url).then((j) => {
       r.state = j && j.legs ? "done" : "fail";
       r.json = j && j.legs ? j : null;
-    }).catch(() => { r.state = "fail"; }).then(() => { r.at = Date.now(); tripRouteSoon(); });
+    }).catch(() => { r.state = "fail"; }).then(() => { r.at = Date.now(); r.v = ++_tripLegsV; tripRouteSoon(); });
   }
   return r;
 }
@@ -8456,6 +8493,12 @@ function tripHomeFares(origin, isos, key) {
 // The route in hand: {sig, nodes (home + the stops, in the order the matrix
 // was built), m}. Built only while the Trip tab is on screen.
 let _tripM = null, _tripHold = null, _tripDragging = false, _tripRouteT = 0;
+// The last order worked out {key, from, to}: key is everything it depends on
+// (the trip, From, month, mode, the legs answer, the fit, the home fares), so
+// the redraws in between (every month strip landing calls back here, and the
+// reorder's own redraw) don't solve again, and an order the site gave is
+// kept as it is when nothing it depends on has changed.
+let _tripOrd = null;
 function tripRouteSoon() {
   if (_tripRouteT) return;
   _tripRouteT = setTimeout(() => { _tripRouteT = 0; tripRouteUpdate(false); }, 0);
@@ -8488,8 +8531,16 @@ function tripRouteUpdate(force) {
   _tripM = { sig: ctx.sig, nodes: [ctx.origin].concat(ctx.isos), m: tripLegMatrix(ctx.isos, ctx.origin, lj, hf.fares) };
   const mode = tripSortMode();
   if (mode !== "mine" && ctx.isos.length > 1) {
-    const order = tripBestOrder(_tripM.m, mode).map((i) => ctx.isos[i]);
-    if (order.join() !== ctx.isos.join()) {
+    const key = [mode, ctx.sig, L.state, L.v || 0, JSON.stringify(lj.fit || null)]
+      .concat(ctx.isos.slice().sort().map((i) => i + JSON.stringify(hf.fares[i]))).join("|");
+    const cur = ctx.isos.join();
+    let order;
+    if (_tripOrd && _tripOrd.key === key && (_tripOrd.from === cur || _tripOrd.to === cur)) order = _tripOrd.to.split(",");
+    else {
+      order = tripBestOrder(_tripM.m, mode).map((i) => ctx.isos[i]);
+      _tripOrd = { key, from: cur, to: order.join() };
+    }
+    if (order.join() !== cur) {
       _trip = new Set(order);
       if (!_tripSharedSort) saveTrip();
       renderTripBook(order);
@@ -8526,10 +8577,28 @@ function tripLegWords(m, i, j, o, names) {
            sr: "Flight from " + names[i].name + " to " + names[j].name + ": " + (money ? money.replace(/^≈/, "about ") + ", " : "")
              + tripDurText(m.min[i][j]) + (est ? " (estimated)" : "") };
 }
+// The totals line: "≈ USD 1,417 · 60h 58m flying". One "≈ " for an
+// estimate or a converted fare alike (fareMoney's own ≈ has no space).
 function tripTotalWords(t, o) {
-  const money = t.fare != null ? fareMoney(t.fare, o.cur, o.conv) : "";
-  const pre = t.estimated && money[0] !== "≈" ? "≈ " : "";
+  const money = t.fare != null ? fareMoney(t.fare, o.cur, o.conv).replace(/^≈/, "") : "";
+  const pre = t.estimated || (money && o.cur !== "USD") ? "≈ " : "";
   return pre + (money ? money + " · " : "") + tripDurText(t.minutes) + " flying";
+}
+// The total fare as the leg lines add up: each leg rounded in the shown
+// currency as its line shows it, then summed (rounding the sum once was a
+// dollar off the legs: 512 + 512 shown, "USD 1,023" in the totals). In
+// display units (conv applied); null when a leg has no fare.
+function tripShownFare(m, order, conv) {
+  const path = [0].concat(order.map((i) => i + 1), [0]);
+  let sum = 0;
+  for (let k = 1; k < path.length; k++) {
+    const a = path[k - 1], b = path[k];
+    if (a === b) continue;
+    const f = m.fare[a][b];
+    if (f == null) return null;
+    sum += Math.round(f * (conv || 1));
+  }
+  return sum;
 }
 // Fills the leg lines and the totals from the route in hand, for the rows
 // as drawn; placeholders stay while it is still coming.
@@ -8549,9 +8618,10 @@ function tripFillLegs(host) {
   const tot = host.querySelector(".tbtotal");
   const order = [...host.querySelectorAll(".tbrow[data-iso]")].map((r) => ix(r.dataset.iso) - 1);
   if (tot && order.length && order.every((i) => i >= 0)) {
-    const t = tripTotals(m, order);
-    tot.innerHTML = '<span aria-hidden="true">' + esc(tripTotalWords(t, o)) + '</span><span class="vh">'
-      + esc("Whole trip: " + tripTotalWords(t, o).replace(/≈\s?/g, "about ")) + "</span>";
+    const t0 = tripTotals(m, order), shown = tripShownFare(m, order, o.conv);
+    const t = Object.assign({}, t0, { fare: t0.fare == null || shown == null ? null : shown }), o1 = { cur: o.cur, conv: 1 };
+    tot.innerHTML = '<span aria-hidden="true">' + esc(tripTotalWords(t, o1)) + '</span><span class="vh">'
+      + esc("Whole trip: " + tripTotalWords(t, o1).replace(/≈\s?/g, "about ")) + "</span>";
   }
 }
 
@@ -8820,9 +8890,12 @@ function tgOverlay(x, view, prog) {
   const lens = legs.map((L) => Math.max(1e-6, distKm(L.a, L.b))), tot = lens.reduce((s, v) => s + v, 0);
   x.lineCap = "round"; x.lineJoin = "round";
   let acc = 0;
-  legs.forEach((L, k) => {
-    const u = Math.max(0, Math.min(1, (prog * tot - acc) / lens[k]));
-    acc += lens[k];
+  const us = legs.map((L, k) => { const u = Math.max(0, Math.min(1, (prog * tot - acc) / lens[k])); acc += lens[k]; return u; });
+  // The solid legs first, the dashed (estimated) ones over them: a way home
+  // on nearly the path of a real way out hid its dashes completely.
+  const seq = legs.map((L, k) => k).sort((a, b) => (legs[a].dashed ? 1 : 0) - (legs[b].dashed ? 1 : 0) || a - b);
+  seq.forEach((k) => {
+    const L = legs[k], u = us[k];
     if (u <= 0) return;
     const arc = tgArc(L.a, L.b), H = 0.03 + 0.2 * arc.d / Math.PI, lift = (t) => H * Math.sin(Math.PI * t);
     const n = Math.max(18, Math.round(arc.d / G_RAD / 1.5));
@@ -9361,17 +9434,20 @@ function closeTripPanel() {
 // grouping the shortlist afresh. names: in that order; mode: tripSortMode();
 // computed: the site's order is in hand for this trip (tripRouteUpdate ran;
 // before that the list is only in the order it was saved, and isn't called
-// a suggestion). Null for one country: there is no order to keep. line: the
-// fact; ask: the PLEASE item.
-const AI_ROUTE_WHY = { best: "best overall on flight legs alone, fares and flying time weighed equally",
-                       cheap: "the cheapest on flight legs alone", quick: "the quickest on flight legs alone" };
-function aiTripRoute(names, mode, computed) {
+// a suggestion); byTime: no fares to order by (tripBestOrder's fareOk
+// false), so Cheapest and Best overall went by flying time and say so. Null
+// for one country: there is no order to keep. line: the fact; ask: the
+// PLEASE item. Short, because the path repeats every name: the line and its
+// ask together stay within the two asks they replaced ("Group these into
+// realistic trips", "Name each trip") up to ten countries or so.
+const AI_ROUTE_WHY = { best: "best overall", cheap: "cheapest", quick: "quickest" };
+function aiTripRoute(names, mode, computed, byTime) {
   if (names.length < 2) return null;
   const path = "home -> " + names.join(" -> ") + " -> home";
-  const site = AI_ROUTE_WHY[mode] && computed;
+  const site = AI_ROUTE_WHY[mode] && computed, timed = byTime && mode !== "quick";
   return {
-    line: "ROUTE (" + (mode === "mine" ? "my own order" : site ? "WanderGrade's suggestion, " + AI_ROUTE_WHY[mode] : "the order on my list")
-      + "): " + path + ". The shortlist below follows it.",
+    line: "ROUTE (" + (mode === "mine" ? "my own order" : site ? "WanderGrade's " + AI_ROUTE_WHY[timed ? "quick" : mode]
+      + " on flights alone" + (timed ? ", no fares known" : "") : "the order on my list") + "): " + path + ".",
     ask: "- Keep " + (mode === "mine" ? "my" : "this") + " order unless ground travel, borders or the seasons make another clearly better, and say why if you change it.",
   };
 }
@@ -9402,7 +9478,7 @@ function buildTripAIPrompt() {
   const names = t.map(countryNameInText);   // "the Philippines, the Netherlands"
   const avoid = [], flights = [];
   const ctx = tripRouteCtx();
-  const route = aiTripRoute(t.map(countryName), tripSortMode(), !!_tripM && _tripM.sig === ctx.sig);
+  const route = aiTripRoute(t.map(countryName), tripSortMode(), !!_tripM && _tripM.sig === ctx.sig, !!_tripM && _tripM.m && !_tripM.m.fareOk);
 
   const lines = [];
   lines.push("Help me plan a trip to " + (names.length > 1 ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1]

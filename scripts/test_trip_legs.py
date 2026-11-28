@@ -135,6 +135,19 @@ results.append(ok(str(parse("US", "TH,<script>", "")).startswith("ValueError") a
 results.append(ok(parse("us", "th, vn,TH,gb-eng", "2026-12") == ("US", ["TH", "VN", "GB-ENG"], "2026-12"),
                   "codes upper-cased, trimmed and deduplicated in order: %s" % (parse("us", "th, vn,TH,gb-eng", "2026-12"),)))
 results.append(ok(parse("US", "", "") == ("US", [], None), "no countries, no month: an empty request, not an error (%s)" % (parse("US", "", ""),)))
+# A hand-made query of thousands of distinct codes is refused at the 13th,
+# in linear time (the old list-membership dedupe was quadratic: 252 ms for
+# 64 KB); twelve codes repeated a thousand times are still twelve.
+import itertools, string, time as _time
+_codes = [a + b + "-" + c for a, b in itertools.product(string.ascii_uppercase, repeat=2)
+          for c in ("ABC", "DEF", "GHI", "JKL", "MNO", "PQR", "STU", "VWX", "XYZ", "ZZZ", "QQQ", "RRR", "TTT", "KKK")][:9000]
+_t0 = _time.perf_counter()
+_big = parse("US", ",".join(_codes), "")
+_ms = (_time.perf_counter() - _t0) * 1000
+results.append(ok(str(_big).startswith("ValueError") and _ms < 5,
+                  "9,000 distinct codes (%d KB) -> refused at the 13th in %.2f ms" % (len(",".join(_codes)) // 1024, _ms)))
+_rep = parse("US", ",".join(many.split(",")[:12] * 1000), "")
+results.append(ok(isinstance(_rep, tuple) and len(_rep[1]) == 12, "twelve codes repeated 1,000 times are twelve, not refused"))
 
 # --- fetch caps ----------------------------------------------------------------
 six = ["TH", "VN", "KH", "GB", "FR", "ES"]

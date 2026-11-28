@@ -12,6 +12,10 @@
 //   TR_PAR    scripts/parity/fixtures: non-USD rates (/api/rates?base=EUR, GBP) answered from the repo's recordings
 //   TR_SHOTN  shots: countries on the trip (3: TH VN KH, the default; 8: eight across three continents); TR_SHOTS the
 //             folder for the PNGs (default shots/ beside cdp.mjs)
+//   TR_ISOS   shots / cls / rowfit: the trip itself (comma list), over TR_SHOTN / TR_N; TR_MONTH its month (fx_tripmonth:
+//             '' unset = the picks month, 0 flexible, 1-12)
+//   TR_LS     shots: more localStorage as JSON (a reader's From and currency)
+//   rowfit    a phone trip of long names and ⚠️ countries with a month set: every name's ⚠️ beside it, rows one height
 // /api/trip-legs is answered from a fixture (below) unless TR_CASE=real; production hosts are refused; Wikipedia
 // and Wikimedia go through wikicache.mjs. Each case prints PASS/FAIL lines and "RESULT passed/total"; keep a case
 // under ~50 s (one Chrome at a time).
@@ -173,6 +177,11 @@ export default async (ctx) => {
     await send('Input.dispatchKeyEvent', { type: 'keyUp', key: k, code: k, windowsVirtualKeyCode: KEYS[k] });
     await sleep(250);
   };
+  // The totals line is the leg lines added up as shown (each leg rounded as its line shows it).
+  const amt = (t) => { const m = /([A-Z]{3}) ([\d,]+)/.exec(t || ''); return m ? [m[1], +m[2].replace(/,/g, '')] : null; };
+  const sums = (s) => { const L = s.legs.map((l) => (/✈️ —/.test(l.text) ? ['', 0] : amt(l.text))), T = amt(s.total);
+    return { ok: !!T && L.every((x) => x && (x[0] === '' || x[0] === T[0])) && L.reduce((a, x) => a + x[1], 0) === T[1],
+             legs: L.map((x) => x && x[1]), total: T && T[1] }; };
   const legsInOrder = (s) => {
     const want = [''].concat(s.rows, ['']);
     return s.legs.length === s.rows.length + 1 && s.legs.every((l, i) => l.from === want[i] && l.to === want[i + 1]);
@@ -198,6 +207,8 @@ export default async (ctx) => {
     ok(JSON.stringify(s.rows) === JSON.stringify(best), `${tag}: the rows are in the Best overall order (${s.rows} = ${best})`);
     ok(/USD/.test(s.total) && /flying/.test(s.total) && /✈️/.test(s.legs[1].text) && /USD/.test(s.legs[1].text),
        `${tag}: legs read "✈️ USD …" and the totals "USD … flying" (${s.legs[1].text} | ${s.total})`);
+    const sm = sums(s);
+    ok(sm.ok, `${tag}: the totals line is the leg lines added up (${sm.legs} = ${sm.total})`);
     ok(s.legs.slice(1, -1).every((l) => !/≈/.test(l.text.replace(/≈\s?\d+h|≈\d+m/g, ''))), `${tag}: the legs between trip countries are real (no ≈ fare) (${s.legs.slice(1, -1).map((l) => l.text)})`);
     await click('#tripBook .tripsort [data-ts="cheap"]');
     s = await state();
@@ -434,6 +445,8 @@ export default async (ctx) => {
     const s = await state();
     const r = await evaluate(`fetch('/api/trip-legs?origin=US&isos=GB,KH,TH,VN').then(async (x) => ({ status: x.status, cc: x.headers.get('cache-control'), robots: x.headers.get('x-robots-tag'), body: await x.json() }))`);
     ok(f === true && legsInOrder(s), `${tag}: the legs fill in from the server's answer (${JSON.stringify(s.legs.map((l) => l.text))})`);
+    const sm = sums(s);
+    ok(sm.ok, `${tag}: the totals line is the leg lines added up (${sm.legs} = ${sm.total} | ${s.total})`);
     ok(r && r.status === 200 && r.cc === 'no-store' && /noindex/.test(r.robots || '') && r.body && r.body.legs && r.body.fit,
        `${tag}: the server answers 200, no-store, noindex (${r && r.status}, ${r && r.cc}, fit ${JSON.stringify(r && r.body && r.body.fit)})`);
     return finish();
@@ -442,7 +455,9 @@ export default async (ctx) => {
   if (CASE === 'shots') {
     // the Trip card in Best overall, then after a drag (Your order); TR_SCHEME=light|dark, TR_PREFIX names the PNGs
     const N8 = ['TH', 'VN', 'KH', 'JP', 'PT', 'MA', 'MX', 'PE'];
-    await seed(trip(+process.env.TR_SHOTN === 8 ? N8 : ['KH', 'TH', 'VN']));
+    // TR_LS: more localStorage (JSON), e.g. a UK reader in GBP: {"fx_origin":"GB","fx_homecur":"GBP"}
+    const mo = Object.assign(process.env.TR_MONTH != null ? { fx_tripmonth: process.env.TR_MONTH } : {}, JSON.parse(process.env.TR_LS || '{}'));
+    await seed(trip(process.env.TR_ISOS ? process.env.TR_ISOS.split(',') : +process.env.TR_SHOTN === 8 ? N8 : ['KH', 'TH', 'VN'], mo));
     if (process.env.TR_SCHEME) await ctx.scheme(process.env.TR_SCHEME === 'dark');
     await nav(BASE + '/?tab=trip', 0);
     await waitFor(filled);
@@ -628,10 +643,36 @@ export default async (ctx) => {
     return finish();
   }
 
+  if (CASE === 'rowfit') {
+    // Long names and ⚠️ (Level 3) countries on a phone, a month set (the weather pill and the month's fare share the
+    // first line): each name gives way to its ellipsis, its ⚠️ stays beside it, every row keeps one height.
+    const isos = (process.env.TR_ISOS || 'BA,AE,DO,PG').split(',');
+    await seed(trip(isos, { fx_tripmonth: process.env.TR_MONTH || '3' }));
+    await nav(BASE + '/?tab=trip', 0);
+    await waitFor(filled);
+    await sleep(1500);
+    const r = await evaluate(`(() => [...document.querySelectorAll('#tripBook .tbrow[data-iso]')].map((row) => {
+      const n = row.querySelector('.tbdest'), w = row.querySelector('.tbn .hzmark'), h = row.querySelector('.tbdrag'), b = row.getBoundingClientRect();
+      const nb = n.getBoundingClientRect(), wb = w && w.getBoundingClientRect(), hb = h && h.getBoundingClientRect();
+      return { iso: row.dataset.iso, h: Math.round(b.height), name: Math.round(nb.width), full: n.scrollWidth, cut: n.scrollWidth > n.clientWidth + 1,
+        warn: !!w, warnLine: w ? Math.abs((wb.top + wb.bottom) / 2 - (nb.top + nb.bottom) / 2) < 6 : null, warnRight: w ? Math.round(wb.left - nb.right) : null,
+        inside: w ? wb.right <= row.querySelector('.tbn').getBoundingClientRect().right + 1 : null, handleLine: hb ? Math.abs((hb.top + hb.bottom) / 2 - (nb.top + nb.bottom) / 2) < 6 : null };
+    }))()`);
+    console.log('  rows ' + JSON.stringify(r));
+    ok(Array.isArray(r) && r.length === isos.length, `${tag}: ${r && r.length} rows`);
+    ok(r.every((x) => !x.warn || (x.warnLine && x.inside && x.warnRight >= 0 && x.warnRight < 8)),
+       `${tag}: every ⚠️ beside its name, on its line (${JSON.stringify(r.map((x) => [x.iso, x.warnLine, x.warnRight]))})`);
+    ok(r.every((x) => x.handleLine !== false), `${tag}: handle, number and name on one line`);
+    ok(new Set(r.map((x) => x.h)).size === 1, `${tag}: every row one height (${r.map((x) => x.h)})`);
+    const s = await state();
+    ok(s.sw <= s.cw, `${tag}: no sideways scroll (${s.sw} <= ${s.cw})`);
+    return finish();
+  }
+
   if (CASE === 'cls') {
-    const n = +process.env.TR_N || 0, runs = +process.env.TR_RUNS || 2;
-    const all = ['TH', 'VN', 'KH', 'JP', 'PT', 'MA', 'MX', 'PE'].slice(0, n);
-    await seed(trip(all, { fx_tripmonth: '' }));
+    const all = process.env.TR_ISOS ? process.env.TR_ISOS.split(',') : ['TH', 'VN', 'KH', 'JP', 'PT', 'MA', 'MX', 'PE'].slice(0, +process.env.TR_N || 0);
+    const n = all.length, runs = +process.env.TR_RUNS || 2;
+    await seed(trip(all, { fx_tripmonth: process.env.TR_MONTH != null ? process.env.TR_MONTH : '' }));
     // TR_DIAG=1: the trip card's height and its parts, every frame it changes (first 6 s)
     if (process.env.TR_DIAG) await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__hist = [];
       (function tick() { const b = document.getElementById('tripBar'); if (b) { const h = Math.round(b.getBoundingClientRect().height * 10) / 10;

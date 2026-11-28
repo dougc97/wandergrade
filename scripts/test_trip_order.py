@@ -22,9 +22,13 @@ What it holds the code to:
     disagree gives two orders; one stop is [0], none []; ties keep the input
     order; no fit orders Cheapest by time;
   * big trips (big_trip_fast): 12 stops (nearest neighbour + 2-opt) and 10
-    (exact) each order in under 50 ms under jsc in every mode, 40 stops give
-    a permutation, and the heuristic stays within 1% of the exact order on
-    average on distance-like 12-stop trips;
+    (exact) each order in under 50 ms under jsc in every mode, 40 and 60
+    stops too (Best overall, 90 under 100 ms), and the heuristic stays within
+    1% of the exact order on average on distance-like 12-stop trips; an
+    order worked out is kept for the redraws that follow (memo: no solve
+    again until the trip, mode or data change);
+  * an emptied trip (Clear, the last x) drops "Your order": the next trip
+    is put in the recommended order;
   * tripTotals sums home -> stops -> home and says when any of it is
     estimated; tripFallbackFit is the reader's long-haul fit (8+ rows);
     tripLegsURL asks for at most 12 countries, the same 12 whatever the order;
@@ -180,8 +184,13 @@ T("big_trip_fast", () => {
     }
     res[k] = r;
   }
-  const m40 = randM(40), t0 = Date.now(), o40 = tripBestOrder(m40, "best");
-  res[40] = { ms: Date.now() - t0, perm: isPerm(o40, 40) };
+  // the wishlist seed can add dozens: 40, 60 and 90 stops, Best overall (three solves)
+  for (const k of [40, 60, 90]) {
+    const mk = randM(k);
+    let worst = 0, o = null;
+    for (let rep = 0; rep < 2; rep++) { const t0 = Date.now(); o = tripBestOrder(mk, "best"); worst = Math.max(worst, Date.now() - t0); }
+    res[k] = { ms: worst, perm: isPerm(o, k) };
+  }
   // the heuristic is no worse than nearest neighbour alone on the 12-stop trip
   const m12 = randM(12), nn = [];
   { const left = new Set([...Array(12).keys()]); let cur = 0;
@@ -257,7 +266,17 @@ T("words", () => {
            est: tripLegWords(m, 0, 2, usd, names), estEur: tripLegWords(m, 0, 2, eur, names), realEur: tripLegWords(m, 0, 1, eur, names),
            nofare: tripLegWords(m2, 0, 1, usd, [{ iso: "US", name: "the US" }, { iso: "TH", name: "Thailand" }]),
            tot: [tripTotalWords({ fare: 1240.4, minutes: 1265, estimated: true }, usd), tripTotalWords({ fare: 1240, minutes: 60, estimated: false }, usd),
-                 tripTotalWords({ fare: 1000, minutes: 125, estimated: true }, eur), tripTotalWords({ fare: null, minutes: 45, estimated: true }, usd)] };
+                 tripTotalWords({ fare: 1000, minutes: 125, estimated: true }, eur), tripTotalWords({ fare: null, minutes: 45, estimated: true }, usd),
+                 tripTotalWords({ fare: 1000, minutes: 125, estimated: false }, eur)],
+           // the total as the leg lines add up: legs of 511.5 each way (a 1,023 round trip halved) show 512 + 512
+           sum: (() => { const mm = { n: 2, fare: [[0, 511.5], [511.5, 0]], min: [[0, 1310], [1310, 0]], real: [[true, true], [true, true]], realMin: [[true, true], [true, true]], fareOk: true };
+             const t3 = { n: 4, fare: [[0, 511.5, 501.5, 300], [499.5, 0, 101.5, 201.5], [250.5, 101.5, 0, 75.5], [301.5, 60.5, 33.5, 0]], min: mm.min, fareOk: true };
+             return { legs: [tripLegWords(mm, 0, 1, usd, [{ iso: "US", name: "the US" }, { iso: "TH", name: "Thailand" }]).vis,
+                             tripLegWords(mm, 1, 0, usd, [{ iso: "US", name: "the US" }, { iso: "TH", name: "Thailand" }]).vis],
+                      one: tripShownFare(mm, [0], 1), three: [tripShownFare(t3, [0, 1, 2], 1), tripShownFare(t3, [2, 0, 1], 0.9)],
+                      want3: [Math.round(511.5) + Math.round(101.5) + Math.round(75.5) + Math.round(301.5),
+                              Math.round(300 * 0.9) + Math.round(60.5 * 0.9) + Math.round(101.5 * 0.9) + Math.round(250.5 * 0.9)],
+                      none: tripShownFare({ n: 2, fare: [[0, null], [5, 0]] }, [0], 1) }; })() };
 });
 T("parts", () => {
   localStorage.clear(); _tripSharedSort = null;
@@ -283,6 +302,46 @@ T("guards", () => {
   localStorage.setItem("fx_tripmonth", "0");
   const mine = tripRouteUpdate(true);
   return { dragging, mine, order: [..._trip], built: !!(_tripM && _tripM.m && _tripM.m.n === 4), sig: _tripM && _tripM.sig };
+});
+T("memo", () => {
+  // the order is solved once per (trip, mode, data): the redraws after it, and
+  // its own redraw in the new order, reuse it; new legs solve again
+  localStorage.clear(); _tripSharedSort = null;
+  document.documentElement.setAttribute("data-tab", "trip");
+  flightsData = null; valueFlightsSettled = true;
+  localStorage.setItem("fx_tripmonth", "0");
+  _trip = new Set(["KH", "TH", "VN"]); _tripM = null; _tripOrd = null;
+  const c0 = tripRouteCtx(), url = tripLegsURL(c0.origin, c0.isos, c0.key);
+  _tripLegsReq[url] = { at: Date.now(), state: "done", v: 1, json: { legs: { TH: { VN: { fare: 20, dur: 60 }, KH: { fare: 900, dur: 900 } },
+    VN: { KH: { fare: 20, dur: 60 }, TH: { fare: 900, dur: 900 } }, KH: { TH: { fare: 20, dur: 60 } } }, fit: { a: 40, b: 0.06, n: 35 }, pending: [] } };
+  const real = tripBestOrder;
+  let calls = 0;
+  tripBestOrder = (m, md) => { calls++; return real(m, md); };
+  const r = {};
+  try {
+    tripRouteUpdate(true); r.first = [calls, [..._trip].join()];
+    tripRouteUpdate(false); tripRouteUpdate(false); r.again = [calls, [..._trip].join()];
+    _tripLegsReq[url] = Object.assign({}, _tripLegsReq[url], { v: 2 });
+    tripRouteUpdate(false); r.newData = calls;
+    setTripSort("cheap"); tripRouteUpdate(true); r.newMode = calls;
+  } finally { tripBestOrder = real; }
+  return r;
+});
+T("clear", () => {
+  // a drag, then Clear (or the last x), then a new trip: recommended again
+  localStorage.clear(); _tripSharedSort = null;
+  renderTripBook = () => {}; refreshTripPrompt = () => {};
+  setTripSort("quick");
+  _trip = new Set(["TH", "VN", "KH"]); saveTrip();
+  tripMoveTo("KH", 0);
+  const dragged = tripSortMode();
+  loadTrip().clear(); saveTrip();
+  for (const i of ["PT", "MA", "ES"]) { loadTrip().add(i); saveTrip(); }
+  const afterClear = tripSortMode();
+  tripMoveTo("ES", 0);
+  loadTrip().delete("ES"); saveTrip();
+  const notEmpty = tripSortMode();   // a country removed, others left: still the reader's own
+  return { dragged, afterClear, notEmpty, last: tripSortLast() };
 });
 // ---- Task 6: the route's globe ----
 // A stand-in Trip bar for tripGlobeUpdate: the globe box (a canvas inside), the rows in their order.
@@ -417,8 +476,11 @@ fast = all((bt.get(str(k)) or {}).get(md, {}).get("ms", 999) < 50 and (bt.get(st
            for k in (10, 12) for md in ("best", "cheap", "quick"))
 results.append(ok(fast, "big_trip_fast: 10 stops (exact) and 12 (heuristic) order in under 50 ms in every mode (%s)"
                   % {k: {md: (bt.get(str(k)) or {}).get(md, {}).get("ms") for md in ("best", "cheap", "quick")} for k in (10, 12)}))
-b40 = bt.get("40") or {}
-results.append(ok(b40.get("perm") is True and b40.get("ms", 9999) < 500, "40 stops: still a permutation, in %s ms" % b40.get("ms")))
+bk = {k: bt.get(str(k)) or {} for k in (40, 60, 90)}
+results.append(ok(all(bk[k].get("perm") is True and bk[k].get("ms", 9999) < 50 for k in (40, 60))
+                  and bk[90].get("perm") is True and bk[90].get("ms", 9999) < 100,
+                  "40 and 60 stops (Best overall): a permutation in under 50 ms, 90 in under 100 (%s)"
+                  % {k: bk[k].get("ms") for k in (40, 60, 90)}))
 vs = bt.get("vsNN") or [1, 0]
 results.append(ok(vs[0] <= vs[1] + 1e-9, "the 12-stop heuristic is no worse than nearest neighbour alone (%s)" % vs))
 gp = bt.get("gap") or {}
@@ -463,8 +525,21 @@ results.append(ok(v("est") == "🇺🇸 ✈️ ≈USD 150 · ≈10h" and v("estE
 results.append(ok(v("nofare") == "🇺🇸 ✈️ ≈1h 35m", "no fare known: the time alone (%s)" % v("nofare")))
 sr = (w.get("est") or {}).get("sr") or ""
 results.append(ok(sr == "Flight from the US to United Kingdom: about USD 150, 10h (estimated)", "screen readers get the leg in words (%s)" % sr))
-results.append(ok(w.get("tot") == ["≈ USD 1,240 · 21h 5m flying", "USD 1,240 · 1h flying", "≈EUR 900 · 2h 5m flying", "≈ 45m flying"],
-                  "the totals line (%s)" % w.get("tot")))
+results.append(ok(w.get("tot") == ["≈ USD 1,240 · 21h 5m flying", "USD 1,240 · 1h flying", "≈ EUR 900 · 2h 5m flying", "≈ 45m flying",
+                                   "≈ EUR 900 · 2h 5m flying"],
+                  "the totals line, one '≈ ' for an estimate or a converted fare alike (%s)" % w.get("tot")))
+sm = w.get("sum") or {}
+results.append(ok(sm.get("legs") == ["🇺🇸 ✈️ USD 512 · 21h 50m", "✈️ USD 512 · 21h 50m 🇺🇸"] and sm.get("one") == 1024
+                  and sm.get("three") == sm.get("want3") and sm.get("none") is None,
+                  "the total is the leg lines added up as shown (512 + 512 = %s, not 1,023; 3 stops %s = %s; a leg with no fare: %s)"
+                  % (sm.get("one"), sm.get("three"), sm.get("want3"), sm.get("none"))))
+me = G("memo") or {}
+results.append(ok(me.get("first") and me["first"][0] >= 1 and me.get("again") and me["again"][0] == me["first"][0]
+                  and me["again"][1] == me["first"][1] and me.get("newData") == me["first"][0] + 1 and me.get("newMode") == me["first"][0] + 2,
+                  "the order is solved once per trip, mode and data: redraws reuse it, new legs or a new mode solve again (%s)" % me))
+cl = G("clear") or {}
+results.append(ok(cl.get("dragged") == "mine" and cl.get("afterClear") == "quick" and cl.get("notEmpty") == "mine" and cl.get("last") == "quick",
+                  "Clear after a drag: the next trip is recommended again (its last mode), not 'Your order'; removing one of several keeps it (%s)" % cl))
 pa = G("parts") or {}
 s3 = pa.get("sort3") or ""
 results.append(ok('data-ts="best" class="active" aria-pressed="true">Best overall' in s3 and 'data-ts="cheap" aria-pressed="false">Cheapest' in s3
